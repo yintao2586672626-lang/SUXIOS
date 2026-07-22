@@ -16,14 +16,25 @@ final class KnowledgeOwnerScopeTest extends TestCase
 
     public function testKnowledgeScopeAllowsOnlyCreatorForNonSuperAdmin(): void
     {
-        $controller = $this->controllerWithUser(7, false);
+        $controller = $this->controllerWithUser(7, false, [11]);
 
         self::assertTrue($this->invokeNonPublic($controller, 'canAccessOwnedRow', [
-            ['created_by' => 7],
+            ['created_by' => 7, 'hotel_id' => 11],
         ]));
         self::assertFalse($this->invokeNonPublic($controller, 'canAccessOwnedRow', [
-            ['created_by' => 8],
+            ['created_by' => 8, 'hotel_id' => 11],
         ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'canAccessOwnedRow', [
+            ['created_by' => 7, 'hotel_id' => 12],
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'canAccessOwnedRow', [
+            ['created_by' => 7, 'hotel_id' => 0, 'status' => 'done'],
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'canAccessOwnedRow', [[
+            'created_by' => 0,
+            'hotel_id' => 0,
+            'status' => 'done',
+        ]]));
     }
 
     public function testKnowledgeScopeAllowsEverythingForSuperAdmin(): void

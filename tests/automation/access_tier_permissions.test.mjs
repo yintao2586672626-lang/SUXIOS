@@ -350,7 +350,8 @@ assert.match(authController, /未绑定或未分配的门店将无法查看/, 'b
 assert.doesNotMatch(authController, /BETA_HOTEL_BINDING_CUTOFF_DATE|2026-07-05|请在 \{\$deadline\} 前|之后将无法查看门店数据/, 'beta notice must not keep the expired binding deadline copy');
 assert.match(indexHtml, /const showAuthNotices = \(payload = \{\}\) =>/, 'front-end must render auth notices from login and auth info payloads');
 assert.match(indexHtml, /setTimeout\(\(\) => showAuthNotices\(res\.data\), 600\)/, 'login success should show beta binding notice after the welcome message');
-assert.match(authController, /cache\('token_' \. \$token, \$tokenData, self::TOKEN_TTL_SECONDS\)/, 'token cache TTL must use the 72-hour constant');
+assert.match(authController, /\$tokenStored = \$this->writeLoginCacheValue\(\$tokenKey, \$tokenData, self::TOKEN_TTL_SECONDS\)/, 'token cache TTL must use the 72-hour constant');
+assert.match(authController, /\$userTokenStored = \$this->writeLoginCacheValue\(\$userTokenKey, \$token, self::TOKEN_TTL_SECONDS\)/, 'user token index TTL must use the 72-hour constant');
 assert.match(authController, /'expires_in'\s*=>\s*self::TOKEN_TTL_SECONDS/, 'login response must expose the 72-hour token expiry');
 assert.match(hotelScopeService, /private function ownedOrGrantedHotelIds\(User \$user, \?string \$capability = null\): array/, 'non-super hotel scope must be centralized');
 assert.match(hotelScopeService, /\$this->primaryHotelIds\(\$user\)[\s\S]*\$this->ownedHotelIds\(\$user\)[\s\S]*\$this->grantedHotelIds\(\$user, \$capability\)/, 'non-super users must only see primary, owned, or explicitly granted hotels');
@@ -379,7 +380,8 @@ assert.match(permissionService, /'can_manage_users'\s*=>\s*'user\.role_change'/,
 assert.match(permissionService, /isNormalExternalUser\(\$user\)[\s\S]*isNormalExternalCapabilityDenied\(\$capability\)/, 'runtime permission service must apply the centralized normal external denial set');
 assert.match(permissionService, /getAttr\('name'\) === 'normal_user'/, 'runtime permission service must recognize normal external roles by role name as well as id');
 assert.match(permissionService, /getAttr\('level'\) >= Role::HOTEL_STAFF/, 'runtime permission service must recognize staff-level roles as normal external users');
-assert.match(authController, /\$allows = fn\(string \$permission\): bool => \$user->hasPermission\(\$permission\) && \$this->roleAllows\(\$user, \$permission\);/, 'login payload must gate permission booleans through the central runtime role policy');
+assert.match(authController, /private function buildUserPermissions\(User \$user, \?int \$hotelId\): array[\s\S]*\$user->hasHotelPermission\(\$hotelId, \$permission\)[\s\S]*\$this->roleAllows\(\$user, \$permission\)/, 'login payload must gate permission booleans through hotel scope and the central runtime role policy');
+assert.match(authController, /if \(\$hotelId === null\) \{\s*return \$user->isSuperAdmin\(\) && \$this->roleAllows\(\$user, \$permission\);\s*\}/, 'login payload must fail closed without a hotel scope except for centrally authorized super admins');
 assert.doesNotMatch(authController, /registerLegacyDisabled|buildSelfRegistrationHotelPermissionDefaults/, 'auth controller must not retain disabled self-registration helpers');
 assert.match(authController, /'can_manage_users'\s*=>\s*\$user->canManageUser\(\) && \$this->roleAllows\(\$user,\s*'can_manage_users'\)/, 'login payload must not expose user-management grants unless runtime role policy also allows it');
 assert.match(authController, /'can_fetch_online_data'\s*=>\s*\$allows\('can_fetch_online_data'\)/, 'login payload must not expose legacy OTA collection grants unless runtime role policy also allows it');

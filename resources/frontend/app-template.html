@@ -170,7 +170,7 @@
                     <template v-for="item in visibleMenuItems" :key="item.path || item.name">
                         <!-- 第一层: 有子菜单 -->
                         <div v-if="item.children" class="mobile-nav-group mb-1">
-                            <a @click="handleParentMenuClick(item)" @keydown.enter.prevent="handleParentMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" :aria-expanded="expandedMenus.includes(item.name) ? 'true' : 'false'" role="button" tabindex="0" class="mobile-nav-trigger sidebar-item flex items-center justify-between px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': item.children.some(c =&gt; currentPage === c.path || (c.children &amp;&amp; c.children.some(cc =&gt; currentPage === cc.path))), 'justify-center': sidebarCollapsed }">
+                            <a @click="handleParentMenuClick(item)" @keydown.enter.prevent="handleParentMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" :aria-expanded="expandedMenus.includes(item.name) ? 'true' : 'false'" role="button" tabindex="0" class="mobile-nav-trigger sidebar-item flex items-center justify-between px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'justify-center': sidebarCollapsed }">
                                 <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
                                     <i :class="item.icon" class="w-5 text-center text-blue-300"></i>
                                     <span v-show="!sidebarCollapsed" class="text-sm font-medium">{{ item.name }}</span>
@@ -183,7 +183,7 @@
                                 <template v-for="child in item.children" :key="child.path || child.name">
                                     <!-- 第二层: 有孙菜单 -->
                                     <div v-if="child.children">
-                                        <a @click.stop="toggleSubmenu(child.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center justify-between px-4 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': child.children.some(cc =&gt; currentPage === cc.path) }">
+                                        <a @click.stop="toggleSubmenu(child.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center justify-between px-4 py-2.5 cursor-pointer mx-2 pl-10">
                                             <div class="flex items-center">
                                                 <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
                                                 <span class="text-sm">{{ child.name }}</span>
@@ -192,14 +192,14 @@
                                         </a>
                                         <!-- 第三层 -->
                                         <div v-show="expandedMenus.includes(child.name)" class="bg-black/5">
-                                        <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleNestedMenuClick(grandChild, item.name)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': currentPage === grandChild.path }">
+                                        <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleNestedMenuClick(grandChild, item.name)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': isSidebarMenuItemActive(grandChild) }" :aria-current="isSidebarMenuItemActive(grandChild) ? 'page' : undefined">
                                                 <i :class="grandChild.icon" class="w-4 text-center mr-2 text-blue-300/60 text-[10px]"></i>
                                                 <span>{{ getMenuItemName(grandChild) }}</span>
                                             </a>
                                         </div>
                                     </div>
                                     <!-- 第二层: 普通项 -->
-                                <a v-else="" @click.stop="handleNestedMenuClick(child, item.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': currentPage === child.path }">
+                                <a v-else="" @click.stop="handleNestedMenuClick(child, item.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': isSidebarMenuItemActive(child) }" :aria-current="isSidebarMenuItemActive(child) ? 'page' : undefined">
                                         <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
                                         <span class="text-sm">{{ getMenuItemName(child) }}</span>
                                     </a>
@@ -207,7 +207,7 @@
                             </div>
                         </div>
                         <!-- 普通顶层菜单项 -->
-                        <a v-else="" @click="handleMenuClick(item)" @keydown.enter.prevent="handleMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" role="button" tabindex="0" class="sidebar-item flex items-center px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': currentPage === item.path, 'justify-center': sidebarCollapsed }">
+                        <a v-else="" @click="handleMenuClick(item)" @keydown.enter.prevent="handleMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" role="button" tabindex="0" class="sidebar-item flex items-center px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': isSidebarMenuItemActive(item), 'justify-center': sidebarCollapsed }" :aria-current="isSidebarMenuItemActive(item) ? 'page' : undefined">
                             <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
                                 <i :class="item.icon" class="w-5 text-center text-blue-300"></i>
                                 <span v-show="!sidebarCollapsed" class="text-sm font-medium">{{ getMenuItemName(item) }}</span>
@@ -236,8 +236,11 @@
             <main class="flex-1 overflow-auto" data-testid="app-main" :data-current-page="currentPage">
                 <!-- 顶部栏 -->
                 <header class="header px-6 py-4 sticky top-0 z-10">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
+                    <div class="header-layout flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="header-page-identity">
+                            <span class="header-page-eyebrow">SUXIOS · 经营工作台</span>
+                            <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
+                        </div>
                         <div class="header-utility-cluster flex flex-wrap items-center justify-end gap-3" role="group" aria-label="顶栏工具">
                             <div data-locale-switch="" data-testid="header-locale-switch" class="locale-switch header-locale-switch header-language-control" role="group" :aria-label="aiModelConfigText('global.languageLabel')">
                                 <span class="header-utility-label">
@@ -255,7 +258,6 @@
                                     <span class="header-utility-icon"><i class="fas fa-bell" aria-hidden="true"></i></span>
                                     <span class="header-notification-copy">
                                         <span class="header-notification-title">通知</span>
-                                        <span class="header-notification-status">{{ globalNotificationUnreadCount ? `${globalNotificationUnreadCount} 条未读` : '暂无未读' }}</span>
                                     </span>
                                     <span v-if="globalNotificationUnreadCount" class="header-notification-count" aria-live="polite">
                                         {{ globalNotificationUnreadCount &gt; 99 ? '99+' : globalNotificationUnreadCount }}
@@ -5653,26 +5655,26 @@
                                         </div>
                                         <details data-testid="home-temporal-axis" class="compass-temporal-fold mt-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/25">
                                             <summary data-testid="home-temporal-toggle" class="compass-temporal-summary">
-                                                <span class="compass-temporal-summary-title"><span aria-hidden="true">时</span>经营时间轴</span>
-                                                <span class="compass-temporal-summary-note">展开查看过去、现在与未来观察</span>
+                                                <span class="compass-temporal-summary-title"><span aria-hidden="true">数</span>数据进度与预测</span>
+                                                <span class="compass-temporal-summary-note">查看历史数据、今日更新和未来趋势</span>
                                             </summary>
                                             <div class="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                                                 <div>
                                                     <div class="flex items-center gap-2 text-sm font-semibold text-white">
-                                                        <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-400/15 text-[11px] text-blue-200">时</span>
-                                                        经营时间轴
+                                                        <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-400/15 text-[11px] text-blue-200">数</span>
+                                                        数据进度与预测
                                                         <span v-if="homeTemporalLoading" class="text-[11px] font-normal text-blue-200">正在读取</span>
                                                     </div>
-                                                    <p class="mt-1 text-xs leading-5 text-blue-100/75">过去有据，如今可察，未来可观；仅反映已授权 OTA 渠道数据。</p>
+                                                    <p class="mt-1 text-xs leading-5 text-blue-100/75">先看历史数据是否完整，再看今天是否更新；数据足够后才能生成未来趋势。</p>
                                                 </div>
                                                 <button type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="inline-flex items-center justify-center rounded-lg border border-blue-300/20 bg-blue-300/10 px-3 py-2 text-xs font-semibold text-blue-100 transition hover:bg-blue-300/15 disabled:cursor-not-allowed disabled:opacity-50">
                                                     <i :class="homeTemporalGenerating ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-layer-group mr-1.5'"></i>
-                                                    {{ homeTemporalGenerating ? '正在形成新版本' : (homeTemporalSelectedHotelId ? '生成一版未来观察' : '选择单店后生成') }}
+                                                    {{ homeTemporalGenerating ? '正在生成趋势' : (homeTemporalSelectedHotelId ? '生成未来趋势' : '先选择一家门店') }}
                                                 </button>
                                             </div>
                                             <div v-if="homeTemporalError" class="flex flex-col gap-3 border-b border-red-300/20 bg-red-400/[0.08] px-4 py-4 text-red-100 sm:flex-row sm:items-center sm:justify-between">
                                                 <div>
-                                                    <div class="text-sm font-semibold">经营时间轴读取失败</div>
+                                                    <div class="text-sm font-semibold">数据进度与预测读取失败</div>
                                                     <p class="mt-1 text-xs leading-5 text-red-100/80">{{ homeTemporalError }}</p>
                                                 </div>
                                                 <button type="button" @click="loadHomeTemporalInsights" class="inline-flex shrink-0 items-center justify-center rounded-lg border border-red-200/25 bg-red-100/10 px-3 py-2 text-xs font-semibold text-red-50 transition hover:bg-red-100/15">
@@ -5722,15 +5724,15 @@
                                         <div class="dual-ota-temporal-head">
                                             <div class="dual-ota-temporal-heading">
                                                 <div class="dual-ota-temporal-title">
-                                                    <span class="dual-ota-temporal-icon">时</span>
-                                                    经营时间轴
+                                                    <span class="dual-ota-temporal-icon">数</span>
+                                                    数据进度与预测
                                                     <span v-if="homeTemporalLoading" class="dual-ota-temporal-loading">正在读取</span>
                                                 </div>
-                                                <p class="dual-ota-temporal-subtitle">过去有据，如今可察，未来按情景评估；</p>
+                                                <p class="dual-ota-temporal-subtitle">先看历史数据是否完整，再看今天是否更新；数据足够后才能生成未来趋势。</p>
                                             </div>
                                             <button type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="dual-ota-temporal-action">
                                                 <i :class="homeTemporalGenerating ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-layer-group mr-1.5'"></i>
-                                                {{ homeTemporalGenerating ? '正在形成新版本' : (homeTemporalSelectedHotelId ? '生成一版未来情景评估' : '选择单店后生成') }}
+                                                {{ homeTemporalGenerating ? '正在生成趋势' : (homeTemporalSelectedHotelId ? '生成未来趋势' : '先选择一家门店') }}
                                             </button>
                                         </div>
                                         <div class="dual-ota-temporal-grid">
@@ -5832,7 +5834,24 @@
                                                     </button>
                                                 </div>
                                             </div>
-                                            <div class="dual-ota-system-grid">
+                                            <div v-if="dualOtaWorkbenchReadInProgress" class="dual-ota-current-data-state is-loading" data-testid="dual-ota-current-store-loading" role="status">
+                                                <span class="dual-ota-current-data-state-icon"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i></span>
+                                                <div>
+                                                    <h3>正在读取 {{ dualOtaSelectedHotelLabel }} 的 {{ dualOtaRangeText() }} 数据</h3>
+                                                    <p>正在核对携程、美团的来源日期和核心经营字段。</p>
+                                                </div>
+                                            </div>
+                                            <div v-else-if="!dualOtaSelectedHotelHasCurrentData" class="dual-ota-current-data-state" data-testid="dual-ota-current-store-empty" role="status">
+                                                <span class="dual-ota-current-data-state-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
+                                                <div class="dual-ota-current-data-state-copy">
+                                                    <h3>{{ dualOtaSelectedHotelLabel }}在{{ dualOtaRangeText() }}暂无可核验数据</h3>
+                                                    <p>{{ dualOtaSelectedHotelDataGapText }}</p>
+                                                </div>
+                                                <button type="button" class="dual-ota-current-data-state-action" @click="openHomeQuickEntry({ page: 'online-data', tab: 'platform-auto' })">
+                                                    <i class="fas fa-arrow-right" aria-hidden="true"></i>检查采集与补数据
+                                                </button>
+                                            </div>
+                                            <div v-else="" class="dual-ota-system-grid">
                                                 <div v-for="group in dualOtaSystemOverviewGroups" :key="group.title" class="dual-ota-system-column">
                                                     <div class="dual-ota-system-column-head">
                                                         <h3>{{ group.title }}</h3>
@@ -5850,6 +5869,7 @@
                                             </div>
                                         </section>
 
+                                        <template v-if="!dualOtaWorkbenchReadInProgress &amp;&amp; dualOtaSelectedHotelHasCurrentData">
                                         <section class="dual-ota-module-grid dual-ota-module-grid-top">
                                             <article class="dual-ota-card" data-testid="dual-ota-platform-revenue-structure">
                                                 <div class="dual-ota-card-head">
@@ -5932,6 +5952,7 @@
                                         <footer class="dual-ota-footer">
                                             <strong>{{ dualOtaDashboard.positioning }}</strong>
                                         </footer>
+                                        </template>
                                     </template>
                                 </div>
                                 <details v-if="currentPage === 'compass'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">

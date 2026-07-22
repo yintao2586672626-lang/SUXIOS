@@ -3679,8 +3679,10 @@ final class OnlineDataTest extends TestCase
     public function testSourceDateEvidenceSummaryKeepsRawProofAndFieldTrustExplicit(): void
     {
         $controller = $this->controller();
+        $sourceUrlHash = str_repeat('d', 64);
         $raw = [
             'source_trace_id' => 'ctrip:test-trace',
+            'source_url_hash' => $sourceUrlHash,
             'field_facts' => [
                 [
                     'metric_key' => 'list_exposure',
@@ -3691,7 +3693,7 @@ final class OnlineDataTest extends TestCase
                     'stored_value_present' => true,
                     'capture_evidence' => [
                         'source_trace_id' => 'ctrip:test-trace',
-                        'source_url_hash' => 'hash-list',
+                        'source_url_hash' => $sourceUrlHash,
                     ],
                 ],
                 [
@@ -3856,6 +3858,55 @@ final class OnlineDataTest extends TestCase
 
         self::assertSame('profile-58', $config['profile_id']);
         self::assertSame(['traffic', 'orders'], $config['capture_sections']);
+    }
+
+    public function testPlatformProfileLoginAcceptsOnlyTrustedCtripPublicIdentityReference(): void
+    {
+        $command = $this->profileLoginCommand();
+        $source = [
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+            'enabled' => 1,
+            'status' => 'ready',
+        ];
+        $config = [
+            'profile_id' => '6866634',
+            'hotel_id' => '130079194',
+            'platform_hotel_name' => 'Dunhuang Molan Club Wild Luxury Homestay (Mingsha Mountain & Crescent Spring Branch)',
+            'platform_hotel_identity_source' => 'trip_public_profile',
+            'platform_hotel_public_url' => 'https://uk.trip.com/hotels/dunhuang-hotel-detail-130079194/dunhuang-molan-club-wild-luxury-homestay/',
+            'platform_hotel_identity_checked_at' => '2026-07-22 18:38:12',
+        ];
+        $request = [
+            'system_hotel_id' => 80,
+            'profile_id' => '6866634',
+            'hotel_id' => '130079194',
+        ];
+
+        self::assertSame(
+            $config['platform_hotel_name'],
+            $this->invokeNonPublic($command, 'validateTrustedCtripPlatformHotelName', [$source, $config, $request])
+        );
+
+        foreach ([
+            ['platform_hotel_public_url' => 'https://example.com/hotel-detail-130079194/'],
+            ['platform_hotel_public_url' => 'https://uk.trip.com/hotels/dunhuang-hotel-detail-999/'],
+            ['platform_hotel_identity_source' => 'manual'],
+            ['platform_hotel_identity_checked_at' => ''],
+        ] as $mutation) {
+            self::assertSame('', $this->invokeNonPublic(
+                $command,
+                'validateTrustedCtripPlatformHotelName',
+                [$source, array_merge($config, $mutation), $request]
+            ));
+        }
+
+        self::assertSame('', $this->invokeNonPublic(
+            $command,
+            'validateTrustedCtripPlatformHotelName',
+            [$source, $config, array_merge($request, ['hotel_id' => '999'])]
+        ));
     }
 
     public function testPlatformProfileLoginRejectsLegacySecretsInsideSourceConfig(): void
@@ -9723,6 +9774,9 @@ final class OnlineDataTest extends TestCase
     public function testCtripStandardRowsKeepStableEndpointProvenance(): void
     {
         $controller = $this->controller();
+        $rawSourceUrl = 'https://ebooking.ctrip.com/restapi/soa2/24306/getHotelPsiV2?token=query-secret&x-traceID=trace-1';
+        $sourceUrlHash = hash('sha256', $rawSourceUrl);
+        $collectorTraceId = 'ctrip:' . str_repeat('a', 64);
         $payload = [
             'standard_rows' => [
                 [
@@ -9732,12 +9786,34 @@ final class OnlineDataTest extends TestCase
                     'data_type' => 'quality',
                     'capture_section' => 'quality_psi',
                     'endpoint_id' => 'psi_overview',
-                    'source_url' => 'https://ebooking.ctrip.com/restapi/soa2/24306/getHotelPsiV2?x-traceID=trace-1',
+                    'source_url' => $rawSourceUrl,
+                    'source_url_hash' => $sourceUrlHash,
+                    'source_trace_id' => $collectorTraceId,
+                    'capture_evidence' => [
+                        'source_trace_id' => $collectorTraceId,
+                        'source_url_hash' => $sourceUrlHash,
+                    ],
                     'dimension' => 'catalog:quality_psi:psi_overview:psi_score:root',
                     'data_value' => 4.54,
                     'raw_data' => [
                         'source' => 'ctrip_catalog_facts',
                         'metrics' => ['psi_score' => '4.54'],
+                        'facts' => [[
+                            'metric_key' => 'course_url',
+                            'value' => 'https://user:pass@example.test/course?id=1&token=nested-secret#section',
+                        ]],
+                        'field_facts' => [[
+                            'metric_key' => 'psi_score',
+                            'source_key' => 'score',
+                            'source_path' => 'data.score',
+                            'storage_field' => 'online_daily_data.data_value',
+                            'status' => 'captured',
+                            'stored_value_present' => true,
+                            'capture_evidence' => [
+                                'source_trace_id' => $collectorTraceId,
+                                'source_url_hash' => $sourceUrlHash,
+                            ],
+                        ]],
                     ],
                 ],
             ],
@@ -9754,7 +9830,17 @@ final class OnlineDataTest extends TestCase
         $rawData = json_decode($rows[0]['raw_data'], true);
         self::assertSame('quality_psi', $rawData['capture_section']);
         self::assertSame('psi_overview', $rawData['endpoint_id']);
-        self::assertSame('https://ebooking.ctrip.com/restapi/soa2/24306/getHotelPsiV2?x-traceID=trace-1', $rawData['source_url']);
+        self::assertSame('https://ebooking.ctrip.com/restapi/soa2/24306/getHotelPsiV2', $rawData['source_url']);
+        self::assertSame($sourceUrlHash, $rawData['source_url_hash']);
+        self::assertSame($rows[0]['source_trace_id'], $rawData['capture_evidence']['source_trace_id']);
+        self::assertSame($sourceUrlHash, $rawData['capture_evidence']['source_url_hash']);
+        self::assertSame($rows[0]['source_trace_id'], $rawData['field_facts'][0]['capture_evidence']['source_trace_id']);
+        self::assertSame($sourceUrlHash, $rawData['field_facts'][0]['capture_evidence']['source_url_hash']);
+        self::assertStringNotContainsString('query-secret', $rows[0]['raw_data']);
+        self::assertSame('https://example.test/course', $rawData['facts'][0]['value']);
+        self::assertStringNotContainsString('nested-secret', $rows[0]['raw_data']);
+        self::assertStringNotContainsString('user:pass@', $rows[0]['raw_data']);
+        self::assertNull($rows[0]['order_submit_num']);
 
         $sameRows = $this->invokeNonPublic($controller, 'extractCtripStandardRows', [$payload, 7, '2026-05-31', 'ctrip-1001', null, ['psi_score', 'psi_rank']]);
         self::assertSame($rows[0]['source_trace_id'], $sameRows[0]['source_trace_id']);

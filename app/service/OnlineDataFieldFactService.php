@@ -238,6 +238,7 @@ final class OnlineDataFieldFactService
                 'missing_count' => 0,
                 'capture_evidence_count' => 0,
                 'desensitized_capture_evidence_count' => 0,
+                'matching_desensitized_capture_evidence_count' => 0,
                 'source_path_count' => 0,
                 'structured_source_path_count' => 0,
                 'metric_key_count' => 0,
@@ -256,6 +257,7 @@ final class OnlineDataFieldFactService
         $missing = [];
         $captureEvidenceCount = 0;
         $desensitizedCaptureEvidenceCount = 0;
+        $matchingDesensitizedCaptureEvidenceCount = 0;
         $sourcePathCount = 0;
         $structuredSourcePathCount = 0;
         $metricKeyCount = 0;
@@ -263,6 +265,8 @@ final class OnlineDataFieldFactService
         $inferredStorageFieldCount = 0;
         $storedValuePresentCount = 0;
         $storedValueMissingCount = 0;
+        $capturedFactCount = 0;
+        $declaredCapturedFactCount = 0;
         $sampleFacts = [];
 
         foreach ($facts as $fact) {
@@ -277,12 +281,16 @@ final class OnlineDataFieldFactService
             $storageFieldInferred = false;
             $hasCaptureEvidence = self::fieldFactHasCaptureEvidence($fact, $row, $raw);
             $hasDesensitizedCaptureEvidence = self::fieldFactHasDesensitizedCaptureEvidence($fact);
+            $captureEvidenceMatchesRow = self::fieldFactDesensitizedCaptureEvidenceMatchesRow($fact, $row, $raw);
             if ($storageField === '') {
                 $storageField = self::inferFieldFactStorageField($metricKey, $row, $raw, $fact);
                 $storageFieldInferred = $storageField !== '';
                 $storageFieldSource = $storageFieldInferred ? self::fieldFactStorageFieldSource($storageField) : $storageFieldSource;
             }
             $status = trim((string)($fact['status'] ?? ''));
+            if ($metricKey !== '' && $status !== 'missing') {
+                $declaredCapturedFactCount++;
+            }
             $storedValueState = self::fieldFactStoredValueState($fact, $row, $raw, $storageField, $metricKey);
             $storedValueMissing = $storedValueState === false;
             if ($storedValueState === true) {
@@ -291,8 +299,17 @@ final class OnlineDataFieldFactService
                 $storedValueMissingCount++;
             }
             $isMissing = $status === 'missing'
-                || ($metricKey !== '' && (!$hasCaptureEvidence || !$sourcePathStructured || $storageField === ''))
+                || ($metricKey !== '' && (
+                    !$hasCaptureEvidence
+                    || !$hasDesensitizedCaptureEvidence
+                    || !$captureEvidenceMatchesRow
+                    || !$sourcePathStructured
+                    || $storageField === ''
+                ))
                 || $storedValueMissing;
+            if (!$isMissing && $captureEvidenceMatchesRow) {
+                $matchingDesensitizedCaptureEvidenceCount++;
+            }
 
             if ($metricKey !== '') {
                 $metricKeyCount++;
@@ -318,6 +335,7 @@ final class OnlineDataFieldFactService
             if ($isMissing) {
                 $missing[] = $metricKey !== '' ? $metricKey : 'unknown_metric';
             } else {
+                $capturedFactCount++;
                 $captured[] = $metricKey !== '' ? $metricKey : 'unknown_metric';
             }
             if (count($sampleFacts) < 4) {
@@ -330,6 +348,7 @@ final class OnlineDataFieldFactService
                     'storage_field_source' => $storageFieldSource,
                     'capture_evidence_present' => $hasCaptureEvidence,
                     'desensitized_capture_evidence_present' => $hasDesensitizedCaptureEvidence,
+                    'capture_evidence_matches_row' => $captureEvidenceMatchesRow,
                     'stored_value_present' => $storedValueState,
                     'status' => $isMissing ? 'missing' : ($status !== '' ? $status : 'captured'),
                     'missing_state' => trim((string)($fact['missing_state'] ?? '')),
@@ -345,9 +364,16 @@ final class OnlineDataFieldFactService
         $status = 'ready';
         $label = '字段链路齐全（业务值仍需来源校验）';
         if ($capturedCount === 0) {
-            $status = 'missing';
-            $label = '字段缺失';
-        } elseif ($missingCount > 0 || $captureEvidenceCount < $capturedCount || $structuredSourcePathCount < $capturedCount || $storageFieldCount < $capturedCount || $storedValueMissingCount > 0) {
+            $status = $declaredCapturedFactCount > 0 ? 'partial' : 'missing';
+            $label = $declaredCapturedFactCount > 0 ? '字段待复核' : '字段缺失';
+        } elseif ($missingCount > 0
+            || $captureEvidenceCount < $capturedFactCount
+            || $desensitizedCaptureEvidenceCount < $capturedFactCount
+            || $matchingDesensitizedCaptureEvidenceCount < $capturedFactCount
+            || $structuredSourcePathCount < $capturedFactCount
+            || $storageFieldCount < $capturedFactCount
+            || $storedValueMissingCount > 0
+        ) {
             $status = 'partial';
             $label = '字段待复核';
         }
@@ -377,6 +403,7 @@ final class OnlineDataFieldFactService
             'missing_count' => $missingCount,
             'capture_evidence_count' => $captureEvidenceCount,
             'desensitized_capture_evidence_count' => $desensitizedCaptureEvidenceCount,
+            'matching_desensitized_capture_evidence_count' => $matchingDesensitizedCaptureEvidenceCount,
             'source_path_count' => $sourcePathCount,
             'structured_source_path_count' => $structuredSourcePathCount,
             'metric_key_count' => $metricKeyCount,
@@ -480,11 +507,13 @@ final class OnlineDataFieldFactService
         if ($raw !== $source) {
             self::appendSafeCaptureEvidence($evidence, $raw);
         }
-        foreach (['_source_url', 'source_url', 'url'] as $key) {
-            $value = $source[$key] ?? $raw[$key] ?? null;
-            if (is_scalar($value) && trim((string)$value) !== '') {
-                $evidence['source_url_hash'] = hash('sha256', (string)$value);
-                break;
+        if (!self::validSourceUrlHash((string)($evidence['source_url_hash'] ?? ''))) {
+            foreach (['_source_url', 'source_url', 'url'] as $key) {
+                $value = $source[$key] ?? $raw[$key] ?? null;
+                if (is_scalar($value) && trim((string)$value) !== '') {
+                    $evidence['source_url_hash'] = hash('sha256', (string)$value);
+                    break;
+                }
             }
         }
         return $evidence;
@@ -583,6 +612,36 @@ final class OnlineDataFieldFactService
     {
         $evidence = $fact['capture_evidence'] ?? null;
         return is_array($evidence) && self::hasDesensitizedCaptureEvidence($evidence);
+    }
+
+    /**
+     * @param array<string, mixed> $fact
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private static function fieldFactDesensitizedCaptureEvidenceMatchesRow(array $fact, array $row, array $raw): bool
+    {
+        $factEvidence = $fact['capture_evidence'] ?? null;
+        if (!is_array($factEvidence) || !self::hasDesensitizedCaptureEvidence($factEvidence)) {
+            return false;
+        }
+
+        $rowEvidence = self::captureEvidence($row, $raw);
+        if (!self::hasDesensitizedCaptureEvidence($rowEvidence)) {
+            return false;
+        }
+        $factTraceId = trim((string)($factEvidence['source_trace_id'] ?? $factEvidence['_source_trace_id'] ?? ''));
+        $factSourceUrlHash = trim((string)($factEvidence['source_url_hash'] ?? $factEvidence['_source_url_hash'] ?? $factEvidence['url_hash'] ?? $factEvidence['_url_hash'] ?? ''));
+        $rowTraceId = trim((string)($rowEvidence['source_trace_id'] ?? ''));
+        $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
+
+        if ($factTraceId !== $rowTraceId) {
+            return false;
+        }
+        if ($factSourceUrlHash !== $rowSourceUrlHash) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -880,7 +939,12 @@ final class OnlineDataFieldFactService
         $traceId = trim((string)($captureEvidence['source_trace_id'] ?? $captureEvidence['_source_trace_id'] ?? ''));
         $sourceUrlHash = trim((string)($captureEvidence['source_url_hash'] ?? $captureEvidence['_source_url_hash'] ?? $captureEvidence['url_hash'] ?? $captureEvidence['_url_hash'] ?? ''));
 
-        return $traceId !== '' && $sourceUrlHash !== '';
+        return $traceId !== '' && self::validSourceUrlHash($sourceUrlHash);
+    }
+
+    private static function validSourceUrlHash(string $sourceUrlHash): bool
+    {
+        return preg_match('/^[a-f0-9]{64}$/iD', trim($sourceUrlHash)) === 1;
     }
 
     /**

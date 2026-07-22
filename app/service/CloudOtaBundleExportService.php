@@ -35,11 +35,15 @@ final class CloudOtaBundleExportService
                 throw new RuntimeException('cloud_binding_required_platform_missing:' . $platform);
             }
         }
+        $selectedBindings = array_values(array_filter(
+            $binding['bindings'],
+            static fn(array $item): bool => in_array((string)$item['platform'], $requiredPlatforms, true)
+        ));
 
         $packages = [];
         $rowCount = 0;
         $missingPlatforms = [];
-        foreach ($binding['bindings'] as $item) {
+        foreach ($selectedBindings as $item) {
             $source = $this->loadSource(
                 (int)$item['source_data_source_id'],
                 $sourceHotelId,
@@ -65,6 +69,8 @@ final class CloudOtaBundleExportService
                 'source_data_source_id' => (int)$item['source_data_source_id'],
                 'destination_data_source_id' => (int)$item['destination_data_source_id'],
                 'collection' => $collection,
+                'snapshot_complete' => true,
+                'source_row_count' => count($rows),
                 'rows' => $rows,
             ];
         }
@@ -169,10 +175,15 @@ final class CloudOtaBundleExportService
             ->where('readback_verified', 1)
             ->whereIn('validation_status', self::TRUSTED_VALIDATION_STATUSES)
             ->order('id', 'asc')
-            ->limit(CloudOtaBundleCodec::MAX_ROWS)
+            ->limit(CloudOtaBundleCodec::MAX_ROWS + 1)
             ->field(implode(',', $fields))
             ->select()
             ->toArray();
+        if (count($rows) > CloudOtaBundleCodec::MAX_ROWS) {
+            throw new RuntimeException(
+                'cloud_bundle_source_row_limit_exceeded:' . strtolower((string)($source['platform'] ?? 'unknown'))
+            );
+        }
 
         $normalized = [];
         foreach ($rows as $row) {

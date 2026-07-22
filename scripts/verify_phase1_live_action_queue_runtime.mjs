@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseJsonTextSafely, safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const root = process.cwd();
 const checks = [];
@@ -875,6 +876,16 @@ function questionStringFieldMap(rows, field) {
   ]).filter(([key]) => key !== ''));
 }
 
+function safeChildProcessDetail(result, label) {
+  return JSON.stringify({
+    code: `${label}_failed`,
+    exit_code: Number.isInteger(result?.status) ? result.status : null,
+    signal: String(result?.signal || ''),
+    stdout_bytes: Buffer.byteLength(String(result?.stdout || ''), 'utf8'),
+    stderr_bytes: Buffer.byteLength(String(result?.stderr || ''), 'utf8'),
+  });
+}
+
 function runInspector(options, extraArgs = [], label = 'inspector') {
   const args = [
     'scripts\\inspect_phase1_ota_live_closure.php',
@@ -893,14 +904,18 @@ function runInspector(options, extraArgs = [], label = 'inspector') {
     encoding: 'utf8',
     windowsHide: true,
   });
-  check(`${label} exits successfully in non-strict mode`, result.status === 0, result.stderr || result.stdout);
+  check(
+    `${label} exits successfully in non-strict mode`,
+    result.status === 0,
+    result.status === 0 ? '' : safeChildProcessDetail(result, 'phase1_inspector'),
+  );
   if (result.status !== 0) {
     return null;
   }
   try {
-    return JSON.parse(result.stdout);
+    return parseJsonTextSafely(result.stdout, 'phase1_inspector_json');
   } catch (error) {
-    fail(`inspector output is valid JSON: ${error.message}`);
+    fail(`inspector output is valid JSON: ${safeJsonParseErrorCode(error)}`);
     return null;
   }
 }
@@ -938,14 +953,18 @@ function runEvidenceBuilder(options, extraArgs = [], label = 'evidence builder')
     windowsHide: true,
     maxBuffer: 64 * 1024 * 1024,
   });
-  check(`${label} exits successfully in read-only mode`, result.status === 0, result.stderr || result.stdout);
+  check(
+    `${label} exits successfully in read-only mode`,
+    result.status === 0,
+    result.status === 0 ? '' : safeChildProcessDetail(result, 'phase1_evidence_builder'),
+  );
   if (result.status !== 0) {
     return null;
   }
   try {
-    return JSON.parse(result.stdout);
+    return parseJsonTextSafely(result.stdout, 'phase1_evidence_builder_json');
   } catch (error) {
-    fail(`evidence builder output is valid JSON: ${error.message}`);
+    fail(`evidence builder output is valid JSON: ${safeJsonParseErrorCode(error)}`);
     return null;
   }
 }

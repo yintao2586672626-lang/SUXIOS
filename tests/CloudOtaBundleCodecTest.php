@@ -83,6 +83,29 @@ final class CloudOtaBundleCodecTest extends TestCase
         ]);
     }
 
+    public function testCompleteSnapshotMetadataMustMatchExportedRows(): void
+    {
+        $package = $this->package('ctrip', 11, 21, [$this->row('ctrip', 11)]);
+        $package['snapshot_complete'] = true;
+        $package['source_row_count'] = 2;
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('cloud_bundle_complete_snapshot_row_count_mismatch');
+        CloudOtaBundleCodec::build($this->context(), [
+            $package,
+            $this->package('meituan', 12, 22, [], 'target_date_missing'),
+        ]);
+    }
+
+    public function testLegacyPackageWithoutSnapshotMetadataRemainsVerifiableButIncomplete(): void
+    {
+        $bundle = $this->validBundle();
+        $verified = CloudOtaBundleCodec::verify($bundle);
+
+        self::assertArrayNotHasKey('snapshot_complete', $verified['packages'][0]);
+        self::assertArrayNotHasKey('source_row_count', $verified['packages'][0]);
+    }
+
     public function testBindingContractHasNoHotelNameFallback(): void
     {
         $binding = CloudOtaBundleCodec::verifyBinding([

@@ -684,6 +684,16 @@
                 if (value.includes('invalid') || value.includes('unauthorized') || value.includes('forbidden')) return 'unauthorized';
                 return token.value ? 'unauthorized' : 'missing';
             };
+            const terminalAuthFailureReason = (data = {}) => (
+                String(data?.data?.reason || '').trim().toLowerCase()
+            );
+            const isTerminalAuthFailureResponse = (response = {}, data = {}) => {
+                const responseStatus = Number(response?.status || 0);
+                const dataCode = Number(data?.code || 0);
+                if (responseStatus === 401 || dataCode === 401) return true;
+                return (responseStatus === 403 || dataCode === 403)
+                    && terminalAuthFailureReason(data) === 'user_disabled';
+            };
             const applyAuthContext = (context = {}) => {
                 if (!context || typeof context !== 'object') return;
                 const hasContextKey = (...keys) => keys.some(key => Object.prototype.hasOwnProperty.call(context, key));
@@ -928,6 +938,9 @@
                 competitorSummaryRequestSeq += 1;
                 ctripLatestRequestSeq += 1;
                 weatherRequestId += 1;
+                hotelDashboardRequestSeq += 1;
+                meituanOrderFlowRequestSeq += 1;
+                meituanOrderFlowRefreshRequestSeq += 1;
 
                 pageLoadRequests.clear();
                 lastLoadedPage = '';
@@ -984,7 +997,20 @@
                 hotelCompetitorSummaries.value = {};
                 meituanHotelsList.value = [];
                 meituanBusinessSummary.value = emptyMeituanBusinessSummary();
+                meituanOrderFlowRows.value = [];
+                meituanOrderFlowLoading.value = false;
+                meituanOrderFlowFetching.value = false;
+                meituanOrderFlowError.value = '';
                 onlineDataResult.value = null;
+
+                dashboardAccountOverview.value = null;
+                dashboardHotelPortrait.value = null;
+                dashboardDataSources.value = null;
+                dashboardHotelId.value = '';
+                hotelDashboardLoading.value = false;
+                hotelDashboardError.value = '';
+                dataHealthFullDiagnosticsLoaded.value = false;
+                dataHealthFullDiagnosticsHotelId.value = '';
 
                 compassDisplayedHotelId = '';
                 compassWeather.value = [];
@@ -1096,6 +1122,10 @@
                 if (!session?.token || !isAuthSessionCurrent(session)) return false;
                 clearAuthSessionWithStatus(tokenStatus);
                 return true;
+            };
+            const handleAuthInfoBootstrapUnavailable = (session) => {
+                if (!isAuthSessionCurrent(session)) return;
+                showToast('登录状态暂时无法验证，已保留本地会话，请检查网络后刷新重试', 'warning');
             };
             const postFetchRefreshTimers = new Map();
             const schedulePostFetchRefresh = (key, callback, delay = 240) => {
@@ -2667,6 +2697,8 @@
             const meituanOrderFlowLoading = ref(false);
             const meituanOrderFlowFetching = ref(false);
             const meituanOrderFlowError = ref('');
+            let meituanOrderFlowRequestSeq = 0;
+            let meituanOrderFlowRefreshRequestSeq = 0;
             const meituanOrderFlowDateRange = computed(() => resolveMeituanOrderFlowDateRange(meituanOrderFlowPeriod.value));
             const meituanOrderFlowView = computed(() => buildMeituanOrderFlowView(meituanOrderFlowRows.value, meituanOrderFlowPeriod.value));
             const meituanOrderFlowActive = computed(() => (
@@ -3479,6 +3511,7 @@
             const dashboardDataSources = ref(null);
             const hotelDashboardLoading = ref(false);
             const hotelDashboardError = ref('');
+            let hotelDashboardRequestSeq = 0;
             const dataHealthFullDiagnosticsLoaded = ref(false);
             const dataHealthFullDiagnosticsHotelId = ref('');
             const dataHealthLastRefreshMode = ref('not_loaded');
@@ -4902,6 +4935,10 @@
                 || ctripLatestLoading.value
                 || competitorSummaryLoading.value
             ));
+            const dualOtaWorkbenchReadInProgress = computed(() => Boolean(
+                ctripLatestLoading.value
+                || competitorSummaryLoading.value
+            ));
             const dualOtaMissingMetric = (label, note = '已查询，接口未返回该字段') => dualOtaMetric(
                 label,
                 dualOtaWorkbenchFetchInProgress.value ? '获取中' : '未返回',
@@ -5743,14 +5780,96 @@
                 const orders = dualOtaObservedNumber(dualOtaFirstObservedValue(row.totalOrderNum, row.bookOrderNum));
                 return amount !== null && quantity !== null && orders !== null;
             };
+            const dualOtaMeituanActualMetricSources = new Set([
+                'actual_business_value',
+                'manual_actual_business_value',
+                'meituan_business_detail_returned',
+                'meituan_persisted_self_anchor',
+            ]);
+            const dualOtaMeituanActualMetricValue = (row = {}, fields = []) => {
+                const fieldList = Array.isArray(fields) ? fields : [fields];
+                for (const field of fieldList) {
+                    const source = String(row?.metricSourceStatus?.[field] || '').trim();
+                    const derived = row?.metricDerived?.[field];
+                    if (!dualOtaMeituanActualMetricSources.has(source) || (derived && typeof derived === 'object')) {
+                        continue;
+                    }
+                    const value = dualOtaObservedNumber(row?.[field]);
+                    if (value !== null) return value;
+                }
+                return null;
+            };
             const dualOtaMeituanCurrentCoreDataReady = () => {
                 const row = dualOtaMeituanCurrentRow();
                 if (!row) return false;
-                const revenue = dualOtaObservedNumber(dualOtaFirstObservedValue(row.roomRevenue, row.sales));
-                const roomNights = dualOtaObservedNumber(dualOtaFirstObservedValue(row.roomNights, row.salesRoomNights));
-                const orders = dualOtaObservedNumber(row.orderCount);
+                const revenue = dualOtaMeituanActualMetricValue(row, ['roomRevenue', 'sales']);
+                const roomNights = dualOtaMeituanActualMetricValue(row, ['roomNights', 'salesRoomNights']);
+                const orders = dualOtaMeituanActualMetricValue(row, ['orderCount']);
                 return revenue !== null && roomNights !== null && orders !== null;
             };
+            const dualOtaNormalizeDateKey = (value) => {
+                const match = String(value || '').match(/\d{4}-\d{2}-\d{2}/);
+                return match ? match[0] : '';
+            };
+            const dualOtaSelectedRangeDateBounds = () => {
+                const range = dualOtaSelectedRangeValue();
+                const end = new Date();
+                if (range === 'yesterday') end.setDate(end.getDate() - 1);
+                const start = new Date(end);
+                if (range === '7d') start.setDate(start.getDate() - 6);
+                if (range === '30d') start.setDate(start.getDate() - 29);
+                return {
+                    start: dualOtaFormatDateKey(start),
+                    end: dualOtaFormatDateKey(end),
+                };
+            };
+            const dualOtaDataDateMatchesSelectedRange = (value) => {
+                const dateKey = dualOtaNormalizeDateKey(value);
+                if (!dateKey) return false;
+                const bounds = dualOtaSelectedRangeDateBounds();
+                return dateKey >= bounds.start && dateKey <= bounds.end;
+            };
+            const dualOtaCtripCurrentPeriodDataReady = () => (
+                dualOtaCtripCurrentCoreDataReady()
+                && dualOtaDataDateMatchesSelectedRange(ctripLatestMeta.value?.data_date)
+            );
+            const dualOtaMeituanCurrentPeriodDataReady = () => (
+                dualOtaMeituanCurrentCoreDataReady()
+                && dualOtaDataDateMatchesSelectedRange(competitorSummary.value?.latest_data_date)
+            );
+            const dualOtaSelectedHotelHasCurrentData = computed(() => {
+                if (!dualOtaSelectedHotel.value) return false;
+                const scope = String(dualOtaEffectiveStoreScope.value || 'combined').trim();
+                if (scope === 'ctrip') return dualOtaCtripCurrentPeriodDataReady();
+                if (scope === 'meituan') return dualOtaMeituanCurrentPeriodDataReady();
+                return dualOtaCtripCurrentPeriodDataReady() || dualOtaMeituanCurrentPeriodDataReady();
+            });
+            const dualOtaSelectedHotelDataGapText = computed(() => {
+                const gaps = [];
+                const rangeText = dualOtaRangeText();
+                if (dualOtaStoreScopeIncludesPlatform('ctrip') && !dualOtaCtripCurrentPeriodDataReady()) {
+                    const latestDate = dualOtaNormalizeDateKey(ctripLatestMeta.value?.data_date);
+                    gaps.push(
+                        dualOtaDataDateMatchesSelectedRange(latestDate)
+                            ? `${rangeText}携程日期已命中，但本店销售额、间夜和订单未完整返回`
+                            : latestDate
+                            ? `${rangeText}携程数据未命中，最近一次为 ${latestDate}`
+                            : `${rangeText}携程暂无已入库数据`
+                    );
+                }
+                if (dualOtaStoreScopeIncludesPlatform('meituan') && !dualOtaMeituanCurrentPeriodDataReady()) {
+                    const latestDate = dualOtaNormalizeDateKey(competitorSummary.value?.latest_data_date);
+                    gaps.push(
+                        dualOtaDataDateMatchesSelectedRange(latestDate)
+                            ? `${rangeText}美团仅有榜单或竞对数据，本店营收、间夜和订单未返回`
+                            : latestDate
+                            ? `${rangeText}美团数据未命中，最近一次为 ${latestDate}`
+                            : `${rangeText}美团暂无已入库数据`
+                    );
+                }
+                const detail = gaps.length ? gaps.join('；') : `${rangeText}核心经营字段不完整`;
+                return `${detail}。页面不会用 0 代替缺失数据。`;
+            });
             const dualOtaWorkbenchAutoFetchDataPeriod = (range = dualOtaSelectedRangeValue()) => {
                 return String(range || '').trim() === 'realtime' ? 'realtime_snapshot' : 'historical_daily';
             };
@@ -6337,30 +6456,30 @@
                 return [
                     {
                         key: 'past',
-                        label: '过去有据',
-                        status: past.status === 'ready' ? '事实已定稿' : (pastDays > 0 ? '部分事实可用' : '等待定稿事实'),
-                        value: pastDays > 0 ? `${pastDays} 个定稿日` : '暂无定稿日',
+                        label: '历史数据',
+                        status: past.status === 'ready' ? '数据完整' : (pastDays > 0 ? '部分可用' : '暂无历史数据'),
+                        value: pastDays > 0 ? `${pastDays} 个可用经营日` : '暂无可用经营日',
                         detail: pastMetric
                             ? `${homeTemporalMetricLabels[pastMetric.key] || pastMetric.key}近7日均值 ${homeTemporalNumber(pastMetric.recent_7_day_average)}${pastChangeText}`
-                            : '缺失值保持为空，不用零补齐历史。',
+                            : '还没有足够的历史数据，缺失项不会按 0 补齐。',
                         tone: 'blue',
                     },
                     {
                         key: 'present',
-                        label: '如今可察',
-                        status: present.status === 'ready' ? '今日快照有效' : (present.status === 'partial' ? '今日快照部分可用' : '尚无今日快照'),
-                        value: Number(present.snapshot_row_count || 0) > 0 ? `${Number(present.snapshot_row_count)} 条快照` : '等待今日快照',
-                        detail: present.today_reason || '今天只展示真实采集结果，不把缺失显示成零。',
+                        label: '今日数据',
+                        status: present.status === 'ready' ? '已更新' : (present.status === 'partial' ? '部分更新' : '今日未更新'),
+                        value: Number(present.snapshot_row_count || 0) > 0 ? `今日 ${Number(present.snapshot_row_count)} 条数据` : '暂无今日数据',
+                        detail: present.today_reason || '这里只展示今天真实采集到的数据，缺失项不会显示成 0。',
                         tone: 'cyan',
                     },
                     {
                         key: 'future',
-                        label: '未来可观',
-                        status: future.status === 'ready' ? '已有预测版本' : (future.status === 'select_hotel' ? '需选择单店' : '尚无预测版本'),
-                        value: futureMetric ? `${homeTemporalMetricLabels[futureMetric.key] || futureMetric.key} ${homeTemporalDirectionText(futureMetric.direction)}` : '等待形成区间',
+                        label: '未来趋势',
+                        status: future.status === 'ready' ? '已生成' : (future.status === 'select_hotel' ? '先选门店' : '尚未生成'),
+                        value: futureMetric ? `${homeTemporalMetricLabels[futureMetric.key] || futureMetric.key} ${homeTemporalDirectionText(futureMetric.direction)}` : '等待生成',
                         detail: futureMetric
-                            ? `${futureMetric.date} 粗粒度区间 ${futureRange}，${homeTemporalConfidenceLabel(futureMetric)} ${homeTemporalConfidenceText(futureMetric.confidence_score)}`
-                            : (future.message || '基于定稿事实生成方向、区间和置信度，不生成执行价格。'),
+                            ? `预计 ${futureMetric.date} 落在 ${futureRange}，${homeTemporalConfidenceLabel(futureMetric)} ${homeTemporalConfidenceText(futureMetric.confidence_score)}`
+                            : (future.message || '历史数据足够后，可生成方向、范围和可信度；这里不直接给执行价格。'),
                         tone: 'indigo',
                     },
                 ];
@@ -6371,16 +6490,16 @@
                     const matchedPoints = homeTemporalNumericValue(review.matched_points);
                     return {
                         ready: true,
-                        title: `回看当时：区间命中 ${homeTemporalPercentText(review.range_hit_rate)}`,
+                        title: `历史预测准确度：${homeTemporalPercentText(review.range_hit_rate)}`,
                         detail: matchedPoints === null
-                            ? '到期预测点数量未返回，暂不能核验命中表现；旧预测不因结果而改写。'
-                            : `已用 ${matchedPoints} 个到期预测点与后来定稿事实对照，旧预测不因结果而改写。`,
+                            ? '已到期的预测数量未返回，目前还不能判断预测表现。'
+                            : `已对比 ${matchedPoints} 个到期预测；该比例表示实际结果落在原预测范围内的次数。`,
                     };
                 }
                 return {
                     ready: false,
-                    title: '回看当时：预测到期后自动对照',
-                    detail: review.message || '把预测与后来定稿事实匹配，结果进入下一轮历史证据。',
+                    title: '历史预测暂无法验证',
+                    detail: '等预测日期到达并取得实际数据后，这里会显示实际结果是否落在原预测范围内。',
                 };
             });
             const homeTrendCustomRange = ref({
@@ -11755,9 +11874,20 @@
             };
 
             const loadHotelDataDashboard = async () => {
+                const requestSession = captureAuthSession();
+                const selectedHotelId = String(dashboardHotelId.value || getAutoFetchHotelId() || '').trim();
+                const requestSeq = ++hotelDashboardRequestSeq;
+                const isCurrentRequest = () => (
+                    requestSeq === hotelDashboardRequestSeq
+                    && isAuthSessionCurrent(requestSession)
+                    && String(dashboardHotelId.value || getAutoFetchHotelId() || '').trim() === selectedHotelId
+                );
+                let diagnosticsLoaded = false;
+                let resolvedHotelId = selectedHotelId;
                 hotelDashboardLoading.value = true;
                 hotelDashboardError.value = '';
-                const selectedHotelId = dashboardHotelId.value || getAutoFetchHotelId();
+                dataHealthFullDiagnosticsLoaded.value = false;
+                dataHealthFullDiagnosticsHotelId.value = '';
                 try {
                     const requests = buildHotelDataDashboardRequests({ selectedHotelId });
 
@@ -11766,7 +11896,10 @@
                         request(requests.hotelPortraitUrl),
                         request(requests.dataSourcesUrl),
                     ]);
+                    if (!isCurrentRequest()) return null;
 
+                    diagnosticsLoaded = [accountResult, portraitResult, sourceResult]
+                        .every(result => result?.code === 200);
                     if (accountResult.code === 200) {
                         dashboardAccountOverview.value = accountResult.data || {};
                     } else {
@@ -11775,9 +11908,7 @@
 
                     if (portraitResult.code === 200) {
                         dashboardHotelPortrait.value = portraitResult.data || {};
-                        if (!dashboardHotelId.value && portraitResult.data?.hotel?.id) {
-                            dashboardHotelId.value = String(portraitResult.data.hotel.id);
-                        }
+                        resolvedHotelId = String(portraitResult.data?.hotel?.id || selectedHotelId || '').trim();
                     } else if (!hotelDashboardError.value) {
                         hotelDashboardError.value = portraitResult.message || '单店画像加载失败';
                     }
@@ -11787,13 +11918,24 @@
                     } else if (!hotelDashboardError.value) {
                         hotelDashboardError.value = sourceResult.message || '数据源状态加载失败';
                     }
+                    return {
+                        ok: diagnosticsLoaded,
+                        hotelId: resolvedHotelId,
+                    };
                 } catch (error) {
+                    if (!isCurrentRequest()) return null;
                     hotelDashboardError.value = error.message || '完整诊断加载失败';
                     console.error('加载完整诊断失败:', error);
+                    return null;
                 } finally {
-                    dataHealthFullDiagnosticsLoaded.value = true;
-                    dataHealthFullDiagnosticsHotelId.value = String(selectedHotelId || '');
-                    hotelDashboardLoading.value = false;
+                    if (isCurrentRequest()) {
+                        dataHealthFullDiagnosticsLoaded.value = diagnosticsLoaded;
+                        dataHealthFullDiagnosticsHotelId.value = diagnosticsLoaded ? resolvedHotelId : '';
+                        hotelDashboardLoading.value = false;
+                        if (diagnosticsLoaded && !dashboardHotelId.value && resolvedHotelId) {
+                            dashboardHotelId.value = resolvedHotelId;
+                        }
+                    }
                 }
             };
 
@@ -13167,6 +13309,14 @@
 
             watch(() => meituanForm.value.hotelId, () => {
                 meituanFetchRunToken += 1;
+                meituanOrderFlowRequestSeq += 1;
+                meituanOrderFlowRefreshRequestSeq += 1;
+                meituanOrderFlowLoading.value = false;
+                meituanOrderFlowFetching.value = false;
+                if (onlineDataTab.value === 'meituan-order-flow') {
+                    meituanOrderFlowRows.value = [];
+                    meituanOrderFlowError.value = '';
+                }
                 if (suppressNextMeituanHotelConfigApply) {
                     suppressNextMeituanHotelConfigApply = false;
                     return;
@@ -13185,8 +13335,6 @@
                     syncMeituanTrafficConfigFromSelectedConfig();
                 }
                 if (onlineDataTab.value === 'meituan-order-flow') {
-                    meituanOrderFlowRows.value = [];
-                    meituanOrderFlowError.value = '';
                     deferUiTask(async () => {
                         await syncMeituanBrowserCaptureFromSelectedConfig(false);
                         return loadMeituanOrderFlowData();
@@ -13373,16 +13521,6 @@
             const BOSS_VISIBLE_NAVIGATION_CONFIG = [
                 {
                     type: 'source',
-                    sourcePath: 'online-data',
-                    sourceTab: 'data-health',
-                    overrides: {
-                        name: '昨日经营闭环',
-                        icon: 'fas fa-rotate',
-                        testid: 'nav-core-operations-loop',
-                    },
-                },
-                {
-                    type: 'source',
                     sourcePath: 'compass',
                     overrides: {
                         name: '今日经营看板',
@@ -13394,22 +13532,34 @@
                 },
                 {
                     type: 'group',
-                    name: '经营闭环',
+                    name: '经营分析',
                     icon: 'fas fa-chart-line',
                     testid: 'nav-lean-business-loop',
                     children: [
                         { type: 'source', sourcePath: 'compass', overrides: { name: '今日结论' } },
+                        {
+                            type: 'source',
+                            sourcePath: 'online-data',
+                            sourceTab: 'data-health',
+                            overrides: {
+                                name: '昨日经营闭环',
+                                icon: 'fas fa-rotate',
+                                testid: 'nav-core-operations-loop',
+                            },
+                        },
                         { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } },
+                        { type: 'source', sourcePath: 'ai-daily-report', overrides: { name: 'AI经营日报' } },
                     ],
                 },
                 {
                     type: 'group',
-                    name: 'OTA数据',
+                    name: 'OTA数据与采集',
                     icon: 'fas fa-cloud-download-alt',
                     testid: 'nav-lean-ota-data',
                     children: [
                         { type: 'source', sourcePath: 'ctrip-ebooking', overrides: { name: '携程数据' } },
                         { type: 'source', sourcePath: 'meituan-ebooking', overrides: { name: '美团数据' } },
+                        { type: 'source', sourcePath: 'online-data', sourceTab: 'platform-auto', overrides: { name: '自动采集任务' } },
                     ],
                 },
                 {
@@ -13418,9 +13568,7 @@
                     icon: 'fas fa-tasks',
                     testid: 'nav-lean-operation',
                     children: [
-                        { type: 'source', sourcePath: 'ai-daily-report', overrides: { name: 'AI经营日报' } },
-                        { type: 'source', sourcePath: 'ai-governance', overrides: { name: 'AI决策追溯' } },
-                        { type: 'source', sourcePath: 'ops-track', overrides: { name: '执行跟踪' } },
+                        { type: 'source', sourcePath: 'ops-track', overrides: { name: '任务执行与复盘' } },
                     ],
                 },
                 {
@@ -13434,12 +13582,13 @@
                 },
                 {
                     type: 'group',
-                    name: '待开发...',
+                    name: '系统与工具',
                     icon: 'fas fa-ellipsis-h',
                     testid: 'nav-lean-more',
                     children: [
                         { type: 'source', sourcePath: 'knowledge-center', overrides: { name: '知识与经验' } },
                         { type: 'source', sourcePath: 'agent-center', overrides: { name: '高级AI工具箱' } },
+                        { type: 'source', sourcePath: 'ai-governance', overrides: { name: 'AI决策审计' } },
                         { type: 'source', sourcePath: 'ai-model-config', overrides: { name: 'AI模型配置' } },
                         {
                             type: 'system-group',
@@ -13499,7 +13648,7 @@
                     .map(config => buildLeanNavigationEntry(items, config));
                 return leanItems.filter(item => item?.path || (Array.isArray(item?.children) && item.children.length > 0));
             };
-            // 可见菜单项 - 先按权限过滤，再压缩为老板视角主链路；低频入口保留在“待开发...”。
+            // 可见菜单项 - 先按权限过滤，再按“经营分析 / OTA采集 / 运营执行 / 系统工具”分区。
             const visibleMenuItems = computed(() => buildLeanNavigationItems(filterVisibleMenuItems(menuItems.value, user.value)));
 
             // 展开的子菜单：默认收起，避免低频入口挤占首屏。
@@ -13513,6 +13662,13 @@
                 } else {
                     expandedMenus.value.push(menuName);
                 }
+            };
+            const isSidebarMenuItemActive = (item = {}) => {
+                if (!item?.path || currentPage.value !== item.path) return false;
+                if (item.path !== 'online-data') return true;
+                const itemTab = String(item.tab || 'data-health').trim();
+                const activeTab = String(pendingOnlineDataEntryTab || onlineDataTab.value || 'data-health').trim();
+                return itemTab === activeTab;
             };
             const openOnlineDataEntryTab = (tab = 'data-health', options = {}) => {
                 const targetTab = String(tab || 'data-health');
@@ -15176,6 +15332,21 @@
                         // 旧会话的延迟 401 不能清除或打扰刚建立的新会话。
                         if (clearedCurrentSession && requestUrl !== '/auth/info') {
                             showToast('登录已过期，请重新登录', 'error');
+                        }
+                        return data;
+                    }
+
+                    // A disabled account is a terminal authentication failure, not
+                    // an ordinary permission denial or a transient auth-info outage.
+                    if (isTerminalAuthFailureResponse(response, data)) {
+                        const authFailureReason = terminalAuthFailureReason(data);
+                        const tokenStatus = normalizeTokenStatusFromReason(authFailureReason || data?.message);
+                        const clearedCurrentSession = clearAuthSessionIfCurrent(requestSession, tokenStatus);
+                        if (clearedCurrentSession && requestUrl !== '/auth/info') {
+                            showToast(
+                                authFailureReason === 'user_disabled' ? '账号已停用，请联系管理员启用' : '登录已失效，请重新登录',
+                                'error'
+                            );
                         }
                         return data;
                     }
@@ -21232,12 +21403,12 @@
                     if (res.code === 200 && res.data) {
                         homeTemporalData.value = res.data;
                     } else {
-                        homeTemporalError.value = res.message || '经营时间轴加载失败，请稍后重试。';
+                        homeTemporalError.value = res.message || '数据进度与预测加载失败，请稍后重试。';
                     }
                 } catch (error) {
                     if (isCurrentRequest()) {
                         homeTemporalData.value = createEmptyHomeTemporalData();
-                        homeTemporalError.value = error?.message || '经营时间轴加载失败，请稍后重试。';
+                        homeTemporalError.value = error?.message || '数据进度与预测加载失败，请稍后重试。';
                         console.error('加载统一时间视角失败:', error);
                     }
                 } finally {
@@ -32540,14 +32711,38 @@
                 refreshPlatformDataSources: schedulePlatformDataSourcesRefresh,
             });
 
-            const loadMeituanOrderFlowData = async () => {
-                const systemHotelId = String(meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
+            const loadMeituanOrderFlowData = async (options = {}) => {
+                const requestSession = captureAuthSession();
+                const systemHotelId = String(options.hotelId || meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
+                const requestPeriod = String(options.period || meituanOrderFlowPeriod.value || '');
+                const requestSeq = ++meituanOrderFlowRequestSeq;
+                const isCurrentRequest = () => (
+                    requestSeq === meituanOrderFlowRequestSeq
+                    && isAuthSessionCurrent(requestSession)
+                    && String(meituanForm.value.hotelId || user.value?.hotel_id || '').trim() === systemHotelId
+                    && String(meituanOrderFlowPeriod.value || '') === requestPeriod
+                );
+                const staleResult = () => ({
+                    ok: false,
+                    status: 'stale',
+                    hotelId: systemHotelId,
+                    period: requestPeriod,
+                    rows: [],
+                });
                 if (!systemHotelId) {
+                    if (!isCurrentRequest()) return staleResult();
                     meituanOrderFlowRows.value = [];
                     meituanOrderFlowError.value = '';
-                    return [];
+                    meituanOrderFlowLoading.value = false;
+                    return {
+                        ok: false,
+                        status: 'missing_scope',
+                        hotelId: '',
+                        period: requestPeriod,
+                        rows: [],
+                    };
                 }
-                const range = resolveMeituanOrderFlowDateRange(meituanOrderFlowPeriod.value);
+                const range = resolveMeituanOrderFlowDateRange(requestPeriod);
                 const params = new URLSearchParams({
                     source: 'meituan',
                     data_type: 'order_flow',
@@ -32560,36 +32755,70 @@
                 meituanOrderFlowError.value = '';
                 try {
                     const response = await request(`/online-data/daily-data-list?${params.toString()}`);
+                    if (!isCurrentRequest()) return staleResult();
                     if (response.code !== 200) {
                         throw new Error(response.message || '订单流向数据读取失败');
                     }
-                    meituanOrderFlowRows.value = Array.isArray(response.data?.list) ? response.data.list : [];
-                    return meituanOrderFlowRows.value;
+                    const rows = Array.isArray(response.data?.list) ? response.data.list : [];
+                    meituanOrderFlowRows.value = rows;
+                    return {
+                        ok: true,
+                        status: 'verified',
+                        hotelId: systemHotelId,
+                        period: requestPeriod,
+                        rows,
+                    };
                 } catch (error) {
+                    if (!isCurrentRequest()) return staleResult();
+                    const message = error?.message || '订单流向数据读取失败';
                     meituanOrderFlowRows.value = [];
-                    meituanOrderFlowError.value = error?.message || '订单流向数据读取失败';
-                    return [];
+                    meituanOrderFlowError.value = message;
+                    return {
+                        ok: false,
+                        status: 'readback_failed',
+                        hotelId: systemHotelId,
+                        period: requestPeriod,
+                        rows: [],
+                        message,
+                    };
                 } finally {
-                    meituanOrderFlowLoading.value = false;
+                    if (isCurrentRequest()) {
+                        meituanOrderFlowLoading.value = false;
+                    }
                 }
             };
 
             const selectMeituanOrderFlowPeriod = async (period) => {
                 if (!meituanOrderFlowPeriods.some(item => item.key === period)) return;
+                meituanOrderFlowRefreshRequestSeq += 1;
+                meituanOrderFlowFetching.value = false;
                 meituanOrderFlowPeriod.value = period;
                 return loadMeituanOrderFlowData();
             };
 
             const refreshMeituanOrderFlowData = async () => {
+                const requestSession = captureAuthSession();
                 const systemHotelId = String(meituanForm.value.hotelId || '').trim();
+                const requestPeriod = String(meituanOrderFlowPeriod.value || '');
+                const requestSeq = ++meituanOrderFlowRefreshRequestSeq;
+                const isCurrentRequest = () => (
+                    requestSeq === meituanOrderFlowRefreshRequestSeq
+                    && isAuthSessionCurrent(requestSession)
+                    && String(meituanForm.value.hotelId || '').trim() === systemHotelId
+                    && String(meituanOrderFlowPeriod.value || '') === requestPeriod
+                );
                 if (!systemHotelId) {
-                    showToast('请先选择目标酒店', 'warning');
-                    return;
+                    if (isCurrentRequest()) {
+                        meituanOrderFlowFetching.value = false;
+                        showToast('请先选择目标酒店', 'warning');
+                    }
+                    return null;
                 }
                 meituanOrderFlowError.value = '';
                 meituanOrderFlowFetching.value = true;
                 try {
                     await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });
+                    if (!isCurrentRequest()) return null;
                     const config = selectedMeituanHotelConfig.value;
                     const configId = isMeituanExecutionConfigReady(config)
                         ? resolveMeituanExecutionConfigId(config)
@@ -32597,7 +32826,7 @@
                     if (!configId) {
                         throw new Error('当前酒店未配置可用的美团 Cookie/API 数据源');
                     }
-                    const range = resolveMeituanOrderFlowDateRange(meituanOrderFlowPeriod.value);
+                    const range = resolveMeituanOrderFlowDateRange(requestPeriod);
                     const response = await request('/online-data/fetch-meituan-order-flow', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -32605,23 +32834,48 @@
                             system_hotel_id: systemHotelId,
                             start_date: range.startDate,
                             end_date: range.endDate,
-                            period: meituanOrderFlowPeriod.value,
+                            period: requestPeriod,
                             auto_save: true,
                         }),
                     });
+                    if (!isCurrentRequest()) return null;
                     if (response.code !== 200) {
                         throw new Error(response.message || '订单流向获取失败');
                     }
-                    await loadMeituanOrderFlowData();
+                    const readback = await loadMeituanOrderFlowData({
+                        hotelId: systemHotelId,
+                        period: requestPeriod,
+                    });
+                    if (!isCurrentRequest()) return null;
+                    const readbackMatchesScope = readback?.ok
+                        && readback?.status === 'verified'
+                        && readback?.hotelId === systemHotelId
+                        && readback?.period === requestPeriod;
+                    if (!readbackMatchesScope) {
+                        const readbackDetail = String(readback?.message || '').trim();
+                        const message = readbackDetail
+                            ? `订单流向采集已完成，但数据库回读失败，结果未验证：${readbackDetail}`
+                            : '订单流向采集已完成，但数据库回读失败，结果未验证';
+                        meituanOrderFlowError.value = message;
+                        showToast(message, 'warning');
+                        return {
+                            ...(response.data && typeof response.data === 'object' ? response.data : {}),
+                            readback_status: 'unverified',
+                            readback_message: message,
+                        };
+                    }
                     const partial = response.data?.status === 'partial';
                     showToast(partial ? '订单流向已部分更新' : '订单流向已更新', partial ? 'warning' : 'success');
                     return response.data;
                 } catch (error) {
+                    if (!isCurrentRequest()) return null;
                     meituanOrderFlowError.value = error?.message || '订单流向获取失败，请更新美团 Cookie 后重试';
                     showToast(meituanOrderFlowError.value, 'error');
                     return null;
                 } finally {
-                    meituanOrderFlowFetching.value = false;
+                    if (isCurrentRequest()) {
+                        meituanOrderFlowFetching.value = false;
+                    }
                 }
             };
 
@@ -35229,6 +35483,7 @@
 
                 // 检查登录状态
                 if (token.value) {
+                    requestSuxiFullRenderForPage(currentPage.value);
                     const bootstrapSession = captureAuthSession();
                     request('/auth/info').then(res => {
                         if (!isAuthSessionCurrent(bootstrapSession)) return;
@@ -35251,14 +35506,10 @@
                                 loadOpeningProjects();
                             }
                         } else {
-                            // token 无效，清除本地存储
-                            clearAuthSession();
+                            handleAuthInfoBootstrapUnavailable(bootstrapSession);
                         }
                     }).catch(() => {
-                        // 请求失败，清除本地存储
-                        if (isAuthSessionCurrent(bootstrapSession)) {
-                            clearAuthSession();
-                        }
+                        handleAuthInfoBootstrapUnavailable(bootstrapSession);
                     });
                 }
             });
@@ -36934,7 +37185,7 @@
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
                 homeTemporalLoading, homeTemporalGenerating, homeTemporalError, homeTemporalData, homeTemporalSelectedHotelId, homeTemporalCards, homeTemporalReview,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
-                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaLossChainSubtitle, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
+                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaWorkbenchFetchInProgress, dualOtaWorkbenchReadInProgress, dualOtaSelectedHotelLabel, dualOtaSelectedHotelHasCurrentData, dualOtaSelectedHotelDataGapText, dualOtaRangeText, dualOtaActiveLossNodes, dualOtaLossChainSubtitle, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaModuleNavigationTarget, openDualOtaModule, openDualOtaSystemMetric, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
                 revenueAiStaticReady, revenueAiStaticLoading, revenueAiStaticError, revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
@@ -36948,7 +37199,7 @@
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusText, lifecycleStageStatusClass, lifecycleStageBadgeClass, lifecycleOverviewStatusText, lifecycleOverviewStatusClass, loadLifecycleOverview,
                 investmentDecisionLoading, investmentDecisionOverview, investmentDecisionSummaryCards, investmentDecisionBusinessChainRows, investmentDecisionActionQueueRows, investmentDecisionSectionRows, investmentDecisionRiskRows, investmentDecisionRecordRows, investmentDecisionFormulaRows, investmentDecisionStatusText, investmentDecisionStatusClass, investmentDecisionSeverityText, investmentDecisionSeverityClass, investmentDecisionPriorityClass, investmentDecisionSourceLabel, loadInvestmentDecisionOverview,
                 isLoggedIn, loading, loginError, user, token, userHasPermission, canManageOwnHotels, canMaintainOtaConfig, canCollectCompetitorObservations, currentLocale, languageOptions, switchLocale, currentTime, currentDateText, currentClockText, currentTimeZoneLabel, currentPage, showPassword, passwordCapsLockOn,
-                loginForm, rememberPassword, loginSupportOpen, loginSupportLoading, loginSupportError, loginSupportContact, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick, handleNestedMenuClick,
+                loginForm, rememberPassword, loginSupportOpen, loginSupportLoading, loginSupportError, loginSupportContact, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick, handleNestedMenuClick, isSidebarMenuItemActive,
                 workflowFormDialog, closeWorkflowFormDialog, submitWorkflowFormDialog,
                 globalNotificationOpen, globalNotificationLoading, globalNotificationVisibleItems, globalNotificationUnreadCount, globalNotificationTotalCount,
                 globalNotificationSummaryText, toggleGlobalNotifications, refreshGlobalNotifications, openGlobalNotification,

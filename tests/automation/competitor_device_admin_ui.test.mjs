@@ -182,7 +182,8 @@ test('competitor device bindings use explicit fetch permission and authoritative
   const initFull = read('database/init_full.sql');
 
   assert.match(authService, /authorize\(\$user, 'ota\.collect', \$storeId\)/);
-  assert.match(authService, /\$userTenantId[\s\S]*\$userTenantId !== \$tenantId/);
+  assert.match(authService, /\$userTenantId[\s\S]*\$expectedTenantId !== null && \$expectedTenantId !== \$userTenantId/);
+  assert.match(authService, /\$hotel->tenant_id \?\? 0\) !== \$userTenantId/);
   assert.match(authService, /bindingSessionIsCurrent[\s\S]*bindingSessionMatches/);
   assert.doesNotMatch(authService, /(?:canAccessHotel|hotelPermissionAllows)\(\$user, \$storeId, 'can_fetch_online_data'\)/);
   assert.match(initFull, /SOURCE \.\/database\/migrations\/20260719_bind_competitor_devices_to_hotel_scope\.sql;/);

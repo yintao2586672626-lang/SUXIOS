@@ -42,6 +42,11 @@ import {
   sanitizeOtaObservedUrl,
   summarizeOtaSessionCookies,
 } from './lib/ota_session_probe.mjs';
+import {
+  evaluateCtripPlatformIdentity,
+  extractCtripRequestPlatformIdentifiers,
+} from './lib/ctrip_platform_identity.mjs';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
@@ -66,6 +71,7 @@ const notApplicableSections = normalizeOptionalSections(
     || '',
 );
 const hotelId = stringValue(args.hotelId || '').trim();
+const platformHotelName = stringValue(args.platformHotelName || args.platform_hotel_name || '').replace(/\s+/gu, ' ').trim();
 const defaultDataDate = stringValue(args.dataDate || '').trim();
 const storageDir = resolve(args.profileDir || join('storage', `ctrip_profile_${safeName(profileId)}`));
 const reportDir = resolve(args.reportDir || 'reports');
@@ -74,11 +80,17 @@ const outputPath = resolve(args.output || join(reportDir, `ctrip_browser_capture
 const capturedAt = new Date().toISOString();
 const approvedMappingsPath = stringValue(args.approvedMappings || args.approvedMapping || args.p3Mappings || '').trim();
 const approvedMappings = approvedMappingsPath
-  ? normalizeCtripApprovedMappings(JSON.parse((await readFile(resolve(approvedMappingsPath), 'utf8')).replace(/^\uFEFF/, '')))
+  ? normalizeCtripApprovedMappings(parseJsonTextSafely(
+      (await readFile(resolve(approvedMappingsPath), 'utf8')).replace(/^\uFEFF/, ''),
+      'ctrip_approved_mappings_json',
+    ))
   : [];
 const fieldConfigPath = stringValue(args.fieldConfig || args.fieldConfigPath || args.profileFieldConfig || '').trim();
 const profileFieldConfig = fieldConfigPath
-  ? normalizeProfileFieldConfig(JSON.parse((await readFile(resolve(fieldConfigPath), 'utf8')).replace(/^\uFEFF/, '')))
+  ? normalizeProfileFieldConfig(parseJsonTextSafely(
+      (await readFile(resolve(fieldConfigPath), 'utf8')).replace(/^\uFEFF/, ''),
+      'ctrip_field_config_json',
+    ))
   : normalizeProfileFieldConfig(null);
 const requestedSections = constrainRequestedSectionsByProfileFieldConfig(rawRequestedSections, profileFieldConfig);
 const sectionConcurrency = normalizeSectionConcurrency(
@@ -155,6 +167,23 @@ const payload = {
     status: 'pending',
     collectable: false,
   },
+  platform_identity_validation: {
+    schema_version: 1,
+    status: 'unverified',
+    source_validation: false,
+    evidence_source: 'ota_request',
+    expected_identifier_count: hotelId ? 1 : 0,
+    observed_identifier_count: 0,
+    matched_identifier_count: 0,
+    mismatched_identifier_count: 0,
+    expected_name_count: platformHotelName ? 1 : 0,
+    observed_name_count: 0,
+    matched_name_count: 0,
+    mismatched_name_count: 0,
+    validated_identifier: '',
+    validated_name: '',
+    sensitive_values_exposed: false,
+  },
   capture_execution: {
     mode: parallelSectionsEnabled ? 'parallel_pages' : 'single_page_sequential',
     section_concurrency: parallelSectionsEnabled ? sectionConcurrency : 1,
@@ -168,6 +197,9 @@ for (const section of requestedSections) {
 }
 const defaultCaptureState = createCaptureState('');
 let sessionProbeSuccessfulApiResponseCount = 0;
+const observedPlatformIdentifiers = new Set();
+const observedPlatformPageStateIdentifiers = new Set();
+const observedPlatformHeaderNames = new Set();
 const sessionProbeResponseDiagnostics = {
   recognized_response_count: 0,
   candidate_drift_response_count: 0,
@@ -207,6 +239,7 @@ try {
     });
     process.exitCode = 2;
   } else if (authOnly) {
+    await probeTrustedCtripBusinessPageIdentity(page);
     if (loginOnly) {
       await holdInteractiveLoginWindow(page, 'Ctrip');
     }
@@ -289,6 +322,139 @@ async function bringLoginPageToFront(page) {
   }
 }
 
+async function observeTrustedCtripPageHeaderIdentity(page) {
+  if (!platformHotelName) return false;
+
+  let pageUrl;
+  try {
+    pageUrl = new URL(page.url());
+  } catch {
+    return false;
+  }
+  const hostname = pageUrl.hostname.toLowerCase();
+  if (pageUrl.protocol !== 'https:' || (hostname !== 'ebooking.ctrip.com' && !hostname.endsWith('.ebooking.ctrip.com'))) {
+    return false;
+  }
+
+  const matches = page.getByText(platformHotelName, { exact: true });
+  const count = Math.min(10, await matches.count().catch(() => 0));
+  for (let index = 0; index < count; index += 1) {
+    const candidate = matches.nth(index);
+    if (!await candidate.isVisible().catch(() => false)) continue;
+    const text = (await candidate.innerText({ timeout: 1500 }).catch(() => '')).replace(/\s+/gu, ' ').trim();
+    const box = await candidate.boundingBox().catch(() => null);
+    if (text !== platformHotelName || !box || box.width <= 0 || box.height <= 0 || box.y < 0 || box.y > 220) continue;
+    observedPlatformHeaderNames.add(platformHotelName);
+    return true;
+  }
+  return false;
+}
+
+async function observeTrustedCtripPageStateIdentity(page) {
+  if (!hotelId) return false;
+  let pageUrl;
+  try {
+    pageUrl = new URL(page.url());
+  } catch {
+    return false;
+  }
+  const hostname = pageUrl.hostname.toLowerCase();
+  if (pageUrl.protocol !== 'https:' || (hostname !== 'ebooking.ctrip.com' && !hostname.endsWith('.ebooking.ctrip.com'))) {
+    return false;
+  }
+
+  const identifiers = await page.evaluate(() => {
+    const identityKeys = new Set(['masterhotelid', 'hotelid', 'ctriphotelid', 'otahotelid']);
+    const output = new Set();
+    const seen = new Set();
+    const normalizeKey = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const add = value => {
+      const text = typeof value === 'number' || typeof value === 'string' ? String(value).trim() : '';
+      if (text && text !== '0' && text !== '-1' && text.length <= 80) output.add(text);
+    };
+    const visit = (value, depth = 0) => {
+      if (depth > 8 || value === null || value === undefined) return;
+      if (typeof value === 'string') {
+        const text = value.trim();
+        if (!text || text.length > 1_000_000 || seen.has(text)) return;
+        seen.add(text);
+        if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+          try { visit(JSON.parse(text), depth + 1); } catch { /* Non-JSON state is ignored. */ }
+        }
+        return;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) visit(item, depth + 1);
+        return;
+      }
+      if (typeof value !== 'object') return;
+      if (seen.has(value)) return;
+      seen.add(value);
+      for (const [key, child] of Object.entries(value)) {
+        if (identityKeys.has(normalizeKey(key))) add(child);
+        visit(child, depth + 1);
+      }
+    };
+
+    for (const element of document.querySelectorAll('*')) {
+      for (const attribute of element.attributes || []) {
+        const key = normalizeKey(attribute.name);
+        if (identityKeys.has(key)) add(attribute.value);
+        if (key === 'href' || key === 'src' || key === 'dataurl') {
+          try {
+            const parsed = new URL(attribute.value, window.location.href);
+            for (const [queryKey, queryValue] of parsed.searchParams.entries()) {
+              if (identityKeys.has(normalizeKey(queryKey))) add(queryValue);
+            }
+          } catch { /* Invalid attribute URLs are ignored. */ }
+        }
+      }
+    }
+    const embeddedIdentityPattern = /["']?(masterHotelId|hotelId|ctripHotelId|otaHotelId)["']?\s*[:=]\s*["']?([0-9]{1,20})["']?/gi;
+    for (const script of document.scripts) {
+      const text = script.textContent || '';
+      if (!text || text.length > 5_000_000) continue;
+      for (const match of text.matchAll(embeddedIdentityPattern)) add(match[2]);
+    }
+
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index) || '';
+        const value = storage.getItem(key) || '';
+        if (identityKeys.has(normalizeKey(key))) add(value);
+        visit(value);
+      }
+    }
+    for (const key of ['__INITIAL_STATE__', '__PRELOADED_STATE__', '__NEXT_DATA__', '__NUXT__']) {
+      visit(window[key]);
+    }
+    for (const script of document.querySelectorAll('script[type="application/json"]')) {
+      visit(script.textContent || '');
+    }
+    return Array.from(output).slice(0, 20);
+  }).catch(() => []);
+
+  for (const identifier of identifiers) observedPlatformPageStateIdentifiers.add(String(identifier));
+  return identifiers.length > 0;
+}
+
+async function probeTrustedCtripBusinessPageIdentity(page) {
+  if (!platformHotelName) return false;
+  const landingHeaderObserved = await observeTrustedCtripPageHeaderIdentity(page);
+  const landingStateObserved = await observeTrustedCtripPageStateIdentity(page);
+  if (landingHeaderObserved && landingStateObserved) return true;
+
+  const target = PAGE_URLS.business_overview?.[0]?.url || '';
+  if (!target) return false;
+  await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 90000 }).catch(() => null);
+  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => null);
+  await page.waitForTimeout(2500);
+  await dismissBlockingOverlays(page);
+  const headerObserved = await observeTrustedCtripPageHeaderIdentity(page);
+  const stateObserved = await observeTrustedCtripPageStateIdentity(page);
+  return headerObserved && stateObserved;
+}
+
 async function holdInteractiveLoginWindow(page, platformName) {
   const waitMs = Math.max(0, Math.min(600000, numberValue(
     args.postLoginWaitMs || args.keepOpenMs || args.interactiveHoldMs,
@@ -325,13 +491,33 @@ async function finalizePayload() {
   payload.capture_gate = evaluateCtripCaptureAuditGate(audit, captureGateOptions());
   payload.capture_gap_report = audit.capture_gap_report;
   payload.capture_audit = compactCaptureAudit(audit);
+  payload.platform_identity_validation = evaluateCtripPlatformIdentity(
+    [hotelId],
+    Array.from(observedPlatformIdentifiers),
+    {
+      expectedNames: [platformHotelName],
+      observedNames: Array.from(observedPlatformHeaderNames),
+      pageStateIdentifiers: Array.from(observedPlatformPageStateIdentifiers),
+      allowTrustedPageHeader: true,
+    },
+  );
   const outputPayload = includeResponseDataInOutput ? payload : compactCaptureOutputPayload(payload);
   await writeFile(outputPath, JSON.stringify(outputPayload, null, 2), 'utf8');
 }
 
 async function finalizeLoginOnlyPayload() {
   await waitForPendingResponses(payload);
-  payload.session_probe = await buildLoginOnlySessionProbe();
+  payload.platform_identity_validation = evaluateCtripPlatformIdentity(
+    [hotelId],
+    Array.from(observedPlatformIdentifiers),
+    {
+      expectedNames: [platformHotelName],
+      observedNames: Array.from(observedPlatformHeaderNames),
+      pageStateIdentifiers: Array.from(observedPlatformPageStateIdentifiers),
+      allowTrustedPageHeader: true,
+    },
+  );
+  payload.session_probe = await buildLoginOnlySessionProbe(payload.platform_identity_validation);
   const probePassed = payload.session_probe.collectable === true;
   if (probePassed && payload.auth_status?.ok !== true) {
     payload.auth_status = {
@@ -386,7 +572,7 @@ async function finalizeLoginOnlyPayload() {
   process.exitCode = probePassed ? 0 : 2;
 }
 
-async function buildLoginOnlySessionProbe() {
+async function buildLoginOnlySessionProbe(platformIdentityValidation) {
   const pageText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
   const cookies = await browser.cookies().catch(() => []);
   const cookieSummary = summarizeOtaSessionCookies('ctrip', cookies);
@@ -397,6 +583,7 @@ async function buildLoginOnlySessionProbe() {
     cookie_summary: cookieSummary,
     successful_api_response_count: sessionProbeSuccessfulApiResponseCount,
     response_diagnostics: sessionProbeResponseDiagnostics,
+    identity_status: platformIdentityValidation?.status || 'not_checked',
   });
 }
 
@@ -473,7 +660,7 @@ async function captureSectionWithNewPage(context, section, workerIndex = 1) {
   } catch (err) {
     ok = false;
     error = err?.message || String(err);
-    target.pages.push({ name: section, label: sectionLabel(section), url: sectionPage.url(), ok: false, error });
+    target.pages.push({ name: section, label: sectionLabel(section), url: sanitizeObservedPageUrl(sectionPage.url()), ok: false, error });
   } finally {
     await sectionPage.waitForTimeout(500).catch(() => null);
     await waitForPendingResponses(target);
@@ -584,6 +771,8 @@ async function captureSection(page, section, url, confidence = '', target = payl
   await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => null);
   await page.waitForTimeout(2500);
   await dismissBlockingOverlays(page);
+  await observeTrustedCtripPageHeaderIdentity(page);
+  await observeTrustedCtripPageStateIdentity(page);
   await clickLikelyRefreshButtons(page);
   const interactions = await runSectionInteractionPlan(page, section, state);
   if (section === 'traffic_report') {
@@ -599,7 +788,7 @@ async function captureSection(page, section, url, confidence = '', target = payl
   if (existsSync(screenshot)) {
     target.screenshots.push({ name: section, path: screenshot, ...(options.retry ? { retry: true } : {}) });
   }
-  target.pages.push({ name: section, label: sectionLabel(section), url: page.url(), configured_url: url, confidence, ok, interactions, ...(options.retry ? { retry: true } : {}), ...(errorMessage ? { error: errorMessage } : {}) });
+  target.pages.push({ name: section, label: sectionLabel(section), url: sanitizeObservedPageUrl(page.url()), configured_url: sanitizeObservedPageUrl(url), confidence, ok, interactions, ...(options.retry ? { retry: true } : {}), ...(errorMessage ? { error: errorMessage } : {}) });
   state.activeCaptureSection = '';
   state.activeTrafficPlatform = '';
 }
@@ -891,8 +1080,17 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     if (!isCtripCaptureUrl(urlLower)) {
       return;
     }
+    const observedUrlEvidence = buildOtaCaptureEvidence('ctrip', {
+      url,
+      captureSource: `xhr:${requestType}`,
+    });
+    const observedUrlMetadata = {
+      url: sanitizeOtaObservedUrl(url),
+      source_trace_id: observedUrlEvidence.source_trace_id || '',
+      source_url_hash: observedUrlEvidence.source_url_hash || '',
+    };
     if (target.xhr_urls.length < 200) {
-      target.xhr_urls.push({ url, status: response.status(), request_type: requestType });
+      target.xhr_urls.push({ ...observedUrlMetadata, status: response.status(), request_type: requestType });
     }
     if (response.status() !== 200) {
       return;
@@ -900,6 +1098,11 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
 
     const request = response.request();
     const requestPayload = request?.postData?.() || '';
+    for (const identifier of extractCtripRequestPlatformIdentifiers(url, requestPayload, {
+      headers: request?.headers?.() || {},
+    })) {
+      observedPlatformIdentifiers.add(identifier);
+    }
     const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const activeSection = state.activeCaptureSection || '';
     const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeSection });
@@ -912,7 +1115,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       method: request?.method?.() || '',
     };
     if (!endpoint && target.unmatched_xhr_urls.length < 200) {
-      target.unmatched_xhr_urls.push(unmatchedXhr);
+      target.unmatched_xhr_urls.push({ ...unmatchedXhr, ...observedUrlMetadata });
     }
     const p3Candidate = buildCtripEndpointCandidates([unmatchedXhr])[0] || null;
     if (!urlSection && approvedMappingMatches.length === 0 && !p3Candidate && !urlLower.includes('datacenter') && !urlLower.includes('pyramid') && !urlLower.includes('psi') && !urlLower.includes('bpi')) {
@@ -936,20 +1139,20 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
         headers: request?.headers?.() || {},
         payload: requestPayload,
         response: body,
-        page_url: page.url(),
+        page_url: sanitizeOtaObservedUrl(page.url()),
         captured_at: capturedAt,
         section: activeSection || p3Candidate.candidate_section,
         page_context: {
           page: sectionLabel(activeSection || p3Candidate.candidate_section),
           module: activeSection || p3Candidate.candidate_section,
-          url: page.url(),
+          url: sanitizeOtaObservedUrl(page.url()),
         },
       }], {
         profileId,
         hotelId,
         defaultDataDate,
         capturedAt,
-        pageUrl: page.url(),
+        pageUrl: sanitizeOtaObservedUrl(page.url()),
         activeSection: activeSection || p3Candidate.candidate_section,
         params: {
           hotel_id: hotelId,
@@ -968,6 +1171,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     const platform = inferCtripResponsePlatform(section, endpoint, url, requestPayload, state);
     const sanitizerSection = endpoint?.section === 'comment_review' ? 'reviews' : dataType;
     const safeBody = sanitizeOtaPayloadForStorage(body, sanitizerSection);
+    const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section, captureSource: `xhr:${dataType}` });
     const rows = normalizeRows(safeBody, dataType, url, requestDateEvidence).map(row => attachCtripCaptureEvidence({
       ...row,
       section,
@@ -988,6 +1192,10 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       url,
       platform,
       requestPayload,
+      captureEvidence: responseEvidence,
+      sourceTraceId: responseEvidence.source_trace_id || '',
+      sourceUrlHash: responseEvidence.source_url_hash || '',
+      persistRawSourceUrl: false,
     };
     const catalogFacts = filterCatalogFactsByProfileFieldConfig(extractCtripCatalogFacts(safeBody, factContext));
     const standardRows = buildCtripStandardRowsFromFacts(catalogFacts, {
@@ -1009,7 +1217,6 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     }))
       .map(row => annotateCtripStandardRowDateSource(row, requestDateEvidence))
       .map(row => attachCtripCaptureEvidence(row, factContext));
-    const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section, captureSource: `xhr:${dataType}` });
     target.catalog_facts.push(...catalogFacts);
     target.standard_rows.push(...standardRows);
     target.standard_rows.push(...approvedRows);
@@ -1064,6 +1271,12 @@ function registerSessionProbeResponseObserver(page) {
     });
     const classification = classified.classification;
     if (classification === 'recognized') {
+      const request = response.request();
+      for (const identifier of extractCtripRequestPlatformIdentifiers(response.url(), request?.postData?.() || '', {
+        headers: request?.headers?.() || {},
+      })) {
+        observedPlatformIdentifiers.add(identifier);
+      }
       sessionProbeSuccessfulApiResponseCount = Math.min(20, sessionProbeSuccessfulApiResponseCount + 1);
       sessionProbeResponseDiagnostics.recognized_response_count = sessionProbeSuccessfulApiResponseCount;
     } else if (classification === 'candidate_drift') {
@@ -1846,6 +2059,9 @@ function filterStandardRowMetricsByProfileFieldConfig(row) {
     }
     if (Array.isArray(next.raw_data.facts)) {
       next.raw_data.facts = next.raw_data.facts.filter(fact => allowed.has(normalizeProfileFieldKey(fact?.metric_key || '')));
+    }
+    if (Array.isArray(next.raw_data.field_facts)) {
+      next.raw_data.field_facts = next.raw_data.field_facts.filter(fact => allowed.has(normalizeProfileFieldKey(fact?.metric_key || '')));
     }
   }
   return next;

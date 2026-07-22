@@ -4,9 +4,13 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const projectRoot = resolve(import.meta.dirname, '..');
-const migrationPath = resolve(
+const tenantFoundationMigrationPath = resolve(
   projectRoot,
   'database/migrations/20260722_create_tenants_and_decouple_hotel_scope.sql',
+);
+const tenantHistoryRepairMigrationPath = resolve(
+  projectRoot,
+  'database/migrations/20260722_repair_remaining_tenant_history_scope.sql',
 );
 const mysqlBinary = process.env.MYSQL_BINARY || 'mariadb';
 const databaseHost = process.env.DB_HOST || '127.0.0.1';
@@ -16,8 +20,10 @@ const databasePassword = process.env.DB_PASS || '';
 const compatibilitySmokeVersion = process.env.SUXIOS_TENANT_MARIADB_COMPAT_SMOKE || '';
 const databaseName = `suxios_tenant_upgrade_test_${process.pid}_${randomBytes(4).toString('hex')}`;
 
-if (!existsSync(migrationPath)) {
-  throw new Error(`Tenant migration is missing: ${migrationPath}`);
+for (const migrationPath of [tenantFoundationMigrationPath, tenantHistoryRepairMigrationPath]) {
+  if (!existsSync(migrationPath)) {
+    throw new Error(`Tenant migration is missing: ${migrationPath}`);
+  }
 }
 if (!/^suxios_tenant_upgrade_test_[a-z0-9_]+$/i.test(databaseName)) {
   throw new Error(`Unsafe dedicated database name: ${databaseName}`);
@@ -76,6 +82,39 @@ const scopeColumns = {
   agent_logs: 'hotel_id',
   demand_forecasts: 'hotel_id',
   price_suggestions: 'hotel_id',
+  agent_tasks: 'hotel_id',
+  knowledge_categories: 'hotel_id',
+  knowledge_base: 'hotel_id',
+  room_types: 'hotel_id',
+  devices: 'hotel_id',
+  energy_consumption: 'hotel_id',
+  competitor_analysis: 'hotel_id',
+  agent_work_orders: 'hotel_id',
+  agent_conversations: 'hotel_id',
+  energy_benchmarks: 'hotel_id',
+  energy_saving_suggestions: 'hotel_id',
+  maintenance_plans: 'hotel_id',
+  hotel_field_templates: 'hotel_id',
+  competitor_hotel: 'store_id',
+  competitor_price_log: 'store_id',
+  opening_projects: 'hotel_id',
+  operation_alerts: 'hotel_id',
+  operation_action_tracks: 'hotel_id',
+  operation_execution_intents: 'hotel_id',
+  operation_execution_tasks: 'hotel_id',
+  transfer_records: 'hotel_id',
+  complaint_rooms: 'hotel_id',
+  complaint_feedbacks: 'hotel_id',
+  field_mappings: 'hotel_id',
+  ai_model_call_logs: 'hotel_id',
+};
+
+const userScopeColumns = {
+  login_logs: 'user_id',
+  quant_simulation_records: 'created_by',
+  expansion_records: 'created_by',
+  strategy_simulation_records: 'created_by',
+  feasibility_reports: 'created_by',
 };
 
 const coreTableSql = Object.entries(scopeColumns).map(([table, scopeColumn]) => `
@@ -90,6 +129,32 @@ INSERT INTO \`${table}\` (\`id\`, \`tenant_id\`, \`${scopeColumn}\`) VALUES
   (2, 22, 22),
   (3, 999, 999);
 `).join('\n');
+
+const userScopedTableSql = Object.entries(userScopeColumns).map(([table, scopeColumn]) => `
+CREATE TABLE \`${table}\` (
+  \`id\` int unsigned NOT NULL,
+  \`tenant_id\` int unsigned DEFAULT NULL,
+  \`${scopeColumn}\` int unsigned DEFAULT NULL,
+  PRIMARY KEY (\`id\`)
+) ENGINE=InnoDB;
+INSERT INTO \`${table}\` (\`id\`, \`tenant_id\`, \`${scopeColumn}\`) VALUES
+  (1, 11, 101),
+  (2, 22, 102),
+  (3, 999, 103);
+`).join('\n');
+
+const parentScopedTableSql = `
+CREATE TABLE \`operation_execution_evidence\` (
+  \`id\` int unsigned NOT NULL,
+  \`tenant_id\` int unsigned DEFAULT NULL,
+  \`task_id\` int unsigned DEFAULT NULL,
+  PRIMARY KEY (\`id\`)
+) ENGINE=InnoDB;
+INSERT INTO \`operation_execution_evidence\` (\`id\`, \`tenant_id\`, \`task_id\`) VALUES
+  (1, 11, 1),
+  (2, 22, 2),
+  (3, 999, 3);
+`;
 
 const historicalSchema = `
 CREATE TABLE \`hotels\` (
@@ -121,12 +186,15 @@ INSERT INTO \`hotels\` (\`id\`, \`tenant_id\`, \`name\`, \`status\`, \`create_ti
   (22, 501, 'Tenant A hotel 2', 1, '2026-05-29 11:00:00');
 INSERT INTO \`users\` (\`id\`, \`tenant_id\`, \`hotel_id\`) VALUES
   (101, 11, 11),
-  (102, 22, 22);
+  (102, 22, 22),
+  (103, 999, 999);
 INSERT INTO \`user_hotel_permissions\` (\`id\`, \`tenant_id\`, \`user_id\`, \`hotel_id\`) VALUES
   (201, 11, 101, 11),
   (202, 22, 102, 22);
 
 ${coreTableSql}
+${userScopedTableSql}
+${parentScopedTableSql}
 `;
 
 let databaseCreated = false;
@@ -157,7 +225,9 @@ try {
   databaseCreated = true;
   runMysql({ database: databaseName, input: historicalSchema, label: 'seed historical tenant schema' });
 
-  const migrationSql = readFileSync(migrationPath, 'utf8');
+  const migrationSql = [tenantFoundationMigrationPath, tenantHistoryRepairMigrationPath]
+    .map((migrationPath) => readFileSync(migrationPath, 'utf8'))
+    .join('\n');
   runMysql({ database: databaseName, input: migrationSql, label: 'run tenant decoupling migration' });
   runMysql({ database: databaseName, input: migrationSql, label: 'repeat tenant decoupling migration' });
 
@@ -191,6 +261,58 @@ try {
       primary_keys_preserved: preservedPrimaryKeys,
     };
   }
+
+  for (const [table, scopeColumn] of Object.entries(userScopeColumns)) {
+    const totalRows = queryScalar(`SELECT COUNT(*) FROM \`${table}\`;`, `${table} total rows`, databaseName);
+    const remappedRows = queryScalar(
+      `SELECT COUNT(*) FROM \`${table}\` WHERE \`${scopeColumn}\` IN (101, 102) AND \`tenant_id\` = 501;`,
+      `${table} remapped rows`,
+      databaseName,
+    );
+    const unmatchedRows = queryScalar(
+      `SELECT COUNT(*) FROM \`${table}\` WHERE \`${scopeColumn}\` = 103 AND \`tenant_id\` = 999;`,
+      `${table} unmatched row preservation`,
+      databaseName,
+    );
+    const preservedPrimaryKeys = queryScalar(
+      `SELECT COUNT(*) FROM \`${table}\` WHERE \`id\` IN (1, 2, 3);`,
+      `${table} primary key preservation`,
+      databaseName,
+    );
+    if (totalRows !== 3 || remappedRows !== 2 || unmatchedRows !== 1 || preservedPrimaryKeys !== 3) {
+      throw new Error(
+        `${table} remap mismatch: total=${totalRows}, remapped=${remappedRows}, unmatched=${unmatchedRows}, primary_keys=${preservedPrimaryKeys}`,
+      );
+    }
+    tableEvidence[table] = {
+      total_rows: totalRows,
+      remapped_rows: remappedRows,
+      unmatched_rows: unmatchedRows,
+      primary_keys_preserved: preservedPrimaryKeys,
+    };
+  }
+
+  const evidenceRows = queryScalar(
+    'SELECT COUNT(*) FROM operation_execution_evidence WHERE task_id IN (1, 2) AND tenant_id = 501;',
+    'operation execution evidence remapped rows',
+    databaseName,
+  );
+  const unmatchedEvidenceRows = queryScalar(
+    'SELECT COUNT(*) FROM operation_execution_evidence WHERE task_id = 3 AND tenant_id = 999;',
+    'operation execution evidence unmatched row preservation',
+    databaseName,
+  );
+  if (evidenceRows !== 2 || unmatchedEvidenceRows !== 1) {
+    throw new Error(
+      `operation_execution_evidence remap mismatch: remapped=${evidenceRows}, unmatched=${unmatchedEvidenceRows}`,
+    );
+  }
+  tableEvidence.operation_execution_evidence = {
+    total_rows: 3,
+    remapped_rows: evidenceRows,
+    unmatched_rows: unmatchedEvidenceRows,
+    primary_keys_preserved: 3,
+  };
 
   const hotelRows = queryScalar('SELECT COUNT(*) FROM hotels WHERE tenant_id = 501;', 'hotel tenant rows', databaseName);
   const tenantRows = queryScalar('SELECT COUNT(*) FROM tenants WHERE id = 501;', 'tenant foundation row', databaseName);

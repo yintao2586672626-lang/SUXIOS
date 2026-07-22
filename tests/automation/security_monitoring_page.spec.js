@@ -21,7 +21,7 @@ test('super administrator can review the security monitoring board', async ({ pa
         response.url().includes('/api/operation-logs/security-overview')
         && response.request().method() === 'GET'
     ));
-    await page.getByText('待开发...', { exact: true }).click();
+    await page.getByTestId('nav-lean-more').click();
     await page.getByText('系统与权限', { exact: true }).click();
     await page.getByText('安全监测', { exact: true }).click();
 

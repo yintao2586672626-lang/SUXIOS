@@ -39,18 +39,28 @@ final class RevenueOperationsKnowledgeService
         if (isset($unitColumns['hotel_id'])) {
             $unitFields[] = 'hotel_id';
         }
+        if (isset($unitColumns['created_by'])) {
+            $unitFields[] = 'created_by';
+        }
 
         $unitQuery = Db::name('knowledge_units')
             ->field(implode(',', $unitFields))
             ->where('source', self::SOURCE)
             ->where('status', 'done');
 
-        if (isset($unitColumns['hotel_id'])) {
+        if (isset($unitColumns['hotel_id']) && isset($unitColumns['created_by'])) {
             if ($hotelId > 0) {
-                $unitQuery->whereIn('hotel_id', [0, $hotelId]);
+                $unitQuery->where(function ($scope) use ($hotelId): void {
+                    $scope->where('hotel_id', $hotelId)
+                        ->whereOr(function ($global): void {
+                            $global->where('hotel_id', 0)->where('created_by', 0);
+                        });
+                });
             } else {
-                $unitQuery->where('hotel_id', 0);
+                $unitQuery->where('hotel_id', 0)->where('created_by', 0);
             }
+        } else {
+            $unitQuery->whereRaw('1 = 0');
         }
 
         $unitRows = $unitQuery->order('unit_id', 'asc')->limit(20)->select()->toArray();
@@ -102,6 +112,10 @@ final class RevenueOperationsKnowledgeService
             if ($unitId <= 0
                 || trim((string)($row['source'] ?? '')) !== self::SOURCE
                 || trim((string)($row['status'] ?? '')) !== 'done') {
+                continue;
+            }
+            if ($unitHotelId === 0
+                && (!array_key_exists('created_by', $row) || (int)$row['created_by'] !== 0)) {
                 continue;
             }
             if ($hotelId > 0 && !in_array($unitHotelId, [0, $hotelId], true)) {

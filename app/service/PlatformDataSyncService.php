@@ -559,6 +559,7 @@ final class PlatformDataSyncService
                     ? $rowDataType
                     : ($sourceDataType !== '' ? $sourceDataType : ($rowDataType !== '' ? $rowDataType : 'business'))
             );
+            $row = $this->reconcileCtripCatalogStructuredMetricFacts($row, $source);
             if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($source, $payload, $dataType)) {
                 continue;
             }
@@ -589,6 +590,15 @@ final class PlatformDataSyncService
                 'snapshot_time' => $periodMeta['snapshot_time'],
                 'snapshot_bucket' => $periodMeta['snapshot_bucket'],
             ];
+            $rowCaptureEvidence = $this->fieldFactCaptureEvidence($row, $traceId);
+            if ($this->fieldFactHasDesensitizedCaptureEvidence($rowCaptureEvidence)) {
+                $rowSourceUrlHash = strtolower(trim((string)($rowCaptureEvidence['source_url_hash'] ?? '')));
+                $raw['source_url_hash'] = $rowSourceUrlHash;
+                $raw['capture_evidence'] = [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $rowSourceUrlHash,
+                ];
+            }
             $capturedAt = $this->normalizeDateTime(
                 $row['collected_at']
                     ?? $row['collectedAt']
@@ -664,6 +674,69 @@ final class PlatformDataSyncService
         }
 
         return $normalized;
+    }
+
+    /**
+     * Ctrip catalog rows historically initialized every structured column to
+     * zero before applying facts. Treat the collector's per-field facts as
+     * authoritative so an unsupported placeholder cannot become captured 0.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function reconcileCtripCatalogStructuredMetricFacts(array $row, array $source): array
+    {
+        if (!$this->isOtaBrowserProfileSource($source)
+            || strtolower(trim((string)($source['platform'] ?? $row['platform'] ?? $row['source'] ?? ''))) !== 'ctrip'
+        ) {
+            return $row;
+        }
+
+        $rawData = $row['raw_data'] ?? null;
+        if (is_string($rawData)) {
+            $decoded = json_decode($rawData, true);
+            $rawData = is_array($decoded) ? $decoded : null;
+        }
+        if (!is_array($rawData)
+            || strtolower(trim((string)($rawData['source'] ?? ''))) !== 'ctrip_catalog_facts'
+            || !is_array($rawData['field_facts'] ?? null)
+        ) {
+            return $row;
+        }
+
+        $structuredFields = [
+            'amount', 'quantity', 'book_order_num', 'comment_score', 'qunar_comment_score', 'data_value',
+            'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+        ];
+        $structuredFieldMap = array_fill_keys($structuredFields, true);
+        $capturedFields = [];
+        foreach ($rawData['field_facts'] as $fact) {
+            if (!is_array($fact)
+                || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+                || ($fact['stored_value_present'] ?? false) !== true
+            ) {
+                continue;
+            }
+            $storageField = trim((string)($fact['storage_field'] ?? ''));
+            if (str_starts_with($storageField, 'online_daily_data.')) {
+                $storageField = substr($storageField, strlen('online_daily_data.'));
+            }
+            if (isset($structuredFieldMap[$storageField])) {
+                $capturedFields[$storageField] = true;
+            }
+        }
+
+        foreach ($structuredFields as $field) {
+            $value = $row[$field] ?? null;
+            $placeholder = $value === null
+                || (is_string($value) && trim($value) === '')
+                || (is_numeric($value) && (float)$value === 0.0);
+            if (!isset($capturedFields[$field]) && $placeholder) {
+                $row[$field] = null;
+            }
+        }
+        return $row;
     }
 
     /**
@@ -812,7 +885,7 @@ final class PlatformDataSyncService
         $traceId = trim((string)($captureEvidence['source_trace_id'] ?? $captureEvidence['_source_trace_id'] ?? ''));
         $sourceUrlHash = trim((string)($captureEvidence['source_url_hash'] ?? $captureEvidence['_source_url_hash'] ?? $captureEvidence['url_hash'] ?? $captureEvidence['_url_hash'] ?? ''));
 
-        return $traceId !== '' && $sourceUrlHash !== '';
+        return $traceId !== '' && preg_match('/^[a-f0-9]{64}$/iD', $sourceUrlHash) === 1;
     }
 
     /**
@@ -5400,7 +5473,7 @@ final class PlatformDataSyncService
                 continue;
             }
 
-            $sanitized[$key] = $value;
+            $sanitized[$key] = $this->sanitizePayloadScalar($keyText, $value);
         }
         return $sanitized;
     }
@@ -5426,11 +5499,39 @@ final class PlatformDataSyncService
                 if ($orderContext || $this->isOrderPiiKey($keyText)) {
                     $this->appendRedactedOrderField($sanitized, $keyText, $item);
                 } else {
-                    $sanitized[$key] = $item;
+                    $sanitized[$key] = $this->sanitizePayloadScalar($keyText, $item);
                 }
             }
         }
         return $sanitized;
+    }
+
+    private function sanitizePayloadScalar(string $key, mixed $value): mixed
+    {
+        if (!is_string($value)) {
+            return $value;
+        }
+        $text = trim($value);
+        if ($text === ''
+            || (preg_match('/(?:url|uri|href|link)/i', $key) !== 1
+                && preg_match('~^https?://~i', $text) !== 1)
+        ) {
+            return $value;
+        }
+
+        $parts = parse_url($text);
+        if (!is_array($parts)) {
+            return preg_replace('/[?#].*$/', '', $text) ?? '';
+        }
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $path = (string)($parts['path'] ?? '');
+        if ($host === '') {
+            return preg_replace('/[?#].*$/', '', $path !== '' ? $path : $text) ?? '';
+        }
+        $port = isset($parts['port']) ? ':' . (int)$parts['port'] : '';
+        $prefix = in_array($scheme, ['http', 'https'], true) ? $scheme . '://' : '';
+        return $prefix . $host . $port . $path;
     }
 
     /**

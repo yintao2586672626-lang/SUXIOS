@@ -19,15 +19,15 @@
                                         <div class="dual-ota-temporal-head">
                                             <div class="dual-ota-temporal-heading">
                                                 <div class="dual-ota-temporal-title">
-                                                    <span class="dual-ota-temporal-icon">时</span>
-                                                    经营时间轴
+                                                    <span class="dual-ota-temporal-icon">数</span>
+                                                    数据进度与预测
                                                     <span v-if="homeTemporalLoading" class="dual-ota-temporal-loading">正在读取</span>
                                                 </div>
-                                                <p class="dual-ota-temporal-subtitle">过去有据，如今可察，未来按情景评估；</p>
+                                                <p class="dual-ota-temporal-subtitle">先看历史数据是否完整，再看今天是否更新；数据足够后才能生成未来趋势。</p>
                                             </div>
                                             <button type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="dual-ota-temporal-action">
                                                 <i :class="homeTemporalGenerating ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-layer-group mr-1.5'"></i>
-                                                {{ homeTemporalGenerating ? '正在形成新版本' : (homeTemporalSelectedHotelId ? '生成一版未来情景评估' : '选择单店后生成') }}
+                                                {{ homeTemporalGenerating ? '正在生成趋势' : (homeTemporalSelectedHotelId ? '生成未来趋势' : '先选择一家门店') }}
                                             </button>
                                         </div>
                                         <div class="dual-ota-temporal-grid">
@@ -129,7 +129,24 @@
                                                     </button>
                                                 </div>
                                             </div>
-                                            <div class="dual-ota-system-grid">
+                                            <div v-if="dualOtaWorkbenchReadInProgress" class="dual-ota-current-data-state is-loading" data-testid="dual-ota-current-store-loading" role="status">
+                                                <span class="dual-ota-current-data-state-icon"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i></span>
+                                                <div>
+                                                    <h3>正在读取 {{ dualOtaSelectedHotelLabel }} 的 {{ dualOtaRangeText() }} 数据</h3>
+                                                    <p>正在核对携程、美团的来源日期和核心经营字段。</p>
+                                                </div>
+                                            </div>
+                                            <div v-else-if="!dualOtaSelectedHotelHasCurrentData" class="dual-ota-current-data-state" data-testid="dual-ota-current-store-empty" role="status">
+                                                <span class="dual-ota-current-data-state-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
+                                                <div class="dual-ota-current-data-state-copy">
+                                                    <h3>{{ dualOtaSelectedHotelLabel }}在{{ dualOtaRangeText() }}暂无可核验数据</h3>
+                                                    <p>{{ dualOtaSelectedHotelDataGapText }}</p>
+                                                </div>
+                                                <button type="button" class="dual-ota-current-data-state-action" @click="openHomeQuickEntry({ page: 'online-data', tab: 'platform-auto' })">
+                                                    <i class="fas fa-arrow-right" aria-hidden="true"></i>检查采集与补数据
+                                                </button>
+                                            </div>
+                                            <div v-else="" class="dual-ota-system-grid">
                                                 <div v-for="group in dualOtaSystemOverviewGroups" :key="group.title" class="dual-ota-system-column">
                                                     <div class="dual-ota-system-column-head">
                                                         <h3>{{ group.title }}</h3>
@@ -147,6 +164,7 @@
                                             </div>
                                         </section>
 
+                                        <template v-if="!dualOtaWorkbenchReadInProgress &amp;&amp; dualOtaSelectedHotelHasCurrentData">
                                         <section class="dual-ota-module-grid dual-ota-module-grid-top">
                                             <article class="dual-ota-card" data-testid="dual-ota-platform-revenue-structure">
                                                 <div class="dual-ota-card-head">
@@ -229,5 +247,6 @@
                                         <footer class="dual-ota-footer">
                                             <strong>{{ dualOtaDashboard.positioning }}</strong>
                                         </footer>
+                                        </template>
                                     </template>
                                 </div>

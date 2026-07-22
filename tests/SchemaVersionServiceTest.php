@@ -151,6 +151,51 @@ final class SchemaVersionServiceTest extends TestCase
         )->fetchColumn());
     }
 
+    public function testRegisteredMigrationFailureResolutionIsRetriedAfterCleanupFailure(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        file_put_contents(
+            $this->root . '/database/migrations/20260703_recoverable.sql',
+            "THIS IS NOT VALID SQL;\n"
+        );
+
+        try {
+            $this->service->migrate();
+            self::fail('Broken migration should create an unresolved failure record.');
+        } catch (RuntimeException) {
+            // Expected: the migration itself failed and was not registered.
+        }
+
+        file_put_contents(
+            $this->root . '/database/migrations/20260703_recoverable.sql',
+            "CREATE TABLE recovered_cleanup (id INTEGER PRIMARY KEY);\n"
+        );
+        $this->pdo->exec(
+            "CREATE TRIGGER block_failure_resolution "
+            . "BEFORE UPDATE OF resolved_at ON schema_migration_failures "
+            . "WHEN NEW.resolved_at IS NOT NULL "
+            . "BEGIN SELECT RAISE(ABORT, 'injected resolution failure'); END"
+        );
+
+        try {
+            $this->service->migrate();
+            self::fail('Cleanup failure must keep migration readiness red.');
+        } catch (\Throwable $exception) {
+            self::assertStringContainsString('injected resolution failure', $exception->getMessage());
+        }
+
+        self::assertSame(1, (int)$this->pdo->query(
+            "SELECT COUNT(*) FROM schema_versions WHERE migration = '20260703_recoverable.sql'"
+        )->fetchColumn());
+        self::assertSame(['20260703_recoverable.sql'], $this->service->status()['unresolved_failures']);
+
+        $this->pdo->exec('DROP TRIGGER block_failure_resolution');
+        $recovered = $this->service->migrate();
+        self::assertSame([], $recovered['executed']);
+        self::assertTrue($recovered['status']['ready']);
+        self::assertSame([], $recovered['status']['unresolved_failures']);
+    }
+
     public function testEmptyDatabaseCannotBeFalselyAdoptedAsLegacyBaseline(): void
     {
         $this->expectException(RuntimeException::class);

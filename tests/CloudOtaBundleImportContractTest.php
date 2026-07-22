@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\CloudOtaBundleImportService;
+use app\service\CloudOtaBundleExportService;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 
@@ -40,6 +41,36 @@ final class CloudOtaBundleImportContractTest extends TestCase
         } finally {
             $this->removeDirectory($directory);
         }
+    }
+
+    public function testExporterRefusesOversizedSourceAndImporterRetiresOnlyCompleteSnapshots(): void
+    {
+        $exportSource = (string)file_get_contents((new ReflectionMethod(
+            CloudOtaBundleExportService::class,
+            'trustedTargetRows'
+        ))->getFileName());
+        $importSource = (string)file_get_contents((new ReflectionMethod(
+            CloudOtaBundleImportService::class,
+            'importPackage'
+        ))->getFileName());
+
+        self::assertStringContainsString('CloudOtaBundleCodec::MAX_ROWS + 1', $exportSource);
+        self::assertStringContainsString('cloud_bundle_source_row_limit_exceeded', $exportSource);
+        self::assertStringContainsString("'snapshot_complete' => true", $exportSource);
+        self::assertStringContainsString('($package[\'snapshot_complete\'] ?? false) === true', $importSource);
+        self::assertStringContainsString('(int)($package[\'source_row_count\'] ?? -1) === count($rows)', $importSource);
+    }
+
+    public function testExporterIncludesOnlyExplicitlyRequestedPlatformPackages(): void
+    {
+        $source = (string)file_get_contents((new ReflectionMethod(
+            CloudOtaBundleExportService::class,
+            'export'
+        ))->getFileName());
+
+        self::assertStringContainsString('$selectedBindings = array_values(array_filter(', $source);
+        self::assertStringContainsString("in_array((string)\$item['platform'], \$requiredPlatforms, true)", $source);
+        self::assertStringContainsString('foreach ($selectedBindings as $item)', $source);
     }
 
     public function testSystemdBridgeIsShortLivedAndResourceBounded(): void

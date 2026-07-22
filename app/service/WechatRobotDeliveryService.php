@@ -80,6 +80,7 @@ final class WechatRobotDeliveryService
                 'robot_id' => $robotId,
                 'name' => $robotName,
                 'reason' => $this->safeText((string)($result['error'] ?? '发送失败'), 180),
+                'ambiguous' => ($result['ambiguous'] ?? false) === true,
             ];
         }
 
@@ -251,19 +252,23 @@ final class WechatRobotDeliveryService
         return $this->markdownPayload($lines);
     }
 
-    /** @return array{success: bool, error?: string, data?: array<string, mixed>} */
+    /** @return array{success: bool, error?: string, data?: array<string, mixed>, ambiguous?: bool} */
     public static function interpretWebhookResponse(string $response, int $httpStatus = 200): array
     {
         if ($httpStatus < 200 || $httpStatus >= 300) {
-            return ['success' => false, 'error' => '企业微信 Webhook 返回 HTTP ' . $httpStatus];
+            return [
+                'success' => false,
+                'error' => '企业微信 Webhook 返回 HTTP ' . $httpStatus,
+                'ambiguous' => true,
+            ];
         }
         try {
             $decoded = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
-            return ['success' => false, 'error' => '企业微信 Webhook 返回格式异常'];
+            return ['success' => false, 'error' => '企业微信 Webhook 返回格式异常', 'ambiguous' => true];
         }
         if (!is_array($decoded) || !array_key_exists('errcode', $decoded) || !is_numeric($decoded['errcode'])) {
-            return ['success' => false, 'error' => '企业微信 Webhook 返回缺少结果状态'];
+            return ['success' => false, 'error' => '企业微信 Webhook 返回缺少结果状态', 'ambiguous' => true];
         }
         $errorCode = (int)$decoded['errcode'];
         if ($errorCode !== 0) {
@@ -274,12 +279,13 @@ final class WechatRobotDeliveryService
                 'success' => false,
                 'error' => '企业微信 Webhook 拒绝请求（errcode=' . $errorCode . '）'
                     . ($errorMessage !== '' ? ': ' . $errorMessage : ''),
+                'ambiguous' => false,
             ];
         }
         return ['success' => true, 'data' => $decoded];
     }
 
-    /** @return array{success: bool, error?: string, data?: array<string, mixed>} */
+    /** @return array{success: bool, error?: string, data?: array<string, mixed>, ambiguous?: bool} */
     private function postJson(string $url, array $payload): array
     {
         $url = $this->normalizeWebhook($url);
@@ -312,7 +318,11 @@ final class WechatRobotDeliveryService
             $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
             if (!is_string($response)) {
-                return ['success' => false, 'error' => $error !== '' ? $this->safeText($error, 160) : '企业微信请求失败'];
+                return [
+                    'success' => false,
+                    'error' => $error !== '' ? $this->safeText($error, 160) : '企业微信请求失败',
+                    'ambiguous' => true,
+                ];
             }
             return self::interpretWebhookResponse($response, $status);
         }
@@ -330,7 +340,11 @@ final class WechatRobotDeliveryService
         ]);
         $response = @file_get_contents($url, false, $context);
         if (!is_string($response)) {
-            return ['success' => false, 'error' => '企业微信 Webhook 请求失败，请检查网络或机器人配置'];
+            return [
+                'success' => false,
+                'error' => '企业微信 Webhook 请求失败，请检查网络或机器人配置',
+                'ambiguous' => true,
+            ];
         }
         $status = 200;
         foreach ((array)($http_response_header ?? []) as $header) {
@@ -386,11 +400,12 @@ final class WechatRobotDeliveryService
             return ['success' => true];
         }
         if ($result === false || !is_array($result)) {
-            return ['success' => false, 'error' => '发送失败'];
+            return ['success' => false, 'error' => '发送失败', 'ambiguous' => true];
         }
         return [
             'success' => ($result['success'] ?? false) === true,
             'error' => (string)($result['error'] ?? ''),
+            'ambiguous' => ($result['ambiguous'] ?? false) === true,
         ];
     }
 

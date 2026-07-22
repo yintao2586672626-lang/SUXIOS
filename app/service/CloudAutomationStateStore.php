@@ -161,6 +161,7 @@ final class CloudAutomationStateStore
         $maxAttempts = max(1, min(50, $maxAttempts));
         $deliveryStatus = $this->safeToken((string)($delivery['delivery_status'] ?? 'failed'), 'failed');
         $failureIds = [];
+        $outcomeAmbiguous = false;
         foreach ((array)($delivery['failures'] ?? []) as $failure) {
             if (!is_array($failure)) {
                 continue;
@@ -169,13 +170,16 @@ final class CloudAutomationStateStore
             if ($robotId > 0) {
                 $failureIds[] = $robotId;
             }
+            $outcomeAmbiguous = $outcomeAmbiguous || (($failure['ambiguous'] ?? false) === true);
         }
 
         $sent = $deliveryStatus === 'sent';
-        $retryable = !$sent && $attempts < $maxAttempts;
+        $retryable = !$sent && !$outcomeAmbiguous && $attempts < $maxAttempts;
         $delaySeconds = min(21600, 900 * (2 ** min(4, max(0, $attempts - 1))));
         $record['attempts'] = $attempts;
-        $record['status'] = $sent ? 'sent' : ($retryable ? $deliveryStatus : 'dead_letter');
+        $record['status'] = $sent
+            ? 'sent'
+            : ($outcomeAmbiguous ? 'delivery_outcome_unknown' : ($retryable ? $deliveryStatus : 'dead_letter'));
         $record['pending_robot_ids'] = $deliveryStatus === 'binding_missing'
             ? []
             : array_values(array_unique($failureIds));
@@ -187,11 +191,39 @@ final class CloudAutomationStateStore
             'robot_count' => (int)($delivery['robot_count'] ?? 0),
             'sent_count' => (int)($delivery['sent_count'] ?? 0),
             'failed_count' => (int)($delivery['failed_count'] ?? 0),
+            'outcome_ambiguous' => $outcomeAmbiguous,
             'attempted_at' => date('Y-m-d H:i:s'),
         ];
         $record['updated_at'] = date('Y-m-d H:i:s');
         $this->writeJson($this->deliveryPath((string)($record['delivery_key'] ?? '')), $record);
         return $record;
+    }
+
+    /**
+     * Persist the ambiguous external-side-effect boundary before sending.
+     * A process crash after this write is fail-closed: later requests see
+     * `sending` and do not deliver the same payload again automatically.
+     *
+     * @param array<string, mixed> $record
+     * @return array<string, mixed>
+     */
+    public function beginDeliveryAttempt(array $record): array
+    {
+        $deliveryKey = (string)($record['delivery_key'] ?? '');
+        $path = $this->deliveryPath($deliveryKey);
+        $current = $this->readJson($path);
+        if (!is_array($current)) {
+            throw new \RuntimeException('Cloud delivery record is missing before send.');
+        }
+        $status = (string)($current['status'] ?? '');
+        if (in_array($status, ['sent', 'sending'], true)) {
+            return $current;
+        }
+        $current['status'] = 'sending';
+        $current['attempt_started_at'] = date('Y-m-d H:i:s');
+        $current['updated_at'] = date('Y-m-d H:i:s');
+        $this->writeJson($path, $current);
+        return $current;
     }
 
     /** @return array<int, array<string, mixed>> */

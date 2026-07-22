@@ -9,6 +9,7 @@ use app\service\ScheduledAutoFetchPolicy;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
+use think\console\input\Option;
 use think\facade\Db;
 use think\facade\Cache;
 use think\facade\Log;
@@ -18,20 +19,70 @@ class AutoFetchOnlineData extends Command
     protected function configure()
     {
         $this->setName('online-data:auto-fetch')
+            ->addOption('hotel-id', null, Option::VALUE_REQUIRED, 'Optional positive hotel id scope')
+            ->addOption('target-date', null, Option::VALUE_REQUIRED, 'Explicit historical date within the previous 7 days')
+            ->addOption('source-ids', null, Option::VALUE_REQUIRED, 'Optional comma-separated Profile source ids within the hotel scope')
             ->setDescription('自动获取线上数据（定时任务调用）');
     }
 
     protected function execute(Input $input, Output $output)
     {
-        return $this->executeSegmentedSchedules($output);
+        $hotelIdOption = $input->getOption('hotel-id');
+        $hotelId = null;
+        if ($hotelIdOption !== null) {
+            $rawHotelId = trim((string)$hotelIdOption);
+            if ($rawHotelId === '' || !ctype_digit($rawHotelId) || (int)$rawHotelId <= 0) {
+                $output->writeln('hotel-id must be a positive integer.');
+                return 1;
+            }
+            $hotelId = (int)$rawHotelId;
+        }
+
+        $targetDateOption = $input->getOption('target-date');
+        $targetDate = null;
+        if ($targetDateOption !== null) {
+            if ($hotelId === null) {
+                $output->writeln('target-date requires an explicit hotel-id scope.');
+                return 1;
+            }
+            $targetDate = $this->normalizeExplicitTargetDate((string)$targetDateOption);
+            if ($targetDate === null) {
+                $output->writeln('target-date must be a valid date within the previous 7 days.');
+                return 1;
+            }
+        }
+
+        $sourceIdsOption = $input->getOption('source-ids');
+        $sourceIds = [];
+        if ($sourceIdsOption !== null) {
+            if ($hotelId === null) {
+                $output->writeln('source-ids requires an explicit hotel-id scope.');
+                return 1;
+            }
+            $sourceIds = $this->normalizeExplicitSourceIds((string)$sourceIdsOption);
+            if ($sourceIds === []) {
+                $output->writeln('source-ids must contain positive integer ids.');
+                return 1;
+            }
+        }
+
+        return $this->executeSegmentedSchedules($output, $hotelId, $targetDate, $sourceIds);
     }
 
-    private function executeSegmentedSchedules(Output $output): int
+    private function executeSegmentedSchedules(Output $output, ?int $hotelIdFilter = null, ?string $targetDateOverride = null, array $sourceIds = []): int
     {
         $output->writeln('[' . date('Y-m-d H:i:s') . '] Start online data auto-fetch schedule check.');
 
         $now = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
-        $hotels = Db::name('hotels')->where('status', 1)->select()->toArray();
+        $hotelsQuery = Db::name('hotels')->where('status', 1);
+        if ($hotelIdFilter !== null) {
+            $hotelsQuery->where('id', $hotelIdFilter);
+        }
+        $hotels = $hotelsQuery->select()->toArray();
+        if ($hotelIdFilter !== null && $hotels === []) {
+            $output->writeln('hotel-id was not found or is disabled.');
+            return 1;
+        }
         $hasIncompleteDueRun = false;
 
         foreach ($hotels as $hotel) {
@@ -40,13 +91,19 @@ class AutoFetchOnlineData extends Command
             $status = Cache::get("online_data_auto_fetch_status_{$hotelId}", []);
             $status = is_array($status) ? $status : [];
             if (empty($status['enabled'])) {
+                if ($targetDateOverride !== null) {
+                    $output->writeln("Hotel {$hotelName} auto-fetch is disabled.");
+                    $hasIncompleteDueRun = true;
+                }
                 continue;
             }
 
             $realtimeIntervalHours = $this->normalizeRealtimeScheduleIntervalHours($status['realtime_schedule_interval_hours'] ?? $status['realtime_interval_hours'] ?? $status['schedule_interval_hours'] ?? 2);
             $retryMaxAttempts = $this->normalizeScheduleRetryMaxAttempts($status['retry_max_attempts'] ?? 3);
             $retryDelayMinutes = $this->normalizeScheduleRetryDelayMinutes($status['retry_delay_minutes'] ?? 5);
-            $dueRuns = $this->buildDueRuns($hotelId, $status, $now);
+            $dueRuns = $targetDateOverride !== null
+                ? [$this->explicitHistoricalRun($hotelId, $targetDateOverride)]
+                : $this->buildDueRuns($hotelId, $status, $now);
             if (empty($dueRuns)) {
                 continue;
             }
@@ -100,7 +157,8 @@ class AutoFetchOnlineData extends Command
                             (string)($status['ctrip_config_id'] ?? ''),
                             (string)($status['ctrip_request_url'] ?? ''),
                             (string)($status['ctrip_node_id'] ?? ''),
-                            (new ScheduledAutoFetchPolicy())->normalizePlatforms($run['target_platforms'] ?? [])
+                            (new ScheduledAutoFetchPolicy())->normalizePlatforms($run['target_platforms'] ?? []),
+                            $sourceIds
                         );
                     } catch (\Throwable $e) {
                         Log::error('Scheduled OTA collection execution failed', [
@@ -166,6 +224,54 @@ class AutoFetchOnlineData extends Command
         return $hasIncompleteDueRun ? 1 : 0;
     }
 
+    private function normalizeExplicitTargetDate(string $value): ?string
+    {
+        $value = trim($value);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) !== 1) {
+            return null;
+        }
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        $target = \DateTimeImmutable::createFromFormat('!Y-m-d', $value, $timezone);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (!$target instanceof \DateTimeImmutable
+            || (is_array($errors) && ((int)($errors['warning_count'] ?? 0) > 0 || (int)($errors['error_count'] ?? 0) > 0))
+            || $target->format('Y-m-d') !== $value
+        ) {
+            return null;
+        }
+        $today = new \DateTimeImmutable('today', $timezone);
+        $ageDays = (int)(($today->getTimestamp() - $target->getTimestamp()) / 86400);
+        return $ageDays >= 1 && $ageDays <= 7 ? $value : null;
+    }
+
+    /** @return array<int, int> */
+    private function normalizeExplicitSourceIds(string $value): array
+    {
+        $ids = [];
+        foreach (explode(',', trim($value)) as $part) {
+            $part = trim($part);
+            if ($part === '' || !ctype_digit($part) || (int)$part <= 0) {
+                return [];
+            }
+            $ids[(int)$part] = (int)$part;
+        }
+        return array_values($ids);
+    }
+
+    /** @return array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string} */
+    private function explicitHistoricalRun(int $hotelId, string $targetDate): array
+    {
+        return [
+            'slot_id' => "historical:{$targetDate}",
+            'period' => 'historical_daily',
+            'data_date' => $targetDate,
+            'executed_key' => "online_data_historical_executed_{$hotelId}_{$targetDate}",
+            'retry_key' => "online_data_historical_retry_{$hotelId}_{$targetDate}",
+            'label' => 'historical-explicit',
+            'executed_message' => 'Explicit historical data already executed.',
+        ];
+    }
+
     private function fetchDataForHotel(
         int $hotelId,
         string $dataDate,
@@ -176,7 +282,8 @@ class AutoFetchOnlineData extends Command
         string $ctripConfigId = '',
         string $ctripRequestUrl = '',
         string $ctripNodeId = '',
-        array $targetPlatforms = []
+        array $targetPlatforms = [],
+        array $sourceIds = []
     ): array
     {
         $startedAt = microtime(true);
@@ -184,7 +291,7 @@ class AutoFetchOnlineData extends Command
         $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
         $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($ctripSectionConcurrency);
         $targetPlatforms = (new ScheduledAutoFetchPolicy())->normalizePlatforms($targetPlatforms);
-        $profileResult = $this->syncBrowserProfileSources($hotelId, $dataDate, $browserHeadless, $dataPeriod, $snapshotTime, $ctripSectionConcurrency, $targetPlatforms);
+        $profileResult = $this->syncBrowserProfileSources($hotelId, $dataDate, $browserHeadless, $dataPeriod, $snapshotTime, $ctripSectionConcurrency, $targetPlatforms, $sourceIds);
         if ($profileResult['attempted']) {
             return [
                 'success' => (bool)$profileResult['success'],
@@ -212,21 +319,46 @@ class AutoFetchOnlineData extends Command
         ];
     }
 
-    private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3, array $targetPlatforms = []): array
+    private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3, array $targetPlatforms = [], array $sourceIds = []): array
     {
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
         $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
         $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($ctripSectionConcurrency);
         try {
-            $sources = Db::name('platform_data_sources')
+            $sourceIds = array_values(array_unique(array_filter(array_map('intval', $sourceIds), static fn(int $id): bool => $id > 0)));
+            $sourceQuery = Db::name('platform_data_sources')
                 ->where('enabled', 1)
                 ->whereIn('status', ['ready', 'success', 'partial_success', 'failed', 'waiting_config'])
                 ->where('system_hotel_id', $hotelId)
                 ->whereIn('platform', ['ctrip', 'meituan'])
-                ->where('ingestion_method', 'browser_profile')
+                ->where('ingestion_method', 'browser_profile');
+            if ($sourceIds !== []) {
+                $sourceQuery->whereIn('id', $sourceIds);
+            }
+            $sources = $sourceQuery
                 ->field('id,platform,status,last_sync_time,system_hotel_id')
                 ->select()
                 ->toArray();
+            if ($sourceIds !== []) {
+                $foundSourceIds = array_values(array_unique(array_map(
+                    static fn(array $source): int => (int)($source['id'] ?? 0),
+                    $sources
+                )));
+                $missingSourceIds = array_values(array_diff($sourceIds, $foundSourceIds));
+                if ($missingSourceIds !== []) {
+                    return [
+                        'attempted' => true,
+                        'success' => false,
+                        'message' => 'scheduled_profile_source_scope_missing:' . implode(',', $missingSourceIds),
+                        'saved_count' => 0,
+                        'data_period' => $dataPeriod,
+                        'timing' => [],
+                        'platform_results' => [],
+                        'failed_platforms' => $targetPlatforms ?: ['ctrip', 'meituan'],
+                        'successful_platforms' => [],
+                    ];
+                }
+            }
             $policy = new ScheduledAutoFetchPolicy();
             $sources = $policy->retryableProfileSources($sources);
             $targetPlatforms = $policy->normalizePlatforms($targetPlatforms);

@@ -101,6 +101,11 @@ test('slow authenticated assets remain interactive while browser password storag
     await page.locator('#public-login-remember').check();
     await page.locator('#public-login-submit').click();
     await page.locator('[data-testid="mock-home"] button').waitFor({ state: 'visible' });
+    await page.waitForFunction(
+      () => window.SUXI_LOGIN_HANDOFF_METRICS?.status === 'interactive',
+      undefined,
+      { timeout: 3000 },
+    );
 
     const result = await page.evaluate(() => ({
       metrics: window.SUXI_LOGIN_HANDOFF_METRICS,

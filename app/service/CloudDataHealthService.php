@@ -113,15 +113,32 @@ final class CloudDataHealthService
         }
 
         $issues = [];
+        if ($tenantId <= 0) {
+            $issues[] = self::issue(
+                'hotel_tenant_scope_missing',
+                '',
+                'The hotel has no authoritative tenant scope, so OTA evidence cannot be used for report generation.',
+                true,
+                'Bind the hotel to an authoritative tenant before running cloud data health or report generation.'
+            );
+        }
         $platformResults = [];
         $targetRowCount = 0;
+        $retiredTargetRowCount = 0;
         foreach ($requiredPlatforms as $platform) {
-            $platformSources = array_values(array_filter($sources, static function (array $source) use ($platform): bool {
-                return self::rowPlatform($source) === $platform && (int)($source['enabled'] ?? 1) === 1;
+            $allPlatformSources = array_values(array_filter($sources, static function (array $source) use ($platform): bool {
+                return self::rowPlatform($source) === $platform;
+            }));
+            $platformSources = array_values(array_filter($allPlatformSources, static function (array $source): bool {
+                return (int)($source['enabled'] ?? 1) === 1;
             }));
             $sourceIds = array_values(array_filter(array_map(
                 static fn(array $source): int => (int)($source['id'] ?? 0),
                 $platformSources
+            ), static fn(int $id): bool => $id > 0));
+            $disabledSourceIds = array_values(array_filter(array_map(
+                static fn(array $source): int => (int)($source['id'] ?? 0),
+                array_filter($allPlatformSources, static fn(array $source): bool => (int)($source['enabled'] ?? 1) !== 1)
             ), static fn(int $id): bool => $id > 0));
 
             if ($platformSources === []) {
@@ -134,15 +151,30 @@ final class CloudDataHealthService
                 );
             }
 
-            $platformRows = array_values(array_filter($rows, static function (array $row) use ($platform, $sourceIds): bool {
+            $platformRows = array_values(array_filter($rows, static function (array $row) use ($platform, $sourceIds, $disabledSourceIds): bool {
                 $rowPlatform = self::rowPlatform($row);
                 $dataSourceId = (int)($row['data_source_id'] ?? 0);
+                if ($dataSourceId > 0 && in_array($dataSourceId, $disabledSourceIds, true)) {
+                    return false;
+                }
                 return $rowPlatform === $platform || ($dataSourceId > 0 && in_array($dataSourceId, $sourceIds, true));
             }));
+            $retiredPlatformRows = array_values(array_filter(
+                $platformRows,
+                static fn(array $row): bool => self::isRetiredSnapshotRow($row)
+            ));
+            $platformRows = array_values(array_filter(
+                $platformRows,
+                static fn(array $row): bool => !self::isRetiredSnapshotRow($row)
+            ));
+            $retiredTargetRows = array_values(array_filter($retiredPlatformRows, static fn(array $row): bool =>
+                substr((string)($row['data_date'] ?? ''), 0, 10) === $targetDate
+            ));
             $targetRows = array_values(array_filter($platformRows, static fn(array $row): bool =>
                 substr((string)($row['data_date'] ?? ''), 0, 10) === $targetDate
             ));
             $targetRowCount += count($targetRows);
+            $retiredTargetRowCount += count($retiredTargetRows);
 
             $latestDate = '';
             foreach ($platformRows as $row) {
@@ -161,6 +193,16 @@ final class CloudDataHealthService
                     '平台登录状态已过期或需要重新登录。',
                     $targetRows === [],
                     '在本地专用浏览器重新登录并完成一次受控采集。'
+                );
+            }
+
+            if (self::collectionPartial($latestTask, $platformSources)) {
+                $issues[] = self::issue(
+                    'latest_collection_partial',
+                    $platform,
+                    'The latest collection completed only partially, so its snapshot is not complete enough for report generation.',
+                    true,
+                    'Recollect the target date until the platform task and bound data source both report success.'
                 );
             }
 
@@ -186,6 +228,7 @@ final class CloudDataHealthService
             $trustedRows = 0;
             $readbackRows = 0;
             $fieldEvidenceRows = 0;
+            $coreBusinessRows = 0;
             foreach ($targetRows as $row) {
                 $rowHotelId = (int)($row['system_hotel_id'] ?? 0);
                 if ($rowHotelId !== $hotelId) {
@@ -199,7 +242,17 @@ final class CloudDataHealthService
                     continue;
                 }
                 $rowTenantId = (int)($row['tenant_id'] ?? 0);
-                if ($tenantId > 0 && $rowTenantId > 0 && $rowTenantId !== $tenantId) {
+                if ($tenantId > 0 && $rowTenantId <= 0) {
+                    $issues[] = self::issue(
+                        'tenant_scope_missing',
+                        $platform,
+                        'The persisted OTA row has no tenant scope and cannot prove its ownership.',
+                        true,
+                        'Recollect or repair the row through the authoritative tenant and hotel binding.'
+                    );
+                    continue;
+                }
+                if ($tenantId > 0 && $rowTenantId !== $tenantId) {
                     $issues[] = self::issue(
                         'tenant_scope_mismatch',
                         $platform,
@@ -211,7 +264,17 @@ final class CloudDataHealthService
                 }
 
                 $dataSourceId = (int)($row['data_source_id'] ?? 0);
-                if ($dataSourceId > 0 && !in_array($dataSourceId, $sourceIds, true)) {
+                if ($dataSourceId <= 0) {
+                    $issues[] = self::issue(
+                        'data_source_binding_missing',
+                        $platform,
+                        'The persisted OTA row has no data-source binding and cannot prove its profile or store identity.',
+                        true,
+                        'Recollect the target date through an enabled platform data source with a verified hotel binding.'
+                    );
+                    continue;
+                }
+                if (!in_array($dataSourceId, $sourceIds, true)) {
                     $issues[] = self::issue(
                         'data_source_hotel_mismatch',
                         $platform,
@@ -237,6 +300,9 @@ final class CloudDataHealthService
 
                 if (!$hasReadbackColumn || (int)($row['readback_verified'] ?? 0) === 1) {
                     $readbackRows++;
+                    if (self::isCoreBusinessRow($row)) {
+                        $coreBusinessRows++;
+                    }
                 } else {
                     $issues[] = self::issue(
                         'readback_unverified',
@@ -264,6 +330,15 @@ final class CloudDataHealthService
                     '补齐字段映射、source path 和质量状态后重新保存。'
                 );
             }
+            if ($targetRows !== [] && $trustedRows > 0 && $coreBusinessRows === 0) {
+                $issues[] = self::issue(
+                    'core_business_metrics_missing',
+                    $platform,
+                    '目标日只有辅助类数据，缺少可回读的 OTA 经营核心指标。',
+                    false,
+                    '补采或导入该平台目标日的房费收入、间夜或订单证据；现有报告仅按已验证渠道数据生成。'
+                );
+            }
 
             $platformResults[] = [
                 'platform' => $platform,
@@ -273,9 +348,11 @@ final class CloudDataHealthService
                 'login_status' => $loginExpired ? 'login_expired' : 'not_expired_by_saved_state',
                 'latest_data_date' => $latestDate,
                 'target_row_count' => count($targetRows),
+                'retired_target_row_count' => count($retiredTargetRows),
                 'trusted_row_count' => $trustedRows,
                 'readback_row_count' => $readbackRows,
                 'field_evidence_row_count' => $fieldEvidenceRows,
+                'core_business_row_count' => $coreBusinessRows,
             ];
         }
 
@@ -296,6 +373,7 @@ final class CloudDataHealthService
                 'verified' => $blockingCount === 0 && $targetRowCount > 0,
                 'mode' => $hasReadbackColumn ? 'persisted_readback_flag' : 'legacy_mysql_identity_query',
                 'target_row_count' => $targetRowCount,
+                'retired_target_row_count' => $retiredTargetRowCount,
             ],
             'boundary' => 'Missing, stale, cross-bound, or unverified rows do not enter AI report generation and are never replaced by zero.',
         ];
@@ -312,11 +390,12 @@ final class CloudDataHealthService
             'id', 'tenant_id', 'system_hotel_id', 'platform', 'data_type', 'status', 'enabled',
             'last_sync_status', 'last_error', 'last_sync_time', 'update_time',
         ], $columns));
-        $query = Db::name('platform_data_sources')->where('system_hotel_id', $hotelId)->order('id', 'asc');
-        if (in_array('enabled', $columns, true)) {
-            $query->where('enabled', 1);
-        }
-        return $query->field(implode(',', $fields))->select()->toArray();
+        return Db::name('platform_data_sources')
+            ->where('system_hotel_id', $hotelId)
+            ->order('id', 'asc')
+            ->field(implode(',', $fields))
+            ->select()
+            ->toArray();
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -416,6 +495,20 @@ final class CloudDataHealthService
         ) === 1;
     }
 
+    /** @param array<int, array<string, mixed>> $sources */
+    private static function collectionPartial(array $latestTask, array $sources): bool
+    {
+        if (in_array(strtolower(trim((string)($latestTask['status'] ?? ''))), ['partial', 'partial_success'], true)) {
+            return true;
+        }
+        foreach ($sources as $source) {
+            if (in_array(strtolower(trim((string)($source['last_sync_status'] ?? ''))), ['partial', 'partial_success'], true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** @return array<int, array<string, mixed>> */
     private static function validationFlagIssues(array $row, string $platform): array
     {
@@ -444,20 +537,56 @@ final class CloudDataHealthService
         return $issues;
     }
 
-    private static function hasFieldEvidence(array $row): bool
+    private static function isRetiredSnapshotRow(array $row): bool
     {
-        if (trim((string)($row['data_type'] ?? '')) !== '' || trim((string)($row['dimension'] ?? '')) !== '') {
-            return true;
-        }
-        $raw = $row['raw_data'] ?? null;
-        if (is_array($raw)) {
-            return $raw !== [];
-        }
-        if (!is_string($raw) || trim($raw) === '') {
+        if (
+            strtolower(trim((string)($row['validation_status'] ?? ''))) !== 'unverified'
+            || !array_key_exists('readback_verified', $row)
+            || (int)$row['readback_verified'] !== 0
+        ) {
             return false;
         }
-        $decoded = json_decode($raw, true);
-        return is_array($decoded) && $decoded !== [];
+
+        $flags = $row['validation_flags'] ?? [];
+        if (is_string($flags) && trim($flags) !== '') {
+            $decoded = json_decode($flags, true);
+            $flags = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($flags)) {
+            return false;
+        }
+
+        foreach ($flags as $flag) {
+            $code = is_array($flag) ? (string)($flag['code'] ?? '') : (string)$flag;
+            if ($code === 'cloud_bundle_row_absent_from_newer_verified_snapshot') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function isCoreBusinessRow(array $row): bool
+    {
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        return in_array($dataType, ['business', 'business_overview', 'revenue', 'order', 'orders'], true);
+    }
+
+    private static function hasFieldEvidence(array $row): bool
+    {
+        $raw = $row['raw_data'] ?? null;
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : null;
+        }
+        if (!is_array($raw) || $raw === []) {
+            return false;
+        }
+
+        $status = OnlineDataFieldFactService::buildStatus($row, $raw);
+        $capturedCount = (int)($status['captured_count'] ?? 0);
+        return $capturedCount > 0
+            && (int)($status['matching_desensitized_capture_evidence_count'] ?? 0) >= $capturedCount
+            && (int)($status['stored_value_missing_count'] ?? 0) === 0;
     }
 
     private static function rowPlatform(array $row): string

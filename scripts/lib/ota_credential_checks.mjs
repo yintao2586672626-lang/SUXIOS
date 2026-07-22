@@ -1,9 +1,49 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { isPlaceholder } from './release_env_checks.mjs';
+import { safeJsonParseErrorCode } from './safe_json_parse_error.mjs';
 
 const RELEASE_EVIDENCE_MAX_AGE_DAYS = 30;
+
+const OTA_SENSITIVE_KEY_SOURCE = [
+  'cookies?',
+  'set[_-]?cookies?',
+  '(?:proxy[_-]?)?authorization(?:[_-]?header)?',
+  'auth[_-]?data',
+  '(?:user|access|refresh|session|spider|auth)[_-]?tokens?',
+  'tokens?',
+  'user[_-]?sign',
+  'signature',
+  'mtg[_-]?sig',
+  '(?:spider|api|app|access)[_-]?keys?',
+  '(?:client|app)[_-]?secrets?',
+  'secrets?(?:[_-]?json)?',
+  'headers?(?:[_-]?json)?',
+  'payload[_-]?json',
+  'encrypted[_-]?payload',
+  'ciphertext',
+  'credentials?',
+  '(?:j[_-]?)?session[_-]?id',
+  'sid',
+  '_mtsi_eb_u',
+  'pass(?:word|wd)',
+].join('|');
+
+export const CREDENTIAL_SENSITIVE_NORMALIZED_KEYS = Object.freeze([
+  'cookie', 'cookies', 'setcookie',
+  'authorization', 'authorizationheader', 'proxyauthorization', 'authdata',
+  'token', 'tokens', 'usertoken', 'accesstoken', 'refreshtoken', 'sessiontoken', 'spidertoken', 'authtoken',
+  'usersign', 'signature', 'mtgsig',
+  'spiderkey', 'apikey', 'appkey', 'accesskey', 'clientsecret', 'appsecret',
+  'secret', 'secrets', 'secretjson', 'headers', 'headersjson', 'payload', 'payloadjson',
+  'encryptedpayload', 'ciphertext',
+  'credential', 'credentials', 'jsessionid', 'sessionid', 'sid',
+  'mtsiebu', 'password', 'passwd',
+]);
+
+const OTA_SENSITIVE_NORMALIZED_KEYS = new Set(CREDENTIAL_SENSITIVE_NORMALIZED_KEYS);
 
 function resolveInputPath(repoRoot, filePath) {
   return path.isAbsolute(filePath) ? filePath : path.join(repoRoot, filePath);
@@ -15,16 +55,25 @@ function isPathInsideRepo(repoRoot, filePath) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-function readTextIfSafe(repoRoot, relativePath, warnings) {
-  const buffer = fs.readFileSync(resolveInputPath(repoRoot, relativePath));
-  if (buffer.includes(0)) {
-    warnings.push(`Skipped binary-looking backup file during credential scan: ${relativePath}`);
+function readTextIfSafe(repoRoot, relativePath, failures) {
+  let buffer = null;
+  try {
+    buffer = fs.readFileSync(resolveInputPath(repoRoot, relativePath));
+  } catch {
+    failures.push('Backup credential scan could not read a backup file (backup_file_read_error).');
     return null;
   }
-  return buffer.toString('utf8');
+  if (buffer.includes(0)) {
+    failures.push('Backup credential scan could not completely scan a binary-looking backup file (backup_binary_file). Move encrypted archives to controlled storage outside database/backups and rerun the gate.');
+    return null;
+  }
+  return {
+    text: buffer.toString('utf8'),
+    sha256: createHash('sha256').update(buffer).digest('hex'),
+  };
 }
 
-function walkFiles(repoRoot, dir, warnings, output = []) {
+function walkFiles(repoRoot, dir, failures, output = []) {
   const absolute = path.join(repoRoot, dir);
   if (!fs.existsSync(absolute)) {
     return output;
@@ -34,17 +83,14 @@ function walkFiles(repoRoot, dir, warnings, output = []) {
   try {
     entries = fs.readdirSync(absolute, { withFileTypes: true });
   } catch {
-    warnings.push(`Skipped unreadable local path during release scan: ${dir}`);
+    failures.push('Backup credential scan could not read a backup directory (backup_directory_read_error).');
     return output;
   }
 
   for (const entry of entries) {
     const relative = path.join(dir, entry.name).replace(/\\/g, '/');
     if (entry.isDirectory()) {
-      if (['vendor', 'node_modules', '.git', 'runtime', '.pytest_cache'].includes(entry.name)) {
-        continue;
-      }
-      walkFiles(repoRoot, relative, warnings, output);
+      walkFiles(repoRoot, relative, failures, output);
     } else {
       output.push(relative);
     }
@@ -59,12 +105,12 @@ function checkGitTrackedBackups(repoRoot, warnings, failures, passes) {
   });
 
   if (result.error) {
-    warnings.push(`git ls-files database/backups could not run: ${result.error.message}`);
+    failures.push(`git ls-files database/backups could not run: ${result.error.message}`);
     return;
   }
   if (result.status !== 0) {
     const detail = String(result.stderr || result.stdout || '').trim();
-    warnings.push(`git ls-files database/backups did not complete; verify backup tracking manually${detail ? `: ${detail}` : '.'}`);
+    failures.push(`git ls-files database/backups did not complete; backup tracking remains unverified${detail ? `: ${detail}` : '.'}`);
     return;
   }
 
@@ -81,19 +127,39 @@ function checkGitTrackedBackups(repoRoot, warnings, failures, passes) {
   passes.push('database/backups has no git-tracked files.');
 }
 
-function isRedactedSecretValue(value) {
+export function isRedactedSecretValue(value) {
+  if (value === null || value === undefined) {
+    return true;
+  }
   const text = String(value ?? '').trim();
   return text === ''
-    || /redacted|masked|not stored|not included|secure record|internal ticket/i.test(text)
-    || /^\*+$/.test(text)
-    || /^<[^>]*redact[^>]*>$/i.test(text);
+    || /^(?:redacted|masked|not stored|not included|null|none|n\/a|<redacted>|<masked>|\[redacted\]|\[masked\]|\*{3,})$/i.test(text);
 }
 
-function findSensitiveFieldValues(value, sensitiveKeys, pathParts = []) {
+export function isSafeSensitiveFieldValue(value) {
+  const text = String(value ?? '').trim();
+  if (isRedactedSecretValue(value)) {
+    return true;
+  }
+  const bearer = text.match(/^Bearer\s+(.+)$/i);
+  return Boolean(bearer && isRedactedSecretValue(bearer[1]));
+}
+
+function sensitiveCategoryForKey(normalizedKey, sensitiveKeys) {
+  let matched = '';
+  for (const candidate of sensitiveKeys) {
+    if ((normalizedKey === candidate || normalizedKey.endsWith(candidate)) && candidate.length > matched.length) {
+      matched = candidate;
+    }
+  }
+  return matched;
+}
+
+export function findSensitiveFieldCategories(value, sensitiveKeys) {
   const findings = [];
   if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      findings.push(...findSensitiveFieldValues(item, sensitiveKeys, [...pathParts, String(index)]));
+    for (const item of value) {
+      findings.push(...findSensitiveFieldCategories(item, sensitiveKeys));
     }
     return findings;
   }
@@ -101,14 +167,81 @@ function findSensitiveFieldValues(value, sensitiveKeys, pathParts = []) {
     return findings;
   }
   for (const [key, child] of Object.entries(value)) {
-    const childPath = [...pathParts, key];
     const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (sensitiveKeys.has(normalizedKey) && typeof child === 'string' && !isRedactedSecretValue(child)) {
-      findings.push(childPath.join('.'));
+    const sensitiveCategory = sensitiveCategoryForKey(normalizedKey, sensitiveKeys);
+    if (sensitiveCategory) {
+      const emptyContainer = (Array.isArray(child) && child.length === 0)
+        || (child && typeof child === 'object' && !Array.isArray(child) && Object.keys(child).length === 0);
+      if (!emptyContainer && !isSafeSensitiveFieldValue(child)) {
+        findings.push(sensitiveCategory);
+      }
     }
-    findings.push(...findSensitiveFieldValues(child, sensitiveKeys, childPath));
+    findings.push(...findSensitiveFieldCategories(child, sensitiveKeys));
   }
   return findings;
+}
+
+function isSafeCredentialLiteral(value) {
+  const text = String(value ?? '').trim();
+  return isSafeSensitiveFieldValue(text)
+    || /^(?:true|false|undefined|nil|0|\{\}|\[\])$/i.test(text);
+}
+
+function unsafeUrlCredentialCount(value) {
+  if (Array.isArray(value)) {
+    return value.reduce((count, item) => count + unsafeUrlCredentialCount(item), 0);
+  }
+  if (value && typeof value === 'object') {
+    return Object.values(value).reduce((count, item) => count + unsafeUrlCredentialCount(item), 0);
+  }
+  if (typeof value !== 'string') {
+    return 0;
+  }
+
+  let count = 0;
+  for (const match of value.matchAll(/https?:\/\/[^\s"'<>]+/gi)) {
+    const candidate = String(match[0] || '').replace(/[)\].,;]+$/g, '');
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.username || parsed.password) {
+        count += 1;
+      }
+      for (const [key, queryValue] of parsed.searchParams) {
+        const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (sensitiveCategoryForKey(normalizedKey, OTA_SENSITIVE_NORMALIZED_KEYS) && !isSafeSensitiveFieldValue(queryValue)) {
+          count += 1;
+        }
+      }
+    } catch {
+      // Non-URL text is handled by the key/value and Bearer scanners.
+    }
+  }
+  return count;
+}
+
+export function credentialRiskSignals(text) {
+  const identifierPattern = new RegExp(`(?<![A-Za-z0-9])(?:${OTA_SENSITIVE_KEY_SOURCE})(?![A-Za-z0-9])`, 'gi');
+  const assignmentPattern = new RegExp(
+    `(?<![A-Za-z0-9])["'\`]?(?:${OTA_SENSITIVE_KEY_SOURCE})["'\`]?(?![A-Za-z0-9])\\s*[:=]\\s*(?:"([^"\\r\\n]*)"|'([^'\\r\\n]*)'|([^,;\\s}\\]\\r\\n]+))`,
+    'gi',
+  );
+  const bearerPattern = /\bBearer\s+([^"'\s,;}\]]+)/gi;
+  const identifierMatches = (String(text || '').match(identifierPattern) || []).length;
+  let valueBearingMatches = unsafeUrlCredentialCount(String(text || ''));
+
+  for (const match of String(text || '').matchAll(assignmentPattern)) {
+    const assigned = match[1] ?? match[2] ?? match[3] ?? '';
+    if (!isSafeCredentialLiteral(assigned)) {
+      valueBearingMatches += 1;
+    }
+  }
+  for (const match of String(text || '').matchAll(bearerPattern)) {
+    if (!isSafeCredentialLiteral(match[1] ?? '')) {
+      valueBearingMatches += 1;
+    }
+  }
+
+  return { identifierMatches, valueBearingMatches };
 }
 
 function isDateOnly(value) {
@@ -197,11 +330,10 @@ function normalizeOtaPlatform(value) {
   return text;
 }
 
-function collectDraftResidue(value, failures, pathParts = []) {
-  const pathLabel = pathParts.length > 0 ? pathParts.join('.') : '<root>';
+function collectDraftResidue(value, failures) {
   if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      collectDraftResidue(item, failures, [...pathParts, String(index)]);
+    for (const item of value) {
+      collectDraftResidue(item, failures);
     }
     return;
   }
@@ -209,10 +341,10 @@ function collectDraftResidue(value, failures, pathParts = []) {
   if (value && typeof value === 'object') {
     for (const [key, child] of Object.entries(value)) {
       if (key === '_draft_notice') {
-        failures.push(`OTA credential rotation attestation ${[...pathParts, key].join('.')} must be removed before release.`);
+        failures.push('OTA credential rotation attestation contains a draft notice that must be removed before release.');
         continue;
       }
-      collectDraftResidue(child, failures, [...pathParts, key]);
+      collectDraftResidue(child, failures);
     }
     return;
   }
@@ -222,8 +354,36 @@ function collectDraftResidue(value, failures, pathParts = []) {
   }
 
   if (/\bTODO\b|CHANGE_ME|placeholder|Draft only|Do not rename or copy|example\.com/i.test(value)) {
-    failures.push(`OTA credential rotation attestation ${pathLabel} still contains draft or placeholder text.`);
+    failures.push('OTA credential rotation attestation contains draft or placeholder text.');
   }
+}
+
+function normalizeBackupEvidenceFiles(value, failures) {
+  if (!Array.isArray(value) || value.length === 0) {
+    failures.push('OTA credential rotation attestation sanitized backup evidence must include backup_cleanup.files with path and sha256 entries.');
+    return [];
+  }
+
+  const normalized = [];
+  const seenPaths = new Set();
+  for (const [index, item] of value.entries()) {
+    const candidatePath = String(item?.path || '').replace(/\\/g, '/').trim();
+    const sha256 = String(item?.sha256 || '').trim().toLowerCase();
+    const pathIsSafe = candidatePath.startsWith('database/backups/')
+      && !path.posix.isAbsolute(candidatePath)
+      && !candidatePath.split('/').includes('..');
+    if (!pathIsSafe || !/^[a-f0-9]{64}$/.test(sha256)) {
+      failures.push(`OTA credential rotation attestation backup_cleanup.files entry ${index + 1} must contain a safe database/backups path and a 64-character sha256.`);
+      continue;
+    }
+    if (seenPaths.has(candidatePath)) {
+      failures.push(`OTA credential rotation attestation backup_cleanup.files entry ${index + 1} duplicates a backup path.`);
+      continue;
+    }
+    seenPaths.add(candidatePath);
+    normalized.push({ path: candidatePath, sha256 });
+  }
+  return normalized;
 }
 
 export function checkBackupCredentialFields({ repoRoot }) {
@@ -252,34 +412,50 @@ export function checkBackupCredentialFields({ repoRoot }) {
   const backupDir = path.join(repoRoot, 'database/backups');
   if (!fs.existsSync(backupDir)) {
     passes.push('database/backups directory is absent.');
-    return { passes, warnings, failures };
+    return { passes, warnings, failures, files: [], discoveredFileCount: 0 };
   }
 
-  const credentialPattern = /usertoken|usersign|cookie\s*[:=]|authorization\s*[:=]|Bearer\s+\S+|access[_-]?token|refresh[_-]?token|session[_-]?token|api[_-]?key/gi;
-  let credentialMatches = 0;
+  let identifierMatches = 0;
+  let valueBearingMatches = 0;
   const credentialFiles = [];
-  for (const file of walkFiles(repoRoot, 'database/backups', warnings)) {
-    const text = readTextIfSafe(repoRoot, file, warnings);
-    if (text === null) {
+  const scannedFiles = [];
+  const contentScanFailureStart = failures.length;
+  const discoveredFiles = walkFiles(repoRoot, 'database/backups', failures);
+  for (const file of discoveredFiles) {
+    const scanned = readTextIfSafe(repoRoot, file, failures);
+    if (scanned === null) {
       continue;
     }
-    const matches = text.match(credentialPattern);
-    if (matches) {
-      credentialFiles.push({ file, matches: matches.length });
-      credentialMatches += matches.length;
+    const signals = credentialRiskSignals(scanned.text);
+    scannedFiles.push({ path: file, sha256: scanned.sha256, ...signals });
+    if (signals.identifierMatches > 0 || signals.valueBearingMatches > 0) {
+      credentialFiles.push({ file, sha256: scanned.sha256, ...signals });
+      identifierMatches += signals.identifierMatches;
+      valueBearingMatches += signals.valueBearingMatches;
     }
   }
 
-  if (credentialMatches > 0) {
+  if (valueBearingMatches > 0) {
     const fileSummary = credentialFiles
-      .map(({ file, matches }) => `${file} (${matches})`)
+      .map(({ file, sha256, identifierMatches: identifiers, valueBearingMatches: values }) => `${file} (sha256 ${sha256}, value-bearing ${values}, identifiers ${identifiers})`)
       .join(', ');
-    failures.push(`database/backups contains OTA credential-shaped fields (${credentialMatches} matches across ${credentialFiles.length} files: ${fileSummary}). Rotate real credentials and exclude backups from release packages.`);
-  } else {
-    passes.push('No OTA credential-shaped fields were found in database/backups text files.');
+    failures.push(`database/backups contains value-bearing OTA credential risk signals (${valueBearingMatches} value-bearing matches; ${identifierMatches} sensitive identifiers across ${credentialFiles.length} files: ${fileSummary}). Values are never printed. Rotate or invalidate real credentials, then move, encrypt outside the repository, or sanitize the backups before release.`);
+  } else if (identifierMatches > 0) {
+    const fileSummary = credentialFiles
+      .map(({ file, sha256, identifierMatches: identifiers }) => `${file} (sha256 ${sha256}, identifiers ${identifiers})`)
+      .join(', ');
+    warnings.push(`database/backups sensitive credential identifiers require review (${identifierMatches} identifiers across ${credentialFiles.length} files: ${fileSummary}). Identifier presence is not proof of stored credential values. A sanitized release claim is accepted only when backup_cleanup.files binds every current backup path to this scan's sha256.`);
+  } else if (failures.length === contentScanFailureStart) {
+    passes.push('No OTA credential identifiers or value-bearing credential shapes were found in fully scanned database/backups text files.');
   }
 
-  return { passes, warnings, failures };
+  return {
+    passes,
+    warnings,
+    failures,
+    files: scannedFiles.map(({ path: file, sha256 }) => ({ path: file, sha256 })),
+    discoveredFileCount: discoveredFiles.length,
+  };
 }
 
 export function checkOtaCredentialRotationAttestation({ repoRoot, attestationPath, requireOutsideRepo = false }) {
@@ -289,11 +465,11 @@ export function checkOtaCredentialRotationAttestation({ repoRoot, attestationPat
   const resolvedPath = resolveInputPath(repoRoot, attestationPath);
 
   if (!fs.existsSync(resolvedPath)) {
-    failures.push(`OTA credential rotation attestation was not found: ${attestationPath}. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release.`);
-    return { passes, warnings, failures };
+    failures.push('OTA credential rotation attestation was not found at the configured path. Set OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE to a controlled attestation JSON before release.');
+    return { passes, warnings, failures, cleanupEvidence: null };
   }
   if (requireOutsideRepo && isPathInsideRepo(repoRoot, attestationPath)) {
-    failures.push(`OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE must point to a controlled location outside the repository, not ${attestationPath}.`);
+    failures.push('OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE must point to a controlled location outside the repository.');
   }
 
   let attestation = null;
@@ -302,27 +478,28 @@ export function checkOtaCredentialRotationAttestation({ repoRoot, attestationPat
     raw = fs.readFileSync(resolvedPath, 'utf8').replace(/^\uFEFF/, '');
     attestation = JSON.parse(raw);
   } catch (error) {
-    failures.push(`OTA credential rotation attestation is not valid JSON: ${error.message}`);
-    return { passes, warnings, failures };
+    failures.push(`OTA credential rotation attestation is not valid JSON (${safeJsonParseErrorCode(error)}).`);
+    return { passes, warnings, failures, cleanupEvidence: null };
   }
   collectDraftResidue(attestation, failures);
 
-  if (/("?usertoken"?\s*[:=]\s*['"]?[^'",\s]{8,}|"?usersign"?\s*[:=]\s*['"]?[^'",\s]{8,}|"?cookie"?\s*[:=]\s*['"]?[^'",\s]{16,}|"?authorization"?\s*[:=]\s*['"]?[^'",\s]{8,}|Bearer\s+(?!redacted|masked|<redacted>)\S+)/i.test(raw)) {
+  if (credentialRiskSignals(raw).valueBearingMatches > 0 || unsafeUrlCredentialCount(attestation) > 0) {
     failures.push('OTA credential rotation attestation appears to contain credential material; store only redacted evidence references.');
   }
-  const otaSensitiveFields = findSensitiveFieldValues(
+  const otaSensitiveFields = findSensitiveFieldCategories(
     attestation,
-    new Set(['cookie', 'authorization', 'token', 'usertoken', 'usersign', 'signature', 'secret']),
+    OTA_SENSITIVE_NORMALIZED_KEYS,
   );
   if (otaSensitiveFields.length > 0) {
-    failures.push(`OTA credential rotation attestation contains unredacted sensitive fields: ${otaSensitiveFields.join(', ')}`);
+    const categories = [...new Set(otaSensitiveFields)].sort();
+    failures.push(`OTA credential rotation attestation contains ${otaSensitiveFields.length} unredacted sensitive fields in safe categories: ${categories.join(', ')}`);
   }
 
   const requiredStringFields = ['reviewed_at', 'reviewer'];
   const missingFields = requiredStringFields.filter((field) => isPlaceholder(attestation[field]));
   if (missingFields.length > 0) {
     failures.push(`OTA credential rotation attestation is incomplete: ${missingFields.join(', ')}`);
-    return { passes, warnings, failures };
+    return { passes, warnings, failures, cleanupEvidence: null };
   }
   if (isWeakAttestationReviewer(attestation.reviewer)) {
     failures.push('OTA credential rotation attestation reviewer must be a real accountable reviewer, not a placeholder, test owner, or script identity.');
@@ -374,6 +551,9 @@ export function checkOtaCredentialRotationAttestation({ repoRoot, attestationPat
   if (!Array.isArray(cleanup.paths_reviewed) || !cleanup.paths_reviewed.includes('database/backups')) {
     failures.push('OTA credential rotation attestation backup_cleanup.paths_reviewed must include database/backups.');
   }
+  const cleanupFiles = cleanupAction === 'sanitized'
+    ? normalizeBackupEvidenceFiles(cleanup.files, failures)
+    : [];
   if (isPlaceholder(cleanup.git_tracking_check)) {
     failures.push('OTA credential rotation attestation backup_cleanup.git_tracking_check is missing or placeholder.');
   } else if (!/git\s+ls-files\s+database\/backups/i.test(String(cleanup.git_tracking_check))) {
@@ -389,15 +569,36 @@ export function checkOtaCredentialRotationAttestation({ repoRoot, attestationPat
     passes.push('OTA credential rotation attestation is present and complete.');
   }
 
-  return { passes, warnings, failures };
+  return {
+    passes,
+    warnings,
+    failures,
+    cleanupEvidence: {
+      action: cleanupAction,
+      files: cleanupFiles,
+    },
+  };
 }
 
 export function checkOtaCredentialRelease({ repoRoot, attestationPath, requireOutsideRepo = false }) {
   const backup = checkBackupCredentialFields({ repoRoot });
   const attestation = checkOtaCredentialRotationAttestation({ repoRoot, attestationPath, requireOutsideRepo });
+  const bindingFailures = [];
+  const cleanup = attestation.cleanupEvidence;
+  if (cleanup?.action === 'sanitized') {
+    const currentFiles = new Map((backup.files || []).map((item) => [item.path, item.sha256]));
+    const attestedFiles = new Map((cleanup.files || []).map((item) => [item.path, item.sha256]));
+    const exactBinding = currentFiles.size === attestedFiles.size
+      && [...currentFiles].every(([file, sha256]) => attestedFiles.get(file) === sha256);
+    if (!exactBinding) {
+      bindingFailures.push('Sanitized backup hash binding does not exactly match every current database/backups path and sha256.');
+    }
+  } else if (['deleted', 'encrypted_archive'].includes(cleanup?.action) && backup.discoveredFileCount > 0) {
+    bindingFailures.push(`OTA backup cleanup action ${cleanup.action} contradicts backup files that are still present in database/backups.`);
+  }
   return {
     passes: [...backup.passes, ...attestation.passes],
     warnings: [...backup.warnings, ...attestation.warnings],
-    failures: [...backup.failures, ...attestation.failures],
+    failures: [...backup.failures, ...attestation.failures, ...bindingFailures],
   };
 }

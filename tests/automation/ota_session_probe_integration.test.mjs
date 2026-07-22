@@ -78,6 +78,9 @@ test('status checks use session-probe-only while visible manual login remains in
   assert.equal(probeFlags.length, 2, 'both OTA status probes must use the non-interactive mode');
   assert.match(profileLogin, /'--login-only=true'/, 'manual Profile login must retain its visible login mode');
   assert.match(profileLogin, /'--headless=false'/, 'manual Profile login must remain visible');
+  assert.match(profileLogin, /trustedCtripPlatformHotelName\(\$request\)/, 'Ctrip login must resolve the trusted hotel name server-side');
+  assert.match(profileLogin, /'--platform-hotel-name=' \. \$platformHotelName/, 'Ctrip login must pass the trusted name to the browser probe');
+  assert.match(ctrip, /await probeTrustedCtripBusinessPageIdentity\(page\)/, 'Ctrip login must visit a trusted business page when the landing page has no hotel header');
   assert.match(profileLogin, /isCollectableProfileLoginSessionProbe\(\$sessionProbe\)/, 'manual login must require account-level collectability');
   assert.match(profileLogin, /isStrongProfileLoginSessionProbe\(\$sessionProbe\)/, 'hotel-level login proof must require standardized identity evidence');
 });

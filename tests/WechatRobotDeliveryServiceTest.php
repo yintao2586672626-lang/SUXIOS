@@ -34,8 +34,12 @@ final class WechatRobotDeliveryServiceTest extends TestCase
     public function testWebhookResponseRequiresTencentSuccessCode(): void
     {
         self::assertTrue(WechatRobotDeliveryService::interpretWebhookResponse('{"errcode":0,"errmsg":"ok"}')['success']);
-        self::assertFalse(WechatRobotDeliveryService::interpretWebhookResponse('{"errcode":93000,"errmsg":"invalid webhook"}')['success']);
-        self::assertFalse(WechatRobotDeliveryService::interpretWebhookResponse('<html>bad gateway</html>', 502)['success']);
+        $rejected = WechatRobotDeliveryService::interpretWebhookResponse('{"errcode":93000,"errmsg":"invalid webhook"}');
+        self::assertFalse($rejected['success']);
+        self::assertFalse($rejected['ambiguous']);
+        $gatewayFailure = WechatRobotDeliveryService::interpretWebhookResponse('<html>bad gateway</html>', 502);
+        self::assertFalse($gatewayFailure['success']);
+        self::assertTrue($gatewayFailure['ambiguous']);
     }
 
     public function testHealthAndWeeklyPayloadKeepScopeAndRetryBoundaryVisible(): void

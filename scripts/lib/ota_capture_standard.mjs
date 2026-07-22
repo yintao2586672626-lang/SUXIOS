@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { findCtripEndpointByUrl } from './ctrip_capture_catalog.mjs';
-import { otaSessionCookieInjectionDomains } from './ota_session_probe.mjs';
+import { otaSessionCookieInjectionDomains, sanitizeOtaObservedUrl } from './ota_session_probe.mjs';
 
 export const PLATFORM_CONFIGS = {
   meituan: {
@@ -409,7 +409,8 @@ function standardSectionName(dataType) {
 
 export function sanitizeOtaPayloadForStorage(value, section = '') {
   if (!value || typeof value !== 'object') {
-    return value;
+    const urlValue = sanitizeOtaUrlValueForStorage(value);
+    return urlValue ? urlValue.value : value;
   }
   const normalizedSection = normalizeCaptureSectionName(section);
   if (normalizedSection === 'reviews') {
@@ -417,6 +418,40 @@ export function sanitizeOtaPayloadForStorage(value, section = '') {
   }
   const orderContext = normalizedSection === 'orders';
   return sanitizePayloadNode(value, orderContext);
+}
+
+export function sanitizeOtaUrlValueForStorage(value, existingHash = '') {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const raw = value.trim();
+  if (!raw) {
+    return null;
+  }
+
+  let safeValue = '';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    safeValue = sanitizeOtaObservedUrl(raw);
+  } else if (/^(?:\/(?!\/)|\.\.?\/)/.test(raw)) {
+    const boundary = [raw.indexOf('?'), raw.indexOf('#')]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right)[0] ?? raw.length;
+    safeValue = raw.slice(0, boundary) || '/';
+  } else {
+    return null;
+  }
+
+  if (!safeValue) {
+    return null;
+  }
+  const suppliedHash = String(existingHash || '').trim().toLowerCase();
+  const valueUrlHash = raw === safeValue && /^[a-f0-9]{64}$/.test(suppliedHash)
+    ? suppliedHash
+    : sha256Hex(raw);
+  return {
+    value: safeValue,
+    value_url_hash: valueUrlHash,
+  };
 }
 
 export function extractOtaRequestDateEvidence({ url = '', payload = '' } = {}) {
@@ -670,7 +705,10 @@ function safeEvidenceText(value) {
 
 function sanitizePayloadNode(value, orderContext) {
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizePayloadNode(item, orderContext));
+    return value.map((item) => {
+      const urlValue = sanitizeOtaUrlValueForStorage(item);
+      return urlValue ? urlValue.value : sanitizePayloadNode(item, orderContext);
+    });
   }
   if (!value || typeof value !== 'object') {
     return value;
@@ -682,9 +720,23 @@ function sanitizePayloadNode(value, orderContext) {
       continue;
     }
 
+    if (key.endsWith('_url_hash')) {
+      const sourceKey = key.slice(0, -'_url_hash'.length);
+      if (sanitizeOtaUrlValueForStorage(value[sourceKey])) {
+        continue;
+      }
+    }
+
     const childOrderContext = orderContext || isOrderContainerKey(key);
     if (item && typeof item === 'object') {
       result[key] = sanitizePayloadNode(item, childOrderContext);
+      continue;
+    }
+
+    const urlValue = sanitizeOtaUrlValueForStorage(item, value[`${key}_url_hash`]);
+    if (urlValue) {
+      result[key] = urlValue.value;
+      result[`${key}_url_hash`] = urlValue.value_url_hash;
       continue;
     }
 

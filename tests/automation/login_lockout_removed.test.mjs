@@ -21,10 +21,11 @@ test('system login avoids persistent account lockout but enforces bounded reques
   assert.match(authController, /makeLoginRateLimiter\(\)[\s\S]*consumeAttempt\(\$ip, \$username\)/);
   assert.match(authController, /protected function makeLoginRateLimiter[\s\S]*new LoginRateLimiter\(\)/);
   assert.match(authController, /login_rate_limited[\s\S]*Retry-After/);
-  const validationBranch = authController.slice(
-    authController.indexOf("$rawUsername = $this->request->post('username', '')"),
-    authController.indexOf("$user = User::with(['role', 'hotel'])"),
-  );
+  const validationStart = authController.indexOf("$rawUsername = $this->request->post('username', '')");
+  const userLookup = authController.indexOf("$user = User::with(['role'])->where('username', $username)->find();");
+  assert.notEqual(validationStart, -1, 'login validation start anchor must exist');
+  assert.notEqual(userLookup, -1, 'login user lookup anchor must exist');
+  const validationBranch = authController.slice(validationStart, userLookup);
   assert.doesNotMatch(validationBranch, /recordLoginFailure|LoginLog::record/);
   const deniedBranch = authController.slice(
     authController.indexOf("if (!$rateLimit['allowed'])"),

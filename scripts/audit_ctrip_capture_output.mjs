@@ -5,6 +5,7 @@ import {
   evaluateCtripCaptureAuditGate,
   renderCtripCaptureAuditMarkdown,
 } from './lib/ctrip_capture_audit.mjs';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -56,7 +57,10 @@ function readCapturePayload(path) {
   if (!existsSync(path)) {
     throw new Error(`input file not found: ${path}`);
   }
-  const payload = JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+  const payload = parseJsonTextSafely(
+    readFileSync(path, 'utf8').replace(/^\uFEFF/, ''),
+    'ctrip_capture_audit_json',
+  );
   return { path, payload };
 }
 

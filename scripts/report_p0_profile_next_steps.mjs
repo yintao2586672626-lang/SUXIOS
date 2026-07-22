@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 const args = process.argv.slice(2);
 
@@ -62,7 +63,7 @@ function extractJson(text) {
   if (start < 0 || end <= start) {
     throw new Error('No JSON object found in verifier output.');
   }
-  return JSON.parse(source.slice(start, end + 1));
+  return parseJsonTextSafely(source.slice(start, end + 1), 'p0_profile_verifier_json');
 }
 
 function readVerifierOutput() {

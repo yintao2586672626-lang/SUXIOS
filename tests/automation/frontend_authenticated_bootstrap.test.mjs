@@ -130,8 +130,14 @@ test('authenticated login lands on the one-page operating loop through one entry
   const mountedStart = appMain.indexOf('onMounted(() => {');
   const mountedEnd = appMain.indexOf('\n            onUnmounted', mountedStart);
   const mountedFlow = appMain.slice(mountedStart, mountedEnd);
+  assert.match(mountedFlow, /if \(token\.value\) \{\s*requestSuxiFullRenderForPage\(currentPage\.value\);/, 'remembered sessions must promote a deferred default page even when currentPage does not change');
   assert.match(mountedFlow, /if \(isCompassDataPage\(\)\) \{\s*activateCoreOperationsAfterLogin\(\);\s*\}/);
   assert.match(mountedFlow, /applyDefaultReportHotel\(\{ suppressDashboardRefresh: true \}\)/);
+  assert.match(mountedFlow, /request\('\/auth\/info'\)[\s\S]*handleAuthInfoBootstrapUnavailable\(bootstrapSession\)/, 'transient auth-info failures must retain the current session for retry');
+  assert.doesNotMatch(mountedFlow, /request\('\/auth\/info'\)[\s\S]*clearAuthSession\(\)/, 'auth-info bootstrap must not clear a session after network, 5xx, or malformed-response failures');
+  assert.match(appMain, /if \(response\.status === 401 \|\| data\.code === 401\)[\s\S]*clearAuthSessionIfCurrent\(requestSession, tokenStatus\)/, 'explicit 401 responses must still clear the matching invalid session');
+  assert.match(appMain, /isTerminalAuthFailureResponse\(response, data\)[\s\S]*clearAuthSessionIfCurrent\(requestSession, tokenStatus\)/, 'explicit terminal auth responses, including disabled users, must clear the matching cached session');
+  assert.match(appMain, /authFailureReason === 'user_disabled'/, 'disabled-user responses must be distinguished from ordinary permission denials');
   assert.doesNotMatch(mountedFlow, /scheduleInitialCompassLoad|scheduleDualOtaWorkbenchAutoFetch/);
   assert.doesNotMatch(appMain, /const scheduleInitialCompassLoad =/);
 

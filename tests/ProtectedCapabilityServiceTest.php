@@ -113,6 +113,53 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertFalse($service->shouldRedactForUser($user, $capability));
     }
 
+    public function testKnowledgeManagementUsesAiGovernanceCapability(): void
+    {
+        $service = new ProtectedCapabilityService();
+        $capability = $service->classifyPath('POST', '/api/knowledge/add');
+
+        self::assertIsArray($capability);
+        self::assertSame('ai_governance', $capability['key']);
+        self::assertSame('can_manage_ai_governance', $capability['permission']);
+    }
+
+    public function testRevenueAiReviewAndExecutionUseDistinctProtectedCapabilities(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['ai_decision', 'operation_decision'],
+        ]);
+
+        $overview = $service->classifyPath('GET', '/api/revenue-ai/overview');
+        $review = $service->classifyPath('POST', '/api/revenue-ai/price-suggestions/88/review');
+        $execution = $service->classifyPath('POST', '/api/revenue-ai/price-suggestions/88/execution-intent');
+
+        self::assertIsArray($overview);
+        self::assertSame('ai_decision', $overview['key']);
+        self::assertSame('can_use_ai_decision', $overview['permission']);
+        self::assertIsArray($review);
+        self::assertSame('ai_decision', $review['key']);
+        self::assertSame('can_use_ai_decision', $review['permission']);
+        self::assertIsArray($execution);
+        self::assertSame('operation_execution', $execution['key']);
+        self::assertSame('operation.execute', $execution['permission']);
+        self::assertSame('operation_decision', $execution['module']);
+
+        $basicMember = $this->userWithPermissions(['can_view_report']);
+        self::assertFalse($service->authorizeContext($basicMember, $review, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($basicMember, $execution, ['hotel_id' => 7])['allowed']);
+
+        self::assertTrue($service->authorizeContext(
+            $this->userWithPermissions(['can_use_ai_decision']),
+            $review,
+            ['hotel_id' => 7]
+        )['allowed']);
+        self::assertTrue($service->authorizeContext(
+            $this->userWithPermissions(['operation.execute']),
+            $execution,
+            ['hotel_id' => 7]
+        )['allowed']);
+    }
+
     public function testPublicPageTaskBridgeRequiresOperationModuleBeforeWrite(): void
     {
         $service = new ProtectedCapabilityService();

@@ -3076,6 +3076,12 @@ function p0_sync_task_message_code(array $task, array $stats, string $targetDate
         return p0_sync_task_message_looks_like_login_blocker($message) ? 'login_or_profile_not_ready' : 'waiting_config';
     }
     if (in_array($status, ['failed', 'capture_failed'], true)) {
+        if ($message === 'profile_session_unverified') {
+            return 'profile_session_unverified';
+        }
+        if ($message === 'credential_execution_failed') {
+            return 'credential_execution_failed';
+        }
         if (str_contains($message, 'cannot find package')
             || str_contains($message, 'err_module_not_found')
             || str_contains($message, 'module_not_found')
@@ -3152,6 +3158,8 @@ function p0_sync_task_diagnosis(string $messageCode): string
         'sync_reported_saved_rows_requires_target_date_verifier' => 'sync_task_saved_rows_but_requires_p0_target_date_verifier',
         'sync_normalized_without_saved_rows' => 'parser_returned_rows_but_storage_saved_zero',
         'sync_completed_without_saved_rows' => 'sync_finished_without_importable_rows',
+        'profile_session_unverified' => 'current_profile_session_not_verified',
+        'credential_execution_failed' => 'capture_execution_failed',
         'login_or_profile_not_ready' => 'manual_profile_login_or_binding_required',
         'browser_dependency_missing' => 'browser_capture_dependency_missing',
         'no_rows_parsed' => 'capture_returned_no_business_rows',

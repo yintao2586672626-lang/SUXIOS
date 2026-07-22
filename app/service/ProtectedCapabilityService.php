@@ -52,6 +52,7 @@ class ProtectedCapabilityService
                         'api/agent/config',
                         'api/agent/knowledge',
                         'api/agent/knowledge-categories',
+                        'api/knowledge',
                         'api/agent/logs',
                     ],
                     'response_mode' => 'summary_only',
@@ -133,6 +134,19 @@ class ProtectedCapabilityService
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_online_data', 'limit' => 60, 'window' => 3600],
                 ],
+                'operation_execution' => [
+                    'label' => 'Operation execution write bridge',
+                    'permission' => 'operation.execute',
+                    'module' => 'operation_decision',
+                    'paths' => [
+                        [
+                            'path' => 'api/revenue-ai/price-suggestions/*/execution-intent',
+                            'methods' => ['POST'],
+                        ],
+                    ],
+                    'response_mode' => 'summary_only',
+                    'rate_limit' => ['scope' => 'protected_operation', 'limit' => 60, 'window' => 3600],
+                ],
                 'ai_decision' => [
                     'label' => 'AI decision and revenue analysis',
                     'permission' => 'can_use_ai_decision',
@@ -143,6 +157,7 @@ class ProtectedCapabilityService
                         'api/ai-daily-reports',
                         'api/ota-standard',
                         'api/revenue-research',
+                        'api/revenue-ai',
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_ai_decision', 'limit' => 30, 'window' => 3600],

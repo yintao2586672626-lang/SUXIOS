@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 function parseArgs(argv) {
   const options = {
@@ -39,7 +40,7 @@ function readJson(file) {
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
     throw new Error(`Missing required bundle file: ${file}`);
   }
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  return parseJsonTextSafely(fs.readFileSync(file, 'utf8'), 'revenue_ai_ctrip_bundle_json');
 }
 
 function asArray(value) {

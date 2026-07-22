@@ -8,6 +8,7 @@ const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 const onlineDataFragment = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
+const aiWorkbenchFragment = readFileSync('resources/frontend/templates/fragments/23b-page-ai-workbench.html', 'utf8');
 const collectionReliabilityConcern = readFileSync('app/controller/concern/CollectionReliabilityConcern.php', 'utf8');
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
 const routes = readFileSync('route/app.php', 'utf8');
@@ -64,6 +65,34 @@ test('core operations loop is the first online data surface and keeps manual col
   assert.match(onlinePage, /画像完成数/);
   assert.match(onlinePage, /异常门店/);
   assert.match(onlinePage, /同步状态/);
+});
+
+test('AI workbench nests the yesterday loop and does not render missing current-period facts as zero cards', () => {
+  const navigationStart = appMain.indexOf('const BOSS_VISIBLE_NAVIGATION_CONFIG');
+  const navigationEnd = appMain.indexOf('const buildLeanNavigationEntry', navigationStart);
+  const navigationConfig = appMain.slice(navigationStart, navigationEnd);
+  assert.ok(navigationStart > 0 && navigationEnd > navigationStart, 'boss navigation config must exist');
+  assert.ok(
+    navigationConfig.indexOf("testid: 'nav-lean-business-loop'") < navigationConfig.indexOf("testid: 'nav-core-operations-loop'"),
+    'yesterday operations loop must be nested under the business-loop group',
+  );
+  assert.match(appMain, /const dualOtaSelectedHotelHasCurrentData = computed/);
+  assert.match(appMain, /const dualOtaWorkbenchReadInProgress = computed/);
+  assert.match(appMain, /dualOtaDataDateMatchesSelectedRange\(ctripLatestMeta\.value\?\.data_date\)/);
+  assert.match(appMain, /dualOtaDataDateMatchesSelectedRange\(competitorSummary\.value\?\.latest_data_date\)/);
+  assert.match(appMain, /const dualOtaMeituanActualMetricSources = new Set/);
+  assert.match(appMain, /dualOtaMeituanActualMetricValue\(row, \['roomRevenue', 'sales'\]\)/);
+  assert.match(appMain, /dualOtaMeituanActualMetricValue\(row, \['roomNights', 'salesRoomNights'\]\)/);
+  assert.match(appMain, /dualOtaMeituanActualMetricValue\(row, \['orderCount'\]\)/);
+  assert.match(appMain, /美团仅有榜单或竞对数据，本店营收、间夜和订单未返回/);
+  const actualSourceGate = appMain.slice(
+    appMain.indexOf('const dualOtaMeituanActualMetricSources'),
+    appMain.indexOf('const dualOtaMeituanCurrentCoreDataReady'),
+  );
+  assert.doesNotMatch(actualSourceGate, /美团榜单入库|美团榜单返回/);
+  assert.match(aiWorkbenchFragment, /data-testid="dual-ota-current-store-empty"/);
+  assert.match(aiWorkbenchFragment, /页面不会用 0 代替缺失数据|dualOtaSelectedHotelDataGapText/);
+  assert.match(aiWorkbenchFragment, /<template v-if="!dualOtaWorkbenchReadInProgress &amp;&amp; dualOtaSelectedHotelHasCurrentData">/);
 });
 
 test('online-data surface exposes the six-step operating loop and retains collection readiness tools', () => {

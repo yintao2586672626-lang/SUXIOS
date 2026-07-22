@@ -5698,13 +5698,7 @@ class OperationManagementService
     /** @param array<string, mixed> $row */
     private function isTrustedSelfOtaFactRow(array $row): bool
     {
-        if (!$this->hasTrustedOnlineValidationStatus($row)
-            || !$this->hasNoBlockingOnlineRowState($row)
-            || (int)($row['system_hotel_id'] ?? 0) <= 0
-            || (int)($row['readback_verified'] ?? 0) !== 1
-            || !$this->hasTrustedOnlineIngestionMethod($row)
-            || !$this->hasTrustedOnlineCollectionTimestamp($row)
-        ) {
+        if (!$this->hasTrustedOtaEvidenceEnvelope($row)) {
             return false;
         }
 
@@ -5763,6 +5757,18 @@ class OperationManagementService
         }
 
         return true;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function hasTrustedOtaEvidenceEnvelope(array $row): bool
+    {
+        return $this->hasTrustedOnlineValidationStatus($row)
+            && $this->hasNoBlockingOnlineRowState($row)
+            && (int)($row['system_hotel_id'] ?? 0) > 0
+            && (int)($row['data_source_id'] ?? 0) > 0
+            && (int)($row['readback_verified'] ?? 0) === 1
+            && $this->hasTrustedOnlineIngestionMethod($row)
+            && $this->hasTrustedOnlineCollectionTimestamp($row);
     }
 
     private function normalizeOtaChannel(string $value): string
@@ -6555,6 +6561,9 @@ class OperationManagementService
 
     private function isMeituanBusinessRankRow(array $row): bool
     {
+        if (!$this->hasTrustedOtaEvidenceEnvelope($row)) {
+            return false;
+        }
         $source = strtolower((string)($row['source'] ?? ''));
         $platform = strtolower((string)($row['platform'] ?? ''));
         $dataType = strtolower((string)($row['data_type'] ?? ''));

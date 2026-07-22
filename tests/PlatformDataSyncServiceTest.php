@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\PlatformDataSyncService;
+use app\service\OnlineDataFieldFactService;
 use app\service\platform\CtripBrowserProfileDataSourceAdapter;
 use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use PHPUnit\Framework\TestCase;
@@ -692,6 +693,66 @@ final class PlatformDataSyncServiceTest extends TestCase
             'data_type' => 'traffic',
             'system_hotel_id' => 7,
         ], 34));
+    }
+
+    public function testCtripCatalogFieldFactsDoNotPromoteMissingZeroPlaceholders(): void
+    {
+        $service = new PlatformDataSyncService();
+        $source = [
+            'id' => 91,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'system_hotel_id' => 80,
+            'ingestion_method' => 'browser_profile',
+        ];
+        $baseRow = [
+            'hotel_id' => '6866634',
+            'data_date' => '2026-07-21',
+            'data_type' => 'traffic',
+            'list_exposure' => 120,
+            'order_submit_num' => 0,
+            'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
+            'capture_evidence' => [
+                'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
+                'source_url_hash' => str_repeat('b', 64),
+            ],
+        ];
+        $fieldFact = [
+            'metric_key' => 'order_submit_user',
+            'source_path' => 'data.0.orderSubmitNum',
+            'storage_field' => 'online_daily_data.order_submit_num',
+            'status' => 'missing',
+            'missing_state' => 'field_missing',
+            'stored_value_present' => false,
+        ];
+
+        $missingRow = $baseRow;
+        $missingRow['raw_data'] = [
+            'source' => 'ctrip_catalog_facts',
+            'field_facts' => [$fieldFact],
+        ];
+        $missing = $service->normalizeRowsFromPayload(['rows' => [$missingRow]], $source, 101);
+        self::assertCount(1, $missing);
+        self::assertNull($missing[0]['order_submit_num']);
+        $missingRaw = json_decode((string)$missing[0]['raw_data'], true);
+        $missingFacts = array_column($missingRaw['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('missing', $missingFacts['order_submit_num']['status'] ?? '');
+
+        $capturedRow = $baseRow;
+        $capturedRow['raw_data'] = [
+            'source' => 'ctrip_catalog_facts',
+            'field_facts' => [array_replace($fieldFact, [
+                'status' => 'captured',
+                'missing_state' => '',
+                'stored_value_present' => true,
+            ])],
+        ];
+        $captured = $service->normalizeRowsFromPayload(['rows' => [$capturedRow]], $source, 102);
+        self::assertCount(1, $captured);
+        self::assertSame(0, $captured[0]['order_submit_num']);
+        $capturedRaw = json_decode((string)$captured[0]['raw_data'], true);
+        $capturedFacts = array_column($capturedRaw['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('captured', $capturedFacts['order_submit_num']['status'] ?? '');
     }
 
     public function testCollectionResourceDefinitionsExposeUnifiedContract(): void
@@ -1560,6 +1621,51 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('*******1111', $payload['data']['orderList'][0]['phone_masked'] ?? null);
     }
 
+    public function testRawPayloadStorageSanitizerRecursivelyRemovesUrlCredentialsQueryAndFragment(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'sanitizePayloadForStorage');
+        $method->setAccessible(true);
+
+        $payload = $method->invoke($service, [
+            'source_url' => 'https://user:pass@example.test/data?token=top-secret#fragment',
+            'facts' => [[
+                'value' => 'https://example.test/course?id=1&token=nested-secret#section',
+                'nested' => [
+                    'targetUrl' => '/jump?token=relative-secret#fragment',
+                ],
+            ]],
+        ]);
+
+        self::assertSame('https://example.test/data', $payload['source_url']);
+        self::assertSame('https://example.test/course', $payload['facts'][0]['value']);
+        self::assertSame('/jump', $payload['facts'][0]['nested']['targetUrl']);
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertStringNotContainsString('top-secret', $encoded);
+        self::assertStringNotContainsString('nested-secret', $encoded);
+        self::assertStringNotContainsString('relative-secret', $encoded);
+        self::assertStringNotContainsString('user:pass@', $encoded);
+    }
+
+    public function testNormalizedFieldFactSummaryRejectsMalformedSourceUrlHash(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'summarizeNormalizedFieldFacts');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'metric_key' => 'list_exposure',
+            'status' => 'captured',
+            'capture_evidence' => [
+                'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
+                'source_url_hash' => 'x',
+            ],
+        ]]);
+
+        self::assertSame(1, $summary['capture_evidence_count']);
+        self::assertSame(0, $summary['desensitized_capture_evidence_count']);
+    }
+
     public function testLargeRawPayloadStorageKeepsBoundedTraceableSummary(): void
     {
         $service = new PlatformDataSyncService();
@@ -1755,6 +1861,192 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('mismatch', $method->invoke($adapter, $mixedPayload, '6866634')['status']);
         self::assertSame('unverified', $method->invoke($adapter, ['catalog_facts' => []], '6866634')['status']);
         self::assertSame('not_configured', $method->invoke($adapter, $payload, '')['status']);
+
+        $requestEvidence = [
+            'platform_identity_validation' => [
+                'schema_version' => 1,
+                'status' => 'matched',
+                'source_validation' => true,
+                'evidence_source' => 'ota_request',
+                'expected_identifier_count' => 1,
+                'observed_identifier_count' => 1,
+                'matched_identifier_count' => 1,
+                'mismatched_identifier_count' => 0,
+                'validated_identifier' => '130079194',
+                'sensitive_values_exposed' => false,
+            ],
+        ];
+        self::assertSame('matched', $method->invoke($adapter, $requestEvidence, '130079194')['status']);
+        self::assertSame('mismatch', $method->invoke($adapter, $requestEvidence, '9999999')['status']);
+
+        $ambiguousRequestEvidence = $requestEvidence;
+        $ambiguousRequestEvidence['platform_identity_validation'] = array_replace(
+            $ambiguousRequestEvidence['platform_identity_validation'],
+            [
+                'status' => 'ambiguous',
+                'source_validation' => false,
+                'observed_identifier_count' => 2,
+                'mismatched_identifier_count' => 1,
+                'validated_identifier' => '',
+            ]
+        );
+        self::assertSame('mismatch', $method->invoke($adapter, $ambiguousRequestEvidence, '130079194')['status']);
+
+        $platformName = 'Dunhuang Molan Club Wild Luxury Homestay (Mingsha Mountain & Crescent Spring Branch)';
+        $headerEvidence = [
+            'platform_identity_validation' => [
+                'schema_version' => 1,
+                'status' => 'matched',
+                'source_validation' => true,
+                'evidence_source' => 'trusted_ota_page_header',
+                'expected_identifier_count' => 1,
+                'observed_identifier_count' => 0,
+                'matched_identifier_count' => 0,
+                'mismatched_identifier_count' => 0,
+                'expected_name_count' => 1,
+                'observed_name_count' => 1,
+                'matched_name_count' => 1,
+                'mismatched_name_count' => 0,
+                'validated_identifier' => '130079194',
+                'validated_name' => $platformName,
+                'sensitive_values_exposed' => false,
+            ],
+        ];
+        $headerResult = $method->invoke($adapter, $headerEvidence, '130079194', $platformName, true);
+        self::assertSame('unverified', $headerResult['status']);
+        self::assertSame('trusted_ota_page_header', $headerResult['evidence_source']);
+        self::assertSame($platformName, $headerResult['validated_name']);
+        self::assertSame('', $headerResult['validated_identifier']);
+
+        $pageStateEvidence = $headerEvidence;
+        $pageStateEvidence['platform_identity_validation'] = array_replace(
+            $pageStateEvidence['platform_identity_validation'],
+            [
+                'status' => 'matched',
+                'source_validation' => true,
+                'evidence_source' => 'trusted_ota_page_state',
+                'observed_page_state_identifier_count' => 1,
+                'matched_page_state_identifier_count' => 1,
+                'mismatched_page_state_identifier_count' => 0,
+            ]
+        );
+        $pageStateResult = $method->invoke($adapter, $pageStateEvidence, '130079194', $platformName, true);
+        self::assertSame('matched', $pageStateResult['status']);
+        self::assertSame('trusted_ota_page_state', $pageStateResult['evidence_source']);
+        self::assertSame('130079194', $pageStateResult['validated_identifier']);
+        self::assertSame('unverified', $method->invoke(
+            $adapter,
+            $headerEvidence,
+            '130079194',
+            $platformName,
+            false
+        )['status']);
+
+        $wrongHeaderEvidence = $headerEvidence;
+        $wrongHeaderEvidence['platform_identity_validation']['validated_name'] = 'Different Ctrip Hotel';
+        self::assertSame('mismatch', $method->invoke(
+            $adapter,
+            $wrongHeaderEvidence,
+            '130079194',
+            $platformName,
+            true
+        )['status']);
+
+        $referenceMethod = new \ReflectionMethod($adapter, 'platformNameIdentityReference');
+        $referenceMethod->setAccessible(true);
+        $reference = $referenceMethod->invoke($adapter, [
+            'config' => [
+                'platform_hotel_name' => $platformName,
+                'platform_hotel_identity_source' => 'trip_public_profile',
+                'platform_hotel_public_url' => 'https://uk.trip.com/hotels/dunhuang-hotel-detail-130079194/dunhuang-molan-club-wild-luxury-homestay/',
+                'platform_hotel_identity_checked_at' => '2026-07-22 18:00:00',
+            ],
+        ], '130079194');
+        self::assertTrue($reference['valid']);
+        self::assertFalse($referenceMethod->invoke($adapter, [
+            'config' => [
+                'platform_hotel_name' => $platformName,
+                'platform_hotel_identity_source' => 'trip_public_profile',
+                'platform_hotel_public_url' => 'https://example.com/hotel-detail-130079194/',
+                'platform_hotel_identity_checked_at' => '2026-07-22 18:00:00',
+            ],
+        ], '130079194')['valid']);
+    }
+
+    public function testCtripBrowserProfileAdapterPassesTrustedPlatformNameButRejectsNameOnlyIdentityProof(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $capturedArgs = [];
+        $platformName = 'Dunhuang Molan Club Wild Luxury Homestay (Mingsha Mountain & Crescent Spring Branch)';
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs, $platformName): array {
+                $capturedArgs[] = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                        break;
+                    }
+                }
+                file_put_contents($outputPath, json_encode([
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'platform_identity_validation' => [
+                        'schema_version' => 1,
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'evidence_source' => 'trusted_ota_page_header',
+                        'expected_identifier_count' => 1,
+                        'observed_identifier_count' => 0,
+                        'matched_identifier_count' => 0,
+                        'mismatched_identifier_count' => 0,
+                        'expected_name_count' => 1,
+                        'observed_name_count' => 1,
+                        'matched_name_count' => 1,
+                        'mismatched_name_count' => 0,
+                        'validated_identifier' => '130079194',
+                        'validated_name' => $platformName,
+                        'sensitive_values_exposed' => false,
+                    ],
+                    'standard_rows' => [[
+                        'hotel_id' => '130079194',
+                        'hotel_name' => '敦煌漠蓝新',
+                        'data_date' => '2026-07-21',
+                        'data_type' => 'business',
+                        'amount' => '1888',
+                        'source_trace_id' => 'trusted-header-proof-row',
+                    ]],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+            $source = $this->ctripBrowserProfileSource();
+            $source['config'] = array_replace($source['config'], [
+                'hotel_id' => '130079194',
+                'hotel_name' => '敦煌漠蓝新',
+                'capture_sections' => 'business_overview',
+                'platform_hotel_name' => $platformName,
+                'platform_hotel_identity_source' => 'trip_public_profile',
+                'platform_hotel_public_url' => 'https://uk.trip.com/hotels/dunhuang-hotel-detail-130079194/dunhuang-molan-club-wild-luxury-homestay/',
+                'platform_hotel_identity_checked_at' => '2026-07-22 18:00:00',
+            ]);
+
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'data_date' => '2026-07-21',
+            ]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('ctrip_platform_identity_unverified', $result['status_code']);
+            self::assertSame('unverified', $result['payload']['platform_identity_validation']['status']);
+            self::assertSame('', $result['payload']['platform_identity_validation']['validated_identifier']);
+            self::assertTrue((bool)array_filter(
+                $capturedArgs,
+                static fn(array $args): bool => in_array('--platform-hotel-name=' . $platformName, $args, true)
+            ));
+        } finally {
+            $this->removeDirectory($root);
+        }
     }
 
     public function testCtripBrowserProfileAdapterRejectsRowsWithoutVerifiedHotelIdentity(): void
@@ -2617,6 +2909,12 @@ final class PlatformDataSyncServiceTest extends TestCase
                 str_repeat('c', 64),
                 $trafficRaw['field_facts'][0]['capture_evidence']['source_url_hash'] ?? ''
             );
+            self::assertSame(str_repeat('c', 64), $trafficRaw['source_url_hash'] ?? '');
+            $trafficFactStatus = OnlineDataFieldFactService::buildStatus($trafficRow, $trafficRaw);
+            self::assertGreaterThanOrEqual(
+                3,
+                (int)($trafficFactStatus['matching_desensitized_capture_evidence_count'] ?? 0)
+            );
             self::assertGreaterThanOrEqual(
                 3,
                 (int)($trafficRaw['field_fact_summary']['desensitized_capture_evidence_count'] ?? 0)
@@ -2624,6 +2922,37 @@ final class PlatformDataSyncServiceTest extends TestCase
         } finally {
             $this->removeDirectory($root);
         }
+    }
+
+    public function testBrowserProfileOrderRowPromotesUrlHashForReadyFieldFacts(): void
+    {
+        $sourceUrlHash = str_repeat('d', 64);
+        $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload([
+            'rows' => [[
+                'hotel_id' => '24588',
+                'hotel_name' => 'Ctrip Demo Hotel',
+                'data_date' => '2026-07-21',
+                'data_type' => 'order',
+                'totalAmount' => 388.5,
+                'quantity' => 2,
+                'orderCount' => 1,
+                'source_trace_id' => 'trace-order-row',
+                'source_url_hash' => $sourceUrlHash,
+            ]],
+        ], $this->ctripBrowserProfileSource(), 123);
+
+        self::assertCount(1, $rows);
+        self::assertSame('order', $rows[0]['data_type']);
+
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        self::assertSame($sourceUrlHash, $raw['source_url_hash'] ?? '');
+        self::assertSame($sourceUrlHash, $raw['capture_evidence']['source_url_hash'] ?? '');
+
+        $status = OnlineDataFieldFactService::buildStatus($rows[0], $raw);
+        self::assertSame('ready', $status['status'] ?? '');
+        self::assertSame(3, $status['captured_count'] ?? 0);
+        self::assertSame(3, $status['matching_desensitized_capture_evidence_count'] ?? 0);
     }
 
     public function testMeituanBrowserProfileAdapterSupportsOnlyMeituanBrowserProfileSources(): void

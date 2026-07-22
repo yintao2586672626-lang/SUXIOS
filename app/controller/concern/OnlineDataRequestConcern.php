@@ -50,6 +50,44 @@ trait OnlineDataRequestConcern
     }
 
     /**
+     * @param array<int, mixed> $responses
+     * @return array<int, array<string, int|string>>
+     */
+    private function summarizeCtripCookieApiResponses(array $responses): array
+    {
+        $summary = [];
+        foreach (array_slice($responses, 0, 20) as $response) {
+            if (!is_array($response)) {
+                continue;
+            }
+            $rawUrl = trim((string)($response['url'] ?? ''));
+            $providedHash = strtolower(trim((string)($response['source_url_hash'] ?? '')));
+            $sourceUrlHash = preg_match('/^[a-f0-9]{64}$/', $providedHash) === 1
+                ? $providedHash
+                : ($rawUrl !== '' ? hash('sha256', $rawUrl) : '');
+            $item = [
+                'url' => $rawUrl !== '' ? $this->auditUrlWithoutQuery($rawUrl) : '',
+                'source_url_hash' => $sourceUrlHash,
+                'status' => max(0, (int)($response['status'] ?? 0)),
+            ];
+            foreach (['section', 'endpoint_id', 'data_type', 'request_type', 'business_error', 'error'] as $key) {
+                $value = trim((string)($response[$key] ?? ''));
+                if ($value !== '' && preg_match('/^[a-z0-9_.:-]{1,96}$/i', $value) === 1) {
+                    $item[$key] = $value;
+                }
+            }
+            foreach (['catalog_fact_count', 'standard_row_count'] as $key) {
+                if (array_key_exists($key, $response)) {
+                    $item[$key] = max(0, (int)$response[$key]);
+                }
+            }
+            $summary[] = $item;
+        }
+
+        return $summary;
+    }
+
+    /**
      * @param array<string, mixed> $requestData
      * @return array<string, scalar|array<int, scalar|null>|null>
      */
@@ -1711,7 +1749,9 @@ trait OnlineDataRequestConcern
                 'standard_section_counts' => $capturedCounts['standard_by_section'],
                 'request_count' => count($prepared['config']['endpoints'] ?? []),
                 'cookie_source' => 'credential_vault',
-                'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
+                'responses' => $this->summarizeCtripCookieApiResponses(
+                    is_array($payload['responses'] ?? null) ? $payload['responses'] : []
+                ),
                 'error_count' => count(is_array($payload['errors'] ?? null) ? $payload['errors'] : []),
                 'output' => $prepared['output_path'],
             ];

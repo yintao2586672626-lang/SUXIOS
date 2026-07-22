@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { sanitizeOtaObservedUrl } from './ota_session_probe.mjs';
 
 export function normalizeCtripApprovedMappings(config = {}) {
   const entries = Array.isArray(config) ? config : (config.mappings || []);
@@ -16,14 +17,21 @@ export function normalizeCtripApprovedMappings(config = {}) {
 
 export function extractCtripApprovedMappingRows(payload = {}, context = {}) {
   const mappings = Array.isArray(context.mappings) ? context.mappings : normalizeCtripApprovedMappings(context.mappings || []);
-  const url = String(context.url || '').toLowerCase();
+  const observedUrl = String(context.url || '').trim();
+  const urlEvidence = approvedUrlValueForStorage(observedUrl, context.sourceUrlHash || context.source_url_hash);
+  const safeContext = {
+    ...context,
+    url: urlEvidence?.value || '',
+    sourceUrlHash: urlEvidence?.value_url_hash || '',
+  };
+  const url = String(urlEvidence?.value || observedUrl).toLowerCase();
   const rows = [];
 
   for (const mapping of mappings) {
     if (!mapping.url_keywords.some((keyword) => url.includes(keyword.toLowerCase()))) {
       continue;
     }
-    rows.push(...extractRowsForMapping(payload, mapping, context));
+    rows.push(...extractRowsForMapping(payload, mapping, safeContext));
   }
 
   return rows;
@@ -33,14 +41,16 @@ export function buildCtripApprovedMappingCandidateFromEvidence(evidenceResult = 
   const draft = evidenceResult.field_mapping_draft || {};
   const fields = Array.isArray(draft.fields) ? draft.fields : [];
   const mappingId = String(options.mappingId || suggestedMappingId(evidenceResult)).trim();
-  const endpointName = endpointNameFromUrl(evidenceResult.request_url || '');
+  const requestUrlEvidence = approvedUrlValueForStorage(evidenceResult.request_url || '', evidenceResult.source_url_hash);
+  const endpointName = endpointNameFromUrl(requestUrlEvidence?.value || '');
 
   return {
     version: 1,
     platform: 'ctrip',
     generated_at: options.generatedAt || new Date().toISOString(),
     status: 'review_required',
-    source_request_url: evidenceResult.request_url || '',
+    source_request_url: requestUrlEvidence?.value || '',
+    ...(requestUrlEvidence?.value_url_hash ? { source_url_hash: requestUrlEvidence.value_url_hash } : {}),
     note: 'Generated from field_mapping_draft. Review every field and set mapping approved=true before use.',
     mappings: [{
       id: mappingId,
@@ -124,11 +134,14 @@ export function buildCtripApprovedMappingCandidatesFromCapture(inputs = [], opti
 export function buildCtripApprovedMappingDryRun({ evidence = {}, mappingConfig = {}, generatedAt = '' } = {}) {
   const mappings = normalizeCtripApprovedMappings(mappingConfig);
   const response = evidence.response ?? evidence.preview ?? evidence.response_preview ?? evidence.responsePreview ?? {};
-  const requestUrl = String(evidence.request_url || evidence.requestUrl || evidence.url || '');
+  const observedRequestUrl = String(evidence.request_url || evidence.requestUrl || evidence.url || '');
+  const requestUrlEvidence = approvedUrlValueForStorage(observedRequestUrl, evidence.source_url_hash);
+  const requestUrl = requestUrlEvidence?.value || '';
   const params = evidence.params || evidence.parameters || {};
   const payload = evidence.payload || evidence.request_payload || evidence.requestPayload || {};
   const rows = extractCtripApprovedMappingRows(response, {
-    url: requestUrl,
+    url: observedRequestUrl,
+    sourceUrlHash: requestUrlEvidence?.value_url_hash || '',
     mappings,
     hotelId: pickFirst(params.hotel_id, params.hotelId, payload.hotelId, payload.hotel_id),
     hotelName: pickFirst(params.hotel_name, params.hotelName, payload.hotelName, payload.hotel_name),
@@ -142,6 +155,7 @@ export function buildCtripApprovedMappingDryRun({ evidence = {}, mappingConfig =
     generated_at: generatedAt || new Date().toISOString(),
     status: rows.length > 0 ? 'pass' : 'no_rows',
     request_url: requestUrl,
+    ...(requestUrlEvidence?.value_url_hash ? { source_url_hash: requestUrlEvidence.value_url_hash } : {}),
     summary: {
       approved_mapping_count: mappings.length,
       matched_mapping_count: new Set(rows.map((row) => row.raw_data?.mapping_id).filter(Boolean)).size,
@@ -244,7 +258,7 @@ function extractRowsForMapping(payload, mapping, context) {
   for (const [groupPath, values] of grouped.entries()) {
     const row = buildBaseRow(mapping, context, groupPath, index);
     for (const item of values) {
-      applyApprovedField(row, item.field, item.value);
+      applyApprovedField(row, item.field, item.value, item.path);
     }
     if (hasApprovedMetric(row)) {
       rows.push(row);
@@ -267,30 +281,33 @@ function buildBaseRow(mapping, context, groupPath, index) {
     endpoint_id: `approved:${mapping.id}`,
     endpoint_label: mapping.id,
     dimension: `approved:${mapping.candidate_section}:${mapping.id}:${safeDimensionPart(groupPath || `row_${index}`)}`,
-    amount: 0,
-    quantity: 0,
-    book_order_num: 0,
-    comment_score: 0,
-    qunar_comment_score: 0,
-    data_value: 0,
-    list_exposure: 0,
-    detail_exposure: 0,
-    flow_rate: 0,
-    order_filling_num: 0,
-    order_submit_num: 0,
+    amount: null,
+    quantity: null,
+    book_order_num: null,
+    comment_score: null,
+    qunar_comment_score: null,
+    data_value: null,
+    list_exposure: null,
+    detail_exposure: null,
+    flow_rate: null,
+    order_filling_num: null,
+    order_submit_num: null,
     raw_data: {
       source: 'ctrip_approved_mapping',
       mapping_id: mapping.id,
       capture_section: mapping.candidate_section,
-      source_url: String(context.url || ''),
+      ...(context.persistRawSourceUrl === false ? {} : { source_url: String(context.url || '') }),
+      ...(context.sourceUrlHash ? { source_url_hash: String(context.sourceUrlHash) } : {}),
       source_group_path: groupPath,
       captured_at: String(context.capturedAt || ''),
       fields: {},
+      facts: [],
+      field_facts: [],
     },
   };
 }
 
-function applyApprovedField(row, field, value) {
+function applyApprovedField(row, field, value, sourcePath) {
   const fieldId = field.suggested_field_id;
   if (field.privacy_handling === 'hash') {
     const text = String(value ?? '').trim();
@@ -310,46 +327,94 @@ function applyApprovedField(row, field, value) {
     return;
   }
 
-  row.raw_data.fields[fieldId] = value;
+  const urlValue = approvedUrlValueForStorage(value);
+  const storedValue = urlValue?.value ?? value;
+  row.raw_data.fields[fieldId] = storedValue;
+  if (urlValue?.value_url_hash) {
+    row.raw_data.fields[`${fieldId}_url_hash`] = urlValue.value_url_hash;
+  }
   if (!field.include_in_business_metrics) {
     return;
   }
 
-  const number = numericValue(value);
-  switch (field.standard_row_column) {
+  const number = numericValue(storedValue);
+  const storageColumn = approvedMetricStorageColumn(field.standard_row_column);
+  const captured = number !== null;
+  const storageField = `online_daily_data.${storageColumn}`;
+  row.raw_data.field_facts.push({
+    metric_key: fieldId,
+    source_path: String(sourcePath || field.source_path || ''),
+    storage_table: 'online_daily_data',
+    storage_field: storageField,
+    status: captured ? 'captured' : 'missing',
+    missing_state: captured ? '' : 'parse_failed',
+    stored_value_present: captured,
+    ...(captured ? { value: storedValue } : {}),
+    ...(urlValue?.value_url_hash ? { value_url_hash: urlValue.value_url_hash } : {}),
+  });
+  if (!captured) {
+    return;
+  }
+  row.raw_data.facts.push({
+    metric_key: fieldId,
+    value: storedValue,
+    ...(urlValue?.value_url_hash ? { value_url_hash: urlValue.value_url_hash } : {}),
+    source_path: String(sourcePath || field.source_path || ''),
+    storage_field: storageField,
+  });
+
+  switch (storageColumn) {
     case 'amount':
-      row.amount = number ?? 0;
+      row.amount = number;
       break;
     case 'quantity':
-      row.quantity = Math.round(number ?? 0);
+      row.quantity = Math.round(number);
       break;
     case 'book_order_num':
-      row.book_order_num = Math.round(number ?? 0);
+      row.book_order_num = Math.round(number);
+      break;
+    case 'comment_score':
+      row.comment_score = number;
+      break;
+    case 'qunar_comment_score':
+      row.qunar_comment_score = number;
       break;
     case 'data_value':
-      row.data_value = number ?? 0;
+      row.data_value = number;
       break;
     case 'list_exposure':
-      row.list_exposure = Math.round(number ?? 0);
+      row.list_exposure = Math.round(number);
       break;
     case 'detail_exposure':
-      row.detail_exposure = Math.round(number ?? 0);
+      row.detail_exposure = Math.round(number);
       break;
     case 'flow_rate':
-      row.flow_rate = number ?? 0;
+      row.flow_rate = number;
       break;
     case 'order_filling_num':
-      row.order_filling_num = Math.round(number ?? 0);
+      row.order_filling_num = Math.round(number);
       break;
     case 'order_submit_num':
-      row.order_submit_num = Math.round(number ?? 0);
-      break;
-    default:
-      if (number !== null && row.data_value === 0) {
-        row.data_value = number;
-      }
+      row.order_submit_num = Math.round(number);
       break;
   }
+}
+
+function approvedMetricStorageColumn(value) {
+  const column = String(value || '').trim();
+  return [
+    'amount',
+    'quantity',
+    'book_order_num',
+    'comment_score',
+    'qunar_comment_score',
+    'data_value',
+    'list_exposure',
+    'detail_exposure',
+    'flow_rate',
+    'order_filling_num',
+    'order_submit_num',
+  ].includes(column) ? column : 'data_value';
 }
 
 function extractPathValues(root, sourcePath) {
@@ -378,15 +443,10 @@ function extractPathValues(root, sourcePath) {
 }
 
 function hasApprovedMetric(row) {
-  return Number(row.amount || 0) !== 0
-    || Number(row.quantity || 0) !== 0
-    || Number(row.book_order_num || 0) !== 0
-    || Number(row.data_value || 0) !== 0
-    || Number(row.list_exposure || 0) !== 0
-    || Number(row.detail_exposure || 0) !== 0
-    || Number(row.flow_rate || 0) !== 0
-    || Number(row.order_filling_num || 0) !== 0
-    || Number(row.order_submit_num || 0) !== 0;
+  return (row.raw_data?.field_facts || []).some((fact) => (
+    fact?.status === 'captured'
+    && fact?.stored_value_present === true
+  ));
 }
 
 function normalizeStringList(value) {
@@ -404,6 +464,37 @@ function pickFirst(...values) {
     }
   }
   return '';
+}
+
+function approvedUrlValueForStorage(value, existingHash = '') {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const raw = value.trim();
+  if (!raw) {
+    return null;
+  }
+  let safeValue = '';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    safeValue = sanitizeOtaObservedUrl(raw);
+  } else if (/^(?:\/(?!\/)|\.\.?\/)/.test(raw)) {
+    const boundary = [raw.indexOf('?'), raw.indexOf('#')]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right)[0] ?? raw.length;
+    safeValue = raw.slice(0, boundary) || '/';
+  } else {
+    return null;
+  }
+  if (!safeValue) {
+    return null;
+  }
+  const suppliedHash = String(existingHash || '').trim().toLowerCase();
+  return {
+    value: safeValue,
+    value_url_hash: raw === safeValue && /^[a-f0-9]{64}$/.test(suppliedHash)
+      ? suppliedHash
+      : createHash('sha256').update(raw).digest('hex'),
+  };
 }
 
 function numericValue(value) {

@@ -136,6 +136,12 @@ class Knowledge extends Base
     {
         try {
             $data = $this->normalizeUnitData($this->requestData(), true);
+            if (!$this->knowledgeUnitHasHotelColumn()) {
+                throw new ValidateException('knowledge hotel scope is unavailable');
+            }
+            $data['hotel_id'] = $this->resolveKnowledgeImportHotelId((int)($data['hotel_id'] ?? 0));
+            $data['source'] = 'manual';
+            $data['status'] = 'pending';
             $data['created_by'] = $this->currentUserId();
             $unit = KnowledgeUnit::create($data);
 
@@ -388,6 +394,10 @@ class Knowledge extends Base
             }
 
             $data = $this->normalizeUnitData($this->requestData(), false);
+            if (array_key_exists('hotel_id', $data)) {
+                $data['hotel_id'] = $this->resolveKnowledgeImportHotelId((int)$data['hotel_id']);
+            }
+            unset($data['source'], $data['status']);
             if (!empty($data)) {
                 $unit->save($data);
             }
@@ -457,23 +467,28 @@ class Knowledge extends Base
             $data = $this->requestData();
             $mode = trim((string)($data['mode'] ?? 'kd'));
             $maxBatches = (int)($data['max_batches'] ?? 1);
+            $hotelId = $this->resolveKnowledgeImportHotelId((int)($data['hotel_id'] ?? 0));
             $result = (new KnowledgeDistillationService())->run($mode, $maxBatches);
 
             if (($result['ok'] ?? false) !== true) {
                 return $this->fail('Knowledge distillation training failed', 500, $result);
             }
 
-            $result['knowledge_unit'] = $this->persistDistillationKnowledge($result, $this->currentUserId());
+            $result['knowledge_unit'] = $this->persistDistillationKnowledge(
+                $result,
+                $this->currentUserId(),
+                $hotelId
+            );
 
             return $this->ok($result, 'training completed');
-        } catch (InvalidArgumentException $e) {
+        } catch (InvalidArgumentException|ValidateException $e) {
             return $this->fail($e->getMessage(), 422);
         } catch (\Throwable $e) {
             return $this->fail('Failed to run knowledge distillation: ' . $e->getMessage(), 500);
         }
     }
 
-    private function persistDistillationKnowledge(array $result, int $userId): array
+    private function persistDistillationKnowledge(array $result, int $userId, int $hotelId): array
     {
         $content = is_array($result['distilled_content'] ?? null) ? $result['distilled_content'] : [];
         $mode = (string)($result['mode'] ?? 'kd');
@@ -484,8 +499,9 @@ class Knowledge extends Base
 
         $unit = null;
         $chunk = null;
-        Db::transaction(function () use (&$unit, &$chunk, $name, $summary, $method, $content, $userId): void {
+        Db::transaction(function () use (&$unit, &$chunk, $name, $summary, $method, $content, $userId, $hotelId): void {
             $unit = KnowledgeUnit::create([
+                'hotel_id' => $hotelId,
                 'name' => $name,
                 'source' => 'ml_distillation',
                 'status' => 'done',
@@ -596,13 +612,7 @@ class Knowledge extends Base
     private function resolveKnowledgeImportHotelId(int $requestedHotelId): int
     {
         $requestedHotelId = max(0, $requestedHotelId);
-        $permittedHotelIds = [];
-        if ($this->currentUser && method_exists($this->currentUser, 'getPermittedHotelIds')) {
-            $permittedHotelIds = array_values(array_unique(array_filter(
-                array_map('intval', (array)$this->currentUser->getPermittedHotelIds()),
-                static fn(int $id): bool => $id > 0
-            )));
-        }
+        $permittedHotelIds = $this->permittedKnowledgeHotelIds();
 
         if ($requestedHotelId > 0) {
             if (!$this->isSuperAdmin() && !in_array($requestedHotelId, $permittedHotelIds, true)) {
@@ -685,8 +695,16 @@ class Knowledge extends Base
 
         $userId = $this->currentUserId();
         $hasHotelColumn = $this->knowledgeUnitHasHotelColumn();
-        $query->where(function ($scope) use ($userId, $hasHotelColumn): void {
-            $scope->where('created_by', $userId);
+        $permittedHotelIds = $this->permittedKnowledgeHotelIds();
+        $query->where(function ($scope) use ($userId, $hasHotelColumn, $permittedHotelIds): void {
+            $scope->where(function ($owned) use ($userId, $hasHotelColumn, $permittedHotelIds): void {
+                $owned->where('created_by', $userId);
+                if ($hasHotelColumn) {
+                    $permittedHotelIds === []
+                        ? $owned->whereRaw('1 = 0')
+                        : $owned->whereIn('hotel_id', $permittedHotelIds);
+                }
+            });
             if ($hasHotelColumn) {
                 $scope->whereOr(function ($global): void {
                     $global->where('created_by', 0)
@@ -699,9 +717,15 @@ class Knowledge extends Base
 
     private function canAccessOwnedRow(array $row): bool
     {
-        return $this->isSuperAdmin()
-            || (int)($row['created_by'] ?? 0) === $this->currentUserId()
-            || $this->isGlobalSystemKnowledgeRow($row);
+        if ($this->isSuperAdmin() || $this->isGlobalSystemKnowledgeRow($row)) {
+            return true;
+        }
+        if ((int)($row['created_by'] ?? 0) !== $this->currentUserId()) {
+            return false;
+        }
+
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
     }
 
     private function canModifyOwnedRow(array $row): bool
@@ -710,7 +734,28 @@ class Knowledge extends Base
             return false;
         }
 
-        return $this->isSuperAdmin() || (int)($row['created_by'] ?? 0) === $this->currentUserId();
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+        if ((int)($row['created_by'] ?? 0) !== $this->currentUserId()) {
+            return false;
+        }
+
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
+    }
+
+    /** @return array<int, int> */
+    private function permittedKnowledgeHotelIds(): array
+    {
+        if (!$this->currentUser || !method_exists($this->currentUser, 'getPermittedHotelIds')) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(
+            array_map('intval', (array)$this->currentUser->getPermittedHotelIds()),
+            static fn(int $id): bool => $id > 0
+        )));
     }
 
     private function isGlobalSystemKnowledgeRow(array $row): bool

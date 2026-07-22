@@ -2,6 +2,8 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+import { parseJsonTextSafely, safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
+
 const root = process.cwd();
 const phpBinary = process.env.PHP_BINARY || 'C:\\xampp\\php\\php.exe';
 const importer = path.join(root, 'scripts', 'import_p0_ota_traffic_payload.php');
@@ -212,9 +214,9 @@ function collectVerifierScopedTargets(scanOptions, scanPlatforms) {
   const stdout = String(child.stdout || '').trim();
   let parsed = {};
   try {
-    parsed = JSON.parse(stdout);
+    parsed = parseJsonTextSafely(stdout, 'p0_verifier_json');
   } catch (error) {
-    throw new Error(`P0 verifier returned invalid JSON for hotel-scoped payload candidates: ${error.message}`);
+    throw new Error(`P0 verifier returned invalid JSON for hotel-scoped payload candidates: ${safeJsonParseErrorCode(error)}`);
   }
 
   const targets = [];
@@ -370,7 +372,7 @@ function runImporterDryRun(target, scanOptions) {
   const stdout = String(child.stdout || '').trim();
   let parsed = {};
   try {
-    parsed = JSON.parse(stdout);
+    parsed = parseJsonTextSafely(stdout, 'p0_importer_json');
   } catch (error) {
     return {
       platform: target.platform,
@@ -382,7 +384,7 @@ function runImporterDryRun(target, scanOptions) {
       required_fixes: [requiredFixForIssue('importer_invalid_json')],
       next_verifier_command: nextVerifierCommand,
       stderr: String(child.stderr || '').trim(),
-      json_error: error.message,
+      json_error: safeJsonParseErrorCode(error),
     };
   }
   const issues = Array.isArray(parsed.issues) ? parsed.issues : [];

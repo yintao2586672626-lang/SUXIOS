@@ -91,6 +91,7 @@ function returns_sanitized_ota_config_detail(string $source): bool
 function verified_transfer_ota_row(int $id, int $systemHotelId, string $date): array
 {
     $traceId = 'security-verifier-transfer-' . $id;
+    $sourceUrlHash = hash('sha256', 'https://ebooking.ctrip.com/verifier/transfer/' . $id);
     return [
         'id' => $id,
         'system_hotel_id' => $systemHotelId,
@@ -105,6 +106,7 @@ function verified_transfer_ota_row(int $id, int $systemHotelId, string $date): a
         'book_order_num' => 3,
         'ingestion_method' => 'browser_profile',
         'source_trace_id' => $traceId,
+        'source_url_hash' => $sourceUrlHash,
         'snapshot_time' => $date . ' 09:00:00',
         'validation_status' => 'normal',
         'readback_verified' => 1,
@@ -112,13 +114,15 @@ function verified_transfer_ota_row(int $id, int $systemHotelId, string $date): a
         'update_time' => $date . ' 09:01:00',
         'raw_data' => json_encode([
             'visitors' => 30,
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $sourceUrlHash,
             'field_facts' => array_map(
                 static fn(array $fact): array => array_merge($fact, [
                     'status' => 'captured',
                     'stored_value_present' => true,
                     'capture_evidence' => [
                         'source_trace_id' => $traceId,
-                        'source_url_hash' => 'sha256:security-verifier-safe',
+                        'source_url_hash' => $sourceUrlHash,
                     ],
                 ]),
                 [

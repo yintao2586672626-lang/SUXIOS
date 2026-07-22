@@ -679,6 +679,56 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertStringContainsString('p0_required_traffic_storage_field_map($platform)', $verifier);
     }
 
+    public function testFailedSyncTasksPreserveActionableSafeMessageCodes(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach ([
+            'p0_normalize_task_date',
+            'p0_sync_task_target_date',
+            'p0_sync_task_is_stale_running',
+            'p0_sync_task_message_looks_like_login_blocker',
+            'p0_sync_task_message_code',
+            'p0_sync_task_diagnosis',
+        ] as $functionName) {
+            if (function_exists(__NAMESPACE__ . '\\' . $functionName) || function_exists($functionName)) {
+                continue;
+            }
+            $definition = $this->extractFunctionDefinition($verifier, $functionName);
+            self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
+            eval($definition);
+        }
+
+        $profileCode = p0_sync_task_message_code([
+            'status' => 'failed',
+            'message' => 'profile_session_unverified',
+        ], [], '2026-07-21');
+        self::assertSame('profile_session_unverified', $profileCode);
+        self::assertSame('current_profile_session_not_verified', p0_sync_task_diagnosis($profileCode));
+
+        $executionCode = p0_sync_task_message_code([
+            'status' => 'failed',
+            'message' => 'credential_execution_failed',
+        ], [], '2026-07-21');
+        self::assertSame('credential_execution_failed', $executionCode);
+        self::assertSame('capture_execution_failed', p0_sync_task_diagnosis($executionCode));
+    }
+
+    public function testLiveClosureInspectorRequiresDesensitizedEvidenceForCompleteFacts(): void
+    {
+        $inspector = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'inspect_phase1_ota_live_closure.php');
+        $definition = $this->extractFunctionDefinition($inspector, 'field_fact_closure_summary');
+
+        self::assertNotSame('', $definition);
+        self::assertStringContainsString(
+            '$complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $hasDesensitizedCaptureEvidence',
+            $definition
+        );
+        self::assertStringNotContainsString(
+            '$complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $metricKey',
+            $definition
+        );
+    }
+
     public function testAlreadyIngestedTrafficDoesNotRequireTemporaryPayloadFile(): void
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');

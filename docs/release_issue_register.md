@@ -4,6 +4,8 @@ Updated: 2026-07-09
 
 Status: not release-ready.
 
+Evidence note: dated statements below describe the 2026-07-09 controlled snapshot, not live release approval. Dynamic backup, staged-scope, PR-head, and external-state checks must be rerun on the final checkout.
+
 Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 This register is the current release issue list. It is evidence-led and must stay aligned with `docs/release_readiness_status.json`, `docs/release_verification_command_matrix.md`, and `npm run review:release-readiness`. Closed issues remain listed for auditability.
@@ -29,7 +31,7 @@ Evidence collection checklist: `docs/release_evidence_collection.zh-CN.md`.
 |---|---|---|
 | `@github` | `.git/index.lock` is absent; `database/backups` has no tracked files; `review:release-pr-candidates` selected PR #6; `review:release-external-state` passed from a clean checkout that matches PR #6. `docs/release_github_handoff_evidence.json` is stale non-closing connector diagnostic evidence only. | Keep PR #6 and the clean verification checkout aligned through final evidence closure; rerun external-state after every PR update. |
 | `@openai-developers` | AI entrypoint is `LlmClient` with encrypted `ai_model_configs`; local functional readiness covers AI decision structure; external production env and LLM connectivity attestation pass their isolated gates. | Keep external evidence available and rerun the gates on the final release head. |
-| `@codex-security` | Dependency audits and lightweight security checks pass; backups are ignored, not tracked by Git; the current `review:release-ota-credentials` scan reports no credential-shaped backup text matches; formal Codex Security scan artifacts are present and `review:release-security-scan` passes. | Ctrip and Meituan OTA credential rotation attestation is still missing. |
+| `@codex-security` | In the 2026-07-09 controlled snapshot, dependency audits and lightweight security checks passed, backups were ignored and untracked, and the backup text scan reported no credential-shaped matches; formal Codex Security scan artifacts were present. This historical result is not reusable as a live scan. | Rerun `review:release-ota-credentials` on the final release workstation. Any current backup match blocks release; Ctrip and Meituan OTA credential rotation attestation is still required. |
 | `@figma` | Code-side UI handoff and functional readiness cover required flows; `docs/release_figma_handoff_evidence.json` records the existing Figma file key. | The 2026-07-07 connector check returned `UNAUTHORIZED` / reauthentication required, so the Figma source cannot currently be revalidated through the connector and no controlled manifest closes the gate. |
 | `@canva` | Design handoff contract requires Canva and Brand Kit metadata; `docs/release_canva_handoff_evidence.json` records the prior Canva design references. | The 2026-07-07 connector checks returned `UNAUTHORIZED` / `oauth_token_invalid_grant`, and no real Brand Kit URL or connector-verified Brand Kit source is present. |
 

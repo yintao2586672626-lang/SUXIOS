@@ -209,6 +209,11 @@ final class CloudOtaBundleCodec
 
             $collection = self::normalizeCollection(is_array($package['collection'] ?? null) ? $package['collection'] : []);
             $rows = is_array($package['rows'] ?? null) ? $package['rows'] : [];
+            $hasSnapshotComplete = array_key_exists('snapshot_complete', $package);
+            $hasSourceRowCount = array_key_exists('source_row_count', $package);
+            if ($hasSnapshotComplete !== $hasSourceRowCount) {
+                throw new RuntimeException('cloud_bundle_snapshot_metadata_incomplete');
+            }
             if ($rows !== [] && array_keys($rows) !== range(0, count($rows) - 1)) {
                 throw new RuntimeException('cloud_bundle_rows_must_be_list');
             }
@@ -268,7 +273,7 @@ final class CloudOtaBundleCodec
             if ($normalizedRows !== [] && !in_array($collection['status'], ['success', 'partial'], true)) {
                 throw new RuntimeException('cloud_bundle_failed_package_must_not_contain_rows');
             }
-            $normalized[] = [
+            $normalizedPackage = [
                 'platform' => $platform,
                 'source_data_source_id' => $sourceDataSourceId,
                 'destination_data_source_id' => $destinationDataSourceId,
@@ -276,6 +281,25 @@ final class CloudOtaBundleCodec
                 'row_count' => count($normalizedRows),
                 'rows' => $normalizedRows,
             ];
+            if ($hasSnapshotComplete) {
+                if (!is_bool($package['snapshot_complete'])) {
+                    throw new RuntimeException('cloud_bundle_snapshot_complete_invalid');
+                }
+                $sourceRowCount = filter_var(
+                    $package['source_row_count'],
+                    FILTER_VALIDATE_INT,
+                    ['options' => ['min_range' => 0]]
+                );
+                if ($sourceRowCount === false || (int)$sourceRowCount < count($normalizedRows)) {
+                    throw new RuntimeException('cloud_bundle_source_row_count_invalid');
+                }
+                if ($package['snapshot_complete'] === true && (int)$sourceRowCount !== count($normalizedRows)) {
+                    throw new RuntimeException('cloud_bundle_complete_snapshot_row_count_mismatch');
+                }
+                $normalizedPackage['snapshot_complete'] = $package['snapshot_complete'];
+                $normalizedPackage['source_row_count'] = (int)$sourceRowCount;
+            }
+            $normalized[] = $normalizedPackage;
         }
         usort($normalized, static fn(array $left, array $right): int => strcmp(
             $left['platform'] . ':' . $left['source_data_source_id'],

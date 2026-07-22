@@ -295,6 +295,7 @@ final class OperationManagementServiceTest extends TestCase
         $service = new OperationManagementService();
         $cases = [
             'hotel identity missing' => ['system_hotel_id' => null],
+            'data source binding missing' => ['data_source_id' => null],
             'platform identity missing' => ['source' => '', 'platform' => ''],
             'data date missing' => ['data_date' => ''],
             'data date invalid' => ['data_date' => '2026-02-30'],
@@ -322,6 +323,30 @@ final class OperationManagementServiceTest extends TestCase
         self::assertTrue($this->invokeNonPublic($service, 'isTrustedSelfOtaFactRow', [
             $this->trustedOtaOperatingRow(),
         ]));
+    }
+
+    public function testMeituanRankRowsRequireTheTrustedOtaEvidenceEnvelope(): void
+    {
+        $service = new OperationManagementService();
+        $valid = $this->trustedOtaOperatingRow([
+            'source' => 'meituan',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+        ]);
+
+        self::assertTrue($this->invokeNonPublic($service, 'isMeituanBusinessRankRow', [$valid]));
+        foreach ([
+            'data source binding missing' => ['data_source_id' => 0],
+            'validation untrusted' => ['validation_status' => 'unverified'],
+            'readback unverified' => ['readback_verified' => 0],
+            'ingestion untrusted' => ['ingestion_method' => 'manual'],
+            'collection timestamp missing' => ['snapshot_time' => ''],
+        ] as $label => $overrides) {
+            self::assertFalse(
+                $this->invokeNonPublic($service, 'isMeituanBusinessRankRow', [array_replace($valid, $overrides)]),
+                $label
+            );
+        }
     }
 
     public function testDashboardSummaryRejectsUnidentifiedOnlineSource(): void
@@ -1201,6 +1226,7 @@ final class OperationManagementServiceTest extends TestCase
         return array_replace([
             'id' => 6,
             'system_hotel_id' => 7,
+            'data_source_id' => 11,
             'hotel_id' => 130079194,
             'data_date' => '2026-07-15',
             'source' => 'ctrip',

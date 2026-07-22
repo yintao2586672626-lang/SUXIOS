@@ -65,18 +65,21 @@ final class CloudOtaBundleImportService
             $rowCount = 0;
             $inserted = 0;
             $updated = 0;
+            $retired = 0;
             $readback = 0;
             foreach ($bundle['packages'] as $package) {
                 $sourceId = (int)$package['destination_data_source_id'];
-                $source = $sources[$sourceId];
+                $source = $this->lockSourceForImport($sources[$sourceId]);
+                $this->assertPackageVersionIsCurrent($bundle, $package, $source);
                 $taskId = $this->createSyncTask($bundle, $package, $source, $actor);
                 $packageResult = $this->importPackage($bundle, $package, $source, $hotel, $taskId);
                 $this->finishSyncTask($taskId, $packageResult);
-                $this->mirrorSourceCollectionState($source, $package, $packageResult);
+                $this->mirrorSourceCollectionState($bundle, $source, $package, $packageResult);
                 $packageResults[] = $packageResult;
                 $rowCount += (int)$packageResult['row_count'];
                 $inserted += (int)$packageResult['inserted_count'];
                 $updated += (int)$packageResult['updated_count'];
+                $retired += (int)$packageResult['retired_count'];
                 $readback += (int)$packageResult['readback_count'];
             }
 
@@ -94,6 +97,7 @@ final class CloudOtaBundleImportService
                 'row_count' => $rowCount,
                 'inserted_count' => $inserted,
                 'updated_count' => $updated,
+                'retired_count' => $retired,
                 'readback_count' => $readback,
                 'readback_verified' => $rowCount > 0 && $rowCount === $readback,
                 'packages' => $packageResults,
@@ -224,7 +228,7 @@ final class CloudOtaBundleImportService
         $requirements = [
             'online_daily_data' => [
                 'id', 'tenant_id', 'system_hotel_id', 'data_source_id', 'data_date', 'source', 'platform',
-                'data_type', 'source_trace_id', 'validation_status', 'validation_flags',
+                'data_type', 'ingestion_method', 'source_trace_id', 'validation_status', 'validation_flags',
                 'readback_verified', 'readback_verified_at', 'raw_data',
             ],
             'platform_data_sync_tasks' => [
@@ -263,6 +267,7 @@ final class CloudOtaBundleImportService
                 'row_count' => 0,
                 'inserted_count' => 0,
                 'updated_count' => 0,
+                'retired_count' => 0,
                 'readback_count' => 0,
                 'readback_verified' => false,
             ];
@@ -273,8 +278,23 @@ final class CloudOtaBundleImportService
         $updated = 0;
         $rowIds = [];
         $snapshots = [];
+        $rowIdentityOccurrences = [];
         foreach ($rows as $index => $row) {
-            $data = $this->prepareDestinationRow($bundle, $package, $source, $hotel, $taskId, $row, (int)$index, $columns);
+            $rowIdentityHash = $this->destinationRowIdentityHash($row);
+            $rowIdentityOccurrence = (int)($rowIdentityOccurrences[$rowIdentityHash] ?? 0);
+            $rowIdentityOccurrences[$rowIdentityHash] = $rowIdentityOccurrence + 1;
+            $data = $this->prepareDestinationRow(
+                $bundle,
+                $package,
+                $source,
+                $hotel,
+                $taskId,
+                $row,
+                (int)$index,
+                $rowIdentityHash,
+                $rowIdentityOccurrence,
+                $columns
+            );
             $existing = Db::name('online_daily_data')
                 ->where('tenant_id', (int)$hotel['tenant_id'])
                 ->where('system_hotel_id', (int)$hotel['id'])
@@ -317,6 +337,11 @@ final class CloudOtaBundleImportService
         if (!$this->markReadbackVerified($snapshots, $hotel, $source, $columns)) {
             throw new RuntimeException('cloud_bundle_mysql_readback_proof_failed');
         }
+        $snapshotComplete = ($package['snapshot_complete'] ?? false) === true
+            && (int)($package['source_row_count'] ?? -1) === count($rows);
+        $retired = $collectionStatus === 'success' && $snapshotComplete
+            ? $this->retireRowsMissingFromSnapshot($bundle, $package, $source, $hotel, $rowIds, $columns)
+            : 0;
         $readback = (int)Db::name('online_daily_data')
             ->whereIn('id', $rowIds)
             ->where('tenant_id', (int)$hotel['tenant_id'])
@@ -338,6 +363,8 @@ final class CloudOtaBundleImportService
             'row_count' => count($rows),
             'inserted_count' => $inserted,
             'updated_count' => $updated,
+            'retired_count' => $retired,
+            'snapshot_complete' => $snapshotComplete,
             'readback_count' => $readback,
             'readback_verified' => true,
         ];
@@ -360,6 +387,8 @@ final class CloudOtaBundleImportService
         int $taskId,
         array $row,
         int $index,
+        string $rowIdentityHash,
+        int $rowIdentityOccurrence,
         array $columns
     ): array {
         $sourceTraceId = trim((string)$row['source_trace_id']);
@@ -368,6 +397,8 @@ final class CloudOtaBundleImportService
             (string)$package['source_data_source_id'],
             (string)$source['id'],
             $sourceTraceId,
+            $rowIdentityHash,
+            (string)$rowIdentityOccurrence,
         ]));
         $data = CloudOtaBundleCodec::allowlistedRow($row);
         unset(
@@ -391,10 +422,13 @@ final class CloudOtaBundleImportService
         $data['raw_data'] = json_encode([
             'contract_version' => CloudOtaBundleCodec::CONTRACT_VERSION,
             'bundle_id' => (string)$bundle['bundle_id'],
+            'bundle_created_at' => (string)$bundle['created_at'],
             'payload_sha256' => (string)$bundle['payload_sha256'],
             'source_system_hotel_id' => (int)$bundle['source_system_hotel_id'],
             'source_data_source_id' => (int)$package['source_data_source_id'],
             'source_trace_id' => $sourceTraceId,
+            'source_row_identity_sha256' => $rowIdentityHash,
+            'source_row_identity_occurrence' => $rowIdentityOccurrence,
             'row_index' => $index,
             'row' => CloudOtaBundleCodec::allowlistedRow($row),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
@@ -409,6 +443,19 @@ final class CloudOtaBundleImportService
             $data['readback_verified_at'] = null;
         }
         return array_intersect_key($data, $columns);
+    }
+
+    /** @param array<string, mixed> $row */
+    private function destinationRowIdentityHash(array $row): string
+    {
+        $identity = [];
+        foreach ([
+            'hotel_id', 'data_date', 'data_type', 'dimension', 'compare_type',
+            'data_period', 'snapshot_time', 'snapshot_bucket', 'is_final',
+        ] as $field) {
+            $identity[$field] = $row[$field] ?? null;
+        }
+        return hash('sha256', CloudOtaBundleCodec::canonicalJson($identity));
     }
 
     /** @param array<string, mixed> $data @param array<string, bool> $columns @return array<string, mixed> */
@@ -531,6 +578,177 @@ final class CloudOtaBundleImportService
         return count($ids) === count($snapshots);
     }
 
+    /** @param array<string, mixed> $source @return array<string, mixed> */
+    private function lockSourceForImport(array $source): array
+    {
+        $locked = Db::name('platform_data_sources')
+            ->withoutField('secret_json')
+            ->where('id', (int)$source['id'])
+            ->where('tenant_id', (int)$source['tenant_id'])
+            ->where('system_hotel_id', (int)$source['system_hotel_id'])
+            ->lock(true)
+            ->find();
+        if (!is_array($locked) || (int)($locked['enabled'] ?? 0) !== 1) {
+            throw new RuntimeException('cloud_bundle_cloud_source_binding_disabled_during_import');
+        }
+        return $locked;
+    }
+
+    /** @param array<string, mixed> $bundle @param array<string, mixed> $package @param array<string, mixed> $source */
+    private function assertPackageVersionIsCurrent(array $bundle, array $package, array $source): void
+    {
+        $incomingVersion = $this->packageSourceVersion($bundle, $package);
+        $incomingCreatedAt = (string)$bundle['created_at'];
+        $bundleId = (string)$bundle['bundle_id'];
+        $targetDate = (string)$bundle['target_date'];
+        $latest = null;
+        $legacyTargetTaskFound = false;
+        $legacySameBundleFound = false;
+        $tasks = Db::name('platform_data_sync_tasks')
+            ->where('tenant_id', (int)$source['tenant_id'])
+            ->where('data_source_id', (int)$source['id'])
+            ->where('system_hotel_id', (int)$source['system_hotel_id'])
+            ->where('data_type', 'cloud_bundle')
+            ->order('id', 'desc')
+            ->field('id,stats_json')
+            ->select()
+            ->toArray();
+        foreach ($tasks as $task) {
+            $stats = is_string($task['stats_json'] ?? null)
+                ? json_decode((string)$task['stats_json'], true)
+                : null;
+            if (!is_array($stats) || (string)($stats['target_date'] ?? '') !== $targetDate) {
+                continue;
+            }
+            $taskBundleId = (string)($stats['bundle_id'] ?? '');
+            $version = trim((string)($stats['source_version'] ?? ''));
+            if ($version === '') {
+                $legacyTargetTaskFound = true;
+                $legacySameBundleFound = $legacySameBundleFound
+                    || ($taskBundleId !== '' && hash_equals($taskBundleId, $bundleId));
+                continue;
+            }
+            $createdAt = trim((string)($stats['bundle_created_at'] ?? ''));
+            $candidate = [
+                'source_version' => $version,
+                'bundle_created_at' => $createdAt !== '' ? $createdAt : $version,
+                'bundle_id' => $taskBundleId,
+            ];
+            if ($latest === null
+                || strcmp($candidate['source_version'], $latest['source_version']) > 0
+                || ($candidate['source_version'] === $latest['source_version']
+                    && strcmp($candidate['bundle_created_at'], $latest['bundle_created_at']) > 0)) {
+                $latest = $candidate;
+            }
+        }
+
+        if (is_array($latest)) {
+            $versionComparison = strcmp($incomingVersion, (string)$latest['source_version']);
+            $createdAtComparison = strcmp($incomingCreatedAt, (string)$latest['bundle_created_at']);
+            $isLatestReplay = $versionComparison === 0
+                && $createdAtComparison === 0
+                && (string)$latest['bundle_id'] !== ''
+                && hash_equals((string)$latest['bundle_id'], $bundleId);
+            if ($versionComparison < 0
+                || ($versionComparison === 0 && $createdAtComparison < 0)
+                || ($versionComparison === 0 && $createdAtComparison === 0 && !$isLatestReplay)) {
+                throw new RuntimeException('cloud_bundle_stale_package:' . (string)$package['platform']);
+            }
+            return;
+        }
+
+        $currentSourceVersion = trim((string)($source['last_sync_time'] ?? ''));
+        if ($legacySameBundleFound
+            && ($currentSourceVersion === '' || strcmp($incomingVersion, $currentSourceVersion) >= 0)) {
+            return;
+        }
+        if ($legacyTargetTaskFound && $currentSourceVersion !== ''
+            && strcmp($incomingVersion, $currentSourceVersion) <= 0) {
+            throw new RuntimeException('cloud_bundle_stale_package_legacy_version_unverifiable:' . (string)$package['platform']);
+        }
+    }
+
+    /** @param array<string, mixed> $bundle @param array<string, mixed> $package */
+    private function packageSourceVersion(array $bundle, array $package): string
+    {
+        $lastSyncTime = trim((string)$package['collection']['last_sync_time']);
+        return $lastSyncTime !== '' ? $lastSyncTime : (string)$bundle['created_at'];
+    }
+
+    /**
+     * A successful package is a complete trusted snapshot for its exact
+     * source/hotel/date binding. Facts absent from a newer snapshot remain as
+     * history but can no longer be consumed as verified current facts.
+     *
+     * @param array<string, mixed> $bundle
+     * @param array<string, mixed> $package
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $hotel
+     * @param array<int, int> $currentRowIds
+     * @param array<string, bool> $columns
+     */
+    private function retireRowsMissingFromSnapshot(
+        array $bundle,
+        array $package,
+        array $source,
+        array $hotel,
+        array $currentRowIds,
+        array $columns
+    ): int {
+        $currentLookup = array_fill_keys(array_map('intval', $currentRowIds), true);
+        $candidates = Db::name('online_daily_data')
+            ->where('tenant_id', (int)$hotel['tenant_id'])
+            ->where('system_hotel_id', (int)$hotel['id'])
+            ->where('data_source_id', (int)$source['id'])
+            ->where('data_date', (string)$bundle['target_date'])
+            ->where('ingestion_method', 'cloud_bundle')
+            ->where('readback_verified', 1)
+            ->field('id,raw_data')
+            ->lock(true)
+            ->select()
+            ->toArray();
+        $retireIds = [];
+        foreach ($candidates as $candidate) {
+            $rowId = (int)($candidate['id'] ?? 0);
+            if ($rowId <= 0 || isset($currentLookup[$rowId])) {
+                continue;
+            }
+            $raw = is_string($candidate['raw_data'] ?? null)
+                ? json_decode((string)$candidate['raw_data'], true)
+                : null;
+            if (!is_array($raw)
+                || (int)($raw['source_system_hotel_id'] ?? 0) !== (int)$bundle['source_system_hotel_id']
+                || (int)($raw['source_data_source_id'] ?? 0) !== (int)$package['source_data_source_id']) {
+                continue;
+            }
+            $retireIds[] = $rowId;
+        }
+        if ($retireIds === []) {
+            return 0;
+        }
+
+        $update = [
+            'readback_verified' => 0,
+            'readback_verified_at' => null,
+            'validation_status' => 'unverified',
+            'validation_flags' => json_encode([[
+                'level' => 'warning',
+                'code' => 'cloud_bundle_row_absent_from_newer_verified_snapshot',
+                'superseding_bundle_id' => (string)$bundle['bundle_id'],
+            ]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ];
+        if (isset($columns['update_time'])) {
+            $update['update_time'] = date('Y-m-d H:i:s');
+        }
+        return (int)Db::name('online_daily_data')
+            ->whereIn('id', $retireIds)
+            ->where('tenant_id', (int)$hotel['tenant_id'])
+            ->where('system_hotel_id', (int)$hotel['id'])
+            ->where('data_source_id', (int)$source['id'])
+            ->where('readback_verified', 1)
+            ->update(array_intersect_key($update, $columns));
+    }
+
     /** @param array<string, mixed> $bundle @param array<string, mixed> $package @param array<string, mixed> $source */
     private function createSyncTask(array $bundle, array $package, array $source, User $actor): int
     {
@@ -552,8 +770,10 @@ final class CloudOtaBundleImportService
             'message' => 'cloud_bundle_import_started',
             'stats_json' => json_encode([
                 'bundle_id' => (string)$bundle['bundle_id'],
+                'bundle_created_at' => (string)$bundle['created_at'],
                 'payload_sha256' => (string)$bundle['payload_sha256'],
                 'target_date' => (string)$bundle['target_date'],
+                'source_version' => $this->packageSourceVersion($bundle, $package),
                 'source_system_hotel_id' => (int)$bundle['source_system_hotel_id'],
                 'source_data_source_id' => (int)$package['source_data_source_id'],
                 'collection_status' => (string)$package['collection']['status'],
@@ -572,6 +792,7 @@ final class CloudOtaBundleImportService
             'row_count' => (int)$result['row_count'],
             'inserted_count' => (int)$result['inserted_count'],
             'updated_count' => (int)$result['updated_count'],
+            'retired_count' => (int)$result['retired_count'],
             'readback_count' => (int)$result['readback_count'],
             'readback_verified' => ($result['readback_verified'] ?? false) === true,
             'collection_triggered' => false,
@@ -590,8 +811,8 @@ final class CloudOtaBundleImportService
         ]);
     }
 
-    /** @param array<string, mixed> $source @param array<string, mixed> $package @param array<string, mixed> $result */
-    private function mirrorSourceCollectionState(array $source, array $package, array $result): void
+    /** @param array<string, mixed> $bundle @param array<string, mixed> $source @param array<string, mixed> $package @param array<string, mixed> $result */
+    private function mirrorSourceCollectionState(array $bundle, array $source, array $package, array $result): void
     {
         $collectionStatus = (string)$package['collection']['status'];
         $lastSyncStatus = match ($collectionStatus) {
@@ -600,13 +821,17 @@ final class CloudOtaBundleImportService
             'login_expired' => 'login_expired',
             default => 'failed',
         };
-        $lastSyncTime = trim((string)$package['collection']['last_sync_time']);
+        $lastSyncTime = $this->packageSourceVersion($bundle, $package);
+        $currentLastSyncTime = trim((string)($source['last_sync_time'] ?? ''));
+        if ($currentLastSyncTime !== '' && strcmp($lastSyncTime, $currentLastSyncTime) < 0) {
+            return;
+        }
         Db::name('platform_data_sources')
             ->where('id', (int)$source['id'])
             ->where('tenant_id', (int)$source['tenant_id'])
             ->where('system_hotel_id', (int)$source['system_hotel_id'])
             ->update([
-            'last_sync_time' => $lastSyncTime !== '' ? $lastSyncTime : date('Y-m-d H:i:s'),
+            'last_sync_time' => $lastSyncTime,
             'last_sync_status' => $lastSyncStatus,
             'last_error' => $lastSyncStatus === 'success' ? null : mb_substr((string)$package['collection']['message'], 0, 500, 'UTF-8'),
             'update_time' => date('Y-m-d H:i:s'),

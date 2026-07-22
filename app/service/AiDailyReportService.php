@@ -1671,6 +1671,7 @@ class AiDailyReportService
             $sourceRefs[$index]['readback_verified_at'] = (string)($row['readback_verified_at'] ?? '');
             $sourceRefs[$index]['validation_status'] = (string)($row['validation_status'] ?? '');
             $sourceRefs[$index]['system_hotel_id'] = (int)($row['system_hotel_id'] ?? 0);
+            $sourceRefs[$index]['data_source_id'] = (int)($row['data_source_id'] ?? 0);
             $sourceRefs[$index]['data_date'] = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
             $sourceRefs[$index]['platform'] = $this->normalizeOtaChannel((string)($row['platform'] ?? $row['source'] ?? ''));
             $sourceRefs[$index]['date_role'] = 'target';
@@ -1697,6 +1698,24 @@ class AiDailyReportService
                 $gaps[] = $this->trustedInputGap(
                     'ota_evidence_readback_unverified',
                     'Referenced OTA evidence has not passed database readback verification.',
+                    $key
+                );
+            }
+
+            $dataSourceId = (int)($row['data_source_id'] ?? 0);
+            if ($dataSourceId <= 0) {
+                $rowTrusted = false;
+                $gaps[] = $this->trustedInputGap(
+                    'ota_evidence_data_source_binding_missing',
+                    'Referenced OTA evidence has no verified platform data-source binding.',
+                    $key
+                );
+            } elseif ((int)($sourceRef['data_source_id'] ?? 0) > 0
+                && (int)$sourceRef['data_source_id'] !== $dataSourceId) {
+                $rowTrusted = false;
+                $gaps[] = $this->trustedInputGap(
+                    'ota_evidence_data_source_binding_mismatch',
+                    'Referenced OTA evidence data-source binding does not match the persisted row.',
                     $key
                 );
             }
@@ -1733,6 +1752,7 @@ class AiDailyReportService
                 $trustedRows[$rowId] = [
                     'id' => $rowId,
                     'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
+                    'data_source_id' => $dataSourceId,
                     'data_date' => substr((string)($row['data_date'] ?? ''), 0, 10),
                     'source' => (string)($row['source'] ?? ''),
                     'platform' => (string)($row['platform'] ?? ''),
@@ -3148,6 +3168,7 @@ class AiDailyReportService
             $key = trim((string)($sourceRef['key'] ?? ''));
             if (preg_match('/^online_daily_data#\d+$/', $key) !== 1
                 || ($sourceRef['readback_verified'] ?? false) !== true
+                || (int)($sourceRef['data_source_id'] ?? 0) <= 0
                 || substr(trim((string)($sourceRef['data_date'] ?? '')), 0, 10) !== $reportDate
             ) {
                 continue;
@@ -3156,7 +3177,7 @@ class AiDailyReportService
             $trustedRefs[] = array_intersect_key($sourceRef, array_fill_keys([
                 'key', 'label', 'scope', 'source', 'platform', 'endpoint_id',
                 'data_date', 'validation_status', 'ingestion_method', 'data_period',
-                'is_final', 'metric_keys', 'readback_verified',
+                'is_final', 'metric_keys', 'readback_verified', 'data_source_id',
             ], true));
         }
 

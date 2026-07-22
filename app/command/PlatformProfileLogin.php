@@ -588,6 +588,10 @@ class PlatformProfileLogin extends Command
             if ($hotelName !== '') {
                 $args[] = '--hotel-name=' . $hotelName;
             }
+            $platformHotelName = $this->trustedCtripPlatformHotelName($request);
+            if ($platformHotelName !== '') {
+                $args[] = '--platform-hotel-name=' . $platformHotelName;
+            }
         } else {
             $storeId = trim((string)($request['store_id'] ?? $request['storeId'] ?? $request['profile_key'] ?? ''));
             $poiId = trim((string)($request['poi_id'] ?? $request['poiId'] ?? $storeId));
@@ -621,6 +625,83 @@ class PlatformProfileLogin extends Command
         }
 
         return $args;
+    }
+
+    private function trustedCtripPlatformHotelName(array $request): string
+    {
+        $sourceId = (int)($request['data_source_id'] ?? $request['source_id'] ?? 0);
+        $systemHotelId = (int)($request['system_hotel_id'] ?? 0);
+        if ($sourceId <= 0 || $systemHotelId <= 0) {
+            return '';
+        }
+
+        try {
+            $source = Db::name('platform_data_sources')
+                ->field('id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+                ->where('id', $sourceId)
+                ->where('system_hotel_id', $systemHotelId)
+                ->find();
+            if (!is_array($source)) {
+                return '';
+            }
+            $config = $this->decodeSafeProfileSourceConfig((string)($source['config_json'] ?? ''));
+            return $this->validateTrustedCtripPlatformHotelName($source, $config, $request);
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function validateTrustedCtripPlatformHotelName(array $source, array $config, array $request): string
+    {
+        if (strtolower(trim((string)($source['platform'] ?? ''))) !== 'ctrip'
+            || !in_array(strtolower(trim((string)($source['ingestion_method'] ?? ''))), ['browser_profile', 'profile_browser'], true)
+            || (int)($source['enabled'] ?? 0) !== 1
+            || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
+            || (int)($source['system_hotel_id'] ?? 0) !== (int)($request['system_hotel_id'] ?? 0)
+        ) {
+            return '';
+        }
+
+        $expectedHotelId = trim((string)($config['hotel_id'] ?? $config['hotelId'] ?? ''));
+        $requestHotelId = trim((string)($request['hotel_id'] ?? $request['hotelId'] ?? ''));
+        $profileKey = trim((string)($config['profile_binding_key'] ?? $config['stable_profile_id'] ?? $config['profile_id'] ?? $config['profileId'] ?? ''));
+        $requestProfileKey = trim((string)($request['profile_id'] ?? $request['profileId'] ?? $request['profile_key'] ?? ''));
+        $name = preg_replace('/\s+/u', ' ', trim((string)($config['platform_hotel_name'] ?? $config['platformHotelName'] ?? ''))) ?? '';
+        $referenceSource = strtolower(trim((string)($config['platform_hotel_identity_source'] ?? $config['platformHotelIdentitySource'] ?? '')));
+        $publicUrl = trim((string)($config['platform_hotel_public_url'] ?? $config['platformHotelPublicUrl'] ?? ''));
+        $checkedAt = trim((string)($config['platform_hotel_identity_checked_at'] ?? $config['platformHotelIdentityCheckedAt'] ?? ''));
+        $parts = $publicUrl !== '' ? parse_url($publicUrl) : false;
+        $host = is_array($parts) ? strtolower((string)($parts['host'] ?? '')) : '';
+        $path = is_array($parts) ? (string)($parts['path'] ?? '') : '';
+        $trustedHost = $host === 'trip.com' || str_ends_with($host, '.trip.com');
+        $pathHasExpectedId = $expectedHotelId !== ''
+            && preg_match(
+                '~(?:^|[^0-9])hotel-detail-' . preg_quote($expectedHotelId, '~') . '(?:[^0-9]|$)~i',
+                $path
+            ) === 1;
+
+        if ($name === ''
+            || $expectedHotelId === ''
+            || $requestHotelId === ''
+            || !hash_equals($expectedHotelId, $requestHotelId)
+            || $profileKey === ''
+            || $requestProfileKey === ''
+            || !hash_equals($profileKey, $requestProfileKey)
+            || $referenceSource !== 'trip_public_profile'
+            || !is_array($parts)
+            || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+            || !$trustedHost
+            || !$pathHasExpectedId
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['fragment'])
+            || $checkedAt === ''
+            || strtotime($checkedAt) === false
+        ) {
+            return '';
+        }
+
+        return $name;
     }
 
     private function runProcess(array $args, string $cwd, int $timeoutSeconds, string $logPath): array

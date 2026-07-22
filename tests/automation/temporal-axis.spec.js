@@ -178,10 +178,10 @@ test('isolated page shows past, present, future and forecast review entry', asyn
   await axisToggle.click();
   await expect(axis).toHaveAttribute('open', '');
   await expect(axis.locator('article')).toHaveCount(3);
-  await expect(axis).toContainText('过去有据');
-  await expect(axis).toContainText('如今可察');
-  await expect(axis).toContainText('未来可观');
-  await expect(axis).toContainText('回看当时');
+  await expect(axis).toContainText('历史数据');
+  await expect(axis).toContainText('今日数据');
+  await expect(axis).toContainText('未来趋势');
+  await expect(axis).toContainText('历史预测');
   await expect(axis.getByRole('button')).toBeEnabled();
   await expect(axis).not.toContainText('执行价格');
   expect(pageErrors).toEqual([]);

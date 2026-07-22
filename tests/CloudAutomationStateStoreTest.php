@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\CloudAutomationStateStore;
+use app\service\CloudAutomationService;
 use PHPUnit\Framework\TestCase;
 
 final class CloudAutomationStateStoreTest extends TestCase
@@ -83,6 +84,65 @@ final class CloudAutomationStateStoreTest extends TestCase
         self::assertNotEmpty($updated['next_retry_at']);
         self::assertFalse((bool)($updated['context']['collection_triggered'] ?? true));
         self::assertFalse((bool)($updated['context']['report_generation_triggered'] ?? true));
+    }
+
+    public function testSendingBoundarySuppressesDuplicateRequestAndSentReplay(): void
+    {
+        $store = new CloudAutomationStateStore($this->stateDir);
+        $payload = ['msgtype' => 'markdown', 'markdown' => ['content' => 'idempotent report']];
+        $identity = ['report_id' => 12, 'report_date' => '2026-07-21', 'scope' => 'ota_channel'];
+        $record = $store->queueDelivery('daily_report', 7, $identity, $payload);
+        $sending = $store->beginDeliveryAttempt($record);
+        self::assertSame('sending', $sending['status']);
+        self::assertSame([], $store->dueDeliveries());
+
+        $service = new CloudAutomationService($store);
+        $ambiguous = $service->deliverSavedDailyReport(7, 12, '2026-07-21', $payload);
+        self::assertSame('in_progress', $ambiguous['delivery_status']);
+        self::assertSame(0, $ambiguous['sent_count']);
+
+        $sent = $store->recordDeliveryAttempt($sending, [
+            'delivery_status' => 'sent',
+            'robot_count' => 1,
+            'sent_count' => 1,
+            'failed_count' => 0,
+            'failures' => [],
+        ]);
+        self::assertSame('sent', $sent['status']);
+
+        $replayed = $service->deliverSavedDailyReport(7, 12, '2026-07-21', $payload);
+        self::assertSame('sent', $replayed['delivery_status']);
+        self::assertTrue($replayed['idempotent_replay']);
+        self::assertSame(1, $replayed['attempts']);
+    }
+
+    public function testAmbiguousNetworkOutcomeRequiresManualConfirmationWithoutRetry(): void
+    {
+        $store = new CloudAutomationStateStore($this->stateDir);
+        $payload = ['msgtype' => 'markdown', 'markdown' => ['content' => 'ambiguous report']];
+        $record = $store->queueDelivery(
+            'daily_report',
+            7,
+            ['report_id' => 13, 'report_date' => '2026-07-21', 'scope' => 'ota_channel'],
+            $payload
+        );
+        $sending = $store->beginDeliveryAttempt($record);
+        $unknown = $store->recordDeliveryAttempt($sending, [
+            'delivery_status' => 'failed',
+            'robot_count' => 1,
+            'sent_count' => 0,
+            'failed_count' => 1,
+            'failures' => [['robot_id' => 9, 'reason' => 'timeout', 'ambiguous' => true]],
+        ]);
+        self::assertSame('delivery_outcome_unknown', $unknown['status']);
+        self::assertTrue($unknown['last_result']['outcome_ambiguous']);
+        self::assertSame([], $store->dueDeliveries());
+
+        $service = new CloudAutomationService($store);
+        $repeated = $service->deliverSavedDailyReport(7, 13, '2026-07-21', $payload);
+        self::assertSame('in_progress', $repeated['delivery_status']);
+        self::assertSame('previous_delivery_outcome_ambiguous', $repeated['reason']);
+        self::assertSame(0, $repeated['sent_count']);
     }
 
     private function removeTestDirectory(string $dir): void

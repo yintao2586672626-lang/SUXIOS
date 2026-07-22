@@ -22,10 +22,27 @@ test('stale authentication responses cannot clear or replace a newer session', (
   assert.match(sessionHelpers, /String\(session\.token \|\| ''\) === String\(token\.value \|\| ''\)/);
   assert.match(apiRequest, /const requestSession = captureAuthSession\(\);/);
   assert.match(apiRequest, /clearAuthSessionIfCurrent\(requestSession, tokenStatus\)/);
+  assert.match(apiRequest, /isTerminalAuthFailureResponse\(response, data\)/);
+  assert.match(apiRequest, /authFailureReason === 'user_disabled'/);
   assert.match(apiRequest, /data\.code === 403\) && isAuthSessionCurrent\(requestSession\)/);
   assert.match(mountedBootstrap, /if \(!isAuthSessionCurrent\(bootstrapSession\)\) return;/);
   assert.match(mountedBootstrap, /beginAuthSession\(bootstrapSession\.token\);/);
-  assert.match(mountedBootstrap, /if \(isAuthSessionCurrent\(bootstrapSession\)\) \{\s*clearAuthSession\(\);/);
+  assert.match(source, /const handleAuthInfoBootstrapUnavailable = \(session\) => \{\s*if \(!isAuthSessionCurrent\(session\)\) return;/);
+  assert.match(mountedBootstrap, /handleAuthInfoBootstrapUnavailable\(bootstrapSession\)/);
+  assert.doesNotMatch(mountedBootstrap, /clearAuthSession\(\)/);
+});
+
+test('only terminal authentication responses clear a cached session', () => {
+  const helperSource = sliceBetween(
+    'const terminalAuthFailureReason = (data = {}) =>',
+    'const applyAuthContext = (context = {}) =>',
+  );
+  const helpers = Function(`${helperSource}; return { terminalAuthFailureReason, isTerminalAuthFailureResponse };`)();
+
+  assert.equal(helpers.isTerminalAuthFailureResponse({ status: 401 }, { code: 401, data: { reason: 'token_revoked' } }), true);
+  assert.equal(helpers.isTerminalAuthFailureResponse({ status: 403 }, { code: 403, data: { reason: 'user_disabled' } }), true);
+  assert.equal(helpers.isTerminalAuthFailureResponse({ status: 403 }, { code: 403, data: { redacted_reason: 'permission_denied' } }), false);
+  assert.equal(helpers.isTerminalAuthFailureResponse({ status: 503 }, { code: 503, message: 'temporary outage' }), false);
 });
 
 test('login, logout, and account switches reset hotel-scoped browser state', () => {
@@ -76,4 +93,23 @@ test('hotel and dashboard loaders reject stale responses and reuse in-flight req
   assert.match(clearHotel, /homeTrendData\.value = \{/);
   assert.match(clearHotel, /competitorSummary\.value = null;/);
   assert.match(clearHotel, /clearCtripOverviewDisplayState\(\);/);
+});
+
+test('hotel data dashboard rejects stale hotel and session responses before mutating diagnostics state', () => {
+  const dashboard = sliceBetween('const loadHotelDataDashboard = async () => {', '\n\n            const dataHealthLightCacheKey');
+  const responseIndex = dashboard.indexOf('await Promise.all([');
+  const responseGuardIndex = dashboard.indexOf('if (!isCurrentRequest()) return null;', responseIndex);
+  const firstResponseWriteIndex = dashboard.indexOf('dashboardAccountOverview.value =', responseIndex);
+
+  assert.match(source, /let hotelDashboardRequestSeq = 0;/);
+  assert.match(dashboard, /const requestSession = captureAuthSession\(\);/);
+  assert.match(dashboard, /const requestSeq = \+\+hotelDashboardRequestSeq;/);
+  assert.match(dashboard, /requestSeq === hotelDashboardRequestSeq/);
+  assert.match(dashboard, /isAuthSessionCurrent\(requestSession\)/);
+  assert.match(dashboard, /String\(dashboardHotelId\.value \|\| getAutoFetchHotelId\(\) \|\| ''\)\.trim\(\) === selectedHotelId/);
+  assert.match(dashboard, /dataHealthFullDiagnosticsLoaded\.value = false;/);
+  assert.ok(responseIndex >= 0 && responseGuardIndex > responseIndex, 'dashboard response must be checked after the requests settle');
+  assert.ok(firstResponseWriteIndex > responseGuardIndex, 'stale dashboard responses must be rejected before the first state write');
+  assert.match(dashboard, /catch \(error\) \{\s*if \(!isCurrentRequest\(\)\) return null;/);
+  assert.match(dashboard, /finally \{\s*if \(isCurrentRequest\(\)\) \{[\s\S]*dataHealthFullDiagnosticsLoaded\.value = diagnosticsLoaded;[\s\S]*hotelDashboardLoading\.value = false;/);
 });

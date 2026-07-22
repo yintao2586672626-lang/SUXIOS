@@ -10,6 +10,7 @@ import {
   validateSourceMappingCompleteness,
   validateSourceParserContracts,
 } from './lib/ota_data_validator.mjs';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 function assertContract(condition, message) {
   if (!condition) {
@@ -168,7 +169,10 @@ function resolveJsonPath(inputPath, candidates) {
 }
 
 function readJsonFile(path) {
-  return JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+  return parseJsonTextSafely(
+    readFileSync(path, 'utf8').replace(/^\uFEFF/, ''),
+    'ota_data_metrics_json',
+  );
 }
 
 function applyMetricResult(result, metricResult) {

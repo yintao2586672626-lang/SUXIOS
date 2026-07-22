@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 function parseArgs(argv) {
   const options = {
@@ -35,7 +36,7 @@ function parseArgs(argv) {
 }
 
 function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  return parseJsonTextSafely(fs.readFileSync(filePath, 'utf8'), 'revenue_ai_operator_bundle_json');
 }
 
 function hasPlaceholder(value) {

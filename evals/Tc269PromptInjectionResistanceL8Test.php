@@ -184,6 +184,7 @@ final class Tc269PromptInjectionResistanceL8Test extends TestCase
                 'scope' => 'Ctrip OTA channel fact',
                 'source' => 'ctrip',
                 'platform' => 'Ctrip',
+                'data_source_id' => 11,
                 'data_date' => $sourceDate,
                 'validation_status' => $complete ? 'available' : 'partial',
                 'metric_keys' => $complete ? ['orders'] : [],

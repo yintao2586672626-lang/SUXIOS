@@ -908,7 +908,7 @@ trait MeituanCapturedDataConcern
                 continue;
             }
 
-            $sanitized[$key] = $value;
+            $sanitized[$key] = $this->sanitizeOnlineStoredUrlValue($keyText, $value);
         }
         return $sanitized;
     }
@@ -944,9 +944,37 @@ trait MeituanCapturedDataConcern
                 }
                 continue;
             }
-            $sanitized[$key] = $value;
+            $sanitized[$key] = $this->sanitizeOnlineStoredUrlValue($keyText, $value);
         }
         return $sanitized;
+    }
+
+    private function sanitizeOnlineStoredUrlValue(string $key, mixed $value): mixed
+    {
+        if (!is_string($value)) {
+            return $value;
+        }
+        $text = trim($value);
+        if ($text === ''
+            || (preg_match('/(?:url|uri|href|link)/i', $key) !== 1
+                && preg_match('~^https?://~i', $text) !== 1)
+        ) {
+            return $value;
+        }
+
+        $parts = parse_url($text);
+        if (!is_array($parts)) {
+            return preg_replace('/[?#].*$/', '', $text) ?? '';
+        }
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $path = (string)($parts['path'] ?? '');
+        if ($host === '') {
+            return preg_replace('/[?#].*$/', '', $path !== '' ? $path : $text) ?? '';
+        }
+        $port = isset($parts['port']) ? ':' . (int)$parts['port'] : '';
+        $prefix = in_array($scheme, ['http', 'https'], true) ? $scheme . '://' : '';
+        return $prefix . $host . $port . $path;
     }
 
     private function isOnlineReviewIdKey(string $key): bool

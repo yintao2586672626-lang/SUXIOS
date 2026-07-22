@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 const root = process.cwd();
 const phpBinary = process.env.PHP_BINARY || 'C:\\xampp\\php\\php.exe';
@@ -82,10 +83,10 @@ function runPhp(script, args, acceptedStatuses) {
     return {
       status,
       stderr: String(result.stderr ?? ''),
-      json: JSON.parse(raw),
+      json: parseJsonTextSafely(raw, 'p0_ui_verifier_json'),
     };
   } catch (error) {
-    throw new Error(`${script} did not return valid JSON: ${error.message}`);
+    throw new Error(`${script} did not return valid JSON: parse_error`);
   }
 }
 

@@ -68,6 +68,11 @@ export function summarizeOtaSessionCookies(platform, cookies = [], nowMs = Date.
 export function sanitizeOtaObservedUrl(value) {
   try {
     const parsed = new URL(String(value || ''));
+    if (!parsed.protocol || !parsed.host) {
+      return '';
+    }
+    parsed.username = '';
+    parsed.password = '';
     parsed.search = '';
     parsed.hash = '';
     return parsed.toString();

@@ -13250,3 +13250,264 @@ main[data-current-page="ai-workbench"] .holiday-advice-number {
         padding: 12px;
     }
 }
+
+/* 2026-07-22: simplify the global workbench header and keep it aligned with the login visual language. */
+.suxi-app-shell .header {
+    padding: 11px 24px !important;
+    border-bottom: 1px solid rgba(220, 197, 145, .18) !important;
+    background:
+        radial-gradient(circle at 78% -120%, rgba(220, 197, 145, .18), transparent 46%),
+        linear-gradient(104deg, #050c09 0%, #0a1914 52%, #123229 100%) !important;
+    box-shadow: 0 10px 28px rgba(2, 7, 6, .16) !important;
+}
+
+.suxi-app-shell .header-layout {
+    min-height: 48px;
+}
+
+.suxi-app-shell .header-page-identity {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.suxi-app-shell .header-page-eyebrow {
+    color: rgba(220, 197, 145, .78);
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: .16em;
+    line-height: 1;
+}
+
+.suxi-app-shell .header-page-identity h1 {
+    color: #f8faf7 !important;
+    font-size: 19px !important;
+    font-weight: 720 !important;
+    line-height: 1.2;
+}
+
+.suxi-app-shell .header .header-utility-cluster {
+    align-items: center !important;
+    gap: 7px !important;
+}
+
+.suxi-app-shell .header .header-utility-cluster > .header-language-control,
+.suxi-app-shell .header .header-notification-control > .header-notification-button,
+.suxi-app-shell .header .header-utility-cluster > .header-time-panel {
+    height: 40px !important;
+    min-height: 40px !important;
+    border: 1px solid rgba(255, 255, 255, .13) !important;
+    border-radius: 10px !important;
+    background: rgba(255, 255, 255, .065) !important;
+    color: #f8faf7 !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05) !important;
+    backdrop-filter: blur(10px);
+}
+
+.suxi-app-shell .header .header-utility-cluster > .header-language-control {
+    gap: 7px;
+    padding: 4px 5px 4px 9px;
+}
+
+.suxi-app-shell .header .header-utility-label,
+.suxi-app-shell .header .header-utility-label i {
+    color: rgba(244, 238, 223, .72) !important;
+}
+
+.suxi-app-shell .header .header-language-options {
+    background: rgba(0, 0, 0, .19) !important;
+}
+
+.suxi-app-shell .header .header-language-option {
+    color: rgba(248, 250, 247, .68) !important;
+}
+
+.suxi-app-shell .header .header-language-option:hover {
+    color: #fff !important;
+}
+
+.suxi-app-shell .header .header-language-option.is-active {
+    background: #dcc591 !important;
+    color: #06110d !important;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, .16) !important;
+}
+
+.suxi-app-shell .header .header-notification-control > .header-notification-button {
+    grid-template-columns: 26px auto auto;
+    min-width: 104px !important;
+    padding: 5px 7px !important;
+}
+
+.suxi-app-shell .header .header-notification-control > .header-notification-button:hover,
+.suxi-app-shell .header .header-notification-control > .header-notification-button.is-open {
+    border-color: rgba(220, 197, 145, .42) !important;
+    background: rgba(220, 197, 145, .11) !important;
+    box-shadow: inset 0 0 0 1px rgba(220, 197, 145, .08) !important;
+    transform: none;
+}
+
+.suxi-app-shell .header .header-utility-icon {
+    flex-basis: 26px;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: rgba(220, 197, 145, .12) !important;
+    color: #e7d39f !important;
+    box-shadow: none !important;
+}
+
+.suxi-app-shell .header .header-notification-title,
+.suxi-app-shell .header .header-clock-row strong {
+    color: #f8faf7 !important;
+}
+
+.suxi-app-shell .header .header-notification-count {
+    min-width: 26px;
+    height: 20px;
+    border: 1px solid rgba(255, 255, 255, .28);
+    background: #b82d36;
+    box-shadow: none !important;
+}
+
+.suxi-app-shell .header .header-utility-cluster > .header-time-panel {
+    grid-template-columns: 26px minmax(0, 1fr);
+    min-width: 174px;
+    padding: 5px 9px;
+}
+
+.suxi-app-shell .header .header-clock-row small {
+    color: rgba(220, 197, 145, .84) !important;
+}
+
+.suxi-app-shell .header .header-date-row {
+    color: rgba(244, 238, 223, .62) !important;
+}
+
+/* Make the temporal section read as a simple data-status explanation. */
+main[data-current-page="ai-workbench"] .dual-ota-temporal-head {
+    padding: 13px 16px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-title {
+    font-size: 15px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-subtitle {
+    max-width: 620px;
+    margin-top: 4px !important;
+    font-size: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
+    align-items: flex-start;
+    padding: 9px 14px;
+    background: linear-gradient(90deg, #f4f1e9, #faf8f3);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
+    max-width: 72%;
+    text-align: left;
+}
+
+/* A selected hotel is not proof that the selected period has usable OTA facts. */
+main[data-current-page="ai-workbench"] .dual-ota-current-data-state {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    margin-top: 14px;
+    padding: 20px;
+    border: 1px dashed rgba(168, 138, 82, .46);
+    border-radius: 13px;
+    background: linear-gradient(135deg, rgba(250, 247, 239, .96), rgba(241, 246, 242, .92));
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-current-data-state.is-loading {
+    grid-template-columns: auto minmax(0, 1fr);
+    border-style: solid;
+    border-color: rgba(11, 111, 98, .22);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-current-data-state-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: #12372d;
+    color: #dcc591;
+    box-shadow: 0 8px 18px rgba(6, 17, 13, .13);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-current-data-state h3 {
+    margin: 0;
+    color: #13231e;
+    font-size: 15px;
+    font-weight: 800;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-current-data-state p {
+    margin: 5px 0 0 !important;
+    color: #68746f;
+    font-size: 12px;
+    line-height: 1.65;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 8px 13px;
+    border: 1px solid #0b6f62;
+    border-radius: 9px;
+    background: #0b6f62;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 750;
+    white-space: nowrap;
+    box-shadow: 0 7px 16px rgba(11, 111, 98, .14);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover {
+    background: #075e54;
+}
+
+@media (max-width: 767px) {
+    .suxi-app-shell .header {
+        padding: 10px 14px !important;
+    }
+
+    .suxi-app-shell .header-page-eyebrow {
+        display: none;
+    }
+
+    .suxi-app-shell .header .header-utility-cluster > .header-language-control,
+    .suxi-app-shell .header .header-notification-control > .header-notification-button,
+    .suxi-app-shell .header .header-utility-cluster > .header-time-panel {
+        height: 38px !important;
+        min-height: 38px !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
+        max-width: none;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-current-data-state {
+        grid-template-columns: auto minmax(0, 1fr);
+        padding: 16px;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action {
+        grid-column: 1 / -1;
+        width: 100%;
+    }
+}

@@ -39,7 +39,7 @@ test('Ctrip probe requires positive business and reusable session evidence', () 
 
 test('observed auth URLs drop query and fragment material before persistence', () => {
   assert.equal(
-    sanitizeOtaObservedUrl('https://ebooking.ctrip.com/home/mainland?ticket=must-not-leak#token'),
+    sanitizeOtaObservedUrl('https://operator:password@ebooking.ctrip.com/home/mainland?ticket=must-not-leak#token'),
     'https://ebooking.ctrip.com/home/mainland',
   );
   assert.equal(sanitizeOtaObservedUrl('not-a-url'), '');

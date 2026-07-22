@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 const root = process.cwd();
 const phpBinary = process.env.PHP_BINARY || 'C:\\xampp\\php\\php.exe';
@@ -162,7 +163,7 @@ function parseJsonFromOutput(name, raw) {
   if (start < 0 || end <= start) {
     throw new Error(`${name} did not return JSON.`);
   }
-  return JSON.parse(raw.slice(start, end + 1));
+  return parseJsonTextSafely(raw.slice(start, end + 1), `${name}_json`);
 }
 
 function payloadScanNotRun(verifierPayload) {

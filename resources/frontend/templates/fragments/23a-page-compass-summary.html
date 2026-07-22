@@ -37,26 +37,26 @@
                                         </div>
                                         <details data-testid="home-temporal-axis" class="compass-temporal-fold mt-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/25">
                                             <summary data-testid="home-temporal-toggle" class="compass-temporal-summary">
-                                                <span class="compass-temporal-summary-title"><span aria-hidden="true">时</span>经营时间轴</span>
-                                                <span class="compass-temporal-summary-note">展开查看过去、现在与未来观察</span>
+                                                <span class="compass-temporal-summary-title"><span aria-hidden="true">数</span>数据进度与预测</span>
+                                                <span class="compass-temporal-summary-note">查看历史数据、今日更新和未来趋势</span>
                                             </summary>
                                             <div class="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                                                 <div>
                                                     <div class="flex items-center gap-2 text-sm font-semibold text-white">
-                                                        <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-400/15 text-[11px] text-blue-200">时</span>
-                                                        经营时间轴
+                                                        <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-400/15 text-[11px] text-blue-200">数</span>
+                                                        数据进度与预测
                                                         <span v-if="homeTemporalLoading" class="text-[11px] font-normal text-blue-200">正在读取</span>
                                                     </div>
-                                                    <p class="mt-1 text-xs leading-5 text-blue-100/75">过去有据，如今可察，未来可观；仅反映已授权 OTA 渠道数据。</p>
+                                                    <p class="mt-1 text-xs leading-5 text-blue-100/75">先看历史数据是否完整，再看今天是否更新；数据足够后才能生成未来趋势。</p>
                                                 </div>
                                                 <button type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="inline-flex items-center justify-center rounded-lg border border-blue-300/20 bg-blue-300/10 px-3 py-2 text-xs font-semibold text-blue-100 transition hover:bg-blue-300/15 disabled:cursor-not-allowed disabled:opacity-50">
                                                     <i :class="homeTemporalGenerating ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-layer-group mr-1.5'"></i>
-                                                    {{ homeTemporalGenerating ? '正在形成新版本' : (homeTemporalSelectedHotelId ? '生成一版未来观察' : '选择单店后生成') }}
+                                                    {{ homeTemporalGenerating ? '正在生成趋势' : (homeTemporalSelectedHotelId ? '生成未来趋势' : '先选择一家门店') }}
                                                 </button>
                                             </div>
                                             <div v-if="homeTemporalError" class="flex flex-col gap-3 border-b border-red-300/20 bg-red-400/[0.08] px-4 py-4 text-red-100 sm:flex-row sm:items-center sm:justify-between">
                                                 <div>
-                                                    <div class="text-sm font-semibold">经营时间轴读取失败</div>
+                                                    <div class="text-sm font-semibold">数据进度与预测读取失败</div>
                                                     <p class="mt-1 text-xs leading-5 text-red-100/80">{{ homeTemporalError }}</p>
                                                 </div>
                                                 <button type="button" @click="loadHomeTemporalInsights" class="inline-flex shrink-0 items-center justify-center rounded-lg border border-red-200/25 bg-red-100/10 px-3 py-2 text-xs font-semibold text-red-50 transition hover:bg-red-100/15">

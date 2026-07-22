@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { checkOtaCredentialRelease } from './lib/ota_credential_checks.mjs';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEvidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -164,7 +165,7 @@ let attestation = null;
 try {
   attestation = readJsonFile(inputPath);
 } catch (error) {
-  fail(`OTA credential rotation input file is not valid JSON: ${error.message}`);
+  fail(`OTA credential rotation input file is not valid JSON (${safeJsonParseErrorCode(error)}).`);
 }
 
 inputResult = checkOtaCredentialRelease({

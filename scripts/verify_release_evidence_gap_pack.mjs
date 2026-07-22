@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const evidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -142,7 +143,7 @@ try {
   gapPack = readJson(gapPackPath);
   addPass(`Release evidence gap pack is readable JSON: ${gapPackPath}`);
 } catch (error) {
-  addFailure(`Release evidence gap pack is not readable JSON: ${error.message}`);
+  addFailure(`Release evidence gap pack is not readable JSON (${safeJsonParseErrorCode(error)}).`);
 }
 
 try {

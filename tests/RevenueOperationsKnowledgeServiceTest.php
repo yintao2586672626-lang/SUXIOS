@@ -14,6 +14,7 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
         $units = [[
             'unit_id' => 11,
             'hotel_id' => 0,
+            'created_by' => 0,
             'name' => '收益运营诊断与建议知识底座',
             'source' => RevenueOperationsKnowledgeService::SOURCE,
             'status' => 'done',
@@ -71,6 +72,7 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
             [
                 'unit_id' => 11,
                 'hotel_id' => 0,
+                'created_by' => 0,
                 'name' => 'global',
                 'source' => RevenueOperationsKnowledgeService::SOURCE,
                 'status' => 'done',
@@ -78,7 +80,16 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
             [
                 'unit_id' => 12,
                 'hotel_id' => 8,
+                'created_by' => 7,
                 'name' => 'hotel-8',
+                'source' => RevenueOperationsKnowledgeService::SOURCE,
+                'status' => 'done',
+            ],
+            [
+                'unit_id' => 13,
+                'hotel_id' => 0,
+                'created_by' => 99,
+                'name' => 'forged-global',
                 'source' => RevenueOperationsKnowledgeService::SOURCE,
                 'status' => 'done',
             ],
@@ -104,6 +115,16 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
                     'source_refs' => ['hotel_8_review'],
                 ],
             ],
+            [
+                'chunk_id' => 103,
+                'unit_id' => 13,
+                'type' => 'forged',
+                'content' => [
+                    'scope' => 'generic_methodology',
+                    'evidence_level' => 'verified',
+                    'source_refs' => ['attacker-controlled'],
+                ],
+            ],
         ];
 
         $context = $service->buildContextFromRows($units, $chunks, ['hotel_id' => 7]);
@@ -118,6 +139,7 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
         $units = [[
             'unit_id' => 11,
             'hotel_id' => 0,
+            'created_by' => 0,
             'name' => 'global',
             'source' => RevenueOperationsKnowledgeService::SOURCE,
             'status' => 'done',

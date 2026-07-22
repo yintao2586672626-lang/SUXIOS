@@ -566,6 +566,7 @@ final class TransferDecisionServiceTest extends TestCase
 
     private function verifiedOtaRow(array $overrides = []): array
     {
+        $sourceUrlHash = str_repeat('d', 64);
         $row = array_merge([
             'id' => 1,
             'system_hotel_id' => 7,
@@ -580,6 +581,7 @@ final class TransferDecisionServiceTest extends TestCase
             'quantity' => 25,
             'ingestion_method' => 'browser_profile',
             'source_trace_id' => 'trace-safe-1',
+            'source_url_hash' => $sourceUrlHash,
             'snapshot_time' => '2026-07-15 09:00:00',
             'validation_status' => 'normal',
             'readback_verified' => 1,
@@ -592,6 +594,8 @@ final class TransferDecisionServiceTest extends TestCase
             ? $row['raw_data']
             : json_decode((string)$row['raw_data'], true);
         $raw = is_array($raw) ? $raw : [];
+        $raw['source_trace_id'] = (string)$row['source_trace_id'];
+        $raw['source_url_hash'] = $sourceUrlHash;
         $raw['field_facts'] = [];
         foreach ([
             'order_amount' => 'amount',
@@ -606,7 +610,7 @@ final class TransferDecisionServiceTest extends TestCase
                 'stored_value_present' => true,
                 'capture_evidence' => [
                     'source_trace_id' => (string)$row['source_trace_id'],
-                    'source_url_hash' => 'sha256:' . $metricKey . '-safe',
+                    'source_url_hash' => $sourceUrlHash,
                 ],
             ];
         }

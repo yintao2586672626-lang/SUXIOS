@@ -690,7 +690,7 @@ function finalize_inspection_next_actions(array $result): array
  */
 function inspection_ai_blocking_missing_codes(array $missingCodes): array
 {
-    return array_values(array_filter(array_unique($missingCodes), static function (string $code): bool {
+    $codes = array_values(array_filter(array_unique($missingCodes), static function (string $code): bool {
         return str_contains($code, 'source_rows_missing')
             || str_contains($code, 'etl_not_ready')
             || str_contains($code, 'revenue_metrics_not_ready')
@@ -707,6 +707,14 @@ function inspection_ai_blocking_missing_codes(array $missingCodes): array
             || $code === 'ai_diagnosis_persistence_unverified'
             || $code === 'ai_diagnosis_action_items_blocked';
     }));
+    usort($codes, static function (string $left, string $right): int {
+        $leftAction = inspection_next_action_for_blocker_code($left);
+        $rightAction = inspection_next_action_for_blocker_code($right);
+        $leftRank = inspection_next_action_family_rank(['action_code' => $leftAction]);
+        $rightRank = inspection_next_action_family_rank(['action_code' => $rightAction]);
+        return $leftRank !== $rightRank ? $leftRank <=> $rightRank : strcmp($left, $right);
+    });
+    return $codes;
 }
 
 /**
@@ -2156,6 +2164,7 @@ function field_fact_closure_summary(array $rows): array
         'metric_key_count' => 0,
         'capture_evidence_count' => 0,
         'desensitized_capture_evidence_count' => 0,
+        'matching_desensitized_capture_evidence_count' => 0,
         'source_path_count' => 0,
         'structured_source_path_count' => 0,
         'storage_field_count' => 0,
@@ -2180,6 +2189,9 @@ function field_fact_closure_summary(array $rows): array
             continue;
         }
         $raw = decode_field_fact_raw_data($row['raw_data'] ?? null);
+        $rowEvidence = inspection_traffic_source_p0_desensitized_evidence($raw);
+        $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
+        $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
         $facts = extract_online_data_field_facts($row, $raw);
         if ($facts === []) {
             continue;
@@ -2205,6 +2217,14 @@ function field_fact_closure_summary(array $rows): array
             [$storageField, $storageFieldSource, $storageFieldInferred] = field_fact_storage_field($fact, $row, $raw, $metricKey);
             $hasCaptureEvidence = field_fact_has_capture_evidence($fact, $row, $raw);
             $hasDesensitizedCaptureEvidence = field_fact_has_desensitized_capture_evidence($fact);
+            $desensitizedCaptureEvidence = inspection_traffic_source_p0_desensitized_evidence(
+                is_array($fact['capture_evidence'] ?? null) ? (array)$fact['capture_evidence'] : []
+            );
+            $captureEvidenceMatchesRow = inspection_traffic_source_p0_capture_evidence_matches_row(
+                $desensitizedCaptureEvidence,
+                $rowSourceTraceId,
+                $rowSourceUrlHash
+            );
             $storedValueState = field_fact_stored_value_state($fact, $row, $raw, $storageField, $metricKey);
             $storedValueMissing = $storedValueState === false;
             $storedValuePresent = $storedValueState === true;
@@ -2217,6 +2237,9 @@ function field_fact_closure_summary(array $rows): array
             }
             if ($hasDesensitizedCaptureEvidence) {
                 $summary['desensitized_capture_evidence_count']++;
+            }
+            if ($captureEvidenceMatchesRow) {
+                $summary['matching_desensitized_capture_evidence_count']++;
             }
             if ($sourcePath !== '') {
                 $summary['source_path_count']++;
@@ -2242,7 +2265,8 @@ function field_fact_closure_summary(array $rows): array
                     && !$storedValuePresent
                     && !in_array($status, ['captured', 'ready', 'ok'], true)
                 );
-            $complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $metricKey !== '' && $sourcePathStructured && $storageField !== '';
+            $complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $hasDesensitizedCaptureEvidence
+                && $captureEvidenceMatchesRow && $metricKey !== '' && $sourcePathStructured && $storageField !== '';
             if ($complete) {
                 $summary['captured_fact_count']++;
                 $summary['complete_fact_count']++;
@@ -2271,6 +2295,7 @@ function field_fact_closure_summary(array $rows): array
                     'storage_field_inferred' => $storageFieldInferred,
                     'capture_evidence_present' => $hasCaptureEvidence,
                     'desensitized_capture_evidence_present' => $hasDesensitizedCaptureEvidence,
+                    'capture_evidence_matches_row' => $captureEvidenceMatchesRow,
                     'stored_value_present' => $storedValueState,
                     'status' => $status !== '' ? $status : ($complete ? 'captured' : 'incomplete'),
                     'missing_state' => $missingState,
@@ -5589,22 +5614,7 @@ function build_inspection_employee_questions(array $result): array
         static fn($item): string => is_array($item) ? (string)($item['code'] ?? '') : '',
         (array)($result['missing_requirements'] ?? [])
     ), static fn(string $code): bool => $code !== ''));
-    $aiBlockingCodes = array_values(array_filter($missingCodes, static function (string $code): bool {
-        return str_contains($code, 'source_rows_missing')
-            || str_contains($code, 'etl_not_ready')
-            || str_contains($code, 'revenue_metrics_not_ready')
-            || str_contains($code, 'ai_input_not_ready')
-            || str_contains($code, 'traffic_facts_missing')
-            || str_contains($code, 'field_facts_missing')
-            || str_contains($code, 'field_fact_closure_incomplete')
-            || str_contains($code, 'data_gaps_missing')
-            || $code === 'evidence_scope_date_mismatch'
-            || $code === 'evidence_scope_system_hotel_mismatch'
-            || $code === 'evidence_scope_platform_mismatch'
-            || $code === 'ai_diagnosis_evidence_sample_missing'
-            || $code === 'ai_diagnosis_persistence_unverified'
-            || $code === 'ai_diagnosis_action_items_blocked';
-    }));
+    $aiBlockingCodes = inspection_ai_blocking_missing_codes($missingCodes);
     if ((string)($aiEvidenceDetails['scope_identity_status'] ?? '') === 'matched') {
         $aiBlockingCodes = array_values(array_filter(
             $aiBlockingCodes,

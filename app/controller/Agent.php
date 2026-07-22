@@ -2171,21 +2171,32 @@ class Agent extends Base
 
         if ($hasKnowledgeUnitTables) {
             $unitColumns = $this->tableColumns('knowledge_units');
-            $unitFields = isset($unitColumns['hotel_id'])
-                ? 'unit_id,hotel_id,name,source,status,description'
-                : 'unit_id,name,source,status,description';
+            $unitFieldNames = ['unit_id', 'name', 'source', 'status', 'description'];
+            if (isset($unitColumns['hotel_id'])) {
+                $unitFieldNames[] = 'hotel_id';
+            }
+            if (isset($unitColumns['created_by'])) {
+                $unitFieldNames[] = 'created_by';
+            }
             $unitQuery = Db::name('knowledge_units')
-                ->field($unitFields)
+                ->field(implode(',', $unitFieldNames))
                 ->where('status', 'done');
-            if ($hotelIds && isset($unitColumns['hotel_id'])) {
+            if (isset($unitColumns['hotel_id']) && isset($unitColumns['created_by']) && $hotelIds) {
                 [$keywordSql, $keywordBind] = $this->buildOtaKnowledgeKeywordWhereSql(['name', 'description', 'source'], $keywords, 'ku');
-                $hotelIdSql = implode(',', $hotelIds);
-                $unitQuery->whereRaw(
-                    '(`hotel_id` IN (' . $hotelIdSql . ') OR (`hotel_id` = 0 AND ' . $keywordSql . '))',
-                    $keywordBind
-                );
-            } else {
+                $unitQuery->where(function ($scope) use ($hotelIds, $keywordSql, $keywordBind): void {
+                    $scope->whereIn('hotel_id', $hotelIds)
+                        ->whereOr(function ($global) use ($keywordSql, $keywordBind): void {
+                            $global->where('hotel_id', 0)->where('created_by', 0);
+                            if ($keywordSql !== '') {
+                                $global->whereRaw($keywordSql, $keywordBind);
+                            }
+                        });
+                });
+            } elseif (isset($unitColumns['hotel_id']) && isset($unitColumns['created_by'])) {
+                $unitQuery->where('hotel_id', 0)->where('created_by', 0);
                 $this->applyOtaKnowledgeKeywordWhere($unitQuery, ['name', 'description', 'source'], $keywords, 'ku');
+            } else {
+                $unitQuery->whereRaw('1 = 0');
             }
             $unitRows = $unitQuery->order('unit_id', 'desc')->limit(6)->select()->toArray();
             $unitIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['unit_id'] ?? 0), $unitRows)));

@@ -643,7 +643,11 @@ test('maps Ctrip getCommentNumV2 channel containers to aggregate-only rows', () 
   assert.equal(byChannel.get('携程')?.raw_data.metrics.review_photo_rate, 21.4);
   assert.equal(byChannel.get('携程')?.raw_data.metrics.comment_good_rate, 98.9);
   assert.equal(byChannel.get('携程')?.flow_rate, 100);
-  assert.equal(byChannel.get('携程')?.raw_data.dimension_values.target_url, 'https://hotels.ctrip.com/hotels/detail/?hotelId=6866634#review');
+  assert.equal(byChannel.get('携程')?.raw_data.dimension_values.target_url, 'https://hotels.ctrip.com/hotels/detail/');
+  assert.match(
+    byChannel.get('携程')?.raw_data.facts.find((fact) => fact.metric_key === 'target_url')?.value_url_hash || '',
+    /^[a-f0-9]{64}$/,
+  );
   assert.equal(byChannel.get('去哪儿')?.raw_data.metrics.comment_count, 649);
   assert.equal(byChannel.get('艺龙')?.raw_data.metrics.comment_count, 517);
   assert.equal(byChannel.get('智行')?.raw_data.metrics.comment_count, 450);
@@ -842,7 +846,7 @@ test('keeps Ctrip city hot search keyword UV and PV as fact-only traffic evidenc
   assert.equal(keywordRow.raw_data.metric_status, 'non_numeric_fact');
   assert.equal(keywordRow.raw_data.metrics.city_hot_search_uv, 49);
   assert.equal(keywordRow.raw_data.metrics.city_hot_search_pv, 40622);
-  assert.equal(keywordRow.detail_exposure, 0);
+  assert.equal(keywordRow.detail_exposure, null);
   assert.equal(keywordRow.raw_data.facts.every((fact) => fact.storage_field.startsWith('online_daily_data.raw_data.facts.metric_key=')), true);
 });
 
@@ -1270,8 +1274,8 @@ test('covers reusable Ctrip platform notice endpoints as support facts only', ()
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].raw_data.fact_only, true);
-  assert.equal(rows[0].amount, 0);
-  assert.equal(rows[0].book_order_num, 0);
+  assert.equal(rows[0].amount, null);
+  assert.equal(rows[0].book_order_num, null);
   assert.equal(rows[0].raw_data.dimension_values.notice_title, '活动提示');
 });
 
@@ -1356,9 +1360,9 @@ test('maps Ctrip traffic flow source shares without treating pv as hotel page vi
   assert.equal(sourceRow.raw_data.metrics.source_proportion, 38.1);
   assert.equal(sourceRow.raw_data.metrics.competitor_avg_source_proportion, 16.88);
   assert.equal(sourceRow.raw_data.metrics.source_pv, 2435);
-  assert.equal(sourceRow.list_exposure, 0);
-  assert.equal(sourceRow.detail_exposure, 0);
-  assert.equal(sourceRow.flow_rate, 0);
+  assert.equal(sourceRow.list_exposure, null);
+  assert.equal(sourceRow.detail_exposure, null);
+  assert.equal(sourceRow.flow_rate, null);
   assert.equal(sourceRow.raw_data.facts.some((fact) => fact.storage_field === 'online_daily_data.raw_data.facts.metric_key=source_proportion'), true);
 });
 
@@ -1529,7 +1533,7 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
         flowRanksBO: [],
         serviceRanksBO: [],
       },
-      expected: { data_type: 'ranking', amount: 0, quantity: 0, book_order_num: 0, data_value: 0 },
+      expected: { data_type: 'ranking', amount: null, quantity: null, book_order_num: null, data_value: null },
       expected_metrics: {
         order_rank: 12,
         amount_rank: 12,
@@ -1566,7 +1570,7 @@ test('builds standard rows for sales, traffic, competitor, PSI and biztravel end
           convertionRate: 4,
         }],
       },
-      expected: { data_type: 'ranking', amount: 0, quantity: 0, book_order_num: 0, data_value: 0 },
+      expected: { data_type: 'ranking', amount: null, quantity: null, book_order_num: null, data_value: null },
       expected_metrics: {
         amount_rank: 12,
         room_nights_rank: 8,
@@ -1732,7 +1736,7 @@ test('keeps Ctrip PSI V2 base-score detail items as fact-only diagnostic rows', 
   const detailRow = rows.find((row) => row.raw_data.metrics?.psi_basic_item_code === 'A');
   assert.ok(detailRow);
   assert.equal(detailRow.data_type, 'quality');
-  assert.equal(detailRow.data_value, 0);
+  assert.equal(detailRow.data_value, null);
   assert.equal(detailRow.data_date, '2026-06-05');
   assert.equal(detailRow.raw_data.fact_only, true);
   assert.equal(detailRow.raw_data.metric_status, 'non_numeric_fact');
@@ -2075,10 +2079,10 @@ test('keeps Ctrip getCompetingRank sellRanksBO rows as ranking facts', () => {
   const row = rows.find((candidate) => candidate.hotel_id === '6866634');
   assert.ok(row, 'sellRanksBO ranking row must be present');
   assert.equal(row.data_type, 'ranking');
-  assert.equal(row.amount, 0);
-  assert.equal(row.quantity, 0);
-  assert.equal(row.book_order_num, 0);
-  assert.equal(row.data_value, 0);
+  assert.equal(row.amount, null);
+  assert.equal(row.quantity, null);
+  assert.equal(row.book_order_num, null);
+  assert.equal(row.data_value, null);
   assert.equal(row.raw_data.metric_status, 'rank_fact');
   assert.equal(row.raw_data.rank_metrics.order_rank, 18);
   assert.equal(row.raw_data.rank_metrics.amount_rank, 7);
@@ -2135,18 +2139,18 @@ test('keeps Ctrip getCompetingRank flowRanksBO and serviceRanksBO rows as scoped
   assert.ok(serviceRow, 'serviceRanksBO ranking row must be present');
 
   assert.equal(flowRow.data_type, 'ranking');
-  assert.equal(flowRow.amount, 0);
-  assert.equal(flowRow.quantity, 0);
-  assert.equal(flowRow.book_order_num, 0);
-  assert.equal(flowRow.detail_exposure, 0);
+  assert.equal(flowRow.amount, null);
+  assert.equal(flowRow.quantity, null);
+  assert.equal(flowRow.book_order_num, null);
+  assert.equal(flowRow.detail_exposure, null);
   assert.equal(flowRow.raw_data.metric_status, 'rank_fact');
   assert.equal(flowRow.raw_data.rank_metrics.competition_rank_app_conversion_rate, 10);
 
   assert.equal(serviceRow.data_type, 'ranking');
-  assert.equal(serviceRow.amount, 0);
-  assert.equal(serviceRow.quantity, 0);
-  assert.equal(serviceRow.book_order_num, 0);
-  assert.equal(serviceRow.comment_score, 0);
+  assert.equal(serviceRow.amount, null);
+  assert.equal(serviceRow.quantity, null);
+  assert.equal(serviceRow.book_order_num, null);
+  assert.equal(serviceRow.comment_score, null);
   assert.equal(serviceRow.raw_data.metric_status, 'rank_fact');
   assert.equal(serviceRow.raw_data.rank_metrics.competition_rank_ctrip_rating, 4);
   assert.equal(serviceRow.raw_data.rank_metrics.competition_rank_qunar_rating, 5);
@@ -2276,9 +2280,9 @@ test('keeps non-numeric Ctrip facts as standard rows without inventing metrics',
   assert.equal(rows.length, 1);
   assert.equal(rows[0].data_type, 'business');
   assert.equal(rows[0].data_date, '2026-06-06');
-  assert.equal(rows[0].amount, 0);
-  assert.equal(rows[0].quantity, 0);
-  assert.equal(rows[0].book_order_num, 0);
+  assert.equal(rows[0].amount, null);
+  assert.equal(rows[0].quantity, null);
+  assert.equal(rows[0].book_order_num, null);
   assert.equal(rows[0].raw_data.fact_only, true);
   assert.equal(rows[0].raw_data.metric_status, 'non_numeric_fact');
   assert.equal(rows[0].raw_data.dimension_values.hot_spot_name, 'Concert A');
@@ -2317,10 +2321,10 @@ test('keeps numeric Ctrip support facts out of operating metrics', () => {
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].data_type, 'advertising');
-  assert.equal(rows[0].amount, 0);
-  assert.equal(rows[0].quantity, 0);
-  assert.equal(rows[0].book_order_num, 0);
-  assert.equal(rows[0].data_value, 0);
+  assert.equal(rows[0].amount, null);
+  assert.equal(rows[0].quantity, null);
+  assert.equal(rows[0].book_order_num, null);
+  assert.equal(rows[0].data_value, null);
   assert.equal(rows[0].raw_data.fact_only, true);
   assert.equal(rows[0].raw_data.metric_status, 'non_numeric_fact');
   assert.equal(rows[0].raw_data.dimension_values.config_value, 1);

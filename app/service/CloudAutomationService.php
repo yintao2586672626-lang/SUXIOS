@@ -67,6 +67,59 @@ final class CloudAutomationService
     }
 
     /**
+     * Deliver one already-persisted report through the same durable state and
+     * lock used by scheduled automation. Repeated/concurrent requests cannot
+     * create a second external send for the same report payload.
+     *
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $context
+     * @return array<string, mixed>
+     */
+    public function deliverSavedDailyReport(
+        int $hotelId,
+        int $reportId,
+        string $reportDate,
+        array $payload,
+        array $context = []
+    ): array {
+        $lock = $this->acquireLock();
+        if (!is_resource($lock)) {
+            return [
+                'status' => 'in_progress',
+                'delivery_status' => 'in_progress',
+                'hotel_id' => $hotelId,
+                'robot_count' => 0,
+                'sent_count' => 0,
+                'failed_count' => 0,
+                'failures' => [],
+                'reason' => 'cloud_delivery_lock_busy',
+            ];
+        }
+        try {
+            return $this->deliverPayload(
+                'daily_report',
+                $hotelId,
+                [
+                    'report_id' => $reportId,
+                    'report_date' => $reportDate,
+                    'scope' => 'ota_channel',
+                ],
+                $payload,
+                array_merge($context, [
+                    'report_id' => $reportId,
+                    'report_date' => $reportDate,
+                    'collection_triggered' => false,
+                    'report_generation_triggered' => false,
+                ]),
+                true,
+                10
+            );
+        } finally {
+            $this->releaseLock($lock);
+        }
+    }
+
+    /**
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
@@ -400,6 +453,7 @@ final class CloudAutomationService
                     'reason' => 'persisted_payload_invalid',
                 ];
             } else {
+                $record = $this->stateStore->beginDeliveryAttempt($record);
                 $delivery = $this->deliveryService->deliverToHotel(
                     $hotelId,
                     $payload,
@@ -500,12 +554,33 @@ final class CloudAutomationService
 
         $record = $this->stateStore->queueDelivery($kind, $hotelId, $identity, $payload, $context);
         if ((string)($record['status'] ?? '') === 'sent') {
+            $lastResult = is_array($record['last_result'] ?? null) ? $record['last_result'] : [];
             return [
                 'status' => 'skipped_sent',
+                'delivery_status' => 'sent',
                 'delivery_key' => (string)($record['delivery_key'] ?? ''),
                 'attempts' => (int)($record['attempts'] ?? 0),
+                'robot_count' => (int)($lastResult['robot_count'] ?? 0),
+                'sent_count' => (int)($lastResult['sent_count'] ?? 0),
+                'failed_count' => 0,
+                'failures' => [],
+                'idempotent_replay' => true,
             ];
         }
+        if (in_array((string)($record['status'] ?? ''), ['sending', 'delivery_outcome_unknown'], true)) {
+            return [
+                'status' => 'in_progress',
+                'delivery_status' => 'in_progress',
+                'delivery_key' => (string)($record['delivery_key'] ?? ''),
+                'attempts' => (int)($record['attempts'] ?? 0),
+                'robot_count' => 0,
+                'sent_count' => 0,
+                'failed_count' => 0,
+                'failures' => [],
+                'reason' => 'previous_delivery_outcome_ambiguous',
+            ];
+        }
+        $record = $this->stateStore->beginDeliveryAttempt($record);
         $delivery = $this->deliveryService->deliverToHotel(
             $hotelId,
             $payload,

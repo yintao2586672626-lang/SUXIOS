@@ -15,6 +15,9 @@ use Throwable;
 
 class RevenueAi extends Base
 {
+    private const REVIEW_PERMISSION = 'can_use_ai_decision';
+    private const EXECUTION_PERMISSION = 'operation.execute';
+
     public function overview(): Response
     {
         try {
@@ -35,7 +38,7 @@ class RevenueAi extends Base
             }
 
             $suggestion = $this->loadPriceSuggestion($id);
-            [$hotelIds, $hotelId] = $this->priceSuggestionHotelScope($suggestion);
+            [$hotelIds, $hotelId] = $this->priceSuggestionHotelScope($suggestion, self::REVIEW_PERMISSION);
             unset($hotelIds);
 
             if ((int)$suggestion->status !== PriceSuggestion::STATUS_PENDING) {
@@ -101,7 +104,7 @@ class RevenueAi extends Base
         try {
             $id = $this->routeId($id);
             $suggestion = $this->loadPriceSuggestion($id);
-            [$hotelIds, $hotelId] = $this->priceSuggestionHotelScope($suggestion);
+            [$hotelIds, $hotelId] = $this->priceSuggestionHotelScope($suggestion, self::EXECUTION_PERMISSION);
 
             if ((int)$suggestion->status !== PriceSuggestion::STATUS_APPROVED) {
                 return $this->priceSuggestionError(
@@ -286,7 +289,7 @@ class RevenueAi extends Base
     /**
      * @return array{0:array<int, int>, 1:int}
      */
-    private function priceSuggestionHotelScope(PriceSuggestion $suggestion): array
+    private function priceSuggestionHotelScope(PriceSuggestion $suggestion, string $requiredPermission): array
     {
         if (!$this->currentUser) {
             throw new RuntimeException('未登录', 401);
@@ -312,7 +315,25 @@ class RevenueAi extends Base
             throw new RuntimeException('price_suggestion_hotel_not_permitted', 403);
         }
 
+        $this->assertRevenueAiHotelCapability($hotelId, $requiredPermission);
+
         return [$permittedHotelIds, $hotelId];
+    }
+
+    private function assertRevenueAiHotelCapability(int $hotelId, string $requiredPermission): void
+    {
+        if (!in_array($requiredPermission, [self::REVIEW_PERMISSION, self::EXECUTION_PERMISSION], true)) {
+            throw new RuntimeException('revenue_ai_permission_requirement_invalid', 500);
+        }
+        if ($hotelId <= 0 || !$this->currentUser) {
+            throw new RuntimeException('revenue_ai_permission_context_missing', 403);
+        }
+        if ($this->currentUser->isSuperAdmin()) {
+            return;
+        }
+        if (!$this->currentUser->hasHotelPermission($hotelId, $requiredPermission)) {
+            throw new RuntimeException('revenue_ai_permission_denied:' . $requiredPermission, 403);
+        }
     }
 
     /**

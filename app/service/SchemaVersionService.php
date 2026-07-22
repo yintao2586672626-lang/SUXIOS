@@ -554,7 +554,6 @@ final class SchemaVersionService
                         $migration['version'],
                         $migration['checksum']
                     );
-                    $this->resolveMigrationFailures($migration['migration']);
                 } catch (Throwable $exception) {
                     $this->recordMigrationFailure($migration, $exception);
                     throw new RuntimeException(
@@ -569,6 +568,7 @@ final class SchemaVersionService
 
             $this->registerMissingBaselineSources();
             $this->backfillMissingChecksums();
+            $this->resolveRegisteredMigrationFailures();
 
             $finalStatus = $this->status();
             if (!$finalStatus['ready']) {
@@ -1231,17 +1231,25 @@ final class SchemaVersionService
         }
     }
 
-    private function resolveMigrationFailures(string $migration): void
+    private function resolveRegisteredMigrationFailures(): void
     {
-        try {
-            $statement = $this->pdo->prepare(
-                'UPDATE schema_migration_failures SET resolved_at = CURRENT_TIMESTAMP '
-                . 'WHERE migration = ? AND resolved_at IS NULL'
-            );
-            $statement->execute([$migration]);
-        } catch (Throwable) {
-            // Migration success must not be reversed by a diagnostics-only update.
+        if (!$this->tableExists(self::FAILURE_TABLE)) {
+            return;
         }
+        $registered = array_values(array_unique(array_map(
+            static fn(array $row): string => (string)$row['migration'],
+            $this->registeredRows()
+        )));
+        if ($registered === []) {
+            return;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($registered), '?'));
+        $statement = $this->pdo->prepare(
+            'UPDATE schema_migration_failures SET resolved_at = CURRENT_TIMESTAMP '
+            . "WHERE resolved_at IS NULL AND migration IN ({$placeholders})"
+        );
+        $statement->execute($registered);
     }
 
     /** @return list<string> */

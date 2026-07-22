@@ -2006,13 +2006,14 @@ trait AutoFetchConcern
             $task['message'] = '登录任务未真正启动浏览器，请重新触发登录；若仍无窗口，请检查 PHP/Apache 是否运行在可见桌面会话。';
             $task['finished_at'] = $task['finished_at'] ?? date('Y-m-d H:i:s');
         }
-        $task['done'] = in_array($status, ['logged_in', 'failed'], true);
+        $task['done'] = in_array($status, ['logged_in', 'session_ready_identity_unverified', 'failed'], true);
         $task['status_text'] = match ($status) {
             'queued' => '登录任务已提交',
             'browser_opened' => '浏览器已打开，自动检测登录中',
             'running' => '正在检测登录状态',
             'syncing_after_login' => '登录已完成，正在同步目标日数据',
             'logged_in' => '登录态已验证',
+            'session_ready_identity_unverified' => 'Session 可用，门店身份待核验',
             'failed' => '登录失败',
             default => '等待处理',
         };
@@ -6121,9 +6122,12 @@ trait AutoFetchConcern
             if ($this->shouldSkipCtripLegacyStandardRow($captureSection, $dataType, $row)) {
                 continue;
             }
+            $row = $this->reconcileCtripCatalogStandardRowMetricFacts($row);
 
             $rowDataDate = $this->normalizeOnlineDataDate($row['data_date'] ?? '') ?: $dataDate;
             $dimension = trim((string)($row['dimension'] ?? '')) ?: 'catalog:' . ($captureSection ?: 'unknown');
+            $platform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
+            $source = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $platform);
             $rawData = $row['raw_data'] ?? $row;
             $rawDataForTrace = is_array($rawData) ? $rawData : [];
             if (is_array($rawData)) {
@@ -6131,18 +6135,35 @@ trait AutoFetchConcern
                 $rawData['endpoint_id'] = (string)($row['endpoint_id'] ?? ($rawData['endpoint_id'] ?? ''));
                 $sourceUrl = trim((string)($row['source_url'] ?? ($rawData['source_url'] ?? '')));
                 if ($sourceUrl !== '') {
-                    $rawData['source_url'] = $sourceUrl;
+                    $rawData['source_url'] = $this->sanitizeCtripStandardRowSourceUrl($sourceUrl);
                 }
                 $rawData = $dataType === 'review'
                     ? $this->sanitizeOnlineReviewRawData($rawData)
                     : $this->sanitizeOnlineOrderRawData($rawData, $dataType === 'order');
                 $rawDataForTrace = $rawData;
+            } else {
+                $sourceUrl = trim((string)($row['source_url'] ?? ''));
+            }
+            $sourceTraceId = $this->buildCtripStandardRowSourceTraceId(
+                array_merge($row, ['source' => $source, 'platform' => $platform]),
+                $captureSection,
+                $dataType,
+                $dimension,
+                $rowDataDate,
+                $rawDataForTrace
+            );
+            $sourceUrlHash = $this->ctripStandardRowSourceUrlHash($row, $rawDataForTrace, $sourceUrl);
+            if (is_array($rawData)) {
+                $rawData = $this->attachCtripStandardRowDesensitizedEvidence(
+                    $rawData,
+                    $row,
+                    $sourceTraceId,
+                    $sourceUrlHash
+                );
                 $rawData = json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
             } else {
                 $rawData = (string)$rawData;
             }
-            $platform = $this->normalizeCtripProfileTrafficPlatform((string)($row['platform'] ?? ''));
-            $source = $this->sourceForCtripProfileTrafficPlatform((string)($row['source'] ?? ''), $platform);
 
             $standardRow = [
                 'hotel_id' => $this->resolveCtripPlatformHotelId($row, $requestHotelId),
@@ -6153,22 +6174,23 @@ trait AutoFetchConcern
                 'data_date' => $rowDataDate,
                 'data_type' => $dataType,
                 'dimension' => $dimension,
-                'amount' => (float)($row['amount'] ?? 0),
-                'quantity' => (int)round((float)($row['quantity'] ?? 0)),
-                'book_order_num' => (int)round((float)($row['book_order_num'] ?? 0)),
-                'comment_score' => (float)($row['comment_score'] ?? 0),
-                'qunar_comment_score' => (float)($row['qunar_comment_score'] ?? 0),
-                'data_value' => (float)($row['data_value'] ?? 0),
+                'amount' => $this->ctripStandardRowFloatMetric($row, 'amount'),
+                'quantity' => $this->ctripStandardRowIntegerMetric($row, 'quantity'),
+                'book_order_num' => $this->ctripStandardRowIntegerMetric($row, 'book_order_num'),
+                'comment_score' => $this->ctripStandardRowFloatMetric($row, 'comment_score'),
+                'qunar_comment_score' => $this->ctripStandardRowFloatMetric($row, 'qunar_comment_score'),
+                'data_value' => $this->ctripStandardRowFloatMetric($row, 'data_value'),
                 'compare_type' => trim((string)($row['compare_type'] ?? '')),
-                'list_exposure' => (int)round((float)($row['list_exposure'] ?? 0)),
-                'detail_exposure' => (int)round((float)($row['detail_exposure'] ?? 0)),
-                'flow_rate' => (float)($row['flow_rate'] ?? 0),
-                'order_filling_num' => (int)round((float)($row['order_filling_num'] ?? 0)),
-                'order_submit_num' => (int)round((float)($row['order_submit_num'] ?? 0)),
+                'list_exposure' => $this->ctripStandardRowIntegerMetric($row, 'list_exposure'),
+                'detail_exposure' => $this->ctripStandardRowIntegerMetric($row, 'detail_exposure'),
+                'flow_rate' => $this->ctripStandardRowFloatMetric($row, 'flow_rate'),
+                'order_filling_num' => $this->ctripStandardRowIntegerMetric($row, 'order_filling_num'),
+                'order_submit_num' => $this->ctripStandardRowIntegerMetric($row, 'order_submit_num'),
                 'ingestion_method' => in_array((string)($row['ingestion_method'] ?? ''), ['browser_profile', 'ctrip_cookie_api'], true)
                     ? (string)$row['ingestion_method']
                     : 'browser_profile',
-                'source_trace_id' => $this->buildCtripStandardRowSourceTraceId(array_merge($row, ['source' => $source, 'platform' => $platform]), $captureSection, $dataType, $dimension, $rowDataDate, $rawDataForTrace),
+                'source_trace_id' => $sourceTraceId,
+                'source_url_hash' => $sourceUrlHash,
                 'raw_data' => $rawData,
             ];
             if ($dataSourceId !== null && $dataSourceId > 0) {
@@ -6178,6 +6200,70 @@ trait AutoFetchConcern
         }
 
         return $rows;
+    }
+
+    /** @return array<string, mixed> */
+    private function reconcileCtripCatalogStandardRowMetricFacts(array $row): array
+    {
+        $rawData = $row['raw_data'] ?? null;
+        if (is_string($rawData)) {
+            $decoded = json_decode($rawData, true);
+            $rawData = is_array($decoded) ? $decoded : null;
+        }
+        if (!is_array($rawData)
+            || strtolower(trim((string)($rawData['source'] ?? ''))) !== 'ctrip_catalog_facts'
+            || !is_array($rawData['field_facts'] ?? null)
+        ) {
+            return $row;
+        }
+
+        $structuredFields = [
+            'amount', 'quantity', 'book_order_num', 'comment_score', 'qunar_comment_score', 'data_value',
+            'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num',
+        ];
+        $structuredFieldMap = array_fill_keys($structuredFields, true);
+        $capturedFields = [];
+        foreach ($rawData['field_facts'] as $fact) {
+            if (!is_array($fact)
+                || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+                || ($fact['stored_value_present'] ?? false) !== true
+            ) {
+                continue;
+            }
+            $storageField = trim((string)($fact['storage_field'] ?? ''));
+            if (str_starts_with($storageField, 'online_daily_data.')) {
+                $storageField = substr($storageField, strlen('online_daily_data.'));
+            }
+            if (isset($structuredFieldMap[$storageField])) {
+                $capturedFields[$storageField] = true;
+            }
+        }
+        foreach ($structuredFields as $field) {
+            $value = $row[$field] ?? null;
+            $placeholder = $value === null
+                || (is_string($value) && trim($value) === '')
+                || (is_numeric($value) && (float)$value === 0.0);
+            if (!isset($capturedFields[$field]) && $placeholder) {
+                $row[$field] = null;
+            }
+        }
+        return $row;
+    }
+
+    private function ctripStandardRowFloatMetric(array $row, string $field): ?float
+    {
+        if (array_key_exists($field, $row) && $row[$field] === null) {
+            return null;
+        }
+        return (float)($row[$field] ?? 0);
+    }
+
+    private function ctripStandardRowIntegerMetric(array $row, string $field): ?int
+    {
+        if (array_key_exists($field, $row) && $row[$field] === null) {
+            return null;
+        }
+        return (int)round((float)($row[$field] ?? 0));
     }
 
     private function normalizeCtripProfileEnabledFieldKeyMap(array $keys): array
@@ -6248,6 +6334,106 @@ trait AutoFetchConcern
         }
 
         return strtolower((string)($parts['host'] ?? '')) . (string)($parts['path'] ?? '');
+    }
+
+    private function sanitizeCtripStandardRowSourceUrl(string $sourceUrl): string
+    {
+        $sourceUrl = trim($sourceUrl);
+        if ($sourceUrl === '') {
+            return '';
+        }
+
+        $parts = parse_url($sourceUrl);
+        if (!is_array($parts)) {
+            return preg_replace('/[?#].*$/', '', $sourceUrl) ?? '';
+        }
+
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $path = (string)($parts['path'] ?? '');
+        if ($host === '') {
+            return preg_replace('/[?#].*$/', '', $path !== '' ? $path : $sourceUrl) ?? '';
+        }
+        $port = isset($parts['port']) ? ':' . (int)$parts['port'] : '';
+        $prefix = in_array($scheme, ['http', 'https'], true) ? $scheme . '://' : '';
+        return $prefix . $host . $port . $path;
+    }
+
+    private function ctripStandardRowSourceUrlHash(array $row, array $rawData, string $sourceUrl): string
+    {
+        if ($sourceUrl !== '') {
+            return hash('sha256', $sourceUrl);
+        }
+
+        $captureEvidence = is_array($row['capture_evidence'] ?? null) ? (array)$row['capture_evidence'] : [];
+        $rawCaptureEvidence = is_array($rawData['capture_evidence'] ?? null) ? (array)$rawData['capture_evidence'] : [];
+        foreach ([
+            $row['source_url_hash'] ?? null,
+            $captureEvidence['source_url_hash'] ?? null,
+            $rawData['source_url_hash'] ?? null,
+            $rawCaptureEvidence['source_url_hash'] ?? null,
+        ] as $candidate) {
+            $hash = strtolower(trim((string)$candidate));
+            if (preg_match('/^[a-f0-9]{64}$/', $hash) === 1) {
+                return $hash;
+            }
+        }
+
+        return '';
+    }
+
+    private function attachCtripStandardRowDesensitizedEvidence(
+        array $rawData,
+        array $sourceRow,
+        string $sourceTraceId,
+        string $sourceUrlHash
+    ): array {
+        $baseEvidence = $this->sanitizeCtripStandardRowCaptureEvidence(
+            is_array($sourceRow['capture_evidence'] ?? null) ? (array)$sourceRow['capture_evidence'] : []
+        );
+        $baseEvidence['source_trace_id'] = $sourceTraceId;
+        if ($sourceUrlHash !== '') {
+            $baseEvidence['source_url_hash'] = $sourceUrlHash;
+        }
+        $rawData['source_trace_id'] = $sourceTraceId;
+        if ($sourceUrlHash !== '') {
+            $rawData['source_url_hash'] = $sourceUrlHash;
+        }
+        $rawData['capture_evidence'] = $baseEvidence;
+
+        if (is_array($rawData['field_facts'] ?? null)) {
+            foreach ($rawData['field_facts'] as $index => $fact) {
+                if (!is_array($fact)) {
+                    continue;
+                }
+                $factEvidence = $this->sanitizeCtripStandardRowCaptureEvidence(
+                    is_array($fact['capture_evidence'] ?? null) ? (array)$fact['capture_evidence'] : []
+                );
+                $fact['capture_evidence'] = array_merge($factEvidence, $baseEvidence);
+                $rawData['field_facts'][$index] = $fact;
+            }
+        }
+
+        return $rawData;
+    }
+
+    private function sanitizeCtripStandardRowCaptureEvidence(array $evidence): array
+    {
+        $safe = [];
+        foreach ([
+            'source_path',
+            'capture_source',
+            'section',
+            'method',
+            'request_hash',
+            'payload_hash',
+        ] as $key) {
+            $value = $evidence[$key] ?? null;
+            if (is_scalar($value) && trim((string)$value) !== '') {
+                $safe[$key] = mb_substr(trim((string)$value), 0, 300);
+            }
+        }
+        return $safe;
     }
 
     private function shouldSkipCtripLegacyStandardRow(string $captureSection, string $dataType, array $row): bool

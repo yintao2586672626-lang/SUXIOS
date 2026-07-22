@@ -21,6 +21,7 @@ final class OtaClosureDataBoundaryTest extends TestCase
         $service = new OperationManagementService();
         $base = [
             'system_hotel_id' => 80,
+            'data_source_id' => 11,
             'data_date' => date('Y-m-d', strtotime('-1 day')),
             'source' => 'ctrip',
             'data_type' => 'traffic',
@@ -74,6 +75,7 @@ final class OtaClosureDataBoundaryTest extends TestCase
             return [
                 'hotel_id' => '130079194',
                 'system_hotel_id' => 80,
+                'data_source_id' => 11,
                 'source' => 'ctrip',
                 'platform' => 'Ctrip',
                 'compare_type' => 'self',
@@ -100,6 +102,7 @@ final class OtaClosureDataBoundaryTest extends TestCase
             [
                 'hotel_id' => '130079194',
                 'system_hotel_id' => 80,
+                'data_source_id' => 11,
                 'source' => 'ctrip',
                 'platform' => 'Ctrip',
                 'compare_type' => 'self',

@@ -170,7 +170,7 @@
                     <template v-for="item in visibleMenuItems" :key="item.path || item.name">
                         <!-- 第一层: 有子菜单 -->
                         <div v-if="item.children" class="mobile-nav-group mb-1">
-                            <a @click="handleParentMenuClick(item)" @keydown.enter.prevent="handleParentMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" :aria-expanded="expandedMenus.includes(item.name) ? 'true' : 'false'" role="button" tabindex="0" class="mobile-nav-trigger sidebar-item flex items-center justify-between px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': item.children.some(c =&gt; currentPage === c.path || (c.children &amp;&amp; c.children.some(cc =&gt; currentPage === cc.path))), 'justify-center': sidebarCollapsed }">
+                            <a @click="handleParentMenuClick(item)" @keydown.enter.prevent="handleParentMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" :aria-expanded="expandedMenus.includes(item.name) ? 'true' : 'false'" role="button" tabindex="0" class="mobile-nav-trigger sidebar-item flex items-center justify-between px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'justify-center': sidebarCollapsed }">
                                 <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
                                     <i :class="item.icon" class="w-5 text-center text-blue-300"></i>
                                     <span v-show="!sidebarCollapsed" class="text-sm font-medium">{{ item.name }}</span>
@@ -183,7 +183,7 @@
                                 <template v-for="child in item.children" :key="child.path || child.name">
                                     <!-- 第二层: 有孙菜单 -->
                                     <div v-if="child.children">
-                                        <a @click.stop="toggleSubmenu(child.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center justify-between px-4 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': child.children.some(cc =&gt; currentPage === cc.path) }">
+                                        <a @click.stop="toggleSubmenu(child.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center justify-between px-4 py-2.5 cursor-pointer mx-2 pl-10">
                                             <div class="flex items-center">
                                                 <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
                                                 <span class="text-sm">{{ child.name }}</span>
@@ -192,14 +192,14 @@
                                         </a>
                                         <!-- 第三层 -->
                                         <div v-show="expandedMenus.includes(child.name)" class="bg-black/5">
-                                        <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleNestedMenuClick(grandChild, item.name)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': currentPage === grandChild.path }">
+                                        <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleNestedMenuClick(grandChild, item.name)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': isSidebarMenuItemActive(grandChild) }" :aria-current="isSidebarMenuItemActive(grandChild) ? 'page' : undefined">
                                                 <i :class="grandChild.icon" class="w-4 text-center mr-2 text-blue-300/60 text-[10px]"></i>
                                                 <span>{{ getMenuItemName(grandChild) }}</span>
                                             </a>
                                         </div>
                                     </div>
                                     <!-- 第二层: 普通项 -->
-                                <a v-else="" @click.stop="handleNestedMenuClick(child, item.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': currentPage === child.path }">
+                                <a v-else="" @click.stop="handleNestedMenuClick(child, item.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': isSidebarMenuItemActive(child) }" :aria-current="isSidebarMenuItemActive(child) ? 'page' : undefined">
                                         <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
                                         <span class="text-sm">{{ getMenuItemName(child) }}</span>
                                     </a>
@@ -207,7 +207,7 @@
                             </div>
                         </div>
                         <!-- 普通顶层菜单项 -->
-                        <a v-else="" @click="handleMenuClick(item)" @keydown.enter.prevent="handleMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" role="button" tabindex="0" class="sidebar-item flex items-center px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': currentPage === item.path, 'justify-center': sidebarCollapsed }">
+                        <a v-else="" @click="handleMenuClick(item)" @keydown.enter.prevent="handleMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" role="button" tabindex="0" class="sidebar-item flex items-center px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': isSidebarMenuItemActive(item), 'justify-center': sidebarCollapsed }" :aria-current="isSidebarMenuItemActive(item) ? 'page' : undefined">
                             <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
                                 <i :class="item.icon" class="w-5 text-center text-blue-300"></i>
                                 <span v-show="!sidebarCollapsed" class="text-sm font-medium">{{ getMenuItemName(item) }}</span>
@@ -236,8 +236,11 @@
             <main class="flex-1 overflow-auto" data-testid="app-main" :data-current-page="currentPage">
                 <!-- 顶部栏 -->
                 <header class="header px-6 py-4 sticky top-0 z-10">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
+                    <div class="header-layout flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="header-page-identity">
+                            <span class="header-page-eyebrow">SUXIOS · 经营工作台</span>
+                            <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
+                        </div>
                         <div class="header-utility-cluster flex flex-wrap items-center justify-end gap-3" role="group" aria-label="顶栏工具">
                             <div data-locale-switch="" data-testid="header-locale-switch" class="locale-switch header-locale-switch header-language-control" role="group" :aria-label="aiModelConfigText('global.languageLabel')">
                                 <span class="header-utility-label">
@@ -255,7 +258,6 @@
                                     <span class="header-utility-icon"><i class="fas fa-bell" aria-hidden="true"></i></span>
                                     <span class="header-notification-copy">
                                         <span class="header-notification-title">通知</span>
-                                        <span class="header-notification-status">{{ globalNotificationUnreadCount ? `${globalNotificationUnreadCount} 条未读` : '暂无未读' }}</span>
                                     </span>
                                     <span v-if="globalNotificationUnreadCount" class="header-notification-count" aria-live="polite">
                                         {{ globalNotificationUnreadCount &gt; 99 ? '99+' : globalNotificationUnreadCount }}

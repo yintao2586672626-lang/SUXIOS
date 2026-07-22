@@ -74,7 +74,7 @@ test('frontend security and hotel-scoped requests reject stale state instead of 
   assert.match(appMain, /const requestSeq = \+\+securityOverviewRequestSeq[\s\S]*securityOverview\.value = createEmptySecurityOverview\(\)/);
   assert.match(appMain, /const requestSeq = \+\+homeTemporalRequestSeq[\s\S]*hotelId === String\(filterReportHotel\.value/);
   assert.match(appMain, /const requestSeq = \+\+operationLogsRequestSeq[\s\S]*operationLogs\.value = \[\][\s\S]*operationLogsError\.value/);
-  assert.match(appMain, /homeTemporalError\.value = res\.message \|\| '经营时间轴加载失败/);
+  assert.match(appMain, /homeTemporalError\.value = res\.message \|\| '数据进度与预测加载失败/);
   assert.match(securityTemplate, /完整操作审计[\s\S]*v-if="operationLogsError"[\s\S]*重新加载/);
   assert.match(securityTemplate, /v-else-if="operationLogsLoading"/);
   assert.match(appMain, /logModules\.value = \[\][\s\S]*operationLogsError\.value = e\?\.message/);

@@ -656,7 +656,7 @@ class RevenueResearchService
     private function collectLocalSources(array $product, array $hotelIds): array
     {
         return [
-            $this->knowledgeUnitsSummary($product),
+            $this->knowledgeUnitsSummary($product, $hotelIds),
             $this->knowledgeBaseSummary($product, $hotelIds),
             $this->tableSummary('online_daily_data', '平台日级数据', 'data_date', ['data_date', 'amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num', 'raw_data'], $hotelIds),
             $this->tableSummary('daily_reports', '经营日报', 'report_date', ['report_date', 'occupancy_rate', 'revenue', 'room_count', 'guest_count', 'report_data'], $hotelIds),
@@ -669,9 +669,10 @@ class RevenueResearchService
 
     /**
      * @param array<string, mixed> $product
+     * @param array<int, int> $hotelIds
      * @return array<string, mixed>
      */
-    private function knowledgeUnitsSummary(array $product): array
+    private function knowledgeUnitsSummary(array $product, array $hotelIds): array
     {
         if (!$this->tableExists('knowledge_units') || !$this->tableExists('knowledge_chunks')) {
             return [
@@ -684,7 +685,26 @@ class RevenueResearchService
         }
 
         $keywords = $this->knowledgeKeywords($product);
-        $query = Db::name('knowledge_units');
+        $columns = $this->tableColumns('knowledge_units');
+        $hotelIds = array_values(array_unique(array_filter(
+            array_map('intval', $hotelIds),
+            static fn(int $hotelId): bool => $hotelId > 0
+        )));
+        $query = Db::name('knowledge_units')->where('status', 'done');
+        if (isset($columns['hotel_id']) && isset($columns['created_by'])) {
+            if ($hotelIds !== []) {
+                $query->where(function ($scope) use ($hotelIds): void {
+                    $scope->whereIn('hotel_id', $hotelIds)
+                        ->whereOr(function ($global): void {
+                            $global->where('hotel_id', 0)->where('created_by', 0);
+                        });
+                });
+            } else {
+                $query->where('hotel_id', 0)->where('created_by', 0);
+            }
+        } else {
+            $query->whereRaw('1 = 0');
+        }
         $this->applyKeywordRawWhere($query, ['name', 'description'], $keywords, 'ku');
         $rows = $query->order('unit_id', 'desc')->limit(8)->select()->toArray();
         $unitIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['unit_id'] ?? 0), $rows)));

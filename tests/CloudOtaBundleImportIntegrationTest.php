@@ -7,6 +7,7 @@ use app\model\User;
 use app\service\CloudOtaBundleCodec;
 use app\service\CloudOtaBundleImportService;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use think\App;
 use think\facade\Db;
 
@@ -34,28 +35,34 @@ final class CloudOtaBundleImportIntegrationTest extends TestCase
         try {
             $ctripSourceId = $this->createSource((int)$hotel['id'], (int)$hotel['tenant_id'], (int)$actor->id, 'ctrip');
             $meituanSourceId = $this->createSource((int)$hotel['id'], (int)$hotel['tenant_id'], (int)$actor->id, 'meituan');
+            $ctripPackage = $this->package('ctrip', 7001, $ctripSourceId, 'ctrip:bridge-integration');
+            $ctripPackage['rows'][] = array_merge($ctripPackage['rows'][0], [
+                'hotel_id' => '100002',
+                'hotel_name' => '同批次第二家竞品酒店',
+            ]);
+            $ctripPackage['source_row_count'] = 2;
             $bundle = CloudOtaBundleCodec::build([
                 'source_system_hotel_id' => 987654,
                 'destination_system_hotel_id' => (int)$hotel['id'],
                 'target_date' => '2026-07-21',
                 'required_platforms' => ['ctrip', 'meituan'],
             ], [
-                $this->package('ctrip', 7001, $ctripSourceId, 'ctrip:bridge-integration'),
+                $ctripPackage,
                 $this->package('meituan', 7002, $meituanSourceId, 'meituan:bridge-integration'),
             ], '2026-07-22 10:00:00');
 
             $service = new CloudOtaBundleImportService();
             $first = $service->importBundle($bundle, (int)$actor->id, false);
             self::assertSame('succeeded', $first['status']);
-            self::assertSame(2, $first['inserted_count']);
-            self::assertSame(2, $first['readback_count']);
+            self::assertSame(3, $first['inserted_count']);
+            self::assertSame(3, $first['readback_count']);
             self::assertTrue($first['readback_verified']);
 
             $second = $service->importBundle($bundle, (int)$actor->id, false);
             self::assertSame('succeeded', $second['status']);
             self::assertSame(0, $second['inserted_count']);
-            self::assertSame(2, $second['updated_count']);
-            self::assertSame(2, $second['readback_count']);
+            self::assertSame(3, $second['updated_count']);
+            self::assertSame(3, $second['readback_count']);
             self::assertTrue($second['readback_verified']);
 
             $persisted = Db::name('online_daily_data')
@@ -64,12 +71,79 @@ final class CloudOtaBundleImportIntegrationTest extends TestCase
                 ->where('data_date', '2026-07-21')
                 ->select()
                 ->toArray();
-            self::assertCount(2, $persisted);
+            self::assertCount(3, $persisted);
+            self::assertCount(3, array_unique(array_column($persisted, 'source_trace_id')));
             foreach ($persisted as $row) {
                 self::assertSame(1, (int)$row['readback_verified']);
                 self::assertStringStartsWith('bridge:', (string)$row['source_trace_id']);
                 self::assertSame('cloud_bundle', (string)$row['ingestion_method']);
             }
+
+            $incompleteCtrip = $this->package('ctrip', 7001, $ctripSourceId, 'ctrip:bridge-integration');
+            $incompleteCtrip['collection']['last_sync_time'] = '2026-07-22 09:30:00';
+            $incompleteCtrip['snapshot_complete'] = false;
+            $incompleteCtrip['source_row_count'] = 2;
+            $incompleteMeituan = $this->package('meituan', 7002, $meituanSourceId, 'meituan:bridge-integration');
+            $incompleteMeituan['collection']['last_sync_time'] = '2026-07-22 09:30:00';
+            $incompleteBundle = CloudOtaBundleCodec::build([
+                'source_system_hotel_id' => 987654,
+                'destination_system_hotel_id' => (int)$hotel['id'],
+                'target_date' => '2026-07-21',
+                'required_platforms' => ['ctrip', 'meituan'],
+            ], [$incompleteCtrip, $incompleteMeituan], '2026-07-22 10:30:00');
+
+            $incomplete = $service->importBundle($incompleteBundle, (int)$actor->id, false);
+            self::assertSame('succeeded', $incomplete['status']);
+            self::assertSame(0, $incomplete['retired_count']);
+            self::assertSame(2, (int)Db::name('online_daily_data')
+                ->where('data_source_id', $ctripSourceId)
+                ->where('system_hotel_id', (int)$hotel['id'])
+                ->where('data_date', '2026-07-21')
+                ->where('readback_verified', 1)
+                ->count());
+
+            $correctedCtrip = $this->package('ctrip', 7001, $ctripSourceId, 'ctrip:bridge-integration');
+            $correctedCtrip['collection']['last_sync_time'] = '2026-07-22 10:00:00';
+            $correctedCtrip['rows'][0]['amount'] = 999.5;
+            $correctedMeituan = $this->package('meituan', 7002, $meituanSourceId, 'meituan:bridge-integration');
+            $correctedMeituan['collection']['last_sync_time'] = '2026-07-22 10:00:00';
+            $correctedBundle = CloudOtaBundleCodec::build([
+                'source_system_hotel_id' => 987654,
+                'destination_system_hotel_id' => (int)$hotel['id'],
+                'target_date' => '2026-07-21',
+                'required_platforms' => ['ctrip', 'meituan'],
+            ], [$correctedCtrip, $correctedMeituan], '2026-07-22 11:00:00');
+
+            $corrected = $service->importBundle($correctedBundle, (int)$actor->id, false);
+            self::assertSame('succeeded', $corrected['status']);
+            self::assertSame(1, $corrected['retired_count']);
+
+            $ctripRows = Db::name('online_daily_data')
+                ->where('data_source_id', $ctripSourceId)
+                ->where('system_hotel_id', (int)$hotel['id'])
+                ->where('data_date', '2026-07-21')
+                ->order('hotel_id', 'asc')
+                ->select()
+                ->toArray();
+            self::assertCount(2, $ctripRows);
+            self::assertSame(999.5, (float)$ctripRows[0]['amount']);
+            self::assertSame(1, (int)$ctripRows[0]['readback_verified']);
+            self::assertSame(0, (int)$ctripRows[1]['readback_verified']);
+            self::assertSame('unverified', (string)$ctripRows[1]['validation_status']);
+            self::assertStringContainsString(
+                'cloud_bundle_row_absent_from_newer_verified_snapshot',
+                (string)$ctripRows[1]['validation_flags']
+            );
+
+            try {
+                $service->importBundle($bundle, (int)$actor->id, false);
+                self::fail('An older bundle must not overwrite a newer verified snapshot.');
+            } catch (RuntimeException $exception) {
+                self::assertStringContainsString('cloud_bundle_stale_package:ctrip', $exception->getMessage());
+            }
+            self::assertSame(999.5, (float)Db::name('online_daily_data')
+                ->where('id', (int)$ctripRows[0]['id'])
+                ->value('amount'));
         } finally {
             Db::rollback();
         }
@@ -119,6 +193,8 @@ final class CloudOtaBundleImportIntegrationTest extends TestCase
                 'message' => 'target_date_rows_readback_verified',
                 'last_sync_time' => '2026-07-22 09:00:00',
             ],
+            'snapshot_complete' => true,
+            'source_row_count' => 1,
             'rows' => [[
                 'tenant_id' => 123,
                 'system_hotel_id' => 987654,

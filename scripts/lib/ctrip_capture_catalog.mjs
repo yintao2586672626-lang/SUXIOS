@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const sectionUrl = (url, confidence = 'observed') => ({ url, confidence });
 
 const field = (id, label, sourceKeys, description = '', extra = {}) => ({
@@ -1462,6 +1464,73 @@ function ctripHotelIdSourcePriority(sourceKey) {
   return 10;
 }
 
+function ctripCaptureEvidenceValue(value) {
+  if (!['string', 'number'].includes(typeof value)) {
+    return '';
+  }
+  const text = String(value).trim();
+  if (!text
+    || /https?:\/\//i.test(text)
+    || /(?:cookie|authorization|bearer|token|password|secret)\s*[:=]/i.test(text)
+  ) {
+    return '';
+  }
+  return text.slice(0, 300);
+}
+
+function desensitizedCtripCaptureEvidence(source = {}) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return {};
+  }
+  const nested = source.capture_evidence && typeof source.capture_evidence === 'object' && !Array.isArray(source.capture_evidence)
+    ? source.capture_evidence
+    : (source.captureEvidence && typeof source.captureEvidence === 'object' && !Array.isArray(source.captureEvidence)
+      ? source.captureEvidence
+      : {});
+  const sourceTraceId = ctripCaptureEvidenceValue(
+    source.source_trace_id
+      || source.sourceTraceId
+      || nested.source_trace_id
+      || nested.sourceTraceId,
+  );
+  const sourceUrlHash = ctripCaptureEvidenceValue(
+    source.source_url_hash
+      || source.sourceUrlHash
+      || nested.source_url_hash
+      || nested.sourceUrlHash
+      || nested.url_hash,
+  );
+  const evidence = {};
+  if (sourceTraceId) {
+    evidence.source_trace_id = sourceTraceId;
+  }
+  if (/^[a-f0-9]{64}$/i.test(sourceUrlHash)) {
+    evidence.source_url_hash = sourceUrlHash.toLowerCase();
+  }
+  return evidence;
+}
+
+function attachCtripCatalogCaptureEvidence(facts, context) {
+  const evidence = desensitizedCtripCaptureEvidence(context);
+  const preserveSourceUrl = context.persistRawSourceUrl !== false;
+  return facts.map((fact) => {
+    const next = { ...fact };
+    if (!preserveSourceUrl) {
+      delete next.source_url;
+    }
+    if (Object.keys(evidence).length > 0) {
+      next.capture_evidence = { ...evidence };
+      if (evidence.source_trace_id) {
+        next.source_trace_id = evidence.source_trace_id;
+      }
+      if (evidence.source_url_hash) {
+        next.source_url_hash = evidence.source_url_hash;
+      }
+    }
+    return next;
+  });
+}
+
 export function extractCtripCatalogFacts(value, context = {}) {
   const endpointInfo = context.endpoint || null;
   const fields = endpointInfo?.fields || [];
@@ -1525,7 +1594,7 @@ export function extractCtripCatalogFacts(value, context = {}) {
             unit: item.unit,
             source_key: key,
             source_path: [...path, key].join('.'),
-            value: normalizeFactValue(child),
+            ...ctripFactValueForStorage(child, node[`${key}_url_hash`]),
             value_type: typeof child,
             hotel_id: nodeContext.hotelId || '',
             data_date: nodeContext.dataDate || '',
@@ -1539,7 +1608,7 @@ export function extractCtripCatalogFacts(value, context = {}) {
     }
   };
   walk(value);
-  return facts;
+  return attachCtripCatalogCaptureEvidence(facts, context);
 }
 
 function isCommentReviewListKey(key) {
@@ -2738,6 +2807,7 @@ function pushEndpointSpecificFact(target, { node, path, fields, context, endpoin
     sourcePath: [...path, sourceKey],
     sourceParentPath: path,
     value: node[sourceKey],
+    value_url_hash: node[`${sourceKey}_url_hash`] || '',
   }));
 }
 
@@ -2749,6 +2819,7 @@ function buildEndpointSpecificFact({
   sourcePath,
   sourceParentPath,
   value,
+  value_url_hash = '',
   derived_from = '',
 }) {
   return {
@@ -2763,7 +2834,7 @@ function buildEndpointSpecificFact({
     unit: fieldInfo.unit,
     source_key: sourceKey,
     source_path: sourcePath.map((item) => String(item)).join('.'),
-    value: normalizeFactValue(value),
+    ...ctripFactValueForStorage(value, value_url_hash),
     value_type: typeof value,
     hotel_id: context.hotelId || '',
     data_date: context.dataDate || '',
@@ -3098,6 +3169,44 @@ function normalizeFactValue(value) {
   return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
 }
 
+function ctripFactValueForStorage(value, existingHash = '') {
+  const normalized = normalizeFactValue(value);
+  if (typeof value !== 'string') {
+    return { value: normalized };
+  }
+  const raw = value.trim();
+  let safeValue = '';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol && parsed.host) {
+        parsed.username = '';
+        parsed.password = '';
+        parsed.search = '';
+        parsed.hash = '';
+        safeValue = parsed.toString();
+      }
+    } catch {
+      safeValue = '';
+    }
+  } else if (/^(?:\/(?!\/)|\.\.?\/)/.test(raw)) {
+    const boundary = [raw.indexOf('?'), raw.indexOf('#')]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right)[0] ?? raw.length;
+    safeValue = raw.slice(0, boundary) || '/';
+  }
+  if (!safeValue) {
+    return { value: normalized };
+  }
+  const suppliedHash = String(existingHash || '').trim().toLowerCase();
+  return {
+    value: safeValue,
+    value_url_hash: raw === safeValue && /^[a-f0-9]{64}$/.test(suppliedHash)
+      ? suppliedHash
+      : createHash('sha256').update(raw).digest('hex'),
+  };
+}
+
 function normalizeCtripCapturePlatform(value) {
   const key = String(value || '').trim().toLowerCase();
   if (key === 'qunar' || key === 'qunaer' || key.includes('去哪')) {
@@ -3392,7 +3501,7 @@ function metricPairGroupPath(node, path) {
 
 function standardRowGroupKey(fact) {
   return [
-    fact.source_url || '',
+    fact.source_trace_id || fact.source_url || '',
     fact.endpoint_id || '',
     fact.section || '',
     fact.platform || '',
@@ -3421,6 +3530,41 @@ function buildStandardRow(facts, context) {
       || context.ctrip_hotel_id
       || ''
   ).trim();
+  const captureEvidence = desensitizedCtripCaptureEvidence(first);
+  const fieldFacts = facts
+    .map((fact) => buildCtripStandardFieldFact(fact, captureEvidence))
+    .filter(Boolean);
+  const rawData = {
+    source: 'ctrip_catalog_facts',
+    endpoint_id: first.endpoint_id || '',
+    endpoint_label: first.endpoint_label || '',
+    section: first.section || '',
+    section_label: sectionLabel(first.section || ''),
+    captured_at: first.captured_at || context.capturedAt || '',
+    facts: facts.map((fact) => ({
+      metric_key: fact.metric_key,
+      metric_label: fact.metric_label,
+      value: fact.value,
+      ...(fact.value_url_hash ? { value_url_hash: fact.value_url_hash } : {}),
+      source_key: fact.source_key,
+      source_path: fact.source_path,
+      ...(fact.missing_state ? { missing_state: fact.missing_state } : {}),
+      ...ctripStandardFactStorage(fact),
+    })),
+    field_facts: fieldFacts,
+  };
+  if (Object.keys(captureEvidence).length > 0) {
+    rawData.capture_evidence = { ...captureEvidence };
+    if (captureEvidence.source_trace_id) {
+      rawData.source_trace_id = captureEvidence.source_trace_id;
+    }
+    if (captureEvidence.source_url_hash) {
+      rawData.source_url_hash = captureEvidence.source_url_hash;
+    }
+  } else if (first.source_url) {
+    rawData.source_url = first.source_url;
+  }
+
   const row = {
     hotel_id: String(first.hotel_id || contextHotelId || '').trim(),
     hotel_name: String(context.hotelName || '').trim(),
@@ -3445,25 +3589,18 @@ function buildStandardRow(facts, context) {
     ingestion_method: 'browser_profile',
     capture_section: first.section || '',
     endpoint_id: first.endpoint_id || '',
-    raw_data: {
-      source: 'ctrip_catalog_facts',
-      endpoint_id: first.endpoint_id || '',
-      endpoint_label: first.endpoint_label || '',
-      section: first.section || '',
-      section_label: sectionLabel(first.section || ''),
-      source_url: first.source_url || '',
-      captured_at: first.captured_at || context.capturedAt || '',
-      facts: facts.map((fact) => ({
-        metric_key: fact.metric_key,
-        metric_label: fact.metric_label,
-        value: fact.value,
-        source_key: fact.source_key,
-        source_path: fact.source_path,
-        ...(fact.missing_state ? { missing_state: fact.missing_state } : {}),
-        ...ctripStandardFactStorage(fact),
-      })),
-    },
+    raw_data: rawData,
   };
+
+  if (Object.keys(captureEvidence).length > 0) {
+    row.capture_evidence = { ...captureEvidence };
+    if (captureEvidence.source_trace_id) {
+      row.source_trace_id = captureEvidence.source_trace_id;
+    }
+    if (captureEvidence.source_url_hash) {
+      row.source_url_hash = captureEvidence.source_url_hash;
+    }
+  }
 
   const requestShape = facts.find((fact) => fact.request_shape && typeof fact.request_shape === 'object')?.request_shape;
   if (requestShape) {
@@ -3481,6 +3618,7 @@ function buildStandardRow(facts, context) {
     applyFactToStandardRow(row, fact);
   }
   finalizeTrafficStandardRow(row);
+  applyCtripStandardFieldFactTruth(row, fieldFacts);
 
   if (!row.hotel_id) {
     row.hotel_id = contextHotelId;
@@ -3508,6 +3646,81 @@ function buildStandardRow(facts, context) {
     return row;
   }
   return null;
+}
+
+function buildCtripStandardFieldFact(fact, captureEvidence = {}) {
+  const metricKey = String(fact?.metric_key || '').trim();
+  const sourcePath = String(fact?.source_path || '').trim();
+  if (!metricKey || !sourcePath) {
+    return null;
+  }
+  const valuePresent = fact.value !== null
+    && fact.value !== undefined
+    && !(typeof fact.value === 'string' && fact.value.trim() === '');
+  const missingState = String(fact.missing_state || '').trim();
+  const captured = valuePresent && missingState === '';
+  const storage = ctripStandardFactStorage(fact);
+  const fieldFact = {
+    metric_key: metricKey,
+    metric_label: fact.metric_label || '',
+    data_type: standardDataTypeForField(metricKey) || fact.data_type || '',
+    source_key: fact.source_key || '',
+    source_path: sourcePath,
+    storage_table: 'online_daily_data',
+    ...storage,
+    status: captured ? 'captured' : 'missing',
+    missing_state: captured ? '' : (missingState || 'field_missing'),
+    stored_value_present: captured,
+  };
+  if (captured) {
+    fieldFact.value = fact.value;
+    if (fact.value_url_hash) {
+      fieldFact.value_url_hash = fact.value_url_hash;
+    }
+  }
+  if (Object.keys(captureEvidence).length > 0) {
+    fieldFact.capture_evidence = { ...captureEvidence };
+  }
+  return fieldFact;
+}
+
+function applyCtripStandardFieldFactTruth(row, fieldFacts) {
+  const structuredFields = [
+    'amount',
+    'quantity',
+    'book_order_num',
+    'comment_score',
+    'qunar_comment_score',
+    'data_value',
+    'list_exposure',
+    'detail_exposure',
+    'flow_rate',
+    'order_filling_num',
+    'order_submit_num',
+  ];
+  const capturedFields = new Set();
+  for (const fact of fieldFacts) {
+    if (fact?.status !== 'captured' || fact?.stored_value_present !== true) {
+      continue;
+    }
+    const storageField = String(fact.storage_field || '').trim();
+    const column = storageField.startsWith('online_daily_data.')
+      ? storageField.slice('online_daily_data.'.length)
+      : storageField;
+    if (structuredFields.includes(column)) {
+      capturedFields.add(column);
+    }
+  }
+  for (const field of structuredFields) {
+    const value = row[field];
+    const placeholder = value === null
+      || value === undefined
+      || value === ''
+      || (Number.isFinite(Number(value)) && Number(value) === 0);
+    if (!capturedFields.has(field) && placeholder) {
+      row[field] = null;
+    }
+  }
 }
 
 function ctripStandardFactStorage(fact) {
@@ -4074,16 +4287,23 @@ function appendDimensionValue(row, key, value) {
 }
 
 function hasStandardMetricValue(row) {
-  return Number(row.amount || 0) !== 0
-    || Number(row.quantity || 0) !== 0
-    || Number(row.book_order_num || 0) !== 0
-    || Number(row.comment_score || 0) !== 0
-    || Number(row.data_value || 0) !== 0
-    || Number(row.list_exposure || 0) !== 0
-    || Number(row.detail_exposure || 0) !== 0
-    || Number(row.flow_rate || 0) !== 0
-    || Number(row.order_filling_num || 0) !== 0
-    || Number(row.order_submit_num || 0) !== 0;
+  return [
+    'amount',
+    'quantity',
+    'book_order_num',
+    'comment_score',
+    'data_value',
+    'list_exposure',
+    'detail_exposure',
+    'flow_rate',
+    'order_filling_num',
+    'order_submit_num',
+  ].some((field) => (
+    row[field] !== null
+    && row[field] !== undefined
+    && row[field] !== ''
+    && Number.isFinite(Number(row[field]))
+  ));
 }
 
 function hasFactOnlyValue(facts) {

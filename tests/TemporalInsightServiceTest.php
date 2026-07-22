@@ -289,12 +289,12 @@ final class TemporalInsightServiceTest extends TestCase
         $entry = (string)file_get_contents($root . '/public/app-main.js');
 
         self::assertStringContainsString('data-testid="home-temporal-axis"', $template);
-        self::assertStringContainsString('过去有据', $template);
-        self::assertStringContainsString('如今可察', $template);
-        self::assertStringContainsString('未来可观', $template);
+        self::assertStringContainsString('历史数据', $template);
+        self::assertStringContainsString('今日更新', $template);
+        self::assertStringContainsString('未来趋势', $template);
         self::assertStringContainsString('homeTemporalReview.title', $template);
         self::assertStringContainsString("request(`/temporal-insights/overview?", $entry);
         self::assertStringContainsString("request('/temporal-insights/forecasts'", $entry);
-        self::assertStringContainsString('不生成执行价格', $entry);
+        self::assertStringContainsString('不直接给执行价格', $entry);
     }
 }

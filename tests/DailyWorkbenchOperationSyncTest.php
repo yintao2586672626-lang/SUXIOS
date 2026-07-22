@@ -213,6 +213,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         ], 7, 3);
         Db::name('online_daily_data')->insert([
             'system_hotel_id' => 7,
+            'data_source_id' => 11,
             'hotel_id' => '130079194',
             'source' => 'ctrip',
             'platform' => 'ctrip',
@@ -325,6 +326,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         ], 7, 3);
         Db::name('online_daily_data')->insert([
             'system_hotel_id' => 7,
+            'data_source_id' => 11,
             'hotel_id' => '130079194',
             'source' => 'ctrip',
             'platform' => 'ctrip',
@@ -896,6 +898,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
     {
         Db::name('online_daily_data')->insert([
             'system_hotel_id' => 7,
+            'data_source_id' => 11,
             'hotel_id' => '130079194',
             'source' => 'ctrip',
             'platform' => 'ctrip',
@@ -997,6 +1000,7 @@ SQL);
 CREATE TABLE online_daily_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     system_hotel_id INTEGER NOT NULL,
+    data_source_id INTEGER,
     hotel_id TEXT,
     source TEXT,
     platform TEXT,

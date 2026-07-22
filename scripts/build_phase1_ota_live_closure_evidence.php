@@ -3265,7 +3265,7 @@ function evidence_missing_codes(array $platformEvidence, array $diagnosis, array
 
 function ai_blocking_codes(array $missingCodes): array
 {
-    return array_values(array_filter($missingCodes, static function (string $code): bool {
+    $codes = array_values(array_filter(array_unique($missingCodes), static function (string $code): bool {
         return str_contains($code, 'source_rows_missing')
             || str_contains($code, 'etl_not_ready')
             || str_contains($code, 'revenue_metrics_not_ready')
@@ -3280,6 +3280,14 @@ function ai_blocking_codes(array $missingCodes): array
             || $code === 'ai_diagnosis_persistence_unverified'
             || $code === 'ai_diagnosis_action_items_blocked';
     }));
+    usort($codes, static function (string $left, string $right): int {
+        $leftAction = next_action_for_blocker_code($left);
+        $rightAction = next_action_for_blocker_code($right);
+        $leftRank = next_action_family_rank(['action_code' => $leftAction]);
+        $rightRank = next_action_family_rank(['action_code' => $rightAction]);
+        return $leftRank !== $rightRank ? $leftRank <=> $rightRank : strcmp($left, $right);
+    });
+    return $codes;
 }
 
 function next_action_family(string $code): string

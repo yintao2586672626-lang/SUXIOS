@@ -64,7 +64,7 @@ test('ID-only backend route persists a dedicated public binding and retains comp
   const concern = read('app/controller/concern/CtripCompetitiveOperationsConcern.php');
   const service = read('app/service/CtripPublicHotelProfileService.php');
 
-  assert.match(routes, /Route::post\('\/ctrip\/public-profiles\/add', 'OnlineData\/addCtripPublicProfile'\)/);
+  assert.match(routes, /Route::post\('\/ctrip\/public-profiles\/add', 'ota\.CtripController\/addCtripPublicProfile'\)/);
   assert.match(concern, /checkActionPermission\('can_fetch_online_data'\)/);
   assert.match(concern, /currentUserCanMaintainOtaConfig\(\$systemHotelId\)/);
   assert.match(service, /PUBLIC_BINDING_CONFIG_KEY = 'ctrip_public_hotel_bindings'/);
@@ -163,7 +163,7 @@ test('public-page diagnosis task bridge rebuilds server evidence and enforces op
   const operationService = read('app/service/OperationManagementService.php');
   const protectedCapabilities = read('app/service/ProtectedCapabilityService.php');
 
-  assert.match(routes, /Route::post\('\/public-page-diagnosis\/execution-intent', 'OnlineData\/createOtaPublicPageDiagnosisExecutionIntent'\)/);
+  assert.match(routes, /Route::post\('\/public-page-diagnosis\/execution-intent', 'ota\.CtripController\/createOtaPublicPageDiagnosisExecutionIntent'\)/);
   assert.match(concern, /hasHotelPermission\(\$systemHotelId, 'operation\.execute'\)/);
   assert.match(concern, /\$diagnosisService->build\(\$systemHotelId, \$platform, \$businessDate, \$profiles\)/);
   assert.match(concern, /\$diagnosisService->buildExecutionIntentDraft\(\$diagnosis, \$schedule\)/);
@@ -210,7 +210,7 @@ test('Meituan public-page evidence is a persisted manual consumer-page observati
   const protectedCapabilities = read('app/service/ProtectedCapabilityService.php');
   const template = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
 
-  assert.match(routes, /Route::post\('\/public-page-evidence', 'OnlineData\/saveOtaPublicPageEvidence'\)/);
+  assert.match(routes, /Route::post\('\/public-page-evidence', 'ota\.CtripController\/saveOtaPublicPageEvidence'\)/);
   assert.match(concern, /new MeituanPublicPageEvidenceService\(\)/);
   assert.match(concern, /checkActionPermission\('can_fetch_online_data'\)/);
   assert.match(service, /SOURCE = 'meituan_public_page'/);

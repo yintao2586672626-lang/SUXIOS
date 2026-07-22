@@ -57,7 +57,11 @@
     },
     "parser_contracts": {
       "controller": {
-        "path": "app/controller/OnlineData.php",
+        "path": "app/service/Ota/OtaActionHandler.php",
+        "paths": [
+          "app/service/Ota/OtaActionHandler.php",
+          "app/controller/concern/BusinessDisplayConcern.php"
+        ],
         "missing_tokens": []
       },
       "command": {

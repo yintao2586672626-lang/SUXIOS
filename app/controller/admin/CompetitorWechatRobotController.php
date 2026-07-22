@@ -6,6 +6,7 @@ namespace app\controller\admin;
 use app\controller\Base;
 use app\model\OperationLog;
 use app\service\AiDailyReportService;
+use app\service\CloudAutomationService;
 use app\service\WechatRobotWebhookSecret;
 use think\Response;
 use think\facade\Db;
@@ -338,7 +339,13 @@ class CompetitorWechatRobotController extends Base
             $hotelName = '酒店 #' . $hotelId;
         }
         $payload = $this->buildAiDailyReportPayload($report, $hotelName);
-        $delivery = $this->sendPayloadToStore($hotelId, $payload);
+        $delivery = (new CloudAutomationService())->deliverSavedDailyReport(
+            $hotelId,
+            $reportId,
+            (string)($report['report_date'] ?? ''),
+            $payload,
+            ['requested_by' => (int)$this->currentUser->id]
+        );
         $status = (string)($delivery['delivery_status'] ?? 'failed');
         $auditData = array_merge($this->deliveryAuditData($delivery), [
             'report_id' => $reportId,
@@ -357,6 +364,9 @@ class CompetitorWechatRobotController extends Base
 
         if ($status === 'binding_missing') {
             return $this->error('该门店尚未绑定启用中的企业微信机器人', 404, $delivery);
+        }
+        if ($status === 'in_progress') {
+            return $this->error('该日报正在投递，或上次投递结果需要人工确认；本次未重复发送', 409, $delivery);
         }
         if ($status === 'sent') {
             return $this->success($delivery, 'AI经营日报已发送到企业微信群');

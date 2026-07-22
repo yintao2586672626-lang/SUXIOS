@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
+import { buildOtaCaptureEvidence } from './lib/ota_capture_standard.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
 const URLS = {
@@ -472,7 +473,7 @@ function registerResponseCapture(page, target) {
       if (keywordHit && rows.length) {
         captureCommentRequestTemplate(response.request(), body, rows.length);
       }
-      target.responses.push({ url, section: 'reviews', status, request_type: requestType, keyword_hit: keywordHit, row_count: rows.length, data: body });
+      target.responses.push({ url, section: 'reviews', status, request_type: requestType, keyword_hit: keywordHit, row_count: rows.length });
       target.reviews.push(...rows.map(row => normalizeCommentRow(row, url, keywordHit ? 'xhr:getCommentList' : 'xhr:comment-json')));
     }
   });
@@ -1327,11 +1328,81 @@ function uniqueReasons(reasons) {
   return Array.from(new Set(reasons.map(reason => String(reason || '').trim()).filter(Boolean)));
 }
 
+function safeCaptureCode(value, fallback = '') {
+  const text = stringValue(value);
+  return /^[a-z0-9_.:-]{1,96}$/i.test(text) ? text : fallback;
+}
+
+function nonNegativeInteger(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+}
+
+function captureUrlMetadata(value) {
+  const rawUrl = stringValue(value);
+  const evidence = buildOtaCaptureEvidence('ctrip', { url: rawUrl });
+  return {
+    url: redactEvidenceUrl(rawUrl),
+    source_url_hash: evidence.source_url_hash || '',
+  };
+}
+
+function sanitizeCapturedResponseMetadata(response) {
+  const item = response && typeof response === 'object' ? response : {};
+  const sanitized = {
+    ...captureUrlMetadata(item.url),
+    section: safeCaptureCode(item.section),
+    status: nonNegativeInteger(item.status),
+    request_type: safeCaptureCode(item.request_type),
+  };
+  for (const key of ['row_count', 'kept_count', 'page_index']) {
+    if (Object.prototype.hasOwnProperty.call(item, key)) {
+      sanitized[key] = nonNegativeInteger(item[key]);
+    }
+  }
+  for (const key of ['keyword_hit', 'group_id_present']) {
+    if (Object.prototype.hasOwnProperty.call(item, key)) {
+      sanitized[key] = Boolean(item[key]);
+    }
+  }
+  for (const key of ['stop_reason', 'error']) {
+    if (Object.prototype.hasOwnProperty.call(item, key)) {
+      sanitized[key] = safeCaptureCode(item[key], key === 'error' ? 'capture_request_failed' : '');
+    }
+  }
+  const cutoffTime = stringValue(item.cutoff_time);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(cutoffTime)) {
+    sanitized.cutoff_time = cutoffTime;
+  }
+  return sanitized;
+}
+
+function sanitizeCapturedPageMetadata(page) {
+  const item = page && typeof page === 'object' ? page : {};
+  return {
+    name: safeCaptureCode(item.name),
+    ...captureUrlMetadata(item.url),
+    ok: Boolean(item.ok),
+    ...(Object.prototype.hasOwnProperty.call(item, 'error')
+      ? { error: safeCaptureCode(item.error, 'page_navigation_failed') }
+      : {}),
+  };
+}
+
+function sanitizeCapturedXhrMetadata(entry) {
+  const item = entry && typeof entry === 'object' ? entry : { url: entry };
+  return {
+    ...captureUrlMetadata(item.url),
+    status: nonNegativeInteger(item.status),
+    request_type: safeCaptureCode(item.request_type),
+  };
+}
+
 function sanitizeCapturePayloadForStorage(data) {
   data.page_url = redactEvidenceUrl(data.page_url);
-  data.pages = (data.pages || []).map(page => ({ ...page, url: redactEvidenceUrl(page && page.url) }));
-  data.responses = (data.responses || []).map(response => ({ ...response, url: redactEvidenceUrl(response && response.url) }));
-  data.xhr_urls = (data.xhr_urls || []).map(redactEvidenceUrl);
+  data.pages = (data.pages || []).map(sanitizeCapturedPageMetadata);
+  data.responses = (data.responses || []).map(sanitizeCapturedResponseMetadata);
+  data.xhr_urls = (data.xhr_urls || []).map(sanitizeCapturedXhrMetadata);
   data.reviews = (data.reviews || []).map(review => ({
     review_id: stringValue(review.review_id),
     score: normalizeScore(review.score),

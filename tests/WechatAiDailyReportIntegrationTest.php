@@ -68,5 +68,16 @@ final class WechatAiDailyReportIntegrationTest extends TestCase
         self::assertStringContainsString('binding_missing', $dataConfig);
         self::assertStringContainsString('ai-daily-report-send-wecom', $dailyReport);
         self::assertStringContainsString('/send-wecom', $frontend);
+
+        $method = new ReflectionMethod(CompetitorWechatRobotController::class, 'apiSendAiDailyReport');
+        $source = (string)file_get_contents($method->getFileName());
+        $lines = explode("\n", $source);
+        $body = implode("\n", array_slice(
+            $lines,
+            max(0, $method->getStartLine() - 1),
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+        self::assertStringContainsString('deliverSavedDailyReport', $body);
+        self::assertStringNotContainsString('sendPayloadToStore', $body);
     }
 }

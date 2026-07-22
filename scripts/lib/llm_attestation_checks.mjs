@@ -1,39 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  CREDENTIAL_SENSITIVE_NORMALIZED_KEYS,
+  credentialRiskSignals,
+  findSensitiveFieldCategories,
+} from './ota_credential_checks.mjs';
 import { isPlaceholder } from './release_env_checks.mjs';
+import { safeJsonParseErrorCode } from './safe_json_parse_error.mjs';
 
 function resolveInputPath(repoRoot, filePath) {
   return path.isAbsolute(filePath) ? filePath : path.join(repoRoot, filePath);
-}
-
-function isRedactedSecretValue(value) {
-  const text = String(value ?? '').trim();
-  return text === ''
-    || /TODO|CHANGE_ME|placeholder|redacted|masked|not stored|not included|secure record|internal ticket/i.test(text)
-    || /^\*+$/.test(text)
-    || /^<[^>]*redact[^>]*>$/i.test(text);
-}
-
-function findSensitiveFieldValues(value, sensitiveKeys, pathParts = []) {
-  const findings = [];
-  if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      findings.push(...findSensitiveFieldValues(item, sensitiveKeys, [...pathParts, String(index)]));
-    }
-    return findings;
-  }
-  if (!value || typeof value !== 'object') {
-    return findings;
-  }
-  for (const [key, child] of Object.entries(value)) {
-    const childPath = [...pathParts, key];
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (sensitiveKeys.has(normalizedKey) && typeof child === 'string' && !isRedactedSecretValue(child)) {
-      findings.push(childPath.join('.'));
-    }
-    findings.push(...findSensitiveFieldValues(child, sensitiveKeys, childPath));
-  }
-  return findings;
 }
 
 export function checkLlmConnectivityAttestation({ repoRoot, attestationPath }) {
@@ -42,7 +18,7 @@ export function checkLlmConnectivityAttestation({ repoRoot, attestationPath }) {
   const resolvedPath = resolveInputPath(repoRoot, attestationPath);
 
   if (!fs.existsSync(resolvedPath)) {
-    failures.push(`Production LLM connectivity attestation was not found: ${attestationPath}. Set LLM_CONNECTIVITY_ATTESTATION_FILE to a controlled attestation JSON before release.`);
+    failures.push('Production LLM connectivity attestation was not found at the configured path. Set LLM_CONNECTIVITY_ATTESTATION_FILE to a controlled attestation JSON before release.');
     return { passes, failures };
   }
 
@@ -52,19 +28,20 @@ export function checkLlmConnectivityAttestation({ repoRoot, attestationPath }) {
     raw = fs.readFileSync(resolvedPath, 'utf8');
     attestation = JSON.parse(raw);
   } catch (error) {
-    failures.push(`Production LLM connectivity attestation is not valid JSON: ${error.message}`);
+    failures.push(`Production LLM connectivity attestation is not valid JSON (${safeJsonParseErrorCode(error)}).`);
     return { passes, failures };
   }
 
-  if (/(sk-[A-Za-z0-9_-]{8,}|Bearer\s+(?!redacted|masked|<redacted>)\S+|"api[_-]?key"\s*:|"authorization"\s*:|"cookie"\s*:)/i.test(raw)) {
+  if (credentialRiskSignals(raw).valueBearingMatches > 0 || /sk-[A-Za-z0-9_-]{8,}/i.test(raw)) {
     failures.push('Production LLM connectivity attestation appears to contain secret material; store only redacted evidence references.');
   }
-  const llmSensitiveFields = findSensitiveFieldValues(
+  const llmSensitiveFields = findSensitiveFieldCategories(
     attestation,
-    new Set(['apikey', 'authorization', 'cookie', 'token', 'secret', 'clientsecret']),
+    new Set(CREDENTIAL_SENSITIVE_NORMALIZED_KEYS),
   );
   if (llmSensitiveFields.length > 0) {
-    failures.push(`Production LLM connectivity attestation contains unredacted sensitive fields: ${llmSensitiveFields.join(', ')}`);
+    const categories = [...new Set(llmSensitiveFields)].sort();
+    failures.push(`Production LLM connectivity attestation contains ${llmSensitiveFields.length} unredacted sensitive fields in safe categories: ${categories.join(', ')}`);
   }
 
   const requiredStringFields = [

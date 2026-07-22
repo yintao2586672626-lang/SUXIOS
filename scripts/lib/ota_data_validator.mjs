@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { safeJsonParseErrorCode } from './safe_json_parse_error.mjs';
 
 export const SOURCE_FIELD_MAPPINGS = {
   ctrip_business: {
@@ -109,7 +110,7 @@ function decodeRawData(rawData) {
     const parsed = JSON.parse(rawData);
     return { value: isObject(parsed) ? parsed : {}, error: isObject(parsed) ? null : 'raw_data JSON is not an object' };
   } catch (error) {
-    return { value: {}, error: error.message };
+    return { value: {}, error: safeJsonParseErrorCode(error) };
   }
 }
 

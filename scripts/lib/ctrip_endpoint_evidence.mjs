@@ -5,7 +5,8 @@ import {
   extractCtripCatalogFacts,
   findCtripEndpointByUrl,
 } from './ctrip_capture_catalog.mjs';
-import { sanitizeOtaPayloadForStorage } from './ota_capture_standard.mjs';
+import { buildOtaCaptureEvidence, sanitizeOtaPayloadForStorage, sanitizeOtaUrlValueForStorage } from './ota_capture_standard.mjs';
+import { sanitizeOtaObservedUrl } from './ota_session_probe.mjs';
 
 export const CTRIP_ENDPOINT_EVIDENCE_REQUIRED = ['Request URL', 'Payload', 'Preview / Response', 'page/tab context', 'hotel/date parameters'];
 
@@ -159,20 +160,25 @@ function markdownCell(value) {
 }
 
 export function validateCtripEndpointEvidenceBundle(bundle = {}, options = {}) {
-  const requestUrl = stringValue(bundle.request_url || bundle.requestUrl || bundle.url);
+  const observedRequestUrl = stringValue(bundle.request_url || bundle.requestUrl || bundle.url);
+  const requestUrl = sanitizeOtaObservedUrl(observedRequestUrl);
+  const requestEvidence = buildOtaCaptureEvidence('ctrip', {
+    url: observedRequestUrl,
+    captureSource: 'endpoint_evidence',
+  });
   const payload = bundle.payload ?? bundle.request_payload ?? bundle.requestPayload ?? null;
   const response = bundle.response ?? bundle.preview ?? bundle.response_preview ?? bundle.responsePreview ?? null;
   const pageContext = bundle.page_context ?? bundle.pageContext ?? {};
   const params = bundle.params ?? bundle.parameters ?? {};
 
-  const formalEndpoint = findCtripEndpointByUrl(requestUrl, { pageContext });
-  const candidate = buildCtripEndpointCandidates([{ url: requestUrl }])[0] || null;
+  const formalEndpoint = findCtripEndpointByUrl(observedRequestUrl, { pageContext });
+  const candidate = buildCtripEndpointCandidates([{ url: observedRequestUrl }])[0] || null;
   const candidateSection = candidate?.candidate_section || formalEndpoint?.section || '';
   const dataType = candidate?.data_type || formalEndpoint?.dataType || 'business';
   const sanitizerSection = dataType === 'order' ? 'orders' : dataType;
 
   const missingEvidence = [];
-  if (!requestUrl) {
+  if (!observedRequestUrl || !requestUrl) {
     missingEvidence.push('Request URL');
   }
   if (!hasMeaningfulValue(payload)) {
@@ -204,7 +210,9 @@ export function validateCtripEndpointEvidenceBundle(bundle = {}, options = {}) {
     headers: sanitizeOtaPayloadForStorage(bundle.headers || {}, sanitizerSection),
     payload: hasMeaningfulValue(payload) ? sanitizeOtaPayloadForStorage(payload, sanitizerSection) : null,
     response: hasMeaningfulValue(response) ? sanitizeOtaPayloadForStorage(response, sanitizerSection) : null,
-    page_context: sanitizeOtaPayloadForStorage(pageContext || {}, sanitizerSection),
+    page_context: sanitizeEndpointEvidencePageContext(
+      sanitizeOtaPayloadForStorage(pageContext || {}, sanitizerSection),
+    ),
     params: sanitizeOtaPayloadForStorage(params || {}, sanitizerSection),
   };
   const catalogPreview = buildCtripCatalogPreviewFromEvidence({
@@ -220,6 +228,8 @@ export function validateCtripEndpointEvidenceBundle(bundle = {}, options = {}) {
     platform: 'ctrip',
     generated_at: options.capturedAt || new Date().toISOString(),
     request_url: requestUrl,
+    source_trace_id: requestEvidence.source_trace_id || '',
+    source_url_hash: requestEvidence.source_url_hash || '',
     method: redactedBundle.method,
     endpoint_id: formalEndpoint?.id || '',
     endpoint_label: formalEndpoint?.label || '',
@@ -332,12 +342,45 @@ function buildCapturePageContext(item, context) {
   const supplied = parseEvidenceDraftObject(item.page_context || item.pageContext || {});
   return {
     source: 'browser_profile',
-    page_url: stringValue(item.page_url || item.pageUrl || context.pageUrl),
+    page_url: sanitizeOtaObservedUrl(stringValue(item.page_url || item.pageUrl || context.pageUrl)),
     active_section: stringValue(item.section || item.capture_section || item.captureSection || context.activeSection),
     module: stringValue(item.section || item.capture_section || item.captureSection || context.activeSection),
     captured_at: stringValue(item.captured_at || item.capturedAt || context.capturedAt),
     ...supplied,
   };
+}
+
+function sanitizeEndpointEvidencePageContext(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      const urlValue = sanitizeOtaUrlValueForStorage(item);
+      return urlValue ? urlValue.value : sanitizeEndpointEvidencePageContext(item);
+    });
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const next = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key.endsWith('_url_hash')) {
+      const sourceKey = key.slice(0, -'_url_hash'.length);
+      if (sanitizeOtaUrlValueForStorage(value[sourceKey])) {
+        continue;
+      }
+    }
+    if (item && typeof item === 'object') {
+      next[key] = sanitizeEndpointEvidencePageContext(item);
+      continue;
+    }
+    const urlValue = sanitizeOtaUrlValueForStorage(item, value[`${key}_url_hash`]);
+    if (urlValue) {
+      next[key] = urlValue.value;
+      next[`${key}_url_hash`] = urlValue.value_url_hash;
+    } else {
+      next[key] = item;
+    }
+  }
+  return next;
 }
 
 function parseEvidenceDraftObject(value) {

@@ -67,7 +67,7 @@ test('home temporal cards do not coerce null into zero or probability confidence
   assert.match(appMain, /if \(number === null\) return '待校准';/);
   assert.match(appMain, /规则置信指数（未校准）/);
   assert.match(appMain, /较前7日变化未返回/);
-  assert.match(appMain, /区间命中 \$\{homeTemporalPercentText\(review\.range_hit_rate\)\}/);
+  assert.match(appMain, /历史预测准确度：\$\{homeTemporalPercentText\(review\.range_hit_rate\)\}/);
   assert.doesNotMatch(appMain, /粗粒度区间 \$\{futureRange\}，置信度/);
 });
 

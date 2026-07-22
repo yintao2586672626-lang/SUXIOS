@@ -17,11 +17,13 @@ final class AiDailyReportTrustedInputTest extends TestCase
             'key' => 'online_daily_data#42',
             'source' => 'ctrip',
             'platform' => 'Ctrip',
+            'data_source_id' => 11,
             'data_date' => '2026-07-15',
         ]];
         $row = [
             'id' => 42,
             'system_hotel_id' => 7,
+            'data_source_id' => 11,
             'data_date' => '2026-07-15',
             'source' => 'ctrip',
             'platform' => 'Ctrip',
@@ -45,6 +47,33 @@ final class AiDailyReportTrustedInputTest extends TestCase
         $crossHotel = $service->evaluateTrustedOtaRows($refs, [$row], 8, '2026-07-15');
         self::assertFalse($crossHotel['verified']);
         self::assertContains('ota_evidence_hotel_scope_mismatch', array_column($crossHotel['gaps'], 'code'));
+    }
+
+    public function testTrustedEvaluatorRejectsRowsWithoutDataSourceBinding(): void
+    {
+        $service = new AiDailyReportService();
+        $trusted = $service->evaluateTrustedOtaRows([[
+            'key' => 'online_daily_data#42',
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'data_date' => '2026-07-15',
+        ]], [[
+            'id' => 42,
+            'system_hotel_id' => 7,
+            'data_source_id' => 0,
+            'data_date' => '2026-07-15',
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'data_type' => 'traffic',
+            'validation_status' => 'available',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-07-16 09:00:00',
+        ]], 7, '2026-07-15');
+
+        self::assertFalse($trusted['verified']);
+        self::assertContains('ota_evidence_data_source_binding_missing', array_column($trusted['gaps'], 'code'));
+        self::assertSame(0, $trusted['source_refs'][0]['data_source_id']);
+        self::assertSame([], $trusted['rows']);
     }
 
     public function testUnverifiedInputStopsBeforeTheFakeLlm(): void
@@ -261,6 +290,7 @@ final class AiDailyReportTrustedInputTest extends TestCase
                 'scope' => 'Ctrip OTA channel fact',
                 'source' => 'ctrip',
                 'platform' => 'Ctrip',
+                'data_source_id' => 11,
                 'data_date' => '2026-07-15',
                 'validation_status' => 'available',
                 'readback_verified' => true,
