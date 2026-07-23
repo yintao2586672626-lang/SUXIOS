@@ -231,10 +231,10 @@ assert.match(indexHtml, /营业中 \{\{ hotelBindingOverview\.active \}\}/, 'hot
 assert.match(indexHtml, />账号待补<\/span>/, 'hotel account filter should keep pending work scoped to account collection readiness');
 assert.match(indexHtml, />采集阻塞<\/span>[\s\S]*登录\/门店\/采集/, 'blocking KPI must describe the three real blocking sources instead of calling every capture failure an account error');
 assert.doesNotMatch(indexHtml, />账号异常<\/span>/, 'capture failures must not be mislabeled as account errors');
-assert.match(indexHtml, /账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入。/, 'hotel account filter should keep pending work scoped to selected OTA platforms');
+assert.match(indexHtml, /账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入。这里只代表 OTA 渠道，不代表全酒店经营。/, 'hotel account filter should keep the exact OTA channel-scope boundary');
 assert.match(indexHtml, /const todo = activeHotels\.filter\(h => hotelAccountHealthKey\(h\) === 'todo'\)\.length;/, 'todo count should only reflect account collection readiness');
-assert.match(indexHtml, /适用 OTA 渠道（可多选）[\s\S]*hotelFormChannelSelected\('ctrip'\)[\s\S]*toggleHotelFormChannel\('ctrip'\)[\s\S]*携程[\s\S]*hotelFormChannelSelected\('meituan'\)[\s\S]*toggleHotelFormChannel\('meituan'\)[\s\S]*美团/, 'hotel form must expose independently selectable OTA channels');
-assert.match(indexHtml, /勾选结果保存后会在门店列表回显[\s\S]*登录与采集状态另行验证/, 'hotel form must explain saved applicability separately from verified platform state');
+assert.match(indexHtml, /适用平台（可多选）[\s\S]*hotelFormChannelSelected\('ctrip'\)[\s\S]*toggleHotelFormChannel\('ctrip'\)[\s\S]*携程[\s\S]*hotelFormChannelSelected\('meituan'\)[\s\S]*toggleHotelFormChannel\('meituan'\)[\s\S]*美团/, 'hotel form must expose independently selectable platforms');
+assert.match(indexHtml, /保存后只检查已选平台，不会自动采集。/, 'hotel form must explain saved applicability separately from verified platform state');
 assert.equal((indexHtml.match(/data-testid="hotel-ota-applicability"/g) || []).length, 2, 'desktop and mobile hotel lists must echo the saved OTA applicability');
 assert.equal((indexHtml.match(/@click="openHotelModal\(hotel\)"[^>]*data-testid="hotel-ota-applicability"/g) || []).length, 2, 'desktop and mobile applicability badges must open hotel editing');
 assert.match(indexHtml, /hotelOtaApplicabilityBadgeText\(hotel\)/, 'hotel list must expose saved applicability or a compact review candidate');
@@ -370,7 +370,7 @@ assert.match(userController, /普通用户必须先分配门店/, 'normal extern
 assert.match(roleController, /private function validateRolePermissionBoundary\(string \$roleName, array \$permissions, \?Role \$existingRole = null, \?int \$roleLevel = null\): \?Response/, 'role API must validate external role permission boundaries with the submitted or existing role identity');
 assert.match(roleController, /validateBuiltInExternalRoleIdentity\(\$role, \$data\)/, 'role update must reject identity changes for built-in external roles');
 assert.match(roleController, /private function validateBuiltInExternalRoleIdentity\(Role \$role, array \$data\): \?Response[\s\S]*Role::BETA_USER[\s\S]*Role::NORMAL_USER[\s\S]*内置外发角色的标识和等级不能修改/, 'built-in beta and normal roles must keep immutable names and levels');
-assert.match(roleController, /validateRolePermissionBoundary\(\(string\)\$data\['name'\], \$permissions, null, \$nextLevel\)/, 'role create must apply normal-user boundaries to submitted level-3 roles');
+assert.match(roleController, /validateRolePermissionBoundary\(\$roleName, \$permissions, null, \$nextLevel\)/, 'role create must apply normal-user boundaries to submitted level-3 roles');
 assert.match(roleController, /validateRolePermissionBoundary\(\$nextName, \$permissions, \$role, \$nextLevel\)/, 'role update must preserve normal-user boundaries after role renaming or level changes');
 assert.match(roleController, /private function isNormalExternalRoleIdentity\(string \$roleName, \?Role \$existingRole = null, \?int \$roleLevel = null\): bool[\s\S]*\$roleLevel !== null && \$roleLevel >= Role::HOTEL_STAFF[\s\S]*Role::NORMAL_USER[\s\S]*normal_user/, 'role API must identify staff-level roles by submitted level, current name, existing id, or existing name');
 assert.match(roleController, /isNormalExternalRoleIdentity\(\$roleName, \$existingRole, \$roleLevel\)[\s\S]*normalExternalUnsafeCapabilities\(\$permissions\)/, 'normal_user role saves must reject denied high-risk permissions');
@@ -547,7 +547,7 @@ assert.match(indexHtml, /copyUserIssueGuide, isExternalIssueUser, existingUserIs
 assert.match(indexHtml, /const allUserHotelIds = computed\(\(\) => normalizeUserHotelIds/, 'user modal must derive a selectable full hotel list');
 assert.match(indexHtml, /const toggleAllUserHotels = \(\) => \{[\s\S]*areAllUserHotelsSelected\.value \? \[\] : \[\.\.\.allUserHotelIds\.value\]/, 'user modal must support all-select and clear for assigned hotels');
 assert.match(indexHtml, /roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText/, 'role issue permission helpers must be returned to the Vue template');
-assert.match(indexHtml, /lastUserIssueGuideText\.value = nextIssueGuideText/, 'successful beta or normal user saves must expose the latest issuance guide');
+assert.match(indexHtml, /lastUserIssueGuideText\.value = buildUserIssueGuideTextFromProfile\([\s\S]*res\.data\?\.username \|\| data\.username/, 'successful beta or normal user saves must build the latest issuance guide from the server-generated username');
 assert.match(indexHtml, /\['beta_user', 'normal_user'\]\.includes\(issueGuideProfile\.key\)/, 'latest issuance guide must only be generated for beta or normal external roles');
 assert.match(indexHtml, /初始密码请通过单独安全渠道发送/, 'copied issuance guidance must not mix the initial password into the normal message');
 assert.match(indexHtml, /const filterUserStatus = ref\(''\);/, 'user management must expose a status filter');

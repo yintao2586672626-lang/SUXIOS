@@ -19,10 +19,10 @@ test('pilot runner defaults to a non-mutating plan and fixes hotel/date scope', 
   assert.match(runner, /name = 'application_health'; passed = \$healthPassed/);
   assert.match(runner, /name = 'source_binding_match'; passed = \$sourceIdsMatchBinding/);
   assert.match(runner, /run_ready = \$preflightFailures\.Count -eq 0/);
-  assert.match(
-    runner,
-    /\$collectorOutput = & \$resolvedPhpPath \$thinkPath 'online-data:auto-fetch' \"--hotel-id=\$HotelId\" \"--target-date=\$TargetDate\" \"--source-ids=\$normalizedSourceIds\"/,
-  );
+  assert.match(runner, /\[switch\]\$ForceRerun/);
+  assert.match(runner, /\$collectorArguments = @\([\s\S]*?'online-data:auto-fetch'[\s\S]*?\"--hotel-id=\$HotelId\"[\s\S]*?\"--target-date=\$TargetDate\"[\s\S]*?\"--source-ids=\$normalizedSourceIds\"[\s\S]*?\)/);
+  assert.match(runner, /if \(\$ForceRerun\) \{[\s\S]*?\$collectorArguments \+= '--force-rerun'/);
+  assert.match(runner, /\$collectorOutput = & \$resolvedPhpPath \$thinkPath @collectorArguments/);
 });
 
 test('pilot runner exports only verified bundles and blocks credential-shaped fields', () => {
@@ -34,6 +34,9 @@ test('pilot runner exports only verified bundles and blocks credential-shaped fi
   assert.ok(uploadIndex >= 0);
   assert.match(runner, /cloud-data-bridge:run/);
   assert.match(runner, /SUXIOS_AUTO_FETCH_RECEIPT=/);
+  assert.match(runner, /exportable_snapshot_complete/);
+  assert.match(runner, /snapshot_exportable/);
+  assert.match(runner, /collection_status/);
   assert.match(runner, /--sync-task-ids=\$syncTaskIds/);
   assert.match(runner, /cloud-data-bridge-binding\.pilot-h80\.json/);
   assert.match(runner, /suxios\.cloud_ota_bundle\.v1/);
@@ -45,6 +48,7 @@ test('pilot runner exports only verified bundles and blocks credential-shaped fi
   assert.match(runner, /Cloud bundle package receipt validation failed/);
   assert.match(runner, /source_sync_task_id/);
   assert.match(runner, /snapshot_complete/);
+  assert.match(runner, /collection\.status -eq 'success' -and -not \[bool\]\$_\.snapshot_complete/);
   assert.match(runner, /upload_complete = \$true/);
   assert.match(runner, /upload_complete = \$false/);
   assert.match(runner, /collector_exit_code/);
@@ -68,4 +72,5 @@ test('pilot task arguments contain fixed hotel scope but no credential locator',
   assert.match(registration, /credentials_in_arguments = \$false/);
   assert.doesNotMatch(registration, /-IdentityFile/);
   assert.doesNotMatch(registration, /\.pem/);
+  assert.doesNotMatch(registration, /-ForceRerun/);
 });

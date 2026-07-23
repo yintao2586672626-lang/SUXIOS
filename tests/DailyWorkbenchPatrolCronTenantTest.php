@@ -157,6 +157,29 @@ final class DailyWorkbenchPatrolCronTenantTest extends TestCase
         ));
     }
 
+    public function testHotelIdScopesCronSnapshotAndAuditToOneEnabledHotel(): void
+    {
+        $response = $this->invokeCron(self::CRON_TOKEN, ['hotel_id' => 202]);
+        self::assertSame(200, $response->getCode());
+        $payload = $this->payload($response);
+        self::assertSame(1, $payload['data']['snapshot_count']);
+
+        $snapshots = $payload['data']['snapshots'];
+        $this->createdRunIds = [(string)$snapshots[0]['run_id']];
+        self::assertSame(20, (int)$snapshots[0]['tenant_id']);
+        self::assertSame(202, (int)$snapshots[0]['hotel_id']);
+
+        $audits = Db::name('operation_logs')
+            ->where('action', 'daily_workbench_patrol_cron')
+            ->field('tenant_id,hotel_id')
+            ->select()
+            ->toArray();
+        self::assertSame([[20, 202]], array_map(
+            static fn(array $row): array => [(int)$row['tenant_id'], (int)$row['hotel_id']],
+            $audits
+        ));
+    }
+
     public function testInvalidCronTokenKeepsUnauthorizedResponseAndWritesGlobalAudit(): void
     {
         $response = $this->invokeCron('wrong-token');
@@ -190,7 +213,8 @@ final class DailyWorkbenchPatrolCronTenantTest extends TestCase
         self::assertNull($audit['tenant_id']);
     }
 
-    private function invokeCron(string $token): Response
+    /** @param array<string, mixed> $query */
+    private function invokeCron(string $token, array $query = []): Response
     {
         $request = new class extends Request {
             public function isCli(): bool
@@ -199,7 +223,7 @@ final class DailyWorkbenchPatrolCronTenantTest extends TestCase
             }
         };
         $request->withServer(['REMOTE_ADDR' => '127.0.0.1'])
-            ->withGet(['target_date' => self::TARGET_DATE, 'limit' => 30])
+            ->withGet(array_replace(['target_date' => self::TARGET_DATE, 'limit' => 30], $query))
             ->withHeader(['Accept' => 'application/json', 'X-Cron-Token' => $token]);
         self::$app->instance('request', $request);
 

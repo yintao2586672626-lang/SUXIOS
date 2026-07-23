@@ -1,8 +1,8 @@
                     <div v-if="currentPage === 'online-data'" class="online-data-page">
                         <div class="rounded-xl border border-gray-200 bg-gray-50 shadow-sm overflow-hidden">
                             <div class="px-5 py-4 border-b border-gray-200 bg-white">
-                                <h3 class="text-base font-semibold text-gray-900">OTA 渠道数据获取与记录</h3>
-                                <p class="mt-1 text-xs leading-5 text-gray-500">支持携程/美团采集或导入并记录；这里只代表 OTA 渠道，不等同于全酒店经营口径。</p>
+                                <h3 class="text-base font-semibold text-gray-900">携程 / 美团数据</h3>
+                                <p class="mt-1 text-xs leading-5 text-gray-500">仅展示携程、美团渠道数据，不代表酒店全部经营数据。</p>
                             </div>
                             <div class="p-4 sm:p-6">
                                 <!-- Tabs -->
@@ -31,8 +31,7 @@
                                 </ctrip-profile-field-config-panel>
 
                                 <div v-if="onlineDataTab === 'data-health'" data-testid="online-data-health-panel" class="space-y-5">
-                                    <div v-if="hotelDashboardLoading || collectionReliabilityLoading || dailyWorkbenchLoading || coreOperationsLoading || manualOneClickFetchRunning" data-testid="data-health-loading-banner" class="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
-                                        <i class="fas fa-spinner fa-spin mt-0.5 text-blue-500"></i>
+                                    <div v-if="hotelDashboardLoading || collectionReliabilityLoading || dailyWorkbenchLoading || coreOperationsLoading || manualOneClickFetchRunning" data-testid="data-health-loading-banner" class="rounded-xl bg-blue-50 p-3 text-sm">
                                         <span>{{ manualOneClickFetchRunning ? '正在执行手动一键获取；执行结果会在下方逐项更新。' : '正在刷新；接口返回前保留上次状态。' }}</span>
                                     </div>
                                     <div v-if="hotelDashboardError || collectionReliabilityError || dailyWorkbenchError" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -45,13 +44,12 @@
                                             <div class="relative flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                                                 <div class="max-w-2xl">
                                                     <div class="flex flex-wrap items-center gap-2">
-                                                        <span class="rounded-full border border-blue-400/30 bg-blue-400/10 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-blue-200">最高优先级</span>
-                                                        <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">OTA 渠道经营闭环</span>
+                                                        <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">携程 / 美团</span>
                                                     </div>
-                                                    <h4 class="mt-3 text-xl font-bold tracking-tight sm:text-2xl">昨日经营闭环工作台</h4>
-                                                    <p class="mt-2 text-sm leading-6 text-slate-300">从携程/美团昨日证据开始，在本页完成竞品对比、异常判断、AI辅助建议、转运营任务和次日复盘。</p>
+                                                    <h4 class="mt-3 text-xl font-bold tracking-tight sm:text-2xl">昨日经营闭环</h4>
+                                                    <p class="mt-2 text-sm leading-6 text-slate-300">查看昨日数据、异常、建议和执行结果。</p>
                                                 </div>
-                                                <div class="grid w-full gap-2 sm:grid-cols-[minmax(0,1fr)_160px_auto] xl:w-auto xl:min-w-[620px]">
+                                                <div v-if="coreOperationsHasAccessibleHotel" class="grid w-full gap-2 sm:grid-cols-[minmax(0,1fr)_160px_auto] xl:w-auto xl:min-w-[620px]">
                                                     <label class="block">
                                                         <span class="mb-1 block text-[11px] font-medium text-slate-400">目标门店</span>
                                                         <select v-model="coreOperationsHotelId" @change="refreshCoreOperationsLoop({ resetScope: true })" class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400">
@@ -68,7 +66,7 @@
                                                     </button>
                                                 </div>
                                             </div>
-                                            <div class="relative mt-5 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+                                            <div v-if="coreOperationsHasAccessibleHotel" class="relative mt-5 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
                                                 <div v-for="step in coreOperationsStepRows" :key="step.key" class="rounded-xl border border-white/10 bg-white/[0.06] p-3 backdrop-blur-sm">
                                                     <div class="flex items-start justify-between gap-2">
                                                         <span class="font-mono text-[11px] text-slate-500">{{ step.number }}</span>
@@ -80,22 +78,37 @@
                                             </div>
                                         </header>
 
-                                        <div data-testid="phase2-daily-workbench" class="space-y-5 p-4 sm:p-6">
+                                        <div v-if="coreOperationsHotelScopeLoading" data-testid="core-operations-hotel-scope-loading" class="p-6">正在确认门店范围…</div>
+
+                                        <div v-else-if="coreOperationsHotelScopeLoadFailed" data-testid="core-operations-hotel-scope-error" class="bg-red-50 p-6" role="alert">
+                                            门店列表加载失败，无法确认门店范围，暂不读取平台数据。
+                                            <button data-testid="core-operations-hotel-scope-retry" @click="retryCoreOperationsHotelScope" class="ml-3 bg-red-700 px-4 py-2 text-white">重试</button>
+                                        </div>
+
+                                        <div v-else-if="coreOperationsHasVerifiedNoHotel" data-testid="core-operations-no-hotel-onboarding" class="bg-amber-50 p-6">
+                                            <b>携程、美团数据已开放</b>
+                                            <p>新增或绑定门店后，即可读取已授权数据。</p>
+                                            <p><b>携程：</b>收益、流量和竞品；<b>美团：</b>收益、曝光和竞品。</p>
+                                            <p>不使用模拟值，不读取其他门店数据。</p>
+                                            <button @click="openCoreOperationsHotelOnboarding" class="bg-slate-950 px-5 py-3 text-white">{{ canManageOwnHotels() ? '新增门店并绑定平台' : '前往门店管理' }}</button>
+                                        </div>
+
+                                        <div v-else-if="coreOperationsHasAccessibleHotel" data-testid="phase2-daily-workbench" class="space-y-5 p-4 sm:p-6">
                                             <div v-if="coreOperationsError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ coreOperationsError }}</div>
 
                                             <section data-testid="core-loop-yesterday-data" class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
                                                  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                                                     <div>
-                                                        <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">01 · Yesterday evidence</div>
+                                                        <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">01 · 昨日数据</div>
                                                         <h5 class="mt-1 text-base font-bold text-slate-900">携程 / 美团昨日数据</h5>
-                                                        <p class="mt-1 text-xs leading-5 text-slate-500">读取目标日已入库 OTA 数据；缺失、未验证或读取失败不会按 0 展示。</p>
+                                                        <p class="mt-1 text-xs leading-5 text-slate-500">读取目标日已入库数据；缺失或读取失败不按 0 展示。</p>
                                                     </div>
                                                     <div class="flex flex-col items-stretch gap-1.5 sm:items-end">
-                                                        <span class="text-xs text-slate-500">{{ coreOperationsTargetDate }} · 门店 #{{ coreOperationsHotelId || '-' }}</span>
+                                                        <span class="text-xs text-slate-500">{{ coreOperationsTargetDate }} · 门店编号 {{ coreOperationsHotelId || '-' }}</span>
                                                         <button v-if="coreOperationsCanCollect" data-testid="core-loop-yesterday-fetch" type="button" @click="runCoreOperationsYesterdayFetch()" :disabled="coreOperationsSourceFetchRunning || fetchingData || !coreOperationsHotelId || coreOperationsTargetDate !== coreOperationsMaxDate || coreOperationsProfileSessionBlockedRows.length > 0" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50">
                                                             <i :class="coreOperationsSourceFetchRunning || fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-cloud-download-alt mr-2'"></i>{{ coreOperationsSourceFetchActionText }}
                                                         </button>
-                                                        <span v-else class="text-[11px] text-amber-700">当前账号无 OTA 采集权限；仍可只读查看闭环。</span>
+                                                        <span v-else class="text-[11px] text-amber-700">当前账号无平台采集权限；仍可只读查看。</span>
                                                         <span class="text-[10px] text-slate-400">{{ coreOperationsSourceFetchModeText }}</span>
                                                     </div>
                                                 </div>
@@ -143,9 +156,9 @@
                                             <section data-testid="core-loop-competitor-comparison" class="rounded-xl border border-slate-200 bg-white p-4">
                                                 <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                                                     <div>
-                                                        <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">02 · Comparable set</div>
+                                                        <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">02 · 竞品对比</div>
                                                         <h5 class="mt-1 text-base font-bold text-slate-900">本店与竞品圈同口径对比</h5>
-                                                        <p class="mt-1 text-xs leading-5 text-slate-500">携程使用竞争圈平均；美团只使用榜单明确可展示的本店与竞品字段。证据日期不等于目标日时标记为日期不匹配。</p>
+                                                        <p class="mt-1 text-xs leading-5 text-slate-500">仅比较同日期、同口径数据；日期不一致会明确提示。</p>
                                                      </div>
                                                  </div>
                                                 <div v-if="ctripCompetitiveOperationsLoading || competitorSummaryLoading" class="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
@@ -189,9 +202,9 @@
 
                                             <div class="grid gap-5 xl:grid-cols-2">
                                                 <section data-testid="core-loop-anomaly-judgment" class="rounded-xl border border-slate-200 bg-white p-4">
-                                                    <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">03 · Explainable signals</div>
+                                                    <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">03 · 异常信号</div>
                                                     <h5 class="mt-1 text-base font-bold text-slate-900">异常判断</h5>
-                                                    <p class="mt-1 text-xs leading-5 text-slate-500">异常是排查信号，不自动证明原因；缺参照系时只保留证据缺口。</p>
+                                                    <p class="mt-1 text-xs leading-5 text-slate-500">异常仅表示排查信号，不等于已确认原因。</p>
                                                     <div v-if="coreOperationsAnomalyRows.length" class="mt-4 space-y-3">
                                                         <article v-for="item in coreOperationsAnomalyRows" :key="item.key" :class="['rounded-xl border p-3', coreOperationsEvidenceStatusClass(item.status)]">
                                                             <div class="flex items-start justify-between gap-3">
@@ -211,9 +224,9 @@
                                                 <section data-testid="core-loop-ai-actions" class="rounded-xl border border-slate-200 bg-white p-4">
                                                     <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                                                         <div>
-                                                            <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">04 · AI assistance</div>
-                                                            <h5 class="mt-1 text-base font-bold text-slate-900">AI行动建议</h5>
-                                                            <p class="mt-1 text-xs leading-5 text-slate-500">刷新仅回读已保存诊断；点击生成才会写入新诊断。证据不足时只建议补证。</p>
+                                                            <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">04 · 智能建议</div>
+                                                            <h5 class="mt-1 text-base font-bold text-slate-900">经营建议</h5>
+                                                            <p class="mt-1 text-xs leading-5 text-slate-500">刷新只查看已保存结果；点击生成才会写入新结果。证据不足时只提示补充数据。</p>
                                                         </div>
                                                         <button v-if="coreOperationsCanGenerateDiagnosis" data-testid="core-loop-generate-diagnosis" type="button" @click="generateCoreOperationsDiagnoses()" :disabled="coreOperationsDiagnosisGenerating || coreOperationsLoading || !coreOperationsHotelId" class="inline-flex shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50">
                                                             <i :class="coreOperationsDiagnosisGenerating ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-magic mr-2'"></i>{{ coreOperationsDiagnosisGenerating ? '生成中' : '生成/更新双平台诊断' }}
@@ -234,16 +247,16 @@
                                                          </button>
                                                          <div v-else-if="item.ready" class="mt-3 text-[11px] text-amber-700">当前账号只有运营查看权限，不能转任务。</div>
                                                      </article>
-                                                    <div v-if="!coreOperationsAiSuggestions.length" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-5 text-center text-xs text-slate-500">AI辅助建议尚未返回；不会用默认话术替代。</div>
+                                                    <div v-if="!coreOperationsAiSuggestions.length" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-5 text-center text-xs text-slate-500">智能建议尚未返回；不会用默认话术替代。</div>
                                                 </section>
                                             </div>
 
                                             <section data-testid="core-loop-operation-tasks" class="rounded-xl border border-slate-200 bg-white p-4">
                                                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                                     <div>
-                                                        <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">05 · Action handoff</div>
-                                                         <h5 class="mt-1 text-base font-bold text-slate-900">运营任务与巡检补证</h5>
-                                                         <p class="mt-1 text-xs leading-5 text-slate-500">真实诊断建议从上方直接转任务；本区行动清单只负责证据缺口巡检与补办，不冒充 AI 经营建议，也不会自动改价、改库存或写 OTA。</p>
+                                                        <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">05 · 运营任务</div>
+                                                         <h5 class="mt-1 text-base font-bold text-slate-900">运营任务与补充数据</h5>
+                                                         <p class="mt-1 text-xs leading-5 text-slate-500">把建议转为任务；补充清单只用于补数据，不会自动改价、改库存或写入平台。</p>
                                                     </div>
                                                     <button v-if="!dailyWorkbenchPatrolLatest &amp;&amp; coreOperationsCanExecute" type="button" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60">
                                                         <i :class="dailyWorkbenchPatrolRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-list-check mr-2'"></i>{{ dailyWorkbenchPatrolRunning ? '生成中' : '生成行动清单' }}
@@ -257,7 +270,7 @@
                                                                 <div class="flex flex-wrap items-center gap-2">
                                                                     <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-600">{{ action.platform || '双平台' }}</span>
                                                                     <span :class="['text-xs font-semibold', action.trackedStatusClass]">{{ action.trackedStatusText }}</span>
-                                                                    <span class="text-[10px] text-slate-400">{{ action.priority || 'medium' }}</span>
+                                                                    <span class="text-[10px] text-slate-400">{{ dataHealthPriorityText(action.priority || 'medium') }}</span>
                                                                 </div>
                                                                 <div class="mt-2 text-sm font-semibold leading-6 text-slate-900">{{ action.actionText }}</div>
                                                                 <div v-if="action.executionText" class="mt-1 text-xs text-blue-700">{{ action.executionText }}</div>
@@ -276,9 +289,9 @@
                                             <section data-testid="core-loop-next-day-review" class="rounded-xl border border-slate-200 bg-white p-4">
                                                 <div data-testid="phase3-operation-effect-loop" class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                                                     <div>
-                                                        <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">06 · Execute and review</div>
+                                                        <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">06 · 执行复盘</div>
                                                         <h5 class="mt-1 text-base font-bold text-slate-900">执行留证与次日复盘</h5>
-                                                        <p class="mt-1 text-xs leading-5 text-slate-500">审批后由员工人工执行并留证；次日按同酒店、同平台、同口径复盘，继续观察也会如实保存。</p>
+                                                        <p class="mt-1 text-xs leading-5 text-slate-500">人工执行并留证，次日按相同口径复盘。</p>
                                                     </div>
                                                     <span class="text-xs text-slate-500">{{ phase3OperationEffectLoopBoundaryText }}</span>
                                                 </div>
@@ -318,12 +331,13 @@
                                                             </tr>
                                                         </tbody>
                                                     </table>
-                                                     <div v-if="!coreOperationsExecutionItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-xs text-slate-500">尚无该门店的 OTA 执行任务；可从 AI 建议直接转任务，或先生成巡检补证清单。</div>
+                                                     <div v-if="!coreOperationsExecutionItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-xs text-slate-500">尚无该门店的执行任务；可从智能建议直接转任务，或先生成补充数据清单。</div>
                                                     <div v-if="operationLoading.actions" class="p-6 text-center text-xs text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i>正在读取执行闭环...</div>
                                                 </div>
                                             </section>
                                         </div>
                                     </section>
+                                    <template v-if="coreOperationsHasAccessibleHotel">
                                     <div data-testid="ota-direct-view-overview" class="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                             <div>
@@ -1560,6 +1574,7 @@
                                             </div>
                                         </div>
                                         </div>
+                                    </template>
                                 </div>
 
                                 <!-- 数据分析 -->
@@ -2351,9 +2366,18 @@
                                                         <i class="fas fa-sync-alt mr-1"></i>刷新
                                                     </button>
                                                 </div>
-                                                <div v-if="platformDataSourceLoading" class="p-6 text-center text-gray-500">加载中...</div>
-                                                <div v-else-if="!platformDataSources.length" class="p-6 text-center text-gray-500">未配置数据源，请先保存合法 API、授权信息或导入来源。</div>
-                                                <div v-else="" class="overflow-x-auto">
+                                                <div v-if="platformDataSourceLoading &amp;&amp; !platformDataSourceSnapshotReady" data-testid="platform-data-source-loading" class="p-6 text-center text-gray-500">加载中...</div>
+                                                <template v-else="">
+                                                <div v-if="platformDataSourceLoading &amp;&amp; platformDataSourceSnapshotReady" data-testid="platform-data-source-stale-loading" class="m-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                                                    正在刷新，当前显示上次成功读取的数据。
+                                                </div>
+                                                <div v-if="platformDataSourceLoadFailed" data-testid="platform-data-source-load-error" :class="['m-4 rounded-lg border px-4 py-3 text-sm', platformDataSourceSnapshotReady ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-700']">
+                                                    {{ platformDataSourceSnapshotReady ? '刷新失败，当前显示上次成功结果；不代表当前真实状态。' : '加载失败，不代表未配置数据源。' }}
+                                                    <span v-if="platformDataSourceLoadError">{{ platformDataSourceLoadError }}</span>
+                                                    <button type="button" @click="schedulePlatformDataSourcePanelLoad({ force: true })" :disabled="platformDataSourceLoading" class="ml-2 underline">{{ platformDataSourceLoading ? '重试中...' : '重试' }}</button>
+                                                </div>
+                                                <div v-if="platformDataSourceSnapshotReady &amp;&amp; !platformDataSourceLoading &amp;&amp; !platformDataSourceLoadFailed &amp;&amp; !platformDataSources.length" data-testid="platform-data-source-verified-empty" class="p-6 text-center text-gray-500">未配置数据源，请先保存合法 API、授权信息或导入来源。</div>
+                                                <div v-else-if="platformDataSourceSnapshotReady &amp;&amp; platformDataSources.length" class="overflow-x-auto">
                                                     <table class="min-w-full text-sm">
                                                         <thead class="bg-gray-50 text-gray-600">
                                                             <tr>
@@ -2386,6 +2410,8 @@
                                                         </tbody>
                                                     </table>
                                                 </div>
+                                                <div v-else-if="!platformDataSourceLoading &amp;&amp; !platformDataSourceLoadFailed &amp;&amp; !platformDataSourceSnapshotReady" data-testid="platform-data-source-unverified" class="p-6 text-center text-gray-500">尚未验证数据源列表，请刷新后查看。</div>
+                                                </template>
                                             </div>
 
                                             <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">

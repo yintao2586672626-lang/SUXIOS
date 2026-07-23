@@ -3209,8 +3209,8 @@ test('Hotel management saves force-refresh the current management context', () =
   assert.match(refreshHotelBindingPanel, /loadHotelManagementSnapshot\(\{[\s\S]*force: true,[\s\S]*deep: true,[\s\S]*showSuccess: true/);
   assert.match(loadHotelManagementSnapshot, /loadHotels\(\{ force, includeInactive: true \}\)/);
   assert.match(loadHotelManagementSnapshot, /ensureHotelOtaConfigLists\(\{[\s\S]*force,[\s\S]*includeHotels: false,[\s\S]*includeDataSources: true/);
-  assert.match(loadHotelManagementSnapshot, /if \(deep\) \{[\s\S]*loadPlatformSyncTasks\(\{ force: true \}\)[\s\S]*loadPlatformSyncLogs\(\{ force: true \}\)[\s\S]*loadCompetitorSummary\(\{ includeByHotel: true, force: true \}\)/);
-  assert.match(loadHotelManagementSnapshot, /hotelManagementFailureLabels\(deep\)/);
+  assert.match(loadHotelManagementSnapshot, /if \(deep && coreOperationsHasAccessibleHotel\.value\) \{[\s\S]*loadPlatformSyncTasks\(\{ force: true \}\)[\s\S]*loadPlatformSyncLogs\(\{ force: true \}\)[\s\S]*loadCompetitorSummary\(\{ includeByHotel: true, force: true \}\)/);
+  assert.match(loadHotelManagementSnapshot, /hotelManagementFailureLabels\(deep, coreOperationsHasAccessibleHotel\.value\)/);
   assert.match(ensureHotelOtaConfigLists, /const force = options\.force === true;/);
   assert.match(ensureHotelOtaConfigLists, /const includeHotels = options\.includeHotels !== false;/);
   assert.match(ensureHotelOtaConfigLists, /const includeDataSources = options\.includeDataSources !== false;/);

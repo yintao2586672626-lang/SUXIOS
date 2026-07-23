@@ -28,6 +28,7 @@ const competitorDeviceComponentPath = path.join(repoRoot, 'public/components/adm
 const dataConfigDialogsTemplatePath = path.join(repoRoot, 'resources/frontend/templates/components/data-config-dialogs.html');
 const dataConfigDialogsComponentPath = path.join(repoRoot, 'public/components/system/data-config-dialogs.js');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
+const otaBrowserAssistStaticPath = path.join(repoRoot, 'public/ota-browser-assist-static.js');
 const revenueAiStaticPath = path.join(repoRoot, 'public/revenue-ai-static.js');
 const operationStaticPath = path.join(repoRoot, 'public/operation-static.js');
 const stylePath = path.join(repoRoot, 'public/style.css');
@@ -127,6 +128,9 @@ if (!fs.existsSync(indexPath)) {
     .replaceAll('&quot;', '"');
   let content = `${htmlContent}\n${appTemplateSemanticContent}\n${appMainContent}`;
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
+  const otaBrowserAssistStaticContent = fs.existsSync(otaBrowserAssistStaticPath)
+    ? fs.readFileSync(otaBrowserAssistStaticPath)
+    : Buffer.alloc(0);
   const revenueAiStaticContent = fs.existsSync(revenueAiStaticPath) ? fs.readFileSync(revenueAiStaticPath, 'utf8') : '';
   const revenueAiStaticHash = crypto.createHash('sha256').update(revenueAiStaticContent).digest('hex').slice(0, 10);
   const revenueAiServicePath = path.join(repoRoot, 'app/service/RevenueAiOverviewService.php');
@@ -229,6 +233,14 @@ if (!fs.existsSync(indexPath)) {
   const systemStaticReference = runtimeAssetReference('system-static.js');
   if (!systemStaticReference.includes(`h${systemStaticHash}`)) {
     failures.push('public/index.html must use the current public/system-static.js content hash in its immutable cache version.');
+  }
+  const otaBrowserAssistStaticHash = otaBrowserAssistStaticContent.length > 0
+    ? crypto.createHash('sha256').update(otaBrowserAssistStaticContent).digest('hex').slice(0, 10)
+    : '';
+  const otaBrowserAssistStaticReference = runtimeAssetReference('ota-browser-assist-static.js');
+  if (!otaBrowserAssistStaticHash
+    || !otaBrowserAssistStaticReference.includes(`h${otaBrowserAssistStaticHash}`)) {
+    failures.push('public/index.html must use the current public/ota-browser-assist-static.js content hash in its immutable cache version.');
   }
   const loginSubmitBindingOffset = appBootstrapContent.indexOf("form.addEventListener('submit'");
   const loginReadyOffset = appBootstrapContent.indexOf("form.dataset.suxiLoginReady = '1';");

@@ -289,6 +289,10 @@ class SystemNotificationController extends Base
             return;
         }
 
+        $query->whereRaw(
+            "COALESCE(" . $this->qualifiedNotificationField('source_key', $tablePrefix)
+            . ", '') NOT LIKE 'security:protected_access_denied:%'"
+        );
         if ($this->currentUser->isSuperAdmin()) {
             return;
         }
@@ -310,11 +314,14 @@ class SystemNotificationController extends Base
             $hotelClause = $this->qualifiedNotificationField('hotel_id', $tablePrefix) . ' IN (' . implode(',', $permittedHotelIds) . ') OR ';
         }
 
+        $personalClause = $this->qualifiedNotificationField('user_id', $tablePrefix) . ' = ' . $userId;
+        if (SystemNotification::recipientTargetingReady()) {
+            $personalClause .= ' OR ' . $this->qualifiedNotificationField('recipient_user_id', $tablePrefix) . ' = ' . $userId;
+        }
         $query->whereRaw(
             '(' . $hotelClause
             . '(' . $this->qualifiedNotificationField('hotel_id', $tablePrefix) . ' IS NULL AND ('
-            . $this->qualifiedNotificationField('user_id', $tablePrefix) . ' = ' . $userId
-            . ' OR ' . $this->qualifiedNotificationField('user_id', $tablePrefix) . ' IS NULL)))'
+            . $personalClause . ')))'
         );
     }
 
@@ -642,6 +649,7 @@ class SystemNotificationController extends Base
             'cookie_alert' => 'Cookie 告警',
             'data_quality' => '数据健康',
             'risk_action' => '风险动作',
+            'security' => '账号安全',
         ][$category] ?? '系统通知';
     }
 
@@ -652,6 +660,7 @@ class SystemNotificationController extends Base
             'capture_failed' => '查看原因',
             'ota_auth_required' => '立即重新登录',
             'cookie_alert' => '更新授权',
+            'security' => '查看说明',
         ][$category] ?? '查看处理';
     }
 }

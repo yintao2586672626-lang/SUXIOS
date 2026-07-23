@@ -373,6 +373,43 @@ final class OtaFailureNotificationServiceTest extends TestCase
         self::assertNull($otherNotification->recipient_user_id);
     }
 
+    public function testTechnicalAccessDenialsAndGlobalUnscopedRowsStayOutOfUserNotificationCenter(): void
+    {
+        $this->seedHotelAndUsers();
+        SystemNotification::recordEvent([
+            'user_id' => 101,
+            'recipient_user_id' => 101,
+            'platform' => 'system',
+            'category' => 'security',
+            'title' => 'SUXIOS security guard',
+            'message' => 'protected_access_denied reference=internal',
+            'source_module' => 'security',
+            'source_key' => 'security:protected_access_denied:unit-test',
+        ]);
+        SystemNotification::recordEvent([
+            'platform' => 'system',
+            'category' => 'general',
+            'title' => 'Unscoped global row',
+            'source_module' => 'system',
+            'source_key' => 'unit_test_unscoped_global',
+        ]);
+        $directNotification = SystemNotification::recordEvent([
+            'user_id' => 101,
+            'recipient_user_id' => 101,
+            'platform' => 'system',
+            'category' => 'security',
+            'title' => '请求过于频繁',
+            'source_module' => 'security',
+            'source_key' => 'security:rate_limited:unit-test',
+        ]);
+
+        self::assertSame(
+            [(int)$directNotification->id],
+            $this->visibleNotificationIdsFor(101, [])
+        );
+        self::assertSame([], $this->visibleNotificationIdsFor(303, []));
+    }
+
     public function testSerializedStrongReminderIsFlaggedOnlyForDirectRecipient(): void
     {
         $this->seedHotelAndUsers();

@@ -26,23 +26,6 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
         return normalizedIndex + (isSuperAdmin ? 0 : 1);
     };
 
-    const nextVipUsername = (users = []) => {
-        let maxNumber = 0;
-        let numberWidth = 3;
-        (Array.isArray(users) ? users : []).forEach(item => {
-            const username = String(item?.username || item || '').trim();
-            const match = username.match(/^VIP(\d+)$/i);
-            if (!match) return;
-            const number = Number.parseInt(match[1], 10);
-            if (!Number.isFinite(number)) return;
-            maxNumber = Math.max(maxNumber, number);
-            numberWidth = Math.max(numberWidth, match[1].length);
-        });
-        const nextNumber = maxNumber + 1;
-        numberWidth = Math.max(numberWidth, String(nextNumber).length);
-        return `VIP${String(nextNumber).padStart(numberWidth, '0')}`;
-    };
-
     const defaultIssuedPassword = () => {
         if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
             throw new Error('当前环境无法安全生成临时密码');
@@ -393,7 +376,6 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
     return {
         summarizeUserHotelScope,
         resolveUserDisplaySequence,
-        nextVipUsername,
         defaultIssuedPassword,
         rolePermissionList,
         roleHasAnyPermission,

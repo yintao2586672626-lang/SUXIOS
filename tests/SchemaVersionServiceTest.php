@@ -151,6 +151,40 @@ final class SchemaVersionServiceTest extends TestCase
         )->fetchColumn());
     }
 
+    public function testFailedMigrationRollsBackOpenTransactionBeforeRecordingFailure(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        file_put_contents(
+            $this->root . '/database/migrations/20260703_transactional_failure.sql',
+            "BEGIN TRANSACTION;\n"
+            . "CREATE TABLE rollback_probe (id INTEGER PRIMARY KEY);\n"
+            . "INSERT INTO rollback_probe (id) VALUES (1);\n"
+            . "THIS IS NOT VALID SQL;\n"
+        );
+
+        try {
+            $this->service->migrate();
+            self::fail('Transactional migration failure must be surfaced.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('20260703_transactional_failure.sql', $exception->getMessage());
+        }
+
+        self::assertFalse($this->pdo->inTransaction());
+        self::assertSame(
+            0,
+            (int)$this->pdo->query(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'rollback_probe'"
+            )->fetchColumn()
+        );
+        self::assertSame(
+            1,
+            (int)$this->pdo->query(
+                "SELECT COUNT(*) FROM schema_migration_failures "
+                . "WHERE migration = '20260703_transactional_failure.sql' AND resolved_at IS NULL"
+            )->fetchColumn()
+        );
+    }
+
     public function testRegisteredMigrationFailureResolutionIsRetriedAfterCleanupFailure(): void
     {
         $this->service->initializeFreshFromInitFull();

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace tests;
 
+use app\command\AutoFetchOnlineData;
 use app\service\ScheduledAutoFetchPolicy;
 use PHPUnit\Framework\TestCase;
 
@@ -115,6 +116,44 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertSame([], $failedPlatformRetry['failed_platforms']);
     }
 
+    public function testCliReceiptKeepsExportablePartialRunsOutOfExecutedState(): void
+    {
+        $partialResult = [
+            'success' => true,
+            'saved_count' => 2,
+            'platform_results' => [
+                $this->verifiedPlatformResult('ctrip', 25, 1001, true),
+                $this->verifiedPlatformResult('meituan', 68, 1002, false),
+            ],
+        ];
+        $partialOutcome = $this->policy->classifyOutcome($partialResult);
+        $partialReceipt = $this->buildMachineReceipt($partialOutcome, $partialResult);
+
+        self::assertFalse($partialOutcome['complete']);
+        self::assertSame('partial_success', $partialOutcome['status']);
+        self::assertTrue($partialReceipt['exportable_snapshot_complete']);
+        self::assertFalse($partialReceipt['collection_complete']);
+        self::assertSame(['success', 'partial'], array_column($partialReceipt['source_tasks'], 'collection_status'));
+
+        $completeResult = $partialResult;
+        $completeResult['platform_results'][1]['success'] = true;
+        $completeOutcome = $this->policy->classifyOutcome($completeResult);
+        $completeReceipt = $this->buildMachineReceipt($completeOutcome, $completeResult);
+
+        self::assertTrue($completeOutcome['complete']);
+        self::assertTrue($completeReceipt['exportable_snapshot_complete']);
+        self::assertTrue($completeReceipt['collection_complete']);
+
+        $unverifiedResult = $completeResult;
+        $unverifiedResult['platform_results'][1]['run_readback']['readback_verified'] = false;
+        $unverifiedOutcome = $this->policy->classifyOutcome($unverifiedResult);
+        $unverifiedReceipt = $this->buildMachineReceipt($unverifiedOutcome, $unverifiedResult);
+
+        self::assertTrue($unverifiedOutcome['complete']);
+        self::assertFalse($unverifiedReceipt['exportable_snapshot_complete']);
+        self::assertFalse($unverifiedReceipt['collection_complete']);
+    }
+
     public function testRetryStateUsesBoundedBackoffAndFailsClosedWhenExhausted(): void
     {
         $now = $this->time('2026-07-16 10:00:00');
@@ -187,7 +226,7 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertStringContainsString('ScheduledAutoFetchPolicy', $controller);
         self::assertSame(1, substr_count($command, "Cache::set(\$run['executed_key']"));
         self::assertSame(1, substr_count($controller, "cache(\$run['executed_key'], true"));
-        self::assertStringContainsString("if (\$outcome['complete'])", $command);
+        self::assertStringContainsString("if (\$outcome['complete'] && !empty(\$receipt['collection_complete']))", $command);
         self::assertStringContainsString("if (\$outcome['complete'])", $controller);
         self::assertStringContainsString('return $hasIncompleteDueRun ? 1 : 0;', $command);
         self::assertStringContainsString('$responseCode = $hasIncompleteDueRun ? 503 : 200;', $controller);
@@ -203,6 +242,38 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertStringContainsString("'platform_results' => \$platformResults", $command);
         self::assertStringContainsString("!isset(\$failedPlatforms[\$platform])", $command);
         self::assertStringContainsString("return \$savedCount > 0 ? 'partial_success' : 'failed';", $controller);
+    }
+
+    /** @return array<string, mixed> */
+    private function verifiedPlatformResult(string $platform, int $sourceId, int $syncTaskId, bool $success): array
+    {
+        return [
+            'platform' => $platform,
+            'success' => $success,
+            'saved_count' => 1,
+            'run_readback' => [
+                'readback_verified' => true,
+                'data_source_id' => $sourceId,
+                'sync_task_id' => $syncTaskId,
+                'system_hotel_id' => 58,
+                'target_date' => '2026-07-16',
+                'platform' => $platform,
+                'row_ids' => [$syncTaskId + 1000],
+            ],
+        ];
+    }
+
+    /** @param array<string, mixed> $outcome @param array<string, mixed> $result */
+    private function buildMachineReceipt(array $outcome, array $result): array
+    {
+        $reflection = new \ReflectionClass(AutoFetchOnlineData::class);
+        $command = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('buildMachineReceipt');
+        $method->setAccessible(true);
+
+        /** @var array<string, mixed> $receipt */
+        $receipt = $method->invoke($command, 58, '2026-07-16', [25, 68], $outcome, $result);
+        return $receipt;
     }
 
     private function time(string $value): \DateTimeImmutable

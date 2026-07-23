@@ -26,9 +26,9 @@ final class CloudAutomationService
     }
 
     /** @return resource|null */
-    public function acquireLock()
+    public function acquireLock(int $waitSeconds = 0)
     {
-        return $this->stateStore->acquireLock();
+        return $this->stateStore->acquireLock($waitSeconds);
     }
 
     /** @param resource|null $handle */
@@ -45,6 +45,10 @@ final class CloudAutomationService
     {
         date_default_timezone_set('Asia/Shanghai');
         $mode = strtolower(trim($mode));
+        $requestedHotelId = $this->requestedHotelId($options);
+        if ($mode === 'retry' && $requestedHotelId !== null) {
+            throw new \InvalidArgumentException('hotel_id is not supported for retry mode.');
+        }
         return match ($mode) {
             'daily' => $this->runDaily($targetDate, $options),
             'health' => $this->runHealth($targetDate, $options),
@@ -131,8 +135,9 @@ final class CloudAutomationService
         $useLlm = !empty($options['use_llm']);
         $limit = max(1, min(100, (int)($options['limit'] ?? 30)));
         $maxAttempts = max(1, min(50, (int)($options['max_attempts'] ?? 10)));
-        $patrol = $this->triggerPatrol($targetDate, $limit);
-        $hotels = $this->healthService->enabledHotels($limit);
+        $requestedHotelId = $this->requestedHotelId($options);
+        $patrol = $this->triggerPatrol($targetDate, $limit, $requestedHotelId);
+        $hotels = $this->healthService->enabledHotels($limit, $requestedHotelId);
 
         $hotelResults = [];
         $generated = 0;
@@ -266,6 +271,7 @@ final class CloudAutomationService
         $summary = [
             'push_enabled' => $push,
             'use_llm' => $useLlm,
+            'requested_hotel_id' => $requestedHotelId,
             'patrol' => $patrol,
             'hotel_count' => count($hotels),
             'reports_generated' => $generated,
@@ -293,8 +299,9 @@ final class CloudAutomationService
         $push = !empty($options['push']);
         $limit = max(1, min(100, (int)($options['limit'] ?? 30)));
         $maxAttempts = max(1, min(50, (int)($options['max_attempts'] ?? 10)));
-        $patrol = $this->triggerPatrol($targetDate, $limit);
-        $hotels = $this->healthService->enabledHotels($limit);
+        $requestedHotelId = $this->requestedHotelId($options);
+        $patrol = $this->triggerPatrol($targetDate, $limit, $requestedHotelId);
+        $hotels = $this->healthService->enabledHotels($limit, $requestedHotelId);
         $results = [];
         $problemHotels = 0;
         $deliveryProblems = 0;
@@ -339,6 +346,7 @@ final class CloudAutomationService
             : ($deliveryProblems > 0 || ($patrol['success'] ?? false) !== true ? 'partial' : 'succeeded');
         $summary = [
             'push_enabled' => $push,
+            'requested_hotel_id' => $requestedHotelId,
             'patrol' => $patrol,
             'hotel_count' => count($hotels),
             'problem_hotel_count' => $problemHotels,
@@ -366,7 +374,8 @@ final class CloudAutomationService
         $limit = max(1, min(100, (int)($options['limit'] ?? 30)));
         $maxAttempts = max(1, min(50, (int)($options['max_attempts'] ?? 10)));
         $startDate = (new \DateTimeImmutable($targetDate))->modify('-6 days')->format('Y-m-d');
-        $hotels = $this->healthService->enabledHotels($limit);
+        $requestedHotelId = $this->requestedHotelId($options);
+        $hotels = $this->healthService->enabledHotels($limit, $requestedHotelId);
         $results = [];
         $deliveryProblems = 0;
         foreach ($hotels as $hotel) {
@@ -411,6 +420,7 @@ final class CloudAutomationService
         $status = count($hotels) === 0 ? 'blocked' : ($deliveryProblems > 0 ? 'partial' : 'succeeded');
         $summary = [
             'push_enabled' => $push,
+            'requested_hotel_id' => $requestedHotelId,
             'week_start' => $startDate,
             'week_end' => $targetDate,
             'hotel_count' => count($hotels),
@@ -601,7 +611,7 @@ final class CloudAutomationService
     }
 
     /** @return array<string, mixed> */
-    private function triggerPatrol(string $targetDate, int $limit): array
+    private function triggerPatrol(string $targetDate, int $limit, ?int $hotelId = null): array
     {
         $token = trim($this->environmentValue('CRON_TOKEN', ''));
         if ($token === '') {
@@ -614,10 +624,14 @@ final class CloudAutomationService
         if ($baseUrl === '') {
             $baseUrl = 'https://127.0.0.1';
         }
-        $url = $baseUrl . '/api/online-data/daily-workbench-patrol-cron?' . http_build_query([
+        $query = [
             'target_date' => $targetDate,
             'limit' => max(1, min(30, $limit)),
-        ]);
+        ];
+        if ($hotelId !== null) {
+            $query['hotel_id'] = $hotelId;
+        }
+        $url = $baseUrl . '/api/online-data/daily-workbench-patrol-cron?' . http_build_query($query);
         $parts = parse_url($url);
         $loopback = is_array($parts) && in_array(strtolower((string)($parts['host'] ?? '')), ['127.0.0.1', 'localhost', '::1'], true);
         $https = is_array($parts) && strtolower((string)($parts['scheme'] ?? '')) === 'https';
@@ -858,6 +872,19 @@ final class CloudAutomationService
         if (!$date instanceof \DateTimeImmutable || $date->format('Y-m-d') !== trim($value)) {
             throw new \InvalidArgumentException('target-date must use YYYY-MM-DD.');
         }
+    }
+
+    /** @param array<string, mixed> $options */
+    private function requestedHotelId(array $options): ?int
+    {
+        $raw = $options['hotel_id'] ?? null;
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        if ((!is_int($raw) && !(is_string($raw) && ctype_digit($raw))) || (int)$raw <= 0) {
+            throw new \InvalidArgumentException('hotel_id must be a positive integer.');
+        }
+        return (int)$raw;
     }
 
     private function safeError(\Throwable $error): string

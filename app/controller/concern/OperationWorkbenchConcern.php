@@ -695,11 +695,16 @@ trait OperationWorkbenchConcern
                 $this->request->get('target_date', $this->request->get('end_date', date('Y-m-d')))
             );
             $limit = $this->resolveDailyWorkbenchPatrolLimit($this->request->get('limit', 30));
-            $hotelScopes = Db::name('hotels')
+            $hotelId = $this->resolveDailyWorkbenchPatrolHotelId($this->request->get('hotel_id', ''));
+            $hotelQuery = Db::name('hotels')
                 ->field('id,tenant_id')
                 ->where('status', \app\model\Hotel::STATUS_ENABLED)
                 ->order('id', 'asc')
-                ->limit($limit)
+                ->limit($limit);
+            if ($hotelId !== null) {
+                $hotelQuery->where('id', $hotelId);
+            }
+            $hotelScopes = $hotelQuery
                 ->select()
                 ->toArray();
             $patrolService = new DailyWorkbenchPatrolService();
@@ -997,6 +1002,19 @@ trait OperationWorkbenchConcern
     {
         $limit = is_numeric($value) ? (int)$value : 10;
         return max(1, min(30, $limit > 0 ? $limit : 10));
+    }
+
+    private function resolveDailyWorkbenchPatrolHotelId($value): ?int
+    {
+        $hotelId = trim((string)$value);
+        if ($hotelId === '') {
+            return null;
+        }
+        if (!ctype_digit($hotelId) || (int)$hotelId <= 0) {
+            throw new \InvalidArgumentException('Daily workbench patrol hotel_id must be a positive integer.');
+        }
+
+        return (int)$hotelId;
     }
 
     private function buildDailyWorkbenchRow(array $hotel, array $reliability, string $targetDate): array

@@ -4743,11 +4743,13 @@ class Agent extends Base
         }
         $blockedReasons = array_values(array_unique($blockedReasons));
         $status = 'action_required';
-        if (!empty($blockingDataGaps) || !empty($blockedItems) || (empty($actionItems) && !empty($unresolvedProblems))) {
+        if (!empty($blockingDataGaps) || (empty($actionItems) && !empty($unresolvedProblems))) {
             $status = 'blocked_by_data';
-        } elseif (empty($readyItems) && empty($actionItems)) {
+        } elseif (!empty($readyItems)) {
+            $status = 'action_required';
+        } elseif (empty($actionItems)) {
             $status = 'no_action';
-        } elseif (empty($readyItems)) {
+        } else {
             $status = 'blocked_by_data';
         }
         $isBlocked = $status === 'blocked_by_data';

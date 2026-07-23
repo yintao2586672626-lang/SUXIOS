@@ -555,6 +555,7 @@ final class SchemaVersionService
                         $migration['checksum']
                     );
                 } catch (Throwable $exception) {
+                    $this->rollbackFailedMigrationTransaction();
                     $this->recordMigrationFailure($migration, $exception);
                     throw new RuntimeException(
                         $exception->getMessage()
@@ -1239,6 +1240,24 @@ final class SchemaVersionService
             ]);
         } catch (Throwable) {
             // Preserve the original migration error if diagnostics storage is unavailable.
+        }
+    }
+
+    private function rollbackFailedMigrationTransaction(): void
+    {
+        try {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+                return;
+            }
+        } catch (Throwable) {
+            // Fall through to a native rollback attempt.
+        }
+
+        try {
+            $this->pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // MySQL DDL may already have committed; failure recording must still proceed.
         }
     }
 

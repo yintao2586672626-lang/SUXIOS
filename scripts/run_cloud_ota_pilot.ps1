@@ -22,7 +22,10 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$IdentityFile = 'C:\Users\Administrator\.ssh\suxios-lighthouse-shanghai.pem',
 
-    [string]$TargetDate = ''
+    [string]$TargetDate = '',
+
+    [Parameter(ParameterSetName = 'Run')]
+    [switch]$ForceRerun
 )
 
 Set-StrictMode -Version Latest
@@ -166,7 +169,7 @@ $plan = [ordered]@{
     binding_file = $resolvedBindingPath
     bundle_file = $bundlePath
     steps = @(
-        "online-data:auto-fetch --hotel-id=$HotelId --target-date=$TargetDate --source-ids=$normalizedSourceIds",
+        "online-data:auto-fetch --hotel-id=$HotelId --target-date=$TargetDate --source-ids=$normalizedSourceIds$(if ($ForceRerun) { ' --force-rerun' } else { '' })",
         'cloud-data-bridge:run --mode=export',
         'credential-free bundle upload to the controlled cloud inbox'
     )
@@ -177,6 +180,7 @@ $plan = [ordered]@{
         browser_profiles_uploaded = $false
         credentials_written_to_bundle = $false
         duplicate_bundle_upload_skipped = $true
+        force_rerun_requested = [bool]$ForceRerun
     }
     preflight = $preflight
     run_ready = $preflightFailures.Count -eq 0
@@ -193,7 +197,16 @@ if ($preflightFailures.Count -gt 0) {
 
 New-Item -ItemType Directory -Path $outboxDirectory -Force | Out-Null
 
-$collectorOutput = & $resolvedPhpPath $thinkPath 'online-data:auto-fetch' "--hotel-id=$HotelId" "--target-date=$TargetDate" "--source-ids=$normalizedSourceIds" 2>&1
+$collectorArguments = @(
+    'online-data:auto-fetch',
+    "--hotel-id=$HotelId",
+    "--target-date=$TargetDate",
+    "--source-ids=$normalizedSourceIds"
+)
+if ($ForceRerun) {
+    $collectorArguments += '--force-rerun'
+}
+$collectorOutput = & $resolvedPhpPath $thinkPath @collectorArguments 2>&1
 $collectorExitCode = $LASTEXITCODE
 if ($collectorOutput) {
     $collectorOutput | ForEach-Object { Write-Output ("collector: " + [string]$_) }
@@ -211,6 +224,9 @@ if ($receiptLine.Count -eq 1) {
 }
 
 $collectionReceiptValid = $false
+$receiptCollectionComplete = $false
+$receiptSnapshotExportable = $false
+$receiptStatus = ''
 $syncTaskIds = ''
 try {
     if ($null -eq $collectionReceipt) {
@@ -222,14 +238,18 @@ try {
     $invalidSourceTasks = @($receiptSourceTasks | Where-Object {
         [int]$_.data_source_id -le 0 `
             -or [int]$_.sync_task_id -le 0 `
-            -or [string]$_.platform -notin @('ctrip', 'meituan')
+            -or [string]$_.platform -notin @('ctrip', 'meituan') `
+            -or [string]$_.collection_status -notin @('success', 'partial')
     })
     $receiptScopeMatches = $receiptSourceIds.Count -eq $sourceIdValues.Count `
         -and @(Compare-Object -ReferenceObject $sourceIdValues -DifferenceObject $receiptSourceIds).Count -eq 0 `
         -and $taskSourceIds.Count -eq $sourceIdValues.Count `
         -and @(Compare-Object -ReferenceObject $sourceIdValues -DifferenceObject $taskSourceIds).Count -eq 0
-    $collectionReceiptValid = $collectorExitCode -eq 0 `
-        -and [bool]$collectionReceipt.collection_complete `
+    $receiptCollectionComplete = [bool]$collectionReceipt.collection_complete
+    $receiptSnapshotExportable = [bool]$collectionReceipt.exportable_snapshot_complete
+    $receiptStatus = [string]$collectionReceipt.status
+    $collectionReceiptValid = $collectorExitCode -in @(0, 1) `
+        -and $receiptSnapshotExportable `
         -and [int]$collectionReceipt.hotel_id -eq $HotelId `
         -and [string]$collectionReceipt.target_date -eq $TargetDate `
         -and $receiptScopeMatches `
@@ -253,6 +273,8 @@ if (-not $collectionReceiptValid) {
         row_count = 0
         collector_exit_code = $collectorExitCode
         collection_complete = $false
+        snapshot_exportable = $false
+        collection_status = $receiptStatus
         collection_receipt_verified = $false
         upload_complete = $false
         upload_performed = $false
@@ -295,9 +317,9 @@ $invalidBundlePackages = @($bundlePackages | Where-Object {
     [int]$_.source_data_source_id -le 0 `
         -or [int]$_.source_sync_task_id -le 0 `
         -or [string]$_.collection.status -notin @('success', 'partial') `
-        -or -not [bool]$_.snapshot_complete `
+        -or ([string]$_.collection.status -eq 'success' -and -not [bool]$_.snapshot_complete) `
         -or [int]$_.row_count -le 0 `
-        -or [int]$_.source_row_count -ne [int]$_.row_count `
+        -or [int]$_.source_row_count -lt [int]$_.row_count `
         -or @($_.rows).Count -ne [int]$_.row_count
 })
 $bundleReceiptMatches = $bundlePackages.Count -eq $receiptSourceTasks.Count `
@@ -331,7 +353,9 @@ if ($null -ne $previousState `
         bundle_id = [string]$bundle.bundle_id
         row_count = @($bundle.packages | ForEach-Object { @($_.rows).Count } | Measure-Object -Sum).Sum
         collector_exit_code = $collectorExitCode
-        collection_complete = $true
+        collection_complete = $receiptCollectionComplete
+        snapshot_exportable = $true
+        collection_status = $receiptStatus
         collection_receipt_verified = $true
         upload_complete = $true
         upload_performed = $false
@@ -345,7 +369,9 @@ if ($null -ne $previousState `
         target_date = $TargetDate
         bundle_id = [string]$bundle.bundle_id
         collector_exit_code = $collectorExitCode
-        collection_complete = $true
+        collection_complete = $receiptCollectionComplete
+        snapshot_exportable = $true
+        collection_status = $receiptStatus
         upload_complete = $true
         upload_performed = $false
     }
@@ -367,7 +393,9 @@ $state = [ordered]@{
     bundle_id = [string]$bundle.bundle_id
     row_count = @($bundle.packages | ForEach-Object { @($_.rows).Count } | Measure-Object -Sum).Sum
     collector_exit_code = $collectorExitCode
-    collection_complete = $true
+    collection_complete = $receiptCollectionComplete
+    snapshot_exportable = $true
+    collection_status = $receiptStatus
     collection_receipt_verified = $true
     upload_complete = $true
     upload_performed = $true
@@ -382,7 +410,9 @@ $result = [ordered]@{
     target_date = $TargetDate
     bundle_id = [string]$bundle.bundle_id
     collector_exit_code = $collectorExitCode
-    collection_complete = $true
+    collection_complete = $receiptCollectionComplete
+    snapshot_exportable = $true
+    collection_status = $receiptStatus
     upload_complete = $true
     upload_performed = $true
     remote_file = [string]$uploadResult.RemoteFile

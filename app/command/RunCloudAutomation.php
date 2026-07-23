@@ -16,6 +16,8 @@ final class RunCloudAutomation extends Command
         $this->setName('cloud-automation:run')
             ->addOption('mode', null, Option::VALUE_REQUIRED, 'daily|health|weekly|retry|status', 'daily')
             ->addOption('target-date', null, Option::VALUE_REQUIRED, 'Business date YYYY-MM-DD; defaults to yesterday')
+            ->addOption('hotel-id', null, Option::VALUE_REQUIRED, 'Run daily, health, or weekly for one enabled hotel only')
+            ->addOption('lock-wait-seconds', null, Option::VALUE_REQUIRED, 'Wait for the global serial lock, 0-1800 seconds', '0')
             ->addOption('limit', null, Option::VALUE_REQUIRED, 'Maximum hotels/deliveries, 1-100', '30')
             ->addOption('max-attempts', null, Option::VALUE_REQUIRED, 'Maximum message delivery attempts, 1-50', '10')
             ->addOption('no-push', null, Option::VALUE_NONE, 'Generate/check without queueing or sending WeCom messages')
@@ -31,6 +33,19 @@ final class RunCloudAutomation extends Command
             $output->writeln('mode must be daily, health, weekly, retry, or status.');
             return 1;
         }
+        $hotelIdRaw = trim((string)$input->getOption('hotel-id'));
+        $hotelId = null;
+        if ($hotelIdRaw !== '') {
+            if (!ctype_digit($hotelIdRaw) || (int)$hotelIdRaw <= 0) {
+                $output->writeln('hotel-id must be a positive integer.');
+                return 1;
+            }
+            if (in_array($mode, ['retry', 'status'], true)) {
+                $output->writeln('hotel-id is supported only for daily, health, or weekly mode.');
+                return 1;
+            }
+            $hotelId = (int)$hotelIdRaw;
+        }
 
         $targetDate = trim((string)$input->getOption('target-date'));
         if ($targetDate === '') {
@@ -40,6 +55,12 @@ final class RunCloudAutomation extends Command
         }
         $limit = max(1, min(100, (int)$input->getOption('limit')));
         $maxAttempts = max(1, min(50, (int)$input->getOption('max-attempts')));
+        $lockWaitSecondsRaw = trim((string)$input->getOption('lock-wait-seconds'));
+        if ($lockWaitSecondsRaw === '' || !ctype_digit($lockWaitSecondsRaw) || (int)$lockWaitSecondsRaw > 1800) {
+            $output->writeln('lock-wait-seconds must be an integer from 0 to 1800.');
+            return 1;
+        }
+        $lockWaitSeconds = (int)$lockWaitSecondsRaw;
 
         try {
             $service = new CloudAutomationService();
@@ -48,10 +69,10 @@ final class RunCloudAutomation extends Command
                 return 0;
             }
 
-            $lock = $service->acquireLock();
+            $lock = $service->acquireLock($lockWaitSeconds);
             if (!is_resource($lock)) {
-                $output->writeln('Another cloud automation task is already running; this run was skipped.');
-                return 0;
+                $output->writeln('Another cloud automation task still holds the serial lock; this run must be retried.');
+                return 75;
             }
             try {
                 $result = $service->run($mode, $targetDate, [
@@ -59,6 +80,7 @@ final class RunCloudAutomation extends Command
                     'max_attempts' => $maxAttempts,
                     'push' => !$input->getOption('no-push'),
                     'use_llm' => (bool)$input->getOption('use-llm'),
+                    'hotel_id' => $hotelId,
                 ]);
             } finally {
                 $service->releaseLock($lock);

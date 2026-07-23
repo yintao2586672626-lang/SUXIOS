@@ -128,8 +128,8 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
     {
         $command = new AutoFetchOnlineData();
         $method = new \ReflectionMethod($command, 'buildMachineReceipt');
-        $sourceResult = static fn(int $sourceId, int $taskId, string $platform): array => [
-            'success' => true,
+        $sourceResult = static fn(int $sourceId, int $taskId, string $platform, bool $success = true): array => [
+            'success' => $success,
             'data_source_id' => $sourceId,
             'platform' => $platform,
             'run_readback' => [
@@ -147,6 +147,7 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             'platform_results' => [$sourceResult(68, 902, 'meituan'), $sourceResult(25, 901, 'ctrip')],
         ]);
         self::assertTrue($complete['collection_complete']);
+        self::assertTrue($complete['exportable_snapshot_complete']);
         self::assertSame([25, 68], $complete['source_ids']);
         self::assertSame([25, 68], array_column($complete['source_tasks'], 'data_source_id'));
         self::assertSame([901, 902], array_column($complete['source_tasks'], 'sync_task_id'));
@@ -155,5 +156,16 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             'platform_results' => [$sourceResult(25, 901, 'ctrip')],
         ]);
         self::assertFalse($incomplete['collection_complete']);
+        self::assertFalse($incomplete['exportable_snapshot_complete']);
+
+        $partial = $method->invoke($command, 80, '2026-07-22', [25, 68], ['complete' => false, 'status' => 'partial_success'], [
+            'platform_results' => [
+                $sourceResult(25, 901, 'ctrip'),
+                $sourceResult(68, 902, 'meituan', false),
+            ],
+        ]);
+        self::assertFalse($partial['collection_complete']);
+        self::assertTrue($partial['exportable_snapshot_complete']);
+        self::assertSame(['success', 'partial'], array_column($partial['source_tasks'], 'collection_status'));
     }
 }

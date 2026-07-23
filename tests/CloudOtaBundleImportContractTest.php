@@ -61,6 +61,8 @@ final class CloudOtaBundleImportContractTest extends TestCase
         self::assertStringContainsString("'source_sync_task_id' => \$syncTaskId", $exportSource);
         self::assertStringContainsString("'snapshot_complete' => count(\$rows) === \$targetRowCount", $exportSource);
         self::assertStringContainsString('cloud_bundle_sync_task_row_identity_mismatch:', $exportSource);
+        self::assertStringContainsString("->whereIn('id', \$receiptRowIds)", $exportSource);
+        self::assertStringContainsString('count($rows) === $targetRowCount', $exportSource);
         self::assertStringContainsString('($package[\'snapshot_complete\'] ?? false) === true', $importSource);
         self::assertStringContainsString('(int)($package[\'source_row_count\'] ?? -1) === count($rows)', $importSource);
     }

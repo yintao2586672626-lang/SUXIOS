@@ -11,7 +11,6 @@ final class CloudOtaBundleExportService
     private const TRUSTED_VALIDATION_STATUSES = [
         'normal', 'available', 'verified', 'ok', 'success', 'complete', 'completed', 'readback_verified',
     ];
-
     /**
      * @param array<string, mixed> $binding
      * @param array<int, string> $requiredPlatforms
@@ -244,8 +243,19 @@ final class CloudOtaBundleExportService
             ->where('data_source_id', (int)$source['id'])
             ->where('sync_task_id', (int)$syncTask['id'])
             ->where('data_date', $targetDate);
-        $targetRowCount = (int)(clone $base)->count();
+        $targetRowIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            (array)(clone $base)->order('id', 'asc')->column('id')
+        ), static fn(int $id): bool => $id > 0)));
+        sort($targetRowIds, SORT_NUMERIC);
+        $targetRowCount = count($targetRowIds);
+        $receiptRowIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            (array)($syncTask['run_readback']['row_ids'] ?? [])
+        ), static fn(int $id): bool => $id > 0)));
+        sort($receiptRowIds, SORT_NUMERIC);
         $rows = $base
+            ->whereIn('id', $receiptRowIds)
             ->where('readback_verified', 1)
             ->whereIn('validation_status', self::TRUSTED_VALIDATION_STATUSES)
             ->order('id', 'asc')
@@ -265,13 +275,10 @@ final class CloudOtaBundleExportService
             $trustedRowIds[] = (int)($row['id'] ?? 0);
             $normalized[] = CloudOtaBundleCodec::allowlistedRow($row);
         }
-        $expectedRowIds = array_values(array_map(
-            'intval',
-            (array)($syncTask['run_readback']['row_ids'] ?? [])
-        ));
         sort($trustedRowIds, SORT_NUMERIC);
-        sort($expectedRowIds, SORT_NUMERIC);
-        if ($targetRowCount !== count($expectedRowIds) || $trustedRowIds !== $expectedRowIds) {
+        if (array_diff($trustedRowIds, $targetRowIds) !== []
+            || array_diff($trustedRowIds, $receiptRowIds) !== []
+        ) {
             throw new RuntimeException(
                 'cloud_bundle_sync_task_row_identity_mismatch:' . strtolower((string)($source['platform'] ?? 'unknown'))
             );
@@ -283,9 +290,10 @@ final class CloudOtaBundleExportService
     private function collectionState(array $syncTask, array $rows, int $targetRowCount): array
     {
         $taskStatus = strtolower(trim((string)($syncTask['status'] ?? '')));
+        $snapshotComplete = count($rows) === $targetRowCount;
 
         if ($rows !== []) {
-            $status = $taskStatus === 'success' ? 'success' : 'partial';
+            $status = $taskStatus === 'success' && $snapshotComplete ? 'success' : 'partial';
             $message = $status === 'success' ? 'target_date_rows_readback_verified' : 'target_date_rows_verified_with_source_warning';
         } elseif ($targetRowCount > 0) {
             $status = 'failed';

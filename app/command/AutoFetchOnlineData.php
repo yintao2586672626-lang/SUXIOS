@@ -218,22 +218,20 @@ class AutoFetchOnlineData extends Command
                     ]);
                     $output->writeln("Hotel {$hotelName} {$run['label']} {$outcome['status']}: " . (string)($result['message'] ?? '-'));
 
-                    if ($outcome['complete']) {
-                        $receipt = $this->buildMachineReceipt($hotelId, $run['data_date'], $sourceIds, $outcome, $result);
-                        $this->writeMachineReceipt($output, $receipt);
-                        if (!empty($receipt['collection_complete'])) {
-                            Cache::set($run['executed_key'], $receipt, 86400);
-                            Cache::delete($run['retry_key']);
-                        } else {
-                            Cache::set($run['retry_key'], [
+                    $receipt = $this->buildMachineReceipt($hotelId, $run['data_date'], $sourceIds, $outcome, $result);
+                    $this->writeMachineReceipt($output, $receipt);
+                    if ($outcome['complete'] && !empty($receipt['collection_complete'])) {
+                        Cache::set($run['executed_key'], $receipt, 86400);
+                        Cache::delete($run['retry_key']);
+                    } else {
+                        $retryReceiptDetails = $outcome['complete']
+                            ? [
                                 ...$retryDetails,
                                 'last_status' => 'receipt_invalid',
                                 'last_message' => 'collection completed without a verifiable source-task receipt',
-                            ], 86400 * 2);
-                            $hasIncompleteDueRun = true;
-                        }
-                    } else {
-                        Cache::set($run['retry_key'], $retryDetails, 86400 * 2);
+                            ]
+                            : $retryDetails;
+                        Cache::set($run['retry_key'], $retryReceiptDetails, 86400 * 2);
                         $hasIncompleteDueRun = true;
                     }
                 } finally {
@@ -518,7 +516,7 @@ class AutoFetchOnlineData extends Command
         sort($sourceIds, SORT_NUMERIC);
         $sourceTasks = [];
         foreach ((array)($result['platform_results'] ?? []) as $platformResult) {
-            if (!is_array($platformResult) || empty($platformResult['success'])) {
+            if (!is_array($platformResult)) {
                 continue;
             }
             $readback = is_array($platformResult['run_readback'] ?? null) ? $platformResult['run_readback'] : [];
@@ -545,15 +543,16 @@ class AutoFetchOnlineData extends Command
                 'data_source_id' => $dataSourceId,
                 'sync_task_id' => $syncTaskId,
                 'platform' => $platform,
+                'collection_status' => !empty($platformResult['success']) ? 'success' : 'partial',
                 'row_ids' => $rowIds,
             ];
         }
         ksort($sourceTasks, SORT_NUMERIC);
         $receiptSourceIds = array_map('intval', array_keys($sourceTasks));
         $expectedSourceIds = $sourceIds === [] ? $receiptSourceIds : $sourceIds;
-        $collectionComplete = !empty($outcome['complete'])
-            && $expectedSourceIds !== []
+        $exportableSnapshotComplete = $expectedSourceIds !== []
             && $receiptSourceIds === $expectedSourceIds;
+        $collectionComplete = !empty($outcome['complete']) && $exportableSnapshotComplete;
 
         return [
             'schema_version' => 1,
@@ -562,6 +561,7 @@ class AutoFetchOnlineData extends Command
             'source_ids' => $expectedSourceIds,
             'status' => (string)($outcome['status'] ?? ''),
             'collection_complete' => $collectionComplete,
+            'exportable_snapshot_complete' => $exportableSnapshotComplete,
             'source_tasks' => array_values($sourceTasks),
         ];
     }

@@ -145,6 +145,21 @@ final class CloudAutomationStateStoreTest extends TestCase
         self::assertSame(0, $repeated['sent_count']);
     }
 
+    public function testSerialLockWaitsThenFailsClosedWhenAnotherRunStillOwnsIt(): void
+    {
+        $store = new CloudAutomationStateStore($this->stateDir);
+        $first = $store->acquireLock();
+        self::assertIsResource($first);
+
+        $startedAt = microtime(true);
+        $second = $store->acquireLock(1);
+        $elapsed = microtime(true) - $startedAt;
+
+        self::assertNull($second);
+        self::assertGreaterThanOrEqual(0.75, $elapsed);
+        $store->releaseLock($first);
+    }
+
     private function removeTestDirectory(string $dir): void
     {
         if (!is_dir($dir)) {

@@ -4966,6 +4966,75 @@ function p0_authoritative_profile_identifier_from_db(string $platform, int $syst
 }
 
 /**
+ * @param array<string, mixed> $row
+ */
+function p0_traffic_row_endpoint_id(array $row): string
+{
+    $dimension = trim((string)($row['dimension'] ?? ''));
+    if (preg_match('/^catalog:[^:]+:([^:]+)/', $dimension, $matches)) {
+        return strtolower(trim((string)($matches[1] ?? '')));
+    }
+
+    $rawValue = $row['raw_data'] ?? null;
+    if (is_string($rawValue)) {
+        $decoded = json_decode($rawValue, true);
+        $raw = is_array($decoded) ? $decoded : [];
+    } else {
+        $raw = is_array($rawValue) ? $rawValue : [];
+    }
+    foreach ([
+        $raw['endpoint_id'] ?? null,
+        $raw['endpointId'] ?? null,
+        $raw['capture']['endpoint_id'] ?? null,
+        $raw['capture']['endpointId'] ?? null,
+    ] as $candidate) {
+        $endpointId = strtolower(trim((string)$candidate));
+        if ($endpointId !== '') {
+            return $endpointId;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * @param array<string, mixed> $row
+ * @return array{authoritative: bool, endpoint_id: string, reason: string}
+ */
+function p0_traffic_row_scope(array $row, string $platform): array
+{
+    $normalizedPlatform = strtolower(trim($platform));
+    $endpointId = p0_traffic_row_endpoint_id($row);
+    if ($normalizedPlatform !== 'ctrip') {
+        return [
+            'authoritative' => true,
+            'endpoint_id' => $endpointId,
+            'reason' => 'platform_traffic_scope',
+        ];
+    }
+    if ($endpointId === '') {
+        return [
+            'authoritative' => true,
+            'endpoint_id' => '',
+            'reason' => 'legacy_dimensionless_core_snapshot',
+        ];
+    }
+    if (in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)) {
+        return [
+            'authoritative' => true,
+            'endpoint_id' => $endpointId,
+            'reason' => 'canonical_flow_transform_snapshot',
+        ];
+    }
+
+    return [
+        'authoritative' => false,
+        'endpoint_id' => $endpointId,
+        'reason' => 'ctrip_auxiliary_traffic_endpoint',
+    ];
+}
+
+/**
  * @return array<string, mixed>
  */
 function p0_traffic_field_fact_closure(string $platform, string $targetDate, int $systemHotelId = 0): array
@@ -4979,7 +5048,12 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         'hotel_scope_policy' => $systemHotelId > 0 ? 'system_hotel_id' : 'platform_date',
         'required_metric_keys' => $requiredMetricKeys,
         'required_storage_fields' => array_values($requiredStorageFields),
+        'source_traffic_row_count' => 0,
         'traffic_row_count' => 0,
+        'authoritative_traffic_row_count' => 0,
+        'auxiliary_traffic_row_count' => 0,
+        'auxiliary_traffic_endpoint_counts' => [],
+        'authoritative_traffic_row_policy' => 'Ctrip P0 uses canonical flow-transform snapshots plus strict legacy dimensionless compatibility rows; auxiliary traffic endpoints remain visible but cannot satisfy or fail the canonical gate.',
         'rows_with_field_facts' => 0,
         'nonzero_required_metric_rows' => 0,
         'zero_required_metric_rows' => 0,
@@ -5054,6 +5128,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         'source',
         'data_date',
         'data_type',
+        isset($columns['dimension']) ? 'dimension' : '',
         'raw_data',
         isset($columns['platform']) ? 'platform' : '',
         isset($columns['compare_type']) ? 'compare_type' : '',
@@ -5066,15 +5141,32 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         isset($columns['source_trace_id']) ? 'source_trace_id' : '',
         isset($columns['sync_task_id']) ? 'sync_task_id' : '',
     ], static fn(string $field): bool => $field !== ''));
-    $rows = array_values(array_filter(
+    $sourceRows = array_values(array_filter(
         $query->field(implode(',', $fieldList))->select()->toArray(),
         static fn(array $row): bool => \app\service\OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
     ));
+    $base['source_traffic_row_count'] = count($sourceRows);
+    $rows = [];
+    foreach ($sourceRows as $row) {
+        $rowScope = p0_traffic_row_scope($row, $platform);
+        if (($rowScope['authoritative'] ?? false) === true) {
+            $rows[] = $row;
+            continue;
+        }
+        $base['auxiliary_traffic_row_count']++;
+        $endpointId = trim((string)($rowScope['endpoint_id'] ?? '')) ?: 'unknown';
+        $base['auxiliary_traffic_endpoint_counts'][$endpointId] = (int)($base['auxiliary_traffic_endpoint_counts'][$endpointId] ?? 0) + 1;
+    }
+    ksort($base['auxiliary_traffic_endpoint_counts']);
     $base['traffic_row_count'] = count($rows);
+    $base['authoritative_traffic_row_count'] = count($rows);
     if ($rows === []) {
-        $base['status'] = 'no_target_date_traffic_rows';
-        $base['platform_hotel_identifier_status'] = 'no_target_date_traffic_rows';
-        $base['field_loop_matrix'] = p0_traffic_field_loop_matrix_values(p0_traffic_field_loop_matrix_index($requiredMetricKeys, $requiredStorageFields, 'no_target_date_traffic_rows'));
+        $noRowsStatus = $sourceRows === []
+            ? 'no_target_date_traffic_rows'
+            : 'no_authoritative_target_date_traffic_rows';
+        $base['status'] = $noRowsStatus;
+        $base['platform_hotel_identifier_status'] = $noRowsStatus;
+        $base['field_loop_matrix'] = p0_traffic_field_loop_matrix_values(p0_traffic_field_loop_matrix_index($requiredMetricKeys, $requiredStorageFields, $noRowsStatus));
         $base = array_merge($base, p0_standard_fact_summary($requiredMetricKeys, $requiredStorageFields, (array)$base['field_loop_matrix'], 0));
         return $base;
     }
@@ -5267,7 +5359,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $uiClosureReady = (int)$base['ui_status_ready_rows'] > 0
         && $standardFactsReady
         && (int)$base['ui_status_incomplete_rows'] === 0;
-    $base['ui_status_closure_policy'] = 'P0 traffic UI closure requires the metric matrix and every target-date traffic row in scope to be ready; incomplete rows cannot be ignored.';
+    $base['ui_status_closure_policy'] = 'P0 traffic UI closure requires the metric matrix and every authoritative target-date traffic snapshot row in scope to be ready; auxiliary endpoint rows are reported separately and cannot be used to satisfy or fail the canonical gate.';
     $base['status'] = $missingKeys === []
         && $incompleteKeys === []
         && (int)$base['nonzero_required_metric_rows'] > 0
@@ -5307,7 +5399,11 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
             $hotelScopedClosures[] = [
                 'system_hotel_id' => $hotelId,
                 'status' => $hotelStatus,
+                'source_traffic_row_count' => (int)($hotelClosure['source_traffic_row_count'] ?? 0),
                 'traffic_row_count' => (int)($hotelClosure['traffic_row_count'] ?? 0),
+                'authoritative_traffic_row_count' => (int)($hotelClosure['authoritative_traffic_row_count'] ?? 0),
+                'auxiliary_traffic_row_count' => (int)($hotelClosure['auxiliary_traffic_row_count'] ?? 0),
+                'auxiliary_traffic_endpoint_counts' => p0_array($hotelClosure['auxiliary_traffic_endpoint_counts'] ?? null),
                 'complete_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['complete_metric_keys'] ?? []))),
                 'missing_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['missing_metric_keys'] ?? []))),
                 'incomplete_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['incomplete_metric_keys'] ?? []))),
