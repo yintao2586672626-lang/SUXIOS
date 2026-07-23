@@ -136,18 +136,24 @@ final class AuthLoginTenantIsolationTest extends TestCase
         self::assertSame($payload['token'], cache('user_token_1'));
     }
 
-    public function testMissingTenantFailsBeforeAnyTokenStateIsPublished(): void
+    public function testMissingTenantReturnsExplicitRejectionBeforeAnyLoginStateIsUpdated(): void
     {
-        try {
-            $this->login('missing_tenant');
-            self::fail('A normal user without an authenticated tenant must fail closed.');
-        } catch (\think\exception\HttpException $exception) {
-            self::assertSame(403, $exception->getStatusCode());
-        }
+        $response = $this->login('missing_tenant');
+        self::assertSame(403, $response->getCode());
+        $payload = json_decode((string)$response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(403, $payload['code']);
+        self::assertSame('tenant_context_missing', $payload['data']['reason'] ?? null);
+        self::assertSame('账号门店租户绑定异常，请联系管理员重新分配门店', $payload['message']);
 
         self::assertNull(cache('user_token_504'));
         self::assertSame(0, Db::name('operation_logs')->where('user_id', 504)->count());
         self::assertSame(0, Db::name('login_logs')->where('user_id', 504)->where('status', 'success')->count());
+        self::assertSame(
+            '账号缺少有效租户绑定',
+            Db::name('login_logs')->where('user_id', 504)->where('status', 'failed')->value('message')
+        );
+        self::assertNull(Db::name('users')->where('id', 504)->value('last_login_time'));
+        self::assertSame(0, (int)Db::name('users')->where('id', 504)->value('login_count'));
     }
 
     public function testLoginCachePublicationIsAtomicAndNeverAuditsPartialSessions(): void

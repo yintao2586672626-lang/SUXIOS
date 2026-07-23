@@ -120,6 +120,18 @@ class Auth extends Base
             return $this->error('账号已停用，请联系管理员启用');
         }
 
+        // Tenant-scoped queries run immediately after authentication. Reject a
+        // broken legacy binding explicitly before updating login counters or
+        // publishing any session state; deterministic bindings are repaired by
+        // the governed migration.
+        if (!$user->isSuperAdmin() && (int)($user->tenant_id ?? 0) <= 0) {
+            LoginLog::record($user->id, $username, 'login', 'failed', '账号缺少有效租户绑定', $ip, $userAgent, $clientInfo);
+            $this->releaseLoginRateLimitReservation($loginRateLimiter, $ip, $username, $reservationBucket);
+            return $this->error('账号门店租户绑定异常，请联系管理员重新分配门店', 403, [
+                'reason' => 'tenant_context_missing',
+            ]);
+        }
+
         $this->releaseLoginRateLimitReservation($loginRateLimiter, $ip, $username, $reservationBucket);
 
         // 更新用户登录信息
