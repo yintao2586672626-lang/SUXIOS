@@ -1,6 +1,7 @@
 database/backups/* export-ignore
 storage/db_backups/* export-ignore
 reports export-ignore
+database/migrations/20250402_create_agent_tables.sql -text -diff
 reports/ctrip_browser_capture_*.json export-ignore
 reports/meituan_browser_capture_*.json export-ignore
 reports/ctrip_capture_summary.json export-ignore
