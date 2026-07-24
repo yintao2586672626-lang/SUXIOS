@@ -152,7 +152,7 @@ jobs:
           DB_USER: root
           DB_PASS: suxi-ci-root
         run: |
-          npm run measure:performance:isolated
+          npm run measure:performance:ci
           npm run verify:performance-runtime-budget
 
       - name: Run project guards

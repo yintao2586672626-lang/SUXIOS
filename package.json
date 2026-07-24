@@ -122,6 +122,7 @@
     "verify:ctrip-review-match": "C:\\xampp\\php\\php.exe scripts\\verify_ctrip_review_match_closure.php",
     "measure:performance": "node scripts/measure_frontend_performance.mjs",
     "measure:performance:isolated": "node tests/automation/run-quick-e2e-isolated.mjs --performance-only",
+    "measure:performance:ci": "node scripts/measure_frontend_performance_ci.mjs",
     "test:performance-metrics": "node --test tests/automation/frontend_performance_metrics.test.mjs",
     "verify:performance-budget": "node scripts/verify_frontend_performance_budget.mjs",
     "test:performance-budget": "node --test tests/automation/frontend_performance_budget.test.mjs",

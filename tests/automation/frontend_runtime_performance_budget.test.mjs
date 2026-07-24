@@ -11,6 +11,8 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const workflow = readFileSync(path.join(repoRoot, '.github', 'workflows', 'php.yml'), 'utf8');
 const measurement = readFileSync(path.join(repoRoot, 'scripts', 'measure_frontend_performance.mjs'), 'utf8');
+const ciMeasurement = readFileSync(path.join(repoRoot, 'scripts', 'measure_frontend_performance_ci.mjs'), 'utf8');
+const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
 
 const metric = (p95) => ({ sample_count: 5, p50_ms: p95, p95_ms: p95, max_ms: p95 });
 
@@ -58,12 +60,22 @@ test('CI enforces the static budget and measures the authenticated app before th
   assert.match(workflow, /SUXI_PHP: php/);
   assert.doesNotMatch(workflow, /PHP_CLI_SERVER_WORKERS/);
   assert.match(workflow, /SUXI_E2E_DB_NAME: hotelx_ci_test/);
-  assert.match(workflow, /npm run measure:performance:isolated/);
+  assert.match(workflow, /npm run measure:performance:ci/);
   assert.match(workflow, /npm run verify:performance-runtime-budget/);
   assert(
-    workflow.indexOf('npm run measure:performance:isolated')
+    workflow.indexOf('npm run measure:performance:ci')
       < workflow.indexOf('npm run verify:performance-runtime-budget'),
   );
+  assert.equal(
+    packageJson.scripts['measure:performance:ci'],
+    'node scripts/measure_frontend_performance_ci.mjs',
+  );
+  assert.match(ciMeasurement, /const isolationRunCount = 5/);
+  assert.match(ciMeasurement, /--performance-iterations=1/);
+  assert.match(ciMeasurement, /--performance-enforce-budget=0/);
+  assert.match(ciMeasurement, /fresh_server_seed_and_browser_per_run/);
+  assert.match(ciMeasurement, /summarizeFrontendPerformanceRuns\(runs\)/);
+  assert.match(ciMeasurement, /evaluateFrontendRuntimeBudget\(result\)/);
   assert.match(measurement, /const maxMeasurementAttempts = 2/);
   assert.match(measurement, /browser = await chromium\.launch/);
   assert.match(measurement, /attempt_failures: attemptFailures/);

@@ -69,6 +69,7 @@ const codexIterationsArg = process.argv.find((arg) => arg.startsWith('--codex-it
 const performanceIterationsArg = process.argv.find((arg) => arg.startsWith('--performance-iterations='));
 const performanceNetworkArg = process.argv.find((arg) => arg.startsWith('--performance-network='));
 const performanceLabelArg = process.argv.find((arg) => arg.startsWith('--performance-label='));
+const performanceEnforceBudgetArg = process.argv.find((arg) => arg.startsWith('--performance-enforce-budget='));
 const codexProfile = codexProfileArg ? codexProfileArg.slice('--codex-profile='.length).trim() : '';
 const codexIterations = codexIterationsArg ? codexIterationsArg.slice('--codex-iterations='.length).trim() : '';
 const performanceIterations = performanceIterationsArg
@@ -80,6 +81,9 @@ const performanceNetwork = performanceNetworkArg
 const performanceLabel = performanceLabelArg
   ? performanceLabelArg.slice('--performance-label='.length).trim()
   : 'isolated-authenticated-baseline';
+const performanceEnforceBudget = performanceEnforceBudgetArg
+  ? performanceEnforceBudgetArg.slice('--performance-enforce-budget='.length).trim()
+  : '1';
 if (codexProfile && !['quick', 'extreme'].includes(codexProfile)) {
   throw new Error('--codex-profile must be quick or extreme');
 }
@@ -96,6 +100,9 @@ if (!['none', 'slow-4g'].includes(performanceNetwork)) {
 }
 if (!/^[a-zA-Z0-9._-]+$/.test(performanceLabel)) {
   throw new Error('--performance-label must contain only letters, numbers, dot, underscore, or hyphen');
+}
+if (!['0', '1'].includes(performanceEnforceBudget)) {
+  throw new Error('--performance-enforce-budget must be 0 or 1');
 }
 const specs = fullClick
   ? ['tests/automation/full-click-coverage.spec.js']
@@ -327,7 +334,7 @@ function runPlaywright(seed) {
       `--iterations=${performanceIterations}`,
       `--network=${performanceNetwork}`,
       '--require-verified=1',
-      '--enforce-budget=1',
+      `--enforce-budget=${performanceEnforceBudget}`,
     ], {
       cwd: root,
       stdio: 'inherit',

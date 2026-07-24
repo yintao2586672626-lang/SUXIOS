@@ -64,8 +64,10 @@ test('authenticated performance measurement uses the isolated runner and fails c
   assert.match(isolatedRunner, /scripts\/measure_frontend_performance\.mjs/);
   assert.match(isolatedRunner, /--authenticated=1/);
   assert.match(isolatedRunner, /--require-verified=1/);
-  assert.match(isolatedRunner, /--enforce-budget=1/);
+  assert.match(isolatedRunner, /const performanceEnforceBudget[\s\S]*:\s*'1';/);
+  assert.match(isolatedRunner, /`--enforce-budget=\$\{performanceEnforceBudget\}`/);
   assert.match(isolatedRunner, /--performance-iterations must be an integer between 1 and 30/);
+  assert.match(isolatedRunner, /--performance-enforce-budget must be 0 or 1/);
 });
 
 test('direct Playwright and Codex runners fail closed without isolation proof', () => {
