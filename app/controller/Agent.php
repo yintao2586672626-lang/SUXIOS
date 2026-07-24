@@ -168,10 +168,20 @@ class Agent extends Base
     private function assertRevenueHotelPermission(int $hotelId): void
     {
         if ($hotelId <= 0) {
-            throw new \InvalidArgumentException('revenue hotel scope is invalid', 422);
+            abort(422, 'revenue hotel scope is invalid');
         }
         if (!$this->currentUser || !$this->currentUser->hasHotelPermission($hotelId, 'can_use_ai_decision')) {
-            throw new \RuntimeException('no can_use_ai_decision permission for this hotel', 403);
+            abort(403, 'no can_use_ai_decision permission for this hotel');
+        }
+    }
+
+    private function assertRevenueRoomTypeScope(int $hotelId, int $roomTypeId): void
+    {
+        $roomTypeExists = RoomType::where('id', $roomTypeId)
+            ->where('hotel_id', $hotelId)
+            ->find();
+        if (!$roomTypeExists) {
+            abort(422, 'room_type_id does not belong to the selected hotel');
         }
     }
 
@@ -6341,6 +6351,7 @@ class Agent extends Base
             return $this->error($e->getMessage(), 422);
         }
         $this->assertRevenueHotelPermission((int)$data['hotel_id']);
+        $this->assertRevenueRoomTypeScope((int)$data['hotel_id'], (int)$data['room_type_id']);
         
         $forecast = DemandForecast::createForecast($data['hotel_id'], $data['forecast_date'], $data);
         
@@ -6622,6 +6633,7 @@ class Agent extends Base
             return $this->error($e->getMessage(), 422);
         }
         $this->assertRevenueHotelPermission((int)$data['hotel_id']);
+        $this->assertRevenueRoomTypeScope((int)$data['hotel_id'], (int)$data['room_type_id']);
         
         $analysis = CompetitorAnalysis::recordAnalysis(
             $data['hotel_id'],

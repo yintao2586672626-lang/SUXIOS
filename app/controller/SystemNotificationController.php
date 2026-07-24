@@ -119,11 +119,15 @@ class SystemNotificationController extends Base
      */
     private function notificationCountSummary($query): array
     {
-        $row = (clone $query)->field(implode(',', [
-            'COUNT(DISTINCT notification.id) AS total',
-            'COUNT(DISTINCT CASE WHEN notification_state.is_read IS NULL'
-                . ' OR notification_state.is_read <> 1 THEN notification.id END) AS unread_count',
-        ]))->find();
+        $row = (clone $query)
+            ->removeOption('field')
+            ->removeOption('with')
+            ->field(implode(',', [
+                'COUNT(DISTINCT notification.id) AS total',
+                'COUNT(DISTINCT CASE WHEN notification_state.is_read IS NULL'
+                    . ' OR notification_state.is_read <> 1 THEN notification.id END) AS unread_count',
+            ]))
+            ->find();
 
         return [
             'total' => (int)($row['total'] ?? 0),

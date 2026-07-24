@@ -75,7 +75,11 @@ test('slow authenticated assets remain interactive while browser password storag
       requestEvidence.appMainStartedAt ||= Date.now();
       await delay(180);
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
-      response.end("document.getElementById('app').innerHTML = '<main data-testid=\"mock-home\"><button type=\"button\">首页可操作</button></main>'; ");
+      response.end(`
+        document.getElementById('app').innerHTML = '<main data-testid="mock-home"><button type="button">首页可操作</button></main>';
+        document.documentElement.dataset.suxiAuthenticatedInteractiveReady = '1';
+        window.dispatchEvent(new CustomEvent('suxi:authenticated-interactive-ready'));
+      `);
       return;
     }
     response.writeHead(404);

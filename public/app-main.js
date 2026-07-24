@@ -36678,6 +36678,7 @@
             });
 
             onUnmounted(() => {
+                authSessionEpoch += 1;
                 window.removeEventListener('resize', syncSidebarForViewport);
                 window.removeEventListener('pageshow', scheduleLoginAutofillSync);
                 window.removeEventListener('focus', scheduleLoginAutofillSync);
@@ -38640,9 +38641,24 @@
         app.config.globalProperties.aiModelConfigText = globalAiModelConfigText;
         return app;
     };
+    const publishSuxiAuthenticatedInteractiveReady = () => {
+        const appMain = document.querySelector('[data-testid="app-main"]');
+        const deferredPage = document.querySelector('[data-testid="deferred-page-loading"]');
+        if (!appMain || deferredPage) return false;
+        document.documentElement.dataset.suxiAuthenticatedInteractiveReady = '1';
+        delete document.documentElement.dataset.suxiAuthenticatedInteractiveError;
+        window.dispatchEvent(new CustomEvent('suxi:authenticated-interactive-ready', {
+            detail: {
+                page: String(appMain.dataset.currentPage || ''),
+                renderPhase: String(document.documentElement.dataset.suxiRenderPhase || ''),
+            },
+        }));
+        return true;
+    };
     const mountSuxiApp = () => {
         suxiApp = configureSuxiApp(createApp(suxiRootComponent));
         suxiApp.mount('#app');
+        publishSuxiAuthenticatedInteractiveReady();
         return suxiApp;
     };
     const startupRenderPages = new Set(['compass', 'ai-workbench']);
@@ -38693,6 +38709,7 @@
     const handleSuxiFullRenderError = (event) => {
         const asset = String(event?.detail?.asset || 'app-render.min.js');
         const message = String(event?.detail?.message || '完整页面资源加载失败');
+        document.documentElement.dataset.suxiAuthenticatedInteractiveError = `${asset}: ${message}`;
         try {
             suxiApp?.unmount();
         } catch (error) {

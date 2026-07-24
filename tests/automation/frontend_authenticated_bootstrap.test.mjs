@@ -98,14 +98,22 @@ test('login bootstrap delegates remembered passwords to the browser credential s
   assert.doesNotMatch(bootstrap.slice(passwordSaveOffset, appLoadOffset), /await passwordSavePromise/);
 });
 
-test('login handoff exposes auth-success to interactive timing after a real paint boundary', () => {
+test('login handoff exposes auth-success to interactive timing after a usable app surface and paint', () => {
   assert.match(bootstrap, /window\.SUXI_LOGIN_HANDOFF_METRICS = snapshot/);
   assert.match(bootstrap, /auth_to_interactive_ms:/);
   assert.match(bootstrap, /suxi-login-auth-to-interactive/);
   assert.match(bootstrap, /suxi:login-handoff-metric/);
+  assert.match(bootstrap, /const waitForAuthenticatedInteractiveReady = \(\) => new Promise/);
+  assert.match(
+    bootstrap,
+    /const markLoginInteractiveAfterPaint = async \(metadata = \{\}\) => \{\s*await waitForAuthenticatedInteractiveReady\(\);\s*await waitForFirstAuthenticatedPaint\(\);/,
+  );
   assert.match(bootstrap, /await markLoginInteractiveAfterPaint\(\{ source: 'public-login' \}\)/);
   assert.match(bootstrap, /window\.SUXI_MARK_LOGIN_AUTH_SUCCESS = markLoginAuthSuccess/);
   assert.match(bootstrap, /window\.SUXI_MARK_LOGIN_INTERACTIVE_AFTER_PAINT = markLoginInteractiveAfterPaint/);
+  assert.match(appMain, /document\.querySelector\('\[data-testid="deferred-page-loading"\]'\)/);
+  assert.match(appMain, /dataset\.suxiAuthenticatedInteractiveReady = '1'/);
+  assert.match(appMain, /suxi:authenticated-interactive-ready/);
 });
 
 test('authenticated startup paints the home render before loading the full render', () => {

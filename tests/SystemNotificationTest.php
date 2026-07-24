@@ -193,7 +193,8 @@ final class SystemNotificationTest extends TestCase
         ]);
         SystemNotificationUserState::markReadForUser([(int)$first->id], $userId);
 
-        $query = SystemNotification::alias('notification')
+        $query = SystemNotification::with(['hotel', 'actor'])
+            ->alias('notification')
             ->field('notification.*')
             ->leftJoin(
                 'system_notification_user_states notification_state',
@@ -208,9 +209,19 @@ final class SystemNotificationTest extends TestCase
         $controller = $reflection->newInstanceWithoutConstructor();
         $method = $reflection->getMethod('notificationCountSummary');
         $method->setAccessible(true);
+        $queries = [];
+        Db::listen(static function ($sql) use (&$queries): void {
+            $queries[] = strtolower((string)$sql);
+        });
         $summary = $method->invoke($controller, $query);
 
         self::assertSame(['total' => 2, 'unread_count' => 1], $summary);
+        $aggregateSql = implode("\n", array_filter(
+            $queries,
+            static fn(string $sql): bool => str_contains($sql, 'as total')
+        ));
+        self::assertNotSame('', $aggregateSql);
+        self::assertStringNotContainsString('notification.*', $aggregateSql);
     }
 
     /**
