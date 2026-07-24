@@ -672,6 +672,7 @@
 
     let recoverSuxiRuntimeError = null;
     let requestSuxiFullRenderForPage = () => false;
+    let publishSuxiAuthenticatedInteractiveReady = () => false;
     const suxiRootComponent = {
         render(...args) {
             const activeRender = suxiActiveRender.value;
@@ -1254,6 +1255,7 @@
             };
             const clearAuthSessionWithStatus = (tokenStatus = 'missing') => {
                 authSessionEpoch += 1;
+                window.SUXI_RESET_AUTHENTICATED_INTERACTIVE_STATE?.();
                 clearStartupHotelListLoadTimer();
                 clearFormOperationSupportLoadTimer();
                 isLoggedIn.value = false;
@@ -22521,6 +22523,8 @@
                         activateCoreOperationsAfterLogin();
                         loadData();
                         scheduleInitialBackendNotificationRefresh();
+                        await nextTick();
+                        publishSuxiAuthenticatedInteractiveReady();
                         try {
                             const timingPromise = window.SUXI_MARK_LOGIN_INTERACTIVE_AFTER_PAINT?.({ source: 'app-login' });
                             timingPromise?.catch?.(() => {});
@@ -38641,7 +38645,7 @@
         app.config.globalProperties.aiModelConfigText = globalAiModelConfigText;
         return app;
     };
-    const publishSuxiAuthenticatedInteractiveReady = () => {
+    publishSuxiAuthenticatedInteractiveReady = () => {
         const appMain = document.querySelector('[data-testid="app-main"]');
         const deferredPage = document.querySelector('[data-testid="deferred-page-loading"]');
         if (!appMain || deferredPage) return false;

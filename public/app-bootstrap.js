@@ -265,7 +265,13 @@
         return snapshot;
     };
 
+    const resetAuthenticatedInteractiveState = () => {
+        delete document.documentElement.dataset.suxiAuthenticatedInteractiveReady;
+        delete document.documentElement.dataset.suxiAuthenticatedInteractiveError;
+    };
+
     const markLoginAuthSuccess = ({ source = 'public-login' } = {}) => {
+        resetAuthenticatedInteractiveState();
         loginHandoffStartedAt = monotonicNow();
         loginHandoffMetrics = {
             source,
@@ -897,5 +903,6 @@
     window.SUXI_MARK_LOGIN_AUTH_SUCCESS = markLoginAuthSuccess;
     window.SUXI_MARK_LOGIN_INTERACTIVE = markLoginInteractive;
     window.SUXI_MARK_LOGIN_INTERACTIVE_AFTER_PAINT = markLoginInteractiveAfterPaint;
+    window.SUXI_RESET_AUTHENTICATED_INTERACTIVE_STATE = resetAuthenticatedInteractiveState;
     start();
 })();
