@@ -68,8 +68,8 @@ test('every OTA analysis number exposes a four-state truth envelope and full pro
 
   assert.match(onlineDataPage, /data-testid="truth-metric"/);
   assert.match(onlineDataPage, />真实性凭证</);
-  assert.match(onlineDataPage, /onlineTruthDetailText\(card\.truth\)/);
-  assert.match(onlineDataPage, /onlineTruthDetailText\(item\)/);
+  assert.match(onlineDataPage, /<online-truth-summary :truth="card\.truth"/);
+  assert.match(onlineDataPage, /<online-truth-summary :truth="item"/);
   assert.match(dataHealthStatic, /OTA渠道数据，不代表全酒店经营/);
   assert.match(dataHealthStatic, /onlineTruthStatusText/);
   assert.match(dataHealthStatic, /onlineTruthDetailText/);

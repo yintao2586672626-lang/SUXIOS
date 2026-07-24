@@ -273,7 +273,7 @@ test('core loop reads exact target-day OTA evidence without zero fallbacks', () 
   assert.match(onlineDataFragment, /core-operations-metric-truth-detail-/);
   assert.match(onlineDataFragment, /onlineTruthStatusText\(metric\.truth\)/);
   assert.match(onlineDataFragment, /onlineTruthStatusClass\(metric\.truth\)/);
-  assert.match(onlineDataFragment, /onlineTruthDetailText\(metric\.truth\)/);
+  assert.match(onlineDataFragment, /<online-truth-summary :truth="metric\.truth"/);
   assert.match(onlineDataFragment, /计算：/);
   assert.match(onlineDataFragment, /真值：/);
   assert.match(html, /String\(recommendation\.date_start \|\| ''\) === targetDate/);
