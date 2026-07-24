@@ -54,6 +54,7 @@ test('verified five-run authenticated report passes the default local runtime bu
 test('CI enforces the static budget and measures the authenticated app before the runtime budget', () => {
   assert.match(workflow, /run: npm run verify:performance-budget/);
   assert.match(workflow, /SUXI_PHP: php/);
+  assert.match(workflow, /PHP_CLI_SERVER_WORKERS: '4'/);
   assert.match(workflow, /SUXI_E2E_DB_NAME: hotelx_ci_test/);
   assert.match(workflow, /npm run measure:performance:isolated/);
   assert.match(workflow, /npm run verify:performance-runtime-budget/);

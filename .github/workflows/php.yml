@@ -144,6 +144,7 @@ jobs:
         timeout-minutes: 8
         env:
           SUXI_PHP: php
+          PHP_CLI_SERVER_WORKERS: '4'
           SUXI_E2E_DB_OVERRIDE: '1'
           SUXI_E2E_DB_NAME: hotelx_ci_test
           DB_HOST: 127.0.0.1
