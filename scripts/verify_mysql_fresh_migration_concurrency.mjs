@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -84,6 +84,9 @@ const workingTreeUntrackedMigrationFiles = diskMigrationFiles.filter(
   name => !trackedMigrationFiles.includes(name),
 );
 const migrationPaths = diskMigrationFiles.map(name => join(migrationDirectory, name));
+const repeatableMigrationPaths = migrationPaths.filter(
+  migrationPath => !freshInitBaselineAdoptedMigrationFiles.has(basename(migrationPath)),
+);
 
 const mysqlBinary = process.env.MYSQL_BINARY || process.env.SUXI_MYSQL || 'mysql';
 const phpBinary = process.env.PHP_BINARY || 'php';
@@ -568,11 +571,11 @@ try {
   });
 
   for (let run = 1; run <= migrationRuns; run += 1) {
-    for (const [index, migrationPath] of migrationPaths.entries()) {
+    for (const [index, migrationPath] of repeatableMigrationPaths.entries()) {
       runMysql({
         database: databaseName,
         input: readFileSync(migrationPath),
-        label: `migration repeat pass ${run}/${migrationRuns} file ${index + 1}/${migrationPaths.length}`,
+        label: `migration repeat pass ${run}/${migrationRuns} file ${index + 1}/${repeatableMigrationPaths.length}`,
       });
     }
   }

@@ -71,6 +71,8 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /freshInitBaselineAdoptedMigrationFiles/);
   assert.match(verifier, /20260723_validate_owner_tenant_bootstrap_targets\.sql/);
   assert.match(verifier, /stored\.executionKind !== evidence\.executionKind/);
+  assert.match(verifier, /const repeatableMigrationPaths = migrationPaths\.filter/);
+  assert.match(verifier, /freshInitBaselineAdoptedMigrationFiles\.has\(basename\(migrationPath\)\)/);
   assert.match(verifier, /schema_baseline_sources/);
   assert.match(verifier, /unresolved migration failures/);
   assert.match(verifier, /assertGovernedCompatibilityColumns\('Fresh initialization'\)/);
@@ -82,7 +84,7 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /schema_versions_required:\s*diskMigrationFiles\.length/);
   assert.match(verifier, /baseline_sources_required:\s*declaredBaselineSources\.length/);
   assert.match(verifier, /baseline_source_checksums_verified:\s*true/);
-  assert.match(verifier, /for \(const \[index, migrationPath\] of migrationPaths\.entries\(\)\)/);
+  assert.match(verifier, /for \(const \[index, migrationPath\] of repeatableMigrationPaths\.entries\(\)\)/);
   assert.match(verifier, /migrationRuns\s*=\s*2/);
   assert.match(verifier, /workerCount\s*=\s*8/);
   assert.match(verifier, /loginWorkerCount\s*=\s*16/);
