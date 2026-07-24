@@ -131,6 +131,25 @@ test('unthrottled auth handoff keeps the measured hard ceiling separate from the
   );
 });
 
+test('longest task keeps the device target separate from the isolated CI ceiling', () => {
+  const report = passingReport();
+  report.aggregate.metrics.longest_task_ms = metric(422);
+  const assessment = evaluateFrontendRuntimeBudget(report);
+  assert.deepEqual(assessment.failures, []);
+  assert.deepEqual(assessment.warnings, [{
+    metric: 'longest_task_p95_ms',
+    actual: 422,
+    target: 200,
+    reason: 'improvement_target_missed',
+  }]);
+
+  report.aggregate.metrics.longest_task_ms = metric(501);
+  assert(
+    evaluateFrontendRuntimeBudget(report).failures
+      .some((failure) => failure.metric === 'longest_task_p95_ms'),
+  );
+});
+
 test('a bounded measurement retry is retained as a warning instead of disappearing', () => {
   const report = passingReport();
   report.runs[2].attempt_count = 2;
