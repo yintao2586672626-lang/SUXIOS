@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 
 const sliceBetween = (source, startText, endText) => {
   const start = source.indexOf(startText);
@@ -56,6 +57,21 @@ const reviewAutomation = sliceBetween(
   'const runCtripReviewMatchAutomation =',
   'const bindCtripReviewOrderMatch ='
 );
+const ctripManualFetchAction = sliceBetween(
+  html,
+  "requestFetch: requestBody => request('/online-data/fetch-ctrip'",
+  'setOnlineDataResult: value =>'
+);
+const accountCollectionCenter = sliceBetween(
+  html,
+  'data-testid="platform-account-collection-center"',
+  'data-testid="platform-account-advanced-tools"'
+);
+const hotelAccountSummary = sliceBetween(
+  html,
+  'data-testid="hotel-account-summary-table"',
+  '<!-- 空状态 -->'
+);
 
 test('OTA platform status page exposes the P0 Profile login flow without credential custody', () => {
   assert.match(flowPanel, /Profile 主线，不托管 OTA 账号密码/);
@@ -68,6 +84,8 @@ test('OTA platform status page exposes the P0 Profile login flow without credent
 
 test('browser assist import panel posts supplemental captures through the contract endpoint', () => {
   assert.match(html, /ota-browser-assist-static\.js/);
+  assert.match(html, /const loadOtaBrowserAssistStatic = \(\) => \{/);
+  assert.match(html, /await loadOtaBrowserAssistStatic\(\)/);
   assert.match(html, /data-testid="browser-assist-import-panel"/);
   assert.match(html, /browserAssistImportForm/);
   assert.match(html, /browserAssistImportResult/);
@@ -99,7 +117,7 @@ test('Ctrip review order advanced panel does not expose main-token page assist s
 
   assert.match(advancedPanel, /copyCtripReviewMatchPayloadTemplate/);
   assert.match(html, /const copyCtripReviewMatchPayloadTemplate = \(\) =>/);
-  assert.match(html, /授权页脚本已禁用/);
+  assert.match(advancedPanel, /不会复制宿析登录 token 到 OTA 页面/);
   assert.doesNotMatch(html, /buildCtripReviewOrdererAssistScript/);
   assert.doesNotMatch(html, /copyCtripReviewOrdererAssistScript/);
   assert.doesNotMatch(html, /token:\s*authToken/);
@@ -163,8 +181,8 @@ test('OTA platform Profile flow uses login-state and target-date evidence as the
   assert.match(flowBuilder, /const loginVerified = currentSessionVerified && statusCode === 'logged_in';/);
   assert.doesNotMatch(flowBuilder, /manual_login_state_verified\|logged_in/);
   assert.doesNotMatch(flowBuilder, /manual_login_state_verified\/i\.test\(currentStatus\)/);
-  assert.match(html, /current_session_verified=/);
-  assert.match(html, /historical_manual_login_state_verified=/);
+  assert.match(html, /当天会话：\{\{ item\.binding_contract\.current_session_verified \? '已验证' : '未验证' \}\}/);
+  assert.match(html, /历史登录：\{\{ item\.binding_contract\.manual_login_state_verified \? '已验证' : '未验证' \}\}/);
   assert.match(html, /item\.binding_checks \|\| item\.checks/);
   assert.match(flowBuilder, /const collectionDone = collectionStatus === 'collected'/);
   assert.match(flowBuilder, /targetTrafficRows > 0/);
@@ -183,6 +201,34 @@ test('business request layer carries hotel tenant and platform context only for 
   }
   assert.match(requestContextLayer, /appendContextToRequestUrl/);
   assert.match(requestContextLayer, /appendContextToJsonBody/);
+});
+
+test('strict manual OTA execution endpoints never receive generic business context fields', () => {
+  for (const path of [
+    '/online-data/fetch-ctrip',
+    '/online-data/fetch-meituan',
+    '/online-data/fetch-ctrip-traffic',
+    '/online-data/ctrip/traffic',
+    '/online-data/fetch-ctrip-cookie-api',
+    '/online-data/fetch-ctrip-overview',
+    '/online-data/fetch-ctrip-ads',
+    '/online-data/fetch-meituan-traffic',
+    '/online-data/fetch-meituan-order-flow',
+    '/online-data/fetch-meituan-orders',
+    '/online-data/fetch-meituan-ads',
+  ]) {
+    assert.ok(requestContextLayer.includes(`'${path}'`), `missing strict manual endpoint ${path}`);
+  }
+  assert.match(requestContextLayer, /STRICT_OTA_MANUAL_EXECUTION_PATHS\.has\(path\)/);
+  assert.ok(
+    requestContextLayer.indexOf('STRICT_OTA_MANUAL_EXECUTION_PATHS.has(path)')
+      < requestContextLayer.indexOf('BUSINESS_CONTEXT_ENDPOINT_PREFIXES.some'),
+    'strict endpoint exclusion must run before prefix-based context injection'
+  );
+});
+
+test('Ctrip manual fetch keeps strict execution payload free of injected business context fields', () => {
+  assert.match(ctripManualFetchAction, /withBusinessContext:\s*false/);
 });
 
 test('collection status vocabulary exposes explicit user-visible states', () => {
@@ -223,6 +269,40 @@ test('platform status page separates data types and operational next actions', (
   for (const text of ['点评采集默认策略禁用', '收益/运营负责人', '运营人员', '系统管理员', '数据管理员']) {
     assert.match(typeRowBehavior, new RegExp(text), `type rows must include ${text}`);
   }
+});
+
+test('platform account page is the detailed collection-readiness center', () => {
+  for (const marker of ['自动可采集', '手动可采集', '最近采集结果', '阻塞原因', '下一步', 'filteredPlatformAccountCenterRows']) {
+    assert.match(accountCollectionCenter, new RegExp(marker), `account center must expose ${marker}`);
+  }
+  assert.match(accountCollectionCenter, /platformAccountCenterPlatform/);
+  assert.match(accountCollectionCenter, /platformAccountCenterReadiness/);
+  assert.match(accountCollectionCenter, /platformAccountCenterSearch/);
+  assert.match(html, /data-testid="platform-account-advanced-tools"/);
+});
+
+test('platform account center renders one store row with Ctrip and Meituan channel cards', () => {
+  assert.match(accountCollectionCenter, /data-testid="platform-store-row"/);
+  assert.match(accountCollectionCenter, /data-testid="platform-store-channel-ctrip"/);
+  assert.match(accountCollectionCenter, /data-testid="platform-store-channel-meituan"/);
+  assert.match(accountCollectionCenter, /row\.channels\.ctrip/);
+  assert.match(accountCollectionCenter, /row\.channels\.meituan/);
+  assert.doesNotMatch(accountCollectionCenter, /<th[^>]*>门店 \/ 平台<\/th>/);
+
+  const groupedRows = sliceBetween(
+    html,
+    'const platformStoreAccountCenterRows = computed(() => {',
+    'const filteredPlatformAccountCenterRows = computed(() => {'
+  );
+  assert.match(groupedRows, /platformAccountCenterRows\.value/);
+  assert.match(groupedRows, /channels:\s*\{\s*ctrip:\s*null,\s*meituan:\s*null\s*\}/);
+  assert.match(groupedRows, /grouped\.get\(hotelId\)/);
+});
+
+test('hotel management remains a store-level account summary', () => {
+  assert.doesNotMatch(hotelAccountSummary, /手动Cookie|采集配置|自动化采集/);
+  assert.match(hotelAccountSummary, /最近采集/);
+  assert.match(hotelAccountSummary, /下一步/);
 });
 
 test('post collection actions refresh the unified collection-status panel', () => {

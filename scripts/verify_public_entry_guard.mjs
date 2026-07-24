@@ -3,11 +3,32 @@ import path from 'node:path';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
+import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
+import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs';
+import {
+  AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
+  AUTHENTICATED_ASSET_PHASE_STARTUP,
+  AUTHENTICATED_ASSET_TYPE_SCRIPT,
+  extractAuthenticatedAssetEntries,
+  stripFrontendAssetQuery,
+} from './lib/frontend_authenticated_assets.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
+const appBootstrapPath = path.join(repoRoot, 'public/app-bootstrap.js');
+const appMainPath = path.join(repoRoot, 'public/app-main.js');
+const appMainRuntimePath = path.join(repoRoot, 'public/app-main.min.js');
+const appTemplatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
+const appRenderRuntimePath = path.join(repoRoot, 'public/app-render.min.js');
+const appStartupRenderRuntimePath = path.join(repoRoot, 'public/app-startup-render.min.js');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
+const publicHtaccessPath = path.join(repoRoot, 'public/.htaccess');
+const competitorDeviceComponentPath = path.join(repoRoot, 'public/components/admin/competitor-device-management.js');
+const dataConfigDialogsTemplatePath = path.join(repoRoot, 'resources/frontend/templates/components/data-config-dialogs.html');
+const dataConfigDialogsComponentPath = path.join(repoRoot, 'public/components/system/data-config-dialogs.js');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
+const otaBrowserAssistStaticPath = path.join(repoRoot, 'public/ota-browser-assist-static.js');
 const revenueAiStaticPath = path.join(repoRoot, 'public/revenue-ai-static.js');
 const operationStaticPath = path.join(repoRoot, 'public/operation-static.js');
 const stylePath = path.join(repoRoot, 'public/style.css');
@@ -76,9 +97,44 @@ if (!fs.existsSync(indexPath)) {
   failures.push('public/index.html is missing.');
 } else {
   const stat = fs.statSync(indexPath);
-  let content = fs.readFileSync(indexPath, 'utf8');
+  const htmlContent = fs.readFileSync(indexPath, 'utf8');
+  let authenticatedAssetReferences = [];
+  let authenticatedAssetEntries = [];
+  try {
+    authenticatedAssetEntries = extractAuthenticatedAssetEntries(htmlContent);
+    authenticatedAssetReferences = authenticatedAssetEntries
+      .filter((entry) => entry.type === AUTHENTICATED_ASSET_TYPE_SCRIPT)
+      .map((entry) => entry.src);
+  } catch (error) {
+    failures.push(error.message);
+  }
+  const deferredAssetReferences = [...htmlContent.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
+    .map((match) => match[1]);
+  const runtimeAssetReferences = authenticatedAssetReferences.length
+    ? authenticatedAssetReferences
+    : deferredAssetReferences;
+  const runtimeAssetPaths = runtimeAssetReferences.map(stripFrontendAssetQuery);
+  const runtimeAssetReference = (assetName) => runtimeAssetReferences.find(
+    (reference) => stripFrontendAssetQuery(reference) === assetName,
+  ) || '';
+  const appBootstrapContent = fs.existsSync(appBootstrapPath) ? fs.readFileSync(appBootstrapPath, 'utf8') : '';
+  const appMainContent = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
+  const appMainRuntimeContent = fs.existsSync(appMainRuntimePath) ? fs.readFileSync(appMainRuntimePath, 'utf8') : '';
+  const appTemplateContent = fs.existsSync(appTemplatePath) ? fs.readFileSync(appTemplatePath, 'utf8') : '';
+  const appRenderRuntimeContent = fs.existsSync(appRenderRuntimePath) ? fs.readFileSync(appRenderRuntimePath, 'utf8') : '';
+  const appStartupRenderRuntimeContent = fs.existsSync(appStartupRenderRuntimePath) ? fs.readFileSync(appStartupRenderRuntimePath, 'utf8') : '';
+  const appTemplateSemanticContent = appTemplateContent
+    .replaceAll('&amp;', '&')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&quot;', '"');
+  let content = `${htmlContent}\n${appTemplateSemanticContent}\n${appMainContent}`;
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
+  const otaBrowserAssistStaticContent = fs.existsSync(otaBrowserAssistStaticPath)
+    ? fs.readFileSync(otaBrowserAssistStaticPath)
+    : Buffer.alloc(0);
   const revenueAiStaticContent = fs.existsSync(revenueAiStaticPath) ? fs.readFileSync(revenueAiStaticPath, 'utf8') : '';
+  const revenueAiStaticHash = crypto.createHash('sha256').update(revenueAiStaticContent).digest('hex').slice(0, 10);
   const revenueAiServicePath = path.join(repoRoot, 'app/service/RevenueAiOverviewService.php');
   const revenueAiServiceContent = fs.existsSync(revenueAiServicePath) ? fs.readFileSync(revenueAiServicePath, 'utf8') : '';
   const operationStaticContent = fs.existsSync(operationStaticPath) ? fs.readFileSync(operationStaticPath, 'utf8') : '';
@@ -110,12 +166,126 @@ if (!fs.existsSync(indexPath)) {
   const ctripProfileFieldConfigPanelContent = fs.existsSync(ctripProfileFieldConfigPanelPath)
     ? fs.readFileSync(ctripProfileFieldConfigPanelPath, 'utf8')
     : '';
+  const dataConfigDialogsTemplateContent = fs.existsSync(dataConfigDialogsTemplatePath)
+    ? fs.readFileSync(dataConfigDialogsTemplatePath, 'utf8')
+    : '';
+  const dataConfigDialogsComponentContent = fs.existsSync(dataConfigDialogsComponentPath)
+    ? fs.readFileSync(dataConfigDialogsComponentPath, 'utf8')
+    : '';
 
-  if (stat.size < 500_000) {
+  if (stat.size < 5_000) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
   }
+  if (Buffer.byteLength(appTemplateContent) < 1_000_000) {
+    failures.push('resources/frontend/app-template.html is missing or unexpectedly small.');
+  }
+  if (!appMainContent) {
+    failures.push('public/app-main.js is missing or empty.');
+  }
+  if (!appBootstrapContent) {
+    failures.push('public/app-bootstrap.js is missing or empty.');
+  }
+  if (!appMainRuntimeContent) {
+    failures.push('public/app-main.min.js is missing or empty.');
+  }
+  if (!appRenderRuntimeContent) {
+    failures.push('public/app-render.min.js is missing or empty.');
+  }
+  if (!appStartupRenderRuntimeContent) {
+    failures.push('public/app-startup-render.min.js is missing or empty.');
+  }
+  if (/const\s+suxiApp\s*=\s*createApp\(/.test(htmlContent)) {
+    failures.push('public/index.html must not inline the main Vue bootstrap after entry externalization.');
+  }
+  if (!/const mountSuxiApp = \(\) =>/.test(appMainContent)
+    || !/configureSuxiApp\(createApp\(suxiRootComponent\)\)/.test(appMainContent)) {
+    failures.push('public/app-main.js must contain the main Vue bootstrap.');
+  }
+  if (appMainContent && appMainRuntimeContent) {
+    const buildInspection = await inspectFrontendEntryBuild({
+      source: appMainContent,
+      artifact: appMainRuntimeContent,
+      html: htmlContent,
+    });
+    failures.push(...buildInspection.failures);
+  }
+  const tailwindBuildInspection = await inspectTailwindRuntimeBuild(repoRoot);
+  failures.push(...tailwindBuildInspection.failures);
+  const templateBuildInspection = await inspectFrontendTemplateBuild(repoRoot);
+  failures.push(...templateBuildInspection.failures);
+  const appMainHash = appMainRuntimeContent
+    ? crypto.createHash('sha256').update(appMainRuntimeContent).digest('hex').slice(0, 10)
+    : '';
+  const appMainReference = runtimeAssetReference('app-main.min.js');
+  if (!appMainReference.includes(`h${appMainHash}`)) {
+    failures.push('public/index.html must use the current public/app-main.min.js content hash in its immutable cache version.');
+  }
+  const appBootstrapHash = appBootstrapContent
+    ? crypto.createHash('sha256').update(appBootstrapContent).digest('hex').slice(0, 10)
+    : '';
+  const appBootstrapReference = deferredAssetReferences.find(
+    (reference) => stripFrontendAssetQuery(reference) === 'app-bootstrap.js',
+  ) || '';
+  if (!appBootstrapReference.includes(`h${appBootstrapHash}`)) {
+    failures.push('public/index.html must use the current public/app-bootstrap.js content hash in its immutable cache version.');
+  }
+  const systemStaticHash = systemStaticContent
+    ? crypto.createHash('sha256').update(systemStaticContent).digest('hex').slice(0, 10)
+    : '';
+  const systemStaticReference = runtimeAssetReference('system-static.js');
+  if (!systemStaticReference.includes(`h${systemStaticHash}`)) {
+    failures.push('public/index.html must use the current public/system-static.js content hash in its immutable cache version.');
+  }
+  const otaBrowserAssistStaticHash = otaBrowserAssistStaticContent.length > 0
+    ? crypto.createHash('sha256').update(otaBrowserAssistStaticContent).digest('hex').slice(0, 10)
+    : '';
+  const otaBrowserAssistStaticReference = appMainContent.match(
+    /ota-browser-assist-static\.js\?v=[^"'`]+/,
+  )?.[0] || '';
+  if (!otaBrowserAssistStaticHash
+    || !otaBrowserAssistStaticReference.includes(`h${otaBrowserAssistStaticHash}`)) {
+    failures.push('public/app-main.js must use the current public/ota-browser-assist-static.js content hash in its action-gated loader.');
+  }
+  if (runtimeAssetPaths.includes('ota-browser-assist-static.js')
+    || !appMainContent.includes('const loadOtaBrowserAssistStatic = () => {')
+    || !appMainContent.includes('await loadOtaBrowserAssistStatic()')) {
+    failures.push('OTA browser assist must stay out of the authenticated manifest and load only after its copy action.');
+  }
+  const loginSubmitBindingOffset = appBootstrapContent.indexOf("form.addEventListener('submit'");
+  const loginReadyOffset = appBootstrapContent.indexOf("form.dataset.suxiLoginReady = '1';");
+  if (appBootstrapContent && (loginSubmitBindingOffset < 0 || loginReadyOffset <= loginSubmitBindingOffset)) {
+    failures.push('public/app-bootstrap.js must expose the login-ready marker after binding the submit handler.');
+  }
+  if (appBootstrapContent
+    && (!appBootstrapContent.includes('if (submit.dataset.suxiLoading !== loadingState) {')
+      || !appBootstrapContent.includes('submit.dataset.suxiLoading = loadingState;'))) {
+    failures.push('public/app-bootstrap.js must not replace login button contents during unchanged autofill-state polling.');
+  }
+  if (runtimeAssetPaths[0] !== 'vue.runtime.global.prod.js'
+    || runtimeAssetPaths.at(-3) !== 'app-startup-render.min.js'
+    || runtimeAssetPaths.at(-2) !== 'app-render.min.js'
+    || runtimeAssetPaths.at(-1) !== 'app-main.min.js') {
+    failures.push('public/index.html must keep runtime Vue first and end with startup render, deferred full render, then app-main.');
+  }
+  const phaseFor = (assetName) => authenticatedAssetEntries.find(
+    (entry) => stripFrontendAssetQuery(entry.src) === assetName,
+  )?.phase;
+  if (phaseFor('app-startup-render.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
+    failures.push('public/index.html must load the home startup render and app-main before deferring the full render until after first paint.');
+  }
+  if (!appBootstrapContent.includes("window.dispatchEvent(new CustomEvent('suxi:full-render-ready'")
+    || !appMainContent.includes("window.addEventListener('suxi:full-render-ready', handleSuxiFullRenderReady")
+    || !appMainContent.includes('const suxiRenderCaches = new WeakMap();')
+    || !appMainContent.includes('suxiActiveRender.value = fullRender;')
+    || !appMainContent.includes('suxiApp?.unmount();')
+    || !appMainContent.includes('window.SUXI_INITIAL_PAGE_OVERRIDE = targetPage;')
+    || !appMainContent.includes('requestSuxiFullRenderForPage = (page) => {')) {
+    failures.push('The authenticated bootstrap must remount deferred full pages through isolated render caches.');
+  }
 
-  if (!content.includes('system-static.js?v=20260708-hotel-merge')
+if (!runtimeAssetPaths.includes('system-static.js')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
     || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
@@ -133,7 +303,7 @@ if (!fs.existsSync(indexPath)) {
 
   const requiredMarkers = [
     { name: 'Vue mount root', pattern: /id=["']app["']/ },
-    { name: 'local Vue runtime', pattern: /vue\.global\.prod\.js/ },
+    { name: 'local Vue runtime', pattern: /vue\.runtime\.global\.prod\.js/ },
     { name: 'local Tailwind stylesheet', pattern: /tailwind\.min\.css/ },
     { name: 'application stylesheet', pattern: /style\.css/ },
     { name: 'Vue app bootstrap', pattern: /createApp|Vue\.createApp/ },
@@ -145,18 +315,21 @@ if (!fs.existsSync(indexPath)) {
     }
   }
 
-  const ctripStaticVersionMatch = content.match(/<script\s+src="ctrip-static\.js\?v=([^"]+)"/);
+  const ctripStaticVersion = runtimeAssetReference('ctrip-static.js').split('?')[1] || '';
   const ctripStaticHash = ctripStaticContent
     ? crypto.createHash('sha256').update(ctripStaticContent).digest('hex').slice(0, 10)
     : '';
-  const meituanStaticVersionMatch = content.match(/<script\s+src="meituan-static\.js\?v=([^"]+)"/);
+  const meituanStaticVersion = runtimeAssetReference('meituan-static.js').split('?')[1] || '';
   const meituanStaticHash = meituanStaticContent
     ? crypto.createHash('sha256').update(meituanStaticContent).digest('hex').slice(0, 10)
     : '';
-  if (!ctripStaticVersionMatch
-    || !ctripStaticVersionMatch[1].includes(`h${ctripStaticHash}`)
-    || !meituanStaticVersionMatch
-    || !meituanStaticVersionMatch[1].includes(`h${meituanStaticHash}`)) {
+  const dataHealthStaticVersion = runtimeAssetReference('data-health-static.js').split('?')[1] || '';
+  const dataHealthStaticHash = dataHealthStaticContent
+    ? crypto.createHash('sha256').update(dataHealthStaticContent).digest('hex').slice(0, 10)
+    : '';
+  if (!ctripStaticVersion.includes(`h${ctripStaticHash}`)
+    || !meituanStaticVersion.includes(`h${meituanStaticHash}`)
+    || !dataHealthStaticVersion.includes(`h${dataHealthStaticHash}`)) {
     failures.push('public/index.html must keep static helper cache versions aligned with changed helper files.');
   }
   try {
@@ -198,7 +371,7 @@ if (!fs.existsSync(indexPath)) {
       failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
     }
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';")
+  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';")
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -228,11 +401,19 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html must lazy-load the admin-only Ctrip profile-field config panel from public/components/online-data/ctrip-profile-field-config-panel.js.');
   }
 
-  if (!content.includes('const suxiApp = createApp({')
+  if (!content.includes('let suxiApp = null;')
     || !content.includes('const renderSuxiStartupError = (error) => {')
-    || !content.includes('suxiApp.config.errorHandler = (error) => {')
+    || !content.includes('let recoverSuxiRuntimeError = null;')
+    || !content.includes('recoverSuxiRuntimeError = ({ error, info }) => {')
+    || !content.includes('const isFatalStartupError = /setup function|app errorHandler|app warnHandler|app unmount cleanup function/i.test')
+    || !content.includes("currentPage.value = 'compass';")
+    || !content.includes('当前功能发生异常，已返回今日经营看板')
+    || !content.includes('app.config.errorHandler = (error, _instance, info) => {')
+    || !content.includes("recovered = typeof recoverSuxiRuntimeError === 'function'")
+    || !content.includes('if (recovered) return;')
+    || !content.includes('suxiApp = configureSuxiApp(createApp(suxiRootComponent));')
     || !content.includes("suxiApp.mount('#app');")) {
-    failures.push('public/index.html must surface Vue startup/runtime initialization errors through the app root instead of failing silently.');
+    failures.push('public/index.html must isolate recoverable Vue runtime errors while preserving an explicit fatal startup surface.');
   }
   if (!content.includes(".replace(/[<>&\"']/g")) {
     failures.push('public/index.html startup error renderer must HTML-escape error messages before injecting them into #app.');
@@ -244,6 +425,21 @@ if (!fs.existsSync(indexPath)) {
   if (!content.includes("if (appRoot.dataset.startupErrorRendered === '1') return;")
     || !content.includes("appRoot.dataset.startupErrorRendered = '1';")) {
     failures.push('public/index.html startup error renderer must be idempotent so repeated runtime errors do not keep replacing #app.');
+  }
+  const ctripFuturePanelStart = content.indexOf('data-testid="ctrip-search-opportunity-panel"');
+  const ctripFuturePanelEnd = content.indexOf("onlineDataTab === 'ctrip-ads'", ctripFuturePanelStart);
+  if (ctripFuturePanelStart >= 0 && ctripFuturePanelEnd > ctripFuturePanelStart) {
+    const ctripFuturePanel = content.slice(ctripFuturePanelStart, ctripFuturePanelEnd);
+    const startupNullableBindings = [
+      'ctripSearchOpportunityView',
+      'ctripSearchOpportunityActiveRange',
+      'ctripSearchOpportunityHorizonSummary',
+    ];
+    for (const binding of startupNullableBindings) {
+      if (new RegExp(`\\b${binding}\\.`).test(ctripFuturePanel)) {
+        failures.push(`public/index.html future-search panel must optional-chain startup-nullable binding ${binding} before reading its fields.`);
+      }
+    }
   }
   if (!content.includes("if (!u || typeof u !== 'object') return false;")
     || !content.includes("const username = String(u.username || '');")
@@ -261,20 +457,19 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("{{ u?.realname || u?.username || '-' }}")) {
     failures.push('public/index.html operation-log user filter must render invalid or partial user rows safely.');
   }
-  if (!/<script\s+src=["']vue\.global\.prod\.js\?v=[^"']+["']><\/script>/.test(content)
-    || !/<script\s+src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content)) {
-    failures.push('public/index.html must version core Vue/system static scripts so P0 entry fixes are not hidden by stale browser cache.');
+  const vueRuntimeReference = runtimeAssetReference('vue.runtime.global.prod.js');
+  if (!vueRuntimeReference.includes('?v=') || !systemStaticReference.includes('?v=')) {
+    failures.push('public/index.html must version core Vue/system static assets so P0 entry fixes are not hidden by stale browser cache.');
   }
 
   if (/\/assets\/index-[A-Za-z0-9_-]+\.(?:js|css)/.test(content)) {
     failures.push('public/index.html references Vite hashed assets; do not build Vite into HOTEL/public.');
   }
 
-  const tailwindOffset = content.indexOf('href="tailwind.min.css?v=20260628-static-router-fix"');
-  const vueScriptMatch = content.match(/<script\s+src=["']vue\.global\.prod\.js(?:\?v=[^"']+)?["']/);
-  const vueScriptOffset = vueScriptMatch ? vueScriptMatch.index : -1;
-  if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
-    failures.push('public/index.html must discover core stylesheets before synchronous Vue/static scripts.');
+  const loginCriticalOffset = htmlContent.indexOf('login-critical.css?v=');
+  const vueScriptOffset = vueRuntimeReference ? htmlContent.indexOf(vueRuntimeReference) : -1;
+  if (loginCriticalOffset < 0 || vueScriptOffset < 0 || loginCriticalOffset > vueScriptOffset) {
+    failures.push('public/index.html must discover the login-critical stylesheet before the authenticated Vue/static asset chain.');
   }
   const loginBgPreloadOffset = content.indexOf("const loginBackgroundPreload = 'images/login-hotel-lobby-bg.avif';");
   if (/<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']\s+as=["']image["']\s+type=["']image\/avif["']\s+fetchpriority=["']high["']/.test(content)) {
@@ -290,8 +485,8 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('preloadLoginBackground();')) {
     failures.push('public/index.html must conditionally preload the optimized AVIF login background only when the login shell can be shown.');
   }
-  if (loginBgPreloadOffset < 0 || tailwindOffset < 0 || loginBgPreloadOffset > tailwindOffset) {
-    failures.push('public/index.html must evaluate login background preload before core stylesheets.');
+  if (loginBgPreloadOffset < 0 || loginCriticalOffset < 0 || loginBgPreloadOffset > loginCriticalOffset) {
+    failures.push('public/index.html must evaluate login background preload before the login-critical stylesheet.');
   }
   if (!content.includes("requireAppSystemStatic('loadCachedAuthUser')")
     || !content.includes("requireAppSystemStatic('saveCachedAuthUser')")
@@ -350,8 +545,36 @@ if (!fs.existsSync(indexPath)) {
   } catch (error) {
     failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
   }
-  if (!content.includes('revenue-ai-static.js?v=20260710-ai-daily-fact-gate-investigation')
-    || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
+  if (/<script[^>]+src=["']revenue-ai-static\.js(?:\?[^"']*)?["']/.test(htmlContent)
+    || !content.includes("const revenueAiStaticScript = 'revenue-ai-static.js';")
+    || !content.includes(`const revenueAiStaticVersion = '20260724-trusted-decision-h${revenueAiStaticHash}';`)
+    || !content.includes('const loadRevenueAiStatic = () => {')
+    || !content.includes('if (revenueAiStaticLoadPromise) {')
+    || !content.includes('revenueAiStaticLoadPromise = null;')
+    || !content.includes('const ensureRevenueAiStaticReady = async () => {')
+    || !content.includes('revenueAiStaticRevision.value += 1;')
+    || !content.includes("buildRevenueAiGapSummary: () => ({ status: 'not_loaded', total: null")
+    || !content.includes("status: 'not_loaded',\n                    statusText: '未加载'")
+    || !content.includes("runPageLoadOnce(newPage, 'revenue-ai-static', () => ensureRevenueAiStaticReady());")
+    || !content.includes('await ensureRevenueAiStaticReady();\n                        return loadAiDailyReport();')
+    || !content.includes('homeSecondaryPanelsReady.value = true;\n                    void ensureRevenueAiStaticReady()')) {
+    failures.push('Revenue AI static helpers must stay out of the startup chain and load through a versioned, retryable, page-gated loader with truthful not-loaded fallbacks.');
+  }
+  if (!content.includes('// AI_DAILY_REPORT_TASK_HELPERS_START')
+    || !content.includes('const pollAiDailyReportGenerationTask = async ({')
+    || !content.includes("status === 'blocked' || status === 'partial'")
+    || !content.includes("kind: 'limited'")
+    || !content.includes('background: true,')
+    || !content.includes('`/ai-daily-reports/tasks/${encodeURIComponent(taskId)}`')
+    || !content.includes('const readAiDailyReportById = async (reportId, expectedHotelId) => {')
+    || !content.includes('`/ai-daily-reports/${normalizedReportId}`')
+    || !content.includes('pollResult.task.resultReportId')
+    || !content.includes('AI经营日报回读酒店范围不一致')
+    || !content.includes('if (!responseTaskId) {')
+    || /aiDailyReport\.value = res\.data \|\| null;\s*showToast\('AI经营日报已生成'\)/.test(content)) {
+    failures.push('AI daily report generation must use a hotel-scoped background task, truthful terminal states, exact result_report_id readback, and a guarded legacy sync response path.');
+  }
+  if (!revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
     || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
     || !revenueAiStaticContent.includes('buildRevenueAiGapRows')
     || !revenueAiStaticContent.includes('buildRevenueAiMetricCards')
@@ -414,7 +637,9 @@ if (!fs.existsSync(indexPath)) {
     || !revenueAiStaticContent.includes('const actionEntry = item.action_entry && typeof item.action_entry ===')
     || !revenueAiStaticContent.includes('const canApprove = item.can_review === true')
     || !revenueAiStaticContent.includes('const canApproveWithChanges = item.can_review === true')
-    || !revenueAiStaticContent.includes('const canCreateExecutionIntent = manualActions.includes')
+    || !revenueAiStaticContent.includes('const canCreateExecutionIntent = canTransferTrusted')
+    || !revenueAiStaticContent.includes("trustedDecision.contract_version === 'revenue_ai_trusted_decision.v1'")
+    || !revenueAiStaticContent.includes('trustedDecisionRows,')
     || !revenueAiStaticContent.includes('allowedEndpoints,')
     || !revenueAiStaticContent.includes('nextAction: gate.next_action ||')
     || !revenueAiStaticContent.includes('autoWriteOta: summary.auto_write_ota === true')
@@ -470,19 +695,17 @@ if (!fs.existsSync(indexPath)) {
     || content.includes('const revenueAiChannelStatus = (channel) =>')
     || !content.includes('data-testid="revenue-ai-gap-closure"')
     || !content.includes('data-testid="revenue-ai-pricing-gates"')
-    || !content.includes('data-testid="revenue-ai-review-queue"')
     || !content.includes('data-testid="revenue-ai-decision-basis"')
-    || !content.includes('data-testid="revenue-ai-decision-basis-hidden"')
     || !content.includes('data-testid="revenue-ai-evidence-workbench"')
     || !content.includes('@click="openRevenueAiDecisionBasis(basis)"')
     || !content.includes('data-testid="revenue-ai-review-queue-items"')
     || !content.includes('data-testid="revenue-ai-execution-pending"')
-    || !content.includes('{{ item.impactLine }}')
+    || !content.includes('data-testid="revenue-ai-trusted-decision"')
+    || !content.includes('item.trustedDecisionRows')
     || !content.includes('data-testid="revenue-ai-agent-activity"')
     || !content.includes('data-testid="revenue-ai-execution-summary"')
     || !content.includes('data-testid="revenue-ai-effect-review-inputs"')
     || !content.includes('const revenueAiEffectReviewRows = computed(() => revenueAiBuildEffectReviewRows({')
-    || !content.includes('v-if="action.nextActions?.length"')
     || !content.includes('v-if="gate.nextAction"')
     || !content.includes('const openRevenueAiGap = (row = {}) => {')
     || !content.includes('const openRevenueAiDecisionBasis = async (basis = {}) => {')
@@ -550,15 +773,14 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("@click=\"openRevenueAiMetric(card)\"")
     || !content.includes('@click="openRevenueAiExecutionItem(row)"')
     || !content.includes('operationExecutionRowClass')
-    || !content.includes('@click="submitRevenueAiReviewAction(item, \'approve\')"')
-    || !content.includes('@click="submitRevenueAiReviewAction(item, \'approve_with_changes\')"')
-    || !content.includes('@click="submitRevenueAiReviewAction(item, \'reject\')"')
-    || !content.includes('@click="submitRevenueAiReviewAction(item, \'execution_intent\')"')
+    || !content.includes('v-if="item.actionButtons?.length"')
+    || !content.includes('@click="submitRevenueAiReviewAction(item, button.key)"')
     || !revenueAiStaticContent.includes("approve_with_changes: '修改后批准该调价建议'")
     || !revenueAiStaticContent.includes('approved_price: approvedPrice')
     || !content.includes("if (normalizedAction === 'execution_intent') {")
     || !content.includes('await openRevenueAiExecutionItem(revenueAiBuildExecutionIntentOpenRow({')
-    || !revenueAiStaticContent.includes("targetAction: data.target_action || 'approve_intent'")
+    || !revenueAiStaticContent.includes("targetAction: data.target_action || (taskId > 0 ? 'record_execution' : 'approve_intent')")
+    || !revenueAiStaticContent.includes('approve_to_task: true')
     || !revenueAiStaticContent.includes("const resolveRevenueAiReviewNavigation = ({ item = {}, isSuperAdmin = false } = {}) => {")
     || !revenueAiStaticContent.includes('const buildRevenueAiReviewNavigationState = (navigation = {}) => {')
     || !content.includes('const navigationState = revenueAiBuildReviewNavigationState(navigation);')
@@ -593,14 +815,14 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/vue-router.global.prod.js is unused by the current shell and must not remain as a dead public asset.');
   }
 
-  if (/<script\s+src=["']hotel-image-optimizer-static\.js["']/.test(content)) {
-    failures.push('public/index.html must lazy-load hotel-image-optimizer-static.js; it is not required for the initial shell.');
+  if (fs.existsSync(path.join(repoRoot, 'public/hotel-image-optimizer-static.js'))
+    || /hotel-image-optimizer|hotelImageOptimizer|SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC/.test(content)) {
+    failures.push('the removed hotel image optimizer must not remain in the public entry or public assets.');
   }
-  if (!/const\s+hotelImageOptimizerStaticScript\s*=\s*["']hotel-image-optimizer-static\.js["']/.test(content) || !/const\s+loadHotelImageOptimizerStatic\s*=\s*\(\)\s*=>/.test(content)) {
-    failures.push('public/index.html must keep an explicit lazy loader for hotel-image-optimizer-static.js.');
-  }
-  if (!/newPage === ['"]agent-center['"] \|\| newPage === ['"]hotel-image-optimizer['"]/.test(content) || !/ensureHotelImageOptimizerReady\(\)/.test(content)) {
-    failures.push('public/index.html must load hotel image optimizer static data only when agent-center or hotel-image-optimizer is opened.');
+  if (!systemStaticContent.includes('const hotelAiToolboxLinks = [')
+    || !systemStaticContent.includes('hotelAiToolboxLinks,')
+    || !content.includes("const hotelAiToolboxLinks = ref(requireAppSystemStatic('hotelAiToolboxLinks'));")) {
+    failures.push('agent-center must keep its external AI toolbox links through public/system-static.js after image optimizer removal.');
   }
   if (/<script\s+src=["']revenue-research-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load revenue-research-static.js; it is only required by revenue-research-center.');
@@ -610,38 +832,6 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!/newPage === ['"]revenue-research-center['"]/.test(content) || !/ensureRevenueResearchReady\(\)/.test(content)) {
     failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
-  }
-  if (/<script\s+src=["']expansion-static-options\.js["']/.test(content)) {
-    failures.push('public/index.html must lazy-load expansion-static-options.js; the login and compass shell do not need investment expansion options.');
-  }
-  if (!/const\s+expansionStaticOptionsScript\s*=\s*["']expansion-static-options\.js["']/.test(content) || !/const\s+loadExpansionStaticOptions\s*=\s*\(\)\s*=>/.test(content)) {
-    failures.push('public/index.html must keep an explicit lazy loader for expansion-static-options.js.');
-  }
-  if (!/ensureExpansionStaticReady\(\)/.test(content) || !/isExpansionStaticPage\(newPage\)/.test(content)) {
-    failures.push('public/index.html must load expansion static data only when investment expansion pages are opened.');
-  }
-  if (/<script\s+src=["']simulation-static\.js["']/.test(content)) {
-    failures.push('public/index.html must lazy-load simulation-static.js; the login and compass shell do not need simulation and transfer calculators.');
-  }
-  if (!/const\s+simulationStaticScript\s*=\s*["']simulation-static\.js["']/.test(content) || !/const\s+loadSimulationStatic\s*=\s*\(\)\s*=>/.test(content)) {
-    failures.push('public/index.html must keep an explicit lazy loader for simulation-static.js.');
-  }
-  if (!/ensureSimulationStaticReady\(\)/.test(content) || !/isSimulationStaticPage\(newPage\)/.test(content)) {
-    failures.push('public/index.html must load simulation static data only when simulation, feasibility, benchmark, collaboration, or transfer pages are opened.');
-  }
-  const simulationDetailLoader = content.slice(
-    content.indexOf('const loadSimulationDetail = async'),
-    content.indexOf('const reuseSimulationRecord = async')
-  );
-  if (!simulationDetailLoader.includes('await ensureSimulationStaticReady();')) {
-    failures.push('public/index.html must load simulation static data before reusing simulation history input.');
-  }
-  const transferDetailLoader = content.slice(
-    content.indexOf('const loadTransferDetail = async'),
-    content.indexOf('const reuseTransferRecord = async')
-  );
-  if (!transferDetailLoader.includes('await ensureSimulationStaticReady();')) {
-    failures.push('public/index.html must load simulation static data before reusing transfer history input.');
   }
   if (/<script\s+src=["']ai-analysis-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load ai-analysis-static.js; the login and compass shell do not need OTA AI analysis helpers.');
@@ -675,7 +865,7 @@ if (!fs.existsSync(indexPath)) {
   if (/<script\s+src=["']auto-fetch-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load auto-fetch-static.js; the login shell and default online-data page do not need platform auto-fetch helpers.');
   }
-  if (!/const\s+autoFetchStaticScript\s*=\s*["']auto-fetch-static\.js["']/.test(content)
+  if (!/const\s+autoFetchStaticScript\s*=\s*["']auto-fetch-static\.js(?:\?[^"']+)?["']/.test(content)
     || !/const\s+loadAutoFetchStatic\s*=\s*\(\)\s*=>/.test(content)
     || !/const\s+ensureAutoFetchStaticReady\s*=\s*async\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader and ready guard for auto-fetch-static.js.');
@@ -737,10 +927,12 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('autoFetchStatusRequestPromises.has(`${keyPrefix}light`)')
     || !content.includes('autoFetchStatusRequestPromises.has(`${keyPrefix}full`)')
     || !content.includes('const canTriggerAutoFetchByHotelId = (hotelId) => {')
-    || !content.includes('hasAnyPlatformFetchConfigByHotelId(hotelId) || autoFetchConfigProofPendingForHotelId(hotelId)')
+    || !/hasAnyPlatformFetchConfigByHotelId\(hotelId\)\s*\|\|\s*autoFetchConfigProofPendingForHotelId\(hotelId\)/.test(content)
+    || !content.includes("getBrowserProfileDataSourceByHotelAndPlatform(hotelId, 'ctrip')")
+    || !content.includes("getBrowserProfileDataSourceByHotelAndPlatform(hotelId, 'meituan')")
     || !content.includes('hasPlatformFetchConfig: canTriggerAutoFetchByHotelId,')
     || (content.match(/:disabled="fetchingData \|\| !canTriggerAutoFetchByHotelId\(autoFetchHotelId\)"/g) || []).length < 2) {
-    failures.push('public/index.html must let platform-auto immediate collection stay clickable while light config proof is pending, without relaxing settings/backfill controls.');
+    failures.push('public/index.html must let platform-auto immediate collection stay clickable while light config proof is pending or a Browser Profile source exists, without relaxing settings/backfill controls.');
   }
   const openDataConfigModalStart = content.indexOf('const openDataConfigModal =');
   const openDataConfigModalEnd = content.indexOf('const firstDataConfigValue =', openDataConfigModalStart);
@@ -755,6 +947,24 @@ if (!fs.existsSync(indexPath)) {
     || /await loadDataConfig\(type\);[\s\S]*showDataConfigModal\.value = true;/.test(openDataConfigModalSource)
     || /await ensureAutoFetchStaticReady\(\);[\s\S]*currentDataConfigType\.value = type;/.test(openDataConfigModalSource)) {
     failures.push('public/index.html data-source config modal must open before loading auto-fetch-static.js or saved system-config data.');
+  }
+  const dataConfigModalShownAt = openDataConfigModalSource.indexOf('showDataConfigModal.value = true;');
+  const dataConfigComponentLoadAt = openDataConfigModalSource.indexOf('void ensureDataConfigDialogsReady()');
+  const dataConfigDeferredLoadAt = openDataConfigModalSource.indexOf('deferUiTask(async () => {');
+  if (!appMainContent.includes("const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';")
+    || !appMainContent.includes("requireSystemComponent('DataConfigDialogsBody')")
+    || !appMainContent.includes('const DataConfigDialogs = {')
+    || !appTemplateContent.includes('<data-config-dialogs v-if="showDataConfigModal" :ctx="$root"></data-config-dialogs>')
+    || appTemplateContent.includes('<form @submit.prevent="saveDataConfig"')
+    || !dataConfigDialogsTemplateContent.includes('<form @submit.prevent="saveDataConfig"')
+    || !dataConfigDialogsComponentContent.includes('SUXI_SYSTEM_COMPONENTS')
+    || !dataConfigDialogsComponentContent.includes('DataConfigDialogsBody')
+    || htmlContent.includes('<script src="components/system/data-config-dialogs.js')
+    || dataConfigModalShownAt < 0
+    || dataConfigComponentLoadAt <= dataConfigModalShownAt
+    || dataConfigDeferredLoadAt <= dataConfigComponentLoadAt
+    || openDataConfigModalSource.includes('await ensureDataConfigDialogsReady()')) {
+    failures.push('The data-config modal must keep an immediate synchronous shell and lazy-load its precompiled versioned body after opening.');
   }
   if (!/const loadDataConfig = async \(type, options = \{\}\) => \{[\s\S]*const shouldApply = typeof options\.shouldApply === 'function' \? options\.shouldApply : \(\) => true;[\s\S]*if \(!shouldApply\(\)\) return;/.test(content)
     || !/const saveDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const testDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runDataConfigTestFlow['"]\)/.test(content)) {
@@ -794,7 +1004,8 @@ if (!fs.existsSync(indexPath)) {
   if (compassPageGuardCount < 2
     || !content.includes("if (!token.value || !isCompassDataPage() || macroSignalLoading.value) return;")
     || !content.includes("if (options.requireCompass === true && !isCompassDataPage()) return;")
-    || !content.includes("if (!isCompassDataPage()) return null;")
+    || (!content.includes("if (!isCompassDataPage()) return null;")
+      && !content.includes("if (!isCurrentRequest()) return null;"))
     || !content.includes('loadCompetitorSummary({ requireCompass: true })')) {
     failures.push('public/index.html compass-data background refreshes must stop after the user leaves AI workbench/compass pages.');
   }
@@ -822,11 +1033,13 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const ctripManualFetchConfigProofPending = () => {')
     || !content.includes('return !!ctripConfigListLoadingPromise')
     || !ctripCanFetchSource.includes('if (selectedCtripHotelId.value) return selectedCtripManualCredentialState.value.canFetch;')
-    || !ctripCanFetchSource.includes('return buildCtripManualCredentialState(ctripManualFetchConfigCandidate()).canFetch;')
+    || !ctripCanFetchSource.includes("const isRankingTab = onlineDataTab.value === 'ctrip-ranking';")
+    || !ctripCanFetchSource.includes('if (!isRankingTab) return false;')
+    || !ctripCanFetchSource.includes("return normalizeCtripTemporaryCookie(ctripForm.value) !== '';")
     || /ctripManualFetchConfigProofPending|ctripConfigListLoadingPromise|ctripConfigListLoaded|ctripConfigListLoadFailed/.test(ctripCanFetchSource)
     || !content.includes('const resolveCtripManualFetchConfig = async (config) => {')
     || !content.includes('return ctripManualFetchConfigCandidate();')) {
-    failures.push('public/index.html Ctrip ranking/traffic manual fetch must fail closed while config proof is pending/loading/missing and only enable for a ready metadata credential; async prewarm and submit-time resolution must remain.');
+    failures.push('public/index.html Ctrip manual fetch must require a ready saved credential for a selected hotel, or an explicit one-shot Cookie on the unbound ranking query; async prewarm and submit-time resolution must remain.');
   }
   if (!content.includes('const ctripConfigHasManualAuxiliary = (config = null) => {')
     || !content.includes("String(config.credential_status || '') === 'ready'")
@@ -962,7 +1175,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const homeSecondaryPanelsReady = ref(false);')
     || !content.includes('const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {')
     || !content.includes('clearHomeSecondaryPanelsReadyTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();')
-    || !content.includes("homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    runPageLoadOnce(newPage, 'main', () => loadCompassData());")
+    || !/homeSecondaryPanelsReady\.value = false;\s+scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,320}?runPageLoadOnce\(newPage, 'main', \(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true\s*\}\)\);/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="daily-ops-monitor-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-weather-demand-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-market-signal-card"/.test(content)
@@ -1089,7 +1302,7 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/.test(content)
     || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
-    || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]*deferUiTask\(\(\) => applyCtripHotelConfig\(false, \{[\s\S]*refreshList: false,[\s\S]*skipIfAligned: true,/.test(content)
+    || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]{0,700}?deferUiTask\(\(\) => \(\s*isAuthSessionCurrent\(requestSession\)\s*\? applyCtripHotelConfig\(false, \{[\s\S]{0,300}?refreshList: false,[\s\S]{0,300}?skipIfAligned: true,/.test(content)
     || content.includes('prewarmSelectedCtripConfigSecret')
     || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
     failures.push('public/index.html Ctrip config list must return metadata after list data and only apply selected metadata when explicitly requested.');
@@ -1457,21 +1670,41 @@ if (!fs.existsSync(indexPath)) {
     || returnToMeituanRankingAfterConfigSaveSource.includes("String(hotelId || '').trim()")) {
     failures.push('public/index.html Meituan ranking return target state must stay in public/meituan-static.js.');
   }
-  const saveMeituanConfigItemSource = content.slice(
-    content.indexOf('const saveMeituanConfigItem = async () => {'),
-    content.indexOf('const useMeituanConfig')
+  const saveMeituanConfigItemSource = appMainContent.slice(
+    appMainContent.indexOf('const saveMeituanConfigItem = async () => {'),
+    appMainContent.indexOf('const useMeituanConfig')
   );
-  if (!content.includes("const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');")
+  const meituanStaticFallbackSource = appMainContent.slice(
+    appMainContent.indexOf('const meituanStaticFallbackFor = (key) => {'),
+    appMainContent.indexOf('const requireMeituanStatic = (key) => {')
+  );
+  const meituanConfigSaveGateIndex = saveMeituanConfigItemSource.indexOf('if (!helperAvailability.available) {');
+  const meituanConfigSaveRequestIndex = saveMeituanConfigItemSource.indexOf("request('/online-data/save-meituan-config-item', {");
+  if (!appMainContent.includes('const meituanConfigSaveHelperKeys = Object.freeze([')
+    || !appMainContent.includes('const resolveMeituanStaticHelperAvailability = (keys = []) => {')
+    || !saveMeituanConfigItemSource.includes('const helperAvailability = resolveMeituanStaticHelperAvailability(meituanConfigSaveHelperKeys);')
+    || !saveMeituanConfigItemSource.includes('本次未发送请求')
+    || meituanConfigSaveGateIndex < 0
+    || meituanConfigSaveRequestIndex < 0
+    || meituanConfigSaveGateIndex > meituanConfigSaveRequestIndex
+    || meituanStaticFallbackSource.includes("if (key === 'resolveMeituanConfigSaveCookieState')")
+    || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigAutoName')")
+    || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigSaveRequestBody')")
+    || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigSaveSuccessState')")
+    || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigSaveFailureState')")) {
+    failures.push('public/app-main.js must block Meituan config writes when required meituan-static.js helpers are unavailable.');
+  }
+  if (!appMainContent.includes("const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');")
     || !meituanStaticContent.includes("const resolveMeituanConfigSaveCookieState = (cookies = '', options = {}) => {")
     || !saveMeituanConfigItemSource.includes('const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies, {')
-    || !saveMeituanConfigItemSource.includes("String(meituanConfigForm.value.credential_status || '') === 'ready'")
+    || saveMeituanConfigItemSource.includes('credential_status')
     || !saveMeituanConfigItemSource.includes('showToast(cookieState.message, cookieState.level);')
     || !saveMeituanConfigItemSource.includes('cookies: cookieState.cookies,')
     || saveMeituanConfigItemSource.includes("String(meituanConfigForm.value.cookies || '').trim()")
     || saveMeituanConfigItemSource.includes("showToast('请输入临时 Cookie/API 辅助内容', 'error')")) {
-    failures.push('public/index.html Meituan config-save Cookie state must stay in public/meituan-static.js.');
+    failures.push('public/app-main.js Meituan config-save Cookie state must stay in public/meituan-static.js.');
   }
-  if (!content.includes("const resolveMeituanConfigSaveRequestHotelId = requireMeituanStatic('resolveMeituanConfigSaveRequestHotelId');")
+  if (!appMainContent.includes("const resolveMeituanConfigSaveRequestHotelId = requireMeituanStatic('resolveMeituanConfigSaveRequestHotelId');")
     || !meituanStaticContent.includes('const resolveMeituanConfigSaveRequestHotelId = ({')
     || !saveMeituanConfigItemSource.includes('const requestHotelId = resolveMeituanConfigSaveRequestHotelId({')
     || !saveMeituanConfigItemSource.includes('formHotelId: meituanConfigForm.value.hotel_id,')
@@ -1479,12 +1712,12 @@ if (!fs.existsSync(indexPath)) {
     || !saveMeituanConfigItemSource.includes('filterHotelId: onlineDataFilter.value.hotel_id,')
     || !saveMeituanConfigItemSource.includes('userHotelId: user.value?.hotel_id,')
     || saveMeituanConfigItemSource.includes('const requestHotelId = String(')) {
-    failures.push('public/index.html Meituan config-save request hotel id selection must stay in public/meituan-static.js.');
+    failures.push('public/app-main.js Meituan config-save request hotel id selection must stay in public/meituan-static.js.');
   }
-  if (!content.includes("const buildMeituanConfigSaveSuccessState = requireMeituanStatic('buildMeituanConfigSaveSuccessState');")
-    || !content.includes("const buildMeituanConfigSaveFailureState = requireMeituanStatic('buildMeituanConfigSaveFailureState');")
-    || content.includes("const resolveSavedMeituanConfigHotelId = requireMeituanStatic('resolveSavedMeituanConfigHotelId');")
-    || content.includes("const resolveMeituanConfigSaveToastLevel = requireMeituanStatic('resolveMeituanConfigSaveToastLevel');")
+  if (!appMainContent.includes("const buildMeituanConfigSaveSuccessState = requireMeituanStatic('buildMeituanConfigSaveSuccessState');")
+    || !appMainContent.includes("const buildMeituanConfigSaveFailureState = requireMeituanStatic('buildMeituanConfigSaveFailureState');")
+    || appMainContent.includes("const resolveSavedMeituanConfigHotelId = requireMeituanStatic('resolveSavedMeituanConfigHotelId');")
+    || appMainContent.includes("const resolveMeituanConfigSaveToastLevel = requireMeituanStatic('resolveMeituanConfigSaveToastLevel');")
     || !meituanStaticContent.includes('const buildMeituanConfigSaveSuccessState = ({')
     || !meituanStaticContent.includes('const buildMeituanConfigSaveFailureState = ({')
     || !saveMeituanConfigItemSource.includes('const saveSuccessState = buildMeituanConfigSaveSuccessState({')
@@ -1503,7 +1736,7 @@ if (!fs.existsSync(indexPath)) {
     || saveMeituanConfigItemSource.includes('meituanConfigForm.value = createEmptyMeituanConfigForm();')
     || saveMeituanConfigItemSource.includes("showToast(res.message || '保存失败', 'error')")
     || saveMeituanConfigItemSource.includes("showToast('保存失败: ' + e.message, 'error')")) {
-    failures.push('public/index.html Meituan config-save success state must stay in public/meituan-static.js.');
+    failures.push('public/app-main.js Meituan config-save success state must stay in public/meituan-static.js.');
   }
   const useMeituanConfigSource = content.slice(
     content.indexOf('const useMeituanConfig = async (config) => {'),
@@ -1752,7 +1985,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const switchToMeituanDownloadCenter = () => {')
     || !meituanStaticContent.includes('const buildMeituanDownloadData = (rows = []) => {')
     || !content.includes('const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));')
-    || !content.includes('switchToMeituanDownloadCenter, meituanDownloadData,')
+    || !content.includes('switchToMeituanDownloadCenter, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,')
     || !downloadCenterTabSource.includes("await refreshOnlineHistory({ refreshHotels: false });")
     || !downloadCenterTabSource.includes('scheduleDelayedPageTask(() => {')
     || !downloadCenterTabSource.includes('return loadOnlineHistoryHotelList();')
@@ -1818,7 +2051,7 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';")
+    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
     || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
     || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")
@@ -1846,7 +2079,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const platformAutoSecondaryPanelsReady = ref(false);')
     || !content.includes('const platformAutoSecondaryPanelsBody = shallowRef(null);')
     || !content.includes('const schedulePlatformAutoSecondaryPanelsReady = (delayMs = PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS) => {')
-    || !content.includes('platformAutoSecondaryPanelsReady.value = false;\n                    schedulePlatformAutoSecondaryPanelsReady();\n                    return runIfCurrent(() => schedulePlatformAutoFetchPanelLoad(options));')) {
+    || !/newTab === ['"]platform-auto['"][\s\S]*platformAutoSecondaryPanelsReady\.value = false;[\s\S]*schedulePlatformAutoSecondaryPanelsReady\(\);[\s\S]*return runIfCurrent\(\(\) => schedulePlatformAutoFetchPanelLoad\(options\)\);/.test(onlineDataTabSchedulerSource)) {
     failures.push('public/index.html platform-auto must keep secondary result/status panels delayed so core login and collect controls paint first.');
   }
   if (platformAutoTemplateSource.includes('实时采集间隔（小时）')
@@ -2108,20 +2341,27 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("requireAppSystemStatic('buildLoginRequestPayload')")
     || !content.includes("requireAppSystemStatic('validateLoginRequestPayload')")
     || !content.includes("requireAppSystemStatic('applyRememberedLoginAccount')")
+    || !content.includes("requireAppSystemStatic('saveLoginPasswordWithBrowser')")
     || !content.includes('const rememberedLogin = getRememberedLoginAccount(localStorage);')
     || !content.includes('const loginForm = ref(rememberedLogin.form);')
     || !content.includes('const payload = buildLoginRequestPayload(loginForm.value);')
     || !content.includes('const validationError = validateLoginRequestPayload(payload);')
-    || !content.includes('applyRememberedLoginAccount({')) {
-    failures.push('public/index.html must use system-static.js helpers for login form defaults, cached auth, pagination, payloads, validation, and remembered-account storage.');
+    || !content.includes('applyRememberedLoginAccount({')
+    || !content.includes('const passwordSavePromise = saveLoginPasswordWithBrowser({')
+    || content.includes('await saveLoginPasswordWithBrowser({')) {
+    failures.push('public/index.html must use system-static.js helpers for login form defaults, cached auth, pagination, payloads, validation, and browser-owned password storage.');
   }
-  if (!content.includes("requireAppSystemStatic('createRegisterForm')")
-    || !content.includes("requireAppSystemStatic('buildRegisterRequestPayload')")
-    || !content.includes("requireAppSystemStatic('validateRegisterRequestPayload')")
-    || !content.includes('const registerForm = ref(createRegisterForm());')
-    || !content.includes('const payload = buildRegisterRequestPayload(registerForm.value);')
-    || !content.includes('const validationError = validateRegisterRequestPayload(payload);')) {
-    failures.push('public/index.html must use system-static.js helpers for self-registration form defaults, payloads, and validation.');
+  if (content.includes("requireAppSystemStatic('createRegisterForm')")
+    || content.includes("request('/auth/register'")
+    || content.includes('const registerMode = ref(')
+    || content.includes('const registerForm = ref(')) {
+    failures.push('public/index.html must not ship public self-registration state, helpers, or requests.');
+  }
+  if (!content.includes('const syncLoginFormFromDom = () => {')
+    || !content.includes("window.addEventListener('pageshow', scheduleLoginAutofillSync);")
+    || !content.includes("const res = await requestWithTimeout('/auth/login-support', {}, 8000, '获取联系方式超时，请稍后重试');")
+    || content.includes("alert('请在微信里联系")) {
+    failures.push('public/index.html must reconcile browser autofill and use the single in-page login-support flow.');
   }
   if (!systemStaticContent.includes('const createHotelForm = ({ hotel = null, operatorName = \'\', code = \'\', parsedDescription = {} } = {}) =>')
     || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')
@@ -2141,13 +2381,14 @@ if (!fs.existsSync(indexPath)) {
     || !systemStaticContent.includes('const buildClientPagination = (rows, page, pageSize) => {')
     || !systemStaticContent.includes('const buildLoginRequestPayload = (form = {}) => ({')
     || !systemStaticContent.includes('const validateLoginRequestPayload = (payload = {}) => (')
-    || !systemStaticContent.includes('const applyRememberedLoginAccount = ({ storage, username = \'\', remember = false } = {}) => {')) {
-    failures.push('public/system-static.js must own login form defaults, cached auth, pagination, payload normalization, validation, and remembered-account storage policy.');
+    || !systemStaticContent.includes('const applyRememberedLoginAccount = ({ storage, username = \'\', remember = false } = {}) => {')
+    || !systemStaticContent.includes('const saveLoginPasswordWithBrowser = async ({')) {
+    failures.push('public/system-static.js must own login form defaults, cached auth, pagination, payload normalization, validation, and browser password-manager policy.');
   }
-  if (!systemStaticContent.includes('const createRegisterForm = () => ({')
-    || !systemStaticContent.includes('const buildRegisterRequestPayload = (form = {}) => ({')
-    || !systemStaticContent.includes('const validateRegisterRequestPayload = (payload = {}) => {')) {
-    failures.push('public/system-static.js must own self-registration form defaults, payload normalization, and validation.');
+  if (systemStaticContent.includes('const createRegisterForm = () => ({')
+    || systemStaticContent.includes('buildRegisterRequestPayload')
+    || systemStaticContent.includes('validateRegisterRequestPayload')) {
+    failures.push('public/system-static.js must not retain self-registration helpers.');
   }
   if (content.includes("hotelForm.value = { id: null, name: '', code: getNextHotelCode()")
     || content.includes('name: hotelForm.value.name.trim(),\n                    code: normalizedCode,')
@@ -2160,8 +2401,7 @@ if (!fs.existsSync(indexPath)) {
     || content.includes("body: JSON.stringify({\n                            username: loginForm.value.username")) {
     failures.push('public/index.html must not re-inline login remembered-account storage or login payload normalization.');
   }
-  if (content.includes("const username = String(registerForm.value.username || '').trim();")
-    || content.includes("body: JSON.stringify({\n                            username,")) {
+  if (content.includes("const username = String(registerForm.value.username || '').trim();")) {
     failures.push('public/index.html must not re-inline self-registration payload normalization.');
   }
   if (content.includes('successCount = Number(res.data?.success_count')
@@ -2234,7 +2474,9 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const platformProfileStatusResultCache = new Map();')
     || !content.includes('return loadPlatformProfileStatus(platformProfileStatusPanelRefreshOptions(params));')
     || !content.includes('return platformProfileStatus.value;')
-    || !content.includes('platformProfileStatusResultCache.set(requestKey, { expiresAt: Date.now() + cacheMs });')
+    || !content.includes('platformProfileStatusResultCache.set(requestKey, {')
+    || !content.includes('expiresAt: Date.now() + cacheMs,')
+    || !content.includes('data: nextStatus,')
     || !content.includes('@click="loadPlatformProfileStatus({ silent: true, force: true })"')
     || !content.includes('schedulePlatformProfileStatusRefresh({ silent: true, force: true });')
     || !content.includes('cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,')) {
@@ -2373,7 +2615,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/index.html data-health panel must not duplicate collection-reliability authorization work by also calling cookie-status.');
   }
 
-  if (!content.includes("if (!options.backendOnly) {\n                        scheduleDataHealthPanelRefresh('light');\n                    }\n                    await loadBackendGlobalNotifications();")
+  if (!content.includes("if (!options.backendOnly) {\n                        scheduleDataHealthPanelRefresh('light');\n                    }\n                    await loadBackendGlobalNotifications({\n                        startupDedupe: options.startupDedupe === true,\n                    });")
     || content.includes("const jobs = [loadBackendGlobalNotifications()];\n                    if (!options.backendOnly) {\n                        jobs.push(loadDataHealthPanel('light'));\n                    }")) {
     failures.push('public/index.html global notification refresh must not block on data-health light status; it should schedule the visible-tab refresh instead.');
   }
@@ -2445,7 +2687,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');")
     || !content.includes("const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');")
     || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
-    || !content.includes('data-health-static.js?v=20260704-manual-one-click-fetch')
+    || !dataHealthStaticVersion
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
     || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
     || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')
@@ -2748,7 +2990,9 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS })')
     || !content.includes('const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh(\'online-data-list\', () => refreshOnlineData({ force: true }), 260);')
     || !content.includes('@click="refreshOnlineData({ force: true })"')
-    || !content.includes('@click="loadOnlineDataList({ force: true })"')) {
+    || (!content.includes('@click="loadOnlineDataList({ force: true })"')
+      && (!content.includes('@click="queryMeituanStoredData"')
+        || !/const queryMeituanStoredData = async \(\) => \{[\s\S]*?loadOnlineDataList\(\{ force: true \}\);[\s\S]*?\};/.test(content)))) {
     failures.push('public/index.html must deduplicate online-data list/summary/hotel reads for tab switching while keeping manual query and post-fetch refreshes forced.');
   }
   if (!content.includes('const ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS = 8000;')
@@ -2837,10 +3081,11 @@ if (!fs.existsSync(indexPath)) {
   const ctripRankingFlowSource = rankingFlowStart >= 0 && trafficFlowStart > rankingFlowStart
     ? ctripStaticContent.slice(rankingFlowStart, trafficFlowStart)
     : '';
-  if (!/\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*false,\s*background:\s*false\s*\}/.test(ctripRankingFlowSource)
+  if (!/background\s*=\s*false/.test(ctripRankingFlowSource)
+    || !/\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*background\s*===\s*true,\s*background:\s*background\s*===\s*true\s*\}/.test(ctripRankingFlowSource)
     || /\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*true\s*\}/.test(ctripRankingFlowSource)
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody/.test(ctripRankingFlowSource)) {
-    failures.push('public/ctrip-static.js Ctrip ranking manual fetch must request direct results while keeping defensive queued-state handling.');
+    failures.push('public/ctrip-static.js Ctrip ranking manual fetch must default to direct results and allow explicit background task mode.');
   }
   const adsFlowStart = ctripStaticContent.indexOf('const runCtripAdsFetchFlow = async');
   const ctripTrafficFlowSource = trafficFlowStart >= 0 && adsFlowStart > trafficFlowStart
@@ -2863,11 +3108,12 @@ if (!fs.existsSync(indexPath)) {
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody:\s*directRequestBody/.test(ctripAdsFlowSource)) {
     failures.push('public/ctrip-static.js must request direct Ctrip ads manual results and keep running responses explicit if returned.');
   }
-  if (!/\{\s*\.\.\.task\.body,\s*async:\s*false,\s*background:\s*false\s*\}/.test(meituanStaticContent)
+  if (!/background\s*=\s*false/.test(meituanStaticContent)
+    || !/\{\s*\.\.\.task\.body,\s*async:\s*background\s*===\s*true,\s*background:\s*background\s*===\s*true\s*\}/.test(meituanStaticContent)
     || !/await\s+Promise\.all\(fetchTasks\.map\(async\s+\(task,\s*index\)\s*=>\s*\{/.test(meituanStaticContent)
     || /\{\s*\.\.\.task\.body,\s*async:\s*true,\s*background:\s*true\s*\}/.test(meituanStaticContent)
     || !/const\s+modelRes\s*=\s*await\s+requestDisplayModel/.test(meituanStaticContent)) {
-    failures.push('public/meituan-static.js must request Meituan ranking direct results concurrently and build the display model from returned data.');
+    failures.push('public/meituan-static.js must default to direct concurrent results, allow explicit background task mode, and preserve display-model handling.');
   }
   const meituanAcceptedHelperMatches = meituanStaticContent.match(/const\s+isMeituanBackgroundAcceptedResponse\s*=/g) || [];
   if (meituanAcceptedHelperMatches.length !== 1) {
@@ -2898,6 +3144,7 @@ if (!fs.existsSync(indexPath)) {
     }
   }
   const controllerPath = path.join(repoRoot, 'app/controller/OnlineData.php');
+  const controllerHandlerPath = path.join(repoRoot, 'app/service/Ota/OtaActionHandler.php');
   const controllerConcernDir = path.join(repoRoot, 'app/controller/concern');
   const controllerConcernContents = fs.existsSync(controllerConcernDir)
     ? fs.readdirSync(controllerConcernDir)
@@ -2908,6 +3155,7 @@ if (!fs.existsSync(indexPath)) {
     : '';
   const controllerContent = [
     fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '',
+    fs.existsSync(controllerHandlerPath) ? fs.readFileSync(controllerHandlerPath, 'utf8') : '',
     controllerConcernContents,
   ].join('\n');
   const manualTaskServicePath = path.join(repoRoot, 'app/service/ManualOnlineFetchTaskService.php');
@@ -2976,10 +3224,18 @@ if (!fs.existsSync(indexPath)) {
       .every(key => secretKeyClassifierSource.includes(`'${key}'`))) {
     failures.push('app/controller/OnlineData.php must sanitize every stored OTA config row, block legacy secret rows for migration, and cache safe metadata only.');
   }
+  const profileSelectedFieldMatch = profileListSource.match(/->field\('([^']+)'\)/);
+  const profileSelectedFields = profileSelectedFieldMatch
+    ? profileSelectedFieldMatch[1].split(',').map(field => field.trim())
+    : [];
+  const requiredProfileSelectedFields = [
+    'id', 'tenant_id', 'name', 'system_hotel_id', 'platform', 'data_type',
+    'ingestion_method', 'config_json', 'enabled', 'status',
+  ];
   if (profileListMatch === null
-    || !profileListSource.includes("->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')")
+    || !requiredProfileSelectedFields.every(field => profileSelectedFields.includes(field))
+    || profileSelectedFields.includes('secret_json')
     || !profileListSource.includes("->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])")
-    || profileListSource.includes('secret_json')
     || !profileListSource.includes('sanitizeBrowserProfileSourcesForSharedCache($rows)')
     || !profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)')
     || profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $rows)')
@@ -3051,53 +3307,18 @@ if (!fs.existsSync(indexPath)) {
     || controllerContent.includes('private function createManualMeituanFetchBackgroundTask')) {
     failures.push('app/controller/OnlineData.php must use ManualOnlineFetchTaskService for Meituan manual fetch background task support.');
   }
-  const strategyDetailLoader = content.slice(
-    content.indexOf('const loadStrategyDetail = async'),
-    content.indexOf('const reuseStrategyRecord = async')
-  );
-  if (!strategyDetailLoader.includes('await ensureExpansionStaticReady();')) {
-    failures.push('public/index.html must load expansion static data before reusing strategy history input.');
-  }
   if (/<script\s+src=["']operation-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load operation-static.js; it is only required by operation/opening/lifecycle pages.');
   }
   if (!/const\s+operationStaticScript\s*=\s*["']operation-static\.js["']/.test(content) || !/const\s+loadOperationStatic\s*=\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader for operation-static.js.');
   }
-  if (!operationStaticContent.includes('buildOpeningTaskProgressCards')
-    || !operationStaticContent.includes('buildOpeningTaskProgressStages')
-    || !operationStaticContent.includes('buildOpeningCategoryProgressCards')
-    || !operationStaticContent.includes('buildOpeningPositioningImpact')
-    || !operationStaticContent.includes('buildOpeningStatusFilterChips')
-    || !operationStaticContent.includes('buildOpeningAttentionFilterChips')
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningCategoryProgressCards')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningPositioningImpact')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningTaskProgressCards')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningTaskProgressStages')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningStatusFilterChips')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningAttentionFilterChips')")
-    || !content.includes('buildOpeningCategoryProgressCards(openingOverview.value?.category_progress || [])')
-    || !content.includes('buildOpeningPositioningImpact(openingProjectForm.value.positioning)')
-    || !content.includes('buildOpeningTaskProgressCards(openingTaskStats.value)')
-    || !content.includes('buildOpeningTaskProgressStages(openingTaskStats.value)')
-    || !content.includes('buildOpeningStatusFilterChips(openingTaskStats.value)')
-    || !content.includes('buildOpeningAttentionFilterChips(openingTaskStats.value)')
-    || content.includes("status: '待生成'")
-    || content.includes("items: ['房价体系', 'OTA卖点', '物资标准', '培训话术']")
-    || content.includes("label: '任务进度均值'")
-    || content.includes("label: '1%-49%'")
-    || content.includes("activeClass: 'bg-gray-900 text-white border-gray-900'")
-    || content.includes("value: 'dueSoon', label: '7天内到期'")) {
-    failures.push('public/index.html must delegate opening display models to public/operation-static.js.');
-  }
   if (!content.includes('await ensureOperationStaticReady();')
-    || !/newPage === ['"]lifecycle['"]/.test(content)
-    || !/newPage === ['"]opening-overview['"] \|\| newPage === ['"]opening-checklist['"]/.test(content)
     || !/newPage === ['"]ops-source['"]/.test(content)
     || !/newPage === ['"]ops-analysis['"] \|\| newPage === ['"]ops-plan['"]/.test(content)
     || !/newPage === ['"]ops-insight['"]/.test(content)
     || !/newPage === ['"]ops-track['"]/.test(content)) {
-    failures.push('public/index.html must load operation static data before operation, opening, and lifecycle page work.');
+    failures.push('public/index.html must load operation static data before retained operation pages work.');
   }
   if (/<script\s+src=["']notification-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load notification-static.js; the login shell does not need notification rendering helpers.');
@@ -3170,16 +3391,17 @@ if (!fs.existsSync(indexPath)) {
     { name: 'Data config modal', marker: 'v-if="showDataConfigModal"' },
     { name: 'Toast container', marker: 'v-if="toast.show"' },
   ];
+  const templateBoundaryContent = `<div id="app">${appTemplateContent}</div>`;
 
   for (const marker of vueBoundaryMarkers) {
-    const offset = content.indexOf(marker.marker);
+    const offset = templateBoundaryContent.indexOf(marker.marker);
     if (offset < 0) {
-      failures.push(`public/index.html missing Vue boundary marker: ${marker.name}.`);
+      failures.push(`resources/frontend/app-template.html missing Vue boundary marker: ${marker.name}.`);
       continue;
     }
-    if (!hasOpenVueRoot(openTagStackBefore(content, offset))) {
+    if (!hasOpenVueRoot(openTagStackBefore(templateBoundaryContent, offset))) {
       failures.push(
-        `public/index.html Vue boundary broken before ${marker.name} at line ${lineNumberForOffset(content, offset)}. ` +
+        `resources/frontend/app-template.html Vue boundary broken before ${marker.name} at line ${lineNumberForOffset(templateBoundaryContent, offset)}. ` +
         'Global modals and toast must stay inside #app; check malformed <div>, <details>, <template>, or <teleport> closures.'
       );
     }
@@ -3252,6 +3474,15 @@ if (!fs.existsSync(publicRouterPath)) {
   failures.push('public/router.php is missing.');
 } else {
   const routerSource = fs.readFileSync(publicRouterPath, 'utf8');
+  if (!routerSource.includes("'avif' => 'image/avif'")
+    || !routerSource.includes("'gif', 'avif', 'webp'")) {
+    failures.push('public/router.php must serve the AVIF login background with image/avif and the immutable static cache policy.');
+  }
+  if (!routerSource.includes("Cache-Control: public, max-age=60, s-maxage=60, stale-while-revalidate=30")
+    || !routerSource.includes("CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30")
+    || !routerSource.includes("Cloudflare-CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30")) {
+    failures.push('public/router.php must keep the public index on the bounded browser and CDN cache policy.');
+  }
   if (!routerSource.includes("'runtime' . DIRECTORY_SEPARATOR . 'static-gzip'")) {
     failures.push('public/router.php must cache gzip output under runtime/static-gzip to avoid repeated CPU compression on large local assets.');
   }
@@ -3279,8 +3510,59 @@ if (!fs.existsSync(publicRouterPath)) {
   if (!routerSource.includes("header('Content-Length: ' . strlen($encoded))")) {
     failures.push('public/router.php must send Content-Length for refreshed gzip assets.');
   }
-  if (!routerSource.includes("gzencode($responseContent ?? '', 1)")) {
-    failures.push('public/router.php must use gzip level 1 on the prepared static response payload when refreshing the static gzip cache.');
+  if (!routerSource.includes('const SUXI_STATIC_GZIP_LEVEL = 6;')
+    || !routerSource.includes("'-gzip-l' . SUXI_STATIC_GZIP_LEVEL . '.gz'")
+    || !routerSource.includes("gzencode($responseContent ?? '', SUXI_STATIC_GZIP_LEVEL)")) {
+    failures.push('public/router.php must cache level-6 gzip output under a level-specific identity.');
+  }
+  if (!routerSource.includes("Content-Security-Policy-Report-Only: ' . SUXI_CSP_REPORT_ONLY")
+    || !routerSource.includes("script-src-attr 'none'")) {
+    failures.push('public/router.php must emit the staged report-only content security policy.');
+  }
+  if (/header\(['"]Content-Security-Policy:/.test(routerSource)) {
+    failures.push('public/router.php must not enforce CSP until report-only violations are reviewed.');
+  }
+  if (!routerSource.includes("header('Strict-Transport-Security: max-age=31536000')")
+    || !routerSource.includes("$suxiHttpsValue")
+    || routerSource.includes("SERVER_PORT")
+    || routerSource.includes('HTTP_X_FORWARDED_PROTO')) {
+    failures.push('public/router.php must emit HSTS only for a directly verified HTTPS request.');
+  }
+}
+
+if (!fs.existsSync(publicHtaccessPath)) {
+  failures.push('public/.htaccess is missing.');
+} else {
+  const htaccessSource = fs.readFileSync(publicHtaccessPath, 'utf8');
+  if (!htaccessSource.includes('Header always set Content-Security-Policy-Report-Only')
+    || !htaccessSource.includes("script-src-attr 'none'")) {
+    failures.push('public/.htaccess must emit the staged report-only content security policy.');
+  }
+  if (/Header\s+always\s+set\s+Content-Security-Policy\s+/.test(htaccessSource)) {
+    failures.push('public/.htaccess must not enforce CSP until report-only violations are reviewed.');
+  }
+  if (!htaccessSource.includes('Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTPS} == \'on\'"')) {
+    failures.push('public/.htaccess must scope HSTS to HTTPS requests.');
+  }
+}
+
+if (!fs.existsSync(competitorDeviceComponentPath)) {
+  failures.push('The competitor device management component is missing.');
+} else {
+  const competitorDeviceComponentSource = fs.readFileSync(competitorDeviceComponentPath, 'utf8');
+  const appMainSource = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
+  if (!appMainSource.includes('components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3')
+    || !appMainSource.includes("requireOnlineDataComponent('CompetitorDeviceManagementBody')")) {
+    failures.push('The admin data-config page must lazy-load the versioned competitor device management component.');
+  }
+  if (!competitorDeviceComponentSource.includes('components.CompetitorDeviceManagementBody')
+    || !competitorDeviceComponentSource.includes("'data-testid': 'competitor-device-management'")
+    || !competitorDeviceComponentSource.includes("'data-testid': 'competitor-device-one-time-token'")) {
+    failures.push('The competitor device component must expose the management and one-time credential states.');
+  }
+  if (/localStorage|sessionStorage/.test(competitorDeviceComponentSource)
+    || /console\.(?:log|debug)\([^)]*device_token/.test(competitorDeviceComponentSource)) {
+    failures.push('The competitor device component must not persist or log one-time device tokens.');
   }
 }
 

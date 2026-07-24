@@ -1592,8 +1592,8 @@ try {
   assertTextContainsPatterns(
     readText('scripts/verify_release_readiness.mjs'),
     [
-      /checkBackupCredentialFields/,
-      /checkOtaAttestationFile/,
+      /checkOtaCredentialRelease/,
+      /checkOtaCredentialReadiness/,
       /requireOutsideRepo/,
     ],
     'scripts/verify_release_readiness.mjs release OTA credential integration',
@@ -2286,16 +2286,19 @@ if (readinessResultExample) {
     fail(`docs/release_readiness_result.example.json failures must include at least ${requiredOpenFailurePatterns.length} entries`);
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.passed !== 20) {
-    fail('docs/release_readiness_result.example.json summary.passed must match the current 20 release-readiness passes');
+  const examplePassCount = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.length : -1;
+  const exampleWarningCount = Array.isArray(readinessResultExample.warnings) ? readinessResultExample.warnings.length : -1;
+  const exampleFailureCount = Array.isArray(readinessResultExample.failures) ? readinessResultExample.failures.length : -1;
+  if (readinessResultExample.summary?.passed !== examplePassCount) {
+    fail('docs/release_readiness_result.example.json summary.passed must match its example passes array');
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.warnings !== 3) {
-    fail('docs/release_readiness_result.example.json summary.warnings must match the current 3 release-readiness warnings');
+  if (readinessResultExample.summary?.warnings !== exampleWarningCount) {
+    fail('docs/release_readiness_result.example.json summary.warnings must match its example warnings array');
     resultComplete = false;
   }
-  if (readinessResultExample.summary?.failures !== 2) {
-    fail('docs/release_readiness_result.example.json summary.failures must match the current 2 release-readiness failures');
+  if (readinessResultExample.summary?.failures !== exampleFailureCount) {
+    fail('docs/release_readiness_result.example.json summary.failures must match its example failures array');
     resultComplete = false;
   }
   const readinessPasses = Array.isArray(readinessResultExample.passes) ? readinessResultExample.passes.join('\n') : '';
@@ -2613,8 +2616,14 @@ try {
   if (!report.includes('npm run review:functional-readiness')) {
     fail('release_readiness_remaining_issues.md must mention npm run review:functional-readiness');
   }
-  if (!report.includes('2 release-readiness failures')) {
-    fail('release_readiness_remaining_issues.md must state the current 2 release-readiness failures');
+  if (!report.includes('Evidence note: this document records a dated 2026-07-09 snapshot')) {
+    fail('release_readiness_remaining_issues.md must label dated evidence as a historical snapshot');
+  }
+  if (!report.includes('CI contract checks validate structure and behavior only; they are not release approval')) {
+    fail('release_readiness_remaining_issues.md must distinguish structural CI checks from release approval');
+  }
+  if (/currently reports\s+\d+\s+release-readiness failures/i.test(report)) {
+    fail('release_readiness_remaining_issues.md must not present a historical failure count as current');
   }
   if (report.includes('3 release-evidence failures')) {
     fail('release_readiness_remaining_issues.md must not use the stale 3 release-evidence failure count');

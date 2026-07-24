@@ -1,0 +1,252 @@
+                                <div v-if="currentPage === 'ai-workbench'" class="dual-ota-home order-first" data-testid="home-ai-workbench">
+                                    <section class="dual-ota-header" data-testid="dual-ota-dashboard-header">
+                                        <div class="dual-ota-brand">
+                                            <div class="min-w-0">
+                                                <h1>{{ dualOtaDashboard.brand.name }}</h1>
+                                                <p v-if="dualOtaDashboard.brand.subtitle">{{ dualOtaDashboard.brand.subtitle }}</p>
+                                            </div>
+                                        </div>
+                                        <div class="dual-ota-header-actions">
+                                            <div class="dual-ota-top-range-row" aria-label="时间范围">
+                                                <button v-for="option in dualOtaDashboard.timeRanges" :key="option.value" type="button" :class="['dual-ota-range-button', dualOtaSelectedRange === option.value ? 'is-active' : '']" @click="setDualOtaRange(option.value)">
+                                                    {{ option.label }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <section data-testid="home-temporal-axis" class="dual-ota-temporal-axis">
+                                        <div class="dual-ota-temporal-head">
+                                            <div class="dual-ota-temporal-heading">
+                                                <div class="dual-ota-temporal-title">
+                                                    <span class="dual-ota-temporal-icon">数</span>
+                                                    数据进度与预测
+                                                    <span v-if="homeTemporalLoading" class="dual-ota-temporal-loading">正在读取</span>
+                                                </div>
+                                                <p class="dual-ota-temporal-subtitle">先看历史数据是否完整，再看今天是否更新；数据足够后才能生成未来趋势。</p>
+                                            </div>
+                                            <button type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="dual-ota-temporal-action">
+                                                <i :class="homeTemporalGenerating ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-layer-group mr-1.5'"></i>
+                                                {{ homeTemporalGenerating ? '正在生成趋势' : (homeTemporalSelectedHotelId ? '生成未来趋势' : '先选择一家门店') }}
+                                            </button>
+                                        </div>
+                                        <div class="dual-ota-temporal-grid">
+                                            <article v-for="(card, index) in homeTemporalCards" :key="card.key" :class="['dual-ota-temporal-card', `is-stage-${index + 1}`]">
+                                                <div class="dual-ota-temporal-card-head">
+                                                    <span class="dual-ota-temporal-label">{{ card.label }}</span>
+                                                    <span class="dual-ota-temporal-status">{{ card.status }}</span>
+                                                </div>
+                                                <strong class="dual-ota-temporal-value">{{ card.value }}</strong>
+                                                <p class="dual-ota-temporal-detail">{{ card.detail }}</p>
+                                            </article>
+                                        </div>
+                                        <div class="dual-ota-temporal-review">
+                                            <div>{{ homeTemporalReview.title }}</div>
+                                            <p>{{ homeTemporalReview.detail }}</p>
+                                        </div>
+                                    </section>
+
+                                    <div v-if="dualOtaDashboard.principle" class="dual-ota-principle" data-testid="dual-ota-design-principle">
+                                        <i class="fas fa-shield-alt"></i>
+                                        <span>{{ dualOtaDashboard.principle }}</span>
+                                    </div>
+
+                                    <section v-if="!dualOtaHasConnectedPlatforms" class="dual-ota-empty" data-testid="dual-ota-empty-state">
+                                        <div>
+                                            <div class="dual-ota-section-index">EmptyState</div>
+                                            <h2>{{ dualOtaDashboard.emptyState.title }}</h2>
+                                            <ol>
+                                                <li v-for="step in dualOtaDashboard.emptyState.steps" :key="step">{{ step }}</li>
+                                            </ol>
+                                        </div>
+                                        <button type="button" class="dual-ota-primary-button" @click="openHomeQuickEntry({ page: 'online-data', tab: 'platform-auto' })">
+                                            {{ dualOtaDashboard.emptyState.cta }}
+                                        </button>
+                                    </section>
+
+                                    <template v-else="">
+                                        <section v-if="dualOtaDashboard.systemOverview" class="dual-ota-card dual-ota-system-overview" data-testid="dual-ota-system-overview">
+                                            <div v-if="dualOtaDashboard.systemOverview.description" class="dual-ota-card-head">
+                                                <div v-if="dualOtaDashboard.systemOverview.description">
+                                                    <p>{{ dualOtaDashboard.systemOverview.description }}</p>
+                                                </div>
+                                            </div>
+                                            <div v-if="dualOtaDashboard.systemOverview.storeScope" class="dual-ota-store-scope dual-ota-store-picker" data-testid="dual-ota-store-scope">
+                                                <span class="dual-ota-context-item dual-ota-context-item-store">
+                                                    <label for="dual-ota-current-hotel">当前门店</label>
+                                                    <select id="dual-ota-current-hotel" v-model="filterReportHotel" class="dual-ota-context-select dual-ota-hotel-select" aria-label="当前门店">
+                                                        <option value="">全部门店</option>
+                                                        <option v-for="hotel in dualOtaCurrentHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    </select>
+                                                    <button type="button" data-testid="dual-ota-hotel-order-open" class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-xs font-semibold text-amber-800 shadow-sm transition hover:bg-amber-50" :title="`当前为${dualOtaHotelOrderModeText}，点击设置我的门店顺序`" aria-haspopup="dialog" @click="openDualOtaHotelOrder">
+                                                        <i class="fas fa-sort-amount-down" aria-hidden="true"></i>
+                                                        <span>排序</span>
+                                                    </button>
+                                                </span>
+                                                <teleport to="body">
+                                                    <div v-if="showDualOtaHotelOrderModal" data-testid="dual-ota-hotel-order-dialog" role="dialog" aria-modal="true" aria-labelledby="dual-ota-hotel-order-title" class="dual-ota-hotel-order-overlay fixed inset-0 flex items-center justify-center p-4" @click.self="closeDualOtaHotelOrder">
+                                                        <div class="dual-ota-hotel-order-panel w-full max-w-xl overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-2xl">
+                                                        <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                                                            <div class="min-w-0">
+                                                                <h3 id="dual-ota-hotel-order-title" class="text-lg font-bold text-slate-950">我的门店顺序</h3>
+                                                                <p class="mt-1 text-xs leading-5 text-slate-500">只改变当前账号的下拉顺序，不改变门店权限或经营数据；新授权门店会自动追加到末尾。</p>
+                                                            </div>
+                                                            <button type="button" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800" aria-label="关闭门店排序" @click="closeDualOtaHotelOrder">
+                                                                <i class="fas fa-times" aria-hidden="true"></i>
+                                                            </button>
+                                                        </div>
+                                                        <div class="max-h-96 space-y-2 overflow-y-auto bg-slate-50 px-4 py-3">
+                                                            <div v-for="(hotel, index) in dualOtaHotelOrderRows" :key="hotel.id" class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                                                                <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-50 text-xs font-bold text-amber-800">{{ index + 1 }}</span>
+                                                                <div class="min-w-0 flex-1">
+                                                                    <div class="truncate text-sm font-semibold text-slate-900">{{ hotel.name }}</div>
+                                                                    <div v-if="hotel.code" class="mt-0.5 truncate text-xs text-slate-400">{{ hotel.code }}</div>
+                                                                </div>
+                                                                <div class="flex shrink-0 items-center gap-1">
+                                                                    <button type="button" class="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold text-slate-600 hover:border-amber-200 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="index === 0" :aria-label="`将${hotel.name}置顶`" @click="moveDualOtaHotelOrderToTop(hotel.id)">置顶</button>
+                                                                    <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:border-amber-200 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="index === 0" :aria-label="`将${hotel.name}上移`" @click="moveDualOtaHotelOrder(hotel.id, 'up')"><i class="fas fa-arrow-up" aria-hidden="true"></i></button>
+                                                                    <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:border-amber-200 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="index === dualOtaHotelOrderRows.length - 1" :aria-label="`将${hotel.name}下移`" @click="moveDualOtaHotelOrder(hotel.id, 'down')"><i class="fas fa-arrow-down" aria-hidden="true"></i></button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="flex flex-col-reverse gap-2 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                                            <button type="button" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800" @click="resetDualOtaHotelOrder">恢复常用优先</button>
+                                                            <div class="flex gap-2">
+                                                                <button type="button" class="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:flex-none" @click="closeDualOtaHotelOrder">取消</button>
+                                                                <button type="button" class="flex-1 rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800 sm:flex-none" @click="saveDualOtaHotelOrder">保存顺序</button>
+                                                            </div>
+                                                        </div>
+                                                        </div>
+                                                    </div>
+                                                </teleport>
+                                                <div class="dual-ota-store-scope-list" role="list" aria-label="OTA平台选择">
+                                                    <button type="button" :class="['dual-ota-compare-toggle', dualOtaCompareEnabled ? 'is-active' : '']" :aria-pressed="dualOtaCompareEnabled ? 'true' : 'false'" @click="toggleDualOtaCompare">
+                                                        <span>同期对比</span>
+                                                    </button>
+                                                    <button v-for="row in dualOtaDashboard.systemOverview.storeScope.rows" :key="row.label" type="button" role="listitem" :class="['dual-ota-store-option', dualOtaEffectiveStoreScope === row.value ? 'is-selected' : '']" :aria-pressed="dualOtaEffectiveStoreScope === row.value ? 'true' : 'false'" @click="setDualOtaStoreScope(row.value)">
+                                                        <strong>{{ row.label }}</strong>
+                                                        <small v-if="row.source">{{ row.source }}</small>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div v-if="dualOtaWorkbenchReadInProgress" class="dual-ota-current-data-state is-loading" data-testid="dual-ota-current-store-loading" role="status">
+                                                <span class="dual-ota-current-data-state-icon"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i></span>
+                                                <div>
+                                                    <h3>正在读取 {{ dualOtaSelectedHotelLabel }} 的 {{ dualOtaRangeText() }} 数据</h3>
+                                                    <p>正在核对携程、美团的来源日期和核心经营字段。</p>
+                                                </div>
+                                            </div>
+                                            <div v-else-if="!dualOtaSelectedHotelHasCurrentData" class="dual-ota-current-data-state" data-testid="dual-ota-current-store-empty" role="status">
+                                                <span class="dual-ota-current-data-state-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
+                                                <div class="dual-ota-current-data-state-copy">
+                                                    <h3>{{ dualOtaSelectedHotelLabel }}在{{ dualOtaRangeText() }}暂无可核验数据</h3>
+                                                    <p>{{ dualOtaSelectedHotelDataGapText }}</p>
+                                                </div>
+                                                <button type="button" class="dual-ota-current-data-state-action" @click="openHomeQuickEntry({ page: 'online-data', tab: 'platform-auto' })">
+                                                    <i class="fas fa-arrow-right" aria-hidden="true"></i>检查采集与补数据
+                                                </button>
+                                            </div>
+                                            <div v-else="" class="dual-ota-system-grid">
+                                                <div v-for="group in dualOtaSystemOverviewGroups" :key="group.title" class="dual-ota-system-column">
+                                                    <div class="dual-ota-system-column-head">
+                                                        <h3>{{ group.title }}</h3>
+                                                        <span>{{ group.subtitle }}</span>
+                                                    </div>
+                                                    <div class="dual-ota-system-metrics">
+                                                        <span v-for="metric in group.metrics" :key="`${group.title}-${metric.label}`" :class="['dual-ota-system-metric', metric.tone ? `is-${metric.tone}` : '']">
+                                                            <em>{{ metric.label }}</em>
+                                                            <strong>{{ metric.value }}</strong>
+                                                            <small v-if="dualOtaCompareEnabled" :title="metric.note">{{ dualOtaMetricComparisonText(metric) }}</small>
+                                                            <small v-else="" class="dual-ota-system-metric-spacer" aria-hidden="true">&nbsp;</small>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </section>
+
+                                        <template v-if="!dualOtaWorkbenchReadInProgress &amp;&amp; dualOtaSelectedHotelHasCurrentData">
+                                        <section class="dual-ota-module-grid dual-ota-module-grid-top">
+                                            <article class="dual-ota-card" data-testid="dual-ota-platform-revenue-structure">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <h2>{{ dualOtaPlatformRevenueTitle }}</h2>
+                                                        <p>{{ dualOtaPlatformRevenueSubtitle }}</p>
+                                                    </div>
+                                                </div>
+                                                <div :class="['dual-ota-revenue-grid', dualOtaPlatformRevenuePlatforms.length === 1 ? 'is-single' : '']">
+                                                    <div v-for="platform in dualOtaPlatformRevenuePlatforms" :key="platform.id" class="dual-ota-platform-card">
+                                                        <div class="dual-ota-platform-card-top">
+                                                            <span>{{ platform.name }}</span>
+                                                            <strong>{{ platform.revenueText }}</strong>
+                                                        </div>
+                                                        <div v-if="platform.metrics &amp;&amp; platform.metrics.length" class="dual-ota-platform-metrics">
+                                                            <span v-for="metric in platform.metrics" :key="`${platform.id}-${metric.label}`">
+                                                                <em>{{ metric.label }}</em>
+                                                                <b>{{ metric.value }}</b>
+                                                            </span>
+                                                        </div>
+                                                        <p v-else="">{{ platform.metricsText }}</p>
+                                                    </div>
+                                                </div>
+                                                <div v-if="dualOtaPlatformRevenueHasContribution" class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">
+                                                    <div class="dual-ota-contribution-track">
+                                                        <span v-for="platform in dualOtaPlatformRevenuePlatforms" :key="`${platform.id}-bar`" :class="['dual-ota-contribution-segment', `is-${platform.id}`]" :style="{ width: `${platform.contribution}%` }"></span>
+                                                    </div>
+                                                </div>
+                                            </article>
+
+                                            <article class="dual-ota-card" data-testid="dual-ota-platform-loss-chain">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <h2>{{ dualOtaDashboard.lossChain.title }}</h2>
+                                                        <p>{{ dualOtaLossChainSubtitle }}</p>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-loss-chain" :style="{ '--dual-ota-loss-columns': dualOtaActiveLossNodes.length || 1 }">
+                                                    <button v-for="node in dualOtaActiveLossNodes" :key="node.id" type="button" :class="['dual-ota-loss-node', dualOtaSeverityClass(node.severity), dualOtaSelectedLossNodeId === node.id ? 'is-selected' : '']" @click="setDualOtaLossNode(node.id)" :title="node.note || ''">
+                                                        <span class="dual-ota-node-label">{{ node.label }}</span>
+                                                        <strong>{{ node.value }}</strong>
+                                                        <em>{{ node.delta }}</em>
+                                                    </button>
+                                                </div>
+                                                <div class="dual-ota-control-stack">
+                                                    <div class="dual-ota-segmented" aria-label="平台切换">
+                                                        <button v-for="option in dualOtaDashboard.lossChain.platformOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaEffectivePlatform === option.value ? 'is-active' : '']" @click="setDualOtaPlatform(option.value)">
+                                                            {{ option.label }}
+                                                        </button>
+                                                    </div>
+                                                    <div class="dual-ota-segmented" aria-label="时间切换">
+                                                        <button v-for="option in dualOtaDashboard.lossChain.rangeOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaSelectedRange === option.value ? 'is-active' : '']" @click="setDualOtaRange(option.value)">
+                                                            {{ option.label }}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <p class="dual-ota-hint">{{ dualOtaDashboard.lossChain.hint }}</p>
+                                                <div class="dual-ota-mini-drilldown">
+                                                    <strong>{{ dualOtaSelectedLossExplanation.title }}</strong>
+                                                    <span>{{ dualOtaSelectedLossExplanation.evidence }}</span>
+                                                </div>
+                                            </article>
+                                        </section>
+
+                                        <section class="dual-ota-card dual-ota-deprioritized" data-testid="dual-ota-deprioritized-modules">
+                                            <div class="dual-ota-deprioritized-list">
+                                                <template v-for="item in dualOtaDashboard.deprioritizedModules" :key="item.name">
+                                                <button v-if="dualOtaModuleNavigationTarget(item)" type="button" class="dual-ota-deprioritized-link" :data-testid="`dual-ota-${dualOtaModuleNavigationTarget(item)}-shortcut`" :aria-label="`${item.name}，进入数据采集页面`" @click="openDualOtaModule(item)">
+                                                        <strong>{{ item.name }}</strong>
+                                                    <em>{{ item.reason || '进入采集' }}</em>
+                                                    </button>
+                                                    <span v-else="">
+                                                        <strong>{{ item.name }}</strong>
+                                                        <em v-if="item.reason">{{ item.reason }}</em>
+                                                    </span>
+                                                </template>
+                                            </div>
+                                        </section>
+
+                                        <footer class="dual-ota-footer">
+                                            <strong>{{ dualOtaDashboard.positioning }}</strong>
+                                        </footer>
+                                        </template>
+                                    </template>
+                                </div>

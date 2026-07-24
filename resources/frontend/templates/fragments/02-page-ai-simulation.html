@@ -1,0 +1,319 @@
+                    <div v-if="currentPage === 'ai-simulation'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-cyan-900 to-blue-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智算·量化模拟</h2>
+                                    <p class="text-sm text-cyan-100 mt-1">测算项目是否赚钱、多久回本、风险边界在哪里</p>
+                                </div>
+                                <button @click="handleSimulation" :disabled="aiSimulationLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50">
+                                    <i class="fas fa-calculator"></i>
+                                    <span>{{ aiSimulationLoading ? '生成中...' : '运行三情景模拟' }}</span>
+                                </button>
+                                <button @click="loadSimulationRecords" :disabled="aiSimulationLoading" class="bg-white/10 hover:bg-white/15 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50">
+                                    <i class="fas fa-history"></i>
+                                    <span>刷新历史</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="mb-5 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                            本模块核心财务结果由后端计算接口生成；前端仅展示输入摘要、三情景结果与模型解读，接口失败时直接提示错误。
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">投资参数</h3>
+                                        <div class="text-xs text-gray-500">总投资 <span class="font-semibold text-gray-800">{{ formatCurrency(simulationInvestmentTotal) }}</span></div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">房间数</label>
+                                            <input type="number" v-model.number="aiSimulationParams.roomCount" data-testid="field-simulation-room-count" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                        </div>
+                                        <div class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-sm text-cyan-800">
+                                            <div class="text-xs text-cyan-600 mb-1">单房投资</div>
+                                            <div class="font-semibold">{{ formatCurrency(simulationInvestmentPerRoom) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-5">
+                                        <div v-for="group in simulationInvestmentGroups" :key="group.title" class="border-t border-gray-100 pt-4">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <div class="font-semibold text-gray-700">{{ group.title }}</div>
+                                                <div class="text-xs text-gray-500">小计 <span class="font-semibold text-gray-800">{{ formatCurrency(group.total) }}</span></div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div v-for="field in group.fields" :key="field.key">
+                                                    <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                                    <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">收入参数</h3>
+                                        <div class="text-xs text-gray-500">月总收入 <span class="font-semibold text-gray-800">{{ formatCurrency(simulationRevenueSummary.monthlyRevenue) }}</span></div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                                        <div class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
+                                            <div class="text-xs text-cyan-600 mb-1">加权ADR</div>
+                                            <div class="font-semibold text-cyan-900">{{ formatCurrency(simulationRevenueSummary.adr) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
+                                            <div class="text-xs text-cyan-600 mb-1">综合入住率</div>
+                                            <div class="font-semibold text-cyan-900">{{ aiRound(simulationRevenueSummary.occupancyRate, 1) }}%</div>
+                                        </div>
+                                        <div class="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
+                                            <div class="text-xs text-cyan-600 mb-1">非房收入</div>
+                                            <div class="font-semibold text-cyan-900">{{ formatCurrency(simulationRevenueSummary.otherIncome) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-5">
+                                        <div>
+                                            <div class="font-semibold text-gray-700 mb-3">客房收入结构</div>
+                                            <div class="space-y-3">
+                                                <div v-for="segment in simulationRoomRevenueSegments" :key="segment.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                    <div class="flex items-center justify-between mb-3">
+                                                        <div class="font-medium text-gray-800">{{ segment.label }}</div>
+                                                        <div class="text-xs text-gray-500">小计 {{ formatCurrency(segment.revenue) }}</div>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">天数</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[segment.daysKey]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">ADR</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[segment.adrKey]" :data-testid="segment.key === 'weekday' ? 'field-simulation-adr' : null" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">入住率(%)</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[segment.occupancyKey]" :data-testid="segment.key === 'weekday' ? 'field-simulation-occupancy-rate' : null" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="border-t border-gray-100 pt-4">
+                                            <div class="font-semibold text-gray-700 mb-3">非房收入</div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div v-for="field in simulationOtherIncomeFields" :key="field.key">
+                                                    <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                                    <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">成本参数</h3>
+                                        <div class="text-xs text-gray-500">月总成本 <span class="font-semibold text-gray-800">{{ formatCurrency(simulationCostSummary.monthlyCost) }}</span></div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">固定月成本</div>
+                                            <div class="font-semibold text-amber-900">{{ formatCurrency(simulationCostSummary.fixedMonthlyCost) }}</div>
+                                        </div>
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">综合OTA佣金率</div>
+                                            <div class="font-semibold text-amber-900">{{ aiRound(simulationCostSummary.otaCommissionRate, 2) }}%</div>
+                                        </div>
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+                                            <div class="text-xs text-amber-600 mb-1">OTA佣金</div>
+                                            <div class="font-semibold text-amber-900">{{ formatCurrency(simulationCostSummary.otaCommission) }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-5">
+                                        <div v-for="group in simulationCostGroups" :key="group.title" class="border-t border-gray-100 pt-4 first:border-t-0 first:pt-0">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <div class="font-semibold text-gray-700">{{ group.title }}</div>
+                                                <div class="text-xs text-gray-500">小计 <span class="font-semibold text-gray-800">{{ formatCurrency(group.total) }}</span></div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div v-for="field in group.fields" :key="field.key">
+                                                    <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                                    <input type="number" v-model.number="aiSimulationParams[field.key]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="border-t border-gray-100 pt-4">
+                                            <div class="font-semibold text-gray-700 mb-3">渠道佣金结构</div>
+                                            <div class="space-y-3">
+                                                <div v-for="channel in simulationOtaCommissionChannels" :key="channel.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                    <div class="flex items-center justify-between mb-3">
+                                                        <div class="font-medium text-gray-800">{{ channel.label }}</div>
+                                                        <div class="text-xs text-gray-500">折合 {{ aiRound(channel.weightedRate, 2) }}%</div>
+                                                    </div>
+                                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">收入占比(%)</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[channel.shareKey]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                        <div>
+                                                            <label class="block text-xs text-gray-500 mb-1">佣金率(%)</label>
+                                                            <input type="number" v-model.number="aiSimulationParams[channel.rateKey]" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-7 space-y-5">
+                                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div v-for="card in simulationMetricCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <div :class="['text-2xl font-bold mt-2', card.label === '月净现金流' &amp;&amp; baseSimulation ? (baseSimulation.monthlyNetCashflow &gt;= 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-800']">【{{ card.value }}】</div>
+                                    </div>
+                                </div>
+
+                                <div v-if="simulationCurrentReadiness" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                        <div>
+                                            <div class="font-semibold">{{ simulationCurrentReadiness.notice }}</div>
+                                            <div class="mt-1">{{ simulationReadinessMissingText(simulationCurrentReadiness) }}</div>
+                                        </div>
+                                        <span :class="['rounded-md border px-2.5 py-1 whitespace-nowrap', simulationReadinessBadgeClass(simulationCurrentReadiness.stage)]">
+                                            {{ simulationCurrentReadiness.status_label }} · {{ simulationCurrentReadiness.score }}分
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="font-bold text-gray-800">三情景模拟</h3>
+                                        <span v-if="baseSimulation" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(baseSimulation.riskLevel)]">{{ baseSimulation.riskLevel }}</span>
+                                    </div>
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full text-sm">
+                                            <thead>
+                                                <tr class="bg-gray-50 text-gray-500">
+                                                    <th class="px-4 py-3 text-left">情景</th>
+                                                    <th class="px-4 py-3 text-right">月总收入</th>
+                                                    <th class="px-4 py-3 text-right">月总成本</th>
+                                                    <th class="px-4 py-3 text-right">月净现金流</th>
+                                                    <th class="px-4 py-3 text-right">RevPAR</th>
+                                                    <th class="px-4 py-3 text-right">回本周期</th>
+                                                    <th class="px-4 py-3 text-right">保本入住率</th>
+                                                    <th class="px-4 py-3 text-right">租金占比</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                <tr v-for="row in aiSimulationScenarios" :key="row.scenarioType" class="hover:bg-gray-50">
+                                                    <td class="px-4 py-3 font-semibold text-gray-800">{{ row.scenarioType }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.monthlyRevenue) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.monthlyCost) }}</td>
+                                                    <td class="px-4 py-3 text-right font-semibold" :class="row.monthlyNetCashflow &gt; 0 ? 'text-green-600' : 'text-red-600'">{{ formatCurrency(row.monthlyNetCashflow) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatCurrency(row.revPAR) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ row.paybackMonths === null ? '不可回本' : row.paybackMonths.toFixed(1) + '个月' }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.breakEvenOccupancy) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.rentRatio) }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">风险提示</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div v-for="risk in simulationRiskHints" :key="risk.title" :class="['rounded-lg border p-4', risk.className]">
+                                            <div class="font-semibold mb-1 flex items-center justify-between gap-2">
+                                                <span>{{ risk.title }}</span>
+                                                <span :class="['px-2 py-0.5 rounded text-xs border', riskBadgeClass(risk.riskLevel)]">{{ risk.riskLevel }}</span>
+                                            </div>
+                                            <div class="text-sm">{{ risk.content }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="simulationModelAnalysisVisible" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                                        <h3 class="font-bold text-gray-800">模型解读</h3>
+                                        <div class="flex flex-wrap items-center gap-2 text-xs">
+                                            <span :class="['px-2 py-1 rounded border', simulationModelAnalysis.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">{{ simulationModelSourceLabel }}</span>
+                                            <span v-if="simulationModelAnalysis.model_key" class="px-2 py-1 rounded border border-gray-100 bg-gray-50 text-gray-500">{{ simulationModelAnalysis.model_key }}</span>
+                                            <span v-if="simulationModelAnalysis.generated_at" class="text-gray-400">{{ simulationModelAnalysis.generated_at }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-4">
+                                        <div v-if="simulationModelAnalysis.summary" class="rounded-lg bg-cyan-50 border border-cyan-100 text-cyan-900 px-4 py-3 text-sm">
+                                            {{ simulationModelAnalysis.summary }}
+                                        </div>
+                                        <div v-if="simulationModelAnalysis.decision" class="rounded-lg bg-slate-50 border border-slate-100 px-4 py-3">
+                                            <div class="text-xs text-gray-500 mb-1">投决建议</div>
+                                            <div class="text-sm font-medium text-gray-800">{{ simulationModelAnalysis.decision }}</div>
+                                        </div>
+                                        <div v-if="simulationModelAnalysis.recommendations.length" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div v-for="item in simulationModelAnalysis.recommendations" :key="item.priority + item.title" class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                <div class="flex items-center gap-2 mb-2">
+                                                    <span class="px-2 py-0.5 rounded bg-white border border-gray-200 text-xs text-gray-600">{{ item.priority }}</span>
+                                                    <span class="font-semibold text-gray-800">{{ item.title }}</span>
+                                                </div>
+                                                <div class="text-sm text-gray-700"><span class="font-medium">建议动作：</span>{{ item.action || item.detail }}</div>
+                                                <ai-decision-quality-details :item="item"></ai-decision-quality-details>
+                                            </div>
+                                        </div>
+                                        <div v-if="simulationModelAnalysis.watch_points.length" class="overflow-x-auto">
+                                            <table class="min-w-full text-sm">
+                                                <thead>
+                                                    <tr class="bg-gray-50 text-gray-500">
+                                                        <th class="px-4 py-3 text-left">关注指标</th>
+                                                        <th class="px-4 py-3 text-left">阈值</th>
+                                                        <th class="px-4 py-3 text-left">动作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="item in simulationModelAnalysis.watch_points" :key="item.metric + item.threshold">
+                                                        <td class="px-4 py-3 font-medium text-gray-800">{{ item.metric }}</td>
+                                                        <td class="px-4 py-3 text-gray-600">{{ item.threshold }}</td>
+                                                        <td class="px-4 py-3 text-gray-600">{{ item.action }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div v-if="simulationModelAnalysis.assumptions.length" class="text-xs text-gray-500">
+                                            <div class="font-medium text-gray-600 mb-1">假设与限制</div>
+                                            <div class="space-y-1">
+                                                <div v-for="item in simulationModelAnalysis.assumptions" :key="item">· {{ item }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="font-bold text-gray-800">历史模拟记录</h3>
+                                        <span class="text-xs text-gray-400">{{ aiSimulationRecords.length }} 条</span>
+                                    </div>
+                                    <div v-if="aiSimulationRecords.length" class="divide-y divide-gray-100">
+                                        <div v-for="record in aiSimulationRecords" :key="record.id" class="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                            <div>
+                                                <div class="font-medium text-gray-900">{{ record.project_name || '量化模拟项目' }}</div>
+                                                <div class="text-xs text-gray-500 mt-1">月净现金流 {{ formatCurrency(record.monthly_net_cashflow) }} · 回本 {{ record.payback_months === null ? '不可回本' : record.payback_months + '个月' }} · {{ record.created_at || '-' }}</div>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
+                                                <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
+                                                <button @click="loadSimulationDetail(record.id)" :data-testid="`history-simulation-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
+                                                <button @click="reuseSimulationRecord(record)" :data-testid="`history-simulation-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
+                                                <button @click="archiveSimulationRecord(record)" :data-testid="`history-simulation-archive-${record.id}`" class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs hover:bg-red-50">归档</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="py-8 text-center text-gray-400">暂无历史记录</div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 可行性报告 -->

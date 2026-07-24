@@ -27,9 +27,10 @@ const report = read('scripts/report_business_chain_status.php');
 const runtimeTest = read('tests/automation/business_chain_status_report.test.mjs');
 const revenueAi = read('app/service/RevenueAiOverviewService.php');
 const pkg = read('package.json');
+const workflow = read('.github/workflows/php.yml');
 
 includesAll('business-chain report is registered', pkg, [
-  '"report:business-chain": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\report_business_chain_status.php"',
+  '"report:business-chain": "node scripts/run_php.mjs scripts/report_business_chain_status.php"',
   '"verify:business-chain-report": "node scripts/verify_business_chain_report_contract.mjs && node --test tests/automation/business_chain_status_report.test.mjs"',
 ]);
 
@@ -37,13 +38,47 @@ includesAll('business-chain report wires the requested chain services', report, 
   'OtaStandardEtlService',
   'RevenueAiOverviewService',
   'BusinessClosureOverviewService',
-  'InvestmentDecisionSupportService',
   'business_chain_stage_rows',
   'ota_data',
   'revenue_analysis',
   'ai_decision_advice',
   'operation_closure',
-  'investment_judgment',
+]);
+
+includesAll('business-chain report exposes a machine-readable database blocker', report, [
+  'business_chain_failure_payload',
+  "'error_code' => $databaseUnavailable ? 'database_unavailable' : 'report_generation_failed'",
+  "'claim_allowed' => false",
+  "'database_ready' => $databaseUnavailable ? false : null",
+]);
+
+includesAll('business-chain runtime tests use portable PHP and fail closed when runtime is required', runtimeTest, [
+  "process.env.PHP_BINARY || 'php'",
+  'function isRuntimeRequired(env = process.env)',
+  'env.CI',
+  'env.SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME',
+  'isRuntimeRequired',
+  'failOrSkipRuntime',
+  'skipWhenRuntimeUnavailable',
+  "spawnErrorCode === 'ENOENT'",
+  "spawnErrorCode === 'EPERM'",
+  "payload?.error_code !== 'database_unavailable'",
+  'business-chain runtime assertions are required when CI=true or SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME=1',
+  'project database is unavailable; runtime business-chain assertions were not evaluated',
+  'assert.fail',
+]);
+
+excludesAll('business-chain runtime tests do not hard-code a workstation PHP path or pre-skip PATH commands', runtimeTest, [
+  'C:\\\\xampp\\\\php\\\\php.exe',
+  'existsSync(php)',
+]);
+
+includesAll('CI requires the business-chain PHP and database runtime', workflow, [
+  "PHP_BINARY: php",
+  "SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1'",
+  "SUXI_E2E_DB_OVERRIDE: '1'",
+  'DB_NAME: hotelx_ci_test',
+  'node scripts/verify_business_chain_report_contract.mjs',
 ]);
 
 includesAll('business-chain report supports explicit skip-P0 reference mode', report, [
@@ -57,7 +92,6 @@ includesAll('business-chain report supports explicit skip-P0 reference mode', re
   'target_date_p0_rows_missing_but_latest_real_ota_rows_exist',
   'forbidden_claims',
   'target_date_closure',
-  'investment_judgment_allowed',
 ]);
 
 includesAll('business-chain report keeps P0 gate and downstream blocking explicit', report, [
@@ -162,28 +196,15 @@ includesAll('business-chain report exposes skip-P0 downstream reference workflow
   'auto_create_operation_execution_intent',
   'mark_operation_executed_without_evidence',
   'claim_roi_ready_without_review',
-  'business_chain_operation_to_investment_handoff',
-  'operation_to_investment_handoff',
-  'investment_precheck_packet',
-  'investment_precheck_blocked_by_operation_roi',
-  'blocked_by_operation_roi',
-  'read_only_precheck_from_closed_operation_gate',
-  '/api/investment-decision/overview',
-  'operation_execution.roi_ready',
-  'decision_record.readiness_ready',
-  'create_investment_decision_from_ota_channel_only',
-  'create_investment_record_without_closed_operation_roi',
-  'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
   'business_chain_ctrip_chain_action_queue',
   'ctrip_chain_action_queue',
   'ctrip_chain_next_action',
   'ctrip_chain_forbidden_actions',
-  'ctrip_ota_channel_action_queue_no_auto_write_no_whole_hotel_truth',
+  'ota_channel_action_queue_no_auto_write_no_whole_hotel_truth',
   'resolve_revenue_metric_gap',
   'approve_ai_manual_review',
   'create_operation_intent_after_review',
   'attach_operation_execution_evidence',
-  'keep_investment_blocked_until_roi',
   'claim_operation_roi_ready',
   'primary_blocker',
   'blocked_ready_for_manual_review',
@@ -202,7 +223,6 @@ includesAll('business-chain report exposes skip-P0 downstream reference workflow
   'promote_ota_scope_to_whole_hotel_truth',
   'all_required_p0_platforms_ready',
   'operation_execution_draft',
-  'investment_precheck',
   'draft_not_written',
   'auto_apply_ai_advice',
   'whole_hotel_truth_from_ota_only',
@@ -257,15 +277,6 @@ includesAll('business-chain report runtime test guards operator skip output', ru
   'ota_revenue_ai_manual_review',
   'auto_create_operation_execution_intent',
   'mark_operation_executed_without_evidence',
-  'operation_to_investment_handoff',
-  'investment_precheck_blocked_by_operation_roi',
-  'investment_precheck_packet',
-  'blocked_by_operation_roi',
-  'read_only_precheck_from_closed_operation_gate',
-  'operation_execution.roi_ready',
-  'decision_record.readiness_ready',
-  'create_investment_decision_from_ota_channel_only',
-  'create_investment_record_without_closed_operation_roi',
   'ctrip_chain_action_queue',
   'has_blocking_actions',
   'ctrip_chain_next_action',
@@ -273,7 +284,6 @@ includesAll('business-chain report runtime test guards operator skip output', ru
   'approve_ai_manual_review',
   'create_operation_intent_after_review',
   'attach_operation_execution_evidence',
-  'keep_investment_blocked_until_roi',
   'ctrip_chain_forbidden_actions',
   'claim_operation_roi_ready',
   'blocked_ready_for_manual_review',

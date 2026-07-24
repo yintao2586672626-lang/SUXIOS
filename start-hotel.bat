@@ -125,7 +125,7 @@ if errorlevel 1 (
     del "%TEMP%\suxios_db_check.txt" >nul 2>nul
     echo.
     echo 未检测到 hotelx 数据库
-    echo 请先导入 hotelx_dump.sql
+    echo 请先运行 php scripts\init_database.php
     echo.
     pause
     exit /b 1
@@ -138,7 +138,24 @@ del "%TEMP%\suxios_table_check.txt" >nul 2>nul
 if not "%CORE_TABLE_COUNT%"=="5" (
     echo.
     echo 核心表缺失，数据库可能未完整导入
-    echo 请先检查并导入 hotelx_dump.sql
+    echo 新环境请运行 php scripts\init_database.php
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [INFO] Checking database schema version...
+"%PHP_EXE%" scripts\check_database_version.php
+set "SCHEMA_EXIT=%ERRORLEVEL%"
+if not "%SCHEMA_EXIT%"=="0" (
+    echo.
+    if "%SCHEMA_EXIT%"=="2" (
+        echo 数据库版本不足，项目未启动
+        echo 请先按上方提示执行升级命令，再重新启动
+    ) else (
+        echo 数据库版本检查失败，项目未启动
+        echo 请先修复上方数据库连接或检查器错误
+    )
     echo.
     pause
     exit /b 1

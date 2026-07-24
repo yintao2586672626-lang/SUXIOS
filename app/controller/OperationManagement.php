@@ -26,7 +26,7 @@ class OperationManagement extends Base
 
             return $this->success($this->service->fullData($hotelIds, $hotelId, $date));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '获取全维数据失败'), 400);
+            return $this->error($this->safeErrorMessage($e, '获取运营数据汇总失败'), 400);
         }
     }
 
@@ -40,7 +40,7 @@ class OperationManagement extends Base
 
             return $this->success($this->service->rootCause($hotelIds, $hotelId, $date, $problemType));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '根因定位失败'), $this->operationThrowableStatus($e));
+            return $this->error($this->safeErrorMessage($e, '可能影响因素分析失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -48,10 +48,14 @@ class OperationManagement extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope();
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店查看运营预警');
+            }
+            $canExecute = $this->currentUser?->hasHotelPermission($hotelId, 'operation.execute') === true;
 
-            return $this->success($this->service->alerts($hotelIds, $hotelId));
+            return $this->success($this->service->alerts($hotelIds, $hotelId, $canExecute));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '获取预警失败'), 400);
+            return $this->error($this->safeErrorMessage($e, '获取预警失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -68,10 +72,28 @@ class OperationManagement extends Base
                 return $this->error('请选择需要标记已读的预警', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             return $this->success(['updated' => $this->service->markAlertsRead($ids, $hotelIds)]);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '标记预警已读失败'), 500);
+        }
+    }
+
+    public function alertExecutionIntent(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('预警ID无效', 422);
+            }
+
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->service->createExecutionIntentFromAlert(
+                $id,
+                $hotelIds,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '预警转任务失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -79,7 +101,10 @@ class OperationManagement extends Base
     {
         try {
             $input = $this->request->post();
-            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
+            [$hotelIds, $hotelId] = $this->resolveHotelScope(
+                (int)($input['hotel_id'] ?? 0),
+                !empty($input['create_execution_order']) ? 'operation.execute' : 'operation.view'
+            );
             $strategyType = (string)($input['strategy_type'] ?? '');
             $allowed = ['price_adjust', 'promotion', 'room_inventory', 'competitor_follow', 'holiday_strategy'];
             if (!in_array($strategyType, $allowed, true)) {
@@ -92,12 +117,18 @@ class OperationManagement extends Base
 
             $result = $this->service->strategySimulation($hotelIds, $hotelId, $input);
             if (!empty($input['create_execution_order'])) {
-                $result['execution_intent'] = $this->service->createExecutionIntent(
-                    $hotelIds,
-                    $hotelId ?: ($hotelIds[0] ?? null),
-                    $this->buildStrategyExecutionIntentInput($input, $result, $strategyType, $hotelId ?: ($hotelIds[0] ?? 0)),
-                    (int)($this->currentUser->id ?? 0)
-                );
+                if (!$this->canCreateStrategyExecutionIntent($result)) {
+                    $result['execution_intent'] = null;
+                    $result['execution_intent_status'] = 'blocked_by_insufficient_baseline';
+                    $result['execution_intent_blocked_reason'] = '缺少已核验历史基线，未创建执行意图。';
+                } else {
+                    $result['execution_intent'] = $this->service->createExecutionIntent(
+                        $hotelIds,
+                        $hotelId ?: ($hotelIds[0] ?? null),
+                        $this->buildStrategyExecutionIntentInput($input, $result, $strategyType, $hotelId ?: ($hotelIds[0] ?? 0)),
+                        (int)($this->currentUser->id ?? 0)
+                    );
+                }
             }
 
             return $this->success($result);
@@ -120,7 +151,7 @@ class OperationManagement extends Base
                 }
             }
 
-            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0), 'operation.execute');
             $input['start_date'] = $this->normalizeDate((string)$input['start_date']);
             if (!empty($input['end_date'])) {
                 $input['end_date'] = $this->normalizeDate((string)$input['end_date']);
@@ -150,7 +181,7 @@ class OperationManagement extends Base
                 return $this->error('策略动作ID无效', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             if (!$this->service->finishAction($id, $hotelIds)) {
                 return $this->error('策略动作不存在或无权限操作', 404);
             }
@@ -171,11 +202,53 @@ class OperationManagement extends Base
         }
     }
 
+    public function readExecutionIntent(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution intent id is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            return $this->success($this->service->readExecutionIntent($id, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution intent query failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function readExecutionTask(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution task id is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            return $this->success($this->service->readExecutionTask($id, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution task query failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
     public function executionFlow(): Response
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
-            return $this->success($this->service->executionFlow($hotelIds, $hotelId, $this->request->get()));
+            $result = $this->service->executionFlow($hotelIds, $hotelId, $this->request->get());
+            $canView = $hotelId !== null
+                && $hotelId > 0
+                && $this->currentUser?->hasHotelPermission($hotelId, 'operation.view') === true;
+            $result['capabilities'] = [
+                'hotel_id' => $hotelId,
+                'can_view' => $canView,
+                'can_generate_diagnosis' => $canView,
+                'can_execute' => $hotelId !== null
+                    && $hotelId > 0
+                    && $this->currentUser?->hasHotelPermission($hotelId, 'operation.execute') === true,
+                'can_collect_ota' => $hotelId !== null
+                    && $hotelId > 0
+                    && $this->currentUser?->hasHotelPermission($hotelId, 'can_fetch_online_data') === true,
+            ];
+
+            return $this->success($result);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution flow query failed'), $this->operationThrowableStatus($e));
         }
@@ -202,7 +275,9 @@ class OperationManagement extends Base
     {
         try {
             $input = $this->requestData();
-            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
+            $input['source_module'] = 'manual';
+            $input['source_record_id'] = 0;
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0), 'operation.execute');
             $userId = (int)($this->currentUser->id ?? 0);
 
             return $this->success($this->service->createExecutionIntent($hotelIds, $hotelId, $input, $userId));
@@ -219,7 +294,7 @@ class OperationManagement extends Base
             }
 
             $input = $this->requestData();
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             $approved = !array_key_exists('approved', $input) || filter_var($input['approved'], FILTER_VALIDATE_BOOL);
             $remark = trim((string)($input['remark'] ?? ''));
             $userId = (int)($this->currentUser->id ?? 0);
@@ -237,7 +312,7 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             $userId = (int)($this->currentUser->id ?? 0);
 
             return $this->success($this->service->executeExecutionTask($id, $hotelIds, $this->requestData(), $userId));
@@ -253,7 +328,7 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             $userId = (int)($this->currentUser->id ?? 0);
 
             return $this->success($this->service->addExecutionEvidence($id, $hotelIds, $this->requestData(), $userId));
@@ -269,28 +344,36 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
-            return $this->success($this->service->reviewExecutionTask($id, $hotelIds, $this->requestData()));
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->service->reviewExecutionTask(
+                $id,
+                $hotelIds,
+                $this->requestData(),
+                (int)($this->currentUser->id ?? 0)
+            ));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution task review failed'), $this->operationThrowableStatus($e));
         }
     }
 
-    private function resolveHotelScope(int $inputHotelId = 0): array
+    private function resolveHotelScope(int $inputHotelId = 0, string $capability = 'operation.view'): array
     {
         if (!$this->currentUser) {
             throw new \RuntimeException('未登录');
         }
 
         $hotelId = $inputHotelId > 0 ? $inputHotelId : (int)$this->request->param('hotel_id', 0);
-        $permitted = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        $permitted = array_values(array_filter(
+            array_map('intval', $this->currentUser->getPermittedHotelIds()),
+            fn(int $hotelId): bool => $hotelId > 0 && $this->currentUser->hasHotelPermission($hotelId, $capability)
+        ));
         if (empty($permitted)) {
-            throw new \RuntimeException('暂无可访问酒店');
+            throw new \RuntimeException($capability === 'operation.execute' ? '暂无可执行运营操作的酒店' : '暂无可访问酒店');
         }
 
         if ($hotelId > 0) {
             if (!in_array($hotelId, $permitted, true)) {
-                throw new \RuntimeException('无权查看该酒店数据');
+                throw new \RuntimeException($capability === 'operation.execute' ? '无权限执行该酒店运营操作' : '无权查看该酒店数据');
             }
             return [[$hotelId], $hotelId];
         }
@@ -367,7 +450,7 @@ class OperationManagement extends Base
         ];
 
         return [
-            'source_module' => 'strategy_simulation',
+            'source_module' => 'operation_strategy_simulation',
             'source_record_id' => (int)($input['source_record_id'] ?? 0),
             'hotel_id' => $hotelId,
             'platform' => (string)($input['platform'] ?? $input['channel'] ?? ''),
@@ -383,8 +466,14 @@ class OperationManagement extends Base
             ],
             'expected_metric' => (string)($input['target_metric'] ?? 'orders'),
             'expected_delta' => (float)($input['target_change_rate'] ?? 0),
-            'risk_level' => (string)($result['risk']['level'] ?? 'medium'),
+            'risk_level' => (string)($result['risk']['level'] ?? 'unknown'),
         ];
+    }
+
+    private function canCreateStrategyExecutionIntent(array $result): bool
+    {
+        return ($result['simulated'] ?? false) === true
+            && ($result['status'] ?? '') === 'rule_scenario';
     }
 
     private function operationThrowableStatus(Throwable $e): int
@@ -393,11 +482,14 @@ class OperationManagement extends Base
         if ($message === '未登录') {
             return 401;
         }
-        if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据'], true)) {
+        if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据', '暂无可执行运营操作的酒店', '无权限执行该酒店运营操作'], true)) {
             return 403;
         }
+        if (str_contains(strtolower($message), 'not found')) {
+            return 404;
+        }
         if ($e instanceof \InvalidArgumentException) {
-            return 400;
+            return 422;
         }
 
         return 500;
@@ -407,6 +499,11 @@ class OperationManagement extends Base
     {
         $message = trim($e->getMessage());
         if ($message !== '' && preg_match('/[\x{4e00}-\x{9fff}]/u', $message) === 1) {
+            return $message;
+        }
+        if ($e instanceof \InvalidArgumentException
+            || ($e instanceof \RuntimeException && str_contains(strtolower($message), 'not found'))
+        ) {
             return $message;
         }
 

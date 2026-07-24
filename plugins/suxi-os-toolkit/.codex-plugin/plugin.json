@@ -1,7 +1,7 @@
 {
   "name": "suxi-os-toolkit",
   "version": "0.1.0",
-  "description": "宿析OS项目本地工具包，打包OTA运营、字段闭环、收益语义层、AI报告、投资测算、测试守卫、插件路由、ECC适配、Scrapling和数据驾驶舱UI等项目 Skills。",
+  "description": "宿析OS项目本地工具包，打包多源能力吸收与复刻、OTA运营、字段闭环、收益语义层、AI报告、投资测算、测试守卫、插件路由、ECC适配、Scrapling和数据驾驶舱UI等项目 Skills。",
   "author": {
     "name": "SUXIOS",
     "email": "local@suxios.invalid",
@@ -15,13 +15,15 @@
   "interface": {
     "displayName": "宿析OS Toolkit",
     "shortDescription": "宿析OS酒店经营与开发专用本地 Skills",
-    "longDescription": "为宿析OS项目提供本地 Skills：自动判断与安装规则、插件优先路由、ECC Codex适配、Scrapling授权解析、OTA运营、携程字段到表闭环、OTA收益语义层、AI报告、投资测算、测试守卫和数据驾驶舱UI。",
+    "longDescription": "为宿析OS项目提供本地 Skills：从Skill、源码、API、网站与录屏、数据文件、SOP、日志测试、用户反馈和版本样例吸收并复刻能力；在线能力先预览、锁定来源和验证基线，再进入真实业务入口。另含插件路由、ECC适配、Scrapling授权解析、OTA运营、字段闭环、收益语义层、AI报告、投资测算、测试守卫和数据驾驶舱UI。",
     "developerName": "SUXIOS",
     "category": "Productivity",
     "capabilities": ["Write", "Analysis"],
     "websiteURL": "https://local.suxios.invalid/suxi-os-toolkit",
     "defaultPrompt": [
       "按宿析OS规则判断本次任务需要哪些 Skill。",
+      "把外部 Skill、源码、API、网站或录屏、数据、SOP、日志测试和成品样例吸收并复刻为宿析OS可验证功能。",
+      "吸收在线 Skill 前先预览完整文件树、锁定来源、审查最小权限，并用新版对旧版或无 Skill 基线验证。",
       "优先使用已安装插件和项目本地 Skill，不用兜底逻辑掩盖缺失状态。",
       "安全修改宿析OS酒店投资测算逻辑。",
       "诊断宿析OS OTA数据、字段闭环、收益语义层或AI报告问题。"

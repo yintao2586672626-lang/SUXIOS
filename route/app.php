@@ -23,7 +23,9 @@ if (!function_exists('suxi_root_index_response')) {
             'ETag' => $etag,
             'Last-Modified' => $lastModified,
             'Vary' => 'Accept-Encoding',
-            'Cache-Control' => 'no-cache',
+            'Cache-Control' => 'public, max-age=60, s-maxage=60, stale-while-revalidate=30',
+            'CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
+            'Cloudflare-CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
         ];
 
         $request = request();
@@ -56,7 +58,10 @@ if (!function_exists('suxi_root_index_response')) {
         );
         $etagMatches = in_array('*', $ifNoneMatchValues, true)
             || in_array($etagValue, $ifNoneMatchValues, true);
-        if ($etagMatches || ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime)) {
+        $notModified = $ifNoneMatch !== ''
+            ? $etagMatches
+            : ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime);
+        if ($notModified) {
             return response('', 304, $headers);
         }
 
@@ -99,6 +104,7 @@ Route::options('api/:any', function() {
 // ==================== Auth routes ====================
 // Public auth endpoints.
 Route::post('api/auth/login', 'Auth/login');
+Route::get('api/auth/login-support', 'Auth/loginSupport');
 // Self-registration is disabled by Auth/register and kept routed for explicit 403.
 Route::post('api/auth/register', 'Auth/register');
 
@@ -115,6 +121,7 @@ Route::post('api/hotels/', 'Hotel/create')->middleware(\app\middleware\Auth::cla
 Route::group('api/hotels', function () {
     Route::get('/', 'Hotel/index');
     Route::get('/all', 'Hotel/all');
+    Route::post('/batch-status', 'Hotel/batchStatus');
     Route::get('/merge-preview', 'Hotel/mergePreview');
     Route::post('/merge-execute', 'Hotel/mergeExecute');
     Route::get('/:id', 'Hotel/read');
@@ -127,6 +134,8 @@ Route::group('api/hotels', function () {
 Route::group('api/users', function () {
     Route::get('/', 'User/index');
     Route::get('/roles', 'User/roles');
+    Route::post('/batch-status', 'User/batchStatus');
+    Route::post('/hotel-assignments', 'User/batchHotelAssignments');
     Route::get('/:id', 'User/read');
     Route::post('/', 'User/create');
     Route::put('/:id', 'User/update');
@@ -171,6 +180,9 @@ Route::group('api/daily-reports', function () {
 Route::group('api/ai-daily-reports', function () {
     Route::get('/latest', 'AiDailyReport/latest');
     Route::post('/generate', 'AiDailyReport/generate');
+    Route::get('/tasks/:taskId', 'AiDailyReport/generationTask');
+    Route::post('/:id/send-wecom', 'admin.CompetitorWechatRobotController/apiSendAiDailyReport');
+    Route::post('/:id/human-judgments', 'AiDailyReport/recordHumanJudgment');
     Route::post('/:id/actions/:actionIndex/execution-intent', 'AiDailyReport/createExecutionIntent');
     Route::get('/:id', 'AiDailyReport/read');
     Route::get('/', 'AiDailyReport/index');
@@ -206,107 +218,122 @@ Route::group('api/system-config', function () {
 
 // ==================== 线上数据获取路由 ====================
 Route::group('api/online-data', function () {
-    Route::post('/fetch-ctrip', 'OnlineData/fetchCtrip');
-    Route::post('/fetch-meituan', 'OnlineData/fetchMeituan');
-    Route::post('/meituan/display-model', 'OnlineData/meituanDisplayModel');
+    Route::post('/fetch-ctrip', 'ota.CtripController/fetchCtrip');
+    Route::post('/fetch-ctrip-temporary-cookie', 'ota.CtripController/fetchCtripTemporaryCookie');
+    Route::post('/fetch-meituan', 'ota.MeituanController/fetchMeituan');
+    Route::post('/meituan/rank-candidates/commit', 'ota.MeituanController/commitMeituanRankCandidate');
+    Route::post('/meituan/display-model', 'ota.MeituanController/meituanDisplayModel');
     Route::get('/competitor-summary', 'OnlineData/competitorSummary');
-    Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
-    Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
-    Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');
-    Route::post('/fetch-meituan-orders', 'OnlineData/fetchMeituanOrders');
-    Route::post('/fetch-meituan-ads', 'OnlineData/fetchMeituanAds');
-    Route::post('/fetch-meituan-comments', 'OnlineData/fetchMeituanComments');
-    Route::post('/capture-meituan-browser', 'OnlineData/captureMeituanBrowserData');
-    Route::post('/save-meituan-captured-data', 'OnlineData/saveMeituanCapturedData');
-    Route::get('/ctrip/latest', 'OnlineData/ctripLatest');
-    Route::get('/ctrip/history', 'OnlineData/ctripHistory');
+    Route::get('/ctrip/competitive-operations', 'ota.CtripController/ctripCompetitiveOperations');
+    Route::get('/ctrip/public-profiles', 'ota.CtripController/ctripPublicProfiles');
+    Route::get('/public-page-diagnosis', 'ota.CtripController/otaPublicPageDiagnosis');
+    Route::post('/public-page-evidence', 'ota.CtripController/saveOtaPublicPageEvidence');
+    Route::post('/public-page-diagnosis/execution-intent', 'ota.CtripController/createOtaPublicPageDiagnosisExecutionIntent');
+    Route::post('/ctrip/public-profiles/add', 'ota.CtripController/addCtripPublicProfile');
+    Route::post('/ctrip/public-profiles/sync', 'ota.CtripController/syncCtripPublicProfiles');
+    Route::post('/fetch-ctrip-traffic', 'ota.CtripController/fetchCtripTraffic');
+    Route::post('/ctrip/traffic', 'ota.CtripController/fetchCtripTraffic');
+    Route::post('/fetch-meituan-traffic', 'ota.MeituanController/fetchMeituanTraffic');
+    Route::post('/fetch-meituan-order-flow', 'ota.MeituanController/fetchMeituanOrderFlow');
+    Route::post('/fetch-meituan-orders', 'ota.MeituanController/fetchMeituanOrders');
+    Route::post('/fetch-meituan-ads', 'ota.MeituanController/fetchMeituanAds');
+    Route::post('/fetch-meituan-comments', 'ota.MeituanController/fetchMeituanComments');
+    Route::post('/capture-meituan-browser', 'ota.MeituanController/captureMeituanBrowserData');
+    Route::post('/save-meituan-captured-data', 'ota.MeituanController/saveMeituanCapturedData');
+    Route::get('/ctrip/latest', 'ota.CtripController/ctripLatest');
+    Route::get('/ctrip/search-opportunity', 'ota.CtripController/ctripSearchOpportunity');
+    Route::get('/ctrip/history', 'ota.CtripController/ctripHistory');
     Route::post('/fetch-custom', 'OnlineData/fetchCustom');
-    Route::post('/save-cookies', 'OnlineData/saveCookies');
-    Route::get('/cookies-list', 'OnlineData/getCookiesList');
-    Route::get('/cookies-detail', 'OnlineData/getCookiesDetail');
-    Route::post('/delete-cookies', 'OnlineData/deleteCookies');
-    Route::post('/batch-delete-cookies', 'OnlineData/batchDeleteCookies');
-    Route::get('/bookmarklet', 'OnlineData/bookmarklet');
+    Route::post('/save-cookies', 'ota.CredentialController/saveCookies');
+    Route::get('/cookies-list', 'ota.CredentialController/getCookiesList');
+    Route::get('/cookies-detail', 'ota.CredentialController/getCookiesDetail');
+    Route::post('/delete-cookies', 'ota.CredentialController/deleteCookies');
+    Route::post('/batch-delete-cookies', 'ota.CredentialController/batchDeleteCookies');
+    Route::get('/bookmarklet', 'ota.CredentialController/bookmarklet');
     // 美团配置
-    Route::post('/save-meituan-config', 'OnlineData/saveMeituanConfig');
-    Route::get('/get-meituan-config', 'OnlineData/getMeituanConfig');
-    Route::post('/save-meituan-config-item', 'OnlineData/saveMeituanConfigItem');
-    Route::get('/get-meituan-config-list', 'OnlineData/getMeituanConfigList');
-    Route::get('/get-meituan-config-detail', 'OnlineData/getMeituanConfigDetail');
-    Route::delete('/delete-meituan-config', 'OnlineData/deleteMeituanConfig');
-    Route::get('/generate-meituan-bookmarklet', 'OnlineData/generateMeituanBookmarklet');
+    Route::post('/save-meituan-config', 'ota.CredentialController/saveMeituanConfig');
+    Route::get('/get-meituan-config', 'ota.CredentialController/getMeituanConfig');
+    Route::post('/save-meituan-config-item', 'ota.CredentialController/saveMeituanConfigItem');
+    Route::get('/get-meituan-config-list', 'ota.CredentialController/getMeituanConfigList');
+    Route::get('/get-meituan-config-detail', 'ota.CredentialController/getMeituanConfigDetail');
+    Route::delete('/delete-meituan-config', 'ota.CredentialController/deleteMeituanConfig');
+    Route::get('/generate-meituan-bookmarklet', 'ota.CredentialController/generateMeituanBookmarklet');
     // 美团点评配置（优化版）
-    Route::post('/save-meituan-comment-config', 'OnlineData/saveMeituanCommentConfig');
-    Route::get('/get-meituan-comment-config-list', 'OnlineData/getMeituanCommentConfigList');
+    Route::post('/save-meituan-comment-config', 'ota.CredentialController/saveMeituanCommentConfig');
+    Route::get('/get-meituan-comment-config-list', 'ota.CredentialController/getMeituanCommentConfigList');
     // 携程点评配置
-    Route::post('/fetch-ctrip-comments', 'OnlineData/fetchCtripComments');
-    Route::post('/capture-ctrip-comments-browser', 'OnlineData/captureCtripCommentsBrowserData');
-    Route::post('/capture-ctrip-browser', 'OnlineData/captureCtripBrowserData');
-    Route::get('/ctrip-diagnosis-snapshot', 'OnlineData/ctripDiagnosisSnapshot');
-    Route::get('/ctrip-profile-status', 'OnlineData/ctripProfileStatus');
-    Route::get('/ctrip-profile-fields', 'OnlineData/getCtripProfileFields');
-    Route::get('/ctrip-profile-modules', 'OnlineData/getCtripProfileModules');
-    Route::post('/sync-ctrip-profile-fields', 'OnlineData/syncCtripProfileFields');
-    Route::post('/save-ctrip-profile-field', 'OnlineData/saveCtripProfileField');
-    Route::post('/save-ctrip-profile-module', 'OnlineData/saveCtripProfileModule');
-    Route::post('/verify-ctrip-profile-field-sample', 'OnlineData/verifyCtripProfileFieldSample');
-    Route::post('/recheck-ctrip-profile-mismatched-fields', 'OnlineData/recheckCtripProfileMismatchedFields');
-    Route::delete('/delete-ctrip-profile-field', 'OnlineData/deleteCtripProfileField');
-    Route::delete('/delete-ctrip-profile-module', 'OnlineData/deleteCtripProfileModule');
-    Route::get('/meituan-profile-status', 'OnlineData/meituanProfileStatus');
-    Route::get('/platform-profile-status', 'OnlineData/platformProfileStatus');
-    Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');
-    Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');
-    Route::get('/profile-login-status/:platform', 'OnlineData/platformProfileLoginStatus');
-    Route::get('/ctrip-collector-contract', 'OnlineData/ctripCollectorContract');
-    Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData');
-    Route::post('/validate-ctrip-endpoint-evidence', 'OnlineData/validateCtripEndpointEvidence');
-    Route::post('/fetch-ctrip-overview', 'OnlineData/fetchCtripOverviewData');
-    Route::post('/fetch-ctrip-ads', 'OnlineData/fetchCtripAds');
-    Route::post('/save-ctrip-comment-config', 'OnlineData/saveCtripCommentConfig');
-    Route::get('/get-ctrip-comment-config-list', 'OnlineData/getCtripCommentConfigList');
-    Route::post('/ctrip-review-matches/im-sessions', 'OnlineData/saveCtripReviewImSession');
-    Route::post('/ctrip-review-matches/reviews', 'OnlineData/saveCtripReviewForMatch');
-    Route::post('/ctrip-review-matches/orders', 'OnlineData/saveCtripOrderForMatch');
-    Route::post('/ctrip-review-matches/lookup', 'OnlineData/lookupCtripReviewOrderMatch');
-    Route::post('/ctrip-review-matches/identity-preview', 'OnlineData/previewCtripReviewOrdererIdentity');
-    Route::post('/ctrip-review-matches/run', 'OnlineData/runCtripReviewOrderMatchAutomation');
-    Route::post('/ctrip-review-matches/closure', 'OnlineData/checkCtripReviewOrderMatchClosure');
-    Route::post('/ctrip-review-matches/bind', 'OnlineData/bindCtripReviewOrderMatch');
-    Route::post('/meituan-review-matches/reviews', 'OnlineData/saveMeituanReviewForMatch');
-    Route::post('/meituan-review-matches/orders', 'OnlineData/saveMeituanOrderForMatch');
-    Route::post('/meituan-review-matches/lookup', 'OnlineData/lookupMeituanReviewOrderMatch');
-    Route::post('/meituan-review-matches/bind', 'OnlineData/bindMeituanReviewOrderMatch');
-    Route::post('/meituan-review-matches/unbind', 'OnlineData/unbindMeituanReviewOrderMatch');
-    Route::post('/meituan-orders/phone-state', 'OnlineData/meituanOrderPhoneState');
+    Route::post('/fetch-ctrip-comments', 'ota.CtripController/fetchCtripComments');
+    Route::post('/capture-ctrip-comments-browser', 'ota.CtripController/captureCtripCommentsBrowserData');
+    Route::post('/capture-ctrip-browser', 'ota.CtripController/captureCtripBrowserData');
+    Route::get('/ctrip-diagnosis-snapshot', 'ota.CtripController/ctripDiagnosisSnapshot');
+    Route::get('/ctrip-profile-status', 'ota.ProfileController/ctripProfileStatus');
+    Route::get('/ctrip-profile-fields', 'ota.ProfileController/getCtripProfileFields');
+    Route::get('/ctrip-profile-modules', 'ota.ProfileController/getCtripProfileModules');
+    Route::post('/sync-ctrip-profile-fields', 'ota.ProfileController/syncCtripProfileFields');
+    Route::post('/save-ctrip-profile-field', 'ota.ProfileController/saveCtripProfileField');
+    Route::post('/save-ctrip-profile-module', 'ota.ProfileController/saveCtripProfileModule');
+    Route::post('/verify-ctrip-profile-field-sample', 'ota.ProfileController/verifyCtripProfileFieldSample');
+    Route::post('/recheck-ctrip-profile-mismatched-fields', 'ota.ProfileController/recheckCtripProfileMismatchedFields');
+    Route::delete('/delete-ctrip-profile-field', 'ota.ProfileController/deleteCtripProfileField');
+    Route::delete('/delete-ctrip-profile-module', 'ota.ProfileController/deleteCtripProfileModule');
+    Route::get('/meituan-profile-status', 'ota.ProfileController/meituanProfileStatus');
+    Route::get('/platform-profile-status', 'ota.ProfileController/platformProfileStatus');
+    Route::post('/profile-binding-unbind', 'ota.ProfileController/deletePlatformProfileBinding');
+    Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');
+    Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');
+    Route::get('/ctrip-collector-contract', 'ota.CtripController/ctripCollectorContract');
+    Route::post('/fetch-ctrip-cookie-api', 'ota.CtripController/fetchCtripCookieApiData');
+    Route::post('/validate-ctrip-endpoint-evidence', 'ota.CtripController/validateCtripEndpointEvidence');
+    Route::post('/fetch-ctrip-overview', 'ota.CtripController/fetchCtripOverviewData');
+    Route::post('/fetch-ctrip-ads', 'ota.CtripController/fetchCtripAds');
+    Route::post('/save-ctrip-comment-config', 'ota.CredentialController/saveCtripCommentConfig');
+    Route::get('/get-ctrip-comment-config-list', 'ota.CredentialController/getCtripCommentConfigList');
+    Route::post('/ctrip-review-matches/im-sessions', 'ota.CtripController/saveCtripReviewImSession');
+    Route::post('/ctrip-review-matches/reviews', 'ota.CtripController/saveCtripReviewForMatch');
+    Route::post('/ctrip-review-matches/orders', 'ota.CtripController/saveCtripOrderForMatch');
+    Route::post('/ctrip-review-matches/lookup', 'ota.CtripController/lookupCtripReviewOrderMatch');
+    Route::post('/ctrip-review-matches/identity-preview', 'ota.CtripController/previewCtripReviewOrdererIdentity');
+    Route::post('/ctrip-review-matches/run', 'ota.CtripController/runCtripReviewOrderMatchAutomation');
+    Route::post('/ctrip-review-matches/closure', 'ota.CtripController/checkCtripReviewOrderMatchClosure');
+    Route::post('/ctrip-review-matches/bind', 'ota.CtripController/bindCtripReviewOrderMatch');
+    Route::post('/meituan-review-matches/reviews', 'ota.MeituanController/saveMeituanReviewForMatch');
+    Route::post('/meituan-review-matches/orders', 'ota.MeituanController/saveMeituanOrderForMatch');
+    Route::post('/meituan-review-matches/lookup', 'ota.MeituanController/lookupMeituanReviewOrderMatch');
+    Route::post('/meituan-review-matches/bind', 'ota.MeituanController/bindMeituanReviewOrderMatch');
+    Route::post('/meituan-review-matches/unbind', 'ota.MeituanController/unbindMeituanReviewOrderMatch');
+    Route::post('/meituan-orders/phone-state', 'ota.MeituanController/meituanOrderPhoneState');
     // 携程配置
-    Route::post('/save-ctrip-config', 'OnlineData/saveCtripConfig');
-    Route::get('/get-ctrip-config-list', 'OnlineData/getCtripConfigList');
-    Route::get('/get-ctrip-config-detail', 'OnlineData/getCtripConfigDetail');
-    Route::delete('/delete-ctrip-config', 'OnlineData/deleteCtripConfig');
-    Route::get('/generate-ctrip-bookmarklet', 'OnlineData/generateCtripBookmarklet');
-    Route::any('/auto-capture-ctrip-cookie', 'OnlineData/autoCaptureCtripCookie');
-    Route::post('/save-ctrip-config-by-bookmark', 'OnlineData/saveCtripConfigByBookmark');
+    Route::post('/save-ctrip-config', 'ota.CredentialController/saveCtripConfig');
+    Route::get('/get-ctrip-config-list', 'ota.CredentialController/getCtripConfigList');
+    Route::get('/get-ctrip-config-detail', 'ota.CredentialController/getCtripConfigDetail');
+    Route::delete('/delete-ctrip-config', 'ota.CredentialController/deleteCtripConfig');
+    Route::get('/generate-ctrip-bookmarklet', 'ota.CredentialController/generateCtripBookmarklet');
+    Route::any('/auto-capture-ctrip-cookie', 'ota.CredentialController/autoCaptureCtripCookie');
+    Route::post('/save-ctrip-config-by-bookmark', 'ota.CredentialController/saveCtripConfigByBookmark');
     // 线上数据管理
-    Route::get('/collection-resources', 'OnlineData/collectionResourceCatalog');
-    Route::get('/collection-status', 'OnlineData/collectionStatus');
-    Route::get('/data-sources', 'OnlineData/dataSourceList');
-    Route::post('/data-sources/:id/sync', 'OnlineData/syncDataSource');
-    Route::post('/data-sources', 'OnlineData/saveDataSource');
-    Route::delete('/data-sources/:id', 'OnlineData/deleteDataSource');
-    Route::post('/data-import', 'OnlineData/importDataSourceRows');
-    Route::post('/browser-assist-import', 'OnlineData/importBrowserAssistCapture');
-    Route::get('/sync-tasks', 'OnlineData/syncTaskList');
-    Route::get('/sync-logs', 'OnlineData/syncLogList');
+    Route::get('/collection-resources', 'ota.SyncController/collectionResourceCatalog');
+    Route::get('/collection-status', 'ota.SyncController/collectionStatus');
+    Route::get('/data-sources', 'ota.SyncController/dataSourceList');
+    Route::post('/data-sources/:id/sync', 'ota.SyncController/syncDataSource');
+    Route::post('/data-sources', 'ota.SyncController/saveDataSource');
+    Route::delete('/data-sources/:id', 'ota.SyncController/deleteDataSource');
+    Route::post('/data-import', 'ota.SyncController/importDataSourceRows');
+    Route::post('/browser-assist-import', 'ota.SyncController/importBrowserAssistCapture');
+    Route::get('/sync-tasks', 'ota.SyncController/syncTaskList');
+    Route::get('/sync-logs', 'ota.SyncController/syncLogList');
     Route::post('/save-daily-data', 'OnlineData/saveDailyData');
     Route::post('/update-data', 'OnlineData/updateData');
     Route::post('/delete-data', 'OnlineData/deleteData');
     Route::delete('/delete-data', 'OnlineData/deleteData');
-    Route::get('/cookie-status', 'OnlineData/cookieStatus');
+    Route::get('/correction-ledger', 'OnlineData/correctionLedger');
+    Route::post('/restore-data', 'OnlineData/restoreData');
+    Route::get('/cookie-status', 'ota.CredentialController/cookieStatus');
     Route::get('/public-endpoint-security', 'OnlineData/publicEndpointSecurity');
     Route::get('/release-evidence-status', 'OnlineData/releaseEvidenceStatus');
     Route::get('/collection-reliability', 'OnlineData/collectionReliability');
     Route::get('/daily-workbench', 'OnlineData/dailyWorkbench');
+    Route::get('/manual-fetch-evidence', 'OnlineData/manualFetchEvidence');
+    Route::get('/manual-fetch-task-status', 'ota.SyncController/manualFetchTaskStatus');
     Route::get('/daily-workbench-patrols', 'OnlineData/dailyWorkbenchPatrols');
     Route::get('/daily-workbench-patrols/report', 'OnlineData/dailyWorkbenchPatrolReport');
     Route::post('/daily-workbench-patrols/run', 'OnlineData/runDailyWorkbenchPatrol');
@@ -321,14 +348,14 @@ Route::group('api/online-data', function () {
     Route::get('/daily-data-list', 'OnlineData/dailyDataList');
     Route::get('/daily-data-summary', 'OnlineData/dailyDataSummary');
     Route::get('/hotel-list', 'OnlineData/hotelList');
-    Route::post('/auto-fetch', 'OnlineData/autoFetch');
-    Route::get('/auto-fetch-status', 'OnlineData/autoFetchStatus');
-    Route::get('/auto-fetch-records', 'OnlineData/autoFetchRecords');
-    Route::post('/batch-delete-auto-fetch-records', 'OnlineData/batchDeleteAutoFetchRecords');
-    Route::post('/clear-auto-fetch-records', 'OnlineData/clearAutoFetchRecords');
-    Route::post('/toggle-auto-fetch', 'OnlineData/toggleAutoFetch');
-    Route::post('/set-fetch-schedule', 'OnlineData/setFetchSchedule');
-    Route::post('/retry-auto-fetch', 'OnlineData/retryAutoFetch');
+    Route::post('/auto-fetch', 'ota.SyncController/autoFetch');
+    Route::get('/auto-fetch-status', 'ota.SyncController/autoFetchStatus');
+    Route::get('/auto-fetch-records', 'ota.SyncController/autoFetchRecords');
+    Route::post('/batch-delete-auto-fetch-records', 'ota.SyncController/batchDeleteAutoFetchRecords');
+    Route::post('/clear-auto-fetch-records', 'ota.SyncController/clearAutoFetchRecords');
+    Route::post('/toggle-auto-fetch', 'ota.SyncController/toggleAutoFetch');
+    Route::post('/set-fetch-schedule', 'ota.SyncController/setFetchSchedule');
+    Route::post('/retry-auto-fetch', 'ota.SyncController/retryAutoFetch');
     Route::post('/batch-delete', 'OnlineData/batchDelete');
     // 数据分析
     Route::get('/data-analysis', 'OnlineData/dataAnalysis');
@@ -352,6 +379,7 @@ Route::group('api/knowledge', function () {
     Route::post('/import', 'Knowledge/importMaterials');
     Route::post('/document-text', 'Knowledge/extractDocumentText');
     Route::post('/:unit_id/add-chunk', 'Knowledge/addChunk');
+    Route::post('/:unit_id/chunks/:chunk_id/execution-intent', 'Knowledge/createExecutionIntent');
     Route::post('/:unit_id/update', 'Knowledge/update');
     Route::post('/:unit_id/status', 'Knowledge/status');
     Route::delete('/:unit_id', 'Knowledge/delete');
@@ -379,13 +407,6 @@ Route::group('api/revenue-ai', function () {
     Route::get('/overview', 'RevenueAi/overview');
     Route::post('/price-suggestions/:id/review', 'RevenueAi/reviewPriceSuggestion');
     Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
-})->middleware(\app\middleware\Auth::class);
-
-// ==================== AI 筹建管理路由 ====================
-Route::group('api/ai', function () {
-    Route::post('/strategy', 'Ai/strategy');
-    Route::post('/simulation', 'Ai/simulation');
-    Route::post('/feasibility', 'Ai/feasibility');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== AI模型配置 API ====================
@@ -425,16 +446,20 @@ Route::group('api/macro-signals', function () {
     Route::get('/external', 'MacroSignal/external');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== Unified past / present / future API ====================
+Route::group('api/temporal-insights', function () {
+    Route::get('/overview', 'TemporalInsight/overview');
+    Route::post('/forecasts', 'TemporalInsight/generateForecast');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 全生命周期真实数据 API ====================
 Route::group('api/lifecycle', function () {
     Route::get('/overview', 'Lifecycle/overview');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== P4 投资决策辅助 API ====================
 Route::group('api/investment-decision', function () {
     Route::get('/overview', 'InvestmentDecision/overview');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 智略·战略推演 API ====================
 Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');
@@ -443,7 +468,6 @@ Route::group('api/strategy', function () {
     Route::get('/records/:id', 'StrategySimulation/detail');
     Route::get('/records', 'StrategySimulation/records');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 智算·量化模拟 API ====================
 Route::group('api/simulation', function () {
     Route::post('/calculate', 'Simulation/calculate');
@@ -452,13 +476,13 @@ Route::group('api/simulation', function () {
     Route::get('/records/:id', 'Simulation/detail');
     Route::get('/records', 'Simulation/records');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 运营管理 API ====================
 Route::group('api/operation', function () {
     Route::get('/full-data', 'OperationManagement/fullData');
     Route::post('/root-cause', 'OperationManagement/rootCause');
     Route::get('/alerts', 'OperationManagement/alerts');
     Route::post('/alerts/read', 'OperationManagement/alertsRead');
+    Route::post('/alerts/:id/execution-intent', 'OperationManagement/alertExecutionIntent');
     Route::post('/strategy-simulation', 'OperationManagement/strategySimulation');
     Route::post('/execution-intents/:id/approve', 'OperationManagement/approveExecutionIntent');
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
@@ -466,6 +490,8 @@ Route::group('api/operation', function () {
     Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
     Route::get('/closure-overview', 'OperationManagement/closureOverview');
     Route::get('/execution-flow', 'OperationManagement/executionFlow');
+    Route::get('/execution-intents/:id', 'OperationManagement/readExecutionIntent');
+    Route::get('/execution-tasks/:id', 'OperationManagement/readExecutionTask');
     Route::get('/execution-intents', 'OperationManagement/executionIntents');
     Route::post('/execution-intents', 'OperationManagement/createExecutionIntent');
     Route::post('/actions/:id/finish', 'OperationManagement/finishAction');
@@ -486,7 +512,6 @@ Route::group('api/opening', function () {
     Route::post('/projects', 'Opening/createProject');
     Route::get('/projects', 'Opening/projects');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 扩张管理 API ====================
 Route::group('api/expansion', function () {
     Route::post('/market-evaluation', 'Expansion/marketEvaluation');
@@ -499,7 +524,6 @@ Route::group('api/expansion', function () {
     Route::get('/records/:id', 'Expansion/detail');
     Route::get('/records', 'Expansion/records');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 转让管理 API ====================
 Route::group('api/transfer', function () {
     Route::get('/source', 'TransferDecision/source');
@@ -511,8 +535,10 @@ Route::group('api/transfer', function () {
     Route::get('/records/:id', 'TransferDecision/detail');
     Route::get('/records', 'TransferDecision/records');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 竞对价格监控 API ====================
+Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class);
+Route::get('api/competitor/targets', 'CompetitorApi/targets')->middleware(\app\middleware\Auth::class);
+Route::post('api/competitor/manual-observation', 'CompetitorApi/manualObservation')->middleware(\app\middleware\Auth::class);
 Route::post('api/competitor/task', 'CompetitorApi/task');
 Route::post('api/competitor/report', 'CompetitorApi/report');
 
@@ -532,6 +558,10 @@ Route::group('api/admin/competitor-price-logs', function () {
 
 Route::group('api/admin/competitor-devices', function () {
     Route::get('/', 'admin.CompetitorDeviceController/index');
+    Route::post('/', 'admin.CompetitorDeviceController/create');
+    Route::put('/:id/rebind', 'admin.CompetitorDeviceController/rebind');
+    Route::post('/:id/rotate-token', 'admin.CompetitorDeviceController/rotateToken');
+    Route::put('/:id/status', 'admin.CompetitorDeviceController/updateStatus');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== 企业微信机器人 ====================
@@ -569,10 +599,10 @@ Route::group('api/admin/competitor-wechat-robot', function () {
 })->middleware(\app\middleware\Auth::class);
 
 // 接收书签脚本的Cookies（不需要认证中间件，通过token参数验证）
-Route::rule('api/online-data/receive-cookies', 'OnlineData/receiveCookies', 'POST|OPTIONS');
+Route::rule('api/online-data/receive-cookies', 'ota.CredentialController/receiveCookies', 'POST|OPTIONS');
 
 // 定时任务触发接口（不需要认证，通过X-Cron-Token验证）
-Route::get('api/online-data/cron-trigger', 'OnlineData/cronTrigger');
+Route::get('api/online-data/cron-trigger', 'ota.SyncController/cronTrigger');
 Route::get('api/online-data/daily-workbench-patrol-cron', 'OnlineData/dailyWorkbenchPatrolCron');
 
 // ==================== 操作日志路由 ====================
@@ -580,6 +610,7 @@ Route::group('api/operation-logs', function () {
     Route::get('/', 'OperationLogController/index');
     Route::get('/stats', 'OperationLogController/stats');
     Route::get('/high-risk-summary', 'OperationLogController/highRiskSummary');
+    Route::get('/security-overview', 'OperationLogController/securityOverview');
     Route::get('/:id', 'OperationLogController/detail');
 })->middleware(\app\middleware\Auth::class);
 
@@ -593,14 +624,40 @@ Route::group('api/notifications', function () {
 
 // 健康检查
 Route::get('api/health', function () {
-    return json(['status' => 'ok', 'time' => date('Y-m-d H:i:s')]);
+    $checkedAt = date('Y-m-d H:i:s');
+    try {
+        $result = \think\facade\Db::query('SELECT 1 AS ready');
+        if ((int)($result[0]['ready'] ?? 0) !== 1) {
+            throw new \RuntimeException('database readiness probe returned an invalid result');
+        }
+    } catch (\Throwable) {
+        return json([
+            'status' => 'unavailable',
+            'time' => $checkedAt,
+            'checks' => [
+                'application' => 'ok',
+                'database' => 'unavailable',
+            ],
+        ], 503);
+    }
+
+    return json([
+        'status' => 'ok',
+        'time' => $checkedAt,
+        'checks' => [
+            'application' => 'ok',
+            'database' => 'ok',
+        ],
+    ]);
 });
 // ==================== AI Agent 路由 ====================
 Route::group('api/agent', function () {
     // 概览
     Route::get('/overview', 'Agent/overview');
     Route::post('/test-llm', 'Agent/testLlm');
+    Route::get('/ota-diagnosis', 'Agent/latestOtaDiagnosis');
     Route::post('/ota-diagnosis', 'Agent/otaDiagnosis');
+    Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent');
     Route::post('/analyze-captured-ota-data', 'Agent/analyzeCapturedOtaData');
     Route::post('/summarize-captured-ota-analysis', 'Agent/summarizeCapturedOtaAnalysis');
 
@@ -612,31 +669,15 @@ Route::group('api/agent', function () {
     Route::post('/feasibility-report/:id/execution-intent', 'Agent/createFeasibilityExecutionIntent');
     Route::delete('/feasibility-report/:id', 'Agent/feasibilityReportArchive');
     Route::get('/feasibility-report/list', 'Agent/feasibilityReportList');
-
     // 配置管理
     Route::get('/config', 'Agent/getConfig');
     Route::post('/config', 'Agent/saveConfig');
 
-    // ========== 智能员工Agent ==========
     // 知识库
     Route::get('/knowledge', 'Agent/knowledgeList');
     Route::post('/knowledge', 'Agent/saveKnowledge');
     Route::delete('/knowledge/:id', 'Agent/deleteKnowledge');
     Route::get('/knowledge-categories', 'Agent/knowledgeCategories');
-
-    // 工单管理
-    Route::get('/work-orders', 'Agent/workOrders');
-    Route::post('/work-orders', 'Agent/createWorkOrder');
-    Route::post('/work-orders/:id/assign', 'Agent/assignWorkOrder');
-    Route::post('/work-orders/:id/resolve', 'Agent/resolveWorkOrder');
-    Route::get('/work-order-stats', 'Agent/workOrderStats');
-
-    // 对话记录
-    Route::get('/conversations', 'Agent/conversations');
-    Route::get('/conversation-stats', 'Agent/conversationStats');
-
-    // 智能员工仪表板
-    Route::get('/staff-dashboard', 'Agent/staffDashboard');
 
     // ========== 收益管理Agent ==========
     // 定价建议
@@ -646,6 +687,7 @@ Route::group('api/agent', function () {
     Route::post('/price-suggestions/:id/apply', 'Agent/applyPrice');
     Route::post('/price-suggestions/:id/execution-intent', 'Agent/createPriceSuggestionExecutionIntent');
     Route::get('/price-suggestions/:id/review', 'Agent/priceSuggestionReview');
+    Route::get('/revenue-bundle', 'Agent/revenueBundle');
     Route::get('/revenue-analysis', 'Agent/revenueAnalysis');
     Route::get('/cookie-warnings', 'Agent/cookieWarnings');
     Route::get('/room-types', 'Agent/roomTypes');
@@ -662,35 +704,6 @@ Route::group('api/agent', function () {
     // 收益管理仪表板
     Route::get('/revenue-dashboard', 'Agent/revenueDashboard');
 
-    // ========== 资产运维Agent ==========
-    // 设备管理
-    Route::get('/devices', 'Agent/deviceList');
-    Route::post('/devices', 'Agent/saveDevice');
-    Route::get('/device-stats', 'Agent/deviceStats');
-
-    // 能耗管理
-    Route::get('/energy-data', 'Agent/energyData');
-    Route::get('/energy-benchmarks', 'Agent/energyBenchmarks');
-    Route::post('/energy-benchmarks', 'Agent/saveEnergyBenchmark');
-    Route::post('/energy-benchmarks/auto-calculate', 'Agent/autoCalculateBenchmark');
-
-    // 节能建议
-    Route::get('/energy-suggestions', 'Agent/energySuggestions');
-    Route::post('/energy-suggestions/generate', 'Agent/generateEnergySuggestions');
-    Route::post('/energy-suggestions/:id/update', 'Agent/updateEnergySuggestion');
-
-    // 维护计划
-    Route::get('/maintenance-plans', 'Agent/maintenancePlans');
-    Route::post('/maintenance-plans', 'Agent/createMaintenancePlan');
-    Route::post('/maintenance-plans/:id/execute', 'Agent/executeMaintenancePlan');
-    Route::get('/maintenance-reminders', 'Agent/maintenanceReminders');
-    Route::post('/maintenance-plans/auto-generate', 'Agent/autoGenerateMaintenancePlans');
-
-    // 资产运维仪表板
-    Route::get('/asset-dashboard', 'Agent/assetDashboard');
-
-    // 日志和任务
+    // 日志
     Route::get('/logs', 'Agent/logs');
-    Route::get('/tasks', 'Agent/tasks');
-    Route::post('/tasks', 'Agent/createTask');
 })->middleware(\app\middleware\Auth::class);

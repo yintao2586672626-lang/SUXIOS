@@ -7,167 +7,42 @@ use app\model\User;
 use app\model\OperationLog;
 use app\model\LoginLog;
 use app\model\SystemConfig;
-use app\model\Role;
 use app\model\Hotel;
-use app\model\UserHotelPermission;
+use app\service\LoginRateLimiter;
 use app\service\PermissionService;
-use think\facade\Db;
 use think\Response;
 
 class Auth extends Base
 {
-    private const TOKEN_TTL_SECONDS = 86400; // 24 hours
-    private const REGISTER_RATE_LIMIT = 12;
-    private const REGISTER_RATE_WINDOW_SECONDS = 600;
+    private const TOKEN_TTL_SECONDS = 259200; // 72 hours
 
     /**
-     * Public self-registration.
-     *
-     * New accounts are always created with the lowest enabled role level,
-     * kept disabled until admin approval, and never accept role_id/status
-     * from the public request.
+     * Public self-registration is intentionally unavailable.
+     * Accounts must be created by an authorized administrator.
      */
     public function register(): Response
     {
-        $rateLimitResponse = $this->enforceRegistrationRateLimit();
-        if ($rateLimitResponse !== null) {
-            return $rateLimitResponse;
-        }
+        return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);
+    }
 
-        if (!$this->isEnabledConfigValue(SystemConfig::getValue(SystemConfig::KEY_ENABLE_REGISTRATION, '1'))) {
-            return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);
-        }
-
-        $data = $this->requestData();
-        $username = trim((string)($data['username'] ?? ''));
-        $password = (string)($data['password'] ?? '');
-        $confirmPassword = (string)($data['confirm_password'] ?? $data['password_confirm'] ?? '');
-        $realname = trim((string)($data['realname'] ?? $data['name'] ?? ''));
-        $email = trim((string)($data['email'] ?? ''));
-        $phone = trim((string)($data['phone'] ?? ''));
-        $hotelId = $data['hotel_id'] ?? null;
-        $ip = $this->request->ip();
-        $userAgent = $this->request->header('User-Agent', '');
-
-        if ($username === '' || !preg_match('/^[A-Za-z0-9_]{3,50}$/', $username)) {
-            return $this->error('用户名需为 3-50 位字母、数字或下划线');
-        }
-
-        if ($password === '') {
-            return $this->error('密码不能为空');
-        }
-
-        if ($confirmPassword !== '' && $confirmPassword !== $password) {
-            return $this->error('两次输入的密码不一致');
-        }
-
-        $passwordError = $this->validatePasswordPolicy($password, '密码');
-        if ($passwordError) {
-            return $this->error($passwordError);
-        }
-
-        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return $this->error('邮箱格式不正确');
-        }
-
-        if ($phone !== '' && mb_strlen($phone) > 20) {
-            return $this->error('手机号最多 20 个字符');
-        }
-
-        if (User::where('username', $username)->find()) {
-            return $this->error('注册申请无法提交，请联系管理员确认账号状态', 409);
-        }
-
-        $role = $this->resolveSelfRegistrationRole();
-        if (!$role) {
-            return $this->error('未配置基础用户角色，请管理员先配置普通用户角色', 422);
-        }
-
-        $hotelTenantColumn = $this->strictTenantColumnExists('hotels');
-        $userTenantColumn = $this->strictTenantColumnExists('users');
-        $permissionTenantColumn = $this->strictTenantColumnExists('user_hotel_permissions');
-        $resolvedHotelId = null;
-        $resolvedTenantId = null;
-        if ($hotelId !== null && $hotelId !== '') {
-            if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
-                return $this->error('酒店 ID 不正确');
-            }
-            $hotel = Hotel::where('id', (int)$hotelId)
-                ->where('status', Hotel::STATUS_ENABLED)
-                ->find();
-            if (!$hotel) {
-                return $this->error('酒店不存在或已停用', 422);
-            }
-            $resolvedHotelId = (int)$hotelId;
-
-            $tenantColumnsPresent = $hotelTenantColumn || $userTenantColumn || $permissionTenantColumn;
-            if ($tenantColumnsPresent) {
-                $resolvedTenantId = $hotelTenantColumn
-                    ? (int)($hotel->tenant_id ?? 0)
-                    : 0;
-                if ($resolvedTenantId <= 0) {
-                    return $this->error('酒店租户归属无效，无法创建用户', 422);
-                }
-            }
-        }
-
+    /**
+     * Public login support exposes one whitelisted, read-only field.
+     */
+    public function loginSupport(): Response
+    {
+        $defaults = SystemConfig::getDefaultConfigs();
+        $fallback = trim((string)($defaults[SystemConfig::KEY_LOGIN_SUPPORT_CONTACT] ?? '请联系系统管理员'));
         try {
-            $user = new User();
-            $user->username = $username;
-            $user->password = $password;
-            $user->realname = $realname !== '' ? $realname : $username;
-            $user->email = $email;
-            $user->phone = $phone;
-            $user->role_id = (int)$role->id;
-            $user->hotel_id = $resolvedHotelId;
-            if ($userTenantColumn) {
-                $user->tenant_id = $resolvedTenantId;
-            }
-            $user->status = User::STATUS_DISABLED;
-            Db::transaction(function () use ($user, $role, $resolvedHotelId, $resolvedTenantId, $permissionTenantColumn): void {
-                $user->save();
-
-                if ($resolvedHotelId !== null) {
-                    $hotelPermissionDefaults = $this->buildSelfRegistrationHotelPermissionDefaults($role);
-                    $permission = new UserHotelPermission();
-                    $permission->user_id = (int)$user->id;
-                    $permission->hotel_id = $resolvedHotelId;
-                    if ($permissionTenantColumn) {
-                        $permission->tenant_id = $resolvedTenantId;
-                    }
-                    foreach ($hotelPermissionDefaults as $column => $value) {
-                        if ($this->tableColumnExists('user_hotel_permissions', (string)$column)) {
-                            $permission->{$column} = $value;
-                        }
-                    }
-                    $permission->save();
-                }
-            });
-
-            LoginLog::record((int)$user->id, $username, 'register', 'success', null, $ip, $userAgent);
-            try {
-                OperationLog::record('auth', 'register', '用户自助注册待审核: ' . $username, (int)$user->id, $resolvedHotelId);
-            } catch (\Throwable $logError) {
-                // Audit logging must not turn a completed registration into a failed account creation.
-            }
-
-            return $this->success([
-                'id' => (int)$user->id,
-                'username' => $user->username,
-                'realname' => $user->realname,
-                'role_id' => (int)$user->role_id,
-                'role_name' => $role->display_name,
-                'hotel_id' => $resolvedHotelId,
-                'status' => (int)$user->status,
-            ], '注册申请已提交，等待超级管理员审核启用后才能登录');
+            $contact = trim((string)SystemConfig::getValue(SystemConfig::KEY_LOGIN_SUPPORT_CONTACT, $fallback));
         } catch (\Throwable $e) {
-            try {
-                LoginLog::record(null, $username, 'register', 'failed', $e->getMessage(), $ip, $userAgent);
-            } catch (\Throwable $logError) {
-                // Preserve the public error boundary even if audit logging fails.
-            }
-            return $this->error('注册失败，请稍后重试或联系管理员', 500);
+            $contact = $fallback;
         }
+        $contact = trim((string)(preg_replace('/\s+/u', ' ', $contact) ?? $contact));
+        $contact = mb_substr($contact !== '' ? $contact : '请联系系统管理员', 0, 120);
+
+        return $this->success([
+            'contact' => $contact,
+        ]);
     }
 
     /**
@@ -175,20 +50,53 @@ class Auth extends Base
      */
     public function login(): Response
     {
-        $username = trim($this->request->post('username', ''));
-        $password = $this->request->post('password', '');
-        $clientInfo = $this->request->post('client_info', []);
+        $rawUsername = $this->request->post('username', '');
+        $rawPassword = $this->request->post('password', '');
+        $rawClientInfo = $this->request->post('client_info', []);
+
+        // Reserve before any branch that persists a failure. Otherwise malformed
+        // public requests can bypass throttling and grow login_logs without bound.
+        $username = is_string($rawUsername)
+            ? mb_substr(trim($rawUsername), 0, 50)
+            : '';
+        $ip = (string)$this->request->ip();
+        $userAgent = (string)$this->request->header('User-Agent', '');
+        $loginRateLimiter = $this->makeLoginRateLimiter();
+        try {
+            $rateLimit = $loginRateLimiter->consumeAttempt($ip, $username);
+        } catch (\Throwable $exception) {
+            return $this->loginProtectionUnavailable($exception);
+        }
+        if (!$rateLimit['allowed']) {
+            $retryAfter = max(1, (int)$rateLimit['retry_after']);
+            return $this->error('登录请求过于频繁，请稍后重试', 429, [
+                'reason' => 'login_rate_limited',
+                'retry_after' => $retryAfter,
+            ])->header(['Retry-After' => (string)$retryAfter]);
+        }
+        $reservationBucket = isset($rateLimit['reservation_bucket'])
+            ? (int)$rateLimit['reservation_bucket']
+            : null;
+
+        if (!is_string($rawUsername) || !is_string($rawPassword)) {
+            return $this->invalidLoginPayload();
+        }
+        $username = trim($rawUsername);
+        $password = $rawPassword;
+        if (mb_strlen($username) > 50 || strlen($password) > 1024) {
+            return $this->invalidLoginPayload();
+        }
+        $clientInfo = $this->normalizeLoginClientInfo($rawClientInfo);
+        if ($clientInfo === null) {
+            return $this->invalidLoginPayload();
+        }
 
         // 参数验证
         if (empty($username) || empty($password)) {
             return $this->error('请输入用户名和密码');
         }
 
-        // 获取客户端信息
-        $ip = $this->request->ip();
-        $userAgent = $this->request->header('User-Agent', '');
-
-        $user = User::with(['role', 'hotel'])->where('username', $username)->find();
+        $user = User::with(['role'])->where('username', $username)->find();
         
         // 用户不存在
         if (!$user) {
@@ -207,15 +115,34 @@ class Auth extends Base
         // 账号被禁用
         if ($user->status != User::STATUS_ENABLED) {
             // 记录失败日志
-            LoginLog::record($user->id, $username, 'login', 'failed', '账号待审核或已停用', $ip, $userAgent, $clientInfo);
-            return $this->error('账号待超级管理员审核或已停用，请联系超级管理员启用');
+            LoginLog::record($user->id, $username, 'login', 'failed', '账号已停用', $ip, $userAgent, $clientInfo);
+            $this->releaseLoginRateLimitReservation($loginRateLimiter, $ip, $username, $reservationBucket);
+            return $this->error('账号已停用，请联系管理员启用');
         }
+
+        // Tenant-scoped queries run immediately after authentication. Reject a
+        // broken legacy binding explicitly before updating login counters or
+        // publishing any session state; deterministic bindings are repaired by
+        // the governed migration.
+        if (!$user->isSuperAdmin() && (int)($user->tenant_id ?? 0) <= 0) {
+            LoginLog::record($user->id, $username, 'login', 'failed', '账号缺少有效租户绑定', $ip, $userAgent, $clientInfo);
+            $this->releaseLoginRateLimitReservation($loginRateLimiter, $ip, $username, $reservationBucket);
+            return $this->error('账号门店租户绑定异常，请联系管理员重新分配门店', 403, [
+                'reason' => 'tenant_context_missing',
+            ]);
+        }
+
+        $this->releaseLoginRateLimitReservation($loginRateLimiter, $ip, $username, $reservationBucket);
 
         // 更新用户登录信息
         $user->last_login_time = date('Y-m-d H:i:s');
         $user->last_login_ip = $ip;
         $user->login_count = $user->login_count + 1;
         $user->save();
+
+        // Password verification establishes the request actor for all
+        // tenant-scoped work in the successful login path.
+        $this->request->user = $user;
 
         // 生成更安全的 Token
         $token = $this->generateToken($user->id);
@@ -226,119 +153,156 @@ class Auth extends Base
             'created_at' => time(),
             'ip' => $ip,
             'user_agent' => substr($userAgent, 0, 255),
+            'auth_version' => $user->authSessionVersion(),
         ];
-        cache('token_' . $token, $tokenData, self::TOKEN_TTL_SECONDS);
-        cache('user_token_' . $user->id, $token, self::TOKEN_TTL_SECONDS);
-
-        // 记录登录成功日志
-        LoginLog::record($user->id, $username, 'login', 'success', null, $ip, $userAgent, $clientInfo);
-        OperationLog::record('auth', 'login', '用户登录: ' . $username, $user->id, $user->hotel_id);
-
         $permittedHotels = $this->buildPermittedHotels($user);
+        $authContext = $this->buildAuthContext($user, $permittedHotels);
+        $loginUserPayload = $this->buildLoginUserPayload(
+            $user,
+            $permittedHotels,
+            $this->positiveIntOrNull($authContext['hotelId'] ?? null)
+        );
+        $loginNotices = $this->buildLoginNotices($user, $permittedHotels);
+
+        if (!$this->publishLoginTokenState($token, (int)$user->id, $tokenData)) {
+            return $this->error('登录会话暂不可用，请稍后重试', 503, [
+                'reason' => 'login_session_store_failed',
+            ]);
+        }
+
+        // A successful login is audited only after both session indexes are
+        // durable. This prevents cache failures from producing false success
+        // audits or exposing a token backed by only one index.
+        LoginLog::record($user->id, $username, 'login', 'success', null, $ip, $userAgent, $clientInfo);
+        $loginHotelId = isset($loginUserPayload['hotel_id']) ? (int)$loginUserPayload['hotel_id'] : null;
+        OperationLog::record('auth', 'login', '用户登录: ' . $username, $user->id, $loginHotelId);
 
         return $this->success([
             'token' => $token,
             'expires_in' => self::TOKEN_TTL_SECONDS,
-            'user' => $this->buildLoginUserPayload($user, $permittedHotels),
-            'context' => $this->buildAuthContext($user, $permittedHotels),
-            'notices' => $this->buildLoginNotices($user, $permittedHotels),
+            'user' => $loginUserPayload,
+            'context' => $authContext,
+            'notices' => $loginNotices,
         ], '登录成功');
     }
 
+    protected function makeLoginRateLimiter(): LoginRateLimiter
+    {
+        return new LoginRateLimiter();
+    }
+
+    /** @param array<string, mixed> $tokenData */
+    private function publishLoginTokenState(string $token, int $userId, array $tokenData): bool
+    {
+        $tokenKey = 'token_' . $token;
+        $userTokenKey = 'user_token_' . $userId;
+        $tokenStored = false;
+        $userTokenStored = false;
+
+        try {
+            $tokenStored = $this->writeLoginCacheValue($tokenKey, $tokenData, self::TOKEN_TTL_SECONDS);
+            $userTokenStored = $this->writeLoginCacheValue($userTokenKey, $token, self::TOKEN_TTL_SECONDS);
+        } catch (\Throwable) {
+            // Cleanup below is mandatory even when the cache driver throws.
+        }
+
+        if ($tokenStored && $userTokenStored) {
+            return true;
+        }
+
+        foreach ([$tokenKey, $userTokenKey] as $key) {
+            try {
+                $this->deleteLoginCacheValue($key);
+            } catch (\Throwable) {
+                // The login still fails closed; never publish the token.
+            }
+        }
+
+        return false;
+    }
+
+    protected function writeLoginCacheValue(string $key, mixed $value, int $ttl): bool
+    {
+        return cache($key, $value, $ttl) === true;
+    }
+
+    protected function deleteLoginCacheValue(string $key): void
+    {
+        cache($key, null);
+    }
+
+    private function releaseLoginRateLimitReservation(
+        LoginRateLimiter $loginRateLimiter,
+        string $ip,
+        string $username,
+        ?int $reservationBucket
+    ): void {
+        try {
+            $loginRateLimiter->releaseSuccessfulAttempt($ip, $username, $reservationBucket);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::warning('Login rate-limit reservation cleanup failed.', [
+                'exception_type' => get_debug_type($exception),
+            ]);
+        }
+    }
+
+    private function loginProtectionUnavailable(\Throwable $exception): Response
+    {
+        try {
+            \think\facade\Log::error('Login rate limiter unavailable.', [
+                'exception_type' => get_debug_type($exception),
+            ]);
+        } catch (\Throwable) {
+            // Logging must never replace the stable fail-closed response.
+        }
+
+        return $this->error('登录保护暂不可用，请稍后重试', 503, [
+            'reason' => 'login_rate_limiter_unavailable',
+        ]);
+    }
+
+    private function invalidLoginPayload(): Response
+    {
+        return $this->error('登录参数格式无效', 422, [
+            'reason' => 'invalid_login_payload',
+        ]);
+    }
+
     /**
-     * 生成安全的 Token
+     * @return array<string, string>|null
      */
-    private function buildSelfRegistrationHotelPermissionDefaults(Role $role): array
+    private function normalizeLoginClientInfo(mixed $value): ?array
     {
-        $permissions = $role->getPermissionList();
-        $permissionService = new PermissionService();
-        $isNormalExternalRole = $this->isNormalExternalRole($role);
-        $allows = static fn(string $permission): int => $isNormalExternalRole && $permissionService->isNormalExternalCapabilityDenied($permission)
-            ? 0
-            : (Role::permissionListAllows($permissions, $permission) ? 1 : 0);
-
-        return [
-            'scope_type' => 'granted',
-            'can_view' => 1,
-            'can_report' => $allows('report.view'),
-            'can_fill' => $allows('report.fill'),
-            'can_edit' => $allows('hotel.update') || $allows('report.update') ? 1 : 0,
-            'can_fetch_ota' => $allows('ota.collect'),
-            'can_delete_ota' => $allows('ota.delete'),
-            'can_export' => $allows('ota.export') || $allows('report.export') ? 1 : 0,
-            'can_ai' => $allows('ai.view') || $allows('ai.execute') ? 1 : 0,
-            'can_operation' => $allows('operation.view') || $allows('operation.execute') ? 1 : 0,
-            'can_investment' => $allows('investment.view') || $allows('investment.simulate') ? 1 : 0,
-            'status' => 'active',
-            'created_by' => 0,
-            'can_view_report' => $allows('report.view'),
-            'can_fill_daily_report' => $allows('report.fill'),
-            'can_fill_monthly_task' => $allows('report.fill'),
-            'can_edit_report' => $allows('report.update'),
-            'can_delete_report' => $allows('report.delete'),
-            'can_view_online_data' => $allows('ota.view'),
-            'can_fetch_online_data' => $allows('ota.collect'),
-            'can_delete_online_data' => $allows('ota.delete'),
-            'is_primary' => 1,
-        ];
-    }
-
-    private function strictTenantColumnExists(string $table): bool
-    {
-        if (!in_array($table, ['hotels', 'users', 'user_hotel_permissions'], true)) {
-            throw new \InvalidArgumentException('Unsupported tenant schema table.');
+        if ($value === null || $value === '') {
+            return [];
+        }
+        if (!is_array($value) || count($value) > 24) {
+            return null;
         }
 
-        try {
-            return !empty($this->querySchema("SHOW COLUMNS FROM `{$table}` LIKE 'tenant_id'"));
-        } catch (\Throwable $mysqlError) {
-            try {
-                $rows = $this->querySchema("PRAGMA table_info(`{$table}`)");
-            } catch (\Throwable $sqliteError) {
-                throw new \RuntimeException(
-                    "Unable to inspect required tenant schema for {$table}.tenant_id",
-                    0,
-                    $sqliteError
-                );
+        $allowedKeys = array_fill_keys([
+            'browser', 'browser_version', 'os', 'os_version', 'device', 'device_type',
+            'platform', 'language', 'timezone', 'screen', 'app_version',
+        ], true);
+        $normalized = [];
+        foreach ($value as $key => $item) {
+            $key = strtolower(trim((string)$key));
+            if (!isset($allowedKeys[$key])) {
+                continue;
             }
-
-            foreach ($rows as $row) {
-                if (($row['name'] ?? '') === 'tenant_id') {
-                    return true;
-                }
+            if (!is_scalar($item) && $item !== null) {
+                return null;
             }
-
-            return false;
+            $text = trim((string)$item);
+            if (strlen($text) > 160) {
+                return null;
+            }
+            if ($text !== '') {
+                $normalized[$key] = $text;
+            }
         }
-    }
 
-    protected function querySchema(string $sql): array
-    {
-        return Db::query($sql);
-    }
-
-    private function tableColumnExists(string $table, string $column): bool
-    {
-        $table = str_replace('`', '', $table);
-        $column = str_replace(['`', "'"], '', $column);
-
-        try {
-            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
-        } catch (\Throwable $e) {
-            try {
-                $rows = Db::query("PRAGMA table_info(`{$table}`)");
-            } catch (\Throwable $ignored) {
-                return false;
-            }
-
-            foreach ($rows as $row) {
-                if (($row['name'] ?? '') === $column) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
+        return $normalized;
     }
 
     /**
@@ -351,7 +315,11 @@ class Auth extends Base
             return [];
         }
 
-        return Hotel::whereIn('id', array_values(array_map('intval', $permittedHotelIds)))
+        $query = $user->isSuperAdmin()
+            ? Hotel::withoutTenantScope()
+            : Hotel::where([]);
+
+        return $query->whereIn('id', array_values(array_map('intval', $permittedHotelIds)))
             ->select()
             ->toArray();
     }
@@ -360,25 +328,46 @@ class Auth extends Base
      * @param array<int, array<string, mixed>> $permittedHotels
      * @return array<string, mixed>
      */
-    private function buildLoginUserPayload(User $user, array $permittedHotels): array
+    private function buildLoginUserPayload(User $user, array $permittedHotels, ?int $currentHotelId): array
     {
+        $primaryHotel = $this->permittedPrimaryHotel($user, $permittedHotels);
         return [
             'id' => $user->id,
             'username' => $user->username,
             'realname' => $user->realname,
             'role_id' => $user->role_id,
             'role_name' => $user->role ? $user->role->display_name : '',
-            'hotel_id' => $user->hotel_id,
-            'hotel_name' => $user->hotel ? $user->hotel->name : '',
+            'hotel_id' => $primaryHotel !== null ? (int)($primaryHotel['id'] ?? 0) : null,
+            'hotel_name' => (string)($primaryHotel['name'] ?? $primaryHotel['hotel_name'] ?? ''),
             'is_super_admin' => $user->isSuperAdmin(),
             'is_hotel_manager' => $user->isHotelManager(),
             'permitted_hotels' => $permittedHotels,
-            'permissions' => $this->buildUserPermissions($user),
+            'permissions' => $this->buildUserPermissions($user, $currentHotelId),
             'capabilities' => $this->buildUserCapabilities($user),
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
             'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $permittedHotels
+     * @return array<string, mixed>|null
+     */
+    private function permittedPrimaryHotel(User $user, array $permittedHotels): ?array
+    {
+        $primaryHotelId = (int)($user->hotel_id ?? 0);
+        if ($primaryHotelId <= 0) {
+            return null;
+        }
+
+        foreach ($permittedHotels as $hotel) {
+            if ((int)($hotel['id'] ?? 0) === $primaryHotelId) {
+                return $hotel;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -414,24 +403,33 @@ class Auth extends Base
             $this->request->get('system_hotel_id', $this->request->get('hotel_id', null))
         );
         $permittedHotelIds = array_values(array_map(static fn(array $hotel): int => (int)($hotel['id'] ?? 0), $permittedHotels));
-        $currentHotel = $this->resolveAuthContextHotel($user, $permittedHotels, $requestedHotelId);
-        $hotelId = $requestedHotelId ?: ($currentHotel ? (int)($currentHotel['id'] ?? 0) : ((int)($user->hotel_id ?? 0) ?: null));
-        $permissionStatus = 'unknown';
-        if ($hotelId) {
-            $permissionStatus = ($user->isSuperAdmin() || in_array((int)$hotelId, $permittedHotelIds, true)) ? 'allowed' : 'denied';
-        }
+        $requestedHotelIsPermitted = $requestedHotelId === null || in_array($requestedHotelId, $permittedHotelIds, true);
+        $currentHotel = $this->resolveAuthContextHotel(
+            $user,
+            $permittedHotels,
+            $requestedHotelIsPermitted ? $requestedHotelId : null
+        );
+        $hotelId = $this->positiveIntOrNull($currentHotel['id'] ?? null);
+        $tenantId = $this->positiveIntOrNull($currentHotel['tenant_id'] ?? null);
+        $permissionStatus = $requestedHotelId !== null
+            ? ($requestedHotelIsPermitted ? 'allowed' : 'denied')
+            : ($hotelId !== null ? 'allowed' : 'unknown');
 
-        $tenantId = $this->positiveIntOrNull($currentHotel['tenant_id'] ?? $user->tenant_id ?? null);
-
-        return [
+        $context = [
             'tokenStatus' => 'valid',
-            'hotelId' => $hotelId ?: null,
+            'hotelId' => $hotelId,
             'tenantId' => $tenantId,
             'platform' => $this->normalizeAuthContextPlatform($this->request->get('platform', 'unknown')),
             'currentHotelName' => $currentHotel ? (string)($currentHotel['name'] ?? $currentHotel['hotel_name'] ?? '') : '',
             'permissionStatus' => $permissionStatus,
             'platformLoginScope' => ['ctrip', 'meituan'],
         ];
+
+        if ($requestedHotelId !== null && !$requestedHotelIsPermitted) {
+            $context['requestedHotelId'] = $requestedHotelId;
+        }
+
+        return $context;
     }
 
     /**
@@ -480,9 +478,16 @@ class Auth extends Base
         return (int)$value;
     }
 
-    private function buildUserPermissions(User $user): array
+    private function buildUserPermissions(User $user, ?int $hotelId): array
     {
-        $allows = fn(string $permission): bool => $user->hasPermission($permission) && $this->roleAllows($user, $permission);
+        $allows = function (string $permission) use ($user, $hotelId): bool {
+            if ($hotelId === null) {
+                return $user->isSuperAdmin() && $this->roleAllows($user, $permission);
+            }
+
+            return $user->hasHotelPermission($hotelId, $permission)
+                && $this->roleAllows($user, $permission);
+        };
 
         return [
             'can_view_report' => $allows('can_view_report'),
@@ -537,27 +542,6 @@ class Auth extends Base
         return (new PermissionService())->roleAllows($user, $permission);
     }
 
-    private function isNormalExternalRole(Role $role): bool
-    {
-        return (int)$role->getAttr('id') === Role::NORMAL_USER
-            || (string)$role->getAttr('name') === 'normal_user'
-            || (int)$role->getAttr('level') >= Role::HOTEL_STAFF;
-    }
-
-    private function isEnabledConfigValue($value): bool
-    {
-        return in_array(strtolower(trim((string)$value)), ['1', 'true', 'on', 'yes'], true);
-    }
-
-    private function resolveSelfRegistrationRole(): ?Role
-    {
-        return Role::where('status', Role::STATUS_ENABLED)
-            ->where('level', '>=', Role::HOTEL_STAFF)
-            ->order('level', 'desc')
-            ->order('id', 'asc')
-            ->find();
-    }
-
     private function extractTokenFromAuthorizationHeader(string $authHeader): string
     {
         $authHeader = trim($authHeader);
@@ -577,36 +561,6 @@ class Auth extends Base
         $random = bin2hex(random_bytes(16));
         $time = microtime(true);
         return hash('sha256', $userId . $time . $random . uniqid('', true));
-    }
-
-    private function enforceRegistrationRateLimit(): ?Response
-    {
-        $window = self::REGISTER_RATE_WINDOW_SECONDS;
-        $limit = self::REGISTER_RATE_LIMIT;
-        $bucket = (int)floor(time() / $window);
-        $ipHash = substr(sha1((string)$this->request->ip()), 0, 16);
-        $key = sprintf('register_rate_%s_%d', $ipHash, $bucket);
-        $count = (int)(cache($key) ?: 0);
-
-        if ($count >= $limit) {
-            $retryAfter = max(1, (($bucket + 1) * $window) - time());
-            try {
-                OperationLog::record('auth', 'register_rate_limited', '自助注册触发限流', null, null, 'HTTP 429', [
-                    'audit_type' => 'security',
-                    'ip_hash' => $ipHash,
-                    'limit' => $limit,
-                    'window' => $window,
-                    'retry_after' => $retryAfter,
-                ]);
-            } catch (\Throwable $logError) {
-                // Preserve the public error boundary even if audit logging fails.
-            }
-
-            return $this->error('注册请求过于频繁，请稍后再试', 429)->header(['Retry-After' => (string)$retryAfter]);
-        }
-
-        cache($key, $count + 1, $window + 5);
-        return null;
     }
 
     /**
@@ -647,12 +601,16 @@ class Auth extends Base
             return $this->error('未登录', 401);
         }
 
-        $user = User::with(['role', 'hotel'])->find($this->currentUser->id);
+        $user = User::with(['role'])->find($this->currentUser->id);
 
         // 获取用户可访问的酒店（只包含启用的酒店）
         $permittedHotels = $this->buildPermittedHotels($user);
-        
-        $userPermissions = $this->buildUserPermissions($user);
+        $primaryHotel = $this->permittedPrimaryHotel($user, $permittedHotels);
+        $authContext = $this->buildAuthContext($user, $permittedHotels);
+        $userPermissions = $this->buildUserPermissions(
+            $user,
+            $this->positiveIntOrNull($authContext['hotelId'] ?? null)
+        );
 
         return $this->success([
             'id' => $user->id,
@@ -662,8 +620,8 @@ class Auth extends Base
             'phone' => $user->phone,
             'role_id' => $user->role_id,
             'role_name' => $user->role ? $user->role->display_name : '',
-            'hotel_id' => $user->hotel_id,
-            'hotel' => $user->hotel,
+            'hotel_id' => $primaryHotel !== null ? (int)($primaryHotel['id'] ?? 0) : null,
+            'hotel' => $primaryHotel,
             'is_super_admin' => $user->isSuperAdmin(),
             'is_hotel_manager' => $user->isHotelManager(),
             'permitted_hotels' => $permittedHotels,
@@ -671,7 +629,7 @@ class Auth extends Base
             'capabilities' => $this->buildUserCapabilities($user),
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
-            'context' => $this->buildAuthContext($user, $permittedHotels),
+            'context' => $authContext,
             'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ]);
     }
@@ -700,6 +658,12 @@ class Auth extends Base
 
         $user->password = $newPassword;
         $user->save();
+
+        // Tokens are bound to the password hash through auth_version. Clearing
+        // the convenience pointer also prevents clients from treating the last
+        // pre-change token as the active session.
+        cache('auth_revoked_after_' . $user->id, time(), self::TOKEN_TTL_SECONDS);
+        cache('user_token_' . $user->id, null);
 
         OperationLog::record('auth', 'change_password', '修改密码', $user->id);
 

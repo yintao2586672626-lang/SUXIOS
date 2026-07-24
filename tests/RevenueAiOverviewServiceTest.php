@@ -4,11 +4,34 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\RevenueAiOverviewService;
+use app\service\RevenuePricingRecommendationService;
 use PHPUnit\Framework\TestCase;
 
 final class RevenueAiOverviewServiceTest extends TestCase
 {
-    public function testOverviewBuildsOtaMetricsAndKeepsRevparScopedToWholeHotelDenominator(): void
+    public function testOverviewDoesNotMarkMissingRoomNightsAsOk(): void
+    {
+        $fact = $this->dailyFact('meituan', 500, 0, null, [
+            'room_nights' => null,
+            'occupied_room_nights' => null,
+            'order_count' => null,
+            'adr' => null,
+        ]);
+        $dataset = $this->dataset([$fact]);
+
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $dataset,
+            ['meituan' => $dataset],
+            ['meituan' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-07-12 10:00:00']],
+            ['business_date' => '2026-07-12', 'hotel_id' => 7]
+        );
+
+        self::assertNull($overview['metrics']['ota_room_nights']['value']);
+        self::assertSame('not_calculable', $overview['metrics']['ota_room_nights']['status']);
+        self::assertSame('room_nights_missing', $overview['metrics']['ota_room_nights']['reason']);
+    }
+
+    public function testOverviewBuildsOtaMetricsAndKeepsRevparScopedToOtaChannelDenominator(): void
     {
         $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
             $this->dataset([
@@ -37,7 +60,10 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame(10.0, $overview['metrics']['ota_room_nights']['value']);
         self::assertSame(200.0, $overview['metrics']['ota_adr']['value']);
         self::assertSame(100.0, $overview['metrics']['ota_contribution_revpar']['value']);
-        self::assertSame('hotel', $overview['metrics']['ota_contribution_revpar']['scope']);
+        self::assertSame('ota_channel', $overview['metrics']['ota_contribution_revpar']['scope']);
+        self::assertSame('ota_channel', $overview['metrics']['ota_contribution_revpar']['denominator_scope']);
+        self::assertFalse($overview['metrics']['ota_contribution_revpar']['whole_hotel_denominator_verified']);
+        self::assertStringContainsString('不得外推为全酒店 RevPAR', $overview['metrics']['ota_contribution_revpar']['scope_note']);
         self::assertSame('', $overview['metrics']['ota_contribution_revpar']['reason']);
         self::assertSame('warning', $overview['p1_revenue_closure']['status']);
         self::assertSame('ota_channel', $overview['p1_revenue_closure']['scope']);
@@ -57,21 +83,20 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertFalse($overview['pricing_readiness']['can_generate_recommendation']);
         self::assertFalse($overview['pricing_readiness']['can_auto_write_ota']);
         self::assertTrue($overview['pricing_readiness']['manual_review_required']);
-        self::assertNotContains('demand_forecasts_not_loaded', $overview['pricing_readiness']['blocking_reasons']);
-        self::assertNotContains('floor_price_missing', $overview['pricing_readiness']['blocking_reasons']);
-        self::assertContains('demand_forecasts_not_loaded', $overview['pricing_readiness']['skipped_reasons']);
-        self::assertContains('floor_price_missing', $overview['pricing_readiness']['skipped_reasons']);
+        self::assertContains('demand_forecasts_not_loaded', $overview['pricing_readiness']['blocking_reasons']);
+        self::assertContains('floor_price_missing', $overview['pricing_readiness']['blocking_reasons']);
+        self::assertSame([], $overview['pricing_readiness']['skipped_reasons']);
         self::assertContains('manual_review_workflow_not_connected', $overview['pricing_readiness']['blocking_reasons']);
         $gateByKey = array_column($overview['pricing_readiness']['gates'], null, 'key');
         self::assertSame('ok', $gateByKey['ota_metrics']['status']);
         self::assertSame('ok', $gateByKey['competitor_price']['status']);
         self::assertSame('ok', $gateByKey['revpar_denominator']['status']);
-        self::assertSame('skipped_by_operator_policy', $gateByKey['demand_signal_7d']['status']);
+        self::assertSame('blocked', $gateByKey['demand_signal_7d']['status']);
         self::assertSame('demand_forecasts_not_loaded', $gateByKey['demand_signal_7d']['reason']);
-        self::assertSame('skipped_by_operator_policy', $gateByKey['floor_price']['status']);
+        self::assertSame('blocked', $gateByKey['floor_price']['status']);
         self::assertSame('pricing_guard', $gateByKey['floor_price']['category']);
-        self::assertStringContainsString('已按人工策略暂时跳过', $gateByKey['floor_price']['display_reason']);
-        self::assertStringContainsString('缺口证据', $gateByKey['floor_price']['next_action']);
+        self::assertStringContainsString('暂缺最低保护价', $gateByKey['floor_price']['display_reason']);
+        self::assertStringContainsString('补齐房型/价格计划级最低保护价', $gateByKey['floor_price']['next_action']);
         self::assertSame('blocked', $gateByKey['manual_review_workflow']['status']);
         self::assertSame('blocked', $gateByKey['operation_feedback_input']['status']);
         self::assertSame('operation_execution_not_loaded', $gateByKey['operation_feedback_input']['reason']);
@@ -81,14 +106,14 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertContains('接入建议版本、批准/拒绝/转执行审计流后再开放调价建议。', $overview['pricing_readiness']['next_actions']);
         self::assertSame('暂无可审核调价建议', $overview['actions'][0]['title']);
         self::assertSame('blocked', $overview['actions'][0]['status']);
-        self::assertSame('manual_review_workflow_not_connected', $overview['actions'][0]['reason']);
+        self::assertSame('demand_forecasts_not_loaded', $overview['actions'][0]['reason']);
         self::assertStringContainsString('暂不生成调价建议', $overview['actions'][0]['detail']);
         self::assertFalse($overview['actions'][0]['auto_write_ota']);
         self::assertSame('blocked', $overview['actions'][0]['decision_basis_summary']['status']);
-        self::assertSame('判断依据 可用 4 / 跳过 2 / 待补 2', $overview['actions'][0]['decision_basis_summary']['display']);
+        self::assertSame('判断依据 可用 4 / 待补 4', $overview['actions'][0]['decision_basis_summary']['display']);
         self::assertSame(4, $overview['actions'][0]['decision_basis_summary']['ready_count']);
-        self::assertSame(2, $overview['actions'][0]['decision_basis_summary']['skipped_count']);
-        self::assertSame(2, $overview['actions'][0]['decision_basis_summary']['blocked_count']);
+        self::assertSame(0, $overview['actions'][0]['decision_basis_summary']['skipped_count']);
+        self::assertSame(4, $overview['actions'][0]['decision_basis_summary']['blocked_count']);
         self::assertFalse($overview['actions'][0]['decision_basis_summary']['auto_write_ota']);
         self::assertContains('上一轮调价效果输入', $overview['actions'][0]['decision_basis_summary']['blocked_labels']);
         $basisByKey = array_column($overview['actions'][0]['decision_basis_summary']['items'], null, 'key');
@@ -105,25 +130,25 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertFalse($reviewContract['approval_allowed']);
         self::assertFalse($reviewContract['operation_intake_allowed']);
         self::assertFalse($reviewContract['auto_apply_ai_advice']);
-        self::assertSame(2, $reviewContract['required_input_count']);
+        self::assertSame(4, $reviewContract['required_input_count']);
         self::assertContains('auto_apply_ai_advice', $reviewContract['forbidden_actions']);
         self::assertSame('manual_review_requires_explicit_evidence_no_auto_apply', $reviewContract['protected_boundary']);
         self::assertSame('has_pending_evidence', $resolutionPlan['status']);
         self::assertSame('ota_channel', $resolutionPlan['source_scope']);
         self::assertSame('ota_channel', $resolutionPlan['metric_scope']);
-        self::assertSame(2, $resolutionPlan['item_count']);
-        self::assertSame(2, $resolutionPlan['pending_count']);
-        self::assertSame(2, $resolutionPlan['skipped_count']);
+        self::assertSame(4, $resolutionPlan['item_count']);
+        self::assertSame(4, $resolutionPlan['pending_count']);
+        self::assertSame(0, $resolutionPlan['skipped_count']);
         self::assertFalse($resolutionPlan['approval_allowed_after_resolution']);
         self::assertSame('ai_decision_review_contract.approval_allowed', $resolutionPlan['post_resolution_gate']);
         self::assertContains('fill_missing_evidence_with_defaults', $resolutionPlan['forbidden_actions']);
         self::assertContains('auto_create_operation_execution_intent', $resolutionPlan['forbidden_actions']);
         $resolutionByCode = array_column($resolutionPlan['items'], null, 'code');
+        self::assertSame('provide_floor_price_or_min_rate_guard', $resolutionByCode['floor_price']['resolution_action']);
+        self::assertSame('load_or_mark_7d_demand_forecast_unavailable', $resolutionByCode['demand_signal_7d']['resolution_action']);
         self::assertSame('persist_or_attach_manual_review_record', $resolutionByCode['manual_review_workflow']['resolution_action']);
         self::assertSame('attach_operation_feedback_or_keep_feedback_gate_closed', $resolutionByCode['operation_feedback_input']['resolution_action']);
-        $skippedByCode = array_column($resolutionPlan['skipped_items'], null, 'code');
-        self::assertSame('skipped_by_operator_policy', $skippedByCode['floor_price']['status']);
-        self::assertSame('skipped_by_operator_policy', $skippedByCode['demand_signal_7d']['status']);
+        self::assertSame([], $resolutionPlan['skipped_items']);
         self::assertSame('treat_chat_confirmation_as_persisted_review', $resolutionByCode['manual_review_workflow']['forbidden_shortcut']);
         $operationHandoff = $overview['ai_to_operation_handoff'];
         $operationPacket = $operationHandoff['operation_intake_packet'];
@@ -161,33 +186,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('price', $operationPreflight['projected_payload_template']['object_type']);
         self::assertSame('price_adjust', $operationPreflight['projected_payload_template']['action_type']);
         self::assertFalse($operationPreflight['projected_payload_template']['auto_write_ota']);
-        $investmentHandoff = $overview['operation_to_investment_handoff'];
-        $investmentPrecheck = $investmentHandoff['investment_precheck_packet'];
-        self::assertSame($overview['pricing_readiness']['operation_to_investment_handoff'], $investmentHandoff);
-        self::assertSame($investmentHandoff, $overview['actions'][0]['operation_to_investment_handoff']);
-        self::assertSame($investmentPrecheck, $overview['actions'][0]['investment_precheck_packet']);
-        self::assertSame('investment_precheck_blocked_by_operation_roi', $investmentHandoff['status']);
-        self::assertSame('investment_decision', $investmentHandoff['target_module']);
-        self::assertSame('InvestmentDecisionSupportService::buildOverviewFromEvidence', $investmentHandoff['target_service']);
-        self::assertSame('/api/investment-decision/overview', $investmentHandoff['target_entry']);
-        self::assertFalse($investmentHandoff['persisted']);
-        self::assertFalse($investmentHandoff['decision_allowed']);
-        self::assertFalse($investmentHandoff['can_create_investment_decision']);
-        self::assertSame('operation_intake_blocked_by_manual_review', $investmentHandoff['upstream_operation_intake_status']);
-        self::assertSame(0, $investmentHandoff['operation_roi_ready']);
-        self::assertSame('not_ready', $investmentHandoff['operating_gate_status']);
-        self::assertSame('not_closed', $investmentHandoff['business_closure_chain_status']);
-        self::assertContains('closed_operating_roi_missing', $investmentHandoff['blocked_reasons']);
-        self::assertContains('operation_intake_not_approved', $investmentHandoff['blocked_reasons']);
-        self::assertContains('operation_execution.roi_ready', $investmentHandoff['required_before_investment']);
-        self::assertContains('decision_record.readiness_ready', $investmentHandoff['required_before_investment']);
-        self::assertContains('create_investment_decision_from_ota_channel_only', $investmentHandoff['forbidden_actions']);
-        self::assertContains('create_investment_record_without_closed_operation_roi', $investmentHandoff['forbidden_actions']);
-        self::assertSame('blocked_by_operation_roi', $investmentPrecheck['status']);
-        self::assertSame('read_only_precheck_from_closed_operation_gate', $investmentPrecheck['source_policy']);
-        self::assertSame('operation_execution.roi_ready', $investmentPrecheck['required_gate']);
-        self::assertContains('operation_execution.roi_ready', $investmentPrecheck['missing_evidence_codes']);
-        self::assertSame('investment_decision_requires_closed_operation_roi_not_ota_channel_only', $investmentPrecheck['protected_boundary']);
     }
 
     public function testFloorPriceMissingResolutionSpecRequiresExplicitGuardInput(): void
@@ -235,8 +233,8 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame(8.33, $signal['detail_metrics']['avg_price_gap_rate']);
         self::assertSame('暂无可审核调价建议', $overview['actions'][0]['title']);
         self::assertSame('blocked', $overview['pricing_readiness']['overall_status']);
-        self::assertNotContains('floor_price_missing', $overview['pricing_readiness']['blocking_reasons']);
-        self::assertContains('floor_price_missing', $overview['pricing_readiness']['skipped_reasons']);
+        self::assertContains('floor_price_missing', $overview['pricing_readiness']['blocking_reasons']);
+        self::assertSame([], $overview['pricing_readiness']['skipped_reasons']);
         self::assertFalse($overview['actions'][0]['auto_write_ota']);
     }
 
@@ -259,7 +257,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
                     'required_upstream_status' => 'ready',
                     'scope_policy' => 'ota_channel_gate_before_downstream_claims',
                     'blocking_missing_inputs' => ['manual_login_state_verified', 'target_date_traffic_rows'],
-                    'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure', 'investment_judgment'],
+                    'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure'],
                     'allowed_claims' => ['structure_ready_or_reference_only', 'no_whole_hotel_or_downstream_closure_claim'],
                 ],
             ]
@@ -272,7 +270,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('blocked_by_p0_ota_gate', $overview['p1_revenue_closure']['decision_use']['status']);
         self::assertFalse($overview['p1_revenue_closure']['calculation_allowed']);
         self::assertSame('blocked_by_p0_ota_gate', $gate['evidence']['p0_downstream_gate']['status']);
-        self::assertContains('investment_judgment', $gate['evidence']['p0_downstream_gate']['blocked_stage_keys']);
         self::assertTrue($gate['evidence']['collection_quality']['provided']);
         self::assertSame('unverified', $gate['evidence']['collection_quality']['primary_quality_state']);
         self::assertContains('manual_login_state_verified', $gate['evidence']['collection_quality']['quality_flags']);
@@ -344,7 +341,9 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('partial', $overview['data_status']);
         self::assertNull($overview['metrics']['ota_contribution_revpar']['value']);
         self::assertSame('--', $overview['metrics']['ota_contribution_revpar']['display']);
-        self::assertSame('hotel_required', $overview['metrics']['ota_contribution_revpar']['scope']);
+        self::assertSame('ota_channel', $overview['metrics']['ota_contribution_revpar']['scope']);
+        self::assertSame('ota_channel', $overview['metrics']['ota_contribution_revpar']['denominator_scope']);
+        self::assertFalse($overview['metrics']['ota_contribution_revpar']['whole_hotel_denominator_verified']);
         self::assertSame('available_room_nights_missing', $overview['metrics']['ota_contribution_revpar']['reason']);
         self::assertContains('available_room_nights_missing', array_column($overview['missing_datasets'], 'reason'));
         $availableRoomNightGap = $this->findIssue($overview['missing_datasets'], 'available_room_nights_missing');
@@ -353,7 +352,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('denominator', $availableRoomNightGap['category']);
         self::assertSame('online-data', $availableRoomNightGap['target_page']);
         self::assertSame('data-health', $availableRoomNightGap['target_tab']);
-        self::assertSame('暂缺可信全酒店可售房晚数据。', $availableRoomNightGap['display_reason']);
+        self::assertSame('暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。', $availableRoomNightGap['display_reason']);
     }
 
     public function testPhase1AOverviewContractKeepsReadonlyMetricsAndQualityReasonsExplicit(): void
@@ -404,7 +403,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame(200.0, $overview['metrics']['ota_adr']['value']);
         self::assertNull($overview['metrics']['ota_contribution_revpar']['value']);
         self::assertSame('--', $overview['metrics']['ota_contribution_revpar']['display']);
-        self::assertSame('hotel_required', $overview['metrics']['ota_contribution_revpar']['scope']);
+        self::assertSame('ota_channel', $overview['metrics']['ota_contribution_revpar']['scope']);
         self::assertSame('available_room_nights_missing', $overview['metrics']['ota_contribution_revpar']['reason']);
         self::assertContains('available_room_nights_missing', array_column($overview['missing_datasets'], 'reason'));
         self::assertFalse($overview['pricing_readiness']['can_auto_write_ota']);
@@ -458,12 +457,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('ctrip', $overview['ai_to_operation_handoff']['operation_intake_packet']['candidate_payload_template']['platform']);
         self::assertFalse($overview['ai_to_operation_handoff']['can_create_operation_execution']);
         self::assertFalse($overview['ai_to_operation_handoff']['auto_create_operation_execution']);
-        self::assertSame('ctrip_ota_channel_to_operation_roi', $overview['operation_to_investment_handoff']['source_scope']);
-        self::assertSame(['ctrip'], $overview['operation_to_investment_handoff']['source_channels']);
-        self::assertSame(['ctrip'], $overview['operation_to_investment_handoff']['source_platforms']);
-        self::assertSame('investment_precheck_blocked_by_operation_roi', $overview['operation_to_investment_handoff']['status']);
-        self::assertFalse($overview['operation_to_investment_handoff']['decision_allowed']);
-        self::assertFalse($overview['operation_to_investment_handoff']['can_create_investment_decision']);
     }
 
     public function testCtripOnlyRequiredP0GateCommandKeepsRevenueAiScope(): void
@@ -530,9 +523,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('ctrip_ota_channel', $overview['ai_to_operation_handoff']['source_scope']);
         self::assertSame(['ctrip'], $overview['ai_to_operation_handoff']['source_channels']);
         self::assertSame('ctrip', $overview['ai_to_operation_handoff']['operation_intake_packet']['candidate_platform']);
-        self::assertSame('ctrip_ota_channel_to_operation_roi', $overview['operation_to_investment_handoff']['source_scope']);
-        self::assertSame(['ctrip'], $overview['operation_to_investment_handoff']['source_channels']);
-        self::assertFalse($overview['operation_to_investment_handoff']['decision_allowed']);
     }
 
     public function testAdrIsNotCalculatedWhenRoomNightDenominatorIsZero(): void
@@ -748,7 +738,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertTrue($queue['pending_items'][0]['can_review']);
         self::assertTrue($queue['pending_items'][0]['manual_review_required']);
         self::assertFalse($queue['pending_items'][0]['auto_write_ota']);
-        self::assertSame('去审核', $queue['pending_items'][0]['action_entry']['label']);
+        self::assertSame('补证后审核', $queue['pending_items'][0]['action_entry']['label']);
         self::assertSame('compass', $queue['pending_items'][0]['action_entry']['target_page']);
         self::assertSame('', $queue['pending_items'][0]['action_entry']['target_agent_tab']);
         self::assertSame('', $queue['pending_items'][0]['action_entry']['target_revenue_tab']);
@@ -758,12 +748,28 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('/api/revenue-ai/price-suggestions/11/review', $queue['pending_items'][0]['action_entry']['allowed_endpoint']);
         self::assertSame('/api/revenue-ai/price-suggestions/11/review', $queue['pending_items'][0]['action_entry']['allowed_endpoints']['review']);
         self::assertSame('/api/revenue-ai/price-suggestions/11/execution-intent', $queue['pending_items'][0]['action_entry']['allowed_endpoints']['execution_intent']);
-        self::assertSame(['approve', 'approve_with_changes', 'reject'], $queue['pending_items'][0]['action_entry']['manual_actions']);
+        self::assertSame(['reject'], $queue['pending_items'][0]['action_entry']['manual_actions']);
         self::assertContains('apply_price', $queue['pending_items'][0]['action_entry']['forbidden_actions']);
         self::assertContains('ota_write', $queue['pending_items'][0]['action_entry']['forbidden_actions']);
+        self::assertSame(
+            RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION,
+            $queue['pending_items'][0]['trusted_decision']['contract_version']
+        );
+        self::assertSame('门店 #7', $queue['pending_items'][0]['trusted_decision']['store']['display']);
+        self::assertSame('ctrip', $queue['pending_items'][0]['trusted_decision']['platform']['key']);
+        self::assertSame('2026-06-25', $queue['pending_items'][0]['trusted_decision']['date']['value']);
+        self::assertSame('unverified', $queue['pending_items'][0]['trusted_decision']['sources']['status']);
+        self::assertSame('calculable', $queue['pending_items'][0]['trusted_decision']['metric_formula']['status']);
+        self::assertSame('+13.57%', $queue['pending_items'][0]['trusted_decision']['metric_formula']['display']);
+        self::assertSame('未验证', $queue['pending_items'][0]['trusted_decision']['data_quality']['label']);
+        self::assertSame('82%', $queue['pending_items'][0]['trusted_decision']['confidence']['display']);
+        self::assertNotEmpty($queue['pending_items'][0]['trusted_decision']['gaps']);
+        self::assertFalse($queue['pending_items'][0]['can_confirm']);
         self::assertSame('--', $queue['recent_items'][1]['current_price_display']);
         self::assertSame('price_suggestion_required_values_missing', $queue['recent_items'][1]['missing_reason']);
         self::assertContains('current_price', $queue['recent_items'][1]['missing_fields']);
+        self::assertSame('not_calculable', $queue['recent_items'][1]['trusted_decision']['metric_formula']['status']);
+        self::assertSame('不可计算', $queue['recent_items'][1]['trusted_decision']['metric_formula']['display']);
     }
 
     public function testPriceSuggestionReviewQueueExposesExplicitExpectedRevparImpactOnly(): void
@@ -850,25 +856,12 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame(1, $overview['actions'][0]['review_queue']['pending_count']);
         self::assertStringContainsString('待审核 1', $overview['actions'][0]['review_queue_summary']);
         self::assertFalse($overview['actions'][0]['auto_write_ota']);
-        self::assertSame('warning', $overview['actions'][0]['decision_basis_summary']['status']);
-        self::assertGreaterThanOrEqual(1, $overview['actions'][0]['decision_basis_summary']['skipped_count']);
+        self::assertSame('blocked', $overview['actions'][0]['decision_basis_summary']['status']);
+        self::assertSame(0, $overview['actions'][0]['decision_basis_summary']['skipped_count']);
+        self::assertGreaterThanOrEqual(1, $overview['actions'][0]['decision_basis_summary']['blocked_count']);
         self::assertContains('上一轮调价效果输入', $overview['actions'][0]['decision_basis_summary']['ready_labels']);
         self::assertSame('operation_feedback_input', array_column($overview['actions'][0]['decision_basis_summary']['items'], null, 'key')['operation_feedback_input']['key']);
         self::assertSame('ops-track', array_column($overview['actions'][0]['decision_basis_summary']['items'], null, 'key')['operation_feedback_input']['target_page']);
-        $investmentHandoff = $overview['operation_to_investment_handoff'];
-        $investmentPrecheck = $investmentHandoff['investment_precheck_packet'];
-        self::assertSame('investment_precheck_waiting_decision_record', $investmentHandoff['status']);
-        self::assertSame('waiting_decision_record_readiness', $investmentPrecheck['status']);
-        self::assertSame(1, $investmentHandoff['operation_roi_ready']);
-        self::assertSame(1, $investmentPrecheck['operation_roi_ready']);
-        self::assertSame('operation_effect_review_ready', $investmentHandoff['operation_roi_reason']);
-        self::assertSame('closed_operating_data_ready', $investmentHandoff['operating_gate_status']);
-        self::assertSame('precheck_only_not_investment_ready', $investmentHandoff['business_closure_chain_status']);
-        self::assertFalse($investmentHandoff['decision_allowed']);
-        self::assertFalse($investmentHandoff['can_create_investment_decision']);
-        self::assertContains('decision_record.readiness_ready', $investmentHandoff['blocked_reasons']);
-        self::assertContains('decision_record.readiness_ready', $investmentPrecheck['missing_evidence_codes']);
-        self::assertSame('investment_decision_requires_closed_operation_roi_not_ota_channel_only', $investmentHandoff['protected_boundary']);
         self::assertContains('进入定价建议列表完成人工批准、修改后批准、拒绝或转执行；Revenue AI 首页不自动写 OTA。', $overview['actions'][0]['next_actions']);
     }
 
@@ -922,22 +915,23 @@ final class RevenueAiOverviewServiceTest extends TestCase
         );
 
         $gateByKey = array_column($overview['pricing_readiness']['gates'], null, 'key');
-        self::assertSame('skipped_by_operator_policy', $gateByKey['pricing_generation_preflight']['status']);
-        self::assertSame('missing_pricing_inputs_skipped_by_operator_policy', $gateByKey['pricing_generation_preflight']['reason']);
+        self::assertSame('blocked', $gateByKey['pricing_generation_preflight']['status']);
+        self::assertSame('room_types_empty', $gateByKey['pricing_generation_preflight']['reason']);
         self::assertSame('agent-center', $gateByKey['pricing_generation_preflight']['target_page']);
         self::assertSame('revenue', $gateByKey['pricing_generation_preflight']['target_agent_tab']);
         self::assertSame('suggestions', $gateByKey['pricing_generation_preflight']['target_revenue_tab']);
-        self::assertSame('skipped_by_operator_policy', $overview['pricing_generation_preflight']['status']);
-        self::assertSame('blocked', $overview['pricing_generation_preflight']['original_status']);
-        self::assertSame('missing_pricing_inputs_skipped_by_operator_policy', $overview['pricing_generation_preflight']['reason']);
-        self::assertTrue($overview['pricing_generation_preflight']['temporary_skip_policy']['active']);
-        self::assertSame('skipped_by_operator_policy', $overview['pricing_generation_preflight']['required_inputs'][0]['status']);
+        self::assertSame('blocked', $overview['pricing_generation_preflight']['status']);
+        self::assertSame('room_types_empty', $overview['pricing_generation_preflight']['reason']);
+        self::assertFalse($overview['pricing_generation_preflight']['temporary_skip_policy']['active']);
+        self::assertSame('rule_block_on_missing_inputs', $overview['pricing_generation_preflight']['input_gap_policy']['mode']);
+        self::assertFalse($overview['pricing_generation_preflight']['input_gap_policy']['manual_confirmation_recorded']);
+        self::assertSame(['room_types_enabled', 'floor_price_or_min_rate_guard'], $overview['pricing_generation_preflight']['input_gap_policy']['blocked_input_codes']);
         self::assertSame($overview['pricing_generation_preflight'], $overview['pricing_readiness']['pricing_generation_preflight']);
         self::assertSame($overview['pricing_generation_preflight'], $overview['actions'][0]['pricing_generation_preflight']);
-        self::assertNotContains('room_types_empty', $overview['pricing_readiness']['blocking_reasons']);
-        self::assertContains('missing_pricing_inputs_skipped_by_operator_policy', $overview['pricing_readiness']['skipped_reasons']);
-        self::assertNotContains('room_types_empty', array_column($overview['pricing_readiness']['ai_decision_resolution_plan']['items'], 'evidence_code'));
-        self::assertContains('missing_pricing_inputs_skipped_by_operator_policy', array_column($overview['pricing_readiness']['ai_decision_resolution_plan']['skipped_items'], 'evidence_code'));
+        self::assertContains('room_types_empty', $overview['pricing_readiness']['blocking_reasons']);
+        self::assertSame([], $overview['pricing_readiness']['skipped_reasons']);
+        self::assertContains('room_types_empty', array_column($overview['pricing_readiness']['ai_decision_resolution_plan']['items'], 'evidence_code'));
+        self::assertSame([], $overview['pricing_readiness']['ai_decision_resolution_plan']['skipped_items']);
         self::assertFalse($overview['pricing_generation_preflight']['auto_write_ota']);
         self::assertFalse($overview['pricing_generation_preflight']['can_generate_pending_suggestions']);
     }
@@ -1022,8 +1016,8 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('holiday_event_nearby', $overview['signals']['holiday_event']['reason']);
         self::assertSame('测试节日 T-5', $overview['signals']['holiday_event']['value']);
         self::assertFalse($overview['pricing_readiness']['can_auto_write_ota']);
-        self::assertNotContains('floor_price_missing', $overview['pricing_readiness']['blocking_reasons']);
-        self::assertContains('floor_price_missing', $overview['pricing_readiness']['skipped_reasons']);
+        self::assertContains('floor_price_missing', $overview['pricing_readiness']['blocking_reasons']);
+        self::assertSame([], $overview['pricing_readiness']['skipped_reasons']);
     }
 
     public function testAgentActivitySummarizesRevenueAgentLogsWithoutContextData(): void

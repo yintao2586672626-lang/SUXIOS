@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\Agent;
+use app\service\AiDecisionQualityService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\ReflectionHelper;
@@ -37,6 +38,24 @@ final class AgentTest extends TestCase
                 'platform' => 'ctrip',
                 'price' => 288,
                 'fetch_time' => '2026-05-24 10:00:00',
+                'collected_at' => '2026-05-24 10:00:00',
+                'source_method' => 'local_browser_profile',
+                'source_ref' => 'https://hotels.ctrip.com/hotels/200.html',
+                'validation_status' => 'verified',
+                'readback_verified' => 1,
+                'check_in_date' => '2026-05-25',
+                'check_out_date' => '2026-05-26',
+                'adults' => 2,
+                'children' => 0,
+                'room_type_key' => 'standard-room',
+                'rate_plan_key' => 'public-flex',
+                'breakfast' => 'none',
+                'cancellation_policy' => 'free-before-18',
+                'payment_mode' => 'pay-at-hotel',
+                'tax_fee_included' => 1,
+                'price_basis' => 'room_per_night',
+                'currency' => 'CNY',
+                'availability' => 'available',
             ]],
             'price_suggestions' => [[
                 'id' => 30,
@@ -64,11 +83,15 @@ final class AgentTest extends TestCase
         self::assertSame('source_summary', $sources[0]['ref']);
         self::assertCount(3, $items);
         self::assertSame('pending_manual_review', $items[0]['status']);
-        self::assertTrue($items[0]['execution_ready']);
-        self::assertSame('pending', $items[0]['human_confirmation_status']);
+        self::assertFalse($items[0]['execution_ready']);
+        self::assertFalse($items[0]['can_request_execution_intent']);
+        self::assertFalse($items[0]['decision_quality']['execution_ready']);
+        self::assertSame('blocked', $items[0]['human_confirmation_status']);
         self::assertNotEmpty($items[0]['evidence_refs']);
         self::assertSame('pending_manual_review', $items[1]['status']);
-        self::assertTrue($items[1]['execution_ready']);
+        self::assertFalse($items[1]['execution_ready']);
+        self::assertFalse($items[1]['can_request_execution_intent']);
+        self::assertFalse($items[1]['decision_quality']['execution_ready']);
         self::assertContains('competitor', $items[1]['required_evidence']);
         self::assertSame('blocked_by_data_gap', $items[2]['status']);
         self::assertFalse($items[2]['execution_ready']);
@@ -103,6 +126,123 @@ final class AgentTest extends TestCase
         self::assertContains('advertising', $items[0]['required_evidence']);
         self::assertSame('missing_advertising_evidence', $items[0]['missing_evidence'][0]['code']);
         self::assertSame('blocked', $items[0]['human_confirmation_status']);
+    }
+
+    public function testOtaDiagnosisDecisionGateRequiresVerifiedQualityAndReadback(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'readback_verified' => 1,
+            'validation_status' => 'stale',
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'readback_verified' => 0,
+            'validation_status' => 'verified',
+        ]]));
+    }
+
+    public function testOtaDiagnosisQueryPreservesSourceBindingAndSyncIdentityFields(): void
+    {
+        $controller = $this->controller();
+        $columns = array_fill_keys([
+            'id',
+            'system_hotel_id',
+            'data_source_id',
+            'sync_task_id',
+            'data_date',
+            'source',
+            'raw_data',
+            'readback_verified',
+        ], true);
+
+        $fields = $this->invokeNonPublic($controller, 'otaDiagnosisOnlineRowFields', [$columns]);
+
+        self::assertContains('data_source_id', $fields);
+        self::assertContains('sync_task_id', $fields);
+        self::assertContains('readback_verified', $fields);
+    }
+
+    public function testOtaDiagnosisEvidenceUsesLatestEligibleRowsAndCarriesTraceMetadata(): void
+    {
+        $controller = $this->controller();
+        $sources = $this->invokeNonPublic($controller, 'buildOtaDiagnosisEvidenceSources', [[
+            'decision_quality' => ['gate' => 'eligible_rows_only'],
+            'decision_eligible_online_rows' => [
+                [
+                    'id' => 1,
+                    'source' => 'ctrip',
+                    'hotel_id' => '1001',
+                    'data_type' => 'traffic',
+                    'data_date' => '2026-05-20',
+                    'validation_status' => 'normal',
+                    'readback_verified' => 1,
+                ],
+                [
+                    'id' => 2,
+                    'source' => 'ctrip',
+                    'system_hotel_id' => 7,
+                    'hotel_id' => '1001',
+                    'data_type' => 'traffic',
+                    'data_date' => '2026-05-24',
+                    'validation_status' => 'verified',
+                    'readback_verified' => 1,
+                    'readback_verified_at' => '2026-05-24 10:01:00',
+                    'source_trace_id' => 'trace-safe-2',
+                    'create_time' => '2026-05-24 10:00:00',
+                    'raw_data' => json_encode([
+                        'capture_meta' => [
+                            'source_method' => 'local_browser_profile',
+                            'source_url' => 'https://hotels.ctrip.com/hotels/1001.html',
+                            'evidence_asset_ref' => 'local-evidence://capture-2',
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                ],
+            ],
+            'excluded_online_rows' => [[
+                'id' => 3,
+                'source' => 'ctrip',
+                'hotel_id' => '1001',
+                'data_type' => 'traffic',
+                'data_date' => '2026-05-25',
+                'validation_status' => 'stale',
+                'readback_verified' => 1,
+            ]],
+        ], []]);
+
+        $byRef = array_column($sources, null, 'ref');
+        self::assertSame('verified', $byRef['online_daily_data#2']['quality_status']);
+        self::assertSame('trace-safe-2', $byRef['online_daily_data#2']['source_trace_id']);
+        self::assertSame('local_browser_profile', $byRef['online_daily_data#2']['source_method']);
+        self::assertSame('https://hotels.ctrip.com/hotels/1001.html', $byRef['online_daily_data#2']['source_url']);
+        self::assertTrue($byRef['online_daily_data#2']['decision_eligible']);
+        self::assertTrue($byRef['online_daily_data_excluded#3']['excluded_from_decision']);
+        self::assertFalse($byRef['online_daily_data_excluded#3']['decision_eligible']);
+        self::assertSame('stale', $byRef['online_daily_data_excluded#3']['quality_status']);
+        self::assertSame([], $byRef['online_daily_data_excluded#3']['metrics']);
+
+        $positiveSources = array_values(array_filter(
+            $sources,
+            static fn(array $source): bool => in_array((string)($source['ref'] ?? ''), ['source_summary', 'online_daily_data#2'], true)
+        ));
+        $actions = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [[
+            'Review Ctrip traffic exposure for 2026-05-24, update the main image, and record detail visitor rate before and after.',
+        ], $positiveSources, [
+            'hotel' => ['id' => 7],
+            'platform' => 'ctrip',
+            'date_range' => ['start_date' => '2026-05-24', 'end_date' => '2026-05-24'],
+            'priority' => 'high',
+            'core_conclusion' => 'Ctrip traffic evidence requires a specific conversion review.',
+        ]]);
+        self::assertCount(1, $actions);
+        self::assertSame(AiDecisionQualityService::CONTRACT_VERSION, $actions[0]['decision_quality']['contract_version']);
+        self::assertTrue($actions[0]['decision_quality']['execution_ready'], json_encode($actions[0], JSON_UNESCAPED_UNICODE));
+        self::assertTrue($actions[0]['can_create_execution_intent']);
+        self::assertTrue($actions[0]['execution_ready']);
     }
 
     public function testOtaDiagnosisUsesAdvertisingAndQualityWithoutCommentDependency(): void
@@ -190,6 +330,109 @@ final class AgentTest extends TestCase
         self::assertNotContains('review', $sectionKeys);
     }
 
+    public function testOtaDiagnosisKeepsMissingMetricsNullAndRealZeroObservable(): void
+    {
+        $controller = $this->controller();
+        $baseDataSet = [
+            'hotel' => ['id' => 7, 'name' => 'Hotel Alpha'],
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [],
+        ];
+        $arguments = [7, '7', 'Hotel Alpha', 'ctrip', '2026-07-13', '2026-07-13', 'all'];
+
+        $missing = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [array_merge($baseDataSet, [
+            'online_rows' => [[
+                'id' => 71,
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-07-13',
+                'hotel_name' => 'Hotel Alpha',
+                'amount' => null,
+                'quantity' => null,
+                'book_order_num' => null,
+                'data_value' => null,
+                'raw_data' => '{}',
+            ]],
+        ]), ...$arguments]);
+
+        self::assertNull($missing['metrics']['amount']);
+        self::assertNull($missing['metrics']['quantity']);
+        self::assertNull($missing['metrics']['list_exposure']);
+        self::assertContains('metric_missing:amount', $missing['data_gaps']);
+        self::assertStringContainsString('核心指标未返回', implode(' ', $missing['source_summary']['data_anomalies']));
+        self::assertStringNotContainsString('全指标为 0', implode(' ', $missing['source_summary']['data_anomalies']));
+        self::assertStringContainsString('未返回', implode(' ', $missing['diagnosis']['data_overview']));
+
+        $zero = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [array_merge($baseDataSet, [
+            'online_rows' => [[
+                'id' => 72,
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-07-13',
+                'hotel_name' => 'Hotel Alpha',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'data_value' => 0,
+                'raw_data' => json_encode([
+                    'row' => [
+                        'amount' => 0,
+                        'quantity' => 0,
+                        'book_order_num' => 0,
+                    ],
+                    'field_facts' => [
+                        ['metric_key' => 'order_amount', 'normalized_field' => 'amount', 'status' => 'captured', 'stored_value_present' => true],
+                        ['metric_key' => 'room_nights', 'normalized_field' => 'quantity', 'status' => 'captured', 'stored_value_present' => true],
+                        ['metric_key' => 'order_count', 'normalized_field' => 'book_order_num', 'status' => 'captured', 'stored_value_present' => true],
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]],
+        ]), ...$arguments]);
+
+        self::assertSame(0.0, $zero['metrics']['amount']);
+        self::assertSame(0, $zero['metrics']['quantity']);
+        self::assertStringContainsString('全指标为 0', implode(' ', $zero['source_summary']['data_anomalies']));
+    }
+
+    public function testOtaDiagnosisDoesNotTreatSupplementalDefaultZerosAsCoreEvidence(): void
+    {
+        $controller = $this->controller();
+        $result = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [[
+            'hotel' => ['id' => 80, 'name' => '敦煌漠蓝新'],
+            'online_rows' => [[
+                'id' => 901,
+                'source' => 'meituan',
+                'data_type' => 'traffic_forecast',
+                'data_date' => '2026-07-14',
+                'hotel_name' => '敦煌漠蓝新',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+                'data_value' => 52,
+                'raw_data' => json_encode(['row' => ['forecast_type' => 'next_7_days', 'data_value' => 52]], JSON_UNESCAPED_UNICODE),
+            ]],
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [],
+        ], 80, '80', '敦煌漠蓝新', 'meituan', '2026-07-14', '2026-07-14', 'all']);
+
+        self::assertNull($result['metrics']['amount']);
+        self::assertNull($result['metrics']['list_exposure']);
+        self::assertContains('metric_missing:amount', $result['data_gaps']);
+        self::assertContains('metric_missing:list_exposure', $result['data_gaps']);
+        self::assertFalse($result['data_summary']['core_metrics_complete']);
+        self::assertNotEmpty($result['blocking_data_gaps']);
+    }
+
     public function testOtaDiagnosisPromptAndParserUseAdvertisingQualitySchema(): void
     {
         $controller = $this->controller();
@@ -203,6 +446,8 @@ final class AgentTest extends TestCase
 
         self::assertStringContainsString('advertising_analysis', $prompt);
         self::assertStringContainsString('service_quality_analysis', $prompt);
+        self::assertStringContainsString('actions 允许为空数组', $prompt);
+        self::assertStringContainsString('不能补0或猜测', $prompt);
         self::assertStringNotContainsString('comment_analysis', $prompt);
 
         $parsed = $this->invokeNonPublic($controller, 'parseOtaDiagnosisResult', [json_encode([
@@ -259,11 +504,35 @@ final class AgentTest extends TestCase
         $refs = $this->invokeNonPublic($controller, 'selectOtaEvidenceRefsForAction', [
             'Improve traffic conversion',
             [
-                ['ref' => 'online_daily_data#10', 'tags' => ['traffic']],
-                ['ref' => 'competitor_price_log#2', 'tags' => ['price']],
+                ['ref' => 'online_daily_data#10', 'tags' => ['traffic'], 'decision_eligible' => true],
+                ['ref' => 'competitor_price_log#2', 'tags' => ['price'], 'decision_eligible' => false],
             ],
         ]);
         self::assertSame(['online_daily_data#10'], $refs);
+    }
+
+    public function testLegacyCompetitorPriceIsReferenceOnlyAndCannotUnlockPriceAction(): void
+    {
+        $controller = $this->controller();
+        $sources = $this->invokeNonPublic($controller, 'buildOtaDiagnosisEvidenceSources', [[
+            'competitor_prices' => [[
+                'id' => 90,
+                'platform' => 'ctrip',
+                'price' => 99,
+                'fetch_time' => '2026-05-24 10:00:00',
+            ]],
+        ], []]);
+        $byRef = array_column($sources, null, 'ref');
+
+        self::assertFalse($byRef['competitor_price_log#90']['decision_eligible']);
+        self::assertTrue($byRef['competitor_price_log#90']['excluded_from_decision']);
+        self::assertSame([], $byRef['competitor_price_log#90']['metrics']);
+
+        $items = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [[
+            '对比竞对价格后调整本店房价',
+        ], $sources]);
+        self::assertFalse($items[0]['execution_ready']);
+        self::assertContains('missing_competitor_evidence', array_column($items[0]['missing_evidence'], 'code'));
     }
 
     public function testOtaDiagnosisNoDataResultKeepsEvidenceGapsAndActionItems(): void
@@ -285,10 +554,10 @@ final class AgentTest extends TestCase
         self::assertSame($result['data_gaps'], $result['evidence_report']['data_gaps']);
         self::assertSame('low', $result['ai_governance']['confidence_level']);
         self::assertTrue($result['ai_governance']['human_confirmation_required']);
-        self::assertSame('blocked', $result['decision_closure']['status']);
+        self::assertSame('blocked_by_data', $result['decision_closure']['status']);
         self::assertFalse($result['decision_closure']['data_evidence_input']['enough_for_executable_actions']);
         self::assertSame(1, $result['decision_closure']['suggested_actions']['blocked_count']);
-        self::assertSame('blocked', $result['evidence_report']['decision_closure']['status']);
+        self::assertSame('blocked_by_data', $result['evidence_report']['decision_closure']['status']);
         self::assertStringContainsString('不能生成可信经营诊断', $result['core_conclusion']);
     }
 
@@ -325,9 +594,275 @@ final class AgentTest extends TestCase
         self::assertSame($result['data_gaps'], $report['data_gaps']);
 
         $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [$result]);
-        self::assertSame('blocked', $closure['status']);
+        self::assertSame('blocked_by_data', $closure['status']);
         self::assertFalse($closure['data_evidence_input']['enough_for_executable_actions']);
         self::assertSame('missing_target_date_ota_evidence', $closure['suggested_actions']['items'][0]['missing_evidence'][0]['code']);
+    }
+
+    public function testOtaDiagnosisHealthyCoreMetricsCanFinishAsNoAction(): void
+    {
+        $controller = $this->controller();
+        $actions = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActions', [
+            true,
+            true,
+            false,
+            false,
+            [
+                'list_exposure' => 1000,
+                'detail_visitors' => 120,
+                'detail_rate' => 12.0,
+                'order_rate' => 8.0,
+            ],
+            ['metric_missing:advertising_spend'],
+        ]);
+        self::assertSame([], $actions, 'Competitor presence and optional fields must not manufacture an action.');
+
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [[
+            'action_items' => [],
+            'data_gaps' => ['metric_missing:advertising_spend'],
+            'main_problems' => [],
+            'data_summary' => ['source_counts' => ['online_rows' => 2]],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#1',
+                'table' => 'online_daily_data',
+            ]],
+        ]]);
+
+        self::assertSame('no_action', $closure['status']);
+        self::assertFalse($closure['blocked_state']['is_blocked']);
+        self::assertTrue($closure['data_evidence_input']['enough_for_decision']);
+        self::assertFalse($closure['data_evidence_input']['enough_for_executable_actions']);
+        self::assertFalse($closure['human_confirmation']['required']);
+        self::assertSame('not_required', $closure['human_confirmation']['status']);
+        self::assertSame('metric_missing:advertising_spend', $closure['data_evidence_input']['optional_data_gaps'][0]['code']);
+    }
+
+    public function testOtaDiagnosisReadyActionCanProceedWhileSiblingActionRemainsBlocked(): void
+    {
+        $controller = $this->controller();
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [[
+            'action_items' => [
+                [
+                    'id' => 'ready-action',
+                    'status' => 'pending_manual_review',
+                    'execution_ready' => true,
+                ],
+                [
+                    'id' => 'blocked-sibling',
+                    'status' => 'blocked_by_insufficient_evidence',
+                    'execution_ready' => false,
+                    'blocked_reason' => 'missing optional advertising evidence',
+                ],
+            ],
+            'data_gaps' => ['metric_missing:advertising_spend'],
+            'main_problems' => ['booking conversion requires review'],
+            'data_summary' => ['source_counts' => ['online_rows' => 3]],
+        ]]);
+
+        self::assertSame('action_required', $closure['status']);
+        self::assertTrue($closure['data_evidence_input']['enough_for_decision']);
+        self::assertTrue($closure['data_evidence_input']['enough_for_executable_actions']);
+        self::assertSame(1, $closure['suggested_actions']['ready_count']);
+        self::assertSame(1, $closure['suggested_actions']['blocked_count']);
+        self::assertFalse($closure['blocked_state']['is_blocked']);
+        self::assertCount(1, $closure['blocked_state']['blocked_items']);
+        self::assertTrue($closure['human_confirmation']['required']);
+        self::assertSame(['ready-action'], $closure['human_confirmation']['ready_action_ids']);
+    }
+
+    public function testOtaDiagnosisCoreGapCanNeverBecomeNoAction(): void
+    {
+        $controller = $this->controller();
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [[
+            'action_items' => [],
+            'data_gaps' => ['metric_missing:book_order_num'],
+            'main_problems' => [],
+            'data_summary' => ['source_counts' => ['online_rows' => 1]],
+        ]]);
+
+        self::assertSame('blocked_by_data', $closure['status']);
+        self::assertTrue($closure['blocked_state']['is_blocked']);
+        self::assertSame('metric_missing:book_order_num', $closure['data_evidence_input']['blocking_data_gaps'][0]['code']);
+
+        $final = $this->invokeNonPublic($controller, 'finalizeOtaDiagnosisDecision', [[
+            'priority' => 'high',
+            'action_items' => [],
+            'data_gaps' => ['metric_missing:book_order_num'],
+            'main_problems' => [],
+            'data_summary' => ['source_counts' => ['online_rows' => 1]],
+            'diagnosis' => ['summary' => '核心订单证据缺失', 'actions' => []],
+        ]]);
+        self::assertSame('blocked_by_data', $final['decision_status']);
+        self::assertSame('none', $final['priority']);
+    }
+
+    public function testOtaDiagnosisExecutionIntentUsesSavedEvidenceWithoutInventingTargetDelta(): void
+    {
+        $controller = $this->controller();
+        $input = $this->invokeNonPublic($controller, 'buildOtaDiagnosisExecutionIntentInput', [[
+            'hotel' => ['id' => 80],
+            'platform' => 'meituan',
+            'date_range' => ['start_date' => '2026-07-14', 'end_date' => '2026-07-14'],
+            'decision_status' => 'action_required',
+            'priority' => 'high',
+            'metrics' => [
+                'list_exposure' => 1000,
+                'detail_visitors' => 20,
+                'detail_rate' => 2.0,
+                'book_order_num' => 0,
+            ],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#901',
+                'table' => 'online_daily_data',
+                'record_id' => 901,
+            ]],
+            'derived_metric_lineage' => [[
+                'metric' => 'detail_rate',
+                'formula' => 'detail_visitors / list_exposure * 100',
+            ]],
+            'core_conclusion' => '曝光到访问转化偏低',
+        ], [
+            'id' => 'ota_action_1',
+            'action' => '优先优化列表页主图、标题卖点和页面信息呈现，提升曝光到访问转化。',
+            'status' => 'pending_manual_review',
+            'execution_ready' => true,
+            'can_request_execution_intent' => true,
+            'can_create_execution_intent' => true,
+            'decision_quality' => [
+                'contract_version' => AiDecisionQualityService::CONTRACT_VERSION,
+                'execution_ready' => true,
+            ],
+            'evidence_refs' => ['online_daily_data#901'],
+        ], 77, 80, [
+            'assignee_id' => 9,
+            'due_at' => '2099-07-18T18:00',
+            'review_at' => '2099-07-19T10:00',
+        ]]);
+
+        self::assertSame('ota_diagnosis_saved', $input['source_module']);
+        self::assertSame(77, $input['source_record_id']);
+        self::assertSame('meituan', $input['platform']);
+        self::assertSame('campaign', $input['object_type']);
+        self::assertSame('listing_conversion_optimization', $input['action_type']);
+        self::assertSame(0, $input['current_value']['book_order_num'], 'A verified zero must remain observable.');
+        self::assertSame('target_not_quantified_until_manual_confirmation', $input['target_value']['measurement_policy']);
+        self::assertSame('increase', $input['target_value']['expected_direction']);
+        self::assertArrayNotHasKey('expected_delta', $input);
+        self::assertSame('not_quantified', $input['evidence']['expected_delta_status']);
+        self::assertSame('increase', $input['evidence']['expected_direction']);
+        self::assertSame(['online_daily_data#901'], $input['evidence']['evidence_refs']);
+        self::assertSame(9, $input['target_value']['assignee_id']);
+        self::assertSame('2099-07-18 18:00:00', $input['target_value']['due_at']);
+        self::assertSame('2099-07-19 10:00:00', $input['target_value']['review_at']);
+        self::assertSame($input['target_value']['workflow_schedule'], $input['evidence']['workflow_schedule']);
+    }
+
+    public function testOtaDiagnosisExecutionIntentRejectsLegacyReadyFlagsWithoutV2DecisionQuality(): void
+    {
+        $controller = $this->controller();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('not execution ready');
+        $this->invokeNonPublic($controller, 'buildOtaDiagnosisExecutionIntentInput', [[
+            'hotel' => ['id' => 80],
+            'platform' => 'ctrip',
+            'date_range' => ['start_date' => '2026-07-19', 'end_date' => '2026-07-19'],
+            'decision_status' => 'action_required',
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#902',
+                'table' => 'online_daily_data',
+                'record_id' => 902,
+            ]],
+        ], [
+            'action' => 'Review the Ctrip rate for 2026-07-19 and compare OTA ADR after execution.',
+            'execution_ready' => true,
+            'can_request_execution_intent' => true,
+            'evidence_refs' => ['online_daily_data#902'],
+        ], 78, 80, [
+            'assignee_id' => 9,
+            'due_at' => '2099-07-20T18:00',
+            'review_at' => '2099-07-21T10:00',
+        ]]);
+    }
+
+    public function testOtaDiagnosisHotelPermissionUsesViewAndExecuteCapabilities(): void
+    {
+        $controller = $this->controller();
+        $user = $this->createMock(\app\model\User::class);
+        $user->method('hasHotelPermission')->willReturnCallback(
+            static fn(int $hotelId, string $capability): bool => $hotelId === 80 && $capability === 'operation.view'
+        );
+        $base = (new ReflectionClass(Agent::class))->getParentClass();
+        self::assertNotFalse($base);
+        $property = $base->getProperty('currentUser');
+        $property->setAccessible(true);
+        $property->setValue($controller, $user);
+
+        $this->invokeNonPublic($controller, 'assertOtaDiagnosisHotelPermission', [80, 'operation.view']);
+
+        try {
+            $this->invokeNonPublic($controller, 'assertOtaDiagnosisHotelPermission', [80, 'operation.execute']);
+            self::fail('A view-only hotel operator must not create an execution intent.');
+        } catch (\RuntimeException $e) {
+            self::assertSame(403, $e->getCode());
+        }
+
+        try {
+            $this->invokeNonPublic($controller, 'assertOtaDiagnosisHotelPermission', [81, 'operation.view', true]);
+            self::fail('Cross-hotel diagnosis records must not be enumerable.');
+        } catch (\RuntimeException $e) {
+            self::assertSame(404, $e->getCode());
+            self::assertSame('saved OTA diagnosis not found', $e->getMessage());
+        }
+    }
+
+    public function testOtaDiagnosisExecutionScheduleRequiresOwnerAndOrderedReviewTime(): void
+    {
+        $controller = $this->controller();
+        $valid = $this->invokeNonPublic($controller, 'normalizeOtaDiagnosisExecutionSchedule', [[
+            'assignee_id' => '7',
+            'due_at' => '2099-07-18T18:00',
+            'review_at' => '2099-07-19 09:30:00',
+        ]]);
+        self::assertSame(7, $valid['assignee_id']);
+        self::assertSame('2099-07-18 18:00:00', $valid['due_at']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('review_at must not be earlier than due_at');
+        $this->invokeNonPublic($controller, 'normalizeOtaDiagnosisExecutionSchedule', [[
+            'assignee_id' => 7,
+            'due_at' => '2099-07-20 10:00:00',
+            'review_at' => '2099-07-19 10:00:00',
+        ]]);
+    }
+
+    public function testOtaDiagnosisSupersedeScopeUsesRequestedDatesAndSnapshotKeepsRecordStatus(): void
+    {
+        $controller = $this->controller();
+        $range = $this->invokeNonPublic($controller, 'normalizeOtaDiagnosisScopeDateRange', [[
+            'end_date' => '2026-07-14',
+            'start_date' => '2026-07-14',
+            'ignored' => 'does-not-affect-scope',
+        ]]);
+        self::assertSame([
+            'start_date' => '2026-07-14',
+            'end_date' => '2026-07-14',
+        ], $range);
+
+        $snapshot = $this->invokeNonPublic($controller, 'buildOtaDiagnosisSnapshot', [[
+            'platform' => 'meituan',
+            'date_range' => ['start_date' => '2026-07-15', 'end_date' => '2026-07-15'],
+            'requested_date_range' => ['start_date' => '2026-07-14', 'end_date' => '2026-07-14'],
+            'record_status' => 'superseded',
+            'superseded_by' => ['log_id' => 211],
+            'saved_record' => ['id' => 210, 'status' => 'superseded'],
+            'unsafe_field' => 'must-not-persist',
+        ]]);
+
+        self::assertSame('superseded', $snapshot['record_status']);
+        self::assertSame(211, $snapshot['superseded_by']['log_id']);
+        self::assertSame('2026-07-14', $snapshot['requested_date_range']['start_date']);
+        self::assertArrayNotHasKey('unsafe_field', $snapshot);
     }
 
     public function testNormalizeRequestedModelKeyCoversDefaultAliasesAndFallback(): void
@@ -399,6 +934,14 @@ final class AgentTest extends TestCase
             [
                 'hotel_id' => 'h1',
                 'hotel_name' => 'Hotel 1',
+                'platform' => 'ctrip',
+                'start_date' => '2026-05-01',
+                'end_date' => '2026-05-02',
+                'source_method' => 'local_browser_profile',
+                'collected_at' => '2026-05-02 09:30:15',
+                'stored' => true,
+                'readback_verified' => true,
+                'validation_status' => 'verified',
                 'metrics' => [
                     'room_nights' => 10,
                     'revenue' => 2000,
@@ -413,6 +956,14 @@ final class AgentTest extends TestCase
             [
                 'hotel_id' => 'h2',
                 'hotel_name' => 'Hotel 2',
+                'platform' => 'ctrip',
+                'start_date' => '2026-05-01',
+                'end_date' => '2026-05-02',
+                'source_method' => 'local_browser_profile',
+                'collected_at' => '2026-05-02 09:31:16',
+                'stored' => true,
+                'readback_verified' => true,
+                'validation_status' => 'verified',
                 'raw_metrics' => [
                     'room_nights' => 5,
                     'revenue' => 3000,
@@ -443,7 +994,19 @@ final class AgentTest extends TestCase
 
         $manyHotels = [];
         for ($i = 1; $i <= 51; $i++) {
-            $manyHotels[] = ['hotel_id' => 'h' . $i, 'hotel_name' => 'Hotel ' . $i, 'revenue' => $i];
+            $manyHotels[] = [
+                'hotel_id' => 'h' . $i,
+                'hotel_name' => 'Hotel ' . $i,
+                'platform' => 'ctrip',
+                'start_date' => '2026-05-01',
+                'end_date' => '2026-05-01',
+                'source_method' => 'local_browser_profile',
+                'collected_at' => '2026-05-01 09:30:15',
+                'stored' => true,
+                'readback_verified' => true,
+                'validation_status' => 'verified',
+                'revenue' => $i,
+            ];
         }
         $truncated = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [
             $manyHotels,
@@ -454,6 +1017,219 @@ final class AgentTest extends TestCase
         ]);
         self::assertTrue($truncated['truncated']);
         self::assertSame(50, $truncated['hotel_count']);
+        self::assertNull($truncated['totals']['room_nights']);
+        self::assertNull($truncated['totals']['orders']);
+        self::assertNull($truncated['averages']['adr']);
+        self::assertSame(0, $truncated['metric_sample_counts']['room_nights']);
+    }
+
+    public function testCapturedOtaSummaryOnlyAggregatesVerifiedTraceableRows(): void
+    {
+        $controller = $this->controller();
+        $verified = [
+            'hotel_id' => 'verified-1',
+            'hotel_name' => 'Verified Hotel',
+            'platform' => 'ctrip',
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-02',
+            'source_method' => 'local_browser_profile',
+            'collected_at' => '2026-05-02 09:30:15',
+            'stored' => true,
+            'readback_verified' => true,
+            'validation_status' => 'verified',
+            'raw_metrics' => [
+                'room_nights' => 10,
+                'revenue' => 2000,
+                'sales' => 2100,
+                'exposure' => 1000,
+                'visitors' => 200,
+                'orders' => 20,
+            ],
+        ];
+        $verifiedZero = array_replace($verified, [
+            'hotel_id' => 'verified-zero',
+            'hotel_name' => 'Verified Zero Hotel',
+            'collected_at' => '2026-05-02 09:31:16',
+            'raw_metrics' => [
+                'room_nights' => 0,
+                'revenue' => 0,
+                'sales' => 0,
+                'exposure' => 0,
+                'visitors' => 0,
+                'orders' => 0,
+            ],
+        ]);
+        $partial = array_replace($verified, [
+            'hotel_id' => 'partial-1',
+            'hotel_name' => 'Partial Hotel',
+            'validation_status' => 'partial',
+            'raw_metrics' => ['room_nights' => 999, 'revenue' => 999999],
+        ]);
+        $unverified = array_replace($verified, [
+            'hotel_id' => 'unverified-1',
+            'hotel_name' => 'Unverified Hotel',
+            'readback_verified' => false,
+            'validation_status' => 'unverified',
+            'raw_metrics' => ['room_nights' => 888, 'revenue' => 888888],
+        ]);
+        $failed = array_replace($verified, [
+            'hotel_id' => 'failed-1',
+            'hotel_name' => 'Failed Hotel',
+            'validation_status' => 'collection_failed',
+            'failure_reason' => 'upstream_timeout',
+            'raw_metrics' => ['room_nights' => 777, 'revenue' => 777777],
+        ]);
+
+        $summary = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [[
+            $verified,
+            $verifiedZero,
+            $partial,
+            $unverified,
+            $failed,
+        ], 'ctrip', 'captured', '2026-05-01', '2026-05-02']);
+
+        self::assertSame(5, $summary['input_hotel_count']);
+        self::assertSame(2, $summary['hotel_count']);
+        self::assertSame(3, $summary['excluded_hotel_count']);
+        self::assertSame(10.0, $summary['totals']['room_nights']);
+        self::assertSame(2000.0, $summary['totals']['room_revenue']);
+        self::assertSame(2, $summary['metric_sample_counts']['room_revenue']);
+        self::assertSame('partial', $summary['truth_context']['status']);
+        self::assertSame('ota_channel', $summary['truth_context']['scope']);
+        self::assertFalse($summary['truth_context']['whole_hotel_scope']);
+        self::assertSame('partial', $summary['metric_truth']['room_revenue']['status']);
+        self::assertSame(2, $summary['metric_truth']['room_revenue']['observed_count']);
+        self::assertSame('verified', $summary['hotels'][1]['metric_truth']['room_revenue']['status']);
+        self::assertSame('ctrip', $summary['hotels'][0]['metric_truth']['room_revenue']['platform']);
+        self::assertSame('2026-05-01', $summary['hotels'][0]['metric_truth']['room_revenue']['date_range']['start_date']);
+        self::assertSame('local_browser_profile', $summary['hotels'][0]['metric_truth']['room_revenue']['source_method']);
+        self::assertSame('2026-05-02 09:30:15', $summary['hotels'][0]['metric_truth']['room_revenue']['collected_at']);
+        self::assertTrue($summary['hotels'][0]['metric_truth']['room_revenue']['stored']);
+        self::assertTrue($summary['hotels'][0]['metric_truth']['room_revenue']['readback_verified']);
+
+        $excludedById = [];
+        foreach ($summary['excluded'] as $row) {
+            $excludedById[$row['hotel_id']] = $row;
+        }
+        self::assertSame('partial', $excludedById['partial-1']['truth_status']);
+        self::assertSame('unverified', $excludedById['unverified-1']['truth_status']);
+        self::assertSame('collection_failed', $excludedById['failed-1']['truth_status']);
+        self::assertSame('upstream_timeout', $excludedById['failed-1']['failure_reason']);
+        self::assertContains('readback_not_verified', $excludedById['unverified-1']['data_gaps']);
+    }
+
+    public function testCapturedOtaSummaryKeepsNullDistinctFromVerifiedZeroDuringAggregationAndSorting(): void
+    {
+        $controller = $this->controller();
+        $truth = [
+            'platform' => 'ctrip',
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-01',
+            'source_method' => 'local_browser_profile',
+            'collected_at' => '2026-05-01 10:11:12',
+            'stored' => true,
+            'readback_verified' => true,
+            'validation_status' => 'verified',
+        ];
+        $summary = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [[
+            array_replace($truth, [
+                'hotel_id' => 'missing-revenue',
+                'hotel_name' => 'Missing Revenue',
+                'raw_metrics' => ['orders' => 1],
+            ]),
+            array_replace($truth, [
+                'hotel_id' => 'verified-zero',
+                'hotel_name' => 'Verified Zero',
+                'raw_metrics' => ['revenue' => 0, 'orders' => 0],
+            ]),
+        ], 'ctrip', 'captured', '2026-05-01', '2026-05-01']);
+
+        self::assertSame(0.0, $summary['totals']['room_revenue']);
+        self::assertSame(1, $summary['metric_sample_counts']['room_revenue']);
+        self::assertSame(1, $summary['metric_truth']['room_revenue']['observed_count']);
+        self::assertSame('verified-zero', $summary['top_hotels_by_revenue'][0]['hotel_id']);
+        self::assertSame('missing-revenue', $summary['top_hotels_by_revenue'][1]['hotel_id']);
+
+        $noVerified = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [[
+            array_replace($truth, [
+                'hotel_id' => 'failed-only',
+                'hotel_name' => 'Failed Only',
+                'validation_status' => 'collection_failed',
+                'failure_reason' => 'capture_timeout',
+                'raw_metrics' => ['revenue' => 999999],
+            ]),
+        ], 'ctrip', 'captured', '2026-05-01', '2026-05-01']);
+
+        self::assertSame(0, $noVerified['hotel_count']);
+        self::assertNull($noVerified['totals']['room_revenue']);
+        self::assertSame(0, $noVerified['metric_sample_counts']['room_revenue']);
+        self::assertSame('collection_failed', $noVerified['truth_context']['status']);
+        self::assertSame('collection_failed', $noVerified['metric_truth']['room_revenue']['status']);
+    }
+
+    public function testCapturedOtaSummaryRequiresEveryTruthDimensionBeforeVerification(): void
+    {
+        $controller = $this->controller();
+        $base = [
+            'hotel_id' => 'complete-id',
+            'hotel_name' => 'Complete Name',
+            'platform' => 'ctrip',
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-01',
+            'source_method' => 'local_browser_profile',
+            'collected_at' => '2026-05-01 10:11:12',
+            'stored' => true,
+            'readback_verified' => true,
+            'validation_status' => 'verified',
+            'raw_metrics' => ['room_nights' => 1, 'revenue' => 200, 'orders' => 1],
+        ];
+        $incompleteRows = [
+            array_replace($base, ['hotel_id' => '']),
+            array_replace($base, ['hotel_id' => 'missing-name', 'hotel_name' => '']),
+            array_replace($base, ['hotel_id' => 'missing-platform', 'platform' => '']),
+            array_replace($base, ['hotel_id' => 'wrong-platform', 'platform' => 'meituan']),
+            array_replace($base, ['hotel_id' => 'missing-date', 'start_date' => '', 'end_date' => '']),
+            array_replace($base, ['hotel_id' => 'missing-source', 'source_method' => '']),
+            array_replace($base, ['hotel_id' => 'manual-source', 'source_method' => 'manual_import']),
+            array_replace($base, ['hotel_id' => 'imprecise-time', 'collected_at' => '2026-05-01']),
+            array_replace($base, ['hotel_id' => 'not-stored', 'stored' => false]),
+            array_replace($base, ['hotel_id' => 'not-read-back', 'readback_verified' => false]),
+        ];
+
+        $summary = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [
+            $incompleteRows,
+            'ctrip',
+            'captured',
+            '2026-05-01',
+            '2026-05-01',
+        ]);
+
+        self::assertSame(0, $summary['hotel_count']);
+        self::assertSame(10, $summary['excluded_hotel_count']);
+        self::assertNull($summary['totals']['room_revenue']);
+        self::assertSame('partial', $summary['truth_context']['status']);
+        self::assertSame('partial', $summary['metric_truth']['room_revenue']['status']);
+        self::assertSame([], $summary['top_hotels_by_revenue']);
+
+        $allGaps = [];
+        foreach ($summary['excluded'] as $row) {
+            $allGaps = array_merge($allGaps, $row['data_gaps']);
+            self::assertFalse($row['metric_truth']['room_revenue']['decision_eligible']);
+        }
+        foreach ([
+            'hotel_id_missing',
+            'hotel_name_missing',
+            'platform_missing',
+            'platform_mismatch',
+            'date_range_missing_or_invalid',
+            'source_method_missing',
+            'source_method_not_verified_online_capture',
+            'collected_at_not_precise',
+            'not_stored',
+            'readback_not_verified',
+        ] as $expectedGap) {
+            self::assertContains($expectedGap, $allGaps);
+        }
     }
 
     /**
@@ -584,6 +1360,21 @@ final class AgentTest extends TestCase
         self::assertStringContainsString('酒店OTA专业指标口径知识库', $prompt);
         self::assertStringContainsString('分母为 0 或缺失时返回不可计算', $prompt);
         self::assertStringContainsString('异常描述必须优先写成数据口径提示或需复核提示', $prompt);
+    }
+
+    public function testCapturedOtaFinalPromptKeepsCtripChannelBoundary(): void
+    {
+        $controller = $this->controller();
+
+        $prompt = $this->invokeNonPublic($controller, 'buildCapturedOtaFinalPrompt', [[
+            'scope' => ['platform' => 'ctrip', 'data_source' => 'captured'],
+            'hotel_count' => 1,
+        ]]);
+
+        self::assertStringContainsString('携程OTA渠道样本诊断报告', $prompt);
+        self::assertStringContainsString('不得外推全酒店营收、全渠道需求或整体经营状况', $prompt);
+        self::assertStringContainsString('建议不等于已执行', $prompt);
+        self::assertStringNotContainsString('整体经营现状', $prompt);
     }
 
     /**
@@ -788,6 +1579,7 @@ final class AgentTest extends TestCase
             'predicted_occupancy' => '86.5',
             'predicted_demand' => '9',
             'confidence_percent' => 82,
+            'forecast_method' => 3,
             'historical_data' => ['operator_note' => 'manual input'],
             'remark' => 'manual forecast',
         ]]);
@@ -805,6 +1597,36 @@ final class AgentTest extends TestCase
         self::assertSame('operator_provided', $payload['historical_data']['evidence_status']);
         self::assertFalse($payload['historical_data']['auto_write_ota']);
         self::assertSame('manual_demand_forecast', $payload['historical_data']['input_type']);
+    }
+
+    public function testDemandForecastPayloadRejectsMissingManualEvidenceFields(): void
+    {
+        $controller = $this->controller();
+        $valid = [
+            'hotel_id' => 64,
+            'forecast_date' => '2026-06-28',
+            'room_type_id' => 12,
+            'forecast_method' => 3,
+            'predicted_occupancy' => 86,
+            'predicted_demand' => 9,
+            'confidence_score' => 0.82,
+        ];
+
+        foreach ([
+            'forecast_method' => 'forecast_method is required',
+            'predicted_occupancy' => 'predicted_occupancy must be numeric',
+            'predicted_demand' => 'predicted_demand must be numeric',
+            'confidence_score' => 'confidence_score must be numeric',
+        ] as $field => $message) {
+            $payload = $valid;
+            unset($payload[$field]);
+            try {
+                $this->invokeNonPublic($controller, 'normalizeDemandForecastPayload', [$payload]);
+                self::fail($field . ' should be required');
+            } catch (\InvalidArgumentException $e) {
+                self::assertSame($message, $e->getMessage());
+            }
+        }
     }
 
     public function testDemandForecastPayloadRejectsMissingRoomTypeMapping(): void
@@ -894,6 +1716,61 @@ final class AgentTest extends TestCase
         ]]);
 
         self::assertSame([7, 8, 9, 10], $hotelIds);
+    }
+
+    public function testOtaDiagnosisIntentIdempotencyIsPerActionAndFailedTerminalsCanRetry(): void
+    {
+        $controller = $this->controller();
+        $action = ['id' => 'action-1'];
+        $input = [
+            'action_type' => 'review_price',
+            'platform' => 'ctrip',
+            'target_value' => ['workflow_schedule' => [
+                'assignee_id' => 7,
+                'due_at' => '2099-07-18 18:00:00',
+                'review_at' => '2099-07-19 10:00:00',
+                'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
+            ]],
+        ];
+
+        $key = $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, $action, $input]);
+        self::assertSame(
+            $key,
+            $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, $action, $input])
+        );
+        self::assertNotSame(
+            $key,
+            $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 1, $action, $input])
+        );
+        self::assertNotSame(
+            $key,
+            $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, ['id' => 'action-2'], $input])
+        );
+        $rescheduled = $input;
+        $rescheduled['target_value']['workflow_schedule']['due_at'] = '2099-07-18 20:00:00';
+        self::assertNotSame(
+            $key,
+            $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, $action, $rescheduled]),
+            'A changed persisted schedule must not reuse the old intent identity.'
+        );
+
+        $storedSchedule = $this->invokeNonPublic($controller, 'otaDiagnosisIntentWorkflowSchedule', [[
+            'target_value_json' => json_encode($input['target_value'], JSON_UNESCAPED_UNICODE),
+        ]]);
+        self::assertSame($input['target_value']['workflow_schedule'], $storedSchedule);
+
+        foreach (['failed', 'failure', 'rejected', 'cancelled', 'canceled'] as $status) {
+            self::assertTrue(
+                $this->invokeNonPublic($controller, 'isRetryableOtaDiagnosisIntentTerminal', [$status]),
+                $status
+            );
+        }
+        foreach (['pending_approval', 'approved', 'completed'] as $status) {
+            self::assertFalse(
+                $this->invokeNonPublic($controller, 'isRetryableOtaDiagnosisIntentTerminal', [$status]),
+                $status
+            );
+        }
     }
 
     public function testCapturedOtaDataQualityGuardRewritesProblemHotelAnomalyTone(): void

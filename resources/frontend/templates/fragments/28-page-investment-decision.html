@@ -1,0 +1,294 @@
+                    <div v-if="currentPage === 'investment-decision'" class="max-w-7xl mx-auto space-y-5">
+                        <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.summary?.status)">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.summary?.status || 'not_ready') }}
+                                        </span>
+                                        <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                                            <i class="fas fa-shield-alt"></i>
+                                            {{ investmentDecisionOverview ? (investmentDecisionOverview?.summary?.status === 'ready' ? '经营证据已通过当前门禁' : '经营证据未闭合') : '经营证据未加载' }}
+                                        </span>
+                                    </div>
+                                    <h2 class="mt-3 text-xl md:text-2xl font-bold text-gray-900">P4 投资决策辅助</h2>
+                                    <p class="mt-2 text-sm text-gray-500 max-w-3xl">单店经营质量、竞对比较、投资测算、风险提示和决策记录统一读取已闭合经营证据；未达准入时只展示缺口，不输出扩张、转让或投资判断。</p>
+                                    <div class="mt-3 text-xs text-gray-400">最近更新：{{ investmentDecisionOverview?.generated_at || '-' }}</div>
+                                </div>
+                                <button @click="loadInvestmentDecisionOverview" :disabled="investmentDecisionLoading" class="btn-primary w-full sm:w-auto inline-flex items-center justify-center disabled:opacity-60">
+                                    <i :class="investmentDecisionLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ investmentDecisionLoading ? '加载中' : '刷新数据' }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div v-if="investmentDecisionLoading" class="bg-white rounded-2xl border border-gray-100 p-8 text-center text-gray-400 shadow-sm">正在读取 P4 投决辅助数据...</div>
+                        <div v-else-if="!investmentDecisionOverview" class="bg-white rounded-2xl border border-gray-100 p-8 text-center text-gray-400 shadow-sm">暂无 P4 投决辅助数据</div>
+                        <template v-else="">
+                            <div class="grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                                <div v-for="card in investmentDecisionSummaryCards" :key="card.key" class="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div class="text-sm text-gray-500">{{ card.label }}</div>
+                                        <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionStatusClass(card.status)">{{ investmentDecisionStatusText(card.status) }}</span>
+                                    </div>
+                                    <div class="mt-3 text-2xl font-bold text-gray-900">{{ card.value }}</div>
+                                    <div class="mt-1 text-xs text-gray-400">{{ card.note }}</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                                    <div class="min-w-0">
+                                        <h3 class="font-semibold text-gray-900">业务闭环拆解</h3>
+                                        <p class="mt-1 text-sm text-gray-500">{{ investmentDecisionOverview?.business_closure_chain?.source_policy || '-' }}</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.business_closure_chain?.status)">
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.business_closure_chain?.status) }}
+                                        </span>
+                                        <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                                            {{ investmentDecisionOverview?.business_closure_chain?.closed_stage_count || 0 }} / {{ investmentDecisionOverview?.business_closure_chain?.stage_count || 0 }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="mt-4 grid md:grid-cols-2 xl:grid-cols-5 gap-3">
+                                    <div v-for="stage in investmentDecisionBusinessChainRows" :key="stage.key" class="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div class="text-[11px] text-gray-400">{{ stage.role }}</div>
+                                                <div class="mt-1 font-semibold text-gray-900 text-sm">{{ stage.title }}</div>
+                                            </div>
+                                            <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="investmentDecisionStatusClass(stage.status)">
+                                                {{ investmentDecisionStatusText(stage.status) }}
+                                            </span>
+                                        </div>
+                                        <div class="mt-3 space-y-2 text-xs">
+                                            <div v-for="metric in stage.metrics" :key="metric.label" class="flex items-center justify-between gap-2 rounded-lg bg-white px-2 py-1.5">
+                                                <span class="text-gray-500">{{ metric.label }}</span>
+                                                <span class="font-semibold text-gray-800">{{ metric.value }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-gray-500 line-clamp-3">{{ stage.evidence_policy }}</div>
+                                        <div v-if="stage.missing_evidence?.length" class="mt-2 text-[11px]" :class="stage.blocking ? 'text-red-600' : 'text-amber-600'">
+                                            缺口：{{ stage.missing_evidence[0].label || stage.missing_evidence[0].code || stage.missing_evidence[0].message || '-' }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-3 text-xs text-gray-400">准入门槛：{{ investmentDecisionOverview?.business_closure_chain?.judgement_gate || '-' }}</div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+                                    <div class="min-w-0">
+                                        <h3 class="font-semibold text-gray-900">下一步动作队列</h3>
+                                        <p class="mt-1 text-sm text-gray-500">{{ investmentDecisionOverview?.action_queue?.source_policy || '-' }}</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.action_queue?.status)">
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.action_queue?.status || 'not_ready') }}
+                                        </span>
+                                        <span class="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-3 py-1 text-xs text-red-700">
+                                            阻断 {{ investmentDecisionOverview?.action_queue?.blocking_count ?? '—' }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div v-if="investmentDecisionActionQueueRows.length" class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="text-xs text-gray-400">
+                                            <tr>
+                                                <th class="text-left py-2 pr-3">优先级</th>
+                                                <th class="text-left py-2 pr-3">阶段 / 板块</th>
+                                                <th class="text-left py-2 pr-3">缺口</th>
+                                                <th class="text-left py-2 pr-3">下一步</th>
+                                                <th class="text-left py-2">状态</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <tr v-for="item in investmentDecisionActionQueueRows" :key="item.key">
+                                                <td class="py-3 pr-3 whitespace-nowrap">
+                                                    <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionPriorityClass(item.priority || item.severity)">
+                                                        {{ item.priority_label || item.priority || investmentDecisionSeverityText(item.severity) }}
+                                                    </span>
+                                                </td>
+                                                <td class="py-3 pr-3 min-w-[8rem]">
+                                                    <div class="font-medium text-gray-900">{{ item.stage_title || item.stageTitle || '-' }}</div>
+                                                    <div class="mt-1 text-xs text-gray-400">{{ item.section_title || item.sourceLabel || '-' }}</div>
+                                                </td>
+                                                <td class="py-3 pr-3 min-w-[10rem]">
+                                                    <div class="font-medium text-gray-900">{{ item.title || '-' }}</div>
+                                                    <div class="mt-1 text-xs text-gray-400">{{ item.evidence_code || item.source || '-' }}</div>
+                                                </td>
+                                                <td class="py-3 pr-3 min-w-[18rem] text-gray-600">{{ item.next_action || item.nextAction || '-' }}</td>
+                                                <td class="py-3 whitespace-nowrap">
+                                                    <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="item.blocking ? 'bg-red-50 text-red-700 border-red-100' : 'bg-amber-50 text-amber-700 border-amber-100'">
+                                                        {{ item.blocking ? '投决阻断' : '补证任务' }}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div v-else="" class="py-8 text-center text-gray-400">暂无待处理动作</div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                                    <div class="min-w-0">
+                                        <h3 class="font-semibold text-gray-900">补证优先级</h3>
+                                        <p class="mt-1 text-sm text-gray-500">汇总业务闭环、经营准入和风险提示中的缺口；高优先级项会阻断投决判断。</p>
+                                    </div>
+                                    <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                                        待处理 {{ investmentDecisionActionQueueRows.length }}
+                                    </span>
+                                </div>
+                                <div v-if="investmentDecisionActionQueueRows.length" class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="text-xs text-gray-400">
+                                            <tr>
+                                                <th class="text-left py-2 pr-3">优先级</th>
+                                                <th class="text-left py-2 pr-3">来源阶段</th>
+                                                <th class="text-left py-2 pr-3">缺口</th>
+                                                <th class="text-left py-2 pr-3">下一步</th>
+                                                <th class="text-left py-2">状态</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <tr v-for="item in investmentDecisionActionQueueRows" :key="item.key">
+                                                <td class="py-3 pr-3 whitespace-nowrap">
+                                                    <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionSeverityClass(item.severity)">{{ investmentDecisionSeverityText(item.severity) }}</span>
+                                                </td>
+                                                <td class="py-3 pr-3 whitespace-nowrap text-gray-600">{{ item.stageTitle }}</td>
+                                                <td class="py-3 pr-3">
+                                                    <div class="font-medium text-gray-900">{{ item.title }}</div>
+                                                    <div class="mt-1 text-xs text-gray-400">{{ item.sourceLabel }}</div>
+                                                </td>
+                                                <td class="py-3 pr-3 text-gray-600">{{ item.nextAction || '-' }}</td>
+                                                <td class="py-3 whitespace-nowrap">
+                                                    <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionStatusClass(item.status)">{{ investmentDecisionStatusText(item.status) }}</span>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div v-else="" class="py-6 text-center text-gray-400">暂无阻断补证项</div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                    <div class="min-w-0">
+                                        <h3 class="font-semibold text-gray-900">经营数据准入</h3>
+                                        <p class="mt-1 text-sm text-gray-500">{{ investmentDecisionOverview?.operating_data_gate?.source_scope || '-' }}</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.operating_data_gate?.status)">
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.operating_data_gate?.status) }}
+                                        </span>
+                                        <span class="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-500">
+                                            {{ investmentDecisionOverview?.operating_data_gate?.required_gate || '-' }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="mt-4 grid md:grid-cols-3 gap-3">
+                                    <div v-for="signal in investmentDecisionOverview?.operating_data_gate?.signals || []" :key="signal.key" class="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div class="flex items-start justify-between gap-2">
+                                            <div class="font-medium text-gray-800 text-sm">{{ signal.label }}</div>
+                                            <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionStatusClass(signal.status)">{{ investmentDecisionStatusText(signal.status) }}</span>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-500">
+                                            <div>记录 <span class="font-semibold text-gray-800">{{ signal.record_count || 0 }}</span></div>
+                                            <div>ROI <span class="font-semibold text-gray-800">{{ signal.roi_ready_count || 0 }}</span></div>
+                                            <div>过程 <span class="font-semibold text-gray-800">{{ signal.process_closed_loop ? '已闭环' : '未闭合' }}</span></div>
+                                            <div>范围 <span class="font-semibold text-gray-800">{{ signal.source_scope || '-' }}</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid lg:grid-cols-5 gap-3">
+                                <div v-for="section in investmentDecisionSectionRows" :key="section.key" class="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div class="text-xs text-gray-400">{{ section.index }}</div>
+                                            <h3 class="mt-1 font-semibold text-gray-900">{{ section.title }}</h3>
+                                        </div>
+                                        <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="investmentDecisionStatusClass(section.status)">{{ investmentDecisionStatusText(section.status) }}</span>
+                                    </div>
+                                    <div class="mt-4 space-y-2 text-sm">
+                                        <div v-for="metric in section.metrics" :key="metric.label" class="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2">
+                                            <span class="text-gray-500">{{ metric.label }}</span>
+                                            <span class="font-semibold text-gray-900">{{ metric.value }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 text-xs text-gray-400 line-clamp-2">{{ section.note }}</div>
+                                </div>
+                            </div>
+
+                            <div class="grid lg:grid-cols-2 gap-4">
+                                <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-semibold text-gray-900">风险提示</h3>
+                                        <span class="text-xs text-gray-400">阻断 {{ investmentDecisionOverview?.sections?.risk_alerts?.blocking_count ?? '—' }}</span>
+                                    </div>
+                                    <div v-if="investmentDecisionRiskRows.length" class="space-y-3">
+                                        <div v-for="risk in investmentDecisionRiskRows" :key="risk.code + risk.title" class="rounded-xl border border-gray-100 p-3">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="font-medium text-gray-900 text-sm">{{ risk.title }}</div>
+                                                <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="investmentDecisionSeverityClass(risk.severity)">{{ investmentDecisionSeverityText(risk.severity) }}</span>
+                                            </div>
+                                            <div class="mt-2 text-xs text-gray-500">{{ risk.next_action || '-' }}</div>
+                                            <div class="mt-2 text-[11px]" :class="risk.blocking ? 'text-red-600' : 'text-amber-600'">{{ risk.blocking ? '投决阻断' : '需补充证据' }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="py-8 text-center text-gray-400">{{ investmentDecisionOverview?.sections?.risk_alerts?.status === 'ready' ? '当前范围未返回风险提示' : '风险提示未加载或经营证据不足' }}</div>
+                                </div>
+
+                                <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                    <div class="flex items-center justify-between gap-3 mb-4">
+                                        <h3 class="font-semibold text-gray-900">决策记录</h3>
+                                        <span class="text-xs text-gray-400">可复核 {{ investmentDecisionOverview?.sections?.decision_records?.eligible_count ?? '—' }} / {{ investmentDecisionOverview?.sections?.decision_records?.record_count ?? '—' }}</span>
+                                    </div>
+                                    <div v-if="investmentDecisionRecordRows.length" class="overflow-x-auto">
+                                        <table class="min-w-full text-sm">
+                                            <thead class="text-xs text-gray-400">
+                                                <tr>
+                                                    <th class="text-left py-2 pr-3">来源</th>
+                                                    <th class="text-left py-2 pr-3">记录</th>
+                                                    <th class="text-left py-2 pr-3">状态</th>
+                                                    <th class="text-left py-2">更新时间</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                <tr v-for="record in investmentDecisionRecordRows" :key="record.source_module + '-' + record.id">
+                                                    <td class="py-3 pr-3 text-gray-500 whitespace-nowrap">{{ investmentDecisionSourceLabel(record.source_module) }}</td>
+                                                    <td class="py-3 pr-3">
+                                                        <div class="font-medium text-gray-900">{{ record.title || '-' }}</div>
+                                                        <div class="mt-1 text-xs text-gray-400">{{ record.decision || record.decision_policy || '-' }}</div>
+                                                    </td>
+                                                    <td class="py-3 pr-3 whitespace-nowrap">
+                                                        <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="record.judgement_allowed ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'">{{ record.judgement_allowed ? '可投决复核' : '仅展示缺口' }}</span>
+                                                    </td>
+                                                    <td class="py-3 text-gray-500 whitespace-nowrap">{{ record.updated_at || '-' }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div v-else="" class="py-8 text-center text-gray-400">暂无扩张、转让或可行性决策记录</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                                <div class="flex items-center justify-between gap-3 mb-4">
+                                    <h3 class="font-semibold text-gray-900">投资测算公式清单</h3>
+                                    <span class="text-xs text-gray-400">只展示已登记公式</span>
+                                </div>
+                                <div class="grid md:grid-cols-2 gap-3">
+                                    <div v-for="formula in investmentDecisionFormulaRows" :key="formula.scope" class="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div class="text-xs text-gray-400">{{ formula.scope }}</div>
+                                        <div class="mt-1 font-mono text-sm text-gray-800 break-words">{{ formula.formula }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 全生命周期辅助视图 -->

@@ -1,0 +1,294 @@
+                    <div v-if="currentPage === 'users'" class="user-management-page">
+                        <!-- 用户统计卡片 -->
+                        <div class="user-summary-grid grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+                            <button type="button" @click="applyUserSummaryFilter('total')" :class="userSummaryCardClass('total')">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm text-gray-400 mb-1">用户总数</div>
+                                        <div class="text-2xl font-bold text-gray-800">{{ userSummary.total }}</div>
+                                    </div>
+                                    <div class="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
+                                        <i class="fas fa-users text-blue-600 text-xl"></i>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('active')" :class="userSummaryCardClass('active')">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm text-gray-400 mb-1">正常账号</div>
+                                        <div class="text-2xl font-bold text-green-600">{{ userSummary.active }}</div>
+                                    </div>
+                                    <div class="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
+                                        <i class="fas fa-user-check text-green-600 text-xl"></i>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('beta')" :class="userSummaryCardClass('beta')">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm text-gray-400 mb-1">内测用户</div>
+                                        <div class="text-2xl font-bold text-orange-600">{{ userSummary.beta }}</div>
+                                    </div>
+                                    <div class="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center">
+                                        <i class="fas fa-user-tag text-orange-600 text-xl"></i>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('normal')" :class="userSummaryCardClass('normal')">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm text-gray-400 mb-1">普通用户</div>
+                                        <div class="text-2xl font-bold text-emerald-600">{{ userSummary.normal }}</div>
+                                    </div>
+                                    <div class="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                                        <i class="fas fa-user text-emerald-600 text-xl"></i>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('disabled')" :class="userSummaryCardClass('disabled')">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm text-gray-400 mb-1">已停用</div>
+                                        <div class="text-2xl font-bold text-amber-600">{{ userSummary.disabled }}</div>
+                                    </div>
+                                    <div class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center">
+                                        <i class="fas fa-user-clock text-amber-600 text-xl"></i>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" @click="applyUserSummaryFilter('unassigned')" :class="userSummaryCardClass('unassigned')">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm text-gray-400 mb-1">未分配门店</div>
+                                        <div class="text-2xl font-bold text-red-600">{{ userSummary.unassigned }}</div>
+                                    </div>
+                                    <div class="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center">
+                                        <i class="fas fa-user-slash text-red-600 text-xl"></i>
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+
+                        <div v-if="lastUserIssueGuideText" class="mb-4 rounded-xl border border-blue-100 bg-blue-50/70 p-3 shadow-sm">
+                            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <div class="text-sm font-semibold text-blue-900">最近发放说明</div>
+                                    <span class="rounded-full border border-blue-100 bg-white px-2 py-0.5 text-[11px] font-medium text-blue-700">已生成</span>
+                                </div>
+                                <div class="flex shrink-0 items-center gap-2">
+                                    <button type="button" @click="copyLastUserIssueGuide" class="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                                        <i class="fas fa-copy mr-1"></i>复制说明
+                                    </button>
+                                    <button type="button" @click="showLastUserIssueGuideText = !showLastUserIssueGuideText" class="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                                        {{ showLastUserIssueGuideText ? '收起' : '展开' }}
+                                    </button>
+                                    <button type="button" @click="clearLastUserIssueGuide" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
+                                        关闭
+                                    </button>
+                                </div>
+                            </div>
+                            <pre v-if="showLastUserIssueGuideText" class="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-lg border border-blue-100 bg-white p-3 text-xs leading-5 text-slate-700">{{ lastUserIssueGuideText }}</pre>
+                        </div>
+
+                        <!-- 员工列表工具栏 -->
+                        <div class="user-management-toolbar sticky top-2 z-20 bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4">
+                            <div class="flex flex-wrap gap-3 items-center">
+                                <div class="users-search flex-1 min-w-[200px]">
+                                    <input v-model="searchUser" type="text" placeholder="搜索用户名或姓名..." class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <select v-model="filterUserRoleId" class="users-filter px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">全部角色</option>
+                                    <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.display_name }}</option>
+                                </select>
+                                <select v-model="filterUserStatus" class="users-filter px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">全部状态</option>
+                                    <option value="1">正常</option>
+                                    <option value="0">已停用</option>
+                                </select>
+                                <select v-model="filterUserHotelId" class="users-filter px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">全部门店范围</option>
+                                    <option value="unassigned">未分配门店</option>
+                                    <option v-for="h in hotels" :key="h.id" :value="String(h.id)">{{ hotelSelectOptionText(h) }}</option>
+                                </select>
+                                <button v-if="searchUser || filterUserRoleId || filterUserStatus || filterUserHotelId" @click="resetUserFilters" class="users-filter-reset text-sm text-blue-500 hover:text-blue-700 px-3 py-2">
+                                    重置筛选
+                                </button>
+                                <button v-if="user?.is_super_admin" @click="openUserModal()" class="users-primary-action bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2 ml-auto">
+                                    <i class="fas fa-plus"></i> 添加用户
+                                </button>
+                            </div>
+                            <div v-if="roleIssueGuideCards.length" class="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 text-xs">
+                                <span class="font-medium text-slate-500">发放筛选</span>
+                                <button type="button" @click="resetUserFilters" :class="!filterUserRoleId ? 'rounded-full border border-slate-300 bg-slate-900 px-3 py-1 font-medium text-white' : 'rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-600 hover:bg-slate-50'">
+                                    全部账号
+                                </button>
+                                <button v-for="card in roleIssueGuideCards" :key="`filter-${card.key}`" type="button" @click="applyUserRoleQuickFilter(card)" :class="Number(filterUserRoleId) === Number(card.roleId) ? 'rounded-full border border-blue-300 bg-blue-50 px-3 py-1 font-medium text-blue-700' : 'rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-600 hover:bg-slate-50'">
+                                    {{ card.title }} · {{ card.userCount }}
+                                </button>
+                            </div>
+                            <div v-if="user?.is_super_admin" class="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 text-xs">
+                                <span class="font-medium text-gray-500">批量操作 · 已选 {{ selectedUserIds.length }}</span>
+                                <button type="button" @click="toggleAllFilteredUsers" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-gray-600">全选当前结果</button>
+                                <button type="button" @click="batchUpdateUserStatus(1)" :disabled="!selectedUserIds.length || userBatchStatusLoading" class="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700 disabled:opacity-40">批量启用</button>
+                                <button type="button" @click="batchUpdateUserStatus(0)" :disabled="!selectedUserIds.length || userBatchStatusLoading" class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700 disabled:opacity-40">批量暂停</button>
+                            </div>
+                        </div>
+
+                        <!-- 员工数据表格 -->
+                        <div v-if="!usersSnapshotReady &amp;&amp; !usersLoadError" data-testid="employee-list-loading" class="py-8 text-center text-sm text-blue-700">
+                            正在加载员工列表...
+                        </div>
+                        <div v-else-if="!usersSnapshotReady" data-testid="employee-list-load-error" class="py-8 text-center text-sm text-red-700">
+                            加载失败，不代表无用户。{{ usersLoadError }}
+                            <button type="button" @click="loadUsers()" :disabled="usersLoading" class="ml-2 underline">{{ usersLoading ? '重试中...' : '重试' }}</button>
+                        </div>
+                        <div v-if="usersSnapshotReady &amp;&amp; usersLoading" data-testid="employee-list-stale-loading" class="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                            正在刷新，当前显示上次成功结果。
+                        </div>
+                        <div v-if="usersSnapshotReady &amp;&amp; usersLoadError" data-testid="employee-list-stale-error" class="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            加载失败，当前显示上次成功结果；不代表当前真实状态。{{ usersLoadError }}
+                            <button type="button" @click="loadUsers()" :disabled="usersLoading" class="ml-2 underline">{{ usersLoading ? '重试中...' : '重试' }}</button>
+                        </div>
+                        <div v-if="filteredUsers.length &gt; 0" data-testid="employee-mobile-list" class="xl:hidden space-y-3">
+                            <article v-for="(u, index) in filteredUsers" :key="`mobile-user-${u?.id || index}`" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="flex min-w-0 items-start gap-2">
+                                        <input v-if="user?.is_super_admin &amp;&amp; u.id !== user?.id" v-model="selectedUserIds" :value="String(u.id)" type="checkbox" class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择账号 ${u.username}`">
+                                        <div class="min-w-0">
+                                            <div class="truncate font-semibold text-gray-900">{{ u?.realname || u?.username || '-' }}</div>
+                                            <div class="mt-0.5 text-xs text-gray-500">{{ u?.username || '-' }} · #{{ userDisplaySequence(index) }}</div>
+                                        </div>
+                                    </div>
+                                    <span :class="String(u?.status) === '1' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'" class="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium">
+                                        {{ String(u?.status) === '1' ? '正常' : '已停用' }}
+                                    </span>
+                                </div>
+                                <div class="mt-3 grid grid-cols-1 gap-2 text-sm">
+                                    <div class="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2">
+                                        <span class="text-gray-400">角色</span>
+                                        <span :class="userRoleBadgeClass(u)" class="inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium">{{ u?.role?.display_name || '-' }}</span>
+                                    </div>
+                                    <div class="rounded-lg bg-gray-50 px-3 py-2">
+                                        <div class="text-xs text-gray-400">门店范围</div>
+                                        <div class="user-hotel-scope-compact mt-1 w-full truncate text-gray-700" :title="userHotelScopeSummary(u).full" :aria-label="`门店范围：${userHotelScopeSummary(u).full}`">
+                                            {{ userHotelScopeSummary(u).full }}
+                                        </div>
+                                        <div v-if="userTenantBindingMissing(u)" class="mt-1 text-xs text-amber-700" :title="userTenantScopeMessage(u)">
+                                            <span>租户未绑定</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3 px-1 text-xs text-gray-500">
+                                        <span>上次登录</span>
+                                        <span>{{ userLastLoginText(u) }}</span>
+                                    </div>
+                                </div>
+                                <div v-if="user?.is_super_admin" class="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
+                                    <button v-if="String(u?.status) !== '1'" @click="activateUser(u)" class="rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700">启用账号</button>
+                                    <button v-if="String(u?.status) === '1' &amp;&amp; u.id !== user?.id" @click="deactivateUser(u)" class="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">停用账号</button>
+                                    <button v-if="isExternalIssueUser(u)" @click="openUserLoginInfoModal(u)" class="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700">重置密码</button>
+                                    <button @click="openUserModal(u)" class="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">编辑</button>
+                                    <button v-if="u.id !== user?.id" @click="deleteUser(u)" class="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">删除</button>
+                                </div>
+                            </article>
+                        </div>
+
+                        <div v-if="filteredUsers.length &gt; 0" class="hidden xl:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table data-testid="employee-desktop-table" class="w-full min-w-[1080px] table-fixed">
+                                    <colgroup>
+                                        <col style="width: 6%">
+                                        <col style="width: 8%">
+                                        <col style="width: 7%">
+                                        <col style="width: 7%">
+                                        <col data-testid="employee-hotel-scope-column" style="width: 20%">
+                                        <col style="width: 7%">
+                                        <col style="width: 14%">
+                                        <col data-testid="employee-actions-column" style="width: 31%">
+                                    </colgroup>
+                                    <thead class="sticky top-0 z-10">
+                                        <tr class="bg-gradient-to-b from-gray-50 to-gray-100/80">
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">序号</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">用户名</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">姓名</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">角色</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">门店范围</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
+                                            <th :aria-sort="userLastLoginSortDirection === 'desc' ? 'descending' : 'ascending'" class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                                <button type="button" data-testid="employee-last-login-sort" @click="toggleUserLastLoginSort" :aria-label="userLastLoginSortDirection === 'desc' ? '上次登录，当前降序，点击切换为升序' : '上次登录，当前升序，点击切换为降序'" class="inline-flex items-center gap-1 rounded-md hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                                    <span>上次登录</span>
+                                                    <i :class="userLastLoginSortDirection === 'desc' ? 'fas fa-arrow-down' : 'fas fa-arrow-up'" aria-hidden="true"></i>
+                                                </button>
+                                            </th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="(u, index) in filteredUsers" :key="u?.id || index" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
+                                            <td class="px-6 py-4 text-sm text-gray-500"><div class="flex items-center gap-2"><input v-if="user?.is_super_admin &amp;&amp; u.id !== user?.id" v-model="selectedUserIds" :value="String(u.id)" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择账号 ${u.username}`"><span>{{ userDisplaySequence(index) }}</span></div></td>
+                                            <td class="px-6 py-4 text-sm font-semibold text-gray-800">{{ u?.username || '-' }}</td>
+                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u?.realname || '-' }}</td>
+                                            <td class="px-6 py-4">
+                                                <div class="space-y-1">
+                                                    <span :class="userRoleBadgeClass(u)" class="inline-flex items-center px-2.5 py-0.5 rounded-full border text-xs font-medium">
+                                                        {{ u?.role?.display_name || '-' }}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 text-sm text-gray-600">
+                                                <div class="user-hotel-scope-compact max-w-[10rem] truncate xl:max-w-[14rem]" :title="userHotelScopeSummary(u).full" :aria-label="`门店范围：${userHotelScopeSummary(u).full}`">
+                                                    {{ userHotelScopeSummary(u).full }}
+                                                </div>
+                                                <div v-if="userTenantBindingMissing(u)" class="mt-1 text-xs text-amber-700" :title="userTenantScopeMessage(u)">
+                                                    <span>租户未绑定</span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span :class="String(u?.status) === '1' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
+                                                    {{ String(u?.status) === '1' ? '正常' : '已停用' }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{{ userLastLoginText(u) }}</td>
+                                            <td class="px-6 py-4">
+                                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                                    <button v-if="u &amp;&amp; String(u?.status) !== '1' &amp;&amp; (user?.is_super_admin)" @click="activateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-xs font-medium" title="启用账号">
+                                                        <i class="fas fa-check text-xs"></i>
+                                                        <span>启用账号</span>
+                                                    </button>
+                                                    <button v-if="u &amp;&amp; String(u?.status) === '1' &amp;&amp; u.id !== user?.id &amp;&amp; (user?.is_super_admin)" @click="deactivateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium" title="停用账号">
+                                                        <i class="fas fa-ban text-xs"></i>
+                                                        <span>停用账号</span>
+                                                    </button>
+                                                    <button v-if="u &amp;&amp; isExternalIssueUser(u) &amp;&amp; (user?.is_super_admin)" @click="openUserLoginInfoModal(u)" :title="existingUserIssueGuideBlocker(u) || '重置密码并复制登录地址、用户名和密码'" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-xs font-medium">
+                                                        <i class="fas fa-key text-xs"></i>
+                                                        <span>重置密码</span>
+                                                    </button>
+                                                    <button v-if="u &amp;&amp; (user?.is_super_admin)" @click="openUserModal(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors text-xs font-medium" title="编辑">
+                                                        <i class="fas fa-edit text-sm"></i>
+                                                        <span>编辑</span>
+                                                    </button>
+                                                    <button v-if="u &amp;&amp; u.id !== user?.id &amp;&amp; (user?.is_super_admin)" @click="deleteUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition-colors text-xs font-medium" title="删除账号">
+                                                        <i class="fas fa-trash-alt text-xs"></i>
+                                                        <span>删除</span>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 空状态 -->
+                        <div v-else-if="usersSnapshotReady &amp;&amp; !usersLoading &amp;&amp; !usersLoadError" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                            <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fas fa-users text-gray-300 text-3xl"></i>
+                            </div>
+                            <h3 class="text-lg font-medium text-gray-800 mb-2">暂无员工数据</h3>
+                            <p class="text-gray-500 text-sm mb-4">{{ searchUser || filterUserRoleId || filterUserStatus || filterUserHotelId ? '没有符合筛选条件的员工' : '还没有添加任何员工，点击上方按钮添加' }}</p>
+                            <button v-if="user?.is_super_admin &amp;&amp; !searchUser &amp;&amp; !filterUserRoleId &amp;&amp; !filterUserStatus &amp;&amp; !filterUserHotelId" @click="openUserModal()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                                添加员工
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 角色管理 -->

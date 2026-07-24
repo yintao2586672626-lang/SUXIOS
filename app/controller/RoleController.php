@@ -46,38 +46,44 @@ class RoleController extends Base
         $data = $this->requestData();
 
         $this->validate($data, [
-            'name' => 'require|max:50',
+            'name' => 'max:50',
             'display_name' => 'require|max:50',
             'level' => 'require|integer',
         ], [
-            'name.require' => '角色标识不能为空',
             'display_name.require' => '角色名称不能为空',
             'level.require' => '角色等级不能为空',
         ]);
 
-        // 检查标识唯一性
-        $exists = Role::where('name', $data['name'])->find();
-        if ($exists) {
+        $roleName = trim((string)($data['name'] ?? ''));
+        if ($roleName !== '' && Role::where('name', $roleName)->find()) {
             return $this->error('角色标识已存在');
+        }
+        if ($roleName === '') {
+            $roleName = $this->nextGeneratedRoleName();
         }
 
         $permissions = $this->normalizePermissionPayload($data['permissions'] ?? []);
         $nextLevel = (int)$data['level'];
-        $boundaryResponse = $this->validateRolePermissionBoundary((string)$data['name'], $permissions, null, $nextLevel);
+        $boundaryResponse = $this->validateRolePermissionBoundary($roleName, $permissions, null, $nextLevel);
         if ($boundaryResponse) {
             return $boundaryResponse;
         }
 
         $role = new Role();
-        $role->name = $data['name'];
+        $role->name = $roleName;
         $role->display_name = $data['display_name'];
         $role->description = $data['description'] ?? '';
         $role->level = $data['level'];
         $role->permissions = json_encode($permissions);
-        $role->status = $data['status'] ?? Role::STATUS_ENABLED;
+        $role->status = Role::STATUS_ENABLED;
         $role->save();
 
-        OperationLog::record('role', 'create', '创建角色: ' . $role->display_name, $this->currentUser->id);
+        OperationLog::record('role', 'create', '创建角色: ' . $role->display_name, $this->currentUser->id, null, null, [
+            'outcome' => 'success',
+            'target_role_id' => (int)$role->id,
+            'role_level' => (int)$role->level,
+            'enabled_permission_keys' => $this->enabledPermissionKeys($permissions),
+        ]);
 
         return $this->success($role, '创建成功');
     }
@@ -97,13 +103,23 @@ class RoleController extends Base
         // 超级管理员角色(id=1)只能修改权限
         if ($id === 1) {
             $data = $this->requestData();
-            $role->permissions = isset($data['permissions']) ? json_encode($data['permissions']) : '[]';
+            $beforePermissions = Role::normalizePermissions($role->permissions);
+            $afterPermissions = isset($data['permissions'])
+                ? $this->normalizePermissionPayload($data['permissions'])
+                : [];
+            $role->permissions = json_encode($afterPermissions);
             $role->save();
-            OperationLog::record('role', 'update', '更新超级管理员权限', $this->currentUser->id);
+            OperationLog::record('role', 'update', '更新超级管理员权限', $this->currentUser->id, null, null, [
+                'outcome' => 'success',
+                'target_role_id' => $id,
+                'before_permission_keys' => $this->enabledPermissionKeys($beforePermissions),
+                'after_permission_keys' => $this->enabledPermissionKeys($afterPermissions),
+            ]);
             return $this->success($role, '更新成功');
         }
 
         $data = $this->requestData();
+        $beforePermissions = Role::normalizePermissions($role->permissions);
         $identityResponse = $this->validateBuiltInExternalRoleIdentity($role, $data);
         if ($identityResponse) {
             return $identityResponse;
@@ -135,7 +151,14 @@ class RoleController extends Base
         $role->status = $data['status'] ?? $role->status;
         $role->save();
 
-        OperationLog::record('role', 'update', '更新角色: ' . $role->display_name, $this->currentUser->id);
+        OperationLog::record('role', 'update', '更新角色: ' . $role->display_name, $this->currentUser->id, null, null, [
+            'outcome' => 'success',
+            'target_role_id' => $id,
+            'before_permission_keys' => $this->enabledPermissionKeys($beforePermissions),
+            'after_permission_keys' => $this->enabledPermissionKeys($permissions),
+            'role_level' => (int)$role->level,
+            'role_status' => (int)$role->status,
+        ]);
 
         return $this->success($role, '更新成功');
     }
@@ -166,7 +189,10 @@ class RoleController extends Base
         $name = $role->display_name;
         $role->delete();
 
-        OperationLog::record('role', 'delete', '删除角色: ' . $name, $this->currentUser->id);
+        OperationLog::record('role', 'delete', '删除角色: ' . $name, $this->currentUser->id, null, null, [
+            'outcome' => 'success',
+            'target_role_id' => $id,
+        ]);
 
         return $this->success(null, '删除成功');
     }
@@ -202,6 +228,22 @@ class RoleController extends Base
     }
 
     /**
+     * @param array<string, mixed> $permissions
+     * @return array<int, string>
+     */
+    private function enabledPermissionKeys(array $permissions): array
+    {
+        $keys = [];
+        foreach ($permissions as $permission => $enabled) {
+            if ($enabled === true || $enabled === 1 || $enabled === '1') {
+                $keys[] = (string)$permission;
+            }
+        }
+        sort($keys);
+        return $keys;
+    }
+
+    /**
      * 检查超级管理员权限
      */
     private function checkSuperAdmin(): void
@@ -218,6 +260,18 @@ class RoleController extends Base
     private function normalizePermissionPayload($permissions): array
     {
         return Role::normalizePermissions($permissions);
+    }
+
+    private function nextGeneratedRoleName(): string
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $candidate = 'role_' . bin2hex(random_bytes(8));
+            if (!Role::where('name', $candidate)->find()) {
+                return $candidate;
+            }
+        }
+
+        throw new \RuntimeException('无法生成唯一角色标识');
     }
 
     /**

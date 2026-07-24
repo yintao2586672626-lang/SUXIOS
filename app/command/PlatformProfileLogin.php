@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\OtaFailureNotificationService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
 use app\service\PlatformDataSyncService;
@@ -13,6 +14,7 @@ use think\console\Output;
 use think\console\input\Option;
 use think\facade\Cache;
 use think\facade\Db;
+use think\facade\Log;
 
 class PlatformProfileLogin extends Command
 {
@@ -50,7 +52,7 @@ class PlatformProfileLogin extends Command
         }
 
         try {
-            (new OtaProfileBindingService())->assertBound($hotelId, $platform, $profileKey);
+            $this->assertOrClaimProfileBinding($hotelId, $platform, $profileKey, $request);
         } catch (\RuntimeException $e) {
             $this->writeTask($taskId, [
                 'status' => 'failed',
@@ -88,6 +90,23 @@ class PlatformProfileLogin extends Command
         return $exitCode;
     }
 
+    private function assertOrClaimProfileBinding(int $hotelId, string $platform, string $profileKey, array $request): void
+    {
+        $bindingService = new OtaProfileBindingService();
+        try {
+            $bindingService->assertBound($hotelId, $platform, $profileKey);
+            return;
+        } catch (\RuntimeException $e) {
+            $localRebindAllowed = $this->truthy($request['allow_existing_local_profile_rebind'] ?? false);
+            $bindDataSource = $this->truthy($request['bind_data_source'] ?? $request['bindDataSource'] ?? false);
+            if (!$localRebindAllowed || !$bindDataSource) {
+                throw $e;
+            }
+        }
+
+        $bindingService->claim($hotelId, $platform, $profileKey, 0, true);
+    }
+
     private function runLoginTask(string $taskId, array $task, array $request, Output $output): int
     {
         $projectRoot = dirname(__DIR__, 2);
@@ -100,24 +119,30 @@ class PlatformProfileLogin extends Command
 
         $this->writeTask($taskId, [
             'status' => 'browser_opened',
-            'message' => ($platform === 'ctrip' ? '携程' : '美团') . '登录浏览器已打开，请在浏览器中完成平台验证',
+            'message' => ($platform === 'ctrip' ? '携程' : '美团') . '登录浏览器已打开，系统每 3 秒自动检测；登录成功后通常 10–15 秒内自动保存',
             'started_at' => (string)($task['started_at'] ?? date('Y-m-d H:i:s')),
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
         $args = $this->buildCaptureArgs($platform, $request, $projectRoot, $outputPath);
         if ($args === []) {
-            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, 'Node.js 或采集脚本不可用', $outputPath, $logPath);
+            $failureProbe = ['performed' => false, 'status' => 'capture_failed'];
+            $this->persistProfileSessionBlockFromRequest($request, $platform, $hotelId, $profileKey, $failureProbe, 'capture_failed');
+            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, 'Node.js 或采集脚本不可用', $outputPath, $logPath, [], null, $failureProbe);
             return 1;
         }
 
         $result = $this->runProcess($args, $projectRoot, $timeout, $logPath);
         if (!$this->restrictProfileLoginArtifactPermissions([$outputPath, $logPath])) {
-            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, '平台登录任务产物权限不安全，已拒绝继续处理', $outputPath, $logPath);
+            $failureProbe = ['performed' => false, 'status' => 'capture_failed'];
+            $this->persistProfileSessionBlockFromRequest($request, $platform, $hotelId, $profileKey, $failureProbe, 'capture_failed');
+            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, '平台登录任务产物权限不安全，已拒绝继续处理', $outputPath, $logPath, [], null, $failureProbe);
             return 1;
         }
         if (!$result['success'] && !is_file($outputPath)) {
-            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, $result['message'], $outputPath, $logPath);
+            $failureProbe = ['performed' => false, 'status' => 'capture_failed'];
+            $this->persistProfileSessionBlockFromRequest($request, $platform, $hotelId, $profileKey, $failureProbe, 'capture_failed');
+            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, $result['message'], $outputPath, $logPath, [], null, $failureProbe);
             $output->writeln($result['message']);
             return 1;
         }
@@ -125,20 +150,105 @@ class PlatformProfileLogin extends Command
         $payload = is_file($outputPath) ? json_decode((string)file_get_contents($outputPath), true) : [];
         $payload = is_array($payload) ? $payload : [];
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        $sessionProbe = is_array($payload['session_probe'] ?? null) ? $payload['session_probe'] : [];
         $authStatusCode = strtolower(trim((string)($authStatus['status'] ?? '')));
-        $loggedIn = $result['success']
+        $sessionProofService = new OtaProfileSessionProofService();
+        $sessionContractStatus = $sessionProofService->profileLoginSessionProbeContractStatus($sessionProbe);
+        $sessionCollectable = $result['success']
             && !empty($authStatus['ok'])
-            && in_array($authStatusCode, ['logged_in', 'authorized'], true);
+            && in_array($authStatusCode, ['logged_in', 'authorized'], true)
+            && $sessionProofService->isCollectableProfileLoginSessionProbe($sessionProbe);
+        $loggedIn = $sessionCollectable
+            && $sessionProofService->isStrongProfileLoginSessionProbe($sessionProbe);
+
+        if (!$sessionCollectable) {
+            $contractDrift = $sessionContractStatus === 'platform_contract_drift';
+            $probeStatus = strtolower(trim((string)($sessionProbe['status'] ?? '')));
+            $knownProbeStatus = in_array($probeStatus, [
+                'anti_bot', 'cookies_incomplete', 'identity_mismatch', 'identity_unverified',
+                'login_required', 'session_expired', 'login_expired', 'platform_contract_drift',
+                'permission_denied', 'weak_evidence', 'probe_failed', 'capture_failed',
+            ], true);
+            $genericCaptureFailure = !$contractDrift && !$knownProbeStatus;
+            $failureSessionProbe = $sessionProbe;
+            if ($genericCaptureFailure) {
+                $failureSessionProbe['performed'] = (bool)($sessionProbe['performed'] ?? false);
+                $failureSessionProbe['status'] = 'capture_failed';
+            }
+            $message = $contractDrift
+                ? '平台 Session 探针契约版本已变化，已安全阻断；请先校准平台规则，不要反复登录。'
+                : ($genericCaptureFailure
+                    ? 'Session 检查未返回可信探针证据，已安全阻断；请查看采集日志后重新检测。'
+                    : trim((string)($sessionProbe['message'] ?? '')));
+            if ($message === '') {
+                $message = $platform === 'ctrip' ? '重新登录携程平台账号' : '重新登录美团平台账号';
+            }
+            $this->persistProfileSessionBlockFromRequest(
+                $request,
+                $platform,
+                $hotelId,
+                $profileKey,
+                $failureSessionProbe,
+                $contractDrift ? 'platform_contract_drift' : ''
+            );
+            $this->finishFailed(
+                $taskId,
+                $platform,
+                $hotelId,
+                $profileKey,
+                $message,
+                $outputPath,
+                $logPath,
+                $authStatus,
+                $payload['capture_gate'] ?? null,
+                $failureSessionProbe
+            );
+            return 1;
+        }
 
         if (!$loggedIn) {
-            $message = $platform === 'ctrip' ? '重新登录携程平台账号' : '重新登录美团平台账号';
-            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, $message, $outputPath, $logPath, $authStatus, $payload['capture_gate'] ?? null);
-            return 1;
+            $this->persistProfileSessionBlockFromRequest(
+                $request,
+                $platform,
+                $hotelId,
+                $profileKey,
+                $sessionProbe,
+                'identity_unverified'
+            );
+            $safeAuthStatus = $this->compactProfileLoginAuthStatus($authStatus);
+            $safeSessionProbe = $this->compactProfileLoginSessionProbe($sessionProbe);
+            $rawCaptureGate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+            $safeCaptureGate = $rawCaptureGate !== [] ? $this->compactProfileLoginCaptureGate($rawCaptureGate) : null;
+            $message = '平台账号 Session 可用，但尚未核验为当前目标门店；未写入门店级登录证明。请执行一次带门店身份校验的最小采集。';
+            $partialStatus = $this->sanitizeProfileLoginCachePayload([
+                'checked_at' => date('Y-m-d H:i:s'),
+                'auth_status' => $safeAuthStatus,
+                'session_probe' => $safeSessionProbe,
+                'capture_gate' => $safeCaptureGate,
+                'status_code' => 'hotel_identity_unverified',
+                'output' => $outputPath,
+            ]);
+            Cache::set($this->profileStatusKey($platform, $hotelId, $profileKey), $partialStatus, 86400 * 30);
+            $this->writeTask($taskId, [
+                'status' => 'session_ready_identity_unverified',
+                'status_code' => 'hotel_identity_unverified',
+                'error_code' => '',
+                'message' => $message,
+                'finished_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+                'auth_status' => $safeAuthStatus,
+                'session_probe' => $safeSessionProbe,
+                'capture_gate' => $safeCaptureGate,
+                'output' => $outputPath,
+                'log' => $logPath,
+            ]);
+            return 0;
         }
 
         $dataSource = null;
         $dataSourceError = '';
-        if ($this->truthy($request['bind_data_source'] ?? $request['bindDataSource'] ?? false)) {
+        $bindDataSourceRequested = $this->truthy($request['bind_data_source'] ?? $request['bindDataSource'] ?? false);
+        if ($bindDataSourceRequested) {
             try {
                 $dataSource = $this->bindDataSource(
                     $platform,
@@ -154,15 +264,54 @@ class PlatformProfileLogin extends Command
         }
 
         $safeAuthStatus = $this->compactProfileLoginAuthStatus($authStatus);
+        $safeSessionProbe = $this->compactProfileLoginSessionProbe($sessionProbe);
         $rawCaptureGate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         $safeCaptureGate = $rawCaptureGate !== [] ? $this->compactProfileLoginCaptureGate($rawCaptureGate) : null;
+        if ($bindDataSourceRequested && !is_array($dataSource)) {
+            $this->writeTask($taskId, [
+                'status' => 'failed',
+                'status_code' => 'profile_login_persistence_failed',
+                'error_code' => 'profile_login_persistence_failed',
+                'message' => '登录页验证已通过，但 Profile 绑定或登录证明保存失败；本次不标记为已登录',
+                'finished_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+                'auth_status' => $safeAuthStatus,
+                'session_probe' => $safeSessionProbe,
+                'capture_gate' => $safeCaptureGate,
+                'output' => $outputPath,
+                'log' => $logPath,
+                'data_source' => null,
+                'data_source_error' => $dataSourceError !== '' ? $dataSourceError : 'profile_login_proof_not_saved',
+            ]);
+            return 1;
+        }
         $profileStatus = $this->sanitizeProfileLoginCachePayload([
             'checked_at' => date('Y-m-d H:i:s'),
             'auth_status' => $safeAuthStatus,
+            'session_probe' => $safeSessionProbe,
             'capture_gate' => $safeCaptureGate,
             'status_code' => 'logged_in',
             'output' => $outputPath,
         ]);
+
+        try {
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'data_date' => $this->profileLoginSyncTargetDate($request),
+                'success' => true,
+                'saved_count' => 0,
+                'auth_verified' => true,
+                'actor_user_id' => (int)($request['user_id'] ?? 0),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Resolve OTA auth strong reminder after verified Profile login failed', [
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'exception_type' => get_debug_type($e),
+            ]);
+        }
+
         Cache::set($this->profileStatusKey($platform, $hotelId, $profileKey), $profileStatus, 86400 * 30);
 
         $this->writeTask($taskId, [
@@ -173,6 +322,7 @@ class PlatformProfileLogin extends Command
             'finished_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
             'auth_status' => $profileStatus['auth_status'],
+            'session_probe' => $profileStatus['session_probe'],
             'capture_gate' => $profileStatus['capture_gate'],
             'output' => $outputPath,
             'log' => $logPath,
@@ -215,19 +365,28 @@ class PlatformProfileLogin extends Command
 
         try {
             $result = $this->syncDataSourceAfterProfileLogin($sourceId, $platform, $hotelId, $request);
+            $hotelProofVerified = $this->profileLoginDataSourceCurrentSessionVerified($sourceId);
             $this->writeTask($taskId, [
-                'status' => 'logged_in',
-                'status_text' => '登录态已验证',
-                'message' => $this->profileLoginSyncTaskMessage($platform, $result),
+                'status' => $hotelProofVerified ? 'logged_in' : 'session_ready_identity_unverified',
+                'status_code' => $hotelProofVerified ? 'logged_in' : 'hotel_identity_unverified',
+                'status_text' => $hotelProofVerified ? '登录态与门店身份已验证' : 'Session 可用，门店身份待核验',
+                'message' => $hotelProofVerified
+                    ? $this->profileLoginSyncTaskMessage($platform, $result)
+                    : '平台 Session 可用，但本次采集未形成目标门店身份匹配证据；未写入门店级登录证明。',
                 'after_login_sync' => $result,
                 'finished_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
         } catch (\Throwable $e) {
+            $hotelProofVerified = $this->profileLoginDataSourceCurrentSessionVerified($sourceId);
             $this->writeTask($taskId, [
-                'status' => 'logged_in',
-                'status_text' => '登录态已验证',
-                'message' => ($platform === 'ctrip' ? '携程' : '美团') . '平台登录态已验证，但登录后同步未完成',
+                'status' => $hotelProofVerified ? 'logged_in' : 'session_ready_identity_unverified',
+                'status_code' => $hotelProofVerified ? 'logged_in' : 'hotel_identity_unverified',
+                'status_text' => $hotelProofVerified ? '登录态与门店身份已验证' : 'Session 可用，门店身份待核验',
+                'message' => ($platform === 'ctrip' ? '携程' : '美团')
+                    . ($hotelProofVerified
+                        ? '平台门店级登录证明已验证，但登录后同步未完成'
+                        : '平台 Session 可用，但登录后门店身份校验未完成'),
                 'after_login_sync' => [
                     'status' => 'failed',
                     'data_source_id' => $sourceId,
@@ -242,10 +401,20 @@ class PlatformProfileLogin extends Command
         }
     }
 
+    private function profileLoginDataSourceCurrentSessionVerified(int $sourceId): bool
+    {
+        $source = Db::name('platform_data_sources')
+            ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json,last_sync_status,last_error')
+            ->where('id', $sourceId)
+            ->find();
+        return is_array($source) && (new OtaProfileSessionProofService())->isCurrentVerified($source);
+    }
+
     private function syncDataSourceAfterProfileLogin(int $sourceId, string $platform, int $hotelId, array $request): array
     {
         $row = $this->loadProfileLoginDataSourceForSync($sourceId, $platform, $hotelId);
         $options = $this->buildProfileLoginSyncOptions((string)($row['platform'] ?? $platform), $request);
+        $options = $this->constrainProfileLoginSyncOptionsBySource($options, $row);
         $result = (new PlatformDataSyncService())->syncDataSource($this->systemSyncUser(), $sourceId, $options);
         return $this->compactProfileLoginSyncResult($result, $sourceId, $options);
     }
@@ -253,7 +422,7 @@ class PlatformProfileLogin extends Command
     private function loadProfileLoginDataSourceForSync(int $sourceId, string $platform, int $hotelId): array
     {
         $row = Db::name('platform_data_sources')
-            ->field('id,system_hotel_id,platform,ingestion_method,enabled,status')
+            ->field('id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
             ->where('id', $sourceId)
             ->find();
         if (!$row || !is_array($row)) {
@@ -275,6 +444,34 @@ class PlatformProfileLogin extends Command
         return $row;
     }
 
+    private function constrainProfileLoginSyncOptionsBySource(array $options, array $source): array
+    {
+        if (strtolower(trim((string)($source['platform'] ?? ''))) !== 'meituan') {
+            return $options;
+        }
+
+        $sections = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $section): string => strtolower(trim((string)$section)),
+            (array)($options['sections'] ?? [])
+        ))));
+        if (count($sections) <= 1 || !in_array('ads', $sections, true)) {
+            return $options;
+        }
+
+        $config = $this->decodeSafeProfileSourceConfig((string)($source['config_json'] ?? ''));
+        $adsUrl = trim((string)($config['ads_url'] ?? $config['adsUrl'] ?? ''));
+        $adsReason = strtolower(trim((string)($config['ads_status_reason'] ?? '')));
+        if ($adsUrl !== '' && !in_array($adsReason, ['ads_service_not_opened', 'ads_not_enabled'], true)) {
+            return $options;
+        }
+
+        $sections = array_values(array_filter($sections, static fn(string $section): bool => $section !== 'ads'));
+        $options['sections'] = $sections;
+        $options['capture_sections'] = implode(',', $sections);
+        $options['skipped_sections_no_entry'] = ['ads'];
+        return $options;
+    }
+
     private function buildProfileLoginSyncOptions(string $platform, array $request): array
     {
         $sectionsValue = $request['capture_sections']
@@ -290,13 +487,22 @@ class PlatformProfileLogin extends Command
             $sections = 'traffic';
         }
 
+        $dataDate = $this->profileLoginSyncTargetDate($request);
+        $dataPeriod = trim((string)($request['data_period'] ?? $request['dataPeriod'] ?? ''));
+        if ($dataPeriod === '') {
+            $dataPeriod = $dataDate >= date('Y-m-d') ? 'realtime_snapshot' : 'historical_daily';
+        }
+        $snapshotTime = $dataPeriod === 'realtime_snapshot'
+            ? (trim((string)($request['snapshot_time'] ?? $request['snapshotTime'] ?? '')) ?: date('Y-m-d H:i:s'))
+            : '';
+
         return [
             'trigger_type' => 'profile_login_after_login',
-            'data_date' => $this->profileLoginSyncTargetDate($request),
+            'data_date' => $dataDate,
             'capture_sections' => $sections,
             'sections' => $sectionList,
-            'data_period' => trim((string)($request['data_period'] ?? $request['dataPeriod'] ?? 'historical_daily')) ?: 'historical_daily',
-            'snapshot_time' => trim((string)($request['snapshot_time'] ?? $request['snapshotTime'] ?? '')) ?: date('Y-m-d H:i:s'),
+            'data_period' => $dataPeriod,
+            'snapshot_time' => $snapshotTime,
             'interactive_browser' => false,
         ];
     }
@@ -364,7 +570,7 @@ class PlatformProfileLogin extends Command
 
         $loginTimeoutMs = (string)max(30000, min(600000, (int)($request['login_timeout_ms'] ?? 300000)));
         $args = [$node, $script, '--output=' . $outputPath, '--login-timeout-ms=' . $loginTimeoutMs, '--login-only=true'];
-        $postLoginWaitMs = max(0, min(600000, (int)($request['post_login_wait_ms'] ?? $request['postLoginWaitMs'] ?? 120000)));
+        $postLoginWaitMs = max(0, min(600000, (int)($request['post_login_wait_ms'] ?? $request['postLoginWaitMs'] ?? 5000)));
         $args[] = '--interactive-login=' . ($postLoginWaitMs > 0 ? 'true' : 'false');
         $args[] = '--headless=false';
         $args[] = '--post-login-wait-ms=' . (string)$postLoginWaitMs;
@@ -381,6 +587,10 @@ class PlatformProfileLogin extends Command
             $hotelName = trim((string)($request['hotel_name'] ?? $request['hotelName'] ?? ''));
             if ($hotelName !== '') {
                 $args[] = '--hotel-name=' . $hotelName;
+            }
+            $platformHotelName = $this->trustedCtripPlatformHotelName($request);
+            if ($platformHotelName !== '') {
+                $args[] = '--platform-hotel-name=' . $platformHotelName;
             }
         } else {
             $storeId = trim((string)($request['store_id'] ?? $request['storeId'] ?? $request['profile_key'] ?? ''));
@@ -415,6 +625,83 @@ class PlatformProfileLogin extends Command
         }
 
         return $args;
+    }
+
+    private function trustedCtripPlatformHotelName(array $request): string
+    {
+        $sourceId = (int)($request['data_source_id'] ?? $request['source_id'] ?? 0);
+        $systemHotelId = (int)($request['system_hotel_id'] ?? 0);
+        if ($sourceId <= 0 || $systemHotelId <= 0) {
+            return '';
+        }
+
+        try {
+            $source = Db::name('platform_data_sources')
+                ->field('id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+                ->where('id', $sourceId)
+                ->where('system_hotel_id', $systemHotelId)
+                ->find();
+            if (!is_array($source)) {
+                return '';
+            }
+            $config = $this->decodeSafeProfileSourceConfig((string)($source['config_json'] ?? ''));
+            return $this->validateTrustedCtripPlatformHotelName($source, $config, $request);
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    private function validateTrustedCtripPlatformHotelName(array $source, array $config, array $request): string
+    {
+        if (strtolower(trim((string)($source['platform'] ?? ''))) !== 'ctrip'
+            || !in_array(strtolower(trim((string)($source['ingestion_method'] ?? ''))), ['browser_profile', 'profile_browser'], true)
+            || (int)($source['enabled'] ?? 0) !== 1
+            || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
+            || (int)($source['system_hotel_id'] ?? 0) !== (int)($request['system_hotel_id'] ?? 0)
+        ) {
+            return '';
+        }
+
+        $expectedHotelId = trim((string)($config['hotel_id'] ?? $config['hotelId'] ?? ''));
+        $requestHotelId = trim((string)($request['hotel_id'] ?? $request['hotelId'] ?? ''));
+        $profileKey = trim((string)($config['profile_binding_key'] ?? $config['stable_profile_id'] ?? $config['profile_id'] ?? $config['profileId'] ?? ''));
+        $requestProfileKey = trim((string)($request['profile_id'] ?? $request['profileId'] ?? $request['profile_key'] ?? ''));
+        $name = preg_replace('/\s+/u', ' ', trim((string)($config['platform_hotel_name'] ?? $config['platformHotelName'] ?? ''))) ?? '';
+        $referenceSource = strtolower(trim((string)($config['platform_hotel_identity_source'] ?? $config['platformHotelIdentitySource'] ?? '')));
+        $publicUrl = trim((string)($config['platform_hotel_public_url'] ?? $config['platformHotelPublicUrl'] ?? ''));
+        $checkedAt = trim((string)($config['platform_hotel_identity_checked_at'] ?? $config['platformHotelIdentityCheckedAt'] ?? ''));
+        $parts = $publicUrl !== '' ? parse_url($publicUrl) : false;
+        $host = is_array($parts) ? strtolower((string)($parts['host'] ?? '')) : '';
+        $path = is_array($parts) ? (string)($parts['path'] ?? '') : '';
+        $trustedHost = $host === 'trip.com' || str_ends_with($host, '.trip.com');
+        $pathHasExpectedId = $expectedHotelId !== ''
+            && preg_match(
+                '~(?:^|[^0-9])hotel-detail-' . preg_quote($expectedHotelId, '~') . '(?:[^0-9]|$)~i',
+                $path
+            ) === 1;
+
+        if ($name === ''
+            || $expectedHotelId === ''
+            || $requestHotelId === ''
+            || !hash_equals($expectedHotelId, $requestHotelId)
+            || $profileKey === ''
+            || $requestProfileKey === ''
+            || !hash_equals($profileKey, $requestProfileKey)
+            || $referenceSource !== 'trip_public_profile'
+            || !is_array($parts)
+            || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+            || !$trustedHost
+            || !$pathHasExpectedId
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['fragment'])
+            || $checkedAt === ''
+            || strtotime($checkedAt) === false
+        ) {
+            return '';
+        }
+
+        return $name;
     }
 
     private function runProcess(array $args, string $cwd, int $timeoutSeconds, string $logPath): array
@@ -470,15 +757,76 @@ class PlatformProfileLogin extends Command
         return true;
     }
 
-    private function finishFailed(string $taskId, string $platform, int $hotelId, string $profileKey, string $message, string $outputPath, string $logPath, array $authStatus = [], $captureGate = null): void
+    private function persistProfileSessionBlockFromRequest(
+        array $request,
+        string $platform,
+        int $hotelId,
+        string $profileKey,
+        array $sessionProbe,
+        string $statusOverride = ''
+    ): void {
+        $sourceId = (int)($request['data_source_id'] ?? $request['source_id'] ?? 0);
+        if ($sourceId <= 0) {
+            return;
+        }
+        $status = strtolower(trim($statusOverride !== '' ? $statusOverride : (string)($sessionProbe['status'] ?? '')));
+        $contractStatus = (new OtaProfileSessionProofService())->profileLoginSessionProbeContractStatus($sessionProbe);
+        if ($contractStatus === 'platform_contract_drift') {
+            $status = 'platform_contract_drift';
+        } elseif (in_array($status, ['weak_evidence', 'probe_failed'], true)) {
+            $status = 'capture_failed';
+        }
+        $allowedStatuses = [
+            'anti_bot', 'cookies_incomplete', 'identity_mismatch', 'identity_unverified',
+            'login_required', 'session_expired', 'login_expired', 'platform_contract_drift',
+            'permission_denied', 'capture_failed',
+        ];
+        if (!in_array($status, $allowedStatuses, true)) {
+            $status = 'capture_failed';
+        }
+
+        try {
+            (new OtaProfileSessionProofService())->recordProfileSessionBlocked(
+                $sourceId,
+                $hotelId,
+                $platform,
+                $profileKey,
+                $status,
+                (string)($sessionProbe['next_retry_at'] ?? '')
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Persist Profile session blocking state failed', [
+                'data_source_id' => $sourceId,
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'status' => $status,
+                'exception_type' => get_debug_type($e),
+            ]);
+        }
+    }
+
+    private function finishFailed(
+        string $taskId,
+        string $platform,
+        int $hotelId,
+        string $profileKey,
+        string $message,
+        string $outputPath,
+        string $logPath,
+        array $authStatus = [],
+        $captureGate = null,
+        array $sessionProbe = []
+    ): void
     {
-        $statusCode = $this->profileLoginFailureStatusCode($message, $authStatus, $captureGate);
+        $statusCode = $this->profileLoginFailureStatusCode($message, $authStatus, $captureGate, $sessionProbe);
         $safeMessage = $this->safeProfileLoginStatusText($message);
         $safeAuthStatus = $this->compactProfileLoginAuthStatus($authStatus);
+        $safeSessionProbe = $sessionProbe !== [] ? $this->compactProfileLoginSessionProbe($sessionProbe) : null;
         $safeCaptureGate = is_array($captureGate) ? $this->compactProfileLoginCaptureGate($captureGate) : null;
         Cache::set($this->profileStatusKey($platform, $hotelId, $profileKey), $this->sanitizeProfileLoginCachePayload([
             'checked_at' => date('Y-m-d H:i:s'),
             'auth_status' => $safeAuthStatus,
+            'session_probe' => $safeSessionProbe,
             'capture_gate' => $safeCaptureGate,
             'status_code' => $statusCode,
             'output' => $outputPath,
@@ -492,18 +840,48 @@ class PlatformProfileLogin extends Command
             'finished_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
             'auth_status' => $safeAuthStatus,
+            'session_probe' => $safeSessionProbe,
             'capture_gate' => $safeCaptureGate,
             'output' => $outputPath,
             'log' => $logPath,
         ]);
     }
 
-    private function profileLoginFailureStatusCode(string $message, array $authStatus = [], $captureGate = null): string
+    private function profileLoginFailureStatusCode(string $message, array $authStatus = [], $captureGate = null, array $sessionProbe = []): string
     {
+        if ((new OtaProfileSessionProofService())->profileLoginSessionProbeContractStatus($sessionProbe) === 'platform_contract_drift') {
+            return 'platform_contract_drift';
+        }
+        $probeStatus = strtolower(trim((string)($sessionProbe['status'] ?? '')));
+        if ($probeStatus === 'anti_bot') {
+            return 'anti_bot';
+        }
+        if ($probeStatus === 'platform_contract_drift') {
+            return 'platform_contract_drift';
+        }
+        if ($probeStatus === 'cookies_incomplete') {
+            return 'cookies_incomplete';
+        }
+        if ($probeStatus === 'permission_denied') {
+            return 'permission_denied';
+        }
+        if ($probeStatus === 'capture_failed') {
+            return 'capture_failed';
+        }
+        if ($probeStatus === 'identity_mismatch') {
+            return 'hotel_mismatch';
+        }
+        if (!empty($sessionProbe['collectable']) && empty($sessionProbe['proof_eligible'])) {
+            return 'hotel_identity_unverified';
+        }
+        if (in_array($probeStatus, ['weak_evidence', 'probe_failed'], true)) {
+            return 'capture_failed';
+        }
         $text = strtolower(json_encode([
             'message' => $message,
             'auth_status' => $authStatus,
             'capture_gate' => $captureGate,
+            'session_probe' => $sessionProbe,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
         if (preg_match('/anti[_-]?bot|captcha|verification_code|sms_code|required verification|slider|human verification|yoda|risk control|platform limit|rate limit|验证码|短信|人机|滑块|风控/', $text) === 1) {
             return 'anti_bot';
@@ -638,13 +1016,15 @@ class PlatformProfileLogin extends Command
             }
         }
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
-        $proof = (new OtaProfileSessionProofService())->recordVerified(
+        $sessionProbe = is_array($payload['session_probe'] ?? null) ? $payload['session_probe'] : [];
+        $proof = (new OtaProfileSessionProofService())->recordProfileLoginVerified(
             $sourceId,
             $hotelId,
             $platform,
             $profileKey,
             $loginProcessSucceeded,
             $authStatus,
+            $sessionProbe,
             $metadataPatch
         );
         $clearStaleLoginError = $this->isStaleProfileLoginError((string)($row['last_error'] ?? ''));
@@ -706,6 +1086,10 @@ class PlatformProfileLogin extends Command
 
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
         $config['auth_status'] = $this->compactProfileLoginAuthStatus($authStatus);
+        $sessionProbe = is_array($payload['session_probe'] ?? null) ? $payload['session_probe'] : [];
+        if ($sessionProbe !== []) {
+            $config['profile_login_session_probe'] = $this->compactProfileLoginSessionProbe($sessionProbe);
+        }
         $captureGate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         if ($captureGate !== []) {
             $config['profile_login_capture_gate'] = $this->compactProfileLoginCaptureGate($captureGate);
@@ -732,16 +1116,223 @@ class PlatformProfileLogin extends Command
         if (array_key_exists('timeout_ms', $authStatus) && is_numeric($authStatus['timeout_ms'])) {
             $compact['timeout_ms'] = max(0, (int)$authStatus['timeout_ms']);
         }
+        if (array_key_exists('retry_after_seconds', $authStatus) && is_numeric($authStatus['retry_after_seconds'])) {
+            $compact['retry_after_seconds'] = max(0, (int)$authStatus['retry_after_seconds']);
+        }
+        if (array_key_exists('next_retry_at', $authStatus) && trim((string)$authStatus['next_retry_at']) !== '') {
+            $compact['next_retry_at'] = $this->safeProfileLoginStatusText((string)$authStatus['next_retry_at']);
+        }
+        return $compact;
+    }
+
+    private function profileLoginSessionProbeEligible(array $probe): bool
+    {
+        return (new OtaProfileSessionProofService())->isStrongProfileLoginSessionProbe($probe);
+    }
+
+    private function compactProfileLoginSessionProbe(array $probe): array
+    {
+        $compact = [
+            'schema_version' => (int)($probe['schema_version'] ?? 0),
+            'contract_version' => $this->safeProfileLoginStatusText((string)($probe['contract_version'] ?? '')),
+            'mode' => $this->safeProfileLoginStatusText((string)($probe['mode'] ?? 'session_probe_only')),
+            'platform' => $this->safeProfileLoginStatusText((string)($probe['platform'] ?? '')),
+            'performed' => (bool)($probe['performed'] ?? false),
+            'verified' => (bool)($probe['verified'] ?? false),
+            'status' => $this->safeProfileLoginStatusText((string)($probe['status'] ?? 'unknown')),
+            'collectable' => (bool)($probe['collectable'] ?? false),
+            'proof_eligible' => (bool)($probe['proof_eligible'] ?? false),
+            'evidence_type' => $this->safeProfileLoginStatusText((string)($probe['evidence_type'] ?? 'insufficient')),
+            'evidence_level' => $this->safeProfileLoginStatusText((string)($probe['evidence_level'] ?? 'blocked')),
+            'sensitive_values_exposed' => (bool)($probe['sensitive_values_exposed'] ?? true),
+            'retry_after_seconds' => max(0, (int)($probe['retry_after_seconds'] ?? 0)),
+            'next_retry_at' => $this->safeProfileLoginStatusText((string)($probe['next_retry_at'] ?? '')),
+            'checked_at' => $this->safeProfileLoginStatusText((string)($probe['checked_at'] ?? '')),
+            'message' => $this->safeProfileLoginStatusText((string)($probe['message'] ?? '')),
+            'next_action' => $this->safeProfileLoginStatusText((string)($probe['next_action'] ?? '')),
+        ];
+        if (is_array($probe['failed_check_ids'] ?? null)) {
+            $compact['failed_check_ids'] = array_values(array_slice(array_map(
+                fn($value): string => mb_substr(trim((string)$value), 0, 80),
+                $probe['failed_check_ids']
+            ), 0, 20));
+        }
+        if (is_array($probe['proof_blocker_ids'] ?? null)) {
+            $compact['proof_blocker_ids'] = array_values(array_slice(array_map(
+                fn($value): string => mb_substr(trim((string)$value), 0, 80),
+                $probe['proof_blocker_ids']
+            ), 0, 20));
+        }
+        $signals = is_array($probe['signals'] ?? null) ? $probe['signals'] : [];
+        $compact['signals'] = [
+            'auth' => $this->compactProfileLoginProbeSignal($signals['auth'] ?? [], ['status', 'auth_status']),
+            'url' => $this->compactProfileLoginProbeSignal($signals['url'] ?? [], ['status', 'trusted_host', 'business_path', 'login_path']),
+            'page' => $this->compactProfileLoginProbeSignal($signals['page'] ?? [], ['status', 'business_marker_present', 'login_marker_present', 'session_expired_present', 'challenge_present', 'risk_control_present']),
+            'session_state' => $this->compactProfileLoginProbeSignal($signals['session_state'] ?? [], ['status', 'platform_state_count', 'session_state_count']),
+            'api' => $this->compactProfileLoginProbeSignal($signals['api'] ?? [], ['status', 'successful_response_count', 'candidate_drift_response_count', 'access_denied_response_count', 'authentication_required_response_count', 'permission_denied_response_count', 'rate_limited_response_count']),
+            'identity' => $this->compactProfileLoginProbeSignal($signals['identity'] ?? [], ['status', 'hotel_scope_verified']),
+        ];
+        $drift = is_array($probe['drift_diagnostics'] ?? null) ? $probe['drift_diagnostics'] : [];
+        if ($drift !== []) {
+            $compact['drift_diagnostics'] = $this->compactProfileLoginProbeSignal($drift, [
+                'contract_version', 'status', 'recognized_response_count', 'candidate_response_count', 'sensitive_values_exposed',
+            ]);
+            foreach (['signal_ids', 'advisory_signal_ids', 'candidate_reason_ids'] as $diagnosticIdKey) {
+                $diagnosticIds = $this->compactProfileLoginProbeDiagnosticIds($drift[$diagnosticIdKey] ?? null);
+                $compact['drift_diagnostics'][$diagnosticIdKey] = $diagnosticIds;
+            }
+            $candidateRouteSamples = $this->compactProfileLoginCandidateRouteSamples($drift['candidate_route_samples'] ?? null);
+            $compact['drift_diagnostics']['candidate_route_samples'] = $candidateRouteSamples;
+        }
+        return $compact;
+    }
+
+    private function compactProfileLoginProbeDiagnosticIds($values): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+        $safe = [];
+        foreach ($values as $value) {
+            $normalized = strtolower(trim((string)$value));
+            if ($normalized === '' || preg_match('/^[a-z][a-z0-9_.:-]{0,79}$/D', $normalized) !== 1) {
+                continue;
+            }
+            $safe[$normalized] = true;
+            if (count($safe) >= 20) {
+                break;
+            }
+        }
+        return array_keys($safe);
+    }
+
+    private function compactProfileLoginCandidateRouteSamples($values): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+        $safe = [];
+        foreach ($values as $value) {
+            $sample = $this->safeProfileLoginCandidateRouteSample((string)$value);
+            if ($sample === '') {
+                continue;
+            }
+            $safe[$sample] = true;
+            if (count($safe) >= 20) {
+                break;
+            }
+        }
+        return array_keys($safe);
+    }
+
+    private function safeProfileLoginCandidateRouteSample(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        $withoutQuery = preg_split('/[?#]/', $value, 2)[0] ?? '';
+        $parsed = parse_url(str_contains($withoutQuery, '://') ? $withoutQuery : 'https://' . ltrim($withoutQuery, '/'));
+        if (!is_array($parsed)) {
+            return '';
+        }
+        $host = strtolower(trim((string)($parsed['host'] ?? '')));
+        if ($host === '' || strlen($host) > 253 || str_contains($host, '..')
+            || preg_match('/^[a-z0-9.-]+$/D', $host) !== 1) {
+            return '';
+        }
+
+        $redactNextSegment = false;
+        $segments = explode('/', (string)($parsed['path'] ?? ''));
+        foreach ($segments as &$segment) {
+            $decoded = $segment;
+            for ($pass = 0; $pass < 2; $pass++) {
+                $nextDecoded = rawurldecode($decoded);
+                if ($nextDecoded === $decoded) {
+                    break;
+                }
+                $decoded = $nextDecoded;
+            }
+            if ($redactNextSegment) {
+                $segment = ':redacted';
+                $redactNextSegment = false;
+                continue;
+            }
+            if (str_contains($decoded, '/') || str_contains($decoded, '\\')
+                || str_contains($decoded, '?') || str_contains($decoded, '#')
+                || preg_match('/%(?:25|2f|5c|3f|23)/i', $decoded) === 1) {
+                $segment = ':redacted';
+                continue;
+            }
+            if ($this->isSensitiveProfileLoginRouteKey($decoded)) {
+                $segment = strlen($decoded) >= 24 ? ':redacted' : strtolower($decoded);
+                $redactNextSegment = true;
+                continue;
+            }
+            $equalsPosition = strpos($decoded, '=');
+            $key = $equalsPosition !== false ? substr($decoded, 0, $equalsPosition) : '';
+            if ($key !== '' && $this->isSensitiveProfileLoginRouteKey($key)) {
+                $segment = strlen($key) >= 24 ? ':redacted' : strtolower($key) . '=:redacted';
+                continue;
+            }
+            $jwtLike = preg_match('/^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/D', $decoded) === 1;
+            $opaqueTokenLike = strlen($decoded) >= 24;
+            if (preg_match('/^\d+$/D', $decoded) === 1
+                || preg_match('/^[0-9a-f]{16,}$/iD', $decoded) === 1
+                || preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD', $decoded) === 1) {
+                $segment = ':id';
+                continue;
+            }
+            if ($jwtLike || $opaqueTokenLike) {
+                $segment = ':redacted';
+                continue;
+            }
+            $segment = preg_replace('/[^a-z0-9._~:@!$&\'()*+,;=%-]/i', '', $decoded) ?: '';
+        }
+        unset($segment);
+
+        return mb_substr($host . implode('/', $segments), 0, 320);
+    }
+
+    private function isSensitiveProfileLoginRouteKey(string $value): bool
+    {
+        $key = trim($value);
+        return preg_match('/^(?:cticket|(?:asp\.net_)?sessionid|jsessionid|session_?id|sid|auth_?token|access_?token|login_?token|passport|user_?ticket|ssoid|mt_c_token|_mtsi_eb_u|ctrip.*(?:ticket|session|auth|login)|(?:eb|ebk|ebooking).*(?:session|ticket|token))$/iD', $key) === 1
+            || preg_match('/(?:^|[._-])(?:token|session|ticket|cookie|auth|authorization|password|secret|signature|api[-_]?key)(?:$|[._-])/i', $key) === 1
+            || preg_match('/^(?:ssoid|passport|phpsessid|spidertoken|spiderkey|mtgsig|_mtsi_eb_u)$/iD', $key) === 1
+            || preg_match('/(?:^|[._-])sid$/iD', $key) === 1;
+    }
+
+    private function compactProfileLoginProbeSignal($signal, array $allowedKeys): array
+    {
+        $signal = is_array($signal) ? $signal : [];
+        $compact = [];
+        foreach ($allowedKeys as $key) {
+            if (!array_key_exists($key, $signal)) {
+                continue;
+            }
+            $value = $signal[$key];
+            if (is_bool($value)) {
+                $compact[$key] = $value;
+            } elseif (is_numeric($value) && $key !== 'status' && $key !== 'auth_status') {
+                $compact[$key] = max(0, (int)$value);
+            } else {
+                $compact[$key] = $this->safeProfileLoginStatusText((string)$value);
+            }
+        }
         return $compact;
     }
 
     private function compactProfileLoginCaptureGate(array $gate): array
     {
         $compact = [];
-        foreach (['status', 'mode', 'reason'] as $key) {
+        foreach (['status', 'mode', 'reason', 'next_retry_at'] as $key) {
             if (array_key_exists($key, $gate) && trim((string)$gate[$key]) !== '') {
                 $compact[$key] = $this->safeProfileLoginStatusText((string)$gate[$key]);
             }
+        }
+        if (array_key_exists('retry_after_seconds', $gate) && is_numeric($gate['retry_after_seconds'])) {
+            $compact['retry_after_seconds'] = max(0, (int)$gate['retry_after_seconds']);
         }
         if (is_array($gate['failed_check_ids'] ?? null)) {
             $compact['failed_check_ids'] = array_values(array_slice(array_map('strval', $gate['failed_check_ids']), 0, 20));
@@ -948,11 +1539,22 @@ class PlatformProfileLogin extends Command
         if ($currentKey !== '') {
             Cache::set($currentKey, $merged, 86400);
         }
+
+        $platform = strtolower(trim((string)($merged['platform'] ?? '')));
+        $hotelId = (int)($merged['system_hotel_id'] ?? 0);
+        if (in_array($platform, ['ctrip', 'meituan'], true) && $hotelId > 0) {
+            Cache::set($this->profileLoginHotelCurrentTaskKey($platform, $hotelId), $merged, 86400);
+        }
     }
 
     private function taskKey(string $taskId): string
     {
         return 'platform_profile_login_task_' . $taskId;
+    }
+
+    private function profileLoginHotelCurrentTaskKey(string $platform, int $hotelId): string
+    {
+        return 'platform_profile_login_hotel_current_' . $platform . '_' . $hotelId;
     }
 
     private function profileStatusKey(string $platform, int $hotelId, string $profileKey): string

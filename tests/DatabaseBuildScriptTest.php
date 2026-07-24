@@ -7,7 +7,7 @@ use PHPUnit\Framework\TestCase;
 
 final class DatabaseBuildScriptTest extends TestCase
 {
-    public function testFullDumpBuildScriptUsesEveryInitFullSource(): void
+    public function testFullDumpBuildScriptUsesFrozenBaselineAndEveryMigration(): void
     {
         $root = realpath(__DIR__ . '/..');
         self::assertIsString($root);
@@ -26,6 +26,14 @@ final class DatabaseBuildScriptTest extends TestCase
             self::assertFileExists($root . '/' . $source, "database/init_full.sql references missing source {$source}");
         }
 
+        $migrationPaths = glob($root . '/database/migrations/*.sql');
+        self::assertIsArray($migrationPaths);
+        $migrations = array_map(
+            static fn(string $path): string => 'database/migrations/' . basename($path),
+            $migrationPaths
+        );
+        sort($migrations);
+
         $powerShell = $this->resolvePowerShellBinary();
         if ($powerShell === null) {
             $script = file_get_contents($root . '/scripts/build_hotelx_full_dump.ps1');
@@ -42,15 +50,52 @@ final class DatabaseBuildScriptTest extends TestCase
             escapeshellarg($root . '/scripts/build_hotelx_full_dump.ps1'),
             escapeshellarg($outputPath)
         );
-        exec($command . ' 2>&1', $output, $code);
-        self::assertSame(0, $code, implode(PHP_EOL, $output));
+        $absoluteOutput = $root . '/' . $outputPath;
+        try {
+            exec($command . ' 2>&1', $output, $code);
+            self::assertSame(0, $code, implode(PHP_EOL, $output));
 
-        $dump = file_get_contents($root . '/' . $outputPath);
-        self::assertIsString($dump);
+            $dump = file_get_contents($absoluteOutput);
+            self::assertIsString($dump);
 
-        foreach ($sources as $source) {
-            self::assertStringContainsString("-- SOURCE: {$source}", $dump, "Full dump is missing {$source}");
+            foreach (array_values(array_unique(array_merge($sources, $migrations))) as $source) {
+                self::assertStringContainsString("-- SOURCE: {$source}", $dump, "Full dump is missing {$source}");
+            }
+            foreach ([
+                'database/hotel_admin_mysql.sql',
+                'database/login_logs.sql',
+                'database/complaint_tables.sql',
+                'database/update_system_config.sql',
+            ] as $baselineSource) {
+                self::assertStringContainsString(
+                    "-- REGISTER BASELINE: {$baselineSource}",
+                    $dump,
+                    "Full dump does not checksum {$baselineSource}"
+                );
+            }
+        } finally {
+            if (is_file($absoluteOutput)) {
+                unlink($absoluteOutput);
+            }
         }
+    }
+
+    public function testInitFullIsFrozenAndDoesNotNeedNewMigrationEntries(): void
+    {
+        $root = realpath(__DIR__ . '/..');
+        self::assertIsString($root);
+
+        $initFull = (string)file_get_contents($root . '/database/init_full.sql');
+        self::assertStringContainsString('FROZEN BASELINE', $initFull);
+        self::assertStringNotContainsString('20260722_add_hotels_city.sql', $initFull);
+        self::assertStringNotContainsString('20260722_create_schema_versions.sql', $initFull);
+        self::assertStringNotContainsString('20260722_create_tenants_and_decouple_hotel_scope.sql', $initFull);
+        self::assertStringNotContainsString('20260722_harden_schema_version_governance.sql', $initFull);
+        self::assertStringNotContainsString('20260722_track_frozen_baseline_sources.sql', $initFull);
+
+        $builder = (string)file_get_contents($root . '/scripts/build_hotelx_full_dump.ps1');
+        self::assertStringContainsString('database/migrations', $builder);
+        self::assertStringContainsString('Get-ChildItem', $builder);
     }
 
     public function testSystemConfigsValueColumnCanStoreLargeProfileFieldCatalog(): void

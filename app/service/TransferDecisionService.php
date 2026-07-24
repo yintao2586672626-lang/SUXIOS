@@ -10,11 +10,21 @@ use think\facade\Db;
 
 class TransferDecisionService
 {
-    private LlmClient $client;
+    private const TRUSTED_OTA_VALIDATION_STATUSES = [
+        'normal', 'available', 'verified', 'valid', 'ok', 'success', 'complete', 'completed',
+    ];
+    private const SUPPORTED_OTA_PLATFORMS = ['ctrip', 'meituan', 'qunar'];
 
-    public function __construct(?LlmClient $client = null)
+    private LlmClient $client;
+    private AiDecisionQualityService $decisionQualityService;
+    private bool $tableEnsured = false;
+    /** @var array<string,array<string,int|string>> */
+    private array $sourceReadStatus = [];
+
+    public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
         $this->client = $client ?: new LlmClient();
+        $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
     }
 
     public function calculateAssetPricing(array $input): array
@@ -22,6 +32,7 @@ class TransferDecisionService
         $hotelName = $this->text($input, ['hotel_name', '酒店名称'], '未命名酒店');
         $location = $this->text($input, ['location', 'city_area', '城市/商圈'], '');
         $roomCount = (int)$this->number($input, ['room_count', '房间数']);
+        $missingFields = $this->missingPricingFields($input);
         $monthlyRevenue = $this->number($input, ['monthly_revenue', '月营业额']);
         $monthlyRent = $this->number($input, ['monthly_rent', '月租金']);
         $laborCost = $this->number($input, ['labor_cost', '人工成本']);
@@ -36,11 +47,15 @@ class TransferDecisionService
         $rating = $this->number($input, ['rating', '评分']);
         $orderCount = (int)$this->number($input, ['order_count', '订单量']);
         $licensesComplete = $this->bool($input, ['licenses_complete', '证照是否齐全'], true);
+        $hasDataAnomalyKnown = $this->hasInputValue($input, ['has_data_anomaly', '是否存在数据异常']);
         $hasDataAnomaly = $this->bool($input, ['has_data_anomaly', '是否存在数据异常'], false);
         $requireAiEvaluation = $this->bool($input, ['require_ai_evaluation', 'require_ai', '必须使用AI'], false);
 
         if ($roomCount <= 0) {
             throw new InvalidArgumentException('房间数必须大于0');
+        }
+        if ($missingFields !== []) {
+            return $this->buildInsufficientPricingResult($hotelName, $location, $roomCount, $input, $missingFields);
         }
 
         $monthlyTotalCost = $monthlyRent + $laborCost + $utilityCost + $otaCommission + $otherFixedCost;
@@ -78,6 +93,10 @@ class TransferDecisionService
         $suggestion = $this->buildPricingSuggestion($risk['risk_level'], $quoteJudgement, $hasDataAnomaly);
 
         $result = [
+            'status' => 'scenario_estimate',
+            'decision_ready' => false,
+            'manual_unverified' => true,
+            'missing_fields' => [],
             'basic_info' => [
                 'hotel_name' => $hotelName,
                 'location' => $location,
@@ -109,10 +128,21 @@ class TransferDecisionService
                 'quote_judgement' => $quoteJudgement,
             ],
             'risk_level' => $risk['risk_level'],
-            'risk_points' => $risk['risk_points'],
+            'risk_points' => $hasDataAnomalyKnown
+                ? $risk['risk_points']
+                : array_values(array_unique(array_merge($risk['risk_points'], ['数据异常状态未核验']))),
             'main_reasons' => $risk['main_reasons'],
             'suggestion' => $suggestion,
-            'data_notice' => $hasDataAnomaly ? '存在数据异常，本次只能给出谨慎建议，需先复核原始经营数据。' : '',
+            'data_notice' => $hasDataAnomaly
+                ? '存在数据异常；本结果仅为人工输入情景测算，需先复核原始经营数据、租约和证照。'
+                : ($hasDataAnomalyKnown
+                    ? '本结果仅为人工输入情景测算，未核验原始流水、租约和证照，不构成正式估值或接盘结论。'
+                    : '数据异常状态未核验；本结果仅为人工输入情景测算，不构成正式估值或接盘结论。'),
+            'data_quality' => [
+                'licenses_complete' => $licensesComplete,
+                'has_data_anomaly' => $hasDataAnomalyKnown ? $hasDataAnomaly : null,
+                'source' => 'manual_input_unverified',
+            ],
             'unit' => '万元',
         ];
 
@@ -130,6 +160,7 @@ class TransferDecisionService
         $score = 50;
         $reasons = ['基础分50分'];
         $suggestions = [];
+        $missingFields = $this->missingTimingFields($input);
 
         $revenueTrend = $this->trend($this->text($input, ['revenue_trend', '营业额趋势'], '持平'));
         $orderTrend = $this->trend($this->text($input, ['order_trend', '订单趋势'], '持平'));
@@ -156,6 +187,28 @@ class TransferDecisionService
             $hasDataAnomaly = true;
             $reasons[] = '曝光、访客、转化率为0但订单或间夜大于0，标记为疑似采集异常，不按经营严重下滑处理';
             $suggestions[] = '先复核OTA采集口径，再判断真实流量变化';
+        }
+        if ($missingFields !== []) {
+            return [
+                'status' => 'insufficient_data',
+                'decision_ready' => false,
+                'manual_unverified' => true,
+                'missing_fields' => $missingFields,
+                'timing_score' => null,
+                'decision' => '数据不足，暂无法判断转让时机',
+                'main_reasons' => ['缺少' . implode('、', $missingFields) . '，未进行时机评分。'],
+                'risk_points' => $suspectedCollectionAnomaly ? ['疑似采集异常'] : ['关键趋势缺失，风险状态未评估'],
+                'next_suggestions' => ['补齐当前期与对比期趋势数据，并核验数据来源后重新推演。'],
+                'suggested_action' => '补齐数据后再判断',
+                'data_quality' => [
+                    'has_data_anomaly' => $this->hasInputValue($input, ['has_data_anomaly', '是否存在数据异常'])
+                        ? ($hasDataAnomaly || $suspectedCollectionAnomaly)
+                        : ($suspectedCollectionAnomaly ? true : null),
+                    'has_data_gap' => $this->hasInputValue($input, ['has_data_gap', '是否数据断档']) ? $hasDataGap : null,
+                    'suspected_collection_anomaly' => $suspectedCollectionAnomaly,
+                    'notice' => $suspectedCollectionAnomaly ? '疑似采集异常；关键趋势仍缺失' : '关键趋势及数据质量信息不足',
+                ],
+            ];
         }
 
         $riskPoints = [];
@@ -221,17 +274,33 @@ class TransferDecisionService
         }
 
         return [
+            'status' => 'scenario_estimate',
+            'decision_ready' => false,
+            'manual_unverified' => true,
+            'missing_fields' => [],
             'timing_score' => $score,
             'decision' => $decision,
             'main_reasons' => array_values(array_unique($reasons)),
-            'risk_points' => array_values(array_unique($riskPoints)) ?: ['暂无明确时机风险'],
+            'risk_points' => array_values(array_unique($riskPoints)) ?: [
+                $this->hasInputValue($input, ['has_data_anomaly', '是否存在数据异常'])
+                && $this->hasInputValue($input, ['has_data_gap', '是否数据断档'])
+                    ? '当前规则未识别出明确风险；仍需人工尽调'
+                    : '数据异常或断档状态未核验',
+            ],
             'next_suggestions' => array_values(array_unique($suggestions)),
             'suggested_action' => $decision,
             'data_quality' => [
                 'has_data_anomaly' => $hasDataAnomaly,
                 'has_data_gap' => $hasDataGap,
                 'suspected_collection_anomaly' => $suspectedCollectionAnomaly,
-                'notice' => $suspectedCollectionAnomaly ? '疑似采集异常' : ($hasDataAnomaly ? '存在数据异常' : '数据口径正常'),
+                'notice' => $suspectedCollectionAnomaly
+                    ? '疑似采集异常'
+                    : ($hasDataAnomaly
+                        ? '存在数据异常'
+                        : ($this->hasInputValue($input, ['has_data_anomaly', '是否存在数据异常'])
+                            && $this->hasInputValue($input, ['has_data_gap', '是否数据断档'])
+                                ? '人工填写状态未发现异常；来源仍待核验'
+                                : '数据异常或断档状态未核验')),
             ],
         ];
     }
@@ -243,7 +312,8 @@ class TransferDecisionService
         $riskLevel = (string)($pricing['risk_level'] ?? '暂无');
         $timingScore = $timing['timing_score'] ?? null;
         $timingDecision = (string)($timing['decision'] ?? '暂无');
-        $hasDataAnomaly = (bool)($timing['data_quality']['has_data_anomaly'] ?? false) || !empty($pricing['data_notice']);
+        $hasDataAnomaly = ($timing['data_quality']['has_data_anomaly'] ?? null) === true
+            || ($pricing['data_quality']['has_data_anomaly'] ?? null) === true;
         $riskPoints = array_values(array_unique(array_merge(
             (array)($pricing['risk_points'] ?? []),
             (array)($timing['risk_points'] ?? []),
@@ -306,7 +376,7 @@ class TransferDecisionService
         $hotelBound = $hotelId > 0 || (int)($input['hotel_id'] ?? $snapshot['hotel_id'] ?? 0) > 0;
         $sourceCounts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
         $actualDays = (int)($snapshot['current']['actual_days'] ?? 0);
-        $sourceLoaded = $this->snapshotHasRealSource($snapshot);
+        $sourceLoaded = $this->snapshotHasSourceRecords($snapshot);
         $sourceScope = $this->sourceScopeFromSnapshot($sourceCounts);
 
         $pricingReady = isset($pricingResult['valuation']['reasonable_valuation'])
@@ -323,7 +393,7 @@ class TransferDecisionService
 
         $checks = [
             $this->readinessCheck('hotel_bound', '系统酒店绑定', $hotelBound, '已绑定到可访问酒店', '先选择系统酒店，避免脱离门店权限的孤立测算。', 10),
-            $this->readinessCheck('source_snapshot', '真实数据快照', $sourceLoaded, $this->readinessSourceEvidence($snapshot, $sourceCounts), '先从真实数据带入，并保留取数日期与来源计数。', 15),
+            $this->readinessCheck('source_snapshot', '来源记录快照', $sourceLoaded, $this->readinessSourceEvidence($snapshot, $sourceCounts), '先带入可追溯的来源记录，并保留取数日期、来源计数和核验状态。', 15),
             $this->readinessCheck('operating_window', '经营样本窗口', $sourceLoaded && $actualDays >= 7, $actualDays > 0 ? '当前窗口样本 ' . $actualDays . ' 天' : '当前窗口无样本', '至少补齐 7 天以上经营样本；30 天窗口更适合投决复核。', 10),
             $this->readinessCheck('cost_assumptions', '成本与报价输入', $costInputsReady, '租金、人力、转让价等关键输入已填写', '补齐租金、人力、预期转让价、房量和收入等关键假设。', 10),
             $this->readinessCheck('pricing_result', '资产定价结果', $pricingReady, '已形成估值、利润和风险结果', '先生成资产定价，不能只保留原始表单。', 15),
@@ -434,6 +504,7 @@ class TransferDecisionService
     public function buildSourcePayload(array $hotelIds, ?int $hotelId, string $date): array
     {
         $this->ensureTable();
+        $this->sourceReadStatus = [];
 
         $targetHotelId = $hotelId ?: ($hotelIds[0] ?? 0);
         $scopeHotelIds = $targetHotelId > 0 ? [$targetHotelId] : $hotelIds;
@@ -445,11 +516,46 @@ class TransferDecisionService
         $currentOnline = $this->onlineRows($scopeHotelIds, $currentStart, $sourceDate);
         $annualDaily = $this->dailyReportRows($scopeHotelIds, $annualStart, $sourceDate);
         $annualOnline = $this->onlineRows($scopeHotelIds, $annualStart, $sourceDate);
-        $current = $this->aggregateTransferMetrics($currentDaily, $currentOnline);
-        $annual = $this->aggregateTransferMetrics($annualDaily, $annualOnline);
+        $current = $this->aggregateTransferMetrics($currentDaily, $currentOnline, [
+            'target_hotel_id' => $targetHotelId,
+            'start_date' => $currentStart,
+            'end_date' => $sourceDate,
+        ]);
+        $annual = $this->aggregateTransferMetrics($annualDaily, $annualOnline, [
+            'target_hotel_id' => $targetHotelId,
+            'start_date' => $annualStart,
+            'end_date' => $sourceDate,
+        ]);
         $annualBenchmark = $this->annualThirtyDayBenchmark($annual);
         $hotel = $this->hotelRow($targetHotelId);
         $hotelName = (string)($hotel['name'] ?? $current['hotel_name'] ?? '');
+        $hasDailyReports = count($currentDaily) > 0;
+        $hasOnlineRows = (int)($current['truth_context']['included_verified_count'] ?? 0) > 0;
+        $sourceScope = $hasDailyReports
+            ? ($hasOnlineRows ? 'local_daily_report_with_ota_channel' : 'local_daily_report_only')
+            : ($hasOnlineRows ? 'ota_channel_only' : 'no_records');
+        $dataGaps = [];
+        if (!$hasDailyReports) {
+            $dataGaps[] = '缺少可核验的全酒店经营日报；OTA渠道记录不能替代全酒店经营收入。';
+        }
+        if (!$hasOnlineRows) {
+            $dataGaps[] = count($currentOnline) > 0
+                ? 'ota_channel_trusted_rows_missing'
+                : 'ota_channel_rows_missing';
+        }
+        if ((int)($current['truth_context']['excluded_untrusted_count'] ?? 0) > 0) {
+            $dataGaps[] = 'ota_channel_untrusted_rows_excluded';
+        }
+        foreach ($this->sourceReadStatus as $table => $status) {
+            if (($status['table_status'] ?? '') === 'missing') {
+                $dataGaps[] = 'source_table_missing:' . $table;
+            }
+        }
+        $dataStatus = $hasDailyReports
+            ? '已读取本地经营日报；来源、口径与真实性仍需核验。'
+            : ($hasOnlineRows
+                ? '已读取OTA渠道记录；该口径不能替代全酒店经营收入，当前不足以进行转让估值。'
+                : '未读取到可用于转让测算的经营记录。');
 
         $snapshot = [
             'hotel_id' => $targetHotelId,
@@ -463,11 +569,22 @@ class TransferDecisionService
             'annual_benchmark' => $annualBenchmark,
             'source_counts' => [
                 'daily_reports' => count($currentDaily),
-                'online_daily_data' => count($currentOnline),
+                'online_daily_data' => (int)($current['truth_context']['included_verified_count'] ?? 0),
+                'online_daily_data_scoped' => count($currentOnline),
+                'online_daily_data_excluded_untrusted' => (int)($current['truth_context']['excluded_untrusted_count'] ?? 0),
                 'annual_daily_reports' => count($annualDaily),
-                'annual_online_daily_data' => count($annualOnline),
+                'annual_online_daily_data' => (int)($annual['truth_context']['included_verified_count'] ?? 0),
+                'annual_online_daily_data_scoped' => count($annualOnline),
+                'annual_online_daily_data_excluded_untrusted' => (int)($annual['truth_context']['excluded_untrusted_count'] ?? 0),
             ],
-            'data_status' => $current['actual_days'] > 0 ? '已接入真实数据' : '暂无真实数据',
+            'source_scope' => $sourceScope,
+            'ota_scope' => 'ota_channel',
+            'source_verified' => false,
+            'source_read_status' => $this->sourceReadStatus,
+            'truth_context' => $current['truth_context'],
+            'annual_truth_context' => $annual['truth_context'],
+            'data_gaps' => $dataGaps,
+            'data_status' => $dataStatus,
             'generated_at' => date('Y-m-d H:i:s'),
         ];
 
@@ -475,25 +592,30 @@ class TransferDecisionService
             'hotel_id' => $targetHotelId,
             'hotel_name' => $hotelName,
             'source_date' => $sourceDate,
+            'truth_context' => $snapshot['truth_context'],
             'snapshot' => $snapshot,
             'pricing_input' => [
                 'hotel_id' => $targetHotelId,
                 'hotel_name' => $hotelName,
                 'location' => (string)($hotel['address'] ?? ''),
                 'room_count' => $current['room_count'] > 0 ? $current['room_count'] : null,
-                'monthly_revenue' => $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
+                'monthly_revenue' => $hasDailyReports && $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
+                'ota_channel_revenue' => !empty($current['ota_channel_revenue_observed']) ? round($current['ota_channel_revenue'] / 10000, 2) : null,
                 'occupancy_rate' => $current['occupancy_rate'] > 0 ? $current['occupancy_rate'] : null,
                 'adr' => $current['adr'] > 0 ? $current['adr'] : null,
                 'rating' => $current['rating'] > 0 ? $current['rating'] : null,
-                'order_count' => $current['orders'] > 0 ? $current['orders'] : null,
+                'order_count' => null,
+                'ota_channel_order_count' => !empty($current['ota_channel_orders_observed']) ? $current['ota_channel_orders'] : null,
                 'has_data_anomaly' => $current['has_data_anomaly'],
+                'source_scope' => $sourceScope,
             ],
             'timing_input' => [
                 'hotel_id' => $targetHotelId,
-                'current_revenue' => $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
-                'previous_revenue' => $annualBenchmark['revenue'] > 0 ? round($annualBenchmark['revenue'] / 10000, 2) : null,
-                'current_orders' => $current['orders'] > 0 ? $current['orders'] : null,
-                'previous_orders' => $annualBenchmark['orders'] > 0 ? $annualBenchmark['orders'] : null,
+                'current_revenue' => $hasDailyReports && $current['revenue'] > 0 ? round($current['revenue'] / 10000, 2) : null,
+                'previous_revenue' => count($annualDaily) > 0 && $annualBenchmark['revenue'] > 0 ? round($annualBenchmark['revenue'] / 10000, 2) : null,
+                'current_orders' => null,
+                'previous_orders' => null,
+                'ota_channel_orders' => !empty($current['ota_channel_orders_observed']) ? $current['ota_channel_orders'] : null,
                 'current_adr' => $current['adr'] > 0 ? $current['adr'] : null,
                 'previous_adr' => $annualBenchmark['adr'] > 0 ? $annualBenchmark['adr'] : null,
                 'current_occupancy_rate' => $current['occupancy_rate'] > 0 ? $current['occupancy_rate'] : null,
@@ -504,8 +626,10 @@ class TransferDecisionService
                 'exposure' => $current['exposure'] > 0 ? $current['exposure'] : null,
                 'visitors' => $current['visitors'] > 0 ? $current['visitors'] : null,
                 'conversion_rate' => $current['conversion_rate'] > 0 ? $current['conversion_rate'] : null,
-                'order_count' => $current['orders'] > 0 ? $current['orders'] : null,
-                'room_nights' => $current['room_nights'] > 0 ? $current['room_nights'] : null,
+                'order_count' => !empty($current['ota_channel_orders_observed']) ? $current['ota_channel_orders'] : null,
+                'room_nights' => !empty($current['ota_channel_room_nights_observed']) ? $current['ota_channel_room_nights'] : null,
+                'ota_channel_room_nights' => !empty($current['ota_channel_room_nights_observed']) ? $current['ota_channel_room_nights'] : null,
+                'source_scope' => $sourceScope,
             ],
             'data_notice' => $snapshot['data_status'],
         ];
@@ -513,6 +637,14 @@ class TransferDecisionService
 
     public function saveRecord(string $recordType, array $input, array $result, array $snapshot, int $hotelId, int $userId): int
     {
+        if ($hotelId <= 0) {
+            throw new RuntimeException('Hotel scope is missing');
+        }
+        $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+        if ($tenantId <= 0) {
+            throw new RuntimeException('Hotel tenant scope is missing');
+        }
+
         $this->ensureTable();
 
         $summary = $this->recordSummary($recordType, $input, $result, $snapshot);
@@ -520,7 +652,7 @@ class TransferDecisionService
 
         return (int)Db::name('transfer_records')->insertGetId([
             'record_type' => $recordType,
-            'tenant_id' => $hotelId,
+            'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'hotel_name' => $summary['hotel_name'],
             'source_date' => $summary['source_date'],
@@ -700,29 +832,16 @@ class TransferDecisionService
 
     public function ensureTable(): void
     {
-        Db::execute("
-            CREATE TABLE IF NOT EXISTS transfer_records (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                record_type VARCHAR(30) NOT NULL DEFAULT '',
-                tenant_id INT UNSIGNED DEFAULT NULL,
-                hotel_id INT UNSIGNED NOT NULL DEFAULT 0,
-                hotel_name VARCHAR(160) NOT NULL DEFAULT '',
-                source_date DATE DEFAULT NULL,
-                input_json JSON DEFAULT NULL,
-                result_json JSON DEFAULT NULL,
-                snapshot_json JSON DEFAULT NULL,
-                decision VARCHAR(120) NOT NULL DEFAULT '',
-                risk_level VARCHAR(30) NOT NULL DEFAULT '',
-                created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                deleted_at DATETIME DEFAULT NULL,
-                PRIMARY KEY (id),
-                INDEX idx_transfer_records_tenant (tenant_id, hotel_id),
-                INDEX idx_transfer_records_hotel_type (hotel_id, record_type, id),
-                INDEX idx_transfer_records_created_by (created_by, id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
+        if ($this->tableEnsured) {
+            return;
+        }
+
+        DatabaseSchemaRequirement::assertTableColumns('transfer_records', [
+            'id', 'record_type', 'tenant_id', 'hotel_id', 'hotel_name', 'source_date',
+            'input_json', 'result_json', 'snapshot_json', 'decision', 'risk_level',
+            'created_by', 'created_at', 'updated_at', 'deleted_at',
+        ]);
+        $this->tableEnsured = true;
     }
 
     private function readinessPricingResult(string $recordType, array $input, array $result): array
@@ -753,7 +872,7 @@ class TransferDecisionService
         return [];
     }
 
-    private function snapshotHasRealSource(array $snapshot): bool
+    private function snapshotHasSourceRecords(array $snapshot): bool
     {
         $counts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
         foreach (['daily_reports', 'online_daily_data', 'annual_daily_reports', 'annual_online_daily_data'] as $key) {
@@ -761,8 +880,7 @@ class TransferDecisionService
                 return true;
             }
         }
-        return (int)($snapshot['current']['actual_days'] ?? 0) > 0
-            || trim((string)($snapshot['data_status'] ?? '')) === '已接入真实数据';
+        return (int)($snapshot['current']['actual_days'] ?? 0) > 0;
     }
 
     private function sourceScopeFromSnapshot(array $sourceCounts): string
@@ -783,8 +901,8 @@ class TransferDecisionService
 
     private function readinessSourceEvidence(array $snapshot, array $sourceCounts): string
     {
-        if (!$this->snapshotHasRealSource($snapshot)) {
-            return '暂无真实数据快照';
+        if (!$this->snapshotHasSourceRecords($snapshot)) {
+            return '暂无可追溯的来源记录快照';
         }
 
         $parts = [];
@@ -795,7 +913,7 @@ class TransferDecisionService
             }
         }
         $date = trim((string)($snapshot['source_date'] ?? ''));
-        return ($date !== '' ? '取数日 ' . $date . '；' : '') . ($parts ? implode('；', $parts) : '已接入真实数据');
+        return ($date !== '' ? '取数日 ' . $date . '；' : '') . ($parts ? implode('；', $parts) : '已读取本地记录；来源真实性待核验');
     }
 
     private function transferCostInputsReady(array $input, array $pricingResult): bool
@@ -834,7 +952,7 @@ class TransferDecisionService
         if ($this->nullableBool($snapshot['current']['has_data_anomaly'] ?? null) === true) {
             return true;
         }
-        if (trim((string)($pricingResult['data_notice'] ?? '')) !== '') {
+        if (($pricingResult['data_quality']['has_data_anomaly'] ?? null) === true) {
             return true;
         }
         $quality = is_array($timingResult['data_quality'] ?? null) ? $timingResult['data_quality'] : [];
@@ -1157,16 +1275,17 @@ class TransferDecisionService
                 'source' => 'llm',
                 'model_key' => $modelKey,
                 'generated_at' => date('Y-m-d H:i:s'),
+                'decision_quality_context' => $this->transferDecisionQualityContext($input, $result),
             ]);
         } catch (Throwable $e) {
             if ($requireAiEvaluation) {
                 throw new RuntimeException('AI模型调用失败，未生成AI评估结果：' . $e->getMessage(), 0, $e);
             }
-            return $this->buildFallbackPricingAiEvaluation($result, $modelKey, $e->getMessage());
+            return $this->buildFallbackPricingAiEvaluation($input, $result, $modelKey, $e->getMessage());
         }
     }
 
-    private function buildFallbackPricingAiEvaluation(array $result, string $modelKey, string $reason): array
+    private function buildFallbackPricingAiEvaluation(array $input, array $result, string $modelKey, string $reason): array
     {
         $riskLevel = (string)($result['risk_level'] ?? '中风险');
         $quoteJudgement = (string)($result['valuation']['quote_judgement'] ?? '报价需复核');
@@ -1205,7 +1324,7 @@ class TransferDecisionService
             ],
         ];
 
-        return [
+        return $this->normalizePricingAiEvaluation([
             'source' => 'fallback',
             'model_key' => $modelKey,
             'generated_at' => date('Y-m-d H:i:s'),
@@ -1234,7 +1353,9 @@ class TransferDecisionService
                 '本评估仅基于当前录入和公式结果，最终成交前需核验真实流水、租约、证照和 OTA 样本。',
             ],
             'error' => mb_substr(trim($reason), 0, 120),
-        ];
+        ], [
+            'decision_quality_context' => $this->transferDecisionQualityContext($input, $result),
+        ]);
     }
 
     private function normalizePricingAiEvaluation(mixed $raw, array $defaults = []): array
@@ -1243,13 +1364,22 @@ class TransferDecisionService
             $raw = [];
         }
 
+        $decisionQualityContext = is_array($defaults['decision_quality_context'] ?? null)
+            ? $defaults['decision_quality_context']
+            : $this->transferDecisionQualityContext([], []);
+        $recommendations = $this->decisionQualityService->enrichRecommendations(
+            $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            $decisionQualityContext
+        );
+
         return [
             'source' => trim((string)($raw['source'] ?? $defaults['source'] ?? '')),
             'model_key' => trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? '')),
             'generated_at' => trim((string)($raw['generated_at'] ?? $raw['generatedAt'] ?? $defaults['generated_at'] ?? '')),
             'summary' => mb_substr(trim((string)($raw['summary'] ?? '')), 0, 300),
             'decision' => mb_substr(trim((string)($raw['decision'] ?? '')), 0, 160),
-            'recommendations' => $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            'recommendations' => $recommendations,
+            'recommendation_quality' => $this->decisionQualityService->summarize($recommendations, $decisionQualityContext),
             'watch_points' => $this->normalizeAiWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []),
             'assumptions' => $this->stringList($raw['assumptions'] ?? []),
             'error' => mb_substr(trim((string)($raw['error'] ?? '')), 0, 120),
@@ -1281,11 +1411,11 @@ class TransferDecisionService
             if (!in_array($priority, ['P0', 'P1', 'P2'], true)) {
                 $priority = 'P1';
             }
-            $normalized[] = [
+            $normalized[] = array_merge($item, [
                 'priority' => $priority,
                 'title' => mb_substr($title !== '' ? $title : '评估建议', 0, 60),
                 'detail' => mb_substr($detail, 0, 220),
-            ];
+            ]);
         }
 
         return array_slice($normalized, 0, 6);
@@ -1458,6 +1588,11 @@ class TransferDecisionService
     {
         $input = $this->decodeJson($row['input_json'] ?? '');
         $result = $this->decodeJson($row['result_json'] ?? '');
+        if (is_array($result['ai_evaluation'] ?? null)) {
+            $result['ai_evaluation'] = $this->normalizePricingAiEvaluation($result['ai_evaluation'], [
+                'decision_quality_context' => $this->transferDecisionQualityContext($input, $result),
+            ]);
+        }
         $snapshot = $this->decodeJson($row['snapshot_json'] ?? '');
         $record = [
             'id' => (int)$row['id'],
@@ -1494,6 +1629,33 @@ class TransferDecisionService
         return $record;
     }
 
+    private function transferDecisionQualityContext(array $input, array $result): array
+    {
+        return [
+            'scope' => 'investment_scenario',
+            'hotel_id' => (int)($input['hotel_id'] ?? 0),
+            'data_basis' => [
+                [
+                    'ref' => 'transfer_user_input_snapshot',
+                    'source' => 'user_provided_transfer_inputs',
+                    'scope' => 'investment_scenario',
+                    'quality_status' => 'user_provided_unverified',
+                    'summary' => '收入、成本、租约、报价和证照状态来自当前录入，需以原始资料复核。',
+                ],
+                [
+                    'ref' => 'transfer_deterministic_valuation',
+                    'source' => 'deterministic_valuation_and_payback_result',
+                    'scope' => 'investment_scenario',
+                    'quality_status' => 'derived_unverified',
+                    'summary' => '估值、回本期和风险由当前输入派生，不代表已经完成尽调。',
+                ],
+            ],
+            'basis_summary' => (string)($result['suggestion'] ?? $result['decision'] ?? ''),
+            'default_risk_level' => (string)($result['risk_level'] ?? 'medium'),
+            'review_window' => '进入报价或交割前，以真实流水、租约、证照、成本单据和OTA渠道样本复核',
+        ];
+    }
+
     private function executionRiskLevel(string $riskLevel, string $decision): string
     {
         $text = strtolower($riskLevel . ' ' . $decision);
@@ -1513,13 +1675,15 @@ class TransferDecisionService
         }
 
         try {
-            return Db::name('daily_reports')
+            $rows = Db::name('daily_reports')
                 ->whereIn('hotel_id', $hotelIds)
                 ->whereBetween('report_date', [$startDate, $endDate])
                 ->select()
                 ->toArray();
+            $this->markSourceReadSuccess('daily_reports', count($rows));
+            return $rows;
         } catch (Throwable $e) {
-            return [];
+            throw new RuntimeException('transfer_source_read_failed:daily_reports', 503, $e);
         }
     }
 
@@ -1530,13 +1694,15 @@ class TransferDecisionService
         }
 
         try {
-            return Db::name('online_daily_data')
+            $rows = Db::name('online_daily_data')
                 ->whereBetween('data_date', [$startDate, $endDate])
                 ->whereIn('system_hotel_id', array_map('intval', $hotelIds))
                 ->select()
                 ->toArray();
+            $this->markSourceReadSuccess('online_daily_data', count($rows));
+            return $rows;
         } catch (Throwable $e) {
-            return [];
+            throw new RuntimeException('transfer_source_read_failed:online_daily_data', 503, $e);
         }
     }
 
@@ -1548,18 +1714,149 @@ class TransferDecisionService
 
         try {
             $row = Db::name('hotels')->where('id', $hotelId)->find();
+            $this->markSourceReadSuccess('hotels', is_array($row) ? 1 : 0);
             return is_array($row) ? $row : [];
         } catch (Throwable $e) {
-            return [];
+            throw new RuntimeException('transfer_source_read_failed:hotels', 503, $e);
         }
     }
 
-    private function aggregateTransferMetrics(array $dailyRows, array $onlineRows): array
+    /**
+     * @return array{verified_rows:array<int,array<string,mixed>>,truth_context:array<string,mixed>}
+     */
+    private function filterTrustedTransferOtaRows(array $rows, array $scope): array
     {
+        $targetHotelId = max(0, (int)($scope['target_hotel_id'] ?? 0));
+        $startDate = trim((string)($scope['start_date'] ?? ''));
+        $endDate = trim((string)($scope['end_date'] ?? ''));
+        $dateScopeValid = preg_match('/^\d{4}-\d{2}-\d{2}$/D', $startDate) === 1
+            && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $endDate) === 1
+            && $startDate <= $endDate;
+        $verifiedRows = [];
+        $truthEnvelopes = [];
+        $failureReasons = [];
+        $includedRowIds = [];
+        $excludedCount = 0;
+        $scopeExclusionCounts = [
+            'target_hotel_missing' => 0,
+            'hotel_scope_mismatch' => 0,
+            'target_date_range_missing_or_invalid' => 0,
+            'date_scope_mismatch' => 0,
+            'unsupported_ota_platform' => 0,
+            'row_not_array' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                $excludedCount++;
+                $scopeExclusionCounts['row_not_array']++;
+                $failureReasons[] = 'row_not_array';
+                continue;
+            }
+
+            $raw = $this->decodeJson($row['raw_data'] ?? '');
+            $truth = OnlineDataTrustStatusService::truthEnvelope(
+                $row,
+                OnlineDataFieldFactService::buildStatus($row, $raw)
+            );
+            $rowHotelId = max(0, (int)($row['system_hotel_id'] ?? 0));
+            $rowDate = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
+            $platform = strtolower(trim((string)($truth['platform'] ?? '')));
+
+            $scopeFailure = '';
+            if ($targetHotelId <= 0) {
+                $scopeFailure = 'target_hotel_missing';
+            } elseif ($rowHotelId !== $targetHotelId) {
+                $scopeFailure = 'hotel_scope_mismatch';
+            } elseif (!$dateScopeValid) {
+                $scopeFailure = 'target_date_range_missing_or_invalid';
+            } elseif ($rowDate < $startDate || $rowDate > $endDate) {
+                $scopeFailure = 'date_scope_mismatch';
+            } elseif (!in_array($platform, self::SUPPORTED_OTA_PLATFORMS, true)) {
+                $scopeFailure = 'unsupported_ota_platform';
+            }
+            if ($scopeFailure !== '') {
+                $excludedCount++;
+                $scopeExclusionCounts[$scopeFailure]++;
+                $failureReasons[] = $scopeFailure;
+                continue;
+            }
+
+            $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
+            if (!in_array($validationStatus, self::TRUSTED_OTA_VALIDATION_STATUSES, true)
+                && ($truth['status'] ?? '') === 'verified'
+            ) {
+                $truth['status'] = 'unverified';
+                $truth['failure_reason'] = 'validation_status_not_explicitly_trusted';
+            }
+            $truthEnvelopes[] = $truth;
+
+            if (($truth['status'] ?? '') === 'verified') {
+                $verifiedRows[] = $row;
+                $rowId = max(0, (int)($row['id'] ?? 0));
+                if ($rowId > 0) {
+                    $includedRowIds[] = $rowId;
+                }
+                continue;
+            }
+
+            $excludedCount++;
+            $reason = trim((string)($truth['failure_reason'] ?? ''));
+            $failureReasons[] = $reason !== '' ? $reason : 'truth_status_' . (string)($truth['status'] ?? 'unverified');
+        }
+
+        $failureReasons = array_values(array_unique(array_filter(
+            $failureReasons,
+            static fn(string $reason): bool => trim($reason) !== ''
+        )));
+        $fallbackReason = $failureReasons !== []
+            ? implode('; ', array_slice($failureReasons, 0, 4))
+            : ($rows === [] ? 'ota_channel_rows_missing' : 'ota_channel_verified_rows_missing');
+        $truthContext = OnlineDataTrustStatusService::summarizeTruthEnvelopes($truthEnvelopes, [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'excluded_untrusted_count' => $excludedCount,
+            'fallback_failure_reason' => $fallbackReason,
+        ]);
+        $truthContext['source_table'] = 'online_daily_data';
+        $truthContext['scope'] = [
+            'target_hotel_id' => $targetHotelId > 0 ? $targetHotelId : null,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'platforms' => self::SUPPORTED_OTA_PLATFORMS,
+        ];
+        $truthContext['included_verified_count'] = count($verifiedRows);
+        $truthContext['excluded_untrusted_count'] = $excludedCount;
+        $truthContext['included_row_ids'] = array_values(array_unique($includedRowIds));
+        $truthContext['failure_reasons'] = $failureReasons;
+        $truthContext['scope_exclusion_counts'] = $scopeExclusionCounts;
+        $truthContext['metric_caliber'] = [
+            'ota_channel_revenue' => 'sum(online_daily_data.amount) over verified OTA rows',
+            'ota_channel_orders' => 'sum(online_daily_data.book_order_num) over verified OTA rows',
+            'ota_channel_room_nights' => 'sum(online_daily_data.quantity) over verified OTA rows',
+        ];
+
+        return [
+            'verified_rows' => $verifiedRows,
+            'truth_context' => $truthContext,
+        ];
+    }
+
+    private function aggregateTransferMetrics(array $dailyRows, array $onlineRows, array $otaScope = []): array
+    {
+        $otaTruth = $this->filterTrustedTransferOtaRows($onlineRows, $otaScope);
+        $onlineRows = $otaTruth['verified_rows'];
         $dates = [];
+        $dailyDates = [];
+        $onlineDates = [];
         $revenue = 0.0;
-        $orders = 0;
+        $otaChannelRevenue = 0.0;
+        $otaChannelOrders = 0;
+        $otaChannelRevenueObserved = false;
+        $otaChannelOrdersObserved = false;
         $roomNights = 0.0;
+        $otaChannelRoomNights = 0.0;
+        $otaChannelRoomNightsObserved = false;
         $roomCount = 0;
         $occValues = [];
         $ratingValues = [];
@@ -1569,6 +1866,7 @@ class TransferDecisionService
 
         foreach ($dailyRows as $row) {
             $dates[(string)$row['report_date']] = true;
+            $dailyDates[(string)$row['report_date']] = true;
             $reportData = $this->decodeJson($row['report_data'] ?? '');
             $revenue += $this->extractRevenue($row, $reportData);
             $roomCount = max($roomCount, (int)$this->extractSalableRoomCount($row, $reportData));
@@ -1579,15 +1877,25 @@ class TransferDecisionService
             }
         }
 
-        $dailyFinancialKeys = $this->buildDailyFinancialKeys($dailyRows);
         foreach ($onlineRows as $row) {
             $dates[(string)$row['data_date']] = true;
+            $onlineDates[(string)$row['data_date']] = true;
             $raw = $this->decodeJson($row['raw_data'] ?? '');
             $hotelName = $hotelName ?: (string)($row['hotel_name'] ?? '');
-            $orders += (int)($row['book_order_num'] ?? $raw['bookOrderNum'] ?? $raw['orders'] ?? 0);
-            if (!$this->hasDailyFinancialForOnlineRow($dailyFinancialKeys, $row)) {
-                $revenue += (float)($row['amount'] ?? $raw['amount'] ?? $raw['revenue'] ?? 0);
-                $roomNights += (float)($row['quantity'] ?? $row['data_value'] ?? $raw['roomNights'] ?? 0);
+            $orderValue = $row['book_order_num'] ?? $raw['bookOrderNum'] ?? $raw['orders'] ?? null;
+            if (is_numeric($orderValue)) {
+                $otaChannelOrdersObserved = true;
+                $otaChannelOrders += (int)$orderValue;
+            }
+            $revenueValue = $row['amount'] ?? $raw['amount'] ?? $raw['revenue'] ?? null;
+            if (is_numeric($revenueValue)) {
+                $otaChannelRevenueObserved = true;
+                $otaChannelRevenue += (float)$revenueValue;
+            }
+            $roomNightValue = $row['quantity'] ?? $row['data_value'] ?? $raw['roomNights'] ?? null;
+            if (is_numeric($roomNightValue)) {
+                $otaChannelRoomNightsObserved = true;
+                $otaChannelRoomNights += (float)$roomNightValue;
             }
             $exposure += (int)($raw['exposure'] ?? $raw['showNum'] ?? $raw['impression'] ?? 0);
             $visitors += (int)($raw['visitors'] ?? $raw['visitorNum'] ?? $raw['qunarDetailVisitors'] ?? $raw['totalDetailNum'] ?? 0);
@@ -1604,14 +1912,22 @@ class TransferDecisionService
             $occupancyRate = $roomNights / ($roomCount * $actualDays) * 100;
         }
 
-        $conversionRate = $visitors > 0 ? $orders / $visitors * 100 : 0;
+        $conversionRate = $visitors > 0 ? $otaChannelOrders / $visitors * 100 : 0;
 
         return [
             'hotel_name' => $hotelName,
             'actual_days' => $actualDays,
+            'daily_report_days' => count($dailyDates),
+            'ota_channel_days' => count($onlineDates),
             'revenue' => round($revenue, 2),
-            'orders' => $orders,
+            'ota_channel_revenue' => round($otaChannelRevenue, 2),
+            'ota_channel_revenue_observed' => $otaChannelRevenueObserved,
+            'orders' => $otaChannelOrders,
+            'ota_channel_orders' => $otaChannelOrders,
+            'ota_channel_orders_observed' => $otaChannelOrdersObserved,
             'room_nights' => round($roomNights, 2),
+            'ota_channel_room_nights' => round($otaChannelRoomNights, 2),
+            'ota_channel_room_nights_observed' => $otaChannelRoomNightsObserved,
             'room_count' => $roomCount,
             'adr' => round($adr, 2),
             'occupancy_rate' => round($occupancyRate, 2),
@@ -1619,7 +1935,10 @@ class TransferDecisionService
             'exposure' => $exposure,
             'visitors' => $visitors,
             'conversion_rate' => round($conversionRate, 2),
-            'has_data_anomaly' => $orders > 0 && $exposure <= 0 && $visitors <= 0,
+            'has_data_anomaly' => $otaChannelOrders > 0 && $exposure <= 0 && $visitors <= 0,
+            'ota_scope' => 'ota_channel',
+            'truth_context' => $otaTruth['truth_context'],
+            'scope_note' => 'revenue/room_nights 仅汇总本地经营日报；ota_channel_* 仅汇总OTA渠道记录，两者不得互相替代。',
         ];
     }
 
@@ -1762,10 +2081,36 @@ class TransferDecisionService
     private function tableExists(string $table): bool
     {
         try {
-            return !empty(Db::query("SHOW TABLES LIKE '{$table}'"));
+            $exists = !empty(Db::query("SHOW TABLES LIKE '{$table}'"));
+            $status = $this->sourceReadStatus[$table] ?? [
+                'query_count' => 0,
+                'row_count' => 0,
+            ];
+            $status['table_status'] = $exists ? 'available' : 'missing';
+            if (!$exists) {
+                $status['read_status'] = 'not_attempted';
+            } elseif ((int)($status['query_count'] ?? 0) === 0) {
+                $status['read_status'] = 'pending';
+            }
+            $this->sourceReadStatus[$table] = $status;
+            return $exists;
         } catch (Throwable $e) {
-            return false;
+            throw new RuntimeException('transfer_source_schema_check_failed:' . $table, 503, $e);
         }
+    }
+
+    private function markSourceReadSuccess(string $table, int $rowCount): void
+    {
+        $status = $this->sourceReadStatus[$table] ?? [
+            'table_status' => 'available',
+            'read_status' => 'pending',
+            'query_count' => 0,
+            'row_count' => 0,
+        ];
+        $status['read_status'] = 'ok';
+        $status['query_count'] = (int)($status['query_count'] ?? 0) + 1;
+        $status['row_count'] = (int)($status['row_count'] ?? 0) + max(0, $rowCount);
+        $this->sourceReadStatus[$table] = $status;
     }
 
     private function avg(array $values): float
@@ -1777,6 +2122,171 @@ class TransferDecisionService
     private function limitText(string $value, int $length): string
     {
         return function_exists('mb_substr') ? mb_substr($value, 0, $length) : substr($value, 0, $length);
+    }
+
+    private function missingPricingFields(array $input): array
+    {
+        $numericFields = [
+            '月营业额' => ['monthly_revenue', '月营业额'],
+            '月租金' => ['monthly_rent', '月租金'],
+            '人工成本' => ['labor_cost', '人工成本'],
+            '水电能耗' => ['utility_cost', '水电能耗'],
+            'OTA佣金' => ['ota_commission', 'OTA佣金'],
+            '其他固定成本' => ['other_fixed_cost', '其他固定成本'],
+            '装修投入' => ['decoration_investment', '装修投入'],
+            '剩余租期' => ['remaining_lease_months', '剩余租期（月）', '剩余租期'],
+            '业主预期转让价' => ['expected_transfer_price', '业主预期转让价'],
+            '入住率' => ['occupancy_rate', '入住率'],
+            '评分' => ['rating', '评分'],
+        ];
+        $missing = [];
+        foreach ($numericFields as $label => $keys) {
+            if (!$this->hasNumericInput($input, $keys)) {
+                $missing[] = $label;
+            }
+        }
+        foreach (['证照是否齐全' => ['licenses_complete', '证照是否齐全']] as $label => $keys) {
+            if (!$this->hasInputValue($input, $keys)) {
+                $missing[] = $label;
+            }
+        }
+        return $missing;
+    }
+
+    private function missingTimingFields(array $input): array
+    {
+        $dimensions = [
+            '营业额趋势' => [
+                ['revenue_trend', '营业额趋势'],
+                ['current_revenue', '近30天营业额'],
+                ['previous_revenue', '年度30天营业额', '年度营业额', '上期营业额'],
+            ],
+            '订单趋势' => [
+                ['order_trend', '订单趋势'],
+                ['current_orders', '近30天订单量'],
+                ['previous_orders', '年度30天订单量', '年度订单量', '上期订单量'],
+            ],
+            'ADR趋势' => [
+                ['adr_trend', 'ADR趋势'],
+                ['current_adr', '近30天ADR'],
+                ['previous_adr', '年度ADR', '上期ADR'],
+            ],
+            '入住率趋势' => [
+                ['occupancy_trend', '入住率趋势'],
+                ['current_occupancy_rate', '近30天入住率'],
+                ['previous_occupancy_rate', '年度入住率', '上期入住率'],
+            ],
+        ];
+        $missing = [];
+        foreach ($dimensions as $label => [$trendKeys, $currentKeys, $previousKeys]) {
+            if ($this->hasRecognizedTrendInput($input, $trendKeys)) {
+                continue;
+            }
+            if (!$this->hasNumericInput($input, $currentKeys) || !$this->hasNumericInput($input, $previousKeys)) {
+                $missing[] = $label;
+            }
+        }
+        return $missing;
+    }
+
+    private function hasRecognizedTrendInput(array $input, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $input)) {
+                continue;
+            }
+            $value = trim((string)$input[$key]);
+            if (in_array($value, ['上涨', '上升', '增长', 'up', 'rise', '下滑', '下降', '减少', 'down', 'drop', '持平', '稳定', 'flat', 'same'], true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function buildInsufficientPricingResult(
+        string $hotelName,
+        string $location,
+        int $roomCount,
+        array $input,
+        array $missingFields
+    ): array {
+        $notice = '当前仅完成输入校验；缺少' . implode('、', $missingFields) . '，暂不能形成利润、估值或接盘建议。';
+        return [
+            'status' => 'insufficient_data',
+            'decision_ready' => false,
+            'manual_unverified' => true,
+            'missing_fields' => $missingFields,
+            'basic_info' => [
+                'hotel_name' => $hotelName,
+                'location' => $location,
+                'room_count' => $roomCount,
+                'adr' => $this->numberOrNull($input, ['adr', 'ADR']),
+                'rating' => $this->numberOrNull($input, ['rating', '评分']),
+                'order_count' => $this->numberOrNull($input, ['order_count', '订单量']),
+            ],
+            'costs' => [
+                'monthly_total_cost' => null,
+                'monthly_rent' => $this->numberOrNull($input, ['monthly_rent', '月租金']),
+                'labor_cost' => $this->numberOrNull($input, ['labor_cost', '人工成本']),
+                'utility_cost' => $this->numberOrNull($input, ['utility_cost', '水电能耗']),
+                'ota_commission' => $this->numberOrNull($input, ['ota_commission', 'OTA佣金']),
+                'other_fixed_cost' => $this->numberOrNull($input, ['other_fixed_cost', '其他固定成本']),
+            ],
+            'profit' => [
+                'monthly_revenue' => $this->numberOrNull($input, ['monthly_revenue', '月营业额']),
+                'monthly_net_profit' => null,
+                'annual_net_profit' => null,
+                'payback_months' => null,
+            ],
+            'valuation' => [
+                'valuation_multiple' => null,
+                'conservative_valuation' => null,
+                'reasonable_valuation' => null,
+                'optimistic_valuation' => null,
+                'expected_transfer_price' => $this->numberOrNull($input, ['expected_transfer_price', '业主预期转让价']),
+                'quote_judgement' => '数据不足，未评估',
+            ],
+            'risk_level' => '未评估',
+            'risk_points' => ['关键输入缺失，风险状态未评估'],
+            'main_reasons' => [$notice],
+            'suggestion' => '请补齐关键财务、租约、证照和数据质量信息后重新测算。',
+            'data_notice' => $notice,
+            'data_quality' => [
+                'licenses_complete' => $this->hasInputValue($input, ['licenses_complete', '证照是否齐全'])
+                    ? $this->bool($input, ['licenses_complete', '证照是否齐全'])
+                    : null,
+                'has_data_anomaly' => $this->hasInputValue($input, ['has_data_anomaly', '是否存在数据异常'])
+                    ? $this->bool($input, ['has_data_anomaly', '是否存在数据异常'])
+                    : null,
+                'source' => 'manual_input_unverified',
+            ],
+            'unit' => '万元',
+        ];
+    }
+
+    private function hasInputValue(array $input, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $input) && $input[$key] !== '' && $input[$key] !== null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function hasNumericInput(array $input, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $input) && $input[$key] !== '' && $input[$key] !== null && is_numeric($input[$key])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function numberOrNull(array $input, array $keys): ?float
+    {
+        return $this->hasNumericInput($input, $keys) ? $this->number($input, $keys) : null;
     }
 
     private function number(array $input, array $keys, float $default = 0.0): float

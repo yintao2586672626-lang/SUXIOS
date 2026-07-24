@@ -3,23 +3,24 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
 /**
  * 房型模型
  * 用于收益管理Agent的房型定价
  */
-class RoomType extends Model
+class RoomType extends BaseTenantModel
 {
     protected $name = 'room_types';
-    
+
     protected $autoWriteTimestamp = true;
-    
+
     protected $createTime = 'create_time';
     protected $updateTime = 'update_time';
-    
+
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'base_price' => 'float',
         'min_price' => 'float',
@@ -29,7 +30,7 @@ class RoomType extends Model
         'is_enabled' => 'integer',
         'facilities' => 'json',
     ];
-    
+
     protected $json = ['facilities'];
     protected $jsonAssoc = true;
 

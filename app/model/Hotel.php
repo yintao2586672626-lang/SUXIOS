@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
-class Hotel extends Model
+class Hotel extends BaseTenantModel
 {
     protected $name = 'hotels';
     
@@ -16,6 +16,7 @@ class Hotel extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'status' => 'integer',
         'ota_channel_strategy' => 'string',
         'owner_user_id' => 'integer',

@@ -205,18 +205,18 @@ final class BusinessClosureOverviewServiceTest extends TestCase
                 'roi_ready_count' => 1,
             ],
             [
-                'key' => 'opening',
-                'label' => '开业管理',
+                'key' => 'ai_daily_report',
+                'label' => 'AI经营日报 / AI决策',
                 'record_count' => 2,
                 'linked_execution_count' => 0,
             ],
             [
-                'key' => 'feasibility_report',
-                'label' => 'AI可行性报告',
+                'key' => 'revenue_pricing',
+                'label' => '收益调价建议',
                 'record_count' => 1,
                 'linked_execution_count' => 0,
                 'data_gaps' => [
-                    ['code' => 'feasibility_readiness_source_evidence', 'message' => 'source evidence missing'],
+                    ['code' => 'price_suggestion_execution_intent_missing', 'message' => 'execution evidence missing'],
                 ],
             ],
         ], ['total' => 1, 'roi_ready' => 1]);
@@ -225,8 +225,8 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         self::assertSame(1, $overview['summary']['closed_loop_count']);
         self::assertSame(2, $overview['summary']['not_closed_count']);
         self::assertSame('not_closed', $overview['summary']['status']);
-        self::assertSame('opening', $overview['weak_modules'][0]['key']);
-        self::assertSame('feasibility_report', $overview['weak_modules'][1]['key']);
+        self::assertSame('ai_daily_report', $overview['weak_modules'][0]['key']);
+        self::assertSame('revenue_pricing', $overview['weak_modules'][1]['key']);
     }
 
     public function testOverviewSeparatesProcessWeakModulesFromRoiWeakModules(): void
@@ -246,8 +246,8 @@ final class BusinessClosureOverviewServiceTest extends TestCase
                 'roi_ready_count' => 0,
             ],
             [
-                'key' => 'opening',
-                'label' => '开业管理',
+                'key' => 'ai_daily_report',
+                'label' => 'AI经营日报 / AI决策',
                 'record_count' => 1,
                 'linked_execution_count' => 0,
             ],
@@ -263,12 +263,12 @@ final class BusinessClosureOverviewServiceTest extends TestCase
 
         self::assertArrayHasKey('process_weak_modules', $overview);
         self::assertArrayHasKey('roi_weak_modules', $overview);
-        self::assertSame(['opening'], array_column($overview['process_weak_modules'], 'key'));
-        self::assertSame(['revenue_pricing', 'opening'], array_column($overview['roi_weak_modules'], 'key'));
-        self::assertSame(['revenue_pricing', 'opening'], array_column($overview['weak_modules'], 'key'));
+        self::assertSame(['ai_daily_report'], array_column($overview['process_weak_modules'], 'key'));
+        self::assertSame(['ai_daily_report', 'revenue_pricing'], array_column($overview['roi_weak_modules'], 'key'));
+        self::assertSame(['ai_daily_report', 'revenue_pricing'], array_column($overview['weak_modules'], 'key'));
     }
 
-    public function testOverviewIncludesStaffAndAssetClosureModulesInOrder(): void
+    public function testOverviewKeepsOnlyActiveCoreClosureModulesInOrder(): void
     {
         $service = new BusinessClosureOverviewService();
 
@@ -281,8 +281,8 @@ final class BusinessClosureOverviewServiceTest extends TestCase
                 'roi_ready_count' => 1,
             ],
             [
-                'key' => 'asset_maintenance',
-                'label' => '资产运维 / 能耗维护',
+                'key' => 'ai_daily_report',
+                'label' => 'AI经营日报 / AI决策',
                 'record_count' => 3,
                 'linked_execution_count' => 2,
                 'executed_count' => 1,
@@ -306,16 +306,20 @@ final class BusinessClosureOverviewServiceTest extends TestCase
                 'record_count' => 2,
                 'linked_execution_count' => 0,
             ],
+            [
+                'key' => 'transfer_investment',
+                'label' => '转让 / 投资测算',
+                'record_count' => 1,
+                'linked_execution_count' => 0,
+            ],
         ]);
 
         self::assertSame([
+            'ai_daily_report',
             'revenue_pricing',
-            'staff_service',
-            'asset_maintenance',
             'operation_execution',
         ], array_column($overview['modules'], 'key'));
-        self::assertSame('已闭环', $overview['modules'][1]['status_label']);
-        self::assertSame(3, $overview['summary']['closed_loop_count']);
+        self::assertSame(2, $overview['summary']['closed_loop_count']);
         self::assertSame('revenue_pricing', $overview['weak_modules'][0]['key']);
     }
 
@@ -347,14 +351,7 @@ final class BusinessClosureOverviewServiceTest extends TestCase
         $keys = [
             'ai_daily_report',
             'revenue_pricing',
-            'staff_service',
-            'asset_maintenance',
             'operation_execution',
-            'transfer_investment',
-            'expansion',
-            'opening',
-            'strategy_simulation',
-            'feasibility_report',
         ];
 
         foreach ($keys as $key) {

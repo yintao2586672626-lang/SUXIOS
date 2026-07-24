@@ -1,4 +1,42 @@
 window.SUXI_USER_ADMIN_STATIC = (() => {
+    const summarizeUserHotelScope = (items = [], options = {}) => {
+        const limit = Math.max(1, Number(options.limit || 2));
+        const normalizedItems = (Array.isArray(items) ? items : [])
+            .map(item => String(item || '').trim())
+            .filter(Boolean);
+        if (!normalizedItems.length) {
+            return {
+                summary: '未分配门店',
+                full: '未分配门店',
+                hiddenCount: 0,
+                total: 0,
+            };
+        }
+
+        return {
+            summary: normalizedItems.slice(0, limit).join('、'),
+            full: normalizedItems.join('、'),
+            hiddenCount: Math.max(0, normalizedItems.length - limit),
+            total: normalizedItems.length,
+        };
+    };
+
+    const resolveUserDisplaySequence = (index = 0, isSuperAdmin = false) => {
+        const normalizedIndex = Math.max(0, Number(index) || 0);
+        return normalizedIndex + (isSuperAdmin ? 0 : 1);
+    };
+
+    const defaultIssuedPassword = () => {
+        if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+            throw new Error('当前环境无法安全生成临时密码');
+        }
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+        const bytes = new Uint8Array(18);
+        globalThis.crypto.getRandomValues(bytes);
+        const randomPart = Array.from(bytes, value => alphabet[value % alphabet.length]).join('');
+        return `Sx9!${randomPart}`;
+    };
+
     const rolePermissionList = (role = {}) => {
         const raw = role?.permissions;
         if (Array.isArray(raw)) return raw.map(item => String(item));
@@ -278,7 +316,7 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
             key: 'status',
             label: '账号状态',
             level: String(status) === '1' ? 'success' : 'warning',
-            text: String(status) === '1' ? '保存后账号可登录' : '保存后仍为待审核/暂停，用户暂不能登录',
+            text: String(status) === '1' ? '保存后账号可登录' : '保存后账号保持停用，用户暂不能登录',
         });
         return rows;
     };
@@ -299,7 +337,7 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
     };
 
     const userIssueLoginStatusText = (status) => (
-        String(status) === '1' ? '正常，可登录' : '待审核/暂停，暂不能登录'
+        String(status) === '1' ? '正常，可登录' : '已停用，暂不能登录'
     );
 
     const userIssueStatusFromProfile = (profile = {}, blocker = '') => {
@@ -336,6 +374,9 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
     };
 
     return {
+        summarizeUserHotelScope,
+        resolveUserDisplaySequence,
+        defaultIssuedPassword,
         rolePermissionList,
         roleHasAnyPermission,
         normalExternalDeniedPermissionGroups,

@@ -128,8 +128,14 @@ class LoginLog extends Model
             }
 
             $hotelId = (int)($row['hotel_id'] ?? 0);
-            return $hotelId > 0 ? $hotelId : null;
-        } catch (\Exception $e) {
+            if ($hotelId <= 0) {
+                return null;
+            }
+
+            $hotel = Db::name('hotels')->where('id', $hotelId)->field('tenant_id')->find();
+            $mappedTenantId = (int)($hotel['tenant_id'] ?? 0);
+            return $mappedTenantId > 0 ? $mappedTenantId : null;
+        } catch (\Throwable $e) {
             return null;
         }
     }

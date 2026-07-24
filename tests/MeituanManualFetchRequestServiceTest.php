@@ -76,6 +76,45 @@ final class MeituanManualFetchRequestServiceTest extends TestCase
         );
     }
 
+    public function testRelativeSevenDayRankRangeUsesSevenCalendarDays(): void
+    {
+        $plan = MeituanManualFetchRequestService::buildRankRequestParams(
+            'vpoi',
+            'partner-1',
+            'poi-1',
+            'P_RZ',
+            '7',
+            '',
+            ''
+        );
+
+        self::assertSame(7, $plan['date_range']);
+        self::assertSame(date('Y-m-d', strtotime('-6 days')), $plan['start_date']);
+        self::assertSame(date('Y-m-d'), $plan['end_date']);
+        self::assertSame(date('Ymd', strtotime('-6 days')), $plan['params']['startDate']);
+        self::assertSame(date('Ymd'), $plan['params']['endDate']);
+    }
+
+    public function testRealtimeRankRangeKeepsPlatformDateRangeZeroSelector(): void
+    {
+        $plan = MeituanManualFetchRequestService::buildRankRequestParams(
+            'vpoi',
+            'partner-1',
+            'poi-1',
+            'P_RZ',
+            '0',
+            '',
+            ''
+        );
+
+        self::assertSame(0, $plan['date_range']);
+        self::assertSame(date('Y-m-d'), $plan['start_date']);
+        self::assertSame(date('Y-m-d'), $plan['end_date']);
+        self::assertSame(date('Ymd'), $plan['params']['startDate']);
+        self::assertSame(date('Ymd'), $plan['params']['endDate']);
+        self::assertSame(0, $plan['params']['dateRange']);
+    }
+
     public function testBuildTrafficRequestParamsPreservesExtraParams(): void
     {
         $plan = MeituanManualFetchRequestService::buildTrafficRequestParams(

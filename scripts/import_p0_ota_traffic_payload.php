@@ -782,7 +782,7 @@ function p0_import_platform_hotel_identifier(array $row, string $platform): stri
 
 /**
  * @param array<string, mixed> $row
- * @return array{list_exposure:int,detail_exposure:int,flow_rate:float,order_filling_num:int,order_submit_num:int}
+ * @return array{list_exposure:int,detail_exposure:int,flow_rate:float,order_filling_num:?int,order_submit_num:?int}
  */
 function p0_import_traffic_metrics(array $row, string $platform): array
 {
@@ -803,15 +803,15 @@ function p0_import_traffic_metrics(array $row, string $platform): array
 
     $service = new OnlineDailyDataPersistenceService();
     $ref = new ReflectionClass($service);
-    $method = $ref->getMethod('extractGenericTrafficMetrics');
+    $method = $ref->getMethod('extractObservedTrafficMetrics');
     $method->setAccessible(true);
-    $metrics = $method->invoke($service, $row);
+    $metrics = $method->invoke($service, $row, true);
     return is_array($metrics) ? [
         'list_exposure' => (int)($metrics['list_exposure'] ?? 0),
         'detail_exposure' => (int)($metrics['detail_exposure'] ?? 0),
         'flow_rate' => (float)($metrics['flow_rate'] ?? 0.0),
-        'order_filling_num' => (int)($metrics['order_filling_num'] ?? 0),
-        'order_submit_num' => (int)($metrics['order_submit_num'] ?? 0),
+        'order_filling_num' => array_key_exists('order_filling_num', $metrics) ? (int)$metrics['order_filling_num'] : null,
+        'order_submit_num' => array_key_exists('order_submit_num', $metrics) ? (int)$metrics['order_submit_num'] : null,
     ] : [
         'list_exposure' => 0,
         'detail_exposure' => 0,
@@ -824,9 +824,9 @@ function p0_import_traffic_metrics(array $row, string $platform): array
 /**
  * @param array<string, mixed> $metrics
  */
-function p0_import_has_nonzero_required_traffic_metric(array $metrics): bool
+function p0_import_has_nonzero_required_traffic_metric(array $metrics, string $platform = ''): bool
 {
-    foreach (['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'] as $key) {
+    foreach (array_keys(p0_import_required_traffic_storage_fields($platform)) as $key) {
         if (abs((float)($metrics[$key] ?? 0)) > 0.000001) {
             return true;
         }
@@ -841,7 +841,7 @@ function p0_import_has_nonzero_required_traffic_metric(array $metrics): bool
  */
 function p0_import_preview_field_facts(array $row, array $metrics, string $platform, int $systemHotelId, string $date): array
 {
-    $requiredStorageFields = p0_import_required_traffic_storage_fields();
+    $requiredStorageFields = p0_import_required_traffic_storage_fields($platform);
     $platformHotelIdentifier = p0_import_platform_hotel_identifier($row, $platform);
     $previewRow = [
         'source' => $platform,
@@ -853,8 +853,8 @@ function p0_import_preview_field_facts(array $row, array $metrics, string $platf
         'list_exposure' => $metrics['list_exposure'],
         'detail_exposure' => $metrics['detail_exposure'],
         'flow_rate' => $metrics['flow_rate'],
-        'order_filling_num' => $metrics['order_filling_num'],
-        'order_submit_num' => $metrics['order_submit_num'],
+        'order_filling_num' => $metrics['order_filling_num'] ?? null,
+        'order_submit_num' => $metrics['order_submit_num'] ?? null,
         'raw_data' => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
     ];
     $withFacts = OnlineDataFieldFactService::attachToOnlineDailyRow($previewRow, $row);
@@ -977,9 +977,9 @@ function p0_import_external_ui_status(array $status): array
  * @param array<string, mixed> $uiStatus
  * @return array<string, array<string, mixed>>
  */
-function p0_import_traffic_closure_chain(array $fieldFacts, array $uiStatus, bool $platformHotelIdentifierPresent, string $platformHotelIdentifierSource): array
+function p0_import_traffic_closure_chain(array $fieldFacts, array $uiStatus, bool $platformHotelIdentifierPresent, string $platformHotelIdentifierSource, string $platform = ''): array
 {
-    $requiredStorageFields = p0_import_required_traffic_storage_fields();
+    $requiredStorageFields = p0_import_required_traffic_storage_fields($platform);
     $requiredMetricKeys = array_keys($requiredStorageFields);
     $factByMetric = [];
     foreach ($fieldFacts as $fact) {
@@ -1054,7 +1054,7 @@ function p0_import_traffic_closure_chain(array $fieldFacts, array $uiStatus, boo
 
 function p0_import_summarize_rows(array $rows, string $platform, int $systemHotelId, string $date, array $payload = []): array
 {
-    $required = ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
+    $required = array_keys(p0_import_required_traffic_storage_fields($platform));
     $targetRows = 0;
     $defaultedDateRows = 0;
     $completeRows = 0;
@@ -1118,7 +1118,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
             $rowsWithBrowserResponseEvidence++;
         }
         $metrics = p0_import_traffic_metrics($row, $platform);
-        $hasNonzeroRequiredMetric = p0_import_has_nonzero_required_traffic_metric($metrics);
+        $hasNonzeroRequiredMetric = p0_import_has_nonzero_required_traffic_metric($metrics, $platform);
         if ($hasNonzeroRequiredMetric) {
             $targetDateNonzeroRequiredMetricRows++;
         } else {
@@ -1254,7 +1254,7 @@ function p0_import_build_traffic_evidence(array $rows, string $platform, int $sy
             'field_fact_structured_source_path_count' => $fieldFactStructuredSourcePathCount,
             'ui_status' => $uiStatus,
             'field_facts' => $fieldFacts,
-            'traffic_closure_chain' => p0_import_traffic_closure_chain($fieldFacts, $uiStatus, $platformHotelIdentifier !== '', $platformHotelIdentifierSource),
+            'traffic_closure_chain' => p0_import_traffic_closure_chain($fieldFacts, $uiStatus, $platformHotelIdentifier !== '', $platformHotelIdentifierSource, $platform),
             'traffic_closure_chain_policy' => 'External traffic_evidence closure chain is pre-import source proof only; P0 remains incomplete until --execute saves target-date traffic rows and verify:p0-ota-field-loop returns ready.',
         ];
     }
@@ -1282,7 +1282,7 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         }
 
         $metrics = p0_import_traffic_metrics($row, $platform);
-        if (p0_import_has_nonzero_required_traffic_metric($metrics)) {
+        if (p0_import_has_nonzero_required_traffic_metric($metrics, $platform)) {
             $nonzeroRequiredMetricRows++;
         } else {
             $zeroRequiredMetricRows++;
@@ -1295,8 +1295,8 @@ function p0_import_prepare_execute_payload(array $rows, string $platform, int $s
         $row['list_exposure'] = $metrics['list_exposure'];
         $row['detail_exposure'] = $metrics['detail_exposure'];
         $row['flow_rate'] = $metrics['flow_rate'];
-        $row['order_filling_num'] = $metrics['order_filling_num'];
-        $row['order_submit_num'] = $metrics['order_submit_num'];
+        $row['order_filling_num'] = $metrics['order_filling_num'] ?? null;
+        $row['order_submit_num'] = $metrics['order_submit_num'] ?? null;
 
         $explicitSourcePath = p0_import_explicit_source_path($row);
         if ($explicitSourcePath !== '' && trim((string)($row['_source_path'] ?? '')) === '') {
@@ -1348,15 +1348,18 @@ function p0_import_execute_plan(array $prepared): array
 /**
  * @return array<string, string>
  */
-function p0_import_required_traffic_storage_fields(): array
+function p0_import_required_traffic_storage_fields(string $platform = ''): array
 {
-    return [
+    $fields = [
         'list_exposure' => 'online_daily_data.list_exposure',
         'detail_exposure' => 'online_daily_data.detail_exposure',
         'flow_rate' => 'online_daily_data.flow_rate',
         'order_filling_num' => 'online_daily_data.order_filling_num',
         'order_submit_num' => 'online_daily_data.order_submit_num',
     ];
+    return strtolower(trim($platform)) === 'meituan'
+        ? array_slice($fields, 0, 3, true)
+        : $fields;
 }
 
 /**
@@ -1453,7 +1456,7 @@ function p0_import_table_columns(string $table): array
  */
 function p0_import_post_execute_verification(array $options): array
 {
-    $requiredStorageFields = p0_import_required_traffic_storage_fields();
+    $requiredStorageFields = p0_import_required_traffic_storage_fields((string)$options['platform']);
     $requiredMetricKeys = array_keys($requiredStorageFields);
     $base = [
         'status' => 'not_run',
@@ -1562,7 +1565,7 @@ function p0_import_post_execute_verification(array $options): array
             'order_filling_num' => (float)($row['order_filling_num'] ?? 0),
             'order_submit_num' => (float)($row['order_submit_num'] ?? 0),
         ];
-        if (p0_import_has_nonzero_required_traffic_metric($metrics)) {
+        if (p0_import_has_nonzero_required_traffic_metric($metrics, (string)$options['platform'])) {
             $base['nonzero_required_metric_rows']++;
         } else {
             $base['zero_required_metric_rows']++;

@@ -1,0 +1,42 @@
+CREATE TABLE IF NOT EXISTS `analysis_reference_set_versions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id` bigint unsigned NOT NULL DEFAULT 0,
+  `system_hotel_id` bigint unsigned NOT NULL,
+  `platform` varchar(40) NOT NULL DEFAULT 'ota',
+  `version_key` char(64) NOT NULL,
+  `reference_type` varchar(60) NOT NULL DEFAULT 'analysis_rule_set',
+  `members_json` JSON DEFAULT NULL,
+  `selection_source` varchar(60) NOT NULL DEFAULT 'report_generation',
+  `selected_by` bigint unsigned DEFAULT NULL,
+  `selected_at` datetime NOT NULL,
+  `valid_from` date DEFAULT NULL,
+  `valid_until` date DEFAULT NULL,
+  `comparability_note` varchar(500) NOT NULL DEFAULT '',
+  `parent_version_id` bigint unsigned DEFAULT NULL,
+  `status` varchar(30) NOT NULL DEFAULT 'active',
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_analysis_reference_version` (`tenant_id`, `system_hotel_id`, `version_key`),
+  KEY `idx_analysis_reference_hotel_time` (`system_hotel_id`, `selected_at`),
+  KEY `idx_analysis_reference_parent` (`parent_version_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分析参考集不可变版本';
+
+CREATE TABLE IF NOT EXISTS `ai_report_human_reviews` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id` bigint unsigned NOT NULL DEFAULT 0,
+  `hotel_id` bigint unsigned NOT NULL,
+  `report_id` bigint unsigned NOT NULL,
+  `subject_type` varchar(40) NOT NULL,
+  `subject_key` varchar(120) NOT NULL DEFAULT '',
+  `decision` varchar(40) NOT NULL,
+  `before_json` JSON DEFAULT NULL,
+  `correction_json` JSON DEFAULT NULL,
+  `reason` varchar(1000) NOT NULL DEFAULT '',
+  `result_version` char(64) NOT NULL DEFAULT '',
+  `created_by` bigint unsigned NOT NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_report_review_report_time` (`report_id`, `created_at`),
+  KEY `idx_ai_report_review_hotel_time` (`hotel_id`, `created_at`),
+  KEY `idx_ai_report_review_subject` (`report_id`, `subject_type`, `subject_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI分析报告人工判断追加记录';

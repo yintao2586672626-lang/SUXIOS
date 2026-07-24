@@ -4,9 +4,11 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\OperationManagementService;
+use app\service\OtaP0ScopeProjectionService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
+use app\service\OtaTrafficAttributionService;
 use think\facade\Db;
 
 trait Phase1EmployeeConsoleConcern
@@ -91,6 +93,9 @@ trait Phase1EmployeeConsoleConcern
                 'metric_scope' => 'ota_channel',
                 'target_date_rows' => $targetRows,
                 'target_date_data_types' => $targetDataTypes,
+                'target_date_competition_hotel_count' => max(0, (int)($platformEvidence['target_date_competition_hotel_count'] ?? 0)),
+                'target_date_competition_self_count' => max(0, (int)($platformEvidence['target_date_competition_self_count'] ?? 0)),
+                'target_date_competition_competitor_count' => max(0, (int)($platformEvidence['target_date_competition_competitor_count'] ?? 0)),
                 'target_date_evidence_summary' => is_array($platformEvidence['evidence_summary'] ?? null) ? $platformEvidence['evidence_summary'] : [],
                 'field_credibility_status' => (string)($platformEvidence['field_credibility_status'] ?? ''),
                 'trusted_metric_keys' => array_values(array_filter(array_map('strval', (array)($platformEvidence['trusted_metric_keys'] ?? [])))),
@@ -174,6 +179,9 @@ trait Phase1EmployeeConsoleConcern
                 'target_date' => $targetDate,
                 'target_date_rows' => 0,
                 'target_date_data_types' => [],
+                'target_date_competition_hotel_count' => 0,
+                'target_date_competition_self_count' => 0,
+                'target_date_competition_competitor_count' => 0,
                 'latest_available' => null,
                 'date_relation' => 'scope_denied',
             ];
@@ -194,6 +202,31 @@ trait Phase1EmployeeConsoleConcern
                 ), static fn(string $value): bool => $value !== ''));
             }
         }
+        $competitionSummary = [
+            'target_date_competition_hotel_count' => 0,
+            'target_date_competition_self_count' => 0,
+            'target_date_competition_competitor_count' => 0,
+        ];
+        if (isset($columns['data_type'])) {
+            $competitionFields = array_values(array_filter([
+                isset($columns['hotel_id']) ? 'hotel_id' : '',
+                isset($columns['hotel_name']) ? 'hotel_name' : '',
+                isset($columns['raw_data']) ? 'raw_data' : '',
+            ], static fn(string $field): bool => $field !== ''));
+            if ($competitionFields !== []) {
+                $competitionQuery = Db::name('online_daily_data')
+                    ->field(implode(',', $competitionFields))
+                    ->whereIn('source', $this->collectionSourceAliases($platform))
+                    ->where('data_date', $targetDate)
+                    ->where('data_type', 'competitor');
+                if (isset($columns['dimension'])) {
+                    $competitionQuery->where('dimension', 'competition_circle_hotel');
+                }
+                if ($this->applyCollectionHotelScope($competitionQuery, $hotelId, $columns)) {
+                    $competitionSummary = $this->summarizeCollectionCompetitionCircleRows($competitionQuery->select()->toArray());
+                }
+            }
+        }
         $evidenceSummary = $this->buildCollectionTargetDateEvidenceSummary($platform, $hotelId, $targetDate, $columns);
 
         $latestQuery = Db::name('online_daily_data')
@@ -206,6 +239,7 @@ trait Phase1EmployeeConsoleConcern
                 'target_date' => $targetDate,
                 'target_date_rows' => $targetRows,
                 'target_date_data_types' => $targetTypes,
+                ...$competitionSummary,
                 'latest_available' => null,
                 'date_relation' => 'scope_denied',
             ];
@@ -240,6 +274,7 @@ trait Phase1EmployeeConsoleConcern
             'target_date' => $targetDate,
             'target_date_rows' => $targetRows,
             'target_date_data_types' => $targetTypes,
+            ...$competitionSummary,
             'field_credibility_status' => (string)($evidenceSummary['credibility_status'] ?? 'not_collected'),
             'trusted_metric_keys' => array_values(array_filter(array_map('strval', (array)($evidenceSummary['trusted_metric_keys'] ?? [])))),
             'missing_metric_keys' => array_values(array_filter(array_map('strval', (array)($evidenceSummary['missing_metric_keys'] ?? [])))),
@@ -250,6 +285,44 @@ trait Phase1EmployeeConsoleConcern
                 'data_types' => $latestTypes,
             ] : null,
             'date_relation' => $this->collectionDateRelation($targetDate, $latestDate),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, int>
+     */
+    private function summarizeCollectionCompetitionCircleRows(array $rows): array
+    {
+        $hotels = [];
+        foreach ($rows as $row) {
+            $raw = [];
+            if (is_array($row['raw_data'] ?? null)) {
+                $raw = $row['raw_data'];
+            } elseif (is_string($row['raw_data'] ?? null) && trim((string)$row['raw_data']) !== '') {
+                $decoded = json_decode((string)$row['raw_data'], true);
+                $raw = is_array($decoded) ? $decoded : [];
+            }
+            $platformHotelId = trim((string)($row['hotel_id'] ?? $raw['hotelId'] ?? $raw['hotel_id'] ?? ''));
+            $hotelName = trim((string)($row['hotel_name'] ?? $raw['hotelName'] ?? $raw['hotel_name'] ?? ''));
+            $key = $platformHotelId !== '' && $platformHotelId !== '-1'
+                ? 'id:' . $platformHotelId
+                : ($hotelName !== '' ? 'name:' . mb_strtolower($hotelName) : '');
+            if ($key === '') {
+                continue;
+            }
+            $isSelf = $hotelName === '我的酒店'
+                || ($raw['isSelf'] ?? false) === true
+                || ($raw['is_self'] ?? false) === true;
+            $hotels[$key] = ($hotels[$key] ?? false) || $isSelf;
+        }
+
+        $total = count($hotels);
+        $self = count(array_filter($hotels, static fn(bool $isSelf): bool => $isSelf));
+        return [
+            'target_date_competition_hotel_count' => $total,
+            'target_date_competition_self_count' => $self,
+            'target_date_competition_competitor_count' => max(0, $total - $self),
         ];
     }
 
@@ -2944,26 +3017,34 @@ trait Phase1EmployeeConsoleConcern
         ));
     }
 
-    private function phase1P0TrafficRequiredMetricKeys(): array
+    private function phase1P0TrafficRequiredMetricKeys(string $platform = ''): array
     {
-        return [
+        $metricKeys = [
             'list_exposure',
             'detail_exposure',
             'flow_rate',
             'order_filling_num',
             'order_submit_num',
         ];
+
+        return strtolower(trim($platform)) === 'meituan'
+            ? array_slice($metricKeys, 0, 3)
+            : $metricKeys;
     }
 
-    private function phase1P0TrafficRequiredStorageFields(): array
+    private function phase1P0TrafficRequiredStorageFields(string $platform = ''): array
     {
-        return [
+        $storageFields = [
             'online_daily_data.list_exposure',
             'online_daily_data.detail_exposure',
             'online_daily_data.flow_rate',
             'online_daily_data.order_filling_num',
             'online_daily_data.order_submit_num',
         ];
+
+        return strtolower(trim($platform)) === 'meituan'
+            ? array_slice($storageFields, 0, 3)
+            : $storageFields;
     }
 
     private function phase1P0TrafficRequiredFieldFactKeys(): array
@@ -3061,12 +3142,15 @@ trait Phase1EmployeeConsoleConcern
 
     private function phase1TrafficSourceReadinessForPlatform(string $platform, array $context): array
     {
-        $requiredMetricKeys = $this->phase1P0TrafficRequiredMetricKeys();
-        $requiredStorageFields = $this->phase1P0TrafficRequiredStorageFields();
+        $requiredMetricKeys = $this->phase1P0TrafficRequiredMetricKeys($platform);
+        $requiredStorageFields = $this->phase1P0TrafficRequiredStorageFields($platform);
         $requiredFieldFactKeys = $this->phase1P0TrafficRequiredFieldFactKeys();
         $targetDate = trim((string)($context['target_date'] ?? ''));
         $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));
-        $targetDateTrafficRows = max(0, (int)($context['target_date_traffic_rows'] ?? 0));
+        $scopeProjection = (new OtaP0ScopeProjectionService())->project($platform, $targetDate);
+        $targetDateTrafficRows = (string)($scopeProjection['status'] ?? '') === 'ready'
+            ? max(0, (int)($scopeProjection['own_traffic_row_count'] ?? 0))
+            : 0;
         $targetDateDataTypes = array_values(array_filter(array_map(
             static fn($value): string => strtolower(trim((string)$value)),
             (array)($context['target_date_data_types'] ?? [])
@@ -3170,6 +3254,7 @@ trait Phase1EmployeeConsoleConcern
             'p0_source_chain_reference_only' => $sourceChainReferenceOnly,
             'p0_source_chain_scope' => $sourceChainScope,
             'p0_source_chain_policy' => $sourceChainPolicy,
+            'p0_scope_projection_status' => (string)($scopeProjection['status'] ?? 'projection_unavailable'),
         ];
         $base = array_merge($base, $p0StandardFactSummary);
 
@@ -3203,7 +3288,6 @@ trait Phase1EmployeeConsoleConcern
             $rows = Db::name('platform_data_sources')
                 ->field(implode(',', $fields))
                 ->where('platform', $platform)
-                ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
                 ->select()
                 ->toArray();
         } catch (\Throwable $e) {
@@ -3214,7 +3298,20 @@ trait Phase1EmployeeConsoleConcern
 
         $lastSyncCounts = [];
         $issueCounts = [];
+        $trafficSourceHotelIds = [];
+        $candidateHotelIds = [];
+        $profileReadinessByHotel = [];
+        $profilePriorityByHotel = [];
         foreach ($rows as $row) {
+            $config = json_decode((string)($row['config_json'] ?? ''), true);
+            $config = is_array($config) ? $config : [];
+            if (!OtaTrafficAttributionService::sourceCanProvideTraffic($row, $config)) {
+                continue;
+            }
+            $systemHotelId = (int)($row['system_hotel_id'] ?? 0);
+            if ($systemHotelId > 0) {
+                $trafficSourceHotelIds[] = $systemHotelId;
+            }
             $base['traffic_source_count']++;
             $enabled = (int)($row['enabled'] ?? 0) === 1;
             $status = strtolower(trim((string)($row['status'] ?? 'unknown')));
@@ -3232,13 +3329,23 @@ trait Phase1EmployeeConsoleConcern
                 $lastSyncCounts[$lastSyncStatus] = ($lastSyncCounts[$lastSyncStatus] ?? 0) + 1;
             }
 
-            $config = json_decode((string)($row['config_json'] ?? ''), true);
-            $config = is_array($config) ? $config : [];
             $issueCode = $this->phase1TrafficSourceIssueCode($row, $config);
             $latestSyncTask = $this->phase1P0TrafficSourceLatestSyncTask((int)($row['id'] ?? 0), $targetDate);
             $currentSessionVerified = $this->phase1TrafficProfileLoginStateVerified($row);
             $historicalLoginMetadataPresent = $this->phase1TrafficHistoricalLoginMetadataPresent($config);
-            $profileLoginTrigger = $this->phase1P0ProfileLoginTriggerAction($platform, (int)($row['id'] ?? 0), (int)($row['system_hotel_id'] ?? 0), $targetDate);
+            $profileLoginTrigger = $this->phase1P0ProfileLoginTriggerAction($platform, (int)($row['id'] ?? 0), $systemHotelId, $targetDate);
+            $profilePriority = (($config['registered_by'] ?? '') === 'p0_ota_field_loop' ? 8 : 0)
+                + ((int)($row['id'] ?? 0) > 0 ? 4 : 0)
+                + (in_array($status, ['ready', 'success'], true) ? 1 : 0);
+            if ($systemHotelId > 0
+                && (!isset($profileReadinessByHotel[$systemHotelId]) || $profilePriority > (int)$profilePriorityByHotel[$systemHotelId])
+            ) {
+                $profileReadinessByHotel[$systemHotelId] = [
+                    'current_session_verified' => $currentSessionVerified,
+                    'profile_login_trigger' => $profileLoginTrigger,
+                ];
+                $profilePriorityByHotel[$systemHotelId] = $profilePriority;
+            }
             $this->phase1P0AccumulateTrafficLatestSyncTask($base, $latestSyncTask);
             if ($currentSessionVerified) {
                 $base['p0_manual_login_state_verified_count']++;
@@ -3281,7 +3388,10 @@ trait Phase1EmployeeConsoleConcern
             }
             if (($config['registered_by'] ?? '') === 'p0_ota_field_loop') {
                 $base['traffic_managed_count']++;
-                $candidate = $this->phase1P0TrafficPayloadCandidate($platform, $targetDate, (int)($row['system_hotel_id'] ?? 0));
+                if ($systemHotelId > 0) {
+                    $candidateHotelIds[] = $systemHotelId;
+                }
+                $candidate = $this->phase1P0TrafficPayloadCandidate($platform, $targetDate, $systemHotelId);
                 $candidateStatus = (string)($candidate['status'] ?? '');
                 if ($candidateStatus !== '') {
                     $base['p0_payload_candidate_status_counts'][$candidateStatus] = ((int)($base['p0_payload_candidate_status_counts'][$candidateStatus] ?? 0)) + 1;
@@ -3334,6 +3444,45 @@ trait Phase1EmployeeConsoleConcern
             }
         }
 
+        $expectedHotelIds = OtaTrafficAttributionService::mergeP0HotelScopeIds(
+            $trafficSourceHotelIds,
+            (array)($scopeProjection['profile_binding_hotel_ids'] ?? []),
+            (array)($scopeProjection['stored_traffic_hotel_ids'] ?? [])
+        );
+        $candidateHotelIds = array_values(array_unique(array_map('intval', $candidateHotelIds)));
+        foreach (array_values(array_diff($expectedHotelIds, $candidateHotelIds)) as $systemHotelId) {
+            OtaP0ScopeProjectionService::accumulatePayloadCandidate(
+                $base,
+                $this->phase1P0TrafficPayloadCandidate($platform, $targetDate, $systemHotelId)
+            );
+        }
+        $base['p0_profile_login_trigger_available_count'] = 0;
+        $base['p0_profile_login_trigger_unavailable_count'] = 0;
+        $base['p0_after_login_sync_available_count'] = 0;
+        $base['p0_manual_login_state_verified_count'] = 0;
+        foreach ($expectedHotelIds as $systemHotelId) {
+            $profileReadiness = is_array($profileReadinessByHotel[$systemHotelId] ?? null)
+                ? $profileReadinessByHotel[$systemHotelId]
+                : [];
+            if (!empty($profileReadiness['current_session_verified'])) {
+                $base['p0_manual_login_state_verified_count']++;
+            }
+            $profileLoginTrigger = is_array($profileReadiness['profile_login_trigger'] ?? null)
+                ? $profileReadiness['profile_login_trigger']
+                : [];
+            if ((string)($profileLoginTrigger['status'] ?? '') === 'available') {
+                $base['p0_profile_login_trigger_available_count']++;
+            } else {
+                $base['p0_profile_login_trigger_unavailable_count']++;
+            }
+            $afterLoginSync = is_array($profileLoginTrigger['after_login_sync'] ?? null)
+                ? $profileLoginTrigger['after_login_sync']
+                : [];
+            if (trim((string)($afterLoginSync['entry'] ?? '')) !== '') {
+                $base['p0_after_login_sync_available_count']++;
+            }
+        }
+
         ksort($lastSyncCounts);
         ksort($issueCounts);
         ksort($base['traffic_latest_sync_task_status_counts']);
@@ -3366,7 +3515,7 @@ trait Phase1EmployeeConsoleConcern
         $base['p0_traffic_gate_status'] = $p0TrafficGateStatus;
         $base['p0_next_action_mode'] = $recommendedMode;
         $base['p0_next_action_entry'] = $base['action_entry'];
-        $base['p0_next_step_count'] = max(0, (int)$base['traffic_managed_count']);
+        $base['p0_next_step_count'] = count($expectedHotelIds);
         $base['required_next_inputs'] = $this->phase1TrafficSourceRequiredNextInputs($platform, $base);
 
         return $base;
@@ -3858,10 +4007,7 @@ trait Phase1EmployeeConsoleConcern
             $uiStatus = method_exists($this, 'buildOnlineDataFieldFactStatus')
                 ? $this->buildOnlineDataFieldFactStatus($row, $raw)
                 : [];
-            $uiReady = (string)($uiStatus['status'] ?? $uiStatus['field_fact_status'] ?? '') === 'ready'
-                && ($uiStatus['raw_data_exposed'] ?? null) === false
-                && (int)($uiStatus['missing_count'] ?? -1) === 0
-                && (int)($uiStatus['stored_value_missing_count'] ?? -1) === 0;
+            $uiReady = ($uiStatus['raw_data_exposed'] ?? null) === false;
 
             foreach ($facts as $fact) {
                 if (!is_array($fact)) {

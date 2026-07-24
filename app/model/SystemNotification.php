@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\model;
 
 use think\Model;
+use think\facade\Db;
 use Throwable;
 
 class SystemNotification extends Model
@@ -18,6 +19,7 @@ class SystemNotification extends Model
         'id' => 'integer',
         'hotel_id' => 'integer',
         'user_id' => 'integer',
+        'recipient_user_id' => 'integer',
         'is_read' => 'integer',
         'is_cleared' => 'integer',
     ];
@@ -42,10 +44,40 @@ class SystemNotification extends Model
         }
     }
 
+    public static function recipientTargetingReady(): bool
+    {
+        try {
+            $rows = Db::query("SHOW COLUMNS FROM `system_notifications` LIKE 'recipient_user_id'");
+            if (!empty($rows)) {
+                return true;
+            }
+        } catch (Throwable) {
+            // SQLite and other local test connections do not support SHOW COLUMNS.
+        }
+
+        try {
+            foreach (Db::query('PRAGMA table_info(`system_notifications`)') as $row) {
+                if (strtolower((string)($row['name'] ?? '')) === 'recipient_user_id') {
+                    return true;
+                }
+            }
+        } catch (Throwable) {
+            return false;
+        }
+
+        return false;
+    }
+
     public static function recordEvent(array $data): self
     {
         if (!self::tableReady()) {
             throw new \RuntimeException('system_notifications table does not exist, run database migration first');
+        }
+
+        $recipientUserId = self::nullablePositiveInt($data['recipient_user_id'] ?? null);
+        $recipientTargetingReady = self::recipientTargetingReady();
+        if ($recipientUserId !== null && !$recipientTargetingReady) {
+            throw new \RuntimeException('system_notifications.recipient_user_id does not exist, run notification recipient migration first');
         }
 
         $sourceKey = self::normalizeSourceKey((string)($data['source_key'] ?? ''));
@@ -66,6 +98,9 @@ class SystemNotification extends Model
             'read_time' => null,
             'clear_time' => null,
         ];
+        if ($recipientTargetingReady) {
+            $payload['recipient_user_id'] = $recipientUserId;
+        }
 
         $existing = self::where('source_key', $sourceKey)->find();
         if ($existing) {

@@ -6,6 +6,8 @@ namespace app\controller;
 use app\model\AiModelConfig;
 use app\model\OperationLog;
 use app\service\LlmEndpoint;
+use app\service\OutboundUrlGuard;
+use InvalidArgumentException;
 use think\facade\Db;
 use think\Response;
 
@@ -190,6 +192,12 @@ class AiConfig extends Base
             }
             return $this->error('provider 不在当前快速接入范围内', 422);
         }
+        foreach ($definitions as $definition) {
+            $baseUrlError = $this->validateAiBaseUrl((string)($definition['base_url'] ?? ''));
+            if ($baseUrlError !== null) {
+                return $this->error($baseUrlError, 422);
+            }
+        }
         if ($apiKey === '') {
             return $this->error('API Key 不能为空', 422);
         }
@@ -272,8 +280,29 @@ class AiConfig extends Base
         if (isset($data['provider']) && !preg_match('/^[a-zA-Z0-9_\-]+$/', trim((string) $data['provider']))) {
             return 'provider 只能包含字母、数字、下划线和中划线';
         }
+        if (isset($data['base_url'])) {
+            $baseUrlError = $this->validateAiBaseUrl((string)$data['base_url']);
+            if ($baseUrlError !== null) {
+                return $baseUrlError;
+            }
+        }
 
         return null;
+    }
+
+    private function validateAiBaseUrl(string $baseUrl): ?string
+    {
+        try {
+            (new OutboundUrlGuard())->validate($baseUrl);
+            return null;
+        } catch (InvalidArgumentException $exception) {
+            return match ($exception->getMessage()) {
+                OutboundUrlGuard::ERROR_HTTPS_REQUIRED => 'AI Base URL 必须使用 HTTPS',
+                OutboundUrlGuard::ERROR_CREDENTIALS_NOT_ALLOWED => 'AI Base URL 不允许包含用户信息',
+                OutboundUrlGuard::ERROR_PORT_NOT_ALLOWED => 'AI Base URL 仅允许使用 443 端口',
+                default => 'AI Base URL 主机不可访问或不允许访问',
+            };
+        }
     }
 
     private function fillModelConfig(AiModelConfig $model, array $data): void
@@ -476,6 +505,15 @@ class AiConfig extends Base
 
     private function testChatCompletion(string $baseUrl, string $modelName, string $apiKey, string $provider = ''): array
     {
+        try {
+            $target = LlmEndpoint::chatCompletionTarget($baseUrl, $provider);
+        } catch (InvalidArgumentException) {
+            return ['ok' => false, 'message' => 'AI Base URL 主机不可访问或不允许访问', 'code' => 422];
+        }
+        if (!function_exists('curl_init')) {
+            return ['ok' => false, 'message' => '网络请求组件不可用', 'code' => 502];
+        }
+
         $payload = [
             'model' => $modelName,
             'messages' => [
@@ -484,29 +522,43 @@ class AiConfig extends Base
             'temperature' => 0.2,
         ];
 
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", [
-                    'Content-Type: application/json',
-                    'Authorization: Bearer ' . $apiKey,
-                ]),
-                'content' => json_encode($payload, JSON_UNESCAPED_UNICODE),
-                'timeout' => 30,
-                'ignore_errors' => true,
+        $ch = curl_init($target['url']);
+        if ($ch === false) {
+            return ['ok' => false, 'message' => '网络请求失败', 'code' => 502];
+        }
+        $curlOptions = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_MAXREDIRS => 0,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $apiKey,
             ],
-        ]);
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_PROXY => '',
+            CURLOPT_NOPROXY => '*',
+            CURLOPT_RESOLVE => $target['curl_resolve'],
+        ];
+        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            $curlOptions[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+        }
+        if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            $curlOptions[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;
+        }
+        curl_setopt_array($ch, $curlOptions);
 
-        $response = @file_get_contents(LlmEndpoint::chatCompletionUrl($baseUrl, $provider), false, $context);
+        $response = curl_exec($ch);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
         if ($response === false) {
             return ['ok' => false, 'message' => '网络请求失败', 'code' => 502];
         }
 
-        $statusCode = 0;
-        $headers = $http_response_header ?? [];
-        if (isset($headers[0]) && preg_match('/\s(\d{3})\s/', $headers[0], $matches)) {
-            $statusCode = (int) $matches[1];
-        }
         if ($statusCode < 200 || $statusCode >= 300) {
             return ['ok' => false, 'message' => '模型返回异常', 'code' => 502];
         }

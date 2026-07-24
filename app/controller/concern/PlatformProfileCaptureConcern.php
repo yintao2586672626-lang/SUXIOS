@@ -10,9 +10,14 @@ use think\facade\Db;
 
 trait PlatformProfileCaptureConcern
 {
-    private function prepareCtripCookieApiCaptureFiles(array $requestData, string $projectRoot, ?int $systemHotelId): array
+    private function prepareCtripCookieApiCaptureFiles(
+        array $requestData,
+        string $projectRoot,
+        ?int $systemHotelId,
+        array $credentialPayload = []
+    ): array
     {
-        $config = $this->buildCtripCookieApiCaptureConfigFromRequest($requestData, $systemHotelId);
+        $config = $this->buildCtripCookieApiCaptureConfigFromRequest($requestData, $systemHotelId, $credentialPayload);
         $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
         if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
             throw new \InvalidArgumentException('无法创建携程 Cookie API 采集输出目录');
@@ -70,6 +75,7 @@ trait PlatformProfileCaptureConcern
             'last_modified_at' => $exists ? date('Y-m-d H:i:s', (int)filemtime($profileDir)) : '',
             'last_login_check_time' => (string)($cached['checked_at'] ?? ''),
             'auth_status' => $cached['auth_status'] ?? null,
+            'session_probe' => $cached['session_probe'] ?? null,
             'capture_gate' => $cached['capture_gate'] ?? null,
             'status' => $exists ? 'profile_found' : 'missing_profile',
             'status_code' => $statusCode,
@@ -86,9 +92,12 @@ trait PlatformProfileCaptureConcern
                 'status' => 'login_required',
                 'message' => (string)($probe['message'] ?? 'Ctrip login probe failed.'),
             ];
-            $isOk = !empty($authStatus['ok']);
+            $sessionProbe = is_array($probe['session_probe'] ?? null) ? $probe['session_probe'] : [];
+            $isOk = !empty($authStatus['ok'])
+                && (new OtaProfileSessionProofService())->isStrongProfileLoginSessionProbe($sessionProbe);
             $probeStatusCode = $this->ctripProfileProbeStatusCode($probe, $authStatus);
             $status['auth_status'] = $authStatus;
+            $status['session_probe'] = $sessionProbe !== [] ? $sessionProbe : null;
             $status['capture_gate'] = $probe['capture_gate'] ?? null;
             $status['output'] = (string)($probe['output'] ?? '');
             $status['last_login_check_time'] = date('Y-m-d H:i:s');
@@ -97,12 +106,17 @@ trait PlatformProfileCaptureConcern
             $status['current_status'] = $this->ctripProfileStatusText((string)$status['status_code']);
             $status['next_action'] = $isOk
                 ? 'profile_reuse_ready'
-                : (string)$status['status_code'];
+                : ($probeStatusCode === 'platform_contract_drift'
+                    ? '平台探针契约已变化；先查看同步日志并校准规则，不要反复登录'
+                    : (trim((string)($sessionProbe['next_action'] ?? '')) !== ''
+                        ? (string)$sessionProbe['next_action']
+                        : (string)$status['status_code']));
 
             if ($hotelId > 0 && $profileId !== '') {
                 $this->cachePlatformProfileStatus('ctrip', $hotelId, $profileId, [
                     'checked_at' => $status['last_login_check_time'],
                     'auth_status' => $authStatus,
+                    'session_probe' => $status['session_probe'],
                     'capture_gate' => $status['capture_gate'],
                     'status_code' => $status['status_code'],
                     'output' => $status['output'],
@@ -148,8 +162,10 @@ trait PlatformProfileCaptureConcern
             'session_expired' => 'session_expired',
             'login_expired', 'login_required' => 'login_expired',
             'anti_bot' => 'anti_bot',
+            'platform_contract_drift' => 'platform_contract_drift',
             'permission_denied' => 'permission_denied',
             'hotel_mismatch' => 'hotel_mismatch',
+            'hotel_identity_unverified' => 'hotel_identity_unverified',
             'capture_failed' => 'capture_failed',
             'cookies_incomplete' => 'cookies_incomplete',
             'waiting_login' => 'waiting_login',
@@ -159,13 +175,41 @@ trait PlatformProfileCaptureConcern
 
     private function ctripProfileProbeStatusCode(array $probe, array $authStatus): string
     {
-        if (!empty($authStatus['ok'])) {
+        $sessionProbe = is_array($probe['session_probe'] ?? null) ? $probe['session_probe'] : [];
+        $probeStatus = strtolower(trim((string)($sessionProbe['status'] ?? '')));
+        if ((new OtaProfileSessionProofService())->profileLoginSessionProbeContractStatus($sessionProbe) === 'platform_contract_drift') {
+            return 'platform_contract_drift';
+        }
+        if ($probeStatus === 'anti_bot') {
+            return 'anti_bot';
+        }
+        if ($probeStatus === 'platform_contract_drift') {
+            return 'platform_contract_drift';
+        }
+        if ($probeStatus === 'permission_denied') {
+            return 'permission_denied';
+        }
+        if ($probeStatus === 'identity_mismatch') {
+            return 'hotel_mismatch';
+        }
+        if (!empty($sessionProbe['collectable']) && empty($sessionProbe['proof_eligible'])) {
+            return 'hotel_identity_unverified';
+        }
+        if ($probeStatus === 'cookies_incomplete') {
+            return 'cookies_incomplete';
+        }
+        if ($probeStatus === 'login_required') {
+            return 'login_expired';
+        }
+        if (!empty($authStatus['ok'])
+            && (new OtaProfileSessionProofService())->isStrongProfileLoginSessionProbe($sessionProbe)) {
             return 'logged_in';
         }
         $text = strtolower(json_encode([
             'message' => $authStatus['message'] ?? $probe['message'] ?? '',
             'status' => $authStatus['status'] ?? '',
             'capture_gate' => $probe['capture_gate'] ?? null,
+            'session_probe' => $sessionProbe,
             'stdout' => $probe['stdout'] ?? '',
             'stderr' => $probe['stderr'] ?? '',
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
@@ -180,6 +224,9 @@ trait PlatformProfileCaptureConcern
         }
         if (preg_match('/session_expired|session expired|session invalid|expired session/', $text) === 1) {
             return 'session_expired';
+        }
+        if (in_array($probeStatus, ['weak_evidence', 'probe_failed'], true)) {
+            return 'capture_failed';
         }
         return 'login_expired';
     }
@@ -206,7 +253,7 @@ trait PlatformProfileCaptureConcern
             '--profile-id=' . $profileId,
             '--system-hotel-id=' . (string)$systemHotelId,
             '--output=' . $outputPath,
-            '--login-only=true',
+            '--session-probe-only=true',
             '--headless=true',
             '--login-timeout-ms=30000',
             '--sections=business_overview',
@@ -272,6 +319,7 @@ trait PlatformProfileCaptureConcern
             'last_modified_at' => $exists ? date('Y-m-d H:i:s', (int)filemtime($profileDir)) : '',
             'last_login_check_time' => (string)($cached['checked_at'] ?? ''),
             'auth_status' => $cached['auth_status'] ?? null,
+            'session_probe' => $cached['session_probe'] ?? null,
             'capture_gate' => $cached['capture_gate'] ?? null,
             'status' => $exists ? 'profile_found' : 'missing_profile',
             'current_status' => $exists ? '登录待验证' : '登录待验证',
@@ -291,26 +339,38 @@ trait PlatformProfileCaptureConcern
             'status' => 'login_required',
             'message' => (string)($probe['message'] ?? 'Meituan login probe failed.'),
         ];
-        $isOk = !empty($authStatus['ok']);
+        $sessionProbe = is_array($probe['session_probe'] ?? null) ? $probe['session_probe'] : [];
+        $isOk = !empty($authStatus['ok'])
+            && (new OtaProfileSessionProofService())->isStrongProfileLoginSessionProbe($sessionProbe);
         $status['auth_status'] = $authStatus;
+        $status['session_probe'] = $sessionProbe !== [] ? $sessionProbe : null;
         $status['capture_gate'] = $probe['capture_gate'] ?? null;
         $status['output'] = $probe['output'] ?? '';
         $status['last_login_check_time'] = date('Y-m-d H:i:s');
         $status['status'] = $isOk ? 'ready' : 'login_required';
-        $probeStatusCode = $isOk ? 'logged_in' : $this->ctripProfileProbeStatusCode($probe, $authStatus);
+        $probeStatusCode = $this->ctripProfileProbeStatusCode($probe, $authStatus);
         $status['status_code'] = $probeStatusCode;
         $status['current_status'] = $isOk ? '登录态已验证' : '登录失效';
-        $status['next_action'] = $isOk ? '登录态已验证；仍需执行目标日同步并检查入库结果' : '重新登录美团平台账号';
+        $status['next_action'] = $isOk
+            ? '登录态已验证；仍需执行目标日同步并检查入库结果'
+            : ($probeStatusCode === 'platform_contract_drift'
+                ? '平台探针契约已变化；先查看同步日志并校准规则，不要反复登录'
+                : (trim((string)($sessionProbe['next_action'] ?? '')) !== ''
+                    ? (string)$sessionProbe['next_action']
+                    : '重新登录美团平台账号'));
 
         if (!$isOk) {
             $status['current_status'] = $this->ctripProfileStatusText($probeStatusCode);
-            $status['next_action'] = $probeStatusCode;
+            if (trim((string)($sessionProbe['next_action'] ?? '')) === '') {
+                $status['next_action'] = $probeStatusCode;
+            }
         }
 
         if ($hotelId > 0 && $storeId !== '') {
             $this->cachePlatformProfileStatus('meituan', $hotelId, $storeId, [
                 'checked_at' => $status['last_login_check_time'],
                 'auth_status' => $authStatus,
+                'session_probe' => $status['session_probe'],
                 'capture_gate' => $status['capture_gate'],
                 'status_code' => $status['status_code'],
                 'output' => $status['output'],
@@ -341,7 +401,7 @@ trait PlatformProfileCaptureConcern
             '--store-id=' . $storeId,
             '--system-hotel-id=' . (string)$systemHotelId,
             '--output=' . $outputPath,
-            '--login-only=true',
+            '--session-probe-only=true',
             '--headless=true',
             '--login-timeout-ms=30000',
             '--sections=traffic',
@@ -391,25 +451,6 @@ trait PlatformProfileCaptureConcern
         return $this->createPlatformCookieFileFromProfile('ctrip', $profileDir, $projectRoot, $profileId, 'ctrip_profile_' . $safeProfileId);
     }
 
-    private function createMeituanCookieFileFromProfile(array $requestData, string $projectRoot, int $systemHotelId): array
-    {
-        $storeId = $this->meituanProfileStoreIdFromConfig($requestData);
-        if ($storeId === '') {
-            throw new \InvalidArgumentException('missing Meituan Cookie and browser Profile Store ID');
-        }
-        $source = $this->loadProfileSessionSource('meituan', $systemHotelId, $storeId);
-        $this->assertProfileCookieSourceLoginVerified($source, 'Meituan');
-        $this->assertOtaProfileBindingForHotel('meituan', $systemHotelId, $storeId);
-
-        $safeStoreId = BrowserProfileCaptureRequestService::safeFilePart($storeId);
-        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $safeStoreId;
-        if (!is_dir($profileDir)) {
-            throw new \InvalidArgumentException("missing Meituan Cookie and storage/meituan_profile_{$safeStoreId}");
-        }
-
-        return $this->createPlatformCookieFileFromProfile('meituan', $profileDir, $projectRoot, $storeId, 'meituan_profile_' . $safeStoreId);
-    }
-
     private function assertOtaProfileBindingForHotel(string $platform, int $systemHotelId, string $profileKey): void
     {
         (new OtaProfileBindingService())->assertBound($systemHotelId, $platform, $profileKey);
@@ -429,9 +470,13 @@ trait PlatformProfileCaptureConcern
 
     private function profileCookieSourceLoginMissingRequirements(array $source): array
     {
-        return (new OtaProfileSessionProofService())->isCurrentVerified($source)
-            ? []
-            : ['current_session_verified'];
+        $reuseState = (new OtaProfileSessionProofService())->profileReuseState($source);
+        if (!empty($reuseState['is_reusable'])) {
+            return [];
+        }
+        return [($reuseState['status'] ?? '') === 'expired'
+            ? 'profile_session_expired'
+            : 'profile_session_unverified'];
     }
 
     private function loadProfileSessionSource(
@@ -444,7 +489,7 @@ trait PlatformProfileCaptureConcern
         }
 
         $rows = Db::name('platform_data_sources')
-            ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+            ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json,last_sync_status,last_error')
             ->where('system_hotel_id', $systemHotelId)
             ->where('platform', strtolower(trim($platform)))
             ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
@@ -554,7 +599,11 @@ trait PlatformProfileCaptureConcern
         return '';
     }
 
-    private function buildCtripCookieApiCaptureConfigFromRequest(array $requestData, ?int $systemHotelId): array
+    private function buildCtripCookieApiCaptureConfigFromRequest(
+        array $requestData,
+        ?int $systemHotelId,
+        array $credentialPayload = []
+    ): array
     {
         $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
         if ($dataDate === '') {
@@ -583,7 +632,11 @@ trait PlatformProfileCaptureConcern
             $hotelId = $platformHotelId;
         }
         $profileId = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? $hotelId ?: 'ctrip_cookie_api'));
-        $endpoints = $this->normalizeCtripCookieApiEndpointsFromRequest($requestData, $dataDate, $hotelId);
+        $requestSource = trim((string)($requestData['request_source'] ?? ''));
+        $spiderkey = $this->resolveCtripCookieApiSpiderkey($credentialPayload);
+        $endpoints = $requestSource !== ''
+            ? $this->buildCtripCookieApiPresetEndpoints($requestSource, $spiderkey)
+            : $this->normalizeCtripCookieApiEndpointsFromRequest($requestData, $dataDate, $hotelId);
         if ($endpoints === []) {
             throw new \InvalidArgumentException('请提供携程接口 Request URL，或 endpoints/endpoints_json 接口清单');
         }
@@ -601,6 +654,87 @@ trait PlatformProfileCaptureConcern
             'data_date' => $dataDate,
             'endpoints' => $endpoints,
         ];
+    }
+
+    private function resolveCtripCookieApiSpiderkey(array $credentialPayload): string
+    {
+        foreach (['spiderkey', 'spider_key'] as $key) {
+            if (isset($credentialPayload[$key]) && is_scalar($credentialPayload[$key])) {
+                $value = trim((string)$credentialPayload[$key]);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        foreach (['auth_data', 'authData', 'extra_params', 'extraParams'] as $key) {
+            $value = $credentialPayload[$key] ?? [];
+            if (is_string($value)) {
+                $value = json_decode($value, true) ?: [];
+            }
+            if (!is_array($value)) {
+                continue;
+            }
+            foreach (['spiderkey', 'spider_key'] as $spiderkeyKey) {
+                if (isset($value[$spiderkeyKey]) && is_scalar($value[$spiderkeyKey])) {
+                    $spiderkey = trim((string)$value[$spiderkeyKey]);
+                    if ($spiderkey !== '') {
+                        return $spiderkey;
+                    }
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function buildCtripCookieApiPresetEndpoints(string $requestSource, string $spiderkey = ''): array
+    {
+        if ($requestSource !== 'traffic_report') {
+            throw new \InvalidArgumentException('未知的携程 Cookie API 采集预设');
+        }
+
+        $requestUrl = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/querySearchFlowDetails?hostType=Ebooking';
+        $endpoints = [[
+            'request_url' => 'https://ebooking.ctrip.com/datacenter/api/biddingajax/fetchCurrentHotelSeqInfoV1',
+            'method' => 'POST',
+            'payload' => [],
+            'headers' => [],
+            'section' => 'traffic_report',
+        ], [
+            'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2',
+            'method' => 'POST',
+            'payload' => [],
+            'headers' => [],
+            'section' => 'traffic_report',
+        ], [
+            'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate',
+            'method' => 'POST',
+            'payload' => [],
+            'headers' => [],
+            'section' => 'traffic_report',
+        ]];
+        foreach ([[0, '0'], [3, '0'], [0, '1'], [3, '1']] as [$dataType, $searchType]) {
+            $payload = [
+                'platform' => 'Ctrip',
+                'dataType' => $dataType,
+                'searchType' => $searchType,
+                'fingerPrintKeys' => '',
+                'spiderVersion' => '2.0',
+            ];
+            if ($spiderkey !== '') {
+                $payload['spiderkey'] = $spiderkey;
+            }
+            $endpoints[] = [
+                'request_url' => $requestUrl,
+                'method' => 'POST',
+                'payload' => $payload,
+                'headers' => [],
+                'section' => 'traffic_report',
+            ];
+        }
+
+        return $endpoints;
     }
 
     private function normalizeCtripCookieApiEndpointsFromRequest(array $requestData, string $dataDate = '', string $hotelId = ''): array
@@ -1165,12 +1299,6 @@ trait PlatformProfileCaptureConcern
 
     private function buildCtripProfileCaptureConfigOptions(array $source, array $original = []): array
     {
-        $sectionValue = $this->firstPresentCtripConfigValue(
-            $source,
-            ['profile_sections', 'capture_sections', 'captureSections'],
-            $this->firstPresentCtripConfigValue($original, ['profile_sections', 'capture_sections', 'captureSections'], 'default')
-        );
-        $sections = $this->normalizeCtripProfileCaptureSections($sectionValue);
         $mappingPath = $this->firstPresentCtripConfigValue(
             $source,
             ['approved_mappings_path', 'approved_mapping_path', 'p3_mappings_path', 'approvedMappingsPath', 'approvedMappingPath', 'p3MappingsPath'],
@@ -1182,8 +1310,8 @@ trait PlatformProfileCaptureConcern
         );
 
         return [
-            'capture_sections' => $sections,
-            'profile_sections' => $sections,
+            'capture_sections' => 'all',
+            'profile_sections' => 'all',
             'approved_mappings_path' => trim(str_replace("\0", '', is_scalar($mappingPath) ? (string)$mappingPath : '')),
         ];
     }

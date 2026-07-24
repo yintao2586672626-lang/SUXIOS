@@ -42,11 +42,405 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const manualOneClickFetchNowText = (date = new Date()) => date.toLocaleString('zh-CN', { hour12: false });
 
+    const otaConfigTimestampValue = (value = '') => {
+        const text = String(value || '').trim();
+        if (!text) return 0;
+        const parsed = Date.parse(text.includes('T') ? text : text.replace(' ', 'T'));
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const otaConfigTimestampText = (value = '', emptyText = '暂无成功入库') => {
+        const text = String(value || '').trim();
+        if (!text) return emptyText;
+        const normalized = text.replace('T', ' ').replace(/\.\d+(?:Z)?$/i, '').replace(/Z$/i, '');
+        return normalized.length >= 16 ? normalized.slice(0, 16) : normalized;
+    };
+
+    const otaConfigCredentialReady = (config = {}) => {
+        const status = String(config?.credential_status || '').trim().toLowerCase();
+        if (['revoked', 'missing', 'blocked', 'migration_required', 'invalid'].includes(status)) return false;
+        if (status === 'ready') return true;
+        return Boolean(config?.has_cookies || String(config?.cookies || '').trim() || config?.has_profile_cookie_source);
+    };
+
+    const otaConfigEffectState = ({
+        config = {},
+        platform = 'ctrip',
+        missingFields = [],
+    } = {}) => {
+        const evidenceStatus = String(config?.collection_evidence_status || '').trim();
+        const hasHistoricalSuccess = Number(config?.stored_platform_row_count || 0) > 0
+            || Boolean(String(config?.latest_platform_success_at || '').trim());
+        const missing = Array.isArray(missingFields) ? missingFields.filter(Boolean) : [];
+        const hotelId = String(config?.system_hotel_id || config?.hotel_id || '').trim();
+        if (!hotelId || evidenceStatus === 'unbound') {
+            return {
+                status: 'blocked',
+                text: '未关联门店',
+                detail: '先关联宿析OS门店，才能核对该配置的入库结果。',
+                className: 'border-red-100 bg-red-50 text-red-700',
+            };
+        }
+        if (missing.length || !otaConfigCredentialReady(config)) {
+            return {
+                status: 'blocked',
+                text: hasHistoricalSuccess ? '成功过，当前需处理' : '需补配置',
+                detail: missing.length
+                    ? `缺少：${missing.join('、')}`
+                    : '当前凭据未就绪，不能确认仍可采集。',
+                className: 'border-red-100 bg-red-50 text-red-700',
+            };
+        }
+        if (evidenceStatus === 'success_after_current_config') {
+            return {
+                status: 'effective',
+                text: '已生效',
+                detail: '当前配置保存后已有该平台真实入库。',
+                className: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+            };
+        }
+        if (evidenceStatus === 'historical_success_before_config_update') {
+            return {
+                status: 'pending',
+                text: '配置已更新，待验证',
+                detail: '有历史成功记录，但早于当前配置更新时间。',
+                className: 'border-amber-100 bg-amber-50 text-amber-700',
+            };
+        }
+        if (evidenceStatus === 'unverified') {
+            return {
+                status: 'unknown',
+                text: '证据未验证',
+                detail: '配置已保存，但入库证据读取失败，不能判定是否生效。',
+                className: 'border-slate-200 bg-slate-50 text-slate-600',
+            };
+        }
+        return {
+            status: 'pending',
+            text: '待首次成功',
+            detail: `${platform === 'meituan' ? '美团' : '携程'}配置可尝试，尚无成功入库证据。`,
+            className: 'border-amber-100 bg-amber-50 text-amber-700',
+        };
+    };
+
+    const otaConfigPlatformIdentityText = (config = {}, platform = 'ctrip') => {
+        if (platform === 'meituan') {
+            const partnerId = String(config?.partner_id || config?.partnerId || '').trim();
+            const poiId = String(config?.poi_id || config?.poiId || config?.store_id || config?.storeId || '').trim();
+            const parts = [];
+            if (partnerId) parts.push(`partner ${partnerId}`);
+            if (poiId) parts.push(`poi ${poiId}`);
+            return parts.join(' / ') || 'partner / poi 待补';
+        }
+        const internalId = String(config?.system_hotel_id || config?.hotel_id || '').trim();
+        const platformId = [
+            config?.ctrip_hotel_id,
+            config?.ctripHotelId,
+            config?.ota_hotel_id,
+            config?.otaHotelId,
+            config?.platform_hotel_id,
+            config?.platformHotelId,
+            config?.masterHotelId,
+            config?.master_hotel_id,
+        ].map(value => String(value || '').trim()).find(value => value && value !== internalId) || '';
+        return platformId ? `hotelId ${platformId}` : '平台 hotelId 待识别';
+    };
+
+    const otaConfigAuthorizationState = ({ config = {}, account = {} } = {}) => {
+        const statusCode = String(account?.statusCode || '').trim().toLowerCase();
+        const captureStatusCode = String(account?.captureStatusCode || '').trim().toLowerCase();
+        const verificationStatus = String(config?.verification_status || '').trim().toLowerCase();
+        const verifiedAt = String(config?.verified_at || '').trim();
+        const configurationSaved = config?.configuration_saved === true
+            || String(config?.credential_status || '').trim().toLowerCase() === 'ready'
+            || config?.has_cookies === true;
+        const configurationVerified = config?.configuration_verified === true
+            || verificationStatus === 'verified_current';
+        const reasonText = String(account?.reasonText || account?.verificationReasonText || '').trim();
+        const lastFailureText = (
+            captureStatusCode === 'failed'
+            || ['login_expired', 'mismatch'].includes(statusCode)
+        ) ? reasonText : '';
+        const checkedText = verifiedAt
+            ? otaConfigTimestampText(verifiedAt, '')
+            : (String(account?.lastLoginText || '').trim() && String(account?.lastLoginText || '').trim() !== '-'
+                ? String(account.lastLoginText).trim()
+                : '暂无检测时间');
+
+        let state = {
+            status: 'unconfigured',
+            text: '未发现授权证明',
+            detail: reasonText || '当前没有可核验的平台登录证明；可继续维护配置或按现有方式尝试补采。',
+            className: 'border-slate-200 bg-slate-50 text-slate-600',
+        };
+        if (statusCode === 'mismatch') {
+            state = {
+                status: 'blocked',
+                text: '门店身份冲突',
+                detail: reasonText || '平台门店与系统门店不一致，请复核绑定。',
+                className: 'border-red-200 bg-red-50 text-red-700',
+            };
+        } else if (statusCode === 'login_expired') {
+            state = {
+                status: 'blocked',
+                text: '授权已失效',
+                detail: reasonText || '平台登录已失效，需要重新登录后再检测。',
+                className: 'border-red-200 bg-red-50 text-red-700',
+            };
+        } else if (captureStatusCode === 'failed') {
+            state = {
+                status: 'failed',
+                text: '最近检测失败',
+                detail: reasonText || '最近一次平台采集或登录检测失败，请查看原因。',
+                className: 'border-red-200 bg-red-50 text-red-700',
+            };
+        } else if (statusCode === 'renewal_warning' || account?.renewalWarning === true) {
+            state = {
+                status: 'warning',
+                text: '授权建议更新',
+                detail: reasonText || '当前授权仍可尝试使用，建议按提示更新登录。',
+                className: 'border-amber-200 bg-amber-50 text-amber-700',
+            };
+        } else if (statusCode === 'logged_in' || configurationVerified) {
+            state = {
+                status: 'verified',
+                text: '授权已验证',
+                detail: reasonText || '已有当前配置对应的平台授权验证证明；业务数据仍以真实采集入库为准。',
+                className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+            };
+        } else if (statusCode === 'profile_reusable' || account?.profileReusable === true) {
+            state = {
+                status: 'reusable',
+                text: '授权可尝试',
+                detail: reasonText || '已绑定可复用账号会话，是否有效仍以平台实际返回为准。',
+                className: 'border-blue-200 bg-blue-50 text-blue-700',
+            };
+        } else if (configurationSaved) {
+            state = {
+                status: 'pending',
+                text: '凭据已保存，待检测',
+                detail: reasonText || String(config?.verification_status_label || '').trim() || '配置已保存，但尚无当前授权检测证明。',
+                className: 'border-amber-200 bg-amber-50 text-amber-700',
+            };
+        }
+
+        return {
+            ...state,
+            checkedText,
+            verifiedAt,
+            lastFailureText,
+        };
+    };
+
+    const buildOtaConfigOverviewRows = ({
+        platform = 'ctrip',
+        configs = [],
+        hotelNameResolver = null,
+        missingFieldsResolver = null,
+        accountResolver = null,
+    } = {}) => {
+        const normalizedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
+        const statusRank = { blocked: 0, pending: 1, unknown: 2, effective: 3 };
+        return (Array.isArray(configs) ? configs : [])
+            .filter(config => config && typeof config === 'object')
+            .map((config, index) => {
+                const hotelId = String(config?.system_hotel_id || config?.hotel_id || '').trim();
+                const configId = String(config?.config_id || config?.id || '').trim();
+                const hotelName = typeof hotelNameResolver === 'function'
+                    ? String(hotelNameResolver(config, hotelId) || '').trim()
+                    : String(config?.hotel_name || config?.hotelName || '').trim();
+                const missingFields = typeof missingFieldsResolver === 'function'
+                    ? missingFieldsResolver(config)
+                    : [];
+                const effect = otaConfigEffectState({ config, platform: normalizedPlatform, missingFields });
+                const account = typeof accountResolver === 'function'
+                    ? (accountResolver(config, normalizedPlatform, hotelId) || {})
+                    : {};
+                const authorization = otaConfigAuthorizationState({ config, account });
+                const latestSuccessAt = String(config?.latest_platform_success_at || '').trim();
+                const activeConfigCount = Math.max(0, Number(config?.active_config_count || config?.current_config_count || 0));
+                const duplicateCurrentCount = Math.max(0, Number(config?.duplicate_current_count || 0));
+                return {
+                    key: `${normalizedPlatform}:${configId || hotelId || index}`,
+                    platform: normalizedPlatform,
+                    platformText: normalizedPlatform === 'meituan' ? '美团' : '携程',
+                    configId,
+                    hotelId,
+                    hotelName: hotelName || (hotelId ? `门店 ${hotelId}` : '未关联门店'),
+                    configName: String(config?.name || '').trim() || '未命名配置',
+                    platformIdentityText: otaConfigPlatformIdentityText(config, normalizedPlatform),
+                    effectStatus: effect.status,
+                    effectText: effect.text,
+                    effectDetail: effect.detail,
+                    effectClass: effect.className,
+                    latestSuccessAt,
+                    latestSuccessText: otaConfigTimestampText(latestSuccessAt),
+                    latestDataDate: String(config?.latest_platform_data_date || '').trim(),
+                    configUpdatedAt: String(config?.update_time || config?.updated_at || config?.created_at || '').trim(),
+                    configUpdatedText: otaConfigTimestampText(
+                        config?.update_time || config?.updated_at || config?.created_at || '',
+                        '暂无更新时间',
+                    ),
+                    storedRowCount: Math.max(0, Number(config?.stored_platform_row_count || 0)),
+                    historyCount: Math.max(0, Number(config?.history_count || 0)),
+                    activeConfigCount,
+                    duplicateCurrentCount,
+                    duplicateText: duplicateCurrentCount > 0
+                        ? `存在 ${duplicateCurrentCount + 1} 条同时生效配置，请复核`
+                        : '',
+                    authorizationStatus: authorization.status,
+                    authorizationText: authorization.text,
+                    authorizationDetail: authorization.detail,
+                    authorizationClass: authorization.className,
+                    authorizationCheckedText: authorization.checkedText,
+                    authorizationLastFailureText: authorization.lastFailureText,
+                    config,
+                };
+            })
+            .sort((left, right) => {
+                const statusDiff = (statusRank[left.effectStatus] ?? 9) - (statusRank[right.effectStatus] ?? 9);
+                if (statusDiff !== 0) return statusDiff;
+                const successDiff = otaConfigTimestampValue(right.latestSuccessAt) - otaConfigTimestampValue(left.latestSuccessAt);
+                if (successDiff !== 0) return successDiff;
+                return left.hotelName.localeCompare(right.hotelName, 'zh-CN');
+            });
+    };
+
+    const summarizeOtaConfigOverviewRows = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const latestSuccessAt = safeRows.reduce((latest, row) => (
+            otaConfigTimestampValue(row?.latestSuccessAt) > otaConfigTimestampValue(latest)
+                ? String(row?.latestSuccessAt || '')
+                : latest
+        ), '');
+        const effective = safeRows.filter(row => row?.effectStatus === 'effective').length;
+        const blocked = safeRows.filter(row => row?.effectStatus === 'blocked').length;
+        const pending = safeRows.filter(row => row?.effectStatus === 'pending').length;
+        const unknown = safeRows.filter(row => row?.effectStatus === 'unknown').length;
+        return {
+            total: safeRows.length,
+            effective,
+            blocked,
+            pending,
+            unknown,
+            needsAttention: blocked + pending + unknown,
+            latestSuccessAt,
+            latestSuccessText: otaConfigTimestampText(latestSuccessAt),
+        };
+    };
+
+    const filterAndSortOtaConfigOverviewRows = (rows = [], filters = {}) => {
+        const keyword = String(filters?.search || '').trim().toLocaleLowerCase('zh-CN');
+        const requestedPlatform = String(filters?.platform || 'all').trim().toLowerCase();
+        const platform = ['ctrip', 'meituan'].includes(requestedPlatform)
+            ? requestedPlatform
+            : 'all';
+        const requestedStatus = String(filters?.status || 'all').trim().toLowerCase();
+        const status = ['effective', 'attention', 'blocked', 'pending', 'unknown'].includes(requestedStatus)
+            ? requestedStatus
+            : 'all';
+        const requestedSort = String(filters?.sort || 'attention').trim().toLowerCase();
+        const sort = ['latest_success', 'latest_update', 'hotel_name'].includes(requestedSort)
+            ? requestedSort
+            : 'attention';
+        const statusRank = { blocked: 0, pending: 1, unknown: 2, effective: 3 };
+        const sourceRows = Array.isArray(rows) ? rows : [];
+
+        const filtered = sourceRows.filter((row) => {
+            const rowPlatform = String(row?.platform || '').trim().toLowerCase();
+            if (platform !== 'all' && rowPlatform !== platform) return false;
+            const effectStatus = String(row?.effectStatus || '').trim().toLowerCase();
+            if (status === 'attention' && effectStatus === 'effective') return false;
+            if (status !== 'all' && status !== 'attention' && effectStatus !== status) return false;
+            if (!keyword) return true;
+            const searchable = [
+                row?.hotelName,
+                row?.hotelId,
+                row?.configName,
+                row?.configId,
+                row?.platformText,
+                row?.platformIdentityText,
+                row?.effectText,
+                row?.authorizationText,
+                row?.authorizationDetail,
+                row?.authorizationLastFailureText,
+                row?.duplicateText,
+                row?.latestSuccessAt,
+                row?.latestDataDate,
+            ].filter(Boolean).join(' ').toLocaleLowerCase('zh-CN');
+            return searchable.includes(keyword);
+        });
+
+        return [...filtered].sort((left, right) => {
+            if (sort === 'latest_success') {
+                const successDiff = otaConfigTimestampValue(right?.latestSuccessAt) - otaConfigTimestampValue(left?.latestSuccessAt);
+                if (successDiff !== 0) return successDiff;
+            } else if (sort === 'latest_update') {
+                const updateDiff = otaConfigTimestampValue(right?.configUpdatedAt) - otaConfigTimestampValue(left?.configUpdatedAt);
+                if (updateDiff !== 0) return updateDiff;
+            } else if (sort === 'hotel_name') {
+                const nameDiff = String(left?.hotelName || '').localeCompare(String(right?.hotelName || ''), 'zh-CN');
+                if (nameDiff !== 0) return nameDiff;
+            } else {
+                const statusDiff = (statusRank[String(left?.effectStatus || '')] ?? 9)
+                    - (statusRank[String(right?.effectStatus || '')] ?? 9);
+                if (statusDiff !== 0) return statusDiff;
+            }
+
+            const successDiff = otaConfigTimestampValue(right?.latestSuccessAt) - otaConfigTimestampValue(left?.latestSuccessAt);
+            if (successDiff !== 0) return successDiff;
+            return String(left?.hotelName || '').localeCompare(String(right?.hotelName || ''), 'zh-CN');
+        });
+    };
+
+    const manualOneClickFetchRankIssueCount = (message = '', pattern = /./) => {
+        const labels = new Set();
+        String(message || '').split(/[；\n]+/).forEach((section) => {
+            const text = String(section || '').trim();
+            if (!text || !pattern.test(text)) return;
+            const label = text.match(/(入住榜|销售榜|流量榜|转化榜)/)?.[1] || `问题${labels.size + 1}`;
+            labels.add(label);
+        });
+        return labels.size;
+    };
+
+    const normalizeManualOneClickFetchStoredMessage = (message = '') => {
+        const raw = String(message || '').trim();
+        if (!raw) return '';
+        let text = raw
+            .replace(/可能Cookie已失效/g, 'Cookie已失效')
+            .replace(/Cookie\s*可能已失效/g, 'Cookie已失效')
+            .replace(
+                /^手动获取完成：携程和去哪儿均已返回(?:，已自动重抓 \d+ 次)?；本次入库 (\d+) 条；去哪儿访客 [^。]+。?$/,
+                '携程竞争圈本次返回并入库 $1 家；本店与竞店明细以竞争圈表为准；数量以平台实际返回为准。',
+            )
+            .replace(
+                /^目标日已入库 \d+ 条竞争圈数据，本次不重复获取；.*$/,
+                '目标日已有竞争圈数据，本次不重复获取；数量以平台实际返回的去重酒店为准。',
+            )
+            .replace(
+                /^携程竞争圈已返回并入库 (\d+) 条；去哪儿访客为 0 仅作为字段缺口提示，不阻断携程补采成功。$/,
+                '携程竞争圈本次返回并入库 $1 家；去哪儿字段未返回有效数据；本次补采判定失败，可重新补采。',
+            );
+        text = text.replace(
+            /携程竞争圈本次返回\s*\d+\s*家（本店\s*(\d+)\s*家、竞店\s*(\d+)\s*家）/g,
+            (_matched, selfCount, competitorCount) => `携程竞争圈本次返回 ${Number(selfCount) + Number(competitorCount)} 家（本店 ${Number(selfCount)} 家、竞店 ${Number(competitorCount)} 家）`,
+        );
+        if (text === '手动获取失败') {
+            text = '手动获取失败：接口未返回错误详情';
+        }
+        if (text.includes('携程竞争圈未返回可展示行，携程和去哪儿都成功才算成功')) {
+            text = '携程请求已返回，但页面当次未回显竞争圈酒店；去哪儿字段未返回有效数据；本次补采判定失败，可重新补采。';
+        }
+        return text;
+    };
+
     const normalizeManualOneClickFetchStoredRows = (rows = []) => {
         return (Array.isArray(rows) ? rows : [])
             .filter(row => row && typeof row === 'object')
             .map(row => {
                 const normalized = { ...row };
+                const originalMessage = String(normalized.detailMessage || normalized.message || '').trim();
                 const status = String(normalized.status || '').trim();
                 if (['running', 'queued'].includes(status)) {
                     normalized.status = 'failed';
@@ -57,24 +451,48 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 normalized.existingCount = Number(normalized.existingCount || 0);
                 normalized.retryCount = Number(normalized.retryCount || 0);
                 normalized.qunarVisitorTotal = Number(normalized.qunarVisitorTotal || 0);
+                normalized.fetchedBy = String(normalized.fetchedBy || '未记录').trim() || '未记录';
+                normalized.handledBy = String(normalized.handledBy || '未记录').trim() || '未记录';
+                normalized.message = normalizeManualOneClickFetchStoredMessage(normalized.message);
+                const loginIssueCount = manualOneClickFetchRankIssueCount(originalMessage, /美团登录态已失效|美团登录失效/);
+                const partialIssueCount = manualOneClickFetchRankIssueCount(originalMessage, /排名百分比|未返回实际数值/);
+                if (loginIssueCount > 0) {
+                    normalized.message = `美团登录失效，${loginIssueCount} 个榜单未获取。请重新登录后重试。`;
+                }
+                if (normalized.savedCount > 0 && partialIssueCount > 0) {
+                    normalized.status = 'partial';
+                    normalized.statusText = '部分入库';
+                    normalized.message = `已入库 ${normalized.savedCount} 条，${partialIssueCount} 个榜单缺少实际数值。`;
+                }
+                if (/去哪儿字段未返回有效数据/.test(normalized.message) && normalized.status === 'success') {
+                    normalized.status = 'failed';
+                    normalized.statusText = '失败';
+                }
+                normalized.detailMessage = originalMessage && originalMessage !== normalized.message
+                    ? originalMessage
+                    : '';
                 return normalized;
             });
     };
 
     const summarizeManualOneClickFetchRows = (rows = []) => {
         return (Array.isArray(rows) ? rows : []).reduce((summary, row) => {
-            if (row.status === 'success') summary.savedHotels += 1;
+            if (row.status === 'success' || row.status === 'partial') summary.savedHotels += 1;
+            if (row.status === 'partial') summary.partial += 1;
             if (row.status === 'no_saved') summary.noSaved += 1;
             if (row.status === 'failed') summary.failed += 1;
             if (row.status === 'skipped') summary.skipped += 1;
+            if (row.status === 'not_run') summary.notRun += 1;
             if (row.status === 'running' || row.status === 'queued') summary.pending += 1;
-            if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);
+            if (row.status === 'success' || row.status === 'partial') summary.savedCount += Number(row.savedCount || 0);
             return summary;
         }, {
             savedHotels: 0,
+            partial: 0,
             noSaved: 0,
             failed: 0,
             skipped: 0,
+            notRun: 0,
             pending: 0,
             savedCount: 0,
         });
@@ -87,10 +505,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         lastRunAt = '',
     } = {}) => {
         const safeSummary = {
+            partial: Number(summary.partial || 0),
             noSaved: Number(summary.noSaved || 0),
             failed: Number(summary.failed || 0),
             pending: Number(summary.pending || 0),
             skipped: Number(summary.skipped || 0),
+            notRun: Number(summary.notRun || 0),
             savedCount: Number(summary.savedCount || 0),
         };
         const ctripCount = Number(ctripReadyCount || 0);
@@ -106,19 +526,21 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             },
             {
                 key: 'meituan-ready',
-                label: '美团完整配置',
+                label: '美团字段配置',
                 value: `${meituanCount}`,
                 rawValue: String(meituanCount),
-                detail: 'Cookie + partner/poi',
+                detail: '仅代表已填写，不代表登录有效',
                 className: meituanCount ? 'text-emerald-700' : 'text-gray-900',
             },
             {
                 key: 'not-saved',
-                label: '未入库/失败',
-                value: `${safeSummary.noSaved + safeSummary.failed}`,
-                rawValue: String(safeSummary.noSaved + safeSummary.failed),
-                detail: safeSummary.pending ? `${safeSummary.pending} 个执行中` : (safeSummary.skipped ? `${safeSummary.skipped} 个已入库跳过` : `${safeSummary.noSaved} 个未入库 / ${safeSummary.failed} 个失败`),
-                className: safeSummary.noSaved || safeSummary.failed ? 'text-amber-700' : 'text-gray-900',
+                label: '需处理',
+                value: `${safeSummary.noSaved + safeSummary.failed + safeSummary.partial}`,
+                rawValue: String(safeSummary.noSaved + safeSummary.failed + safeSummary.partial),
+                detail: safeSummary.pending
+                    ? `${safeSummary.pending} 个执行中`
+                    : `${safeSummary.noSaved} 个未入库 / ${safeSummary.failed} 个失败 / ${safeSummary.partial} 个部分入库 / ${safeSummary.notRun} 个待补采`,
+                className: safeSummary.noSaved || safeSummary.failed || safeSummary.partial ? 'text-amber-700' : 'text-gray-900',
             },
             {
                 key: 'saved',
@@ -135,10 +557,14 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         running = '',
         ctripReadyCount = 0,
         meituanReadyCount = 0,
+        pendingCount = null,
     } = {}) => {
         if (running) return '正在执行手动一键获取...';
         if (!Number(ctripReadyCount || 0) && !Number(meituanReadyCount || 0)) {
             return '暂无可手动获取的门店。请先在平台账号里为门店配置携程或美团 Cookie/API。';
+        }
+        if (pendingCount !== null && Number(pendingCount || 0) <= 0) {
+            return '目标日已完整成功的门店已隐藏；当前没有需要补采的门店。';
         }
         return '还没有执行记录。选择上方按钮后，会按已配置门店逐个获取并写入数据库。';
     };
@@ -146,13 +572,15 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const manualOneClickFetchStatusClass = (status) => ({
         running: 'border-blue-100 bg-blue-50 text-blue-700',
         queued: 'border-amber-100 bg-amber-50 text-amber-700',
+        not_run: 'border-gray-200 bg-gray-50 text-gray-600',
         success: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+        partial: 'border-amber-100 bg-amber-50 text-amber-700',
         no_saved: 'border-amber-100 bg-amber-50 text-amber-700',
         failed: 'border-red-100 bg-red-50 text-red-700',
         skipped: 'border-gray-200 bg-gray-50 text-gray-600',
     }[String(status || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
 
-    const manualOneClickFetchActionableStatus = (status = '') => ['failed', 'no_saved'].includes(String(status || '').trim());
+    const manualOneClickFetchActionableStatus = (status = '') => ['failed', 'no_saved', 'partial'].includes(String(status || '').trim());
 
     const manualOneClickFetchRowHasHotel = (row = {}) => Boolean(String(row?.hotelId || '').trim());
 
@@ -164,18 +592,22 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const manualOneClickFetchCanDeleteRow = (row = {}, canManage = false) => Boolean(canManage)
         && manualOneClickFetchRowHasHotel(row)
-        && manualOneClickFetchActionableStatus(row?.status);
+        && ['failed', 'no_saved'].includes(String(row?.status || '').trim());
 
-    const manualOneClickFetchCanSupplementRow = (row = {}, canManage = false) => manualOneClickFetchCanDeleteRow(row, canManage);
+    const manualOneClickFetchCanSupplementRow = (row = {}, canManage = false) => Boolean(canManage)
+        && manualOneClickFetchRowHasHotel(row)
+        && ['failed', 'no_saved'].includes(String(row?.status || '').trim());
 
     const sortManualOneClickFetchRows = (rows = []) => {
         const statusRank = {
             failed: 0,
             no_saved: 1,
-            running: 2,
-            queued: 3,
-            skipped: 4,
-            success: 5,
+            partial: 2,
+            running: 3,
+            queued: 4,
+            not_run: 5,
+            skipped: 6,
+            success: 7,
         };
         return [...(Array.isArray(rows) ? rows : [])].sort((left, right) => {
             const rankDiff = (statusRank[String(left?.status || '')] ?? 9) - (statusRank[String(right?.status || '')] ?? 9);
@@ -184,7 +616,50 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         });
     };
 
-    const manualOneClickFetchMessageIsQunarVisitorZero = (message = '') => /去哪儿?访客.*(?:为|=)?\s*0|qunar.*visitor.*0/i.test(String(message || ''));
+    const manualOneClickFetchStatusGroup = (status = '') => {
+        const normalized = String(status || '').trim().toLowerCase();
+        if (['success', 'skipped'].includes(normalized)) return 'success';
+        if (['failed', 'no_saved', 'partial'].includes(normalized)) return 'failed';
+        if (normalized === 'not_run') return 'not_run';
+        return 'other';
+    };
+
+    const filterManualOneClickFetchDisplayRows = (rows = [], { status = 'all' } = {}) => {
+        const normalizedStatus = ['success', 'failed', 'not_run'].includes(String(status || '').trim().toLowerCase())
+            ? String(status || '').trim().toLowerCase()
+            : 'all';
+        const sourceRows = Array.isArray(rows) ? rows : [];
+        if (normalizedStatus === 'all') return sourceRows;
+        return sourceRows.filter(row => manualOneClickFetchStatusGroup(row?.status) === normalizedStatus);
+    };
+
+    const manualOneClickFetchMessageIsQunarVisitorZero = (message = '') => /去哪儿字段未返回有效数据|去哪儿?访客.*(?:为|=)?\s*0|qunar.*visitor.*0/i.test(String(message || ''));
+
+    const manualOneClickFetchStoredCompetitionSummary = (row = {}, platform = 'ctrip') => {
+        const wantedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
+        const platformRows = Array.isArray(row?.platformRows) ? row.platformRows : [];
+        const evidence = platformRows.find(item => String(item?.platform || '').trim().toLowerCase() === wantedPlatform) || {};
+        const total = Math.max(0, Number(evidence?.target_date_competition_hotel_count || 0));
+        const self = Math.min(total, Math.max(0, Number(evidence?.target_date_competition_self_count || 0)));
+        const reportedCompetitors = Number(evidence?.target_date_competition_competitor_count);
+        const competitors = Number.isFinite(reportedCompetitors)
+            ? Math.min(total, Math.max(0, reportedCompetitors))
+            : Math.max(0, total - self);
+        return { total, self, competitors, ready: total > 0 };
+    };
+
+    const manualOneClickFetchCompetitionCountText = (summary = {}) => {
+        const total = Math.max(0, Number(summary?.total ?? summary?.rowCount ?? 0));
+        const self = Math.min(total, Math.max(0, Number(summary?.self ?? summary?.selfHotelCount ?? 0)));
+        const reportedCompetitors = Number(summary?.competitors ?? summary?.competitorHotelCount);
+        const competitors = Number.isFinite(reportedCompetitors)
+            ? Math.min(total, Math.max(0, reportedCompetitors))
+            : Math.max(0, total - self);
+        const breakdown = self > 0
+            ? `（本店 ${self} 家、竞店 ${competitors} 家）`
+            : '（平台未返回本店标记）';
+        return `${total} 家${breakdown}`;
+    };
 
     const manualOneClickFetchHasQunarVisitorZeroFailureInRows = ({
         rows = [],
@@ -204,10 +679,27 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const findManualOneClickFetchExistingStoredRow = ({
         rows = [],
         hotelId = '',
+        platform = '',
     } = {}) => {
         const id = String(hotelId || '').trim();
         if (!id) return null;
-        return (Array.isArray(rows) ? rows : []).find(row => String(row?.hotelId || '').trim() === id && Number(row?.sourceRows || 0) > 0) || null;
+        const wantedPlatform = platform === 'meituan' ? 'meituan' : (platform === 'ctrip' ? 'ctrip' : '');
+        return (Array.isArray(rows) ? rows : []).find(row => {
+            if (String(row?.hotelId || '').trim() !== id || row?.fieldHasGap === true) return false;
+            if (['blocked', 'pending', 'unknown'].includes(String(row?.acquisitionStatusKind || '').trim())) return false;
+            const platformRows = Array.isArray(row?.platformRows) ? row.platformRows : [];
+            if (platformRows.length > 0) {
+                const evidence = wantedPlatform
+                    ? platformRows.find(item => String(item?.platform || '').trim().toLowerCase() === wantedPlatform)
+                    : (platformRows.find(item => String(item?.platform || '').trim().toLowerCase() === 'ctrip') || platformRows[0]);
+                const evidencePlatform = String(evidence?.platform || '').trim().toLowerCase();
+                if (evidencePlatform === 'ctrip') {
+                    return Number(evidence?.target_date_competition_hotel_count || 0) > 0;
+                }
+                return Number(evidence?.target_date_rows || 0) > 0;
+            }
+            return wantedPlatform === 'meituan' && Number(row?.sourceRows || 0) > 0;
+        }) || null;
     };
 
     const buildManualOneClickFetchTasks = ({
@@ -225,17 +717,17 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 hotel,
                 existingStoredRow: hasCtripQunarVisitorZeroFailure(hotel?.id)
                     ? null
-                    : findManualOneClickFetchExistingStoredRow({ rows: storedRows, hotelId: hotel?.id }),
+                    : findManualOneClickFetchExistingStoredRow({ rows: storedRows, hotelId: hotel?.id, platform: 'ctrip' }),
             }));
         }
         if (normalizedPlatform === 'all' || normalizedPlatform === 'meituan') {
             (Array.isArray(meituanHotels) ? meituanHotels : []).forEach(hotel => tasks.push({
                 platform: 'meituan',
                 hotel,
-                existingStoredRow: findManualOneClickFetchExistingStoredRow({ rows: storedRows, hotelId: hotel?.id }),
+                existingStoredRow: findManualOneClickFetchExistingStoredRow({ rows: storedRows, hotelId: hotel?.id, platform: 'meituan' }),
             }));
         }
-        return tasks;
+        return tasks.filter(task => !task.existingStoredRow);
     };
 
     const buildManualOneClickFetchBaseRow = ({
@@ -250,6 +742,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         existingCount = 0,
         getHotelNameById = () => '',
         nowText = manualOneClickFetchNowText(),
+        operatorName = '',
     } = {}) => {
         const normalizedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
         const hotelId = String(hotel?.id || '').trim();
@@ -266,7 +759,103 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             savedCount: Number(savedCount || 0),
             existingCount: Number(existingCount || 0),
             timeText: nowText,
+            fetchedBy: String(operatorName || '未记录').trim() || '未记录',
+            handledBy: String(operatorName || '未记录').trim() || '未记录',
         };
+    };
+
+    const buildManualOneClickFetchCoverageRows = ({
+        ctripHotels = [],
+        meituanHotels = [],
+        resultRows = [],
+        storedRows = [],
+        targetDate = '',
+        activeRun = false,
+        getHotelNameById = () => '',
+    } = {}) => {
+        const resultByPlatformHotel = new Map();
+        (Array.isArray(resultRows) ? resultRows : []).forEach(row => {
+            const hotelId = String(row?.hotelId || '').trim();
+            if (!hotelId) return;
+            const platform = row?.platform === 'meituan' ? 'meituan' : 'ctrip';
+            resultByPlatformHotel.set(`${platform}:${hotelId}`, row);
+        });
+
+        const configuredRows = [
+            ...(Array.isArray(ctripHotels) ? ctripHotels : []).map(hotel => ({ platform: 'ctrip', hotel })),
+            ...(Array.isArray(meituanHotels) ? meituanHotels : []).map(hotel => ({ platform: 'meituan', hotel })),
+        ];
+
+        return configuredRows.map(({ platform, hotel }) => {
+            const hotelId = String(hotel?.id || '').trim();
+            if (!hotelId) return null;
+            const hotelName = String(hotel?.name || hotel?.hotel_name || getHotelNameById(hotelId) || hotelId || '未命名门店');
+            const resultRow = resultByPlatformHotel.get(`${platform}:${hotelId}`) || null;
+            if (activeRun && resultRow) return resultRow;
+
+            const evidenceRow = findManualOneClickFetchExistingStoredRow({
+                rows: storedRows,
+                hotelId,
+                platform,
+            });
+            const resolvedTargetDate = String(evidenceRow?.targetDate || targetDate || '').trim();
+            if (evidenceRow) {
+                const competitionSummary = platform === 'ctrip'
+                    ? manualOneClickFetchStoredCompetitionSummary(evidenceRow, platform)
+                    : null;
+                const platformEvidence = (Array.isArray(evidenceRow?.platformRows) ? evidenceRow.platformRows : [])
+                    .find(item => String(item?.platform || '').trim().toLowerCase() === platform);
+                const existingCount = platform === 'ctrip'
+                    ? Number(competitionSummary?.total || 0)
+                    : Number(platformEvidence?.target_date_rows || 0);
+                return {
+                    key: `coverage:${platform}:${hotelId}`,
+                    platform,
+                    platformText: manualOneClickFetchPlatformText(platform),
+                    hotelId,
+                    hotelName,
+                    status: 'skipped',
+                    statusText: '目标日已入库',
+                    message: platform === 'ctrip'
+                        ? `目标日 ${resolvedTargetDate || '-'} 已有携程竞争圈 ${manualOneClickFetchCompetitionCountText(competitionSummary)}。`
+                        : `目标日 ${resolvedTargetDate || '-'} 已有美团数据 ${existingCount} 条。`,
+                    savedCount: 0,
+                    existingCount,
+                    timeText: resolvedTargetDate,
+                    fetchedBy: '入库记录',
+                    handledBy: '无需处理',
+                };
+            }
+
+            if (resultRow && manualOneClickFetchActionableStatus(resultRow.status)) {
+                const previousMessage = String(resultRow.message || '').trim();
+                return {
+                    ...resultRow,
+                    message: `${previousMessage || '最近一次手动补采未完成'}；目标日 ${resolvedTargetDate || targetDate || '-'} 仍无入库证据。`,
+                    detailMessage: String(resultRow.detailMessage || previousMessage || '').trim(),
+                };
+            }
+
+            const previousResultText = resultRow
+                ? `最近一次结果：${String(resultRow.statusText || '已执行').trim()}${resultRow.timeText ? ` · ${resultRow.timeText}` : ''}${resultRow.message ? ` · ${resultRow.message}` : ''}`
+                : '';
+            return {
+                key: `coverage:${platform}:${hotelId}`,
+                platform,
+                platformText: manualOneClickFetchPlatformText(platform),
+                hotelId,
+                hotelName,
+                status: 'not_run',
+                statusText: '待补采',
+                message: `目标日 ${resolvedTargetDate || targetDate || '-'} 暂无入库证据，待手动补采。`,
+                detailMessage: previousResultText,
+                savedCount: 0,
+                existingCount: 0,
+                timeText: resolvedTargetDate || String(targetDate || '').trim(),
+                fetchedBy: '未记录',
+                handledBy: '未记录',
+            };
+        }).filter(Boolean);
     };
 
     const buildManualOneClickFetchRunningRow = ({
@@ -301,6 +890,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         status: resultSummary.status,
         statusText: resultSummary.statusText,
         message: resultSummary.message,
+        detailMessage: resultSummary.detailMessage || '',
         savedCount: Number(savedCount || 0),
         retryCount: Number(retryCount || 0),
         attemptCount: Number(attemptCount || 0),
@@ -342,18 +932,25 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const summarizeManualOneClickFetchQunarVisitorQuality = (rows = []) => {
         const safeRows = Array.isArray(rows) ? rows : [];
         const total = safeRows.reduce((sum, row) => sum + Math.max(0, manualOneClickFetchQunarVisitorNumber(row)), 0);
+        const selfHotelCount = safeRows.filter(row => String(row?.hotelName || row?.hotel_name || '').trim() === '我的酒店' || row?.isSelf === true || row?.is_self === true).length;
         return {
             rowCount: safeRows.length,
             total,
             ready: safeRows.length > 0 && total > 0,
+            selfHotelCount,
+            competitorHotelCount: Math.max(0, safeRows.length - selfHotelCount),
         };
     };
 
-    const manualOneClickFetchQunarVisitorNeedsRetry = (quality = null) => Boolean(
-        quality
-        && Number(quality.rowCount || 0) > 0
-        && quality.ready !== true
-    );
+    const manualOneClickFetchQunarVisitorNeedsRetry = (quality = {}) => Number(quality?.rowCount || 0) > 0
+        && Number(quality?.total || 0) <= 0
+        && quality?.ready !== true;
+
+    const manualOneClickFetchQunarAutoRetryAllowedAt = (date = new Date()) => {
+        const hour = Number(date?.getHours?.());
+        if (!Number.isInteger(hour) || hour < 0 || hour > 23) return true;
+        return hour >= 6;
+    };
 
     const manualOneClickFetchSavedCount = (result = {}) => {
         const candidates = [
@@ -376,7 +973,18 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     };
 
     const manualOneClickFetchResultMessage = (result = {}) => {
-        return String(result?.message || result?.data?.message || result?.response?.message || result?.msg || result?.data?.msg || result?.response?.msg || '').trim();
+        const directMessage = String(result?.message || result?.data?.message || result?.response?.message || result?.msg || result?.data?.msg || result?.response?.msg || '').trim();
+        if (directMessage) return directMessage;
+        const resultRows = Array.isArray(result?.results) ? result.results : [];
+        const failures = resultRows
+            .map(row => {
+                const label = String(row?.rankName || row?.dateRangeName || row?.rankType || '').trim();
+                const message = String(row?.error || row?.message || row?.businessMessage || row?.credentialStatus || row?.status || '').trim();
+                const code = row?.businessCode || row?.httpCode || row?.http_code || '';
+                return message ? `${label ? `${label}: ` : ''}${message}${code ? ` (${code})` : ''}` : '';
+            })
+            .filter(Boolean);
+        return failures.slice(0, 3).join('；');
     };
 
     const summarizeManualOneClickFetchResult = ({
@@ -386,18 +994,37 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         ctripQunarQuality = null,
         qunarRetryCount = 0,
         qunarVisitorNeedsRetry = false,
+        qunarAutoRetrySuppressed = false,
     } = {}) => {
         const normalizedPlatform = platform === 'ctrip' ? 'ctrip' : 'meituan';
         const count = Number(savedCount || 0);
         const retryCount = Number(qunarRetryCount || 0);
         const responseStatus = String(result?.status || result?.data?.status || '').toLowerCase();
         const responseCode = Number(result?.code ?? result?.data?.code ?? 0);
+        const resultRows = Array.isArray(result?.results) ? result.results : [];
+        const partialRows = resultRows.filter((row) => {
+            const rowStatus = String(row?.status || '').trim().toLowerCase();
+            const rowMessage = String(row?.error || row?.message || '').trim();
+            return ['partial', 'incomplete'].includes(rowStatus) || /排名百分比|未返回实际数值/.test(rowMessage);
+        });
+        const loginFailureRows = resultRows.filter((row) => {
+            const rowStatus = String(row?.credentialStatus || row?.credential_status || row?.status || '').trim().toLowerCase();
+            const rowMessage = String(row?.error || row?.message || '').trim();
+            return rowStatus === 'login_required' || /美团登录态已失效|美团登录失效/.test(rowMessage);
+        });
         const ctripRowsReturned = normalizedPlatform === 'ctrip' && Number(ctripQunarQuality?.rowCount || 0) > 0;
-        const qunarVisitorIncomplete = normalizedPlatform === 'ctrip' && Boolean(qunarVisitorNeedsRetry);
+        const qunarVisitorIncomplete = normalizedPlatform === 'ctrip'
+            && ctripRowsReturned
+            && Boolean(ctripQunarQuality)
+            && ctripQunarQuality.ready !== true;
         let status = 'failed';
-        if (normalizedPlatform === 'ctrip' && (!ctripRowsReturned || qunarVisitorIncomplete)) {
+        if (normalizedPlatform === 'ctrip' && qunarVisitorIncomplete) {
             status = 'failed';
-        } else if (normalizedPlatform === 'ctrip' && ctripRowsReturned && (['success', 'ok'].includes(responseStatus) || responseCode === 200)) {
+        } else if (normalizedPlatform === 'meituan' && (responseStatus === 'partial' || partialRows.length > 0)) {
+            status = 'partial';
+        } else if (normalizedPlatform === 'ctrip' && count > 0) {
+            status = 'success';
+        } else if (normalizedPlatform === 'ctrip' && ctripRowsReturned && (['success', 'ok', 'partial_qunar_visitor_gap'].includes(responseStatus) || responseCode === 200)) {
             status = 'success';
         } else if (count > 0) {
             status = 'success';
@@ -411,26 +1038,49 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
         const statusText = status === 'queued'
             ? '已提交'
-            : (status === 'success' ? '已入库' : (status === 'no_saved' ? '未入库' : '失败'));
+            : (status === 'success'
+                ? '已入库'
+                : (status === 'partial' ? (count > 0 ? '部分入库' : '部分返回') : (status === 'no_saved' ? '未入库' : '失败')));
         const responseMessage = manualOneClickFetchResultMessage(result);
-        const retryText = normalizedPlatform === 'ctrip' && retryCount > 0 ? `，已自动重抓 ${retryCount} 次` : '';
-        const ctripSavedText = count > 0 ? `本次入库 ${count} 条` : '本次未新增入库';
+        const ctripCompetitionSummary = {
+            total: Math.max(0, Number(ctripQunarQuality?.rowCount || count || 0)),
+            self: Math.max(0, Number(ctripQunarQuality?.selfHotelCount || 0)),
+            competitors: Math.max(0, Number(ctripQunarQuality?.competitorHotelCount || 0)),
+        };
         let message = '';
+        const allMeituanFailuresAreLogin = normalizedPlatform === 'meituan'
+            && resultRows.length > 0
+            && loginFailureRows.length === resultRows.length;
 
-        if (normalizedPlatform === 'ctrip' && qunarVisitorIncomplete) {
-            message = `携程数据已获取${count > 0 ? `并保留 ${count} 条` : ''}，但去哪儿访客仍为 0；已自动重抓 ${retryCount} 次，携程和去哪儿都成功才算成功。`;
+        if (allMeituanFailuresAreLogin) {
+            message = `美团登录失效，${loginFailureRows.length} 个榜单未获取。请重新登录后重试。`;
+        } else if (normalizedPlatform === 'meituan' && status === 'partial') {
+            const issueCount = Math.max(1, partialRows.length);
+            message = count > 0
+                ? `已入库 ${count} 条，${issueCount} 个榜单缺少实际数值。`
+                : `${issueCount} 个榜单缺少实际数值，未形成完整入库。`;
+        } else if (normalizedPlatform === 'ctrip' && qunarVisitorIncomplete) {
+            const competitionText = manualOneClickFetchCompetitionCountText(ctripCompetitionSummary);
+            const retryStateText = qunarAutoRetrySuppressed
+                ? '；当前为 00:00–05:59 去哪儿流量不可用时段，已跳过自动重抓，06:00 后可重新补采'
+                : (retryCount > 0 ? `；已自动重抓 ${retryCount} 次` : '');
+            message = `携程竞争圈本次返回 ${competitionText}${count > 0 ? `并入库 ${count} 条` : ''}；去哪儿字段未返回有效数据${retryStateText}；本次补采判定失败，可重新补采。`;
         } else if (normalizedPlatform === 'ctrip' && status === 'success') {
-            message = `手动获取完成：携程和去哪儿均已返回${retryText}；${ctripSavedText}；去哪儿访客 ${ctripQunarQuality ? ctripQunarQuality.total : '未校验'}。`;
+            const competitionText = manualOneClickFetchCompetitionCountText(ctripCompetitionSummary);
+            message = `携程竞争圈本次返回 ${competitionText}${count > 0 ? `并入库 ${count} 条` : ''}；数量以平台实际返回为准。`;
+        } else if (normalizedPlatform === 'ctrip' && !ctripRowsReturned) {
+            const hasFailureReason = ['failed', 'error', 'expired', 'invalid_request', 'not_logged_in', 'missing_config'].includes(responseStatus)
+                && responseMessage
+                && !/^(获取|操作)成功/.test(responseMessage);
+            message = hasFailureReason ? responseMessage : '携程未返回竞争圈数据，请重试。';
         } else if (status === 'no_saved') {
             message = `${responseMessage || '接口调用完成'}；本次入库 0 条，不等于入库成功`;
-        } else if (normalizedPlatform === 'ctrip' && !ctripRowsReturned && (!responseMessage || responseMessage === '获取成功')) {
-            message = '携程竞争圈未返回可展示行，携程和去哪儿都成功才算成功。';
         } else if (responseMessage) {
             message = responseMessage;
         } else if (status === 'queued') {
             message = '接口已提交后台，暂未确认入库';
         } else if (status === 'success') {
-            message = `手动获取并入库完成；竞争圈来源可能少于 26 条，已按实际返回 ${count} 条入库`;
+            message = `手动获取并入库完成；已按实际返回 ${count} 条入库，不以固定条数判失败`;
         } else {
             message = '手动获取失败';
         }
@@ -439,8 +1089,210 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             status,
             statusText,
             message,
+            detailMessage: responseMessage && responseMessage !== message ? responseMessage : '',
             ctripRowsReturned,
             qunarVisitorIncomplete,
+        };
+    };
+
+    const manualFetchTaskIdsFromResult = (result = {}) => {
+        const taskIds = [];
+        const append = (value) => {
+            const taskId = String(value || '').trim();
+            if (!taskId || taskIds.includes(taskId)) return;
+            taskIds.push(taskId);
+        };
+        append(result?.task_id);
+        append(result?.taskId);
+        append(result?.data?.task_id);
+        append(result?.data?.taskId);
+        append(result?.response?.data?.task_id);
+        append(result?.response?.data?.taskId);
+        (Array.isArray(result?.results) ? result.results : []).forEach((row) => {
+            append(row?.task_id);
+            append(row?.taskId);
+            append(row?.data?.task_id);
+            append(row?.response?.data?.task_id);
+        });
+        return taskIds;
+    };
+
+    const manualFetchImmediateStatusesFromResult = (result = {}) => {
+        const activeStatuses = new Set(['accepted', 'running', 'queued', 'pending', 'processing', 'in_progress', 'fetching', 'saving']);
+        const failedStatuses = new Set(['failed', 'error', 'exception', 'business_failed', 'rejected', 'login_required']);
+        return (Array.isArray(result?.results) ? result.results : []).flatMap((row, index) => {
+            const taskId = String(
+                row?.task_id
+                || row?.taskId
+                || row?.data?.task_id
+                || row?.response?.data?.task_id
+                || ''
+            ).trim();
+            const sourceStatus = String(row?.status || row?.data?.status || '').trim().toLowerCase();
+            if (taskId || activeStatuses.has(sourceStatus)) return [];
+
+            const savedCount = Math.max(0, Number(row?.saved_count ?? row?.savedCount ?? row?.response?.data?.saved_count ?? 0) || 0);
+            const readbackCount = Math.max(0, Number(row?.readback_count ?? row?.readbackCount ?? row?.response?.data?.readback_count ?? 0) || 0);
+            const readbackVerified = row?.readback_verified === true
+                || row?.readbackVerified === true
+                || row?.response?.data?.readback_verified === true;
+            const failed = !!row?.error || failedStatuses.has(sourceStatus);
+            const status = failed
+                ? 'failed'
+                : (savedCount > 0 ? (readbackVerified ? 'success' : 'partial_success') : 'unverified');
+            return [{
+                taskId: `immediate:${index + 1}`,
+                hotelId: String(row?.hotel_id || row?.hotelId || '').trim(),
+                platform: String(row?.platform || 'meituan').trim().toLowerCase(),
+                taskKind: String(row?.rankType || row?.task_kind || '').trim().toLowerCase(),
+                status,
+                stage: 'completed',
+                statusText: failed ? '获取失败' : (status === 'success' ? '已入库' : (status === 'partial_success' ? '部分入库' : '未确认入库')),
+                message: String(row?.error || row?.message || (failed ? '手动获取失败' : '手动获取已完成，但未确认入库')).trim(),
+                progressPercent: 100,
+                savedCount,
+                readbackCount,
+                readbackVerified,
+                qualityStatus: String(row?.quality_status || row?.qualityStatus || '').trim().toLowerCase(),
+                qualitySummary: row?.quality_summary && typeof row.quality_summary === 'object'
+                    ? row.quality_summary
+                    : null,
+                done: true,
+                updatedAt: '',
+            }];
+        });
+    };
+
+    const normalizeManualFetchTaskStatus = (payload = {}) => {
+        const data = payload?.data && !Array.isArray(payload.data) && typeof payload.data === 'object'
+            ? payload.data
+            : payload;
+        const status = String(data?.status || 'queued').trim().toLowerCase();
+        const terminalStatuses = ['success', 'partial_success', 'failed', 'no_data', 'unverified'];
+        return {
+            taskId: String(data?.task_id || data?.taskId || '').trim(),
+            hotelId: String(data?.hotel_id || data?.hotelId || '').trim(),
+            platform: String(data?.platform || '').trim().toLowerCase(),
+            taskKind: String(data?.task_kind || data?.taskKind || '').trim().toLowerCase(),
+            status,
+            stage: String(data?.stage || '').trim().toLowerCase(),
+            statusText: String(data?.status_text || data?.statusText || '').trim(),
+            message: String(data?.message || '').trim(),
+            progressPercent: Math.max(0, Math.min(100, Number(data?.progress_percent ?? data?.progressPercent ?? 0) || 0)),
+            savedCount: Math.max(0, Number(data?.saved_count ?? data?.savedCount ?? 0) || 0),
+            readbackCount: Math.max(0, Number(data?.readback_count ?? data?.readbackCount ?? 0) || 0),
+            readbackVerified: data?.readback_verified === true || data?.readbackVerified === true,
+            qualityStatus: String(data?.quality_status || data?.qualityStatus || '').trim().toLowerCase(),
+            qualitySummary: data?.quality_summary && typeof data.quality_summary === 'object'
+                ? data.quality_summary
+                : (data?.qualitySummary && typeof data.qualitySummary === 'object' ? data.qualitySummary : null),
+            done: data?.done === true || terminalStatuses.includes(status),
+            updatedAt: String(data?.updated_at || data?.updatedAt || '').trim(),
+        };
+    };
+
+    const pollManualFetchTaskStatus = async ({
+        taskId = '',
+        requestStatus,
+        wait = delayMs => new Promise(resolve => setTimeout(resolve, delayMs)),
+        onProgress = () => {},
+        intervalMs = 1500,
+        maxAttempts = 480,
+    } = {}) => {
+        const normalizedTaskId = String(taskId || '').trim();
+        if (!normalizedTaskId || typeof requestStatus !== 'function') {
+            throw new Error('手动获取任务轮询参数无效');
+        }
+        const attempts = Math.max(1, Number(maxAttempts || 1));
+        const delayMs = Math.max(0, Number(intervalMs || 0));
+        let lastProgressSignature = '';
+        for (let attempt = 1; attempt <= attempts; attempt += 1) {
+            const response = await requestStatus(normalizedTaskId);
+            if (response?.code !== undefined && Number(response.code) !== 200) {
+                throw new Error(String(response?.message || '手动获取任务状态读取失败'));
+            }
+            const status = normalizeManualFetchTaskStatus(response);
+            if (status.taskId !== normalizedTaskId) {
+                throw new Error('手动获取任务状态与请求 ID 不匹配');
+            }
+            const progressSignature = [status.status, status.stage, status.progressPercent, status.savedCount, status.message].join('|');
+            if (progressSignature !== lastProgressSignature || status.done) {
+                lastProgressSignature = progressSignature;
+                onProgress(status, attempt);
+            }
+            if (status.done) return status;
+            if (attempt < attempts) await wait(delayMs);
+        }
+        throw new Error('手动获取任务等待超时，请稍后刷新任务状态');
+    };
+
+    const summarizeManualFetchTaskStatuses = (statuses = []) => {
+        const rows = (Array.isArray(statuses) ? statuses : []).map(normalizeManualFetchTaskStatus);
+        const savedCount = rows.reduce((sum, row) => sum + row.savedCount, 0);
+        const readbackCount = rows.reduce((sum, row) => sum + row.readbackCount, 0);
+        const successCount = rows.filter(row => row.status === 'success').length;
+        const partialCount = rows.filter(row => row.status === 'partial_success').length;
+        const failedCount = rows.filter(row => row.status === 'failed').length;
+        const noDataCount = rows.filter(row => ['no_data', 'unverified'].includes(row.status)).length;
+        const pendingCount = rows.filter(row => !row.done).length;
+        let status = 'queued';
+        if (rows.length > 0 && pendingCount === 0) {
+            if (successCount === rows.length) {
+                status = 'success';
+            } else if (savedCount > 0 || successCount > 0 || partialCount > 0) {
+                status = 'partial';
+            } else if (failedCount > 0) {
+                status = 'failed';
+            } else {
+                status = 'no_saved';
+            }
+        }
+        const message = pendingCount > 0
+            ? `后台任务执行中：${rows.length - pendingCount}/${rows.length} 已完成`
+            : (status === 'success'
+                ? `后台任务已完成并通过回读，共入库 ${savedCount} 条`
+                : (status === 'partial'
+                    ? `后台任务部分完成：入库 ${savedCount} 条，成功 ${successCount} 项，部分 ${partialCount} 项，失败 ${failedCount} 项`
+                    : (status === 'failed'
+                        ? (rows.find(row => row.message)?.message || '后台任务获取失败')
+                        : `后台任务已完成，但未确认入库（${noDataCount} 项）`)));
+        return {
+            status,
+            message,
+            savedCount,
+            readbackCount,
+            readbackVerified: rows.length > 0 && rows.every(row => row.readbackVerified === true),
+            successCount,
+            partialCount,
+            failedCount,
+            noDataCount,
+            pendingCount,
+            qualitySummary: rows.map(row => row.qualitySummary).find(Boolean) || null,
+            statuses: rows,
+        };
+    };
+
+    const paginateManualOneClickFetchRows = (rows = [], page = 1, pageSize = 20) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const requestedPageSize = Number(pageSize);
+        const normalizedPageSize = Number.isFinite(requestedPageSize)
+            ? Math.max(1, Math.min(100, Math.trunc(requestedPageSize)))
+            : 20;
+        const total = safeRows.length;
+        const totalPages = Math.max(1, Math.ceil(total / normalizedPageSize));
+        const requestedPage = Number(page);
+        const normalizedPage = Number.isFinite(requestedPage)
+            ? Math.max(1, Math.min(totalPages, Math.trunc(requestedPage)))
+            : 1;
+        const startIndex = (normalizedPage - 1) * normalizedPageSize;
+        return {
+            rows: safeRows.slice(startIndex, startIndex + normalizedPageSize),
+            total,
+            page: normalizedPage,
+            pageSize: normalizedPageSize,
+            totalPages,
+            start: total > 0 ? startIndex + 1 : 0,
+            end: Math.min(total, startIndex + normalizedPageSize),
         };
     };
 
@@ -1878,7 +2730,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const code = String(item?.action_code || '').trim();
         if (code.startsWith('ota_authorization_')) return '登录/Cookie 状态、账号/Profile 绑定、重跑同步日志';
         if (code.startsWith('ota_collection_')) return '采集日志、平台响应状态、validation_flags、source_trace_id 或 raw_data';
-        if (code === 'ota_same_period_source_rows_missing') return 'online_daily_data 同日期源数据行、data_source_id/sync_task_id、source_trace_id 或 raw_data';
+        if (code === 'ota_same_period_source_rows_missing') return '同日期 OTA 入库行及来源凭证';
         if (code.startsWith('ota_field_quality_')) return '缺失字段列表、raw_data.field_facts、source_path、metric_key、storage_field、source_trace_id、validation_flags';
         const evidence = Array.isArray(item?.evidence_needed) ? item.evidence_needed : [];
         return evidence.map(value => String(value || '').trim()).filter(Boolean).slice(0, 4).join('、');
@@ -2454,11 +3306,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const rowCount = identityBlocked ? safePersistedCount : Number(sourceRowCount || 0);
         const statusText = identityBlocked ? '门店身份冲突' : (effect.label || (rowCount > 0 ? '已形成入库快照' : '未形成入库快照'));
         const statusClass = identityBlocked ? 'text-red-700' : (['effective', 'fresh'].includes(String(effect.status || '')) || rowCount > 0 ? 'text-emerald-700' : 'text-amber-700');
+        const authSubText = authState.status === 'ok' ? '凭据可用' : catalogAuthText;
         return [
-            { key: 'auth', label: '当前授权', value: authState.value, sub: catalogAuthText, className: authState.className },
+            { key: 'auth', label: '当前授权', value: authState.value, sub: authSubText, className: authState.className },
             { key: 'date', label: '数据日期', value: dataDate || latestRow.data_date || '-', sub: '当前展示口径', className: 'text-gray-900' },
             { key: 'latest', label: '最近采集', value: capturedAt || latestRow.updated_at || '暂无有效采集', sub: latest.freshness?.label || '-', className: 'text-gray-900' },
-            { key: 'rows', label: '本轮入库', value: identityBlocked ? `安全 ${safePersistedCount} 条` : (rowCount > 0 ? `${rowCount} 条` : '未形成入库快照'), sub: identityBlocked ? `已过滤 ${identityReport.filtered_count || 0} 条错店风险数据` : 'online_daily_data', className: identityBlocked ? 'text-red-700' : (rowCount > 0 ? 'text-emerald-700' : 'text-amber-700') },
+            { key: 'rows', label: '本轮入库', value: identityBlocked ? `安全 ${safePersistedCount} 条` : (rowCount > 0 ? `${rowCount} 条` : '未形成入库快照'), sub: identityBlocked ? `已过滤 ${identityReport.filtered_count || 0} 条错店风险数据` : 'OTA 入库记录', className: identityBlocked ? 'text-red-700' : (rowCount > 0 ? 'text-emerald-700' : 'text-amber-700') },
             { key: 'modules', label: '可抓模块', value: '经营 / 流量 / 竞争 / PSI / 广告', sub: `${moduleCount || 5} 个模块`, className: 'text-gray-900' },
             { key: 'status', label: '采集状态', value: statusText, sub: identityBlocked ? '已阻止错店数据展示' : `缺失 ${latest.missing_field_count || 0} 项`, className: statusClass },
         ];
@@ -3731,7 +4584,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             ],
             status_check: [
                 '用于只读核对目标日入库、最近可用日期和失败原因',
-                '只读取现有采集可靠性和 online_daily_data 状态',
+                '只读取现有采集可靠性和 OTA 入库状态',
                 '不写 OTA 数据，不改变字段映射',
             ],
         }[rawMode] || [
@@ -4523,7 +5376,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         missing_real_ota_diagnosis_response: '缺少真实 OTA 诊断响应',
         read_existing_ota_gap_evidence_only: '只读 OTA 缺口证据',
         read_existing_collection_reliability_only: '只读采集可靠性状态',
-        read_existing_online_daily_data_only: '只读 online_daily_data 入库状态',
+        read_existing_online_daily_data_only: '只读 OTA 入库状态',
         read_existing_ota_standard_revenue_metrics_only: '只读 OTA 标准收益指标',
         read_existing_operation_execution_state_only: '只读运营执行状态',
         local_ui_derived_from_employee_questions: '前端根据员工六问派生',
@@ -4604,7 +5457,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             operation_execution_evidence_incomplete: '运营执行证据不完整',
             evidence_scope_date_mismatch: '证据日期范围不一致',
             latest_available_reference_only: '只有历史或其他日期参考数据',
-            online_daily_data_target_date_rows_missing: 'online_daily_data 目标日入库行缺失',
+            online_daily_data_target_date_rows_missing: 'OTA 目标日入库行缺失',
             read_existing_ota_gap_evidence_only: '只读现有 OTA 缺口证据',
         }[raw] || '未识别证据缺口');
     };
@@ -5220,8 +6073,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                     latestText,
                     nextActionText,
                     proofText: isReady
-                        ? '证明口径：online_daily_data 目标日源数据行数大于 0。'
-                        : '完成判定：online_daily_data 目标日源数据行数大于 0，并保留 data_source_id/sync_task_id/source_trace/raw_data 证据。',
+                        ? '证明口径：目标日 OTA 入库行大于 0。'
+                        : '完成判定：目标日 OTA 入库行大于 0，并保留来源凭证。',
                     boundaryText: row.boundaryText || '只按 OTA 渠道目标日证据判断；不改变携程/美团采集逻辑。',
                     entryText,
                     entryRawText,
@@ -5705,6 +6558,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const onlineAnalysisDataTypeText = (type) => ({
         business: '经营',
         traffic: '流量',
+        competitor: '竞对数据',
+        order: '订单',
+        order_flow: '订单流转',
         rank: '排名',
         ranking: '排名',
         peer_rank: '竞对榜单',
@@ -5719,48 +6575,378 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         psi: 'PSI',
     }[type] || type || '-');
 
+    const onlineStorageStatusClass = (item = {}) => {
+        const status = String(item?.storage_status || '').trim().toLowerCase();
+        const tone = status === 'success'
+            ? 'bg-emerald-100 text-emerald-700'
+            : (status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700');
+        return `inline-flex rounded-full px-2 py-1 text-xs font-medium ${tone}`;
+    };
+
+    const onlineStorageStatusText = (item = {}) => String(item?.storage_status_label || '').trim() || '未回读验证';
+
+    const onlineTruthEnvelope = (subject = {}) => {
+        const candidate = subject?.truth || subject?.truth_context || subject;
+        return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+            ? candidate
+            : {
+                status: 'unverified',
+                status_label: '未验证',
+                metric_scope: 'unknown',
+                scope_label: '口径未记录',
+            };
+    };
+
+    const onlineTruthStatusText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        return String(truth.status_label || ({
+            verified: '已验证',
+            partial: '部分数据',
+            unverified: '未验证',
+            collection_failed: '采集失败',
+        }[String(truth.status || '').toLowerCase()] || '未验证'));
+    };
+
+    const onlineTruthStatusClass = (subject = {}) => {
+        const status = String(onlineTruthEnvelope(subject).status || 'unverified').toLowerCase();
+        const base = 'inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap';
+        if (status === 'verified') return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
+        if (status === 'partial') return `${base} border-amber-200 bg-amber-50 text-amber-700`;
+        if (status === 'collection_failed') return `${base} border-red-200 bg-red-50 text-red-700`;
+        return `${base} border-slate-200 bg-slate-50 text-slate-600`;
+    };
+
+    const onlineTruthCalculationStatusText = (subject = {}) => ({
+        calculated: '已计算',
+        observed: '已观测',
+        provided: '已录入',
+        loaded: '已读取',
+        not_applicable: '不适用',
+        missing: '缺失',
+        unavailable: '不可计算',
+        failed: '计算失败',
+    }[String(onlineTruthEnvelope(subject).calculation_status || '').trim().toLowerCase()] || '未记录');
+
+    const onlineTruthPlatformText = (platform = '') => ({
+        ctrip: '携程',
+        meituan: '美团',
+        qunar: '去哪儿',
+        internal: '内部项目',
+        not_applicable: '不适用',
+    }[String(platform || '').trim().toLowerCase()] || String(platform || '').trim() || '未记录');
+
+    const onlineTruthSourceMethodText = (method = '') => ({
+        browser_profile: '本机浏览器 Profile',
+        profile_browser: '本机浏览器 Profile',
+        manual_cookie_api: '人工授权 Cookie/API',
+        ctrip_cookie_api: '携程授权 Cookie/API',
+        official_api: '平台官方 API',
+        network_response: '授权网络响应',
+        browser_assist: '浏览器辅助采集',
+        scheduled_job: '定时任务',
+        manual_import: '人工导入（未验证）',
+        manual_override: '人工更正（未验证）',
+        import_csv: 'CSV 导入（未验证）',
+        import_json: 'JSON 导入（未验证）',
+        user_input: '人工录入（未外部验证）',
+        deterministic_formula: '本地确定性公式',
+        manual_project_tracking: '内部人工跟踪',
+        deterministic_checklist_formula: '清单确定性公式',
+        internal_daily_report: '本地经营日报（来源未外部验证）',
+        daily_report: '本地经营日报（来源未外部验证）',
+        legacy: '历史来源（未验证）',
+    }[String(method || '').trim().toLowerCase()] || String(method || '').trim() || '未记录');
+
+    const onlineTruthSourceTableText = (table = '') => {
+        const value = String(table || '').trim();
+        const normalized = value.toLowerCase();
+        const label = ({
+            online_daily_data: 'OTA入库数据',
+            ota_ctrip_metric_facts: '携程字段凭证',
+            platform_data_sync_tasks: '平台采集任务',
+            platform_data_sources: '平台数据源',
+        })[normalized];
+        if (label) return label;
+        if (/^[a-z_][a-z0-9_.-]*$/i.test(value)) return '系统入库数据';
+        return value;
+    };
+
+    const onlineTruthHotelText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const hotels = Array.isArray(truth.hotels)
+            ? truth.hotels
+            : (truth.hotel && typeof truth.hotel === 'object' ? [truth.hotel] : []);
+        if (!hotels.length) return '未绑定';
+        const labels = hotels.map(hotel => {
+            const name = String(hotel?.name || '').trim();
+            const id = hotel?.system_hotel_id ?? hotel?.id ?? hotel?.hotel_id;
+            return name ? `${name}${id ? `（ID ${id}）` : ''}` : (id ? `门店 ID ${id}` : '未绑定');
+        });
+        return labels.slice(0, 3).join('、') + (labels.length > 3 ? ` 等 ${labels.length} 家` : '');
+    };
+
+    const onlineTruthPlatformsText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const platforms = Array.isArray(truth.platforms) ? truth.platforms : [truth.platform];
+        const labels = platforms.filter(Boolean).map(onlineTruthPlatformText);
+        return [...new Set(labels)].join('、') || '未记录';
+    };
+
+    const onlineTruthDateText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        if (truth.data_date) return String(truth.data_date);
+        const start = String(truth.date_range?.start || '').trim();
+        const end = String(truth.date_range?.end || '').trim();
+        if (!start && !end) return '未记录';
+        return start && end && start !== end ? `${start} 至 ${end}` : (start || end);
+    };
+
+    const onlineTruthSourceText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const methods = Array.isArray(truth.source_methods)
+            ? truth.source_methods
+            : (Array.isArray(truth.source?.methods) ? truth.source.methods : [truth.source?.method]);
+        const labels = methods.filter(Boolean).map(onlineTruthSourceMethodText);
+        const table = onlineTruthSourceTableText(truth.source?.table);
+        return [...new Set([table, ...labels].filter(Boolean))].join('、') || '未记录';
+    };
+
+    const onlineTruthCollectedAtText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        if (truth.collected_at) return String(truth.collected_at);
+        const start = String(truth.collected_at_range?.start || '').trim();
+        const end = String(truth.collected_at_range?.end || '').trim();
+        if (!start && !end) {
+            const applicability = String(truth.collection_time_applicability || '').trim().toLowerCase();
+            if (applicability === 'not_applicable_internal_manual_tracking') {
+                return '不适用（内部人工记录，非采集数据）';
+            }
+            if (applicability.startsWith('not_applicable')) {
+                return '不适用（非采集数据）';
+            }
+            return '未记录';
+        }
+        return start && end && start !== end ? `${start} 至 ${end}` : (start || end);
+    };
+
+    const onlineTruthPersistenceText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const persistence = truth.persistence && typeof truth.persistence === 'object' ? truth.persistence : {};
+        if (Object.prototype.hasOwnProperty.call(persistence, 'record_count')) {
+            const count = value => value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
+                ? null
+                : Number(value);
+            const total = count(persistence.record_count);
+            const stored = count(persistence.stored_count);
+            const verified = count(persistence.readback_verified_count);
+            const excluded = count(persistence.excluded_untrusted_count);
+            if (total === null || stored === null || verified === null) return '入库或回读数量未记录';
+            return `入库 ${stored}/${total}，回读 ${verified}/${total}${excluded > 0 ? `，排除 ${excluded} 条未可信记录` : ''}`;
+        }
+        const storedText = persistence.stored === true
+            ? '已入库'
+            : (persistence.stored === false ? '未入库' : '入库状态未记录');
+        const readbackText = persistence.readback_verified === true
+            ? '回读已验证'
+            : (persistence.readback_verified === false ? '回读未验证' : '回读状态未记录');
+        const storedAt = String(persistence.stored_at || '').trim();
+        return `${storedText}，${readbackText}${storedAt ? `，入库时间 ${storedAt}` : ''}`;
+    };
+
+    const onlineTruthFailureCodeText = (reason = '') => {
+        const value = String(reason || '').trim();
+        const normalized = value.toLowerCase();
+        const direct = ({
+            source_rows_missing: '目标日没有可用数据',
+            target_date_source_rows_missing: '目标日没有可用数据',
+            source_update_time_missing: '采集时间未记录',
+            collected_at_missing: '采集时间未记录',
+            hotel_missing: '门店、平台或日期信息不完整',
+            platform_missing: '门店、平台或日期信息不完整',
+            data_date_missing: '门店、平台或日期信息不完整',
+            source_method_or_trace_missing: '来源凭证不完整',
+            source_trace_missing: '来源凭证不完整',
+            readback_unverified: '入库回读尚未验证',
+            binding_missing: '门店绑定不完整',
+            hotel_binding_missing: '门店绑定不完整',
+            current_session_unverified: '当天登录状态未验证',
+            login_required: '需要先验证平台登录',
+            collection_failed: '采集失败',
+            adr_denominator_zero: '缺少间夜，无法计算平均房价',
+            available_room_nights_missing: '缺少可售房量，无法计算 RevPAR',
+        })[normalized];
+        if (direct) return direct;
+        if (/target_date.*rows_missing|no_rows_for_target_date/.test(normalized)) return '目标日没有可用数据';
+        if (/hotel.*missing|platform.*missing|data_date.*missing/.test(normalized)) return '门店、平台或日期信息不完整';
+        if (/source.*(?:trace|method).*missing/.test(normalized)) return '来源凭证不完整';
+        if (/login|session|unauthorized|forbidden/.test(normalized)) return '平台登录状态未就绪';
+        if (/^[a-z0-9_.:-]+$/i.test(value) || (!/[\u4e00-\u9fff]/.test(value) && /[a-z]/i.test(value))) {
+            return '采集或入库信息不完整';
+        }
+        return value;
+    };
+
+    const onlineTruthFailureText = (subject = {}) => {
+        const reason = String(onlineTruthEnvelope(subject).failure_reason || '').trim();
+        if (!reason) return '无';
+        const priority = {
+            '目标日没有可用数据': 10,
+            '门店、平台或日期信息不完整': 20,
+            '门店绑定不完整': 25,
+            '平台登录状态未就绪': 30,
+            '需要先验证平台登录': 30,
+            '来源凭证不完整': 40,
+            '入库回读尚未验证': 50,
+            '采集时间未记录': 60,
+            '采集或入库信息不完整': 90,
+        };
+        const labels = [...new Set(reason
+            .split(/[;,；，]+/)
+            .map(onlineTruthFailureCodeText)
+            .filter(Boolean))]
+            .sort((left, right) => (priority[left] || 70) - (priority[right] || 70));
+        if (!labels.length) return '无';
+        const visible = labels.slice(0, 2);
+        return `${visible.join('；')}${labels.length > visible.length ? `；另有 ${labels.length - visible.length} 项信息待补` : ''}`;
+    };
+
+    const onlineTruthMetaRows = (subject = {}) => [
+        { key: 'status', label: '状态', value: onlineTruthStatusText(subject) },
+        { key: 'calculation', label: '计算', value: onlineTruthCalculationStatusText(subject) },
+        { key: 'hotel', label: '门店', value: onlineTruthHotelText(subject) },
+        { key: 'platform', label: '平台', value: onlineTruthPlatformsText(subject) },
+        { key: 'date', label: '日期', value: onlineTruthDateText(subject) },
+        { key: 'source', label: '来源', value: onlineTruthSourceText(subject) },
+        { key: 'collected_at', label: '采集时间', value: onlineTruthCollectedAtText(subject) },
+        { key: 'persistence', label: '入库', value: onlineTruthPersistenceText(subject) },
+        { key: 'failure', label: '原因', value: onlineTruthFailureText(subject) },
+        { key: 'scope', label: '口径', value: String(onlineTruthEnvelope(subject).scope_label || 'OTA渠道数据，不代表全酒店经营') },
+    ];
+
+    const onlineTruthDetailText = (subject = {}) => {
+        const status = onlineTruthStatusText(subject);
+        const hotel = onlineTruthHotelText(subject);
+        const date = onlineTruthDateText(subject);
+        const source = onlineTruthSourceText(subject);
+        const persistence = onlineTruthPersistenceText(subject);
+        const failure = onlineTruthFailureText(subject);
+        const parts = [status];
+        if (!['未绑定', '未记录', '未提供'].includes(hotel)) parts.push(hotel);
+        if (!['未记录', '未提供'].includes(date)) parts.push(date);
+        if (!['未记录', '未提供'].includes(source)) parts.push(source);
+        if (status === '已验证' && /回读已验证|回读 \d+\/\d+/.test(persistence)) parts.push('入库已验证');
+        if (failure !== '无') parts.push(`原因：${failure}`);
+        return [...new Set(parts)].join('；');
+    };
+
+    const onlineTruthSummaryText = (subject = {}) => {
+        const status = String(onlineTruthEnvelope(subject).status || 'unverified').trim().toLowerCase();
+        const statusText = onlineTruthStatusText(subject);
+        if (status === 'verified') return '已验证，可用于当前指标';
+        const failure = onlineTruthFailureText(subject);
+        const primaryReason = failure === '无'
+            ? '缺少可信凭证'
+            : String(failure).split('；').find(part => part && !part.startsWith('另有 ')) || failure;
+        if (status === 'partial') return `部分可用：${primaryReason}`;
+        if (status === 'collection_failed') return `采集失败：${primaryReason}`;
+        return `${statusText}：${primaryReason}`;
+    };
+
+    const onlineTruthNextActionText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const status = String(truth.status || 'unverified').trim().toLowerCase();
+        if (status === 'verified') return '';
+        const reason = String(truth.failure_reason || '').trim().toLowerCase();
+        if (/current_session|login|session|unauthorized|forbidden/.test(reason)) return '先完成平台登录验证';
+        if (/binding_missing|hotel_missing|platform_missing|data_date_missing/.test(reason)) return '补齐门店、平台和目标日期';
+        if (/target_date.*rows_missing|source_rows_missing|no_rows_for_target_date/.test(reason)) return '重新采集目标日期数据';
+        if (/available_room_nights_missing/.test(reason)) return '补齐可售房量后重新计算';
+        if (/adr_denominator_zero|room_nights_missing/.test(reason)) return '补齐间夜后重新计算';
+        if (/readback_unverified/.test(reason)) return '完成入库回读验证';
+        if (/source.*(?:trace|method).*missing/.test(reason)) return '补齐来源和采集凭证';
+        if (/source_update_time_missing|collected_at_missing/.test(reason)) return '补齐采集时间';
+        if (status === 'collection_failed') return '查看采集记录并重试';
+        return '补齐缺失信息后重新验证';
+    };
+
+    const onlineAnalysisMetricText = (value, formatNumber = metric => String(metric ?? ''), prefix = '') => {
+        if (value === null || value === undefined || value === '') return '-';
+        return `${prefix}${formatNumber(value)}`;
+    };
+
+    const onlineMetricTruthContext = (subject = {}, value = null, missingReason = '指标值缺失') => {
+        const truth = onlineTruthEnvelope(subject);
+        if (value !== null && value !== undefined && value !== '') return truth;
+        const status = String(truth.status || 'unverified').toLowerCase();
+        const nextStatus = status === 'verified' ? 'partial' : status;
+        return {
+            ...truth,
+            status: nextStatus,
+            status_label: ({
+                verified: '已验证',
+                partial: '部分数据',
+                unverified: '未验证',
+                collection_failed: '采集失败',
+            })[nextStatus] || '未验证',
+            failure_reason: String(truth.failure_reason || '').trim() || missingReason,
+        };
+    };
+
+    const buildOnlineAnalysisRowMetricCells = (item = {}, formatNumber = value => String(value ?? '')) => [
+        { key: 'amount', value: onlineAnalysisMetricText(item.amount, formatNumber, '¥') },
+        { key: 'quantity', value: onlineAnalysisMetricText(item.quantity, formatNumber) },
+        { key: 'book_order_num', value: onlineAnalysisMetricText(item.book_order_num, formatNumber) },
+        { key: 'data_value', value: onlineAnalysisMetricText(item.data_value, formatNumber) },
+    ];
+
     const buildOnlineAnalysisSummaryCards = (summary = {}, dimension = 'day', formatNumber = value => String(value ?? '')) => [
         {
             key: 'amount',
             label: 'OTA销售额',
-            value: `¥${formatNumber(summary.total_amount || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_amount, formatNumber, '¥'),
             sub: `${dimension === 'day' ? '日' : dimension === 'week' ? '周' : '月'}维度汇总`,
             className: 'text-emerald-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_amount, '销售额字段缺失'),
         },
         {
             key: 'quantity',
             label: 'OTA间夜',
-            value: formatNumber(summary.total_quantity || 0),
-            sub: `均值 ${formatNumber(summary.avg_quantity || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_quantity, formatNumber),
+            sub: `均值 ${onlineAnalysisMetricText(summary.avg_quantity, formatNumber)}`,
             className: 'text-blue-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_quantity, '间夜字段缺失'),
         },
         {
             key: 'orders',
             label: 'OTA订单',
-            value: formatNumber(summary.total_orders || 0),
-            sub: `评分 ${formatNumber(summary.avg_score || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_orders, formatNumber),
+            sub: `评分 ${onlineAnalysisMetricText(summary.avg_score, formatNumber)}`,
             className: 'text-amber-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_orders, '订单字段缺失'),
         },
         {
             key: 'metric_value',
             label: '指标值',
-            value: formatNumber(summary.total_data_value || 0),
+            value: onlineAnalysisMetricText(summary.total_data_value, formatNumber),
             sub: '流量/排名/服务等扩展指标',
             className: 'text-indigo-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_data_value, '指标值字段缺失'),
         },
         {
             key: 'records',
             label: '入库事实行',
-            value: formatNumber(summary.total_record_count || 0),
-            sub: 'online_daily_data',
+            value: onlineAnalysisMetricText(summary.total_record_count, formatNumber),
+            sub: 'OTA 入库记录',
             className: 'text-slate-900',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_record_count, '入库事实行数缺失'),
         },
         {
             key: 'hotels',
             label: '覆盖酒店',
-            value: formatNumber(summary.hotel_count || 0),
+            value: onlineAnalysisMetricText(summary.hotel_count, formatNumber),
             sub: summary.latest_data_date ? `最新 ${summary.latest_data_date}` : '暂无日期',
             className: 'text-gray-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.hotel_count, '覆盖门店数缺失'),
         },
     ];
 
@@ -5768,7 +6954,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         {
             key: 'ota_revenue',
             label: 'OTA销售额',
-            formula: '来自 online_daily_data.amount 汇总，仅表示已入库 OTA 渠道销售额。',
+            formula: '来自 OTA 入库销售额汇总，仅表示 OTA 渠道。',
             source: '来源：携程/美团已授权采集结果；不等同于全酒店总营收。',
             status: hasSamples ? '有样本' : '待样本',
             className: hasSamples ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
@@ -5933,6 +7119,15 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         autoFetchRecordStatusClass,
         manualOneClickFetchPlatformText,
         manualOneClickFetchNowText,
+        otaConfigTimestampText,
+        otaConfigCredentialReady,
+        otaConfigEffectState,
+        otaConfigPlatformIdentityText,
+        otaConfigAuthorizationState,
+        buildOtaConfigOverviewRows,
+        summarizeOtaConfigOverviewRows,
+        filterAndSortOtaConfigOverviewRows,
+        normalizeManualOneClickFetchStoredMessage,
         normalizeManualOneClickFetchStoredRows,
         summarizeManualOneClickFetchRows,
         buildManualOneClickFetchCards,
@@ -5945,20 +7140,32 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         manualOneClickFetchCanDeleteRow,
         manualOneClickFetchCanSupplementRow,
         sortManualOneClickFetchRows,
+        manualOneClickFetchStatusGroup,
+        filterManualOneClickFetchDisplayRows,
         manualOneClickFetchMessageIsQunarVisitorZero,
         manualOneClickFetchHasQunarVisitorZeroFailureInRows,
+        manualOneClickFetchStoredCompetitionSummary,
+        manualOneClickFetchCompetitionCountText,
         findManualOneClickFetchExistingStoredRow,
         buildManualOneClickFetchTasks,
         buildManualOneClickFetchBaseRow,
+        buildManualOneClickFetchCoverageRows,
         buildManualOneClickFetchRunningRow,
         buildManualOneClickFetchResultRow,
         buildManualOneClickFetchFailureRow,
         manualOneClickFetchQunarVisitorNumber,
         summarizeManualOneClickFetchQunarVisitorQuality,
         manualOneClickFetchQunarVisitorNeedsRetry,
+        manualOneClickFetchQunarAutoRetryAllowedAt,
         manualOneClickFetchSavedCount,
         manualOneClickFetchResultMessage,
         summarizeManualOneClickFetchResult,
+        manualFetchTaskIdsFromResult,
+        manualFetchImmediateStatusesFromResult,
+        normalizeManualFetchTaskStatus,
+        pollManualFetchTaskStatus,
+        summarizeManualFetchTaskStatuses,
+        paginateManualOneClickFetchRows,
         buildOnlineHistoryQueryParams,
         isDirtyQuestionMarkText,
         formatOnlineHistoryHotelOption,
@@ -6207,6 +7414,28 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineAnalysisFieldFactDetailText,
         onlineAnalysisSourceText,
         onlineAnalysisDataTypeText,
+        onlineStorageStatusClass,
+        onlineStorageStatusText,
+        onlineTruthEnvelope,
+        onlineTruthStatusText,
+        onlineTruthStatusClass,
+        onlineTruthCalculationStatusText,
+        onlineTruthPlatformText,
+        onlineTruthSourceMethodText,
+        onlineTruthHotelText,
+        onlineTruthPlatformsText,
+        onlineTruthDateText,
+        onlineTruthSourceText,
+        onlineTruthCollectedAtText,
+        onlineTruthPersistenceText,
+        onlineTruthFailureText,
+        onlineTruthMetaRows,
+        onlineTruthDetailText,
+        onlineTruthSummaryText,
+        onlineTruthNextActionText,
+        onlineAnalysisMetricText,
+        onlineMetricTruthContext,
+        buildOnlineAnalysisRowMetricCells,
         buildOnlineAnalysisSummaryCards,
         buildOnlineAnalysisMetricDefinitionRows,
         buildOnlineAnalysisChartConfig,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\CtripTrafficDisplayService;
+use app\service\OnlineDataTrustStatusService;
 use think\Response;
 use think\facade\Db;
 
@@ -32,23 +33,38 @@ trait OnlineDataHistoryConcern
             $this->applyOnlineHistoryFilters($query, $currentUser);
             $this->applyOnlineHistoryKeywordFilter($query, $keyword);
 
-            $rows = (clone $query)->order('create_time', 'desc')
-                ->order('id', 'desc')
-                ->select()
-                ->toArray();
+            $columns = $this->getOnlineDailyDataColumns();
+            $paginationPlan = $this->buildOnlineHistoryDatabasePagination(
+                clone $query,
+                $columns,
+                $page,
+                $pageSize
+            );
 
-            $hotelMap = $this->getConfiguredHotelNameMap();
-            $historyGroups = $this->mergeOnlineHistoryRows($rows, $hotelMap);
-            $total = count($historyGroups);
-            $summary = $this->buildOnlineHistorySummary($historyGroups);
-            $historyList = array_slice($historyGroups, ($page - 1) * $pageSize, $pageSize);
+            $historyList = [];
+            if ($paginationPlan['group_keys'] !== []) {
+                $pageQuery = $this->applyOnlineHistoryGroupKeyScope(
+                    clone $query,
+                    $paginationPlan['group_key_expression'],
+                    $paginationPlan['group_keys']
+                );
+                $rows = $this->orderOnlineDataByFetchTime(
+                    $pageQuery,
+                    $columns
+                )->select()->toArray();
+                $historyList = $this->mergeOnlineHistoryRows($rows, $this->getConfiguredHotelNameMap());
+                $historyList = $this->orderOnlineHistoryMergedGroups(
+                    $historyList,
+                    $paginationPlan['group_keys']
+                );
+            }
 
             return $this->success([
                 'list' => $historyList,
-                'total' => $total,
+                'total' => $paginationPlan['total'],
                 'page' => $page,
                 'page_size' => $pageSize,
-                'summary' => $summary,
+                'summary' => $paginationPlan['summary'],
             ]);
         } catch (\Throwable $e) {
             return $this->error('获取历史记录失败: ' . $e->getMessage());
@@ -90,7 +106,7 @@ trait OnlineDataHistoryConcern
     }
 
     /**
-     * 携程最近一次成功采集数据
+     * 携程目标日期数据；未指定范围时读取最近入库数据。
      */
     public function ctripLatest(): Response
     {
@@ -109,7 +125,7 @@ trait OnlineDataHistoryConcern
             ];
 
             return $this->success([
-                'metadata' => $this->buildCtripLatestMetadata($sections, $hotelId),
+                'metadata' => $this->buildCtripLatestMetadata($sections, $hotelId, $range),
                 'rank' => $sections['rank'],
                 'traffic' => $sections['traffic'],
                 'review' => $sections['review'],
@@ -183,30 +199,13 @@ trait OnlineDataHistoryConcern
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($query, $columns, $range);
         $targetDate = $this->resolveCtripLatestTargetDate($range);
-        $earlyMorningFallback = null;
         if ($targetDate !== '' && isset($columns['data_date'])) {
             $query->where('data_date', $targetDate);
         }
 
         $latest = $this->orderOnlineDataByFetchTime($query, $columns)->find();
-        if (!$latest && $targetDate !== '' && $this->shouldUseCtripYesterdayEarlyFallback()) {
-            $fallbackQuery = Db::name('online_daily_data');
-            $this->applyCtripStorageFilter($fallbackQuery, $columns);
-            $this->applyCtripSectionTypeFilter($fallbackQuery, $section, $columns);
-            $this->applyCtripHotelScope($fallbackQuery, $hotelId, $currentUser, $columns);
-            $this->applyCtripLatestPeriodScope($fallbackQuery, $columns, $range);
-            $latest = $this->orderOnlineDataByFetchTime($fallbackQuery, $columns)->find();
-            if ($latest) {
-                $earlyMorningFallback = [
-                    'reason' => 'early_morning_yesterday_not_ready',
-                    'target_data_date' => $targetDate,
-                    'fallback_data_date' => (string)($latest['data_date'] ?? ''),
-                    'fallback_fetched_at' => $this->onlineRowFetchedAt($latest, $columns),
-                ];
-            }
-        }
         if (!$latest) {
-            return $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section);
+            return $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section, $targetDate);
         }
 
         $rowsQuery = Db::name('online_daily_data');
@@ -228,7 +227,7 @@ trait OnlineDataHistoryConcern
         $decodedRows = $this->decodeOnlineRawRows($rows);
         $displayHotels = $section === 'rank' ? $this->buildCtripBusinessDisplayHotels($decodedRows) : [];
         $trafficFallback = null;
-        if ($section === 'rank' && !empty($displayHotels) && !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels)) {
+        if ($range === '' && $section === 'rank' && (empty($displayHotels) || !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels))) {
             $fallback = $this->findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns);
             if ($fallback !== null) {
                 $latest = $fallback['latest'];
@@ -261,7 +260,8 @@ trait OnlineDataHistoryConcern
             'data_type_label' => $labelMap[$section] ?? $section,
             'data_source' => '携程 ebooking',
             'status' => empty($rows) ? 'empty' : 'success',
-            'status_label' => empty($rows) ? '暂无数据' : '成功',
+            'status_label' => empty($rows) ? '暂无入库记录' : '有入库记录',
+            'verification_status' => empty($rows) ? 'not_available' : 'record_present_source_not_proven',
             'data_date' => (string)($latest['data_date'] ?? ''),
             'target_data_date' => $targetDate,
             'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
@@ -272,7 +272,7 @@ trait OnlineDataHistoryConcern
             'display_traffic_rows' => $displayTrafficRows,
             'display_traffic_summary' => $section === 'traffic' ? CtripTrafficDisplayService::buildCtripTrafficDisplaySummary($displayTrafficRows) : CtripTrafficDisplayService::emptyCtripTrafficDisplaySummary(),
             'traffic_fallback' => $trafficFallback,
-            'early_morning_fallback' => $earlyMorningFallback,
+            'early_morning_fallback' => null,
             'comparison' => $comparison,
         ];
     }
@@ -318,12 +318,6 @@ trait OnlineDataHistoryConcern
         }
     }
 
-    private function shouldUseCtripYesterdayEarlyFallback(): bool
-    {
-        $hour = (int)date('G');
-        return $hour >= 0 && $hour < 8;
-    }
-
     private function buildCtripLatestRankComparison(array $latest, string $hotelId, $currentUser, array $columns, string $range): ?array
     {
         if (!in_array($range, ['realtime', 'yesterday'], true) || empty($latest['data_date'])) {
@@ -342,6 +336,7 @@ trait OnlineDataHistoryConcern
         $query = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($query, $columns);
         $this->applyCtripSectionTypeFilter($query, 'rank', $columns);
+        $this->applyCtripCompetitionCircleFilter($query, $columns);
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($query, $columns, $range);
         $query->where('data_date', $dataDate);
@@ -354,6 +349,7 @@ trait OnlineDataHistoryConcern
         $rowsQuery = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($rowsQuery, $columns);
         $this->applyCtripSectionTypeFilter($rowsQuery, 'rank', $columns);
+        $this->applyCtripCompetitionCircleFilter($rowsQuery, $columns);
         $this->applyCtripHotelScope($rowsQuery, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($rowsQuery, $columns, $range);
         $rowsQuery->where('data_date', $dataDate);
@@ -395,6 +391,7 @@ trait OnlineDataHistoryConcern
         $query = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($query, $columns);
         $this->applyCtripSectionTypeFilter($query, 'rank', $columns);
+        $this->applyCtripCompetitionCircleFilter($query, $columns);
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($query, $columns, $range);
 
@@ -443,16 +440,21 @@ trait OnlineDataHistoryConcern
 
     private function ctripLatestBatchKey(array $row, array $columns, bool $includeSystemHotel): string
     {
-        if (isset($columns['sync_task_id']) && (int)($row['sync_task_id'] ?? 0) > 0) {
+        $isCompetitionCircle = strtolower(trim((string)($row['data_type'] ?? ''))) === 'competitor'
+            && trim((string)($row['dimension'] ?? '')) === 'competition_circle_hotel';
+        if (!$isCompetitionCircle && isset($columns['sync_task_id']) && (int)($row['sync_task_id'] ?? 0) > 0) {
             return 'task:' . (int)$row['sync_task_id'];
         }
-        if (isset($columns['batch_no']) && trim((string)($row['batch_no'] ?? '')) !== '') {
+        if (!$isCompetitionCircle && isset($columns['batch_no']) && trim((string)($row['batch_no'] ?? '')) !== '') {
             return 'batch:' . trim((string)$row['batch_no']);
         }
 
+        $snapshotTime = $isCompetitionCircle && isset($columns['snapshot_time'])
+            ? trim((string)($row['snapshot_time'] ?? ''))
+            : '';
         $parts = [
             'date:' . (string)($row['data_date'] ?? ''),
-            'time:' . $this->onlineRowFetchedAt($row, $columns),
+            'time:' . ($snapshotTime !== '' ? $snapshotTime : $this->onlineRowFetchedAt($row, $columns)),
         ];
         if ($includeSystemHotel && isset($columns['system_hotel_id'])) {
             $parts[] = 'hotel:' . (string)($row['system_hotel_id'] ?? '');
@@ -460,15 +462,16 @@ trait OnlineDataHistoryConcern
         return implode('|', $parts);
     }
 
-    private function emptyCtripLatestSection(string $section, string $label): array
+    private function emptyCtripLatestSection(string $section, string $label, string $targetDate = ''): array
     {
         return [
             'data_type' => $section,
             'data_type_label' => $label,
             'data_source' => '携程 ebooking',
             'status' => 'empty',
-            'status_label' => '暂无数据',
+            'status_label' => $targetDate !== '' ? '目标日期未采集' : '暂无数据',
             'data_date' => '',
+            'target_data_date' => $targetDate,
             'fetched_at' => '',
             'total' => 0,
             'rows' => [],
@@ -479,7 +482,7 @@ trait OnlineDataHistoryConcern
         ];
     }
 
-    private function buildCtripLatestMetadata(array $sections, string $hotelId): array
+    private function buildCtripLatestMetadata(array $sections, string $hotelId, string $range = ''): array
     {
         $fetchedAt = '';
         $dataDate = '';
@@ -505,11 +508,13 @@ trait OnlineDataHistoryConcern
             }
         }
 
-        $fetchStatus = $this->getCtripLatestFetchStatus($hotelId);
-        if (!empty($fetchStatus['fetched_at']) && ($fetchedAt === '' || strcmp((string)$fetchStatus['fetched_at'], $fetchedAt) >= 0)) {
-            $fetchedAt = (string)$fetchStatus['fetched_at'];
-            $dataDate = (string)($fetchStatus['data_date'] ?? $dataDate);
-            $total = max($total, (int)($fetchStatus['saved_count'] ?? 0));
+        if ($range === '') {
+            $fetchStatus = $this->getCtripLatestFetchStatus($hotelId);
+            if (!empty($fetchStatus['fetched_at']) && ($fetchedAt === '' || strcmp((string)$fetchStatus['fetched_at'], $fetchedAt) >= 0)) {
+                $fetchedAt = (string)$fetchStatus['fetched_at'];
+                $dataDate = (string)($fetchStatus['data_date'] ?? $dataDate);
+                $total = max($total, (int)($fetchStatus['saved_count'] ?? 0));
+            }
         }
 
         return [
@@ -517,7 +522,8 @@ trait OnlineDataHistoryConcern
             'platform' => 'ctrip',
             'data_source' => '携程 ebooking',
             'status' => $total > 0 ? 'success' : 'empty',
-            'status_label' => $total > 0 ? '成功' : '暂无成功采集',
+            'status_label' => $total > 0 ? '有入库记录' : ($targetDataDate !== '' ? '目标日期未采集' : '暂无入库记录'),
+            'verification_status' => $total > 0 ? 'record_present_source_not_proven' : 'not_available',
             'data_date' => $dataDate,
             'target_data_date' => $targetDataDate,
             'fetched_at' => $fetchedAt,
@@ -553,7 +559,10 @@ trait OnlineDataHistoryConcern
         $section = strtolower($section);
         if (in_array($section, ['rank', 'business'], true)) {
             $query->where(function ($q) {
-                $q->where('data_type', 'business')->whereOr('data_type', '');
+                $q->where('data_type', 'business')
+                    ->whereOr('data_type', '')
+                    ->whereOr('data_type', 'competitor')
+                    ->whereOr('data_type', 'ranking');
             });
             return;
         }
@@ -564,6 +573,16 @@ trait OnlineDataHistoryConcern
             return;
         }
         $query->where('data_type', $section);
+    }
+
+    private function applyCtripCompetitionCircleFilter($query, array $columns): void
+    {
+        if (isset($columns['data_type'])) {
+            $query->where('data_type', 'competitor');
+        }
+        if (isset($columns['dimension'])) {
+            $query->where('dimension', 'competition_circle_hotel');
+        }
     }
 
     private function applyCtripHotelScope($query, string $hotelId, $currentUser, array $columns): void
@@ -596,6 +615,12 @@ trait OnlineDataHistoryConcern
             }
         }
 
+        $snapshotBucket = trim((string)($latest['snapshot_bucket'] ?? ''));
+        if (isset($columns['snapshot_bucket']) && $snapshotBucket !== '') {
+            $query->where('snapshot_bucket', $snapshotBucket);
+            return;
+        }
+
         $this->applyOnlineLatestFetchTimeScope($query, $latest, $columns);
     }
 
@@ -619,6 +644,505 @@ trait OnlineDataHistoryConcern
             $query->order('create_time', $direction);
         }
         return $query->order('id', $direction);
+    }
+
+    private function onlineHistoryLightweightStatusExpression(array $columns): string
+    {
+        if (isset($columns['history_status'])) {
+            return "COALESCE(`history_status`, 'unverified')";
+        }
+
+        $conditions = [];
+        $failedRowStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_ROW_STATUSES) . "'";
+        $unverifiedRowStatuses = "'" . implode("','", OnlineDataTrustStatusService::UNVERIFIED_ROW_STATUSES) . "'";
+        $failedValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_VALIDATION_STATUSES) . "'";
+        $unverifiedValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::UNVERIFIED_VALIDATION_STATUSES) . "'";
+        $partialValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::PARTIAL_VALIDATION_STATUSES) . "'";
+        if (isset($columns['status'])) {
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`status`, ''))) IN ({$failedRowStatuses}) THEN 'failed'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`status`, ''))) IN ({$unverifiedRowStatuses}) THEN 'unverified'";
+        }
+        if (isset($columns['validation_status'])) {
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ({$failedValidationStatuses}) THEN 'failed'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ({$unverifiedValidationStatuses}) THEN 'unverified'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ({$partialValidationStatuses}) THEN 'partial'";
+        }
+
+        if (isset($columns['readback_verified'])) {
+            $conditions[] = "WHEN COALESCE(`readback_verified`, 0) <> 1 THEN 'unverified'";
+            $conditions[] = "WHEN COALESCE(`readback_verified`, 0) = 1 THEN 'success'";
+        }
+
+        $hasStructuredStatus = isset($columns['status'])
+            || isset($columns['validation_status'])
+            || isset($columns['readback_verified']);
+        if (isset($columns['raw_data']) && !$hasStructuredStatus) {
+            $driver = strtolower((string)Db::connect()->getConfig('type'));
+            if ($driver === 'sqlite') {
+                $rawErrorCondition = "json_valid(`raw_data`) = 1 AND ("
+                    . "(json_type(`raw_data`, '$.error') IS NOT NULL AND json_type(`raw_data`, '$.error') <> 'null') OR "
+                    . "(json_type(`raw_data`, '$.errors') IS NOT NULL AND json_type(`raw_data`, '$.errors') <> 'null'))";
+            } else {
+                $rawErrorCondition = "JSON_VALID(`raw_data`) = 1 AND ("
+                    . "(JSON_CONTAINS_PATH(`raw_data`, 'one', '$.error') = 1 AND JSON_TYPE(JSON_EXTRACT(`raw_data`, '$.error')) <> 'NULL') OR "
+                    . "(JSON_CONTAINS_PATH(`raw_data`, 'one', '$.errors') = 1 AND JSON_TYPE(JSON_EXTRACT(`raw_data`, '$.errors')) <> 'NULL'))";
+            }
+            $conditions[] = "WHEN `raw_data` IS NOT NULL AND `raw_data` <> '' AND {$rawErrorCondition} THEN 'failed'";
+        }
+
+        $metricFields = array_values(array_filter([
+            'amount',
+            'quantity',
+            'book_order_num',
+            'data_value',
+            'list_exposure',
+            'detail_exposure',
+            'order_submit_num',
+        ], static fn (string $field): bool => isset($columns[$field])));
+        if ($metricFields !== []) {
+            $metricCondition = implode(' OR ', array_map(
+                static fn (string $field): string => "COALESCE(`{$field}`, 0) > 0",
+                $metricFields
+            ));
+            $conditions[] = "WHEN {$metricCondition} THEN 'success'";
+        }
+
+        if (isset($columns['raw_data']) && !isset($columns['readback_verified'])) {
+            $conditions[] = "WHEN `raw_data` IS NOT NULL AND `raw_data` <> '' THEN 'success'";
+        }
+
+        return "CASE\n" . implode("\n", $conditions) . "\nELSE 'empty' END";
+    }
+
+    /**
+     * Page merged history groups in SQL before loading any raw_data payloads.
+     * The second query in history() only hydrates records belonging to the
+     * selected group keys, preserving the existing merged-list contract.
+     */
+    private function buildOnlineHistoryDatabasePagination(
+        $query,
+        array $columns,
+        int $page,
+        int $pageSize
+    ): array {
+        $page = max(1, $page);
+        $pageSize = max(1, $pageSize);
+        $groupKeyExpression = $this->onlineHistorySqlGroupKeyExpression($columns);
+        $fetchTimeExpression = $this->onlineHistorySqlFetchTimeExpression($columns);
+        $orderKeyExpression = $this->onlineHistorySqlOrderKeyExpression($columns);
+        $driver = $this->onlineHistoryDatabaseDriver();
+        $usesFoundRows = in_array($driver, ['mysql', 'mariadb'], true);
+        $groupFields = [
+            ($usesFoundRows ? 'SQL_CALC_FOUND_ROWS ' : '') . "{$groupKeyExpression} AS history_group_key",
+            "MAX({$orderKeyExpression}) AS history_order_key",
+            "MAX({$fetchTimeExpression}) AS group_fetch_time",
+        ];
+        if ($driver === 'sqlite') {
+            $groupFields[] = 'COUNT(*) OVER () AS total_records';
+        }
+
+        $groupRows = (clone $query)
+            ->fieldRaw(implode(', ', $groupFields))
+            ->group('history_group_key')
+            ->order('history_order_key', 'desc')
+            ->limit(($page - 1) * $pageSize, $pageSize)
+            ->select()
+            ->toArray();
+
+        if ($usesFoundRows) {
+            $foundRows = Db::query('SELECT FOUND_ROWS() AS total_records');
+            $total = (int)($foundRows[0]['total_records'] ?? 0);
+        } elseif ($groupRows !== []) {
+            $total = (int)($groupRows[0]['total_records'] ?? 0);
+        } elseif ($page > 1) {
+            $firstPage = $this->buildOnlineHistoryDatabasePagination(clone $query, $columns, 1, 1);
+            $firstPage['group_keys'] = [];
+            return $firstPage;
+        } else {
+            $total = 0;
+        }
+
+        $summary = $this->buildOnlineHistoryDatabaseSummary(
+            clone $query,
+            $columns,
+            $groupKeyExpression,
+            $fetchTimeExpression,
+            $total
+        );
+
+        $groupKeys = [];
+        foreach ($groupRows as $row) {
+            $groupKey = (string)($row['history_group_key'] ?? '');
+            if ($groupKey !== '') {
+                $groupKeys[] = $groupKey;
+            }
+        }
+
+        return [
+            'total' => $total,
+            'group_keys' => array_values(array_unique($groupKeys)),
+            'group_key_expression' => $groupKeyExpression,
+            'summary' => $summary,
+        ];
+    }
+
+    private function buildOnlineHistoryDatabaseSummary(
+        $query,
+        array $columns,
+        string $groupKeyExpression,
+        string $fetchTimeExpression,
+        int $total
+    ): array {
+        $latestRows = (clone $query)
+            ->fieldRaw("MAX({$fetchTimeExpression}) AS latest_fetch_time")
+            ->select()
+            ->toArray();
+
+        $todayRecords = 0;
+        if (isset($columns['history_fetch_time'])
+            || isset($columns['update_time'])
+            || isset($columns['create_time'])) {
+            $today = date('Y-m-d');
+            $todayQuery = (clone $query)->whereRaw(
+                "({$fetchTimeExpression}) BETWEEN :history_today_start AND :history_today_end",
+                [
+                    'history_today_start' => $today . ' 00:00:00',
+                    'history_today_end' => $today . ' 23:59:59',
+                ]
+            );
+            $todayRecords = $this->countOnlineHistoryDistinctGroups($todayQuery, $groupKeyExpression);
+        }
+
+        $failedRecords = 0;
+        $failedConditions = [];
+        if (isset($columns['history_status'])) {
+            $failedQuery = (clone $query)->where('history_status', 'failed');
+            $failedRecords = $this->countOnlineHistoryDistinctGroups($failedQuery, $groupKeyExpression);
+        } else {
+            if (isset($columns['status'])) {
+                $failedRowStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_ROW_STATUSES) . "'";
+                $failedConditions[] = "LOWER(TRIM(COALESCE(`status`, ''))) IN ({$failedRowStatuses})";
+            }
+            if (isset($columns['validation_status'])) {
+                $failedValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_VALIDATION_STATUSES) . "'";
+                $failedConditions[] = "LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ({$failedValidationStatuses})";
+            }
+            if ($failedConditions !== []) {
+                $failedQuery = (clone $query)->whereRaw('(' . implode(' OR ', $failedConditions) . ')');
+                $failedRecords = $this->countOnlineHistoryDistinctGroups($failedQuery, $groupKeyExpression);
+            }
+        }
+
+        return [
+            'total_records' => $total,
+            'latest_fetch_time' => (string)($latestRows[0]['latest_fetch_time'] ?? ''),
+            'today_records' => $todayRecords,
+            'failed_records' => $failedRecords,
+        ];
+    }
+
+    private function countOnlineHistoryDistinctGroups($query, string $groupKeyExpression): int
+    {
+        $rows = $query
+            ->fieldRaw("COUNT(DISTINCT {$groupKeyExpression}) AS total_records")
+            ->select()
+            ->toArray();
+        return (int)($rows[0]['total_records'] ?? 0);
+    }
+
+    private function applyOnlineHistoryGroupKeyScope($query, string $groupKeyExpression, array $groupKeys)
+    {
+        $groupKeys = array_values(array_filter(array_map('strval', $groupKeys), static fn (string $key): bool => $key !== ''));
+        if ($groupKeys === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $placeholders = [];
+        $bind = [];
+        foreach ($groupKeys as $index => $groupKey) {
+            $name = 'history_group_' . $index;
+            $placeholders[] = ':' . $name;
+            $bind[$name] = $groupKey;
+        }
+
+        return $query->whereRaw(
+            '(' . $groupKeyExpression . ') IN (' . implode(', ', $placeholders) . ')',
+            $bind
+        );
+    }
+
+    private function onlineHistorySqlGroupKeyExpression(array $columns): string
+    {
+        if (isset($columns['history_group_key'])) {
+            // Keep the generated column bare so the page hydration IN query
+            // can use idx_online_daily_history_group_fetch. Wrapping it in a
+            // CAST/COALESCE forces MariaDB to scan the whole filtered scope.
+            return '`history_group_key`';
+        }
+
+        $dataDate = $this->onlineHistorySqlColumnText($columns, 'data_date');
+        $platform = $this->onlineHistorySqlPlatformExpression($columns);
+        $dataType = $this->onlineHistorySqlDataTypeExpression($columns);
+        $systemHotelId = $this->onlineHistorySqlColumnText($columns, 'system_hotel_id');
+        $dimension = $this->onlineHistorySqlColumnText($columns, 'dimension');
+        $compareType = $this->onlineHistorySqlColumnText($columns, 'compare_type');
+        $fetchTime = $this->onlineHistorySqlFetchTimeExpression($columns);
+        $competitionCircle = "({$dataType} = 'competitor' AND {$dimension} = 'competition_circle_hotel')";
+        $compareGroup = "CASE WHEN {$competitionCircle} THEN 'competition_circle' ELSE {$compareType} END";
+        $batchFetchTime = "CASE WHEN {$competitionCircle} THEN {$fetchTime} ELSE '' END";
+        $parts = [
+            $dataDate,
+            $platform,
+            $dataType,
+            $systemHotelId,
+            $dimension,
+            $compareGroup,
+            $batchFetchTime,
+        ];
+
+        if ($this->onlineHistoryDatabaseDriver() === 'sqlite') {
+            return '(' . implode(" || '|' || ", $parts) . ')';
+        }
+
+        return 'CONCAT(' . implode(", '|', ", $parts) . ')';
+    }
+
+    private function onlineHistorySqlPlatformExpression(array $columns): string
+    {
+        if (isset($columns['platform'], $columns['source'])) {
+            $raw = 'LOWER(TRIM(COALESCE(CAST(`platform` AS CHAR), CAST(`source` AS CHAR), \'' . '\')))';
+        } elseif (isset($columns['platform'])) {
+            $raw = 'LOWER(TRIM(COALESCE(CAST(`platform` AS CHAR), \'' . '\')))';
+        } elseif (isset($columns['source'])) {
+            $raw = 'LOWER(TRIM(COALESCE(CAST(`source` AS CHAR), \'' . '\')))';
+        } else {
+            $raw = "''";
+        }
+
+        if ($this->onlineHistoryDatabaseDriver() === 'sqlite') {
+            $raw = str_replace(' AS CHAR)', ' AS TEXT)', $raw);
+        }
+
+        return "CASE "
+            . "WHEN {$raw} IN ('ctrip', '携程') THEN 'ctrip' "
+            . "WHEN {$raw} IN ('meituan', '美团') THEN 'meituan' "
+            . "WHEN {$raw} IN ('qunar', '去哪儿') THEN 'qunar' "
+            . "WHEN {$raw} <> '' THEN {$raw} ELSE 'unknown' END";
+    }
+
+    private function onlineHistorySqlDataTypeExpression(array $columns): string
+    {
+        $dataType = isset($columns['data_type'])
+            ? 'LOWER(TRIM(' . $this->onlineHistorySqlColumnText($columns, 'data_type') . '))'
+            : "''";
+        $compareType = $this->onlineHistorySqlColumnText($columns, 'compare_type');
+
+        return "CASE "
+            . "WHEN {$compareType} = 'competitor_avg' THEN 'competitor' "
+            . "WHEN {$dataType} = '' THEN 'business' "
+            . "WHEN {$dataType} IN ('comment', 'comments') THEN 'review' "
+            . "WHEN {$dataType} IN ('ad', 'ads') THEN 'advertising' "
+            . "ELSE {$dataType} END";
+    }
+
+    private function onlineHistorySqlFetchTimeExpression(array $columns): string
+    {
+        if (isset($columns['history_fetch_time'])) {
+            return '`history_fetch_time`';
+        }
+
+        $updateTime = $this->onlineHistorySqlColumnText($columns, 'update_time');
+        $createTime = $this->onlineHistorySqlColumnText($columns, 'create_time');
+        return "CASE WHEN {$updateTime} > {$createTime} THEN {$updateTime} ELSE {$createTime} END";
+    }
+
+    private function onlineHistorySqlOrderKeyExpression(array $columns): string
+    {
+        $updateTime = $this->onlineHistorySqlColumnText($columns, 'update_time');
+        $createTime = $this->onlineHistorySqlColumnText($columns, 'create_time');
+        if ($this->onlineHistoryDatabaseDriver() === 'sqlite') {
+            $id = isset($columns['id']) ? "printf('%020d', COALESCE(`id`, 0))" : "'00000000000000000000'";
+            return "({$updateTime} || '|' || {$createTime} || '|' || {$id})";
+        }
+
+        $id = isset($columns['id'])
+            ? "LPAD(CAST(COALESCE(`id`, 0) AS CHAR), 20, '0')"
+            : "'00000000000000000000'";
+        return "CONCAT({$updateTime}, '|', {$createTime}, '|', {$id})";
+    }
+
+    private function onlineHistorySqlColumnText(array $columns, string $column): string
+    {
+        if (!isset($columns[$column])) {
+            return "''";
+        }
+
+        $type = $this->onlineHistoryDatabaseDriver() === 'sqlite' ? 'TEXT' : 'CHAR';
+        return "COALESCE(CAST(`{$column}` AS {$type}), '')";
+    }
+
+    private function onlineHistoryDatabaseDriver(): string
+    {
+        return strtolower((string)Db::connect()->getConfig('type'));
+    }
+
+    private function orderOnlineHistoryMergedGroups(array $groups, array $groupKeys): array
+    {
+        $positions = array_flip(array_values($groupKeys));
+        $hashedKeys = isset($groupKeys[0]) && preg_match('/^[a-f0-9]{64}$/i', (string)$groupKeys[0]) === 1;
+        usort($groups, function (array $left, array $right) use ($positions, $hashedKeys): int {
+            $leftKey = $this->buildOnlineHistoryMergeKey($left);
+            $rightKey = $this->buildOnlineHistoryMergeKey($right);
+            if ($hashedKeys) {
+                $leftKey = hash('sha256', $leftKey);
+                $rightKey = hash('sha256', $rightKey);
+            }
+            return ($positions[$leftKey] ?? PHP_INT_MAX) <=> ($positions[$rightKey] ?? PHP_INT_MAX);
+        });
+        return $groups;
+    }
+
+    private function buildOnlineHistoryLightweightPagination(array $rows, int $page, int $pageSize): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $fetchTime = $this->onlineHistoryLightweightFetchTime($row);
+            $groupKey = $this->buildOnlineHistoryStorageMergeKey($row, $fetchTime);
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'record_ids' => [],
+                    'fetch_time' => $fetchTime,
+                    'order_update_time' => (string)($row['update_time'] ?? ''),
+                    'order_create_time' => (string)($row['create_time'] ?? ''),
+                    'order_id' => (int)($row['id'] ?? 0),
+                    'failed' => 0,
+                    'empty' => 0,
+                    'unverified' => 0,
+                    'partial' => 0,
+                    'success' => 0,
+                ];
+            }
+
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $groups[$groupKey]['record_ids'][] = $id;
+            }
+            if ($fetchTime !== '' && strcmp($fetchTime, (string)$groups[$groupKey]['fetch_time']) > 0) {
+                $groups[$groupKey]['fetch_time'] = $fetchTime;
+            }
+            $this->updateOnlineHistoryLightweightGroupOrder($groups[$groupKey], $row);
+            $status = strtolower(trim((string)($row['history_row_status'] ?? 'empty')));
+            $status = isset($groups[$groupKey][$status]) ? $status : 'empty';
+            $groups[$groupKey][$status]++;
+        }
+
+        uasort($groups, static function (array $left, array $right): int {
+            $updateOrder = strcmp((string)$right['order_update_time'], (string)$left['order_update_time']);
+            if ($updateOrder !== 0) {
+                return $updateOrder;
+            }
+            $createOrder = strcmp((string)$right['order_create_time'], (string)$left['order_create_time']);
+            if ($createOrder !== 0) {
+                return $createOrder;
+            }
+            return (int)$right['order_id'] <=> (int)$left['order_id'];
+        });
+
+        $summary = [
+            'total_records' => count($groups),
+            'latest_fetch_time' => '',
+            'today_records' => 0,
+            'failed_records' => 0,
+        ];
+        $today = date('Y-m-d');
+        foreach ($groups as &$group) {
+            $group['status'] = $this->resolveOnlineHistoryLightweightGroupStatus($group);
+            $fetchTime = (string)$group['fetch_time'];
+            if ($fetchTime !== '' && ($summary['latest_fetch_time'] === '' || strcmp($fetchTime, $summary['latest_fetch_time']) > 0)) {
+                $summary['latest_fetch_time'] = $fetchTime;
+            }
+            if ($fetchTime !== '' && substr($fetchTime, 0, 10) === $today) {
+                $summary['today_records']++;
+            }
+            if ($group['status'] === 'failed') {
+                $summary['failed_records']++;
+            }
+        }
+        unset($group);
+
+        $page = max(1, $page);
+        $pageSize = max(1, $pageSize);
+        $pageGroups = array_slice(array_values($groups), ($page - 1) * $pageSize, $pageSize);
+        $recordIds = [];
+        foreach ($pageGroups as $group) {
+            array_push($recordIds, ...$group['record_ids']);
+        }
+
+        return [
+            'total' => count($groups),
+            'record_ids' => array_values(array_unique($recordIds)),
+            'summary' => $summary,
+        ];
+    }
+
+    private function updateOnlineHistoryLightweightGroupOrder(array &$group, array $row): void
+    {
+        $rowUpdateTime = (string)($row['update_time'] ?? '');
+        $rowCreateTime = (string)($row['create_time'] ?? '');
+        $rowId = (int)($row['id'] ?? 0);
+        $updateComparison = strcmp($rowUpdateTime, (string)$group['order_update_time']);
+        $createComparison = strcmp($rowCreateTime, (string)$group['order_create_time']);
+        if ($updateComparison > 0
+            || ($updateComparison === 0 && $createComparison > 0)
+            || ($updateComparison === 0 && $createComparison === 0 && $rowId > (int)$group['order_id'])) {
+            $group['order_update_time'] = $rowUpdateTime;
+            $group['order_create_time'] = $rowCreateTime;
+            $group['order_id'] = $rowId;
+        }
+    }
+
+    private function buildOnlineHistoryStorageMergeKey(array $row, string $fetchTime): string
+    {
+        $source = strtolower((string)($row['source'] ?? ''));
+        $platform = $this->normalizeHistoryPlatformCode($row['platform'] ?? $source);
+        $compareType = (string)($row['compare_type'] ?? '');
+        $dataType = $this->normalizeHistoryDataType((string)($row['data_type'] ?? ''), $compareType);
+        $isCompetitionCircle = $dataType === 'competitor'
+            && (string)($row['dimension'] ?? '') === 'competition_circle_hotel';
+
+        return implode('|', [
+            (string)($row['data_date'] ?? ''),
+            $platform,
+            $dataType,
+            (string)($row['system_hotel_id'] ?? ''),
+            (string)($row['dimension'] ?? ''),
+            $isCompetitionCircle ? 'competition_circle' : $compareType,
+            $isCompetitionCircle ? $fetchTime : '',
+        ]);
+    }
+
+    private function onlineHistoryLightweightFetchTime(array $row): string
+    {
+        $createTime = (string)($row['create_time'] ?? '');
+        $updateTime = (string)($row['update_time'] ?? '');
+        return strcmp($updateTime, $createTime) > 0 ? $updateTime : $createTime;
+    }
+
+    private function resolveOnlineHistoryLightweightGroupStatus(array $group): string
+    {
+        if ((int)($group['failed'] ?? 0) > 0) {
+            return 'failed';
+        }
+        if ((int)($group['unverified'] ?? 0) > 0) {
+            return 'unverified';
+        }
+        if ((int)($group['partial'] ?? 0) > 0) {
+            return 'partial';
+        }
+        if ((int)($group['success'] ?? 0) > 0) {
+            return 'success';
+        }
+        return 'empty';
     }
 
     private function onlineRowFetchedAt(array $row, array $columns): string
@@ -656,6 +1180,12 @@ trait OnlineDataHistoryConcern
             $decoded['_record_id'] = (int)($row['id'] ?? 0);
             $decoded['_data_date'] = (string)($row['data_date'] ?? '');
             $decoded['_fetch_time'] = (string)($row['update_time'] ?? $row['create_time'] ?? '');
+            $decoded['compareType'] = (string)($row['compare_type'] ?? $decoded['compareType'] ?? '');
+            $decoded['isSelf'] = ($row['compare_type'] ?? '') === 'self';
+            $decoded['systemHotelId'] = (int)($row['system_hotel_id'] ?? 0);
+            if ($decoded['isSelf'] && $decoded['systemHotelId'] > 0) {
+                $decoded['systemHotelName'] = $this->getSystemHotelName($decoded['systemHotelId']);
+            }
             $payload[] = $decoded;
         }
         return $payload;
@@ -667,18 +1197,26 @@ trait OnlineDataHistoryConcern
             'hotelId' => $row['hotel_id'] ?? '',
             'hotelName' => $row['hotel_name'] ?? '',
             'date' => $row['data_date'] ?? '',
-            'amount' => (float)($row['amount'] ?? 0),
-            'quantity' => (int)($row['quantity'] ?? 0),
-            'bookOrderNum' => (int)($row['book_order_num'] ?? 0),
-            'commentScore' => (float)($row['comment_score'] ?? 0),
-            'qunarCommentScore' => (float)($row['qunar_comment_score'] ?? 0),
-            'dataValue' => (float)($row['data_value'] ?? 0),
-            'listExposure' => (int)($row['list_exposure'] ?? 0),
-            'detailExposure' => (int)($row['detail_exposure'] ?? 0),
-            'flowRate' => (float)($row['flow_rate'] ?? 0),
-            'orderFillingNum' => (int)($row['order_filling_num'] ?? 0),
-            'orderSubmitNum' => (int)($row['order_submit_num'] ?? 0),
+            'amount' => $this->nullableOnlineRowMetric($row, 'amount'),
+            'quantity' => $this->nullableOnlineRowMetric($row, 'quantity', true),
+            'bookOrderNum' => $this->nullableOnlineRowMetric($row, 'book_order_num', true),
+            'commentScore' => $this->nullableOnlineRowMetric($row, 'comment_score'),
+            'qunarCommentScore' => $this->nullableOnlineRowMetric($row, 'qunar_comment_score'),
+            'dataValue' => $this->nullableOnlineRowMetric($row, 'data_value'),
+            'listExposure' => $this->nullableOnlineRowMetric($row, 'list_exposure', true),
+            'detailExposure' => $this->nullableOnlineRowMetric($row, 'detail_exposure', true),
+            'flowRate' => $this->nullableOnlineRowMetric($row, 'flow_rate'),
+            'orderFillingNum' => $this->nullableOnlineRowMetric($row, 'order_filling_num', true),
+            'orderSubmitNum' => $this->nullableOnlineRowMetric($row, 'order_submit_num', true),
         ];
+    }
+
+    private function nullableOnlineRowMetric(array $row, string $field, bool $integer = false): int|float|null
+    {
+        if (!array_key_exists($field, $row) || $row[$field] === null || $row[$field] === '' || !is_numeric($row[$field])) {
+            return null;
+        }
+        return $integer ? (int)$row[$field] : (float)$row[$field];
     }
 
     private function applyOnlineHistoryFilters($query, $currentUser): void
@@ -767,18 +1305,11 @@ trait OnlineDataHistoryConcern
         }
 
         if ($hotelScope === 'mine') {
-            if (isset($columns['system_hotel_id'], $columns['compare_type'], $columns['hotel_name'])) {
+            if (isset($columns['compare_type'], $columns['hotel_name'])) {
                 $query->where(function ($q) {
-                    $q->whereNotNull('system_hotel_id')
-                        ->whereOr('compare_type', 'self')
+                    $q->where('compare_type', 'self')
                         ->whereOr('hotel_name', '我的酒店');
                 });
-            } elseif (isset($columns['system_hotel_id'], $columns['hotel_name'])) {
-                $query->where(function ($q) {
-                    $q->whereNotNull('system_hotel_id')->whereOr('hotel_name', '我的酒店');
-                });
-            } elseif (isset($columns['system_hotel_id'])) {
-                $query->whereNotNull('system_hotel_id');
             } elseif (isset($columns['hotel_name'])) {
                 $query->where('hotel_name', '我的酒店');
             }
@@ -879,10 +1410,19 @@ trait OnlineDataHistoryConcern
             '去哪儿' => ['qunar', 'Qunar'],
             '经营数据' => ['business'],
             '流量数据' => ['traffic'],
+            '排名数据' => ['ranking', 'rank'],
+            '竞对榜单' => ['peer_rank'],
+            '搜索词' => ['search_keyword'],
+            '流量分析' => ['traffic_analysis'],
+            '未来预测' => ['traffic_forecast'],
+            '预测数据' => ['traffic_forecast'],
             '竞对数据' => ['competitor', 'competitor_avg'],
             '竞争圈' => ['competitor', 'competitor_avg'],
             '点评数据' => ['review', 'comment'],
             '广告数据' => ['advertising', 'ad'],
+            '服务质量' => ['quality', 'service', 'service_quality'],
+            '订单数据' => ['order'],
+            '订单流转' => ['order_flow'],
         ];
 
         foreach ($labelMap as $label => $values) {
@@ -901,13 +1441,22 @@ trait OnlineDataHistoryConcern
         $todayRecords = 0;
         $failedRecords = 0;
 
-        if (isset($columns['create_time'])) {
+        if (isset($columns['create_time']) || isset($columns['update_time'])) {
             $today = date('Y-m-d');
-            $latestFetchTime = (string)((clone $query)->max('create_time') ?: '');
-            $todayRecords = (int)(clone $query)
-                ->where('create_time', '>=', $today . ' 00:00:00')
-                ->where('create_time', '<=', $today . ' 23:59:59')
-                ->count();
+            $createMax = isset($columns['create_time']) ? (string)((clone $query)->max('create_time') ?: '') : '';
+            $updateMax = isset($columns['update_time']) ? (string)((clone $query)->max('update_time') ?: '') : '';
+            $latestFetchTime = strcmp($updateMax, $createMax) > 0 ? $updateMax : $createMax;
+            $todayRecords = (int)(clone $query)->where(function ($q) use ($columns, $today) {
+                $hasCondition = false;
+                foreach (['update_time', 'create_time'] as $column) {
+                    if (!isset($columns[$column])) {
+                        continue;
+                    }
+                    $method = $hasCondition ? 'whereOrBetween' : 'whereBetween';
+                    $q->{$method}($column, [$today . ' 00:00:00', $today . ' 23:59:59']);
+                    $hasCondition = true;
+                }
+            })->count();
         }
 
         if (isset($columns['status'])) {
@@ -949,7 +1498,9 @@ trait OnlineDataHistoryConcern
 
         $item = $row;
         $item['id'] = (int)$row['id'];
-        $item['fetch_time'] = (string)($row['create_time'] ?? '');
+        $createTime = (string)($row['create_time'] ?? '');
+        $updateTime = (string)($row['update_time'] ?? '');
+        $item['fetch_time'] = strcmp($updateTime, $createTime) > 0 ? $updateTime : $createTime;
         $item['data_date'] = (string)($row['data_date'] ?? '');
         $item['platform'] = $platformCode;
         $item['platform_label'] = $this->historyPlatformLabel($platformCode);
@@ -958,6 +1509,9 @@ trait OnlineDataHistoryConcern
         $item['hotel_name'] = $displayHotelName;
         $item['original_hotel_name'] = (string)($row['hotel_name'] ?? '');
         $item['hotel_id'] = $systemHotelId;
+        $item['system_hotel_name'] = $systemHotelId && isset($hotelMap[(int)$systemHotelId])
+            ? (string)$hotelMap[(int)$systemHotelId]
+            : '';
         $item['ota_hotel_id'] = $otaHotelId;
         $item['is_my_hotel'] = $this->isMyHotelHistoryRow($row);
         $item['batch_no'] = $this->buildHistoryBatchNo($row, $rawData, $platformCode, $dataType);
@@ -997,6 +1551,10 @@ trait OnlineDataHistoryConcern
                 $groups[$groupKey]['_failed_count'] = 0;
                 $groups[$groupKey]['_empty_count'] = 0;
                 $groups[$groupKey]['_success_count'] = 0;
+                $groups[$groupKey]['_partial_count'] = 0;
+                $groups[$groupKey]['_unverified_count'] = 0;
+                $groups[$groupKey]['_self_count'] = 0;
+                $groups[$groupKey]['_competitor_count'] = 0;
             }
 
             $this->appendOnlineHistoryGroupRow($groups[$groupKey], $item);
@@ -1011,13 +1569,16 @@ trait OnlineDataHistoryConcern
 
     private function buildOnlineHistoryMergeKey(array $item): string
     {
+        $isCompetitionCircle = (string)($item['data_type'] ?? '') === 'competitor'
+            && (string)($item['dimension'] ?? '') === 'competition_circle_hotel';
         return implode('|', [
             (string)($item['data_date'] ?? ''),
             (string)($item['platform'] ?? ''),
             (string)($item['data_type'] ?? ''),
             (string)($item['hotel_id'] ?? ''),
             (string)($item['dimension'] ?? ''),
-            (string)($item['compare_type'] ?? ''),
+            $isCompetitionCircle ? 'competition_circle' : (string)($item['compare_type'] ?? ''),
+            $isCompetitionCircle ? (string)($item['fetch_time'] ?? '') : '',
         ]);
     }
 
@@ -1049,6 +1610,17 @@ trait OnlineDataHistoryConcern
         }
         if (!empty($item['is_my_hotel'])) {
             $group['is_my_hotel'] = true;
+            $group['_self_count']++;
+        } elseif (
+            (string)($item['data_type'] ?? '') === 'competitor'
+            && (string)($item['dimension'] ?? '') === 'competition_circle_hotel'
+        ) {
+            $group['_competitor_count']++;
+        }
+
+        $fetchTime = (string)($item['fetch_time'] ?? '');
+        if ($fetchTime !== '' && strcmp($fetchTime, (string)($group['fetch_time'] ?? '')) > 0) {
+            $group['fetch_time'] = $fetchTime;
         }
 
         $status = (string)($item['status'] ?? '');
@@ -1056,6 +1628,10 @@ trait OnlineDataHistoryConcern
             $group['_failed_count']++;
         } elseif ($status === 'empty') {
             $group['_empty_count']++;
+        } elseif ($status === 'unverified') {
+            $group['_unverified_count']++;
+        } elseif ($status === 'partial') {
+            $group['_partial_count']++;
         } else {
             $group['_success_count']++;
         }
@@ -1089,14 +1665,34 @@ trait OnlineDataHistoryConcern
         $failedCount = (int)($group['_failed_count'] ?? 0);
         $emptyCount = (int)($group['_empty_count'] ?? 0);
         $successCount = (int)($group['_success_count'] ?? 0);
+        $partialCount = (int)($group['_partial_count'] ?? 0);
+        $unverifiedCount = (int)($group['_unverified_count'] ?? 0);
+        $selfCount = (int)($group['_self_count'] ?? 0);
+        $competitorCount = (int)($group['_competitor_count'] ?? 0);
+        $isCompetitionCircle = (string)($group['data_type'] ?? '') === 'competitor'
+            && (string)($group['dimension'] ?? '') === 'competition_circle_hotel';
 
         $group['hotel_count'] = $hotelCount;
         $group['merged_hotel_names'] = $hotelNames;
         $group['merged_ota_hotel_ids'] = $otaHotelIds;
         $group['merged_batch_nos'] = $batchNos;
+        $group['is_competition_circle'] = $isCompetitionCircle;
+        $group['self_hotel_count'] = $selfCount;
+        $group['competitor_hotel_count'] = $competitorCount;
+        $group['role_summary'] = $isCompetitionCircle
+            ? ('本店 ' . $selfCount . ' / 竞品 ' . $competitorCount)
+            : (!empty($group['is_my_hotel']) ? '本店' : '非本店');
+        if ($isCompetitionCircle) {
+            $group['is_my_hotel'] = $selfCount > 0 && $competitorCount === 0;
+            $systemHotelName = trim((string)($group['system_hotel_name'] ?? ''));
+            $group['hotel_name'] = ($systemHotelName !== '' ? $systemHotelName : '门店')
+                . '竞争圈（' . number_format($hotelCount) . '家）';
+        }
 
         if ($recordCount > 1 || $rawRecordCount > 1) {
-            $group['hotel_name'] = $hotelCount > 1 ? '全部酒店（' . $hotelCount . '家）' : ($hotelNames[0] ?? $group['hotel_name'] ?? '-');
+            if (!$isCompetitionCircle) {
+                $group['hotel_name'] = $hotelCount > 1 ? '全部酒店（' . $hotelCount . '家）' : ($hotelNames[0] ?? $group['hotel_name'] ?? '-');
+            }
             $group['ota_hotel_id'] = count($otaHotelIds) > 1 ? '多个' : ($otaHotelIds[0] ?? $group['ota_hotel_id'] ?? '');
             $group['metrics_summary'] = $this->buildMergedHistoryMetricSummary($group);
             $group['raw_data'] = $this->buildMergedHistoryRawData($group);
@@ -1104,6 +1700,10 @@ trait OnlineDataHistoryConcern
 
         if ($failedCount > 0) {
             $group['status'] = 'failed';
+        } elseif ($unverifiedCount > 0) {
+            $group['status'] = 'unverified';
+        } elseif ($partialCount > 0) {
+            $group['status'] = 'partial';
         } elseif ($successCount > 0) {
             $group['status'] = 'success';
         } elseif ($emptyCount > 0) {
@@ -1123,7 +1723,11 @@ trait OnlineDataHistoryConcern
             $group['_data_value_total'],
             $group['_failed_count'],
             $group['_empty_count'],
-            $group['_success_count']
+            $group['_success_count'],
+            $group['_partial_count'],
+            $group['_unverified_count'],
+            $group['_self_count'],
+            $group['_competitor_count']
         );
 
         return $group;
@@ -1227,7 +1831,7 @@ trait OnlineDataHistoryConcern
 
     private function normalizeHistoryPlatformCode($platform): string
     {
-        $value = strtolower((string)$platform);
+        $value = strtolower(trim((string)$platform));
         if (in_array($value, ['ctrip', '携程'], true)) {
             return 'ctrip';
         }
@@ -1273,23 +1877,43 @@ trait OnlineDataHistoryConcern
         return [
             'business' => '经营数据',
             'traffic' => '流量数据',
+            'ranking' => '排名数据',
+            'rank' => '排名数据',
+            'peer_rank' => '竞对榜单',
+            'search_keyword' => '搜索词',
+            'traffic_analysis' => '流量分析',
+            'traffic_forecast' => '未来预测',
             'competitor' => '竞对数据',
             'review' => '点评数据',
             'advertising' => '广告数据',
+            'quality' => '服务质量',
+            'service' => '服务质量',
+            'service_quality' => '服务质量',
+            'order' => '订单数据',
+            'order_flow' => '订单流转',
         ][$dataType] ?? $dataType;
     }
 
     private function resolveHistoryStatus(array $row, string $rawData): string
     {
-        $status = strtolower((string)($row['status'] ?? ''));
-        if (in_array($status, ['failed', 'fail', 'error'], true)) {
-            return 'failed';
+        $rowClass = OnlineDataTrustStatusService::classifyRowStatus($row['status'] ?? '');
+        $validationClass = OnlineDataTrustStatusService::classifyValidationStatus($row['validation_status'] ?? '');
+        if ($rowClass !== 'usable') {
+            return $rowClass;
+        }
+        if ($validationClass !== 'usable') {
+            return $validationClass;
         }
         if ($rawData !== '') {
             $decoded = json_decode($rawData, true);
             if (is_array($decoded) && (isset($decoded['error']) || isset($decoded['errors']))) {
                 return 'failed';
             }
+        }
+        if (array_key_exists('readback_verified', $row) && (int)$row['readback_verified'] !== 1) {
+            return 'unverified';
+        }
+        if ($rawData !== '') {
             return 'success';
         }
 
@@ -1316,14 +1940,13 @@ trait OnlineDataHistoryConcern
             'success' => '成功',
             'failed' => '失败',
             'empty' => '数据为空',
+            'partial' => '部分数据',
+            'unverified' => '未验证',
         ][$status] ?? $status;
     }
 
     private function isMyHotelHistoryRow(array $row): bool
     {
-        if (!empty($row['system_hotel_id'])) {
-            return true;
-        }
         if (($row['compare_type'] ?? '') === 'self') {
             return true;
         }
@@ -1347,7 +1970,9 @@ trait OnlineDataHistoryConcern
             }
         }
 
-        $fetchTime = (string)($row['create_time'] ?? '');
+        $createTime = (string)($row['create_time'] ?? '');
+        $updateTime = (string)($row['update_time'] ?? '');
+        $fetchTime = strcmp($updateTime, $createTime) > 0 ? $updateTime : $createTime;
         $batchTime = $fetchTime !== '' && strtotime($fetchTime) !== false
             ? date('YmdHis', strtotime($fetchTime))
             : 'unknown';
@@ -1359,6 +1984,34 @@ trait OnlineDataHistoryConcern
         $raw = $rawData !== '' ? json_decode($rawData, true) : [];
         $raw = is_array($raw) ? $raw : [];
         $metrics = [];
+
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if ($dataType === 'traffic_forecast') {
+            $dataValue = $row['data_value'] ?? null;
+            if ($dataValue !== null && $dataValue !== '' && is_numeric($dataValue)) {
+                $dimension = strtolower(trim((string)($row['dimension'] ?? '')));
+                $label = [
+                    'flow_forecast_1' => 'T+1预测',
+                    'flow_forecast_2' => 'T+2预测',
+                    'flow_forecast_3' => 'T+3预测',
+                ][$dimension] ?? '预测值';
+                return $label . ' ' . number_format((float)$dataValue, 2);
+            }
+        }
+
+        if (in_array($dataType, ['review', 'comment', 'comments'], true)) {
+            $commentCount = $row['quantity'] ?? $raw['comment_count'] ?? $raw['commentCount'] ?? null;
+            if ($commentCount !== null && $commentCount !== '') {
+                $metrics[] = '点评 ' . max(0, (int)$commentCount);
+            }
+            $score = (float)($row['comment_score'] ?? $raw['comment_score'] ?? $raw['commentScore'] ?? 0);
+            $metrics[] = $score > 0 ? '评分 ' . number_format($score, 1) : '评分未返回';
+            $badReviewCount = $row['data_value'] ?? $raw['bad_review_count'] ?? $raw['badReviewCount'] ?? null;
+            if ($badReviewCount !== null && $badReviewCount !== '') {
+                $metrics[] = '差评 ' . max(0, (int)$badReviewCount);
+            }
+            return implode(' / ', $metrics);
+        }
 
         $exposure = (int)($row['list_exposure'] ?? $raw['listExposure'] ?? $raw['exposure'] ?? $raw['exposure_count'] ?? 0);
         if ($exposure > 0) {
@@ -1397,31 +2050,4 @@ trait OnlineDataHistoryConcern
     }
 
 
-    private function buildOnlineHistorySummary(array $historyList): array
-    {
-        $latestFetchTime = '';
-        $today = date('Y-m-d');
-        $todayRecords = 0;
-        $failedRecords = 0;
-
-        foreach ($historyList as $item) {
-            $fetchTime = (string)($item['fetch_time'] ?? '');
-            if ($fetchTime !== '' && ($latestFetchTime === '' || strcmp($fetchTime, $latestFetchTime) > 0)) {
-                $latestFetchTime = $fetchTime;
-            }
-            if ($fetchTime !== '' && substr($fetchTime, 0, 10) === $today) {
-                $todayRecords++;
-            }
-            if (($item['status'] ?? '') !== 'success') {
-                $failedRecords++;
-            }
-        }
-
-        return [
-            'total_records' => count($historyList),
-            'latest_fetch_time' => $latestFetchTime,
-            'today_records' => $todayRecords,
-            'failed_records' => $failedRecords,
-        ];
-    }
 }

@@ -1,0 +1,31 @@
+                    <div v-if="currentPage === 'ai-workbench' || currentPage === 'compass'" class="compass-dashboard suxi-dashboard-scope">
+                        <div class="compass-shell-card suxi-panel mb-6 overflow-hidden">
+                            <div class="hidden" data-testid="home-cockpit-header">
+                                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                                    <div class="min-w-0">
+                                        <div class="text-xl sm:text-2xl font-semibold text-white leading-tight">今日经营看板</div>
+                                        <div class="mt-1 max-w-2xl text-sm leading-6 text-blue-100">{{ homeMinimalWorkbench.boundaryText }}</div>
+                                        <div class="mt-2 grid grid-cols-1 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
+                                                <span class="text-blue-200">数据</span>
+                                                <span class="ml-1 font-semibold text-white">{{ compassDataReadiness.summaryText }}</span>
+                                            </span>
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
+                                                <span class="text-blue-200">动作</span>
+                                                <span class="ml-1 font-semibold text-white">{{ homeBoardActionRows[0]?.title || '复核数据' }}</span>
+                                            </span>
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">{{ homeMinimalWorkbench.latestText }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col gap-2 w-full xl:w-auto sm:flex-row sm:items-center">
+                                        <select v-model="filterReportHotel" class="input-field w-full sm:w-48 bg-white text-gray-900 border-gray-300">
+                                            <option value="">全部门店</option>
+                                            <option v-for="hotel in compassHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                        </select>
+                                        <button @click="refreshCompassDashboard" :disabled="compassLoading" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60 whitespace-nowrap">
+                                            <i :class="compassLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ compassLoading ? '更新中' : '刷新状态' }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="compass-content-stage flex flex-col gap-3 bg-[#f2eadc] px-4 py-4 lg:px-6">

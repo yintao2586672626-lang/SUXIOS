@@ -7,7 +7,6 @@ use app\model\CompetitorAnalysis;
 use app\model\DemandForecast;
 use app\model\PriceSuggestion;
 use app\model\RoomType;
-use app\service\InvestmentDecisionSupportService;
 use app\service\OperationManagementService;
 use app\service\RevenueAiOverviewService;
 use think\App;
@@ -314,60 +313,6 @@ function ctrip_generation_inserted_id_counts(array $fixture, array $createdSugge
     ];
 }
 
-/**
- * @param array<string, mixed> $operationFlowSummary
- * @return array<string, mixed>
- */
-function ctrip_generation_investment_closure_overview(array $operationFlowSummary): array
-{
-    $operationTotal = (int)($operationFlowSummary['total'] ?? 0);
-    $roiReady = (int)($operationFlowSummary['roi_ready'] ?? 0);
-
-    return [
-        'summary' => [
-            'operation_execution_total' => $operationTotal,
-            'operation_roi_ready' => $roiReady,
-        ],
-        'modules' => [
-            [
-                'key' => 'ai_daily_report',
-                'label' => 'Ctrip transaction smoke AI decision',
-                'status' => 'process_closed',
-                'status_label' => 'transaction smoke AI review completed',
-                'record_count' => 1,
-                'process_closed_loop' => true,
-                'roi_ready' => false,
-                'roi_ready_count' => 0,
-                'source_scope' => 'ctrip_ota_channel_transaction_smoke',
-            ],
-            [
-                'key' => 'revenue_pricing',
-                'label' => 'Ctrip transaction smoke revenue pricing',
-                'status' => $roiReady > 0 ? 'roi_ready' : 'reviewed_no_roi',
-                'status_label' => $roiReady > 0 ? 'operation ROI ready' : 'operation ROI missing',
-                'record_count' => 1,
-                'process_closed_loop' => true,
-                'roi_ready' => $roiReady > 0,
-                'roi_ready_count' => $roiReady > 0 ? 1 : 0,
-                'source_scope' => 'ctrip_ota_channel_price_suggestion_transaction_smoke',
-            ],
-            [
-                'key' => 'operation_execution',
-                'label' => 'Ctrip transaction smoke operation execution',
-                'status' => $roiReady > 0 ? 'roi_ready' : 'reviewed_no_roi',
-                'status_label' => $roiReady > 0 ? 'operation ROI ready' : 'operation ROI missing',
-                'record_count' => $operationTotal,
-                'linked_execution_count' => $operationTotal,
-                'process_closed_loop' => $operationTotal > 0,
-                'roi_ready' => $roiReady > 0,
-                'roi_ready_count' => $roiReady,
-                'source_scope' => 'ctrip_ota_channel_execution_intents_tasks_evidence_roi',
-            ],
-        ],
-        'data_gaps' => [],
-    ];
-}
-
 $root = dirname(__DIR__);
 $autoload = $root . '/vendor/autoload.php';
 if (!is_file($autoload)) {
@@ -399,7 +344,6 @@ try {
     $operationExecutedTask = [];
     $operationReviewedTask = [];
     $operationExecutionFlow = [];
-    $investmentOverview = [];
     $createdSuggestionIds = [];
 
     Db::startTrans();
@@ -526,21 +470,6 @@ try {
                         'result_summary' => 'transaction-only Ctrip operation ROI smoke reviewed',
                     ]);
                     $operationExecutionFlow = $operationService->executionFlow([$hotelId], $hotelId, ['object_type' => 'price']);
-                    $investmentOverview = (new InvestmentDecisionSupportService())->buildOverviewFromEvidence(
-                        ctrip_generation_investment_closure_overview(ctrip_generation_map($operationExecutionFlow['summary'] ?? [])),
-                        [],
-                        [],
-                        [],
-                        [
-                            'status' => 'ok',
-                            'sample_count' => 1,
-                            'data_sources' => [[
-                                'table' => 'competitor_analysis',
-                                'count' => 1,
-                                'source_scope' => 'ctrip_ota_channel_transaction_smoke',
-                            ]],
-                        ]
-                    );
                     $overviewAfterOperationRoi = (new RevenueAiOverviewService())->overview([
                         'business_date' => $options['date'],
                         'hotel_id' => $hotelId,
@@ -590,12 +519,6 @@ try {
     $executionEffectReviewFirstInput = ctrip_generation_map($executionEffectReviewInputs[0] ?? []);
     $executionEffectOperatorExecutionSummary = ctrip_generation_map($executionEffectReviewFirstInput['operator_execution_evidence_summary'] ?? []);
     $executionEffectOperatorRoiSummary = ctrip_generation_map($executionEffectReviewFirstInput['operator_roi_evidence_summary'] ?? []);
-    $operationToInvestmentAfterRoi = ctrip_generation_map($overviewAfterOperationRoi['operation_to_investment_handoff'] ?? []);
-    $investmentSummary = ctrip_generation_map($investmentOverview['summary'] ?? []);
-    $investmentOperatingGate = ctrip_generation_map($investmentOverview['operating_data_gate'] ?? []);
-    $investmentBusinessChain = ctrip_generation_map($investmentOverview['business_closure_chain'] ?? []);
-    $investmentActionQueue = ctrip_generation_map($investmentOverview['action_queue'] ?? []);
-    $expectedOperationToInvestmentAfterRoiStatus = 'investment_precheck_waiting_decision_record';
     $operationRoiReadyGate = 'operation_execution.roi_ready';
     $contamination = json_encode([
         'generation' => [
@@ -625,23 +548,6 @@ try {
             'flow_stage' => $operationFlowFirst['stage'] ?? null,
             'roi_status' => $operationRoi['status'] ?? null,
             'roi_ready' => $operationFlowSummary['roi_ready'] ?? null,
-        ],
-        'investment_overview_business_scope' => [
-            'source_scope' => $investmentOverview['source_scope'] ?? null,
-            'summary' => $investmentSummary,
-            'operating_data_gate' => $investmentOperatingGate,
-            'business_closure_chain' => [
-                'status' => $investmentBusinessChain['status'] ?? null,
-                'judgement_gate' => $investmentBusinessChain['judgement_gate'] ?? null,
-                'stage_count' => $investmentBusinessChain['stage_count'] ?? null,
-                'closed_stage_count' => $investmentBusinessChain['closed_stage_count'] ?? null,
-                'blocking_count' => $investmentBusinessChain['blocking_count'] ?? null,
-            ],
-            'action_queue' => [
-                'status' => $investmentActionQueue['status'] ?? null,
-                'item_count' => $investmentActionQueue['item_count'] ?? null,
-                'blocking_count' => $investmentActionQueue['blocking_count'] ?? null,
-            ],
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
 
@@ -884,19 +790,12 @@ try {
         ctrip_generation_check(
             $checks,
             'overview_reads_operation_roi_ready_after_review',
-            (int)($executionSummaryAfterRoi['roi_ready_count'] ?? 0) >= 1
-                && (int)($operationToInvestmentAfterRoi['operation_roi_ready'] ?? 0) === 1
-                && (string)($operationToInvestmentAfterRoi['status'] ?? '') === $expectedOperationToInvestmentAfterRoiStatus
-                && (bool)($operationToInvestmentAfterRoi['decision_allowed'] ?? true) === false,
-            'Revenue AI overview sees operation ROI evidence while keeping investment decision blocked until decision-record readiness.',
+            (int)($executionSummaryAfterRoi['roi_ready_count'] ?? 0) >= 1,
+            'Revenue AI overview sees reviewed operation ROI evidence.',
             [
                 'execution_summary_status' => $executionSummaryAfterRoi['status'] ?? null,
                 'execution_summary_roi_ready_count' => $executionSummaryAfterRoi['roi_ready_count'] ?? null,
                 'required_gate' => $operationRoiReadyGate,
-                'expected_operation_to_investment_status' => $expectedOperationToInvestmentAfterRoiStatus,
-                'operation_to_investment_status' => $operationToInvestmentAfterRoi['status'] ?? null,
-                'operation_roi_ready' => $operationToInvestmentAfterRoi['operation_roi_ready'] ?? null,
-                'decision_allowed' => $operationToInvestmentAfterRoi['decision_allowed'] ?? null,
             ]
         );
         ctrip_generation_check(
@@ -912,41 +811,6 @@ try {
                 'operator_execution_evidence_summary_keys' => $executionEffectOperatorExecutionSummary['keys'] ?? [],
                 'operator_roi_evidence_summary_keys' => $executionEffectOperatorRoiSummary['keys'] ?? [],
                 'auto_write_ota' => false,
-            ]
-        );
-        ctrip_generation_check(
-            $checks,
-            'investment_support_reads_closed_operation_roi_without_decision',
-            (string)($investmentOverview['source_scope'] ?? '') === 'closed_operating_data_only'
-                && (bool)($investmentOperatingGate['can_use_for_investment_judgement'] ?? false) === true
-                && (string)($investmentOperatingGate['required_gate'] ?? '') === $operationRoiReadyGate
-                && (bool)($investmentSummary['decision_allowed'] ?? true) === false
-                && (string)($investmentSummary['status'] ?? '') === 'not_ready',
-            'Investment decision support reads closed Ctrip operation ROI but keeps judgement blocked without decision-record readiness.',
-            [
-                'source_scope' => $investmentOverview['source_scope'] ?? null,
-                'summary_status' => $investmentSummary['status'] ?? null,
-                'decision_allowed' => $investmentSummary['decision_allowed'] ?? null,
-                'operating_gate_status' => $investmentOperatingGate['status'] ?? null,
-                'operating_gate_ready' => $investmentOperatingGate['can_use_for_investment_judgement'] ?? null,
-                'required_gate' => $investmentOperatingGate['required_gate'] ?? null,
-                'decision_record_count' => $investmentSummary['decision_record_count'] ?? null,
-                'eligible_decision_record_count' => $investmentSummary['eligible_decision_record_count'] ?? null,
-            ]
-        );
-        ctrip_generation_check(
-            $checks,
-            'investment_support_action_queue_requires_decision_readiness',
-            (string)($investmentBusinessChain['judgement_gate'] ?? '') === 'operation_execution.roi_ready + decision_record.readiness_ready'
-                && (int)($investmentActionQueue['item_count'] ?? 0) >= 1
-                && (int)($investmentActionQueue['blocking_count'] ?? 0) >= 1,
-            'Investment decision support action queue points to decision-record readiness instead of creating an investment decision.',
-            [
-                'business_closure_chain_status' => $investmentBusinessChain['status'] ?? null,
-                'judgement_gate' => $investmentBusinessChain['judgement_gate'] ?? null,
-                'action_queue_status' => $investmentActionQueue['status'] ?? null,
-                'action_queue_count' => $investmentActionQueue['item_count'] ?? null,
-                'action_queue_blocking_count' => $investmentActionQueue['blocking_count'] ?? null,
             ]
         );
     }
@@ -1035,14 +899,6 @@ try {
                 'roi_ready' => $operationFlowSummary['roi_ready'] ?? null,
                 'overview_roi_ready_count' => $executionSummaryAfterRoi['roi_ready_count'] ?? null,
                 'required_gate' => $operationRoiReadyGate,
-                'expected_operation_to_investment_status' => $expectedOperationToInvestmentAfterRoiStatus,
-                'operation_to_investment_status' => $operationToInvestmentAfterRoi['status'] ?? null,
-                'operation_roi_ready' => $operationToInvestmentAfterRoi['operation_roi_ready'] ?? null,
-                'investment_decision_allowed' => $operationToInvestmentAfterRoi['decision_allowed'] ?? null,
-                'investment_support_status' => $investmentSummary['status'] ?? null,
-                'investment_support_decision_allowed' => $investmentSummary['decision_allowed'] ?? null,
-                'investment_support_judgement_gate' => $investmentBusinessChain['judgement_gate'] ?? null,
-                'investment_support_action_queue_count' => $investmentActionQueue['item_count'] ?? null,
                 'auto_write_ota' => false,
             ] : null,
             'pricing_generation_preflight' => [

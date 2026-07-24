@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const evidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -121,7 +122,7 @@ try {
   payload = readJson(packetPath);
   addPass(`Release operator intake packet is readable JSON: ${packetPath}`);
 } catch (error) {
-  addFailure(`Release operator intake packet is not readable JSON: ${error.message}`);
+  addFailure(`Release operator intake packet is not readable JSON (${safeJsonParseErrorCode(error)}).`);
 }
 
 try {

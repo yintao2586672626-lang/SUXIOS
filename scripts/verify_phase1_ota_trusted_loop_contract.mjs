@@ -111,7 +111,7 @@ requireIncludes('tests/automation/p0_ota_field_loop_runtime.test.mjs', 'P0 field
   '--platform=ctrip',
   'p0_platforms_ready',
   'p0_platforms_incomplete',
-  'All-platform P0 field-loop verifier passes',
+  'All-platform P0 field-loop verifier reports the current gate state truthfully',
   "meituan?.p0_traffic_gate?.status, 'ready'",
   "!issueCodes.includes('live_closure_incomplete')",
 ]);
@@ -313,7 +313,6 @@ requireIncludes('scripts/report_p0_ota_field_loop_audit.mjs', 'P0 field-loop aud
   'whole_hotel_truth_from_ota_only',
   'revenue_ai_final_decision',
   'operation_execution_completed',
-  'investment_judgment_allowed',
   'verify:p0-ota-field-loop',
   'scan-payloads',
   'process.exit(2)',
@@ -627,9 +626,9 @@ requireIncludes('scripts/register_p0_ota_traffic_data_sources.php', 'P0 traffic 
   'ota_profile_bindings',
   'profile_scope_conflict_across_hotel_or_tenant',
   "$status = 'waiting_config';",
-  '$currentLastSyncStatus',
-  "'current_status' => $currentStatus",
-  "'previous_status' => $currentStatus",
+  "$lastSyncStatus = 'waiting_config';",
+  "'action' => 'kept_existing_managed_source'",
+  "'action' => 'kept_existing_user_source'",
   "'manual_login_state_verified' => false",
   "'historical_login_metadata_present'",
   "'current_session_probe_performed' => false",
@@ -679,7 +678,7 @@ requireIncludes('docs/phase1_ota_live_closure_evidence.md', 'phase-one live clos
 ]);
 
 requireIncludes('route/app.php', 'OTA acquisition, diagnosis, revenue, AI, and execution routes exist', [
-  "Route::get('/collection-resources', 'OnlineData/collectionResourceCatalog');",
+  "Route::get('/collection-resources', 'ota.SyncController/collectionResourceCatalog');",
   "Route::get('/collection-reliability', 'OnlineData/collectionReliability');",
   "Route::get('/data-analysis', 'OnlineData/dataAnalysis');",
   "Route::post('/ai-analysis', 'OnlineData/aiAnalysis');",

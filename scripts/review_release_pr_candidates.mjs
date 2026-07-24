@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(process.cwd());
 const releaseEvidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -52,7 +53,7 @@ function readJsonIfExists(filePath) {
       error: null,
     };
   } catch (error) {
-    return { exists: true, path: filePath, data: null, error: error.message };
+    return { exists: true, path: filePath, data: null, error: safeJsonParseErrorCode(error) };
   }
 }
 
@@ -258,7 +259,7 @@ if (prList.status !== 0) {
   try {
     candidates = JSON.parse(prList.stdout);
   } catch (error) {
-    failures.push(`gh pr list did not return valid JSON: ${error.message}`);
+    failures.push(`gh pr list did not return valid JSON (${safeJsonParseErrorCode(error)}).`);
   }
 }
 

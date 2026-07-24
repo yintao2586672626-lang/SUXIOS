@@ -8,6 +8,7 @@ import {
   normalizeReleasePath,
   releaseStagingBucket,
 } from './lib/release_worktree_scope.mjs';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const evidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -45,7 +46,7 @@ function readJsonIfExists(filePath) {
       error: null,
     };
   } catch (error) {
-    return { exists: true, path: resolvedPath, data: null, error: error.message };
+    return { exists: true, path: resolvedPath, data: null, error: safeJsonParseErrorCode(error) };
   }
 }
 

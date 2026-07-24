@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { findCtripEndpointByUrl } from './ctrip_capture_catalog.mjs';
+import { otaSessionCookieInjectionDomains, sanitizeOtaObservedUrl } from './ota_session_probe.mjs';
 
 export const PLATFORM_CONFIGS = {
   meituan: {
@@ -7,8 +8,8 @@ export const PLATFORM_CONFIGS = {
     profilePrefix: 'meituan_profile',
     defaultSections: ['traffic', 'orders'],
     fullSections: ['traffic', 'orders', 'ads', 'reviews'],
-    allowedSections: ['traffic', 'ads', 'orders', 'reviews'],
-    cookieDomains: ['me.meituan.com', 'eb.meituan.com', '.meituan.com', '.dianping.com'],
+    allowedSections: ['traffic', 'order_flow', 'ads', 'orders', 'reviews'],
+    cookieDomains: otaSessionCookieInjectionDomains('meituan'),
     sectionAliases: {
       business: 'traffic',
       businessdata: 'traffic',
@@ -35,6 +36,12 @@ export const PLATFORM_CONFIGS = {
       flow_forecast: 'traffic',
       trafficforecast: 'traffic',
       traffic_forecast: 'traffic',
+      orderflow: 'order_flow',
+      order_flow: 'order_flow',
+      orderloss: 'order_flow',
+      order_loss: 'order_flow',
+      lossorder: 'order_flow',
+      loss_order: 'order_flow',
       realtime: 'traffic',
       realtime_snapshot: 'traffic',
       searchkeyword: 'traffic',
@@ -63,9 +70,10 @@ export const PLATFORM_CONFIGS = {
     },
     blockedResponseRules: [],
     responseRules: [
+      { section: 'order_flow', keywords: ['/peerrank/order/loss/query'] },
       { section: 'traffic', keywords: ['businessdata', 'weighttraffic', 'traffic', 'peertrends', 'peer/rank', 'flowconversion', 'flowtrend', 'flowtrenddetail', 'flowforecast', 'searchkeyword', 'search-keyword', 'roomtype', 'room-type'] },
       { section: 'ads', keywords: ['cureshops'] },
-      { section: 'orders', keywords: ['/orders/list', '/order/unhandled/count', '/order-eb/'] },
+      { section: 'orders', keywords: ['/api/v1/ebooking/orders', '/order/unhandled/count', '/order-eb/'] },
       { section: 'reviews', keywords: ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics', 'comment-manage'] },
     ],
   },
@@ -74,7 +82,7 @@ export const PLATFORM_CONFIGS = {
     profilePrefix: 'ctrip_profile',
     defaultSections: ['business', 'traffic'],
     allowedSections: ['business', 'traffic', 'ads', 'orders', 'quality', 'search_keyword', 'reviews'],
-    cookieDomains: ['ebooking.ctrip.com', '.ctrip.com'],
+    cookieDomains: otaSessionCookieInjectionDomains('ctrip'),
     sectionAliases: {
       business: 'business',
       overview: 'business',
@@ -339,6 +347,17 @@ export function classifyOtaResponse(platform, url, meta = {}) {
     return { capture: false, platform: platformKey, section: '', reason: 'non_business_resource' };
   }
 
+  if (platformKey === 'meituan' && isMeituanOrderResponseUrl(value)) {
+    if (!['xhr', 'fetch'].includes(resourceType) || !contentType.includes('json')) {
+      return {
+        capture: false,
+        platform: platformKey,
+        section: 'orders',
+        reason: 'order_json_xhr_required',
+      };
+    }
+  }
+
   const rules = PLATFORM_CONFIGS[platformKey].responseRules;
   for (const rule of PLATFORM_CONFIGS[platformKey].blockedResponseRules || []) {
     if (rule.keywords.some((keyword) => value.includes(keyword))) {
@@ -372,6 +391,11 @@ export function classifyOtaResponse(platform, url, meta = {}) {
   return { capture: false, platform: platformKey, section: '', reason: 'unmatched_url' };
 }
 
+function isMeituanOrderResponseUrl(value) {
+  return ['/api/v1/ebooking/orders', '/order/unhandled/count', '/order-eb/']
+    .some(keyword => String(value || '').includes(keyword));
+}
+
 function standardSectionName(dataType) {
   const value = String(dataType || '').trim().toLowerCase();
   if (value === 'advertising') {
@@ -385,7 +409,8 @@ function standardSectionName(dataType) {
 
 export function sanitizeOtaPayloadForStorage(value, section = '') {
   if (!value || typeof value !== 'object') {
-    return value;
+    const urlValue = sanitizeOtaUrlValueForStorage(value);
+    return urlValue ? urlValue.value : value;
   }
   const normalizedSection = normalizeCaptureSectionName(section);
   if (normalizedSection === 'reviews') {
@@ -393,6 +418,40 @@ export function sanitizeOtaPayloadForStorage(value, section = '') {
   }
   const orderContext = normalizedSection === 'orders';
   return sanitizePayloadNode(value, orderContext);
+}
+
+export function sanitizeOtaUrlValueForStorage(value, existingHash = '') {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const raw = value.trim();
+  if (!raw) {
+    return null;
+  }
+
+  let safeValue = '';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    safeValue = sanitizeOtaObservedUrl(raw);
+  } else if (/^(?:\/(?!\/)|\.\.?\/)/.test(raw)) {
+    const boundary = [raw.indexOf('?'), raw.indexOf('#')]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right)[0] ?? raw.length;
+    safeValue = raw.slice(0, boundary) || '/';
+  } else {
+    return null;
+  }
+
+  if (!safeValue) {
+    return null;
+  }
+  const suppliedHash = String(existingHash || '').trim().toLowerCase();
+  const valueUrlHash = raw === safeValue && /^[a-f0-9]{64}$/.test(suppliedHash)
+    ? suppliedHash
+    : sha256Hex(raw);
+  return {
+    value: safeValue,
+    value_url_hash: valueUrlHash,
+  };
 }
 
 export function extractOtaRequestDateEvidence({ url = '', payload = '' } = {}) {
@@ -594,6 +653,8 @@ function isRequestDateKey(key) {
     'begindate',
     'fromdate',
     'todate',
+    'starttime',
+    'endtime',
   ].includes(normalized);
 }
 
@@ -608,6 +669,21 @@ function normalizeRequestEvidenceDate(value) {
   }
   if (!match) {
     match = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  }
+  if (!match && /^\d{10,13}$/.test(text)) {
+    const epoch = Number(text) * (text.length === 10 ? 1000 : 1);
+    if (Number.isFinite(epoch)) {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(new Date(epoch));
+      const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      if (values.year && values.month && values.day) {
+        return `${values.year}-${values.month}-${values.day}`;
+      }
+    }
   }
   if (!match) {
     return '';
@@ -629,7 +705,10 @@ function safeEvidenceText(value) {
 
 function sanitizePayloadNode(value, orderContext) {
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizePayloadNode(item, orderContext));
+    return value.map((item) => {
+      const urlValue = sanitizeOtaUrlValueForStorage(item);
+      return urlValue ? urlValue.value : sanitizePayloadNode(item, orderContext);
+    });
   }
   if (!value || typeof value !== 'object') {
     return value;
@@ -641,9 +720,23 @@ function sanitizePayloadNode(value, orderContext) {
       continue;
     }
 
+    if (key.endsWith('_url_hash')) {
+      const sourceKey = key.slice(0, -'_url_hash'.length);
+      if (sanitizeOtaUrlValueForStorage(value[sourceKey])) {
+        continue;
+      }
+    }
+
     const childOrderContext = orderContext || isOrderContainerKey(key);
     if (item && typeof item === 'object') {
       result[key] = sanitizePayloadNode(item, childOrderContext);
+      continue;
+    }
+
+    const urlValue = sanitizeOtaUrlValueForStorage(item, value[`${key}_url_hash`]);
+    if (urlValue) {
+      result[key] = urlValue.value;
+      result[`${key}_url_hash`] = urlValue.value_url_hash;
       continue;
     }
 
@@ -888,7 +981,7 @@ function normalizeCaptureSectionName(section) {
 }
 
 function isSensitiveKey(key) {
-  return /cookie|authorization|token|api[-_]?key|secret|password|spidertoken|mtgsig/i.test(String(key || ''));
+  return /cookie|authorization|token|api[-_]?key|secret|password|spider(?:token|key|_key)|fingerprint|mtgsig/i.test(String(key || ''));
 }
 
 function isOrderContainerKey(key) {

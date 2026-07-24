@@ -63,9 +63,35 @@ window.SUXI_NOTIFICATION_STATIC = (() => {
         .join('|')
         .slice(0, 240);
 
+    const truthyNotificationFlag = value => value === true
+        || value === 1
+        || ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+
+    const isStrongOtaReminder = (row = {}) => truthyNotificationFlag(row.requires_resolution)
+        && truthyNotificationFlag(row.is_direct_recipient)
+        && String(row.reminder_level || '').toLowerCase() === 'strong';
+
+    const mergeBackendNotificationRows = (strongRows = [], pageRows = []) => {
+        const seen = new Set();
+        return [
+            ...(Array.isArray(strongRows) ? strongRows : []),
+            ...(Array.isArray(pageRows) ? pageRows : []),
+        ].filter((row) => {
+            if (!row || typeof row !== 'object') return false;
+            const numericId = Number(row.id || 0);
+            const key = numericId > 0
+                ? `id:${numericId}`
+                : String(row.notification_id || '').trim();
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    };
+
     const normalizeBackendGlobalNotification = (row = {}) => {
         const id = Number(row.id || 0);
         const payload = row.action_payload && typeof row.action_payload === 'object' ? row.action_payload : {};
+        const updatedAt = String(row.updated_at || row.time_label || row.created_at || '').trim();
         return {
             id: row.notification_id || `system-notification-${id}`,
             backend_id: id,
@@ -78,6 +104,30 @@ window.SUXI_NOTIFICATION_STATIC = (() => {
             action_label: row.action_label || payload.action_label || '查看处理',
             target_page: row.target_page || payload.target_page || 'online-data',
             target_tab: row.target_tab || payload.target_tab || 'data-health',
+            hotel_id: Number(row.hotel_id || 0),
+            hotel_name: sanitizeGlobalNotificationText(row.hotel_name, '当前门店'),
+            platform: String(row.platform || 'ota').toLowerCase(),
+            reason_code: String(row.reason_code || payload.reason_code || ''),
+            requires_resolution: truthyNotificationFlag(row.requires_resolution),
+            reminder_level: row.reminder_level || payload.reminder_level || 'normal',
+            is_direct_recipient: truthyNotificationFlag(row.is_direct_recipient),
+            resolution_rule: row.resolution_rule || payload.resolution_rule || '',
+            authorization_source_label: sanitizeGlobalNotificationText(
+                row.authorization_source_label || payload.authorization_source_label,
+                ''
+            ),
+            authorization_source_type: String(
+                row.authorization_source_type || payload.authorization_source_type || 'unknown'
+            ).toLowerCase(),
+            authorization_source_state: String(
+                row.authorization_source_state || payload.authorization_source_state || 'missing'
+            ).toLowerCase(),
+            authorization_source_note: sanitizeGlobalNotificationText(
+                row.authorization_source_note || payload.authorization_source_note,
+                ''
+            ),
+            data_source_id: Number(row.data_source_id || payload.data_source_id || 0) || null,
+            reminder_key: `ota-auth-reminder-${id}:${updatedAt}`,
             is_read: row.is_read === true || row.is_read === 1,
             source: 'backend',
         };
@@ -180,6 +230,9 @@ window.SUXI_NOTIFICATION_STATIC = (() => {
         globalNotificationTargetFromAction,
         formatGlobalNotificationTime,
         buildGlobalNotificationId,
+        truthyNotificationFlag,
+        isStrongOtaReminder,
+        mergeBackendNotificationRows,
         normalizeBackendGlobalNotification,
         buildGlobalNotifications,
     };

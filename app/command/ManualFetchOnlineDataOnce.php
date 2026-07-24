@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace app\command;
 
-use app\model\SystemNotification;
+use app\service\OtaFailureNotificationService;
+use app\service\ManualOnlineFetchTaskService;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
@@ -23,24 +24,46 @@ class ManualFetchOnlineDataOnce extends Command
     {
         $taskId = trim((string)$input->getOption('task-id'));
         $inputPath = trim((string)$input->getOption('input'));
+        $taskService = new ManualOnlineFetchTaskService();
         if ($taskId === '' || $inputPath === '' || !is_file($inputPath)) {
+            if ($taskId !== '') {
+                $taskService->markTaskFailed($taskId, 'background manual fetch task input is missing', 'input_missing');
+            }
             $output->writeln('Missing task input.');
             return 1;
         }
 
-        $task = json_decode((string)file_get_contents($inputPath), true);
-        @unlink($inputPath);
+        try {
+            $task = json_decode((string)file_get_contents($inputPath), true);
+        } finally {
+            @unlink($inputPath);
+        }
         if (!is_array($task)) {
+            $taskService->markTaskFailed($taskId, 'background manual fetch task input is invalid', 'input_invalid');
             $output->writeln('Task input is not valid JSON.');
             return 1;
         }
 
+        $taskStatus = $taskService->readTaskStatus($taskId);
+        if ((string)($task['task_id'] ?? '') !== $taskId
+            || $taskStatus === []
+            || (int)($taskStatus['hotel_id'] ?? 0) !== (int)($task['hotel_id'] ?? 0)
+            || (string)($taskStatus['platform'] ?? '') !== (string)($task['platform'] ?? '')
+        ) {
+            $taskService->markTaskFailed($taskId, 'background manual fetch task scope does not match its status metadata', 'input_invalid');
+            $output->writeln('Task input scope is invalid.');
+            return 1;
+        }
+
+        $taskService->markTaskRunning($taskId);
+
         $hotelId = (int)($task['hotel_id'] ?? 0);
         $apiUrl = trim((string)($task['api_url'] ?? ''));
-        $authorization = trim((string)($task['authorization'] ?? ''));
+        $authorization = $this->resolveAuthorization($task);
         $body = is_array($task['body'] ?? null) ? $task['body'] : [];
         if ($hotelId <= 0 || $apiUrl === '' || $authorization === '') {
             $message = 'background manual fetch task missing hotel, api_url or authorization';
+            $taskService->markTaskFailed($taskId, $message, 'scope_invalid');
             $this->recordFailure($task, $message);
             $output->writeln($message);
             return 1;
@@ -50,28 +73,64 @@ class ManualFetchOnlineDataOnce extends Command
         $body['background_task'] = true;
         $body['task_id'] = $taskId;
 
-        $result = $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
-        if (!$result['success']) {
-            $message = (string)($result['message'] ?? 'background manual fetch request failed');
+        try {
+            $result = $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
+            $completion = $taskService->completeTask(
+                $taskId,
+                is_array($result['response'] ?? null) ? $result['response'] : [],
+                (string)($result['message'] ?? ''),
+                ($result['success'] ?? false) === true
+            );
+        } catch (\Throwable $e) {
+            $completion = $taskService->markTaskFailed(
+                $taskId,
+                $e->getMessage() ?: 'background manual fetch task crashed',
+                'runtime_exception'
+            );
+            $message = (string)($completion['message'] ?? 'background manual fetch task crashed');
             $this->recordFailure($task, $message);
             $output->writeln($message);
             return 1;
+        } finally {
+            $authorization = '';
+        }
+        if (!$result['success']) {
+            $message = (string)($completion['message'] ?? 'background manual fetch request failed');
+            $this->recordFailure($task, $message);
+            $output->writeln($message);
+            return ($completion['status'] ?? '') === 'partial_success' ? 2 : 1;
         }
 
-        $output->writeln('Manual fetch task finished.');
-        return 0;
+        $status = (string)($completion['status'] ?? 'unverified');
+        $output->writeln('Manual fetch task finished with status: ' . $status . '.');
+        return $status === 'success' ? 0 : 2;
+    }
+
+    private function resolveAuthorization(array $task): string
+    {
+        $authorizationEnv = trim((string)($task['authorization_env'] ?? ''));
+        if (preg_match('/^SUXI_MANUAL_FETCH_AUTH_[A-F0-9]{24}$/', $authorizationEnv) === 1) {
+            $authorization = getenv($authorizationEnv);
+            putenv($authorizationEnv);
+            if (is_string($authorization) && trim($authorization) !== '') {
+                return trim($authorization);
+            }
+        }
+
+        // Compatibility for an already-created legacy task. New tasks never persist this field.
+        return trim((string)($task['authorization'] ?? ''));
     }
 
     private function postJson(string $url, string $authorization, array $body, int $timeoutSeconds): array
     {
         if (!function_exists('curl_init')) {
-            return ['success' => false, 'message' => 'PHP curl extension is not available'];
+            return ['success' => false, 'message' => 'PHP curl extension is not available', 'response' => []];
         }
 
         $timeoutSeconds = max(60, min(7200, $timeoutSeconds));
         $ch = curl_init($url);
         if ($ch === false) {
-            return ['success' => false, 'message' => 'failed to initialize curl'];
+            return ['success' => false, 'message' => 'failed to initialize curl', 'response' => []];
         }
 
         curl_setopt_array($ch, [
@@ -92,7 +151,7 @@ class ManualFetchOnlineDataOnce extends Command
         curl_close($ch);
 
         if ($raw === false) {
-            return ['success' => false, 'message' => $error !== '' ? $error : 'curl request failed'];
+            return ['success' => false, 'message' => $error !== '' ? $error : 'curl request failed', 'response' => []];
         }
 
         $decoded = json_decode((string)$raw, true);
@@ -100,12 +159,22 @@ class ManualFetchOnlineDataOnce extends Command
             return [
                 'success' => false,
                 'message' => is_array($decoded) ? (string)($decoded['message'] ?? ('HTTP ' . $httpCode)) : ('HTTP ' . $httpCode),
+                'response' => is_array($decoded) ? $decoded : [],
+            ];
+        }
+
+        if (!is_array($decoded)) {
+            return [
+                'success' => false,
+                'message' => 'background manual fetch API returned invalid JSON',
+                'response' => [],
             ];
         }
 
         return [
-            'success' => is_array($decoded) ? (int)($decoded['code'] ?? 500) === 200 : true,
-            'message' => is_array($decoded) ? (string)($decoded['message'] ?? 'ok') : 'ok',
+            'success' => (int)($decoded['code'] ?? 500) === 200,
+            'message' => (string)($decoded['message'] ?? 'ok'),
+            'response' => $decoded,
         ];
     }
 
@@ -121,30 +190,14 @@ class ManualFetchOnlineDataOnce extends Command
         $dataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
 
         try {
-            SystemNotification::recordEvent([
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
                 'hotel_id' => $hotelId,
-                'user_id' => (int)($task['user_id'] ?? 0),
+                'actor_user_id' => (int)($task['user_id'] ?? 0),
                 'platform' => (string)($task['platform'] ?? 'ctrip'),
-                'category' => 'capture_failed',
-                'severity' => 'error',
-                'title' => 'OTA 手动获取失败',
                 'message' => "数据日期 {$dataDate}，{$message}",
-                'action_type' => 'fetch',
-                'action_payload' => [
-                    'target_page' => 'online-data',
-                    'target_tab' => 'data',
-                    'action_label' => '重新获取',
-                    'data_date' => $dataDate,
-                ],
-                'source_module' => 'online_data',
-                'source_key' => implode(':', [
-                    'online_data',
-                    'manual_fetch',
-                    $hotelId,
-                    $dataDate,
-                    'fail',
-                    substr(sha1($message . '|' . ($task['task_id'] ?? '')), 0, 16),
-                ]),
+                'data_date' => $dataDate,
+                'success' => false,
+                'saved_count' => 0,
             ]);
         } catch (\Throwable $e) {
             // Notification failure must not hide the original background fetch failure.

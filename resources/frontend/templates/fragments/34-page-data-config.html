@@ -1,0 +1,316 @@
+                    <div v-if="currentPage === 'data-config'">
+                        <div class="bg-white rounded-lg shadow">
+                            <div class="p-4 border-b">
+                                <h3 class="font-medium">数据配置</h3>
+                                <p class="text-sm text-gray-500 mt-1">管理已接平台的采集参数，以及未接平台的配置归档</p>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 text-xs">
+                                    <div class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-blue-700">
+                                        <i class="fas fa-layer-group mr-1"></i>按平台与数据域独立保存配置
+                                    </div>
+                                    <div class="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-emerald-700">
+                                        <i class="fas fa-vial mr-1"></i>校验配置默认不写入经营数据
+                                    </div>
+                                    <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-amber-700">
+                                        <i class="fas fa-shield-alt mr-1"></i>Cookie/API 辅助内容建议按有效期定期更新
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-6">
+                                <!-- 数据配置网格 -->
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <!-- 携程ebooking -->
+                                    <div @click="openDataConfigModal('ctrip-ebooking')" class="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center">
+                                                <i class="fas fa-plane text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-blue-200 text-blue-700 rounded-full">经营数据</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">携程ebooking</h4>
+                                        <p class="text-sm text-gray-500">房价、销量、排名数据</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口地址 / 节点 / Cookie/API 辅助</span></div>
+                                            <div class="flex justify-between gap-3"><span>口径</span><span class="text-gray-800">默认昨日，支持日期范围</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-blue-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- 美团ebooking -->
+                                    <div @click="openDataConfigModal('meituan-ebooking')" class="bg-gradient-to-br from-yellow-50 to-yellow-100 border border-yellow-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center">
+                                                <i class="fas fa-store text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-yellow-200 text-yellow-700 rounded-full">竞对排名</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">美团ebooking</h4>
+                                        <p class="text-sm text-gray-500">竞对排名数据获取</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口标识 / 门店标识 / Cookie/API 辅助</span></div>
+                                            <div class="flex justify-between gap-3"><span>榜单</span><span class="text-gray-800">入住、销售、转化、流量</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-yellow-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- Booking.com -->
+                                    <div @click="openDataConfigModal('booking-ota')" class="bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center">
+                                                <i class="fas fa-globe text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-indigo-200 text-indigo-700 rounded-full">配置归档</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">Booking.com</h4>
+                                        <p class="text-sm text-gray-500">记录房费、间夜与竞对口径；当前未接自动采集</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>推荐</span><span class="text-gray-800">常用国际平台</span></div>
+                                            <div class="flex justify-between gap-3"><span>用途</span><span class="text-gray-800">报表字段 / 配置归档</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-indigo-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- Agoda -->
+                                    <div @click="openDataConfigModal('agoda-ota')" class="bg-gradient-to-br from-sky-50 to-sky-100 border border-sky-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-sky-600 flex items-center justify-center">
+                                                <i class="fas fa-bed text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-sky-200 text-sky-700 rounded-full">配置归档</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">Agoda</h4>
+                                        <p class="text-sm text-gray-500">记录亚太客源与间夜口径；当前未接自动采集</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>推荐</span><span class="text-gray-800">常用国际平台</span></div>
+                                            <div class="flex justify-between gap-3"><span>用途</span><span class="text-gray-800">报表字段 / 配置归档</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-sky-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- Expedia -->
+                                    <div @click="openDataConfigModal('expedia-ota')" class="bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-amber-500 flex items-center justify-center">
+                                                <i class="fas fa-suitcase text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-amber-200 text-amber-700 rounded-full">配置归档</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">Expedia</h4>
+                                        <p class="text-sm text-gray-500">记录海外渠道与批发客源口径；当前未接自动采集</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>推荐</span><span class="text-gray-800">常用国际平台</span></div>
+                                            <div class="flex justify-between gap-3"><span>用途</span><span class="text-gray-800">报表字段 / 配置归档</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-amber-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- 携程流量 -->
+                                    <div @click="openDataConfigModal('ctrip-traffic')" class="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center">
+                                                <i class="fas fa-chart-line text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-green-200 text-green-700 rounded-full">流量分析</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">携程流量</h4>
+                                        <p class="text-sm text-gray-500">访问量、转化率数据</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口地址 / Cookie/API 辅助 / 平台</span></div>
+                                            <div class="flex justify-between gap-3"><span>参数</span><span class="text-gray-800">访问令牌 / 请求参数</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-green-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- 携程 Cookie API -->
+                                    <div @click="openDataConfigModal('ctrip-cookie-api')" class="bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center">
+                                                <i class="fas fa-plug text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-emerald-200 text-emerald-700 rounded-full">授权接口</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">携程诊断直连</h4>
+                                        <p class="text-sm text-gray-500">登录状态或 Cookie/API 辅助直连接口清单</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口请求地址清单</span></div>
+                                            <div class="flex justify-between gap-3"><span>凭证</span><span class="text-gray-800">Cookie/API 辅助 / 浏览器 Profile</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-emerald-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- 美团流量 -->
+                                    <div @click="openDataConfigModal('meituan-traffic')" class="bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-orange-500 flex items-center justify-center">
+                                                <i class="fas fa-wifi text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-orange-200 text-orange-700 rounded-full">流量分析</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">美团流量</h4>
+                                        <p class="text-sm text-gray-500">访问量、转化率数据</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口地址 / Cookie/API 辅助</span></div>
+                                            <div class="flex justify-between gap-3"><span>口径</span><span class="text-gray-800">日期范围 + 额外参数</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-orange-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- 携程广告 -->
+                                    <div @click="openDataConfigModal('ctrip-ads')" class="bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-indigo-500 flex items-center justify-center">
+                                                <i class="fas fa-bullhorn text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-indigo-200 text-indigo-700 rounded-full">广告投放</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">携程广告</h4>
+                                        <p class="text-sm text-gray-500">曝光、点击、转化</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口类型 / Cookie/API 辅助</span></div>
+                                            <div class="flex justify-between gap-3"><span>报表</span><span class="text-gray-800">活动 / 效果</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-indigo-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+
+                                    <!-- 美团广告 -->
+                                    <div @click="openDataConfigModal('meituan-ads')" class="bg-gradient-to-br from-red-50 to-red-100 border border-red-200 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all hover:scale-105">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div class="w-12 h-12 rounded-full bg-red-500 flex items-center justify-center">
+                                                <i class="fas fa-ad text-white text-xl"></i>
+                                            </div>
+                                            <span class="text-xs px-2 py-1 bg-red-200 text-red-700 rounded-full">广告投放</span>
+                                        </div>
+                                        <h4 class="font-semibold text-gray-800 mb-1">美团广告</h4>
+                                        <p class="text-sm text-gray-500">曝光、点击、转化</p>
+                                        <div class="mt-4 space-y-1 text-xs text-gray-600">
+                                            <div class="flex justify-between gap-3"><span>必填</span><span class="text-gray-800">接口地址 / Cookie/API 辅助 / 店铺标识</span></div>
+                                            <div class="flex justify-between gap-3"><span>接口</span><span class="text-gray-800">cureShops</span></div>
+                                        </div>
+                                        <div class="mt-3 text-xs text-red-600">
+                                            <i class="fas fa-cog mr-1"></i>点击配置
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <competitor-device-management v-if="user && user.is_super_admin" :ctx="$root"></competitor-device-management>
+
+                        <section v-if="user &amp;&amp; user.is_super_admin" data-testid="wecom-robot-management" class="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                            <div class="flex flex-col gap-4 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <h3 class="font-semibold text-slate-900">企业微信通知</h3>
+                                        <span class="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">当前列表 {{ competitorRobots.length }} 个机器人</span>
+                                    </div>
+                                    <p class="mt-1 text-sm leading-6 text-slate-500">按门店安全保存群机器人 Webhook；支持测试消息和 AI经营日报手动发送。第一版不自动定时推送。</p>
+                                </div>
+                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                    <select v-model="competitorRobotFilter.store_id" @change="loadCompetitorRobots" class="min-w-[180px] rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                        <option value="">全部门店</option>
+                                        <option v-for="store in competitorStores" :key="store.id" :value="store.id">{{ store.name }}</option>
+                                    </select>
+                                    <button type="button" @click="loadCompetitorRobots" :disabled="competitorRobotsLoading" class="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                                        <i :class="competitorRobotsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ competitorRobotsLoading ? '刷新中' : '刷新' }}
+                                    </button>
+                                    <button type="button" @click="openCompetitorRobotModal()" class="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800">
+                                        <i class="fas fa-plus mr-2"></i>绑定群机器人
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="p-5">
+                                <div v-if="competitorRobotsError" data-testid="wecom-robot-error" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                    <div class="font-medium">{{ competitorRobotsError }}</div>
+                                    <button type="button" @click="loadCompetitorRobots" class="mt-2 underline">重新加载</button>
+                                </div>
+                                <div v-if="competitorRobotsLoading &amp;&amp; !competitorRobots.length" class="py-10 text-center text-sm text-slate-500">正在读取企业微信机器人配置</div>
+                                <div v-else-if="!competitorRobots.length" data-testid="wecom-robot-binding-missing" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-800">
+                                    <div class="font-medium">binding_missing：当前筛选范围没有企业微信机器人</div>
+                                    <p class="mt-1">请在企业微信群添加群机器人并复制 Webhook，再在这里按门店绑定；未完成真实测试发送前不标记为已联通。</p>
+                                </div>
+                                <div v-else class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="bg-slate-50 text-slate-500">
+                                            <tr>
+                                                <th class="px-3 py-2 text-left font-medium">门店</th>
+                                                <th class="px-3 py-2 text-left font-medium">机器人</th>
+                                                <th class="px-3 py-2 text-left font-medium">Webhook</th>
+                                                <th class="px-3 py-2 text-left font-medium">状态</th>
+                                                <th class="px-3 py-2 text-right font-medium">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            <tr v-for="item in competitorRobots" :key="item.id">
+                                                <td class="px-3 py-3 text-slate-800">{{ getCompetitorStoreName(item.store_id) }}</td>
+                                                <td class="px-3 py-3 font-medium text-slate-900">{{ item.name }}</td>
+                                                <td class="px-3 py-3 font-mono text-xs text-slate-500">{{ item.webhook_masked || '未配置' }}</td>
+                                                <td class="px-3 py-3">
+                                                    <span :class="Number(item.status) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'" class="inline-flex rounded-full px-2 py-1 text-xs">{{ Number(item.status) === 1 ? '启用' : '停用' }}</span>
+                                                </td>
+                                                <td class="whitespace-nowrap px-3 py-3 text-right">
+                                                    <button type="button" @click="openCompetitorRobotModal(item)" :disabled="competitorRobotActionId !== 0" class="rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50">编辑</button>
+                                                    <button type="button" @click="testCompetitorRobot(item.store_id)" :disabled="competitorRobotActionId !== 0 || Number(item.status) !== 1" class="ml-1 rounded px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">测试门店群</button>
+                                                    <button type="button" @click="deleteCompetitorRobot(item)" :disabled="competitorRobotActionId !== 0" class="ml-1 rounded px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">删除</button>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div v-if="showCompetitorRobotModal &amp;&amp; user &amp;&amp; user.is_super_admin" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4" data-testid="wecom-robot-modal">
+                            <form @submit.prevent="saveCompetitorRobot" class="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl">
+                                <div class="flex items-start justify-between border-b border-slate-200 p-5">
+                                    <div>
+                                        <h3 class="font-semibold text-slate-900">{{ competitorRobotForm.id ? '编辑企业微信机器人' : '绑定企业微信机器人' }}</h3>
+                                        <p class="mt-1 text-xs text-slate-500">Webhook 加密保存，保存后页面只回显掩码。</p>
+                                    </div>
+                                    <button type="button" @click="closeCompetitorRobotModal" :disabled="competitorRobotSaving" class="text-sm text-slate-500 disabled:opacity-50">关闭</button>
+                                </div>
+                                <div class="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
+                                    <label class="text-sm text-slate-700">门店
+                                        <select v-model="competitorRobotForm.store_id" required class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">
+                                            <option value="" disabled>请选择门店</option>
+                                            <option v-for="store in competitorStores" :key="store.id" :value="store.id">{{ store.name }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="text-sm text-slate-700">机器人名称
+                                        <input v-model.trim="competitorRobotForm.name" required maxlength="120" placeholder="例如：西安天诚经营群" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">
+                                    </label>
+                                    <label class="text-sm text-slate-700 md:col-span-2">企业微信群机器人 Webhook
+                                        <input v-model.trim="competitorRobotForm.webhook" :required="!competitorRobotForm.id" type="url" autocomplete="off" :placeholder="competitorRobotForm.webhook_placeholder || 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm">
+                                        <span class="mt-1 block text-xs text-slate-500">编辑时留空会保留原 Webhook；系统不会把完整 key 回显到页面。</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
+                                        <input v-model.number="competitorRobotForm.status" :true-value="1" :false-value="0" type="checkbox" class="rounded border-slate-300 text-emerald-600">
+                                        <span>启用这个机器人</span>
+                                    </label>
+                                </div>
+                                <div class="flex justify-end gap-2 border-t border-slate-200 p-5">
+                                    <button type="button" @click="closeCompetitorRobotModal" :disabled="competitorRobotSaving" class="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50">取消</button>
+                                    <button type="submit" :disabled="competitorRobotSaving" class="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">{{ competitorRobotSaving ? '正在保存' : '保存绑定' }}</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- 线上数据获取 -->

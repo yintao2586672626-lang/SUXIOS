@@ -15,6 +15,20 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: suxi-ci-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
 
     steps:
       - name: Checkout
@@ -45,19 +59,92 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Install MySQL-compatible client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client
+
       - name: Audit Node dependencies
         run: npm audit --audit-level=moderate
 
+      - name: Verify fresh database, repeatable migration, and 8-way concurrency
+        timeout-minutes: 10
+        env:
+          SUXI_CI_MYSQL_VERIFY: '1'
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+          MYSQL_BINARY: mariadb
+          PHP_BINARY: php
+        run: npm run verify:mysql-fresh-concurrency
+
+      - name: Verify historical tenant remap on MariaDB 10.11
+        timeout-minutes: 5
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+          MYSQL_BINARY: mariadb
+        run: node scripts/verify_tenant_history_migration_mariadb.mjs
+
+      - name: Verify owner tenant bootstrap on isolated MariaDB
+        timeout-minutes: 5
+        env:
+          SUXIOS_TEST_DB_ALLOW_CREATE: '1'
+          SUXIOS_TEST_DB_HOST: 127.0.0.1
+          SUXIOS_TEST_DB_PORT: '3306'
+          SUXIOS_TEST_DB_USER: root
+          SUXIOS_TEST_DB_PASS: suxi-ci-root
+          PHP_BINARY: php
+        run: npm run verify:owner-tenant-bootstrap-mariadb
+
+      - name: Initialize backend test database
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: php scripts/init_database.php
+
       - name: Run backend tests
+        env:
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
         run: composer test
+
+      - name: Run Node automation tests
+        timeout-minutes: 10
+        env:
+          PHP_BINARY: php
+          SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1'
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: npm run test:node
 
       - name: Run project guards
         run: npm run verify:p0-guards
 
-      - name: Run contract checks
+      - name: Run structural contract checks (not release approval)
         run: |
           php scripts/verify_missing_modules.php
           php scripts/verify_route_coverage.php
+          node scripts/verify_business_chain_report_contract.mjs
           node scripts/verify_ai_model_config_i18n.mjs
           npm run verify:ota-data-batch
           npm run verify:opening-batch-actions

@@ -184,7 +184,7 @@
         const type = String(field.type || '').toLowerCase();
         if (value === undefined || value === null) return;
         if (type === 'checkbox') {
-            if (!field.checked) field.checked = Boolean(value);
+            field.checked = Boolean(value);
         } else if (type === 'radio') {
             if (String(field.value) === String(value)) field.checked = true;
         } else if (String(field.value || '') === '') {
@@ -291,5 +291,6 @@
         createStore,
         shouldPersistField,
         classifyOperation,
+        writeField,
     };
 });

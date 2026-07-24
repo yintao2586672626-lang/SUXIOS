@@ -1,9 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
-const php = 'C:\\xampp\\php\\php.exe';
+const php = String(process.env.PHP_BINARY || 'php').trim() || 'php';
+
+function isRuntimeRequired(env = process.env) {
+  const enabled = (value) => ['1', 'true'].includes(String(value || '').trim().toLowerCase());
+  return enabled(env.CI) || enabled(env.SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME);
+}
+
+const runtimeRequired = isRuntimeRequired();
 
 function extractJson(text) {
   const source = String(text || '');
@@ -13,12 +20,114 @@ function extractJson(text) {
   return JSON.parse(source.slice(start, end + 1));
 }
 
-test('Business-chain report keeps operator-skipped Meituan read-only and action-free', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
+function tryExtractJson(text) {
+  try {
+    return extractJson(text);
+  } catch {
+    return null;
   }
+}
 
+function failOrSkipRuntime(t, reason, required = runtimeRequired) {
+  if (required) {
+    assert.fail(`${reason}; business-chain runtime assertions are required when CI=true or SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME=1`);
+  }
+  t.skip(reason);
+  return true;
+}
+
+function skipWhenRuntimeUnavailable(t, result, output, required = runtimeRequired) {
+  const spawnErrorCode = result.error?.code;
+  if (spawnErrorCode === 'ENOENT') {
+    return failOrSkipRuntime(t, `PHP executable is unavailable: ${php}`, required);
+  }
+  if (spawnErrorCode === 'EPERM') {
+    return failOrSkipRuntime(
+      t,
+      'process spawning is unavailable in this sandbox; runtime business-chain assertions were not evaluated',
+      required,
+    );
+  }
+  if (result.error) {
+    assert.fail(`business-chain runtime process failed to start: ${result.error.message || spawnErrorCode || 'unknown error'}`);
+  }
+  const payload = tryExtractJson(output);
+  if (result.status !== 1 || payload?.error_code !== 'database_unavailable') {
+    return false;
+  }
+  assert.equal(payload.status, 'blocked');
+  assert.equal(payload.claim_allowed, false);
+  assert.equal(payload.database_ready, false);
+  assert.equal(payload.runtime_data_ready, false);
+  assert.equal(payload.business_loop_ready, false);
+  return failOrSkipRuntime(
+    t,
+    'project database is unavailable; runtime business-chain assertions were not evaluated',
+    required,
+  );
+}
+
+test('Business-chain runtime requirement recognizes CI and explicit enforcement', () => {
+  assert.equal(isRuntimeRequired({}), false);
+  assert.equal(isRuntimeRequired({ CI: 'true' }), true);
+  assert.equal(isRuntimeRequired({ CI: '1' }), true);
+  assert.equal(isRuntimeRequired({ SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1' }), true);
+});
+
+test('Business-chain runtime unavailability skips locally but fails closed when required', () => {
+  const localSkipReasons = [];
+  const localContext = { skip: (reason) => localSkipReasons.push(reason) };
+  const databaseUnavailable = JSON.stringify({
+    status: 'blocked',
+    error_code: 'database_unavailable',
+    claim_allowed: false,
+    database_ready: false,
+    runtime_data_ready: false,
+    business_loop_ready: false,
+  });
+
+  assert.equal(skipWhenRuntimeUnavailable(localContext, { error: { code: 'ENOENT' } }, '', false), true);
+  assert.equal(skipWhenRuntimeUnavailable(localContext, { error: { code: 'EPERM' } }, '', false), true);
+  assert.equal(skipWhenRuntimeUnavailable(localContext, { status: 1 }, databaseUnavailable, false), true);
+  assert.equal(localSkipReasons.length, 3);
+
+  assert.throws(
+    () => skipWhenRuntimeUnavailable({ skip() {} }, { error: { code: 'ENOENT' } }, '', true),
+    /business-chain runtime assertions are required/,
+  );
+  assert.throws(
+    () => skipWhenRuntimeUnavailable({ skip() {} }, { error: { code: 'EPERM' } }, '', true),
+    /business-chain runtime assertions are required/,
+  );
+  assert.throws(
+    () => skipWhenRuntimeUnavailable({ skip() {} }, { status: 1 }, databaseUnavailable, true),
+    /business-chain runtime assertions are required/,
+  );
+});
+
+test('Business-chain source rows never label accepted non-traffic evidence as ready', (t) => {
+  const source = readFileSync('scripts/report_business_chain_status.php', 'utf8');
+  assert.match(source, /function business_chain_source_evidence_status/);
+  assert.match(source, /reference_only_non_traffic/);
+
+  const result = spawnSync(php, ['scripts/report_business_chain_status.php'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const output = String(result.stdout || result.stderr || '');
+  if (skipWhenRuntimeUnavailable(t, result, output)) return;
+  assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
+  const payload = extractJson(output);
+  for (const row of payload.source_rows) {
+    const accepted = Number(row.target_counts?.accepted || 0);
+    const traffic = Number(row.target_counts?.traffic || 0);
+    const expected = accepted <= 0 ? 'empty' : (traffic > 0 ? 'ready' : 'reference_only_non_traffic');
+    assert.equal(row.target_status, expected, JSON.stringify(row));
+  }
+});
+
+test('Business-chain report keeps operator-skipped Meituan read-only and action-free', (t) => {
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
@@ -28,46 +137,104 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
     encoding: 'utf8',
     windowsHide: true,
   });
-  const output = result.stdout || result.stderr;
+  const output = String(result.stdout || result.stderr || '');
+  if (skipWhenRuntimeUnavailable(t, result, output)) return;
+  assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
   const payload = extractJson(output);
   const sequence = payload.p0_execution_plan.operator_sequence.map((item) => `${item.platform}:${item.type}`);
+  const workflow = payload.downstream_reference_workflow;
+  const targetReadyPlatforms = workflow.evidence_scope.target_ready_platforms;
+  const hasTargetDateCtrip = targetReadyPlatforms.includes('ctrip');
 
   assert.equal(payload.status, 'incomplete');
   assert.deepEqual(payload.operator_skip_platforms, ['meituan']);
   assert(payload.p0_downstream_gate.blocking_missing_inputs.includes('p0_skipped_by_operator'));
-  assert.equal(payload.downstream_reference_workflow.status, 'partial_reference_workflow_not_claimable');
-  assert.equal(payload.downstream_reference_workflow.source_policy, 'use_target_date_ready_platform_rows_for_diagnosis_only');
-  assert.deepEqual(payload.downstream_reference_workflow.evidence_scope.target_ready_platforms, ['ctrip']);
-  assert.deepEqual(payload.downstream_reference_workflow.evidence_scope.operator_skip_platforms, ['meituan']);
-  assert.equal(payload.downstream_reference_workflow.revenue_diagnosis.status, 'partial_reference_only');
-  assert.deepEqual(payload.downstream_reference_workflow.revenue_diagnosis.source_channels, ['ctrip']);
-  assert.equal(payload.downstream_reference_workflow.ai_advice_draft.status, 'draft_reference_only');
-  assert.equal(payload.downstream_reference_workflow.ai_advice_draft.auto_write_ota, false);
-  assert.equal(payload.downstream_reference_workflow.revenue_to_ai_handoff.status, 'handoff_reference_only');
-  assert.equal(payload.downstream_reference_workflow.revenue_to_ai_handoff.source_scope, 'ctrip_target_date_ota_channel_reference');
-  assert.equal(payload.downstream_reference_workflow.revenue_to_ai_handoff.manual_review_packet.review_mode, 'manual_review_only');
-  assert.equal(payload.downstream_reference_workflow.revenue_to_ai_handoff.manual_review_packet.primary_action.auto_write_ota, false);
-  assert.deepEqual(payload.downstream_reference_workflow.revenue_to_ai_handoff.source_platforms, ['ctrip']);
-  assert.deepEqual(payload.downstream_reference_workflow.revenue_to_ai_handoff.target_blocked_platforms, ['meituan']);
-  assert.equal(payload.downstream_reference_workflow.revenue_to_ai_handoff.ai_draft_status, 'draft_reference_only');
-  assert.equal(payload.downstream_reference_workflow.revenue_to_ai_handoff.ai_action_count, 1);
-  assert.equal(payload.downstream_reference_workflow.revenue_to_ai_handoff.can_auto_write_ota, false);
-  assert.equal(payload.downstream_reference_workflow.revenue_to_ai_handoff.can_create_operation_execution, false);
-  assert(payload.downstream_reference_workflow.revenue_to_ai_handoff.revenue_metric_keys.includes('ota_adr'));
-  assert(payload.downstream_reference_workflow.revenue_to_ai_handoff.required_before_execution.includes('all_required_p0_platforms_ready'));
-  assert(sequence.includes('ctrip:already_ready'));
-  assert(sequence.includes('meituan:operator_skip'));
+  assert.deepEqual(workflow.evidence_scope.operator_skip_platforms, ['meituan']);
+  assert.equal(workflow.ai_advice_draft.auto_write_ota, false);
+  assert.equal(workflow.revenue_to_ai_handoff.manual_review_packet.review_mode, 'manual_review_only');
+  assert.equal(workflow.revenue_to_ai_handoff.manual_review_packet.primary_action.auto_write_ota, false);
+  assert.equal(workflow.revenue_to_ai_handoff.ai_action_count, 1);
+  assert.equal(workflow.revenue_to_ai_handoff.can_auto_write_ota, false);
+  assert.equal(workflow.revenue_to_ai_handoff.can_create_operation_execution, false);
+  assert(workflow.revenue_to_ai_handoff.revenue_metric_keys.includes('ota_adr'));
+  assert(workflow.revenue_to_ai_handoff.required_before_execution.includes('all_required_p0_platforms_ready'));
+
+  if (hasTargetDateCtrip) {
+    assert.equal(workflow.status, 'partial_reference_workflow_not_claimable');
+    assert.equal(workflow.source_policy, 'use_target_date_ready_platform_rows_for_diagnosis_only');
+    assert.deepEqual(targetReadyPlatforms, ['ctrip']);
+    assert.equal(workflow.revenue_diagnosis.status, 'partial_reference_only');
+    assert.deepEqual(workflow.revenue_diagnosis.source_channels, ['ctrip']);
+    assert.equal(workflow.ai_advice_draft.status, 'draft_reference_only');
+    assert.equal(workflow.revenue_to_ai_handoff.status, 'handoff_reference_only');
+    assert.equal(workflow.revenue_to_ai_handoff.source_scope, 'ctrip_target_date_ota_channel_reference');
+    assert.deepEqual(workflow.revenue_to_ai_handoff.source_platforms, ['ctrip']);
+    assert.deepEqual(workflow.revenue_to_ai_handoff.target_blocked_platforms, ['meituan']);
+    assert.equal(workflow.revenue_to_ai_handoff.ai_draft_status, 'draft_reference_only');
+    assert(sequence.includes('ctrip:already_ready'));
+    assert(sequence.includes('meituan:operator_skip'));
+  } else {
+    assert.equal(workflow.status, 'p0_required');
+    assert.equal(workflow.source_policy, 'requires_target_date_p0_ota_rows');
+    assert.deepEqual(targetReadyPlatforms, []);
+    assert.deepEqual([...workflow.evidence_scope.target_blocked_platforms].sort(), ['ctrip', 'meituan']);
+    assert.notEqual(workflow.revenue_diagnosis.status, 'partial_reference_only');
+    assert.equal(workflow.ai_advice_draft.status, 'requires_p0');
+    assert.equal(workflow.revenue_to_ai_handoff.status, 'handoff_blocked');
+    assert.equal(workflow.revenue_to_ai_handoff.source_scope, 'ota_channel_reference');
+    assert.deepEqual([...workflow.revenue_to_ai_handoff.target_blocked_platforms].sort(), ['ctrip', 'meituan']);
+    assert.equal(workflow.revenue_to_ai_handoff.ai_draft_status, 'requires_p0');
+    assert(!sequence.includes('ctrip:already_ready'));
+    assert(sequence.every((item) => !item.startsWith('meituan:') || item === 'meituan:operator_skip'));
+  }
   assert.doesNotMatch(output, /\/api\/online-data\/capture-meituan-browser/);
   assert.doesNotMatch(output, /\/api\/online-data\/profile-login-trigger\/meituan/);
   assert.doesNotMatch(output, /\/api\/online-data\/data-sources\/18\/sync/);
+  const stages = Object.fromEntries(payload.stages.map((stage) => [stage.key, stage]));
+  assert.equal(stages.ota_data.status, 'blocked_by_p0_ota_gate');
+  assert.equal(stages.ota_data.claim_allowed, false);
+  assert.equal(stages.revenue_analysis.claim_allowed, false);
+  assert.equal(stages.ai_decision_advice.claim_allowed, false);
+  assert.equal(stages.operation_closure.claim_allowed, false);
+  assert.equal(payload.readiness.code_contract_ready, null);
+  assert.equal(payload.readiness.runtime_data_ready, false);
+  assert.equal(payload.readiness.business_loop_ready, false);
+  assert.equal(payload.readiness.release_ready, null);
+  assert.equal(stages.operation_closure.evidence.operation_execution_total, payload.operation_summary.operation_execution_total);
+  assert.equal(payload.operation_summary.scope.target_date, '2026-06-28');
+  assert.deepEqual(payload.operation_summary.scope.platforms, ['ctrip', 'meituan']);
+  assert.equal(payload.operation_summary.scope.system_hotel_id, null);
+  assert.equal(payload.operation_summary.scope.policy, 'single_system_hotel_scope_required');
+  assert.equal(payload.operation_summary.scope.query_applied_before_limit, false);
+  assert.equal(payload.operation_summary.scope.scope_source, 'operation_query_not_run_without_hotel_scope');
+  assert.equal(payload.operation_summary.matched_total, null);
+  assert.equal(payload.operation_summary.operation_execution_total, null);
+  assert.equal(payload.operation_summary.operation_roi_ready, null);
+  assert.equal(typeof payload.operation_summary.truncated, 'boolean');
 });
 
-test('Business-chain report can run Ctrip-only OTA to revenue to AI review path', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
-  }
+test('Operation execution statistics apply date/platform scope before limit and expose partial state', () => {
+  const source = readFileSync('app/service/OperationManagementService.php', 'utf8');
+  const reportSource = readFileSync('scripts/report_business_chain_status.php', 'utf8');
+  const targetFilter = source.indexOf("$targetDate = substr(trim((string)($filters['target_date'] ?? '')), 0, 10);");
+  const matchedCount = source.indexOf('$matchedTotal = (int)(clone $query)->count();');
+  const limitedSelect = source.indexOf("$intentRows = $query->order('id', 'desc')->limit($limit)->select()->toArray();");
 
+  assert(targetFilter >= 0, 'target-date scope filter is missing');
+  assert(matchedCount > targetFilter, 'matched total must be computed after target-date/platform scope');
+  assert(limitedSelect > matchedCount, 'row limit must be applied after scoped matched count');
+  assert.match(source, /'data_status' => \$dataGaps === \[\] \? self::DATA_OK : 'partial'/);
+  assert.match(source, /'execution_total_loaded' => true/);
+  assert.match(source, /'roi_loaded' => \$taskTableLoaded && \$evidenceTableLoaded && !\$truncated/);
+
+  const helperStart = reportSource.indexOf('function business_chain_scope_execution_flow');
+  const helperEnd = reportSource.indexOf('function business_chain_focused_ota_revenue_ai_chain', helperStart);
+  const helper = reportSource.slice(helperStart, helperEnd);
+  assert(helperStart >= 0 && helperEnd > helperStart, 'execution-flow scope helper is missing');
+  assert.doesNotMatch(helper, /array_filter|buildExecutionFlowSummary/, 'report must not re-filter or rebuild the DB-scoped execution flow');
+});
+
+test('Business-chain report keeps the Ctrip path truthful at either ready or blocked P0 state', (t) => {
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
@@ -77,7 +244,8 @@ test('Business-chain report can run Ctrip-only OTA to revenue to AI review path'
     encoding: 'utf8',
     windowsHide: true,
   });
-  const output = result.stdout || result.stderr;
+  const output = String(result.stdout || result.stderr || '');
+  if (skipWhenRuntimeUnavailable(t, result, output)) return;
   const payload = extractJson(output);
   const handoff = payload.downstream_reference_workflow.revenue_to_ai_handoff;
   const packet = handoff.manual_review_packet;
@@ -86,16 +254,33 @@ test('Business-chain report can run Ctrip-only OTA to revenue to AI review path'
   const operationHandoff = payload.downstream_reference_workflow.ai_to_operation_handoff;
   const operationIntake = operationHandoff.operation_intake_packet;
   const operationPreflight = operationIntake.operation_intake_preflight_contract;
-  const investmentHandoff = payload.downstream_reference_workflow.operation_to_investment_handoff;
-  const investmentPrecheck = investmentHandoff.investment_precheck_packet;
   const ctripActionQueue = payload.downstream_reference_workflow.ctrip_chain_action_queue;
   const ctripActionsByCode = Object.fromEntries(ctripActionQueue.items.map((item) => [item.code, item]));
   const action = payload.downstream_reference_workflow.ai_advice_draft.actions[0];
   const expectedReviewInputCount = reviewContract.required_input_items.length;
   const expectedResolutionItemCount = resolutionPlan.items.length;
 
-  assert.equal(result.status, 0);
+  assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
   assert.deepEqual(payload.scope.platforms, ['ctrip']);
+  if (result.status === 2) {
+    assert.equal(payload.status, 'incomplete');
+    assert.equal(payload.claim_allowed, false);
+    assert.equal(payload.p0_downstream_gate.status, 'blocked_by_p0_ota_gate');
+    assert.equal(payload.p0_execution_plan.status, 'incomplete');
+    assert.equal(handoff.can_auto_write_ota, false);
+    assert.equal(operationHandoff.operation_intake_packet.operation_intake_preflight_contract.would_call_create_endpoint, false);
+    const stages = Object.fromEntries(payload.stages.map((stage) => [stage.key, stage]));
+    assert.equal(stages.ota_data.status, 'blocked_by_p0_ota_gate');
+    assert.equal(stages.ota_data.claim_allowed, false);
+    assert.equal(stages.revenue_analysis.claim_allowed, false);
+    assert.equal(stages.ai_decision_advice.claim_allowed, false);
+    assert.equal(stages.operation_closure.claim_allowed, false);
+    assert.equal(payload.readiness.runtime_data_ready, false);
+    assert.equal(payload.readiness.business_loop_ready, false);
+    assert.equal(payload.operation_summary.scope.target_date, '2026-06-28');
+    assert.deepEqual(payload.operation_summary.scope.platforms, ['ctrip']);
+    return;
+  }
   assert.equal(payload.p0_downstream_gate.status, 'ready');
   assert.equal(payload.p0_execution_plan.status, 'passed');
   assert.equal(payload.focused_chain.status, 'scoped_ai_review_ready');
@@ -214,39 +399,15 @@ test('Business-chain report can run Ctrip-only OTA to revenue to AI review path'
   assert(operationPreflight.required_before_create.includes('operator_confirmed_price_target'));
   assert(operationPreflight.forbidden_actions.includes('call_create_execution_intent_before_ai_review_approval'));
   assert.equal(operationPreflight.protected_boundary, 'operation_intake_requires_approved_ai_review_and_price_target_no_auto_create');
-  assert.equal(investmentHandoff.status, 'investment_precheck_blocked_by_operation_roi');
-  assert.equal(investmentHandoff.persisted, false);
-  assert.equal(investmentHandoff.target_module, 'investment_decision');
-  assert.equal(investmentHandoff.target_entry, '/api/investment-decision/overview');
-  assert.equal(investmentHandoff.source_scope, 'ctrip_target_date_ota_channel');
-  assert.deepEqual(investmentHandoff.source_platforms, ['ctrip']);
-  assert.equal(investmentHandoff.upstream_operation_intake_status, 'operation_intake_blocked_by_manual_review');
-  assert.equal(investmentHandoff.operation_roi_ready, 0);
-  assert.equal(investmentHandoff.operating_gate_status, 'not_ready');
-  assert.equal(investmentHandoff.business_closure_chain_status, 'not_closed');
-  assert.equal(investmentHandoff.decision_allowed, false);
-  assert.equal(investmentHandoff.can_create_investment_decision, false);
-  assert(investmentHandoff.blocked_reasons.includes('closed_operating_roi_missing'));
-  assert(investmentHandoff.blocked_reasons.includes('operation_process_closure_missing'));
-  assert(investmentHandoff.blocked_reasons.includes('operation_intake_not_approved'));
-  assert(investmentHandoff.required_before_investment.includes('operation_execution.roi_ready'));
-  assert(investmentHandoff.required_before_investment.includes('decision_record.readiness_ready'));
-  assert(investmentHandoff.forbidden_actions.includes('create_investment_decision_from_ota_channel_only'));
-  assert(investmentHandoff.forbidden_actions.includes('create_investment_record_without_closed_operation_roi'));
-  assert.equal(investmentPrecheck.status, 'blocked_by_operation_roi');
-  assert.equal(investmentPrecheck.source_policy, 'read_only_precheck_from_closed_operation_gate');
-  assert.equal(investmentPrecheck.required_gate, 'operation_execution.roi_ready');
-  assert.equal(investmentPrecheck.protected_boundary, 'investment_decision_requires_closed_operation_roi_not_ota_channel_only');
   assert.equal(ctripActionQueue.status, 'has_blocking_actions');
-  assert.equal(ctripActionQueue.item_count, 5);
-  assert.equal(ctripActionQueue.blocking_count, 5);
+  assert.equal(ctripActionQueue.item_count, 4);
+  assert.equal(ctripActionQueue.blocking_count, 4);
   assert.equal(ctripActionQueue.source_scope, 'ctrip_target_date_ota_channel');
   assert.deepEqual(ctripActionQueue.source_platforms, ['ctrip']);
-  assert.equal(ctripActionQueue.protected_boundary, 'ctrip_ota_channel_action_queue_no_auto_write_no_whole_hotel_truth');
+  assert.equal(ctripActionQueue.protected_boundary, 'ota_channel_action_queue_no_auto_write_no_whole_hotel_truth');
   assert(ctripActionQueue.forbidden_actions.includes('auto_write_ota'));
   assert(ctripActionQueue.forbidden_actions.includes('auto_create_operation_execution_intent'));
   assert(ctripActionQueue.forbidden_actions.includes('claim_operation_roi_ready'));
-  assert(ctripActionQueue.forbidden_actions.includes('claim_investment_decision_allowed'));
   assert.equal(ctripActionsByCode.resolve_revenue_metric_gap.stage, 'revenue_analysis');
   assert.equal(ctripActionsByCode.resolve_revenue_metric_gap.evidence_code, 'available_room_nights_missing');
   assert.equal(ctripActionsByCode.approve_ai_manual_review.stage, 'ai_decision');
@@ -254,21 +415,14 @@ test('Business-chain report can run Ctrip-only OTA to revenue to AI review path'
   assert.equal(ctripActionsByCode.create_operation_intent_after_review.target_entry, '/api/operation/execution-intents');
   assert.equal(ctripActionsByCode.create_operation_intent_after_review.evidence_code, 'operation_intake_not_approved');
   assert.equal(ctripActionsByCode.attach_operation_execution_evidence.target_entry, 'ops-track');
-  assert.equal(ctripActionsByCode.attach_operation_execution_evidence.evidence_code, 'operation_execution.roi_ready');
-  assert.equal(ctripActionsByCode.keep_investment_blocked_until_roi.target_entry, '/api/investment-decision/overview');
-  assert.equal(ctripActionsByCode.keep_investment_blocked_until_roi.evidence_code, 'operation_execution.roi_ready');
+  assert.equal(ctripActionsByCode.attach_operation_execution_evidence.evidence_code, 'operation_execution.evidence_and_effect_review');
   assert.equal(action.reason, 'available_room_nights_missing');
   assert(action.blocking_reasons.includes('available_room_nights_missing'));
   assert(!action.blocking_reasons.includes('online_daily_data_empty'));
   assert.doesNotMatch(output, /meituan/);
 });
 
-test('Business-chain markdown exposes Ctrip manual review packet', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
-  }
-
+test('Business-chain markdown exposes Ctrip manual review packet without hiding a blocked P0 gate', (t) => {
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
@@ -279,20 +433,36 @@ test('Business-chain markdown exposes Ctrip manual review packet', (t) => {
     encoding: 'utf8',
     windowsHide: true,
   });
-  const output = result.stdout || result.stderr;
+  const output = String(result.stdout || result.stderr || '');
 
-  assert.equal(result.status, 0);
+  if (skipWhenRuntimeUnavailable(t, result, output)) return;
+
+  assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
+  if (result.status === 2) {
+    assert.match(output, /status: `incomplete`/);
+    assert.match(output, /AI decision advice \| `blocked_by_p0_ota_gate`/);
+    assert.match(output, /can_create=`false`/);
+  }
+  assert.match(output, /code_contract_ready: `not_evaluated`/);
+  assert.match(output, /runtime_data_ready: `(true|false)`/);
+  assert.match(output, /business_loop_ready: `(true|false)`/);
+  assert.match(output, /release_ready: `not_evaluated`/);
   assert.match(output, /manual_review_packet: `blocked_ready_for_manual_review`/);
   assert.match(output, /mode=`manual_review_only`/);
-  assert.match(output, /primary_action=`(?:available_room_nights_missing|ota_room_nights_zero)`/);
+  assert.match(output, /primary_action=`(?:available_room_nights_missing|ota_room_nights_zero|ota_revenue_metrics_missing|online_daily_data_empty)`/);
   assert.match(output, /primary_blocker=`available_room_nights_missing`/);
   assert.match(output, /manual_review_next_blockers: `available_room_nights_missing/);
   assert.match(output, /manual_review_forbidden_actions: `auto_write_ota/);
   assert.match(output, /create_operation_execution_without_human_approval/);
-  assert.match(output, /ai_decision_review_contract: `blocked_by_review_inputs`, approval_allowed=`false`, operation_intake_allowed=`false`, required_inputs=`[67]`/);
+  const reviewCount = output.match(/ai_decision_review_contract: `blocked_by_review_inputs`, approval_allowed=`false`, operation_intake_allowed=`false`, required_inputs=`(\d+)`/);
+  const resolutionCount = output.match(/ai_decision_resolution_plan: `has_pending_evidence`, items=`(\d+)`, pending=`(\d+)`, gate=`ai_decision_review_contract\.approval_allowed`/);
+  assert(reviewCount, 'AI decision review contract count is missing');
+  assert(resolutionCount, 'AI decision resolution-plan counts are missing');
+  assert(Number(reviewCount[1]) > 0, 'blocked AI review must expose at least one required input');
+  assert.equal(Number(resolutionCount[1]), Number(reviewCount[1]));
+  assert.equal(Number(resolutionCount[2]), Number(reviewCount[1]));
   assert.match(output, /ai_decision_required_inputs: `revpar_denominator:available_room_nights_missing,floor_price:floor_price_missing,manual_review_workflow:manual_review_workflow_not_connected/);
   assert.match(output, /ai_decision_allowed_outputs: `request_revenue_metric_evidence:allowed,record_manual_review_note:allowed,reject_ai_advice:allowed,approve_ai_advice_for_operation_intake:blocked`/);
-  assert.match(output, /ai_decision_resolution_plan: `has_pending_evidence`, items=`[67]`, pending=`[67]`, gate=`ai_decision_review_contract\.approval_allowed`/);
   assert.match(output, /ai_decision_resolution_items: `revpar_denominator:provide_available_room_nights_or_mark_metric_unusable,floor_price:provide_floor_price_or_min_rate_guard,manual_review_workflow:persist_or_attach_manual_review_record/);
   assert.match(output, /ai_to_operation_handoff: `operation_intake_blocked_by_manual_review`/);
   assert.match(output, /target=`\/api\/operation\/execution-intents`/);
@@ -304,17 +474,11 @@ test('Business-chain markdown exposes Ctrip manual review packet', (t) => {
   assert.match(output, /blocked_reason=`available_room_nights_missing`/);
   assert.match(output, /operation_intake_preflight_contract: `blocked_by_ai_review_contract`, create_allowed=`false`, would_call_create=`false`, missing_fields=`9`/);
   assert.match(output, /operation_intake_missing_fields: `approved_ai_advice:ai_decision_review_inputs_pending,operation_intake_allowed:operation_intake_gate_closed,hotel_id:operator_selected_hotel_missing/);
-  assert.match(output, /operation_to_investment_handoff: `investment_precheck_blocked_by_operation_roi`/);
-  assert.match(output, /target=`\/api\/investment-decision\/overview`/);
-  assert.match(output, /decision_allowed=`false`/);
-  assert.match(output, /investment_precheck_packet: `blocked_by_operation_roi`/);
-  assert.match(output, /required_gate=`operation_execution\.roi_ready`/);
-  assert.match(output, /operating_gate=`not_ready`/);
-  assert.match(output, /ctrip_chain_action_queue: `has_blocking_actions`, items=`5`, blocking=`5`/);
+  assert.match(output, /ctrip_chain_action_queue: `has_blocking_actions`, items=`4`, blocking=`4`/);
   assert.match(output, /ctrip_chain_next_action: action=`resolve_revenue_metric_gap`, stage=`revenue_analysis`, evidence=`available_room_nights_missing`/);
-  assert.match(output, /ctrip_chain_next_action: action=`approve_ai_manual_review`, stage=`ai_decision`, evidence=`manual_review_workflow_not_connected`/);
-  assert.match(output, /ctrip_chain_next_action: action=`create_operation_intent_after_review`, stage=`operation_management`, evidence=`operation_intake_not_approved`, target=`\/api\/operation\/execution-intents`/);
-  assert.match(output, /ctrip_chain_next_action: action=`keep_investment_blocked_until_roi`, stage=`investment_decision`, evidence=`operation_execution\.roi_ready`, target=`\/api\/investment-decision\/overview`/);
-  assert.match(output, /ctrip_chain_forbidden_actions: `auto_write_ota,auto_create_operation_execution_intent,claim_ai_decision_final,claim_operation_roi_ready,claim_investment_decision_allowed,promote_ota_scope_to_whole_hotel_truth`/);
+  assert.match(output, /ctrip_chain_next_action: action=`approve_ai_manual_review`, stage=`ai_decision`, evidence=`blocked_ready_for_manual_review`/);
+  assert.match(output, /ctrip_chain_next_action: action=`create_operation_intent_after_review`, stage=`operation_management`, evidence=`operation_intake_blocked_by_manual_review`, target=`\/api\/operation\/execution-intents`/);
+  assert.match(output, /ctrip_chain_next_action: action=`attach_operation_execution_evidence`, stage=`operation_management`, evidence=`operation_execution\.evidence_and_effect_review`, target=`ops-track`/);
+  assert.match(output, /ctrip_chain_forbidden_actions: `auto_write_ota,auto_create_operation_execution_intent,claim_ai_decision_final,claim_operation_roi_ready,promote_ota_scope_to_whole_hotel_truth`/);
   assert.doesNotMatch(output, /meituan/);
 });

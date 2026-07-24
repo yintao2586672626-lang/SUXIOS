@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\model\Role;
 use app\model\User;
 use app\service\ProtectedCapabilityService;
 use PHPUnit\Framework\TestCase;
@@ -112,6 +113,112 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertFalse($service->shouldRedactForUser($user, $capability));
     }
 
+    public function testKnowledgeReadManagementAndExecutionUseDistinctCapabilities(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['ai_governance', 'operation_decision'],
+        ]);
+        $list = $service->classifyPath('GET', '/api/knowledge/list?hotel_id=7');
+        $detail = $service->classifyPath('GET', '/api/knowledge/9?hotel_id=7');
+        $management = $service->classifyPath('POST', '/api/knowledge/add');
+        $execution = $service->classifyPath('POST', '/api/knowledge/9/chunks/3/execution-intent');
+
+        self::assertSame('knowledge_read', $list['key'] ?? null);
+        self::assertSame('ai.view', $list['permission'] ?? null);
+        self::assertSame('', $list['module'] ?? null);
+        self::assertSame('knowledge_read', $detail['key'] ?? null);
+        self::assertSame('ai_governance', $management['key'] ?? null);
+        self::assertSame('can_manage_ai_governance', $management['permission'] ?? null);
+        self::assertSame('operation_execution', $execution['key'] ?? null);
+        self::assertSame('operation.execute', $execution['permission'] ?? null);
+
+        $reader = $this->userWithPermissions(['ai.view']);
+        self::assertTrue($service->authorizeContext($reader, $list, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($reader, $management, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($reader, $execution, ['hotel_id' => 7])['allowed']);
+
+        $governanceManager = $this->userWithPermissions(['can_manage_ai_governance']);
+        self::assertTrue($service->authorizeContext($governanceManager, $management, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($governanceManager, $execution, ['hotel_id' => 7])['allowed']);
+        self::assertTrue($service->authorizeContext(
+            $this->userWithPermissions(['operation.execute']),
+            $execution,
+            ['hotel_id' => 7]
+        )['allowed']);
+    }
+
+    public function testRevenueAiReviewAndExecutionUseDistinctProtectedCapabilities(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['ai_decision', 'operation_decision'],
+        ]);
+
+        $overview = $service->classifyPath('GET', '/api/revenue-ai/overview');
+        $review = $service->classifyPath('POST', '/api/revenue-ai/price-suggestions/88/review');
+        $execution = $service->classifyPath('POST', '/api/revenue-ai/price-suggestions/88/execution-intent');
+
+        self::assertIsArray($overview);
+        self::assertSame('ai_decision', $overview['key']);
+        self::assertSame('can_use_ai_decision', $overview['permission']);
+        self::assertIsArray($review);
+        self::assertSame('ai_decision', $review['key']);
+        self::assertSame('can_use_ai_decision', $review['permission']);
+        self::assertIsArray($execution);
+        self::assertSame('operation_execution', $execution['key']);
+        self::assertSame('operation.execute', $execution['permission']);
+        self::assertSame('operation_decision', $execution['module']);
+
+        $basicMember = $this->userWithPermissions(['can_view_report']);
+        self::assertFalse($service->authorizeContext($basicMember, $review, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($basicMember, $execution, ['hotel_id' => 7])['allowed']);
+
+        self::assertTrue($service->authorizeContext(
+            $this->userWithPermissions(['can_use_ai_decision']),
+            $review,
+            ['hotel_id' => 7]
+        )['allowed']);
+        self::assertTrue($service->authorizeContext(
+            $this->userWithPermissions(['operation.execute']),
+            $execution,
+            ['hotel_id' => 7]
+        )['allowed']);
+    }
+
+    public function testPublicPageTaskBridgeRequiresOperationModuleBeforeWrite(): void
+    {
+        $service = new ProtectedCapabilityService();
+        $capability = $service->classifyPath(
+            'POST',
+            '/api/online-data/public-page-diagnosis/execution-intent'
+        );
+
+        self::assertIsArray($capability);
+        self::assertSame('operation_decision', $capability['key']);
+        self::assertSame('operation.view', $capability['permission']);
+        $denied = $service->authorizeContext(
+            $this->userWithPermissions(['operation.view']),
+            $capability,
+            ['system_hotel_id' => 7]
+        );
+        self::assertFalse($denied['allowed']);
+        self::assertSame('module_not_entitled', $denied['reason']);
+
+        $enabledService = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $enabledCapability = $enabledService->classifyPath(
+            'POST',
+            '/api/online-data/public-page-diagnosis/execution-intent'
+        );
+        self::assertIsArray($enabledCapability);
+        $allowed = $enabledService->authorizeContext(
+            $this->userWithPermissions(['operation.view']),
+            $enabledCapability,
+            ['system_hotel_id' => 7]
+        );
+        self::assertTrue($allowed['allowed']);
+    }
+
     public function testBasicReadPathsStayOutsideProtectedCore(): void
     {
         $service = new ProtectedCapabilityService();
@@ -175,6 +282,28 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertSame('role_permission_denied', $authorization['reason']);
     }
 
+    public function testLifecycleAndInvestmentOverviewRequireInvestmentCapability(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['investment'],
+        ]);
+
+        foreach (['/api/lifecycle/overview', '/api/investment-decision/overview'] as $path) {
+            $capability = $service->classifyPath('GET', $path);
+            self::assertIsArray($capability, $path);
+            self::assertSame('investment_decision', $capability['key'], $path);
+            self::assertSame('can_use_investment', $capability['permission'], $path);
+
+            $authorization = $service->authorizeContext(
+                $this->userWithPermissions(['can_view_report']),
+                $capability,
+                ['hotel_id' => 7]
+            );
+            self::assertFalse($authorization['allowed'], $path);
+            self::assertSame('role_permission_denied', $authorization['reason'], $path);
+        }
+    }
+
     public function testDefaultOtaModulesAllowRolePermittedBetaUserPaths(): void
     {
         $service = new ProtectedCapabilityService();
@@ -207,35 +336,110 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertTrue($fieldAuthorization['allowed']);
     }
 
+    public function testClientTenantIdCannotBorrowAnotherTenantEntitlement(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'tenant_modules' => [
+                '999' => ['ai_decision'],
+            ],
+        ]);
+        $capability = $service->classifyPath('POST', '/api/agent/ota-diagnosis');
+
+        self::assertIsArray($capability);
+        $authorization = $service->authorizeContext(
+            $this->userWithPermissions(['can_use_ai_decision']),
+            $capability,
+            ['hotel_id' => 7, 'tenant_id' => 999]
+        );
+
+        self::assertFalse($authorization['allowed']);
+        self::assertSame('tenant_context_mismatch', $authorization['reason']);
+        self::assertSame(71, $authorization['tenant_id']);
+    }
+
+    public function testTenantEntitlementIsResolvedFromAuthenticatedUser(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'tenant_modules' => [
+                '71' => ['ai_decision'],
+            ],
+        ]);
+        $capability = $service->classifyPath('POST', '/api/agent/ota-diagnosis');
+
+        self::assertIsArray($capability);
+        $authorization = $service->authorizeContext(
+            $this->userWithPermissions(['can_use_ai_decision']),
+            $capability,
+            ['hotel_id' => 7]
+        );
+
+        self::assertTrue($authorization['allowed']);
+        self::assertSame(71, $authorization['tenant_id']);
+    }
+
+    public function testVisibleHotelStillRequiresHotelLevelCapabilityPermission(): void
+    {
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['ai_decision'],
+        ]);
+        $capability = $service->classifyPath('POST', '/api/agent/ota-diagnosis');
+
+        self::assertIsArray($capability);
+        $authorization = $service->authorizeContext(
+            $this->userWithPermissions(['can_use_ai_decision'], false, false),
+            $capability,
+            ['hotel_id' => 7]
+        );
+
+        self::assertFalse($authorization['allowed']);
+        self::assertSame('hotel_permission_denied', $authorization['reason']);
+    }
+
+    public function testTenantAndHotelResolversRemainIndependent(): void
+    {
+        $service = new ProtectedCapabilityService();
+        $user = $this->userWithPermissions(['can_view_report']);
+
+        self::assertSame(71, $service->resolveTenantId($user));
+        self::assertSame(88, $service->resolveHotelId([
+            'tenant_id' => 999,
+            'system_hotel_id' => 88,
+            'hotel_id' => 7,
+        ], $user));
+    }
+
     /**
      * @param array<int, string> $permissions
      */
-    private function userWithPermissions(array $permissions, bool $superAdmin = false): User
+    private function userWithPermissions(
+        array $permissions,
+        bool $superAdmin = false,
+        bool $hotelPermissionAllowed = true
+    ): User
     {
-        $role = new class($permissions) {
-            /** @var array<int, string> */
-            private array $permissions;
-
-            /**
-             * @param array<int, string> $permissions
-             */
-            public function __construct(array $permissions)
-            {
-                $this->permissions = $permissions;
-            }
-
-            public function hasPermission(string $permission): bool
-            {
-                return in_array('all', $this->permissions, true) || in_array($permission, $this->permissions, true);
-            }
-        };
+        $role = $this->getMockBuilder(Role::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getPermissionList', '__get', '__isset'])
+            ->getMock();
+        $role->method('getPermissionList')->willReturn($permissions);
+        $role->method('__isset')->willReturnCallback(
+            static fn(string $key): bool => $key === 'status'
+        );
+        $role->method('__get')->willReturnCallback(
+            static fn(string $key) => $key === 'status' ? Role::STATUS_ENABLED : null
+        );
 
         $user = $this->getMockBuilder(User::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['isSuperAdmin', 'getPermittedHotelIds', '__get', '__isset'])
+            ->onlyMethods(['isSuperAdmin', 'getPermittedHotelIds', 'hasHotelPermission', '__get', '__isset'])
             ->getMock();
         $user->method('isSuperAdmin')->willReturn($superAdmin);
         $user->method('getPermittedHotelIds')->willReturn([7]);
+        $user->method('hasHotelPermission')->willReturnCallback(
+            static fn(int $hotelId, string $permission): bool => $hotelPermissionAllowed
+                && $hotelId === 7
+                && (in_array('all', $permissions, true) || in_array($permission, $permissions, true))
+        );
         $user->method('__isset')->willReturnCallback(
             static fn(string $key): bool => in_array($key, ['id', 'tenant_id', 'hotel_id', 'role'], true)
         );
@@ -243,7 +447,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
             static function (string $key) use ($role) {
                 return match ($key) {
                     'id' => 42,
-                    'tenant_id' => 7,
+                    'tenant_id' => 71,
                     'hotel_id' => 7,
                     'role' => $role,
                     default => null,

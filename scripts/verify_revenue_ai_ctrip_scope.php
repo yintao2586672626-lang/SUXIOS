@@ -292,6 +292,8 @@ try {
         'business_date' => $options['date'],
         'platform' => 'ctrip',
         'enabled_channels' => ['ctrip'],
+        'is_super_admin' => true,
+        'portfolio' => $options['hotel_id'] === null,
     ];
     if ($options['hotel_id'] !== null) {
         $filters['hotel_id'] = $options['hotel_id'];
@@ -332,8 +334,6 @@ try {
     $operationPreflight = revenue_ai_ctrip_map(
         revenue_ai_ctrip_map($aiToOperation['operation_intake_packet'] ?? [])['operation_intake_preflight_contract'] ?? []
     );
-    $operationToInvestment = revenue_ai_ctrip_map($overview['operation_to_investment_handoff'] ?? []);
-    $investmentPacket = revenue_ai_ctrip_map($operationToInvestment['investment_precheck_packet'] ?? []);
     $pricingAction = revenue_ai_ctrip_pricing_action(revenue_ai_ctrip_list($overview['actions'] ?? []));
     $contaminationHits = revenue_ai_ctrip_find_terms($overview, ['meituan', 'Meituan', '美团']);
     $serviceGateCommand = (string)($p0Gate['required_gate_command'] ?? '');
@@ -531,34 +531,11 @@ try {
     );
     revenue_ai_ctrip_check(
         $checks,
-        'operation_to_investment_scope_ctrip',
-        (string)($operationToInvestment['source_scope'] ?? '') === 'ctrip_ota_channel_to_operation_roi'
-            && revenue_ai_ctrip_list($operationToInvestment['source_channels'] ?? []) === ['ctrip'],
-        'Operation-to-investment precheck keeps Ctrip OTA channel to operation ROI scope.',
-        ['source_scope' => $operationToInvestment['source_scope'] ?? null, 'source_channels' => $operationToInvestment['source_channels'] ?? null]
-    );
-    revenue_ai_ctrip_check(
-        $checks,
-        'investment_decision_blocked_until_roi',
-        ($operationToInvestment['decision_allowed'] ?? true) === false
-            && ($operationToInvestment['can_create_investment_decision'] ?? true) === false
-            && (string)($investmentPacket['required_gate'] ?? '') === 'operation_execution.roi_ready',
-        'Investment decision stays blocked until closed operation ROI evidence is ready.',
-        [
-            'status' => $operationToInvestment['status'] ?? null,
-            'decision_allowed' => $operationToInvestment['decision_allowed'] ?? null,
-            'can_create_investment_decision' => $operationToInvestment['can_create_investment_decision'] ?? null,
-            'required_gate' => $investmentPacket['required_gate'] ?? null,
-        ]
-    );
-    revenue_ai_ctrip_check(
-        $checks,
         'pricing_action_carries_handoffs',
         is_array($pricingAction['ai_decision_resolution_plan'] ?? null)
             && is_array($pricingAction['ai_to_operation_handoff'] ?? null)
-            && is_array($pricingAction['operation_to_investment_handoff'] ?? null)
             && is_array($pricingAction['pricing_generation_preflight'] ?? null),
-        'Pricing action carries the AI, operation, and investment handoff packets.',
+        'Pricing action carries the AI, operation, and pricing-preflight packets.',
         ['action_key' => $pricingAction['key'] ?? null]
     );
     revenue_ai_ctrip_check(
@@ -635,13 +612,6 @@ try {
                 'source_scope' => $aiToOperation['source_scope'] ?? null,
                 'can_create_operation_execution' => $aiToOperation['can_create_operation_execution'] ?? null,
                 'auto_create_operation_execution' => $aiToOperation['auto_create_operation_execution'] ?? null,
-            ],
-            'operation_to_investment_handoff' => [
-                'status' => $operationToInvestment['status'] ?? null,
-                'source_scope' => $operationToInvestment['source_scope'] ?? null,
-                'operation_roi_ready' => $operationToInvestment['operation_roi_ready'] ?? null,
-                'decision_allowed' => $operationToInvestment['decision_allowed'] ?? null,
-                'can_create_investment_decision' => $operationToInvestment['can_create_investment_decision'] ?? null,
             ],
         ],
         'checks' => $checks,

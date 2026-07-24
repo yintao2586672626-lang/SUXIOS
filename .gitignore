@@ -16,19 +16,27 @@ __pycache__/
 
 # ThinkPHP runtime
 /runtime/
+/app/runtime/
 /storage/meituan_profile_*/
 /storage/ctrip_profile_*/
 *.log
 debug.log
 
 # Test artifacts
+.playwright-cli/
 tests/report/
 test-results/
 output/
 reports/ctrip_capture_assets/
+reports/ota_data_validation.json
+reports/ota_data_validation.md
+reports/ota_data_validation.self-test.json
+reports/ota_data_validation.self-test.md
 reports/meituan_capture_assets/
 reports/ctrip_browser_capture_*.json
 reports/meituan_browser_capture_*.json
+reports/ctrip_live_verify_*.json
+reports/meituan_live_verify_*.json
 reports/ctrip_capture_summary.json
 reports/p0_traffic_*.json
 docs/release_external_state_evidence.local.json
@@ -54,11 +62,14 @@ Desktop.ini
 # Sensitive database backup
 database/backups/
 /storage/db_backups/
+/storage/backups/
+/storage/migration-backups/
 hotelx_dump.sql
 *_dump.sql
 *_backup*.sql
 
 # Local assistant/workspace files
+.codex-tmp/
 .codebuddy/
 .workbuddy/
 .snapshots/
@@ -102,6 +113,8 @@ public/ui-example.html
 # Public obsolete build leftovers
 public/assets/
 public/app-main.*
+!public/app-main.js
+!public/app-main.min.js
 public/app-styles.css
 public/app.js
 public/components.css

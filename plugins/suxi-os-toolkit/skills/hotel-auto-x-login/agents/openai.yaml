@@ -1,0 +1,5 @@
+interface:
+  display_name: "OTA 登录编排（手动）"
+  short_description: "处理明确的 OTA 登录与会话任务，不自动使用账号或凭据"
+policy:
+  allow_implicit_invocation: false

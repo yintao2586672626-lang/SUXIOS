@@ -1,0 +1,178 @@
+                    <div v-if="currentPage === 'revenue-research-center'" class="max-w-7xl mx-auto space-y-4">
+                        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                                <div>
+                                    <div class="text-sm font-medium text-blue-600 mb-1">收益分析</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">已有信息研究</h2>
+                                    <p class="text-sm text-gray-500 mt-2 max-w-3xl leading-relaxed">
+                                        只读取本地已有 OTA 与经营记录；缺字段、未接入、尚未校准直接显示，不把研究情景当成全酒店经营事实。
+                                    </p>
+                                </div>
+                                <div class="grid grid-cols-3 gap-2 text-sm">
+                                    <div class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+                                        <div class="text-blue-500 text-xs mb-1">口径</div>
+                                        <div class="font-semibold text-blue-900">OTA/本地经营</div>
+                                    </div>
+                                    <div class="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                                        <div class="text-gray-400 text-xs mb-1">输出</div>
+                                        <div class="font-semibold text-gray-800">缺口/风险/动作</div>
+                                    </div>
+                                    <div class="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
+                                        <div class="text-amber-600 text-xs mb-1">边界</div>
+                                        <div class="font-semibold text-amber-900">不自动写 OTA</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3 mb-5">
+                                <div>
+                                    <h3 class="font-semibold text-gray-900">研究与情景分析</h3>
+                                    <p class="text-xs text-gray-500 mt-1">选择门店和研究方向后，仅基于现有可读数据生成情景估算或方案；无数据时返回缺口。</p>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <select v-model="revenueResearchHotelId" class="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 min-w-[180px]">
+                                        <option value="">全部可见酒店</option>
+                                        <option v-for="hotel in revenueResearchHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                    </select>
+                                    <span class="px-3 py-2 rounded-lg border border-blue-100 bg-blue-50 text-sm text-blue-700">
+                                        <i class="fas fa-database mr-1.5"></i>读取已有信息
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="columns-1 gap-4 xl:columns-2">
+                                <div v-for="product in revenueResearchProducts" :key="product.key" class="mb-4 break-inside-avoid rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+                                    <div class="flex items-start justify-between gap-3 mb-3">
+                                        <div>
+                                            <div class="font-semibold text-gray-900">{{ product.name }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ product.delivery }}</div>
+                                        </div>
+                                        <span :class="['inline-flex px-2.5 py-1 rounded-full text-xs whitespace-nowrap border', revenueResearchStatusClass(product.status)]">
+                                            {{ product.statusText }}
+                                        </span>
+                                    </div>
+
+                                    <div class="rounded-lg bg-white border border-gray-100 px-3 py-2 text-xs text-gray-600">
+                                        <span class="font-medium text-gray-800">落点：</span>{{ product.moduleLabel || '暂未接入' }}
+                                    </div>
+
+                                    <div class="mt-4 flex flex-wrap gap-2">
+                                        <button @click="runRevenueResearchProduct(product)" :disabled="revenueResearchRunFor(product.key).loading" :data-testid="'button-revenue-research-run-' + product.key" :class="['px-3 py-2 rounded-lg text-sm text-white transition', revenueResearchRunFor(product.key).loading ? 'bg-blue-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700']">
+                                            <i :class="[revenueResearchRunFor(product.key).loading ? 'fas fa-spinner fa-spin' : 'fas fa-play', 'mr-1.5']"></i>{{ revenueResearchRunFor(product.key).loading ? '分析中...' : '开始研究' }}
+                                        </button>
+                                        <button v-if="revenueResearchRunFor(product.key).result" @click="openRevenueResearchModule(product)" :disabled="!product.module" :data-testid="'button-revenue-research-module-' + product.key" :class="['px-3 py-2 rounded-lg text-sm border', product.module ? 'bg-green-50 border-green-100 text-green-700 hover:bg-green-100' : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed']">
+                                            <i class="fas fa-arrow-right mr-1.5"></i>{{ product.module ? '进入模块' : '待接入' }}
+                                        </button>
+                                    </div>
+
+                                    <div v-if="revenueResearchRunFor(product.key).loading || revenueResearchRunFor(product.key).result || revenueResearchRunFor(product.key).error" class="mt-4 rounded-xl border border-gray-100 bg-white p-3 space-y-3">
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <div v-for="(step, index) in revenueResearchSteps" :key="step" :class="['rounded-lg border px-2.5 py-1.5 text-xs', revenueResearchStepClass(revenueResearchRunFor(product.key), index)]">
+                                                <i :class="[revenueResearchStepIcon(revenueResearchRunFor(product.key), index), 'mr-1.5']"></i>{{ step }}
+                                            </div>
+                                        </div>
+                                        <div v-if="revenueResearchRunFor(product.key).error" class="rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+                                            {{ revenueResearchRunFor(product.key).error }}
+                                        </div>
+                                        <div v-if="revenueResearchRunFor(product.key).result" class="space-y-3">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', revenueResearchResultStatusClass(revenueResearchRunFor(product.key).result.status)]">
+                                                    {{ revenueResearchResultStatusLabel(revenueResearchRunFor(product.key).result.status) }}
+                                                </span>
+                                                <span v-if="revenueResearchRunFor(product.key).result.readiness" :class="['px-2.5 py-1 rounded-full border text-xs font-medium', revenueResearchReadinessClass(revenueResearchRunFor(product.key).result.readiness.stage)]">
+                                                    {{ revenueResearchRunFor(product.key).result.readiness.status_label }} · {{ revenueResearchRunFor(product.key).result.readiness.score }}分
+                                                </span>
+                                                <span class="text-xs text-gray-500">{{ revenueResearchRunFor(product.key).result.model_key || 'deepseek_chat' }}</span>
+                                            </div>
+                                            <div v-if="revenueResearchRunFor(product.key).result.readiness" class="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-700 leading-5">
+                                                <div class="font-medium text-slate-900">{{ revenueResearchRunFor(product.key).result.readiness.notice }}</div>
+                                                <div class="mt-1">{{ revenueResearchMissingText(revenueResearchRunFor(product.key).result.readiness) }}</div>
+                                                <div class="mt-1 text-blue-700">下一步：{{ revenueResearchRunFor(product.key).result.readiness.next_action }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3" :data-testid="'revenue-research-execution-bridge-' + product.key">
+                                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div>
+                                                        <div class="text-xs font-semibold text-emerald-900">转运营执行</div>
+                                                        <div class="mt-1 text-xs leading-5 text-emerald-800">仅单店、研究阶段为 research_ready_for_execution 且 execution_ready=true 时创建待人工审批的执行意图。</div>
+                                                        <div class="mt-1 text-[11px] text-emerald-700">边界：不自动审批、不自动执行、不写 OTA 房价、库存或活动。</div>
+                                                    </div>
+                                                    <span v-if="revenueResearchRunFor(product.key).executionIntent" class="shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                                        执行意图 #{{ revenueResearchRunFor(product.key).executionIntent.id }} · {{ operationExecutionStatusLabel(revenueResearchRunFor(product.key).executionIntent.status) }}
+                                                    </span>
+                                                </div>
+                                                <div v-if="revenueResearchRunFor(product.key).executionError" class="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{{ revenueResearchRunFor(product.key).executionError }}</div>
+                                                <div class="mt-3 flex flex-wrap items-center gap-2">
+                                                    <button v-if="revenueResearchRunFor(product.key).executionIntent" type="button" @click="openRevenueResearchExecutionIntent(product)" :data-testid="'button-revenue-research-open-execution-' + product.key" class="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-700">
+                                                        <i class="fas fa-tasks mr-1.5"></i>查看执行跟踪
+                                                    </button>
+                                                    <button v-else-if="revenueResearchCanCreateExecutionIntent(revenueResearchRunFor(product.key).result)" type="button" @click="createRevenueResearchExecutionIntent(product)" :disabled="revenueResearchRunFor(product.key).executionLoading" :data-testid="'button-revenue-research-execution-' + product.key" class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">
+                                                        <i :class="[revenueResearchRunFor(product.key).executionLoading ? 'fas fa-spinner fa-spin' : 'fas fa-share-square', 'mr-1.5']"></i>{{ revenueResearchRunFor(product.key).executionLoading ? '创建中...' : '转运营执行' }}
+                                                    </button>
+                                                    <span v-else="" class="text-xs leading-5 text-amber-800">{{ revenueResearchExecutionBlockedText(revenueResearchRunFor(product.key).result) }}</span>
+                                                </div>
+                                            </div>
+                                            <p class="line-clamp-4 text-sm leading-relaxed text-gray-700" :title="revenueResearchRunFor(product.key).result.result?.summary || '本次未返回可展示的研究摘要。'">{{ revenueResearchRunFor(product.key).result.result?.summary || '本次未返回可展示的研究摘要。' }}</p>
+                                            <div v-if="revenueResearchForecastCards(revenueResearchRunFor(product.key).result).length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                <div v-for="card in revenueResearchForecastCards(revenueResearchRunFor(product.key).result)" :key="card.label" class="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                                                    <div class="mb-1 flex items-start justify-between gap-2">
+                                                        <div class="text-xs text-blue-700">{{ card.label }}</div>
+                                                        <span :class="card.truthClass">{{ card.truthStatus }}</span>
+                                                    </div>
+                                                    <div class="text-lg font-semibold text-blue-950">{{ card.value }}</div>
+                                                    <div class="text-xs text-blue-700 mt-1">{{ card.note }}</div>
+                                                    <div class="mt-2 border-t border-blue-100 pt-2 text-[11px] leading-5 text-blue-800" data-testid="revenue-research-forecast-truth">{{ card.truthDetail }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                    <div class="font-medium text-gray-800 text-xs mb-2">已有信息</div>
+                                                    <div class="space-y-1">
+                                                        <div v-for="source in (revenueResearchRunFor(product.key).result.local_sources || []).slice(0, 4)" :key="source.source" class="flex items-center justify-between gap-2 text-xs text-gray-600">
+                                                            <span class="truncate">{{ source.label }}</span>
+                                                            <span class="text-gray-400 whitespace-nowrap">{{ source.count ?? '—' }} 条</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="rounded-lg bg-amber-50 border border-amber-100 p-3">
+                                                    <div class="font-medium text-amber-900 text-xs mb-2">缺失信息</div>
+                                                    <div v-if="(revenueResearchRunFor(product.key).result.gaps || []).length === 0" class="text-xs text-amber-700">未返回关键缺口</div>
+                                                    <div v-for="gap in (revenueResearchRunFor(product.key).result.gaps || []).slice(0, 3)" :key="gap.table + gap.reason" class="text-xs text-amber-800 leading-relaxed mb-1">
+                                                        {{ gap.label || gap.table }}：{{ gap.reason }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <div class="rounded-lg bg-rose-50 border border-rose-100 p-3">
+                                                    <div class="font-medium text-rose-900 text-xs mb-2">风险信号</div>
+                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.risk_signals || []).length" class="text-xs text-rose-700">未返回风险信号</div>
+                                                    <div v-for="risk in (revenueResearchRunFor(product.key).result.result?.risk_signals || []).slice(0, 4)" :key="risk" class="text-xs text-rose-800 leading-relaxed mb-1">
+                                                        {{ risk }}
+                                                    </div>
+                                                </div>
+                                                <div class="rounded-lg bg-green-50 border border-green-100 p-3">
+                                                    <div class="font-medium text-green-900 text-xs mb-2">建议动作</div>
+                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length &amp;&amp; !(revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="text-xs text-green-700">等待模型生成建议动作</div>
+                                                    <div v-for="action in (revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).slice(0, 4)" :key="action.priority + action.title" class="mb-2 rounded border border-green-100 bg-white/70 p-2 text-xs leading-5 text-green-900">
+                                                        <div class="flex items-center gap-2"><span class="rounded border border-green-200 px-1.5 py-0.5 text-[10px] font-semibold">{{ action.priority }}</span><strong>{{ action.title }}</strong></div>
+                                                        <div><span class="font-semibold">建议动作：</span>{{ action.action }}</div>
+                                                        <ai-decision-quality-details :item="action"></ai-decision-quality-details>
+                                                    </div>
+                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length &amp;&amp; (revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="rounded border border-amber-100 bg-amber-50 p-2 text-xs text-amber-800">历史建议结构不完整：{{ revenueResearchRunFor(product.key).result.result.recommended_actions.slice(0, 4).join('；') }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-if="(revenueResearchRunFor(product.key).result.web_sources || []).length" class="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700">
+                                                外部引用 {{ revenueResearchRunFor(product.key).result.web_sources.length }} 条；默认判断仍以本地已有信息和缺口状态为准。
+                                            </div>
+                                            <div class="rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-700">
+                                                研究/情景口径：{{ revenueResearchRunFor(product.key).result.business_forecast?.method || '方法未返回' }}；情景可信等级（未概率校准）：{{ revenueResearchRunFor(product.key).result.business_forecast?.confidence || '待补数据' }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智能知识中枢 -->

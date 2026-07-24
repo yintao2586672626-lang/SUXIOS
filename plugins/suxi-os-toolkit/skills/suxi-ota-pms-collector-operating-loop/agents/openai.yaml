@@ -1,0 +1,5 @@
+interface:
+  display_name: "OTA/PMS 全链路编排（手动）"
+  short_description: "完整采集、ETL 与下游认证流程；仅在明确全链路任务中使用"
+policy:
+  allow_implicit_invocation: false

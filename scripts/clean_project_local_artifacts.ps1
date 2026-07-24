@@ -1,7 +1,8 @@
 param(
   [switch]$Apply,
   [switch]$IncludeDependencies,
-  [switch]$IncludeSensitiveBackups
+  [switch]$IncludeSensitiveBackups,
+  [switch]$IncludeCaptureAssets
 )
 
 $ErrorActionPreference = "Stop"
@@ -145,11 +146,27 @@ function Get-ProfileCacheTargets {
 
 $candidatePaths = @(
   "output",
-  "runtime",
   "test-results",
   ".pytest_cache",
   ".gstack"
 )
+
+# Runtime defaults to durable/unknown state. Only these explicitly disposable
+# cache/build targets may be removed by the generic local cleaner.
+$runtimeCleanupNames = @(
+  "cache",
+  "static-gzip",
+  "static-html",
+  "log",
+  "codex-runner-contract",
+  "test_ctrip_mapping"
+)
+foreach ($runtimeName in $runtimeCleanupNames) {
+  $runtimeCandidate = Join-Path "runtime" $runtimeName
+  if (Test-Path -LiteralPath $runtimeCandidate) {
+    $candidatePaths += $runtimeCandidate
+  }
+}
 
 if (Test-Path -LiteralPath "storage") {
   $candidatePaths += Get-ChildItem -LiteralPath "storage" -Force -Directory -ErrorAction SilentlyContinue |
@@ -161,8 +178,12 @@ if (Test-Path -LiteralPath "storage") {
 }
 
 if (Test-Path -LiteralPath "reports") {
-  foreach ($assetDir in @("reports/ctrip_capture_assets", "reports/meituan_capture_assets")) {
-    $candidatePaths += $assetDir
+  # Screenshot assets may still be referenced by retained evidence JSON. Keep
+  # them by default and require an explicit opt-in for irreversible removal.
+  if ($IncludeCaptureAssets) {
+    foreach ($assetDir in @("reports/ctrip_capture_assets", "reports/meituan_capture_assets")) {
+      $candidatePaths += $assetDir
+    }
   }
 
   foreach ($pattern in @(

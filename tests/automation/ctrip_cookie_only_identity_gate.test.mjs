@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const backend = readFileSync(new URL('../../app/controller/concern/OnlineDataManualFetchConcern.php', import.meta.url), 'utf8');
-const requestSanitizer = backend.match(/private function sanitizeCtripManualFetchRequestData[\s\S]*?\n    private function sanitizeMeituanManualFetchRequestData/);
+const requestSanitizer = backend.match(/private function sanitizeCtripManualFetchRequestData[\s\S]*?(?=\n    private function sanitizeCtripTemporaryCookieRequestData)/);
 const executionBoundary = backend.match(/public function fetchCtrip\(\): Response[\s\S]*?\n    private function executeCtripManualFetch/);
 const validator = backend.match(/private function validateCtripManualBusinessHotelIdentity[\s\S]*?\n    private function resolveCtripManualBusinessIdentityConfig/);
 const metadataReader = backend.match(/private function readSafeCtripIdentityMetadataList\(\): array[\s\S]*?\n    private function resolveCtripManualBusinessIdentityConfig/);
@@ -25,10 +25,13 @@ test('Ctrip manual fetch uses a vault locator and keeps inferred hotel identity 
   assert.match(boundaryBody, /\$configId = trim\(\(string\)\(\$requestData\['config_id'\] \?\? ''\)\)/);
   assert.match(boundaryBody, /\$systemHotelId = \$this->strictPositiveOtaConfigHotelId\(\$requestData\['system_hotel_id'\] \?\? null\)/);
   assert.match(boundaryBody, /withOtaCredentialForExecution\(\s*'ctrip',\s*\$configId,\s*\$systemHotelId/);
-  assert.match(boundaryBody, /请仅提供 config_id 与 system_hotel_id/);
+  assert.match(boundaryBody, /请求包含不支持的执行字段或字段类型/);
 
   const identityBody = validator[0];
-  assert.match(identityBody, /expected_platform_hotel_id_missing/);
+  assert.match(identityBody, /platform_hotel_id_incomplete/);
+  assert.match(identityBody, /returned_current_hotel_id_missing/);
+  assert.match(identityBody, /'ok' => false,[\s\S]{0,180}'status' => 'platform_hotel_id_incomplete'/);
+  assert.match(identityBody, /本次未入库/);
   assert.match(identityBody, /captured_platform_hotel_id_ambiguous/);
   assert.match(identityBody, /findCtripSystemHotelMatchesByPlatformIds\(\$capturedIds\)/);
   assert.match(identityBody, /findCtripPlatformHotelIdConflicts\(\$capturedIds, \$systemHotelId\)/);

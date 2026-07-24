@@ -747,6 +747,7 @@ P0 is complete only when:
 
 - Credential/Vault implementation and the credential-specific P0 completion gate are complete.
 - Final verification: `1135` PHPUnit tests / `11077` assertions, `verify:p0-guards`, `148` Vault contracts, high-risk security, `562` importer checks, and migration dry-run all passed.
-- Migration dry-run reports `53` inventories already migrated, `0` blockers, `0` eligible rows, `0` remaining issues, and `0` metadata relocations.
+- Migration dry-run reports `59` inventories already migrated, `0` blockers, `0` eligible rows, `0` remaining issues, and `0` metadata relocations.
+- Targeted local registration added waiting-config Ctrip traffic/Profile sources for hotels `80` and `94`; repeated registration is now idempotent and preserves managed-source runtime/current-session state.
 - The two commit steps remain intentionally unchecked because the user did not request a save point; unrelated worktree changes were preserved.
 - This credential gate is separate from the live OTA field-loop gate. The latter remains `incomplete` until an authorized same-day Profile session and target-date traffic evidence exist.

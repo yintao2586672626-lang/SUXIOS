@@ -1204,7 +1204,7 @@ function existing_source_registration_policy(?array $existing): string
     if ($managed && $disabled) {
         return 'blocked_disabled_managed_source';
     }
-    return $managed ? 'update_managed_source' : 'keep_user_source';
+    return $managed ? 'keep_managed_source' : 'keep_user_source';
 }
 
 /**
@@ -1229,12 +1229,6 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
     ];
     $status = 'waiting_config';
     $lastSyncStatus = 'waiting_config';
-    $currentStatus = '';
-    $currentLastSyncStatus = '';
-    if ($existing !== null && (string)($existing['status'] ?? '') !== 'disabled') {
-        $currentStatus = trim((string)($existing['status'] ?? ''));
-        $currentLastSyncStatus = trim((string)($existing['last_sync_status'] ?? ''));
-    }
     $data = [
         'tenant_id' => (int)$spec['tenant_id'],
         'system_hotel_id' => (int)$spec['system_hotel_id'],
@@ -1267,46 +1261,45 @@ function persist_source(array $spec, ?array $existing, bool $execute): array
         ] + $actionMetadata;
     }
 
-    if ($existing !== null && (string)($existing['status'] ?? '') !== 'disabled') {
+    if ($existingPolicy === 'keep_managed_source' && $existing !== null) {
         $existingConfig = json_decode((string)($existing['config_json'] ?? ''), true);
         $existingConfig = is_array($existingConfig) ? $existingConfig : [];
-        $isManaged = ($existingConfig['registered_by'] ?? '') === P0_TRAFFIC_SOURCE_MARKER;
-        if (!$isManaged) {
-            return [
-                'action' => 'kept_existing_user_source',
-                'data_source_id' => (int)($existing['id'] ?? 0),
-                'platform' => (string)$spec['platform'],
-                'system_hotel_id' => (int)$spec['system_hotel_id'],
-                'status' => (string)($existing['status'] ?? ''),
-                'enabled' => (int)($existing['enabled'] ?? 0),
-            ] + $actionMetadata;
-        }
+        $currentSessionVerified = (new \app\service\OtaProfileSessionProofService())
+            ->isCurrentVerified($existing);
+        $historicalLoginMetadataPresent = (bool)($existingConfig['historical_login_metadata_present'] ?? false)
+            || profile_login_metadata_verified_config($existingConfig);
 
-        if (!$execute) {
-            return [
-                'action' => 'would_update',
-                'data_source_id' => (int)($existing['id'] ?? 0),
-                'platform' => (string)$spec['platform'],
-                'system_hotel_id' => (int)$spec['system_hotel_id'],
-                'current_status' => $currentStatus,
-                'current_last_sync_status' => $currentLastSyncStatus,
-                'status' => $status,
-                'last_sync_status' => $lastSyncStatus,
-                'enabled' => 1,
-            ] + $actionMetadata;
-        }
-
-        Db::name('platform_data_sources')->where('id', (int)$existing['id'])->update($data);
         return [
-            'action' => 'updated',
-            'data_source_id' => (int)$existing['id'],
+            'action' => 'kept_existing_managed_source',
+            'data_source_id' => (int)($existing['id'] ?? 0),
             'platform' => (string)$spec['platform'],
             'system_hotel_id' => (int)$spec['system_hotel_id'],
-            'previous_status' => $currentStatus,
-            'previous_last_sync_status' => $currentLastSyncStatus,
-            'status' => $status,
-            'last_sync_status' => $lastSyncStatus,
-            'enabled' => 1,
+            'status' => (string)($existing['status'] ?? ''),
+            'last_sync_status' => (string)($existing['last_sync_status'] ?? ''),
+            'enabled' => (int)($existing['enabled'] ?? 0),
+            'manual_login_state_verified' => $currentSessionVerified,
+            'historical_login_metadata_present' => $historicalLoginMetadataPresent,
+            'login_evidence_scope' => $currentSessionVerified
+                ? 'current_session_same_source'
+                : 'historical_metadata_only',
+            'current_session_probe_performed' => truthy_config_value(
+                $existingConfig['current_session_probe_performed'] ?? false
+            ),
+            'current_session_verified' => $currentSessionVerified,
+            'session_probe_status' => $currentSessionVerified ? 'verified' : 'ready_for_session_probe',
+            'login_verification_status' => $currentSessionVerified ? 'verified' : 'ready_for_session_probe',
+            'profile_binding_status' => (string)($existingConfig['profile_binding_status'] ?? 'ready'),
+        ];
+    }
+
+    if ($existing !== null && (string)($existing['status'] ?? '') !== 'disabled') {
+        return [
+            'action' => 'kept_existing_user_source',
+            'data_source_id' => (int)($existing['id'] ?? 0),
+            'platform' => (string)$spec['platform'],
+            'system_hotel_id' => (int)$spec['system_hotel_id'],
+            'status' => (string)($existing['status'] ?? ''),
+            'enabled' => (int)($existing['enabled'] ?? 0),
         ] + $actionMetadata;
     }
 

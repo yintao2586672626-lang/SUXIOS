@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\OperationManagementService;
+use app\service\RevenueResearchExecutionArtifactService;
 use app\service\RevenueResearchService;
 use InvalidArgumentException;
 use RuntimeException;
@@ -27,7 +28,11 @@ class RevenueResearch extends Base
 
         try {
             $result = (new RevenueResearchService())->run($productKey, $modelKey, $this->currentUser, $hotelId);
-            return $this->success($result, '经营预测已生成');
+            $message = ($result['status'] ?? '') === 'done'
+                ? 'OTA渠道经营预测已生成'
+                : '数据不足，未生成可用经营预测';
+
+            return $this->success($result, $message);
         } catch (RuntimeException $e) {
             $code = $e->getCode();
             if ($code < 400 || $code > 599) {
@@ -43,25 +48,23 @@ class RevenueResearch extends Base
     {
         try {
             $data = $this->requestData();
-            $research = $this->researchPayload($data);
-            $hotelCandidate = (int)($data['hotel_id'] ?? ($research['hotel_scope']['hotel_id'] ?? 0));
+            $artifactId = is_scalar($data['research_artifact_id'] ?? null)
+                ? trim((string)$data['research_artifact_id'])
+                : '';
+            if ($artifactId === '') {
+                throw new InvalidArgumentException('research_artifact_id is required; rerun revenue research');
+            }
+            $hotelCandidate = (int)($data['hotel_id'] ?? 0);
             [$hotelIds, $hotelId] = $this->resolveExecutionHotelScope($hotelCandidate);
 
             if ($hotelId === null || $hotelId <= 0) {
                 throw new InvalidArgumentException('hotel_id is required for revenue research execution intent');
             }
 
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $artifactService = new RevenueResearchExecutionArtifactService();
+            $research = $artifactService->consume($artifactId, $actorId, $hotelId);
             $overrides = ['hotel_id' => $hotelId];
-            foreach (['source_record_id', 'platform', 'date_start', 'date_end', 'action_text'] as $field) {
-                if (!array_key_exists($field, $data)) {
-                    continue;
-                }
-                $value = is_scalar($data[$field]) ? trim((string)$data[$field]) : '';
-                if ($value !== '') {
-                    $overrides[$field] = $field === 'source_record_id' ? (int)$value : $value;
-                }
-            }
-
             $researchService = new RevenueResearchService();
             $operationService = new OperationManagementService();
             $intentInput = $researchService->buildReadyExecutionIntentInput($research, $overrides);
@@ -70,7 +73,10 @@ class RevenueResearch extends Base
                 $hotelIds,
                 $hotelId,
                 $intentInput,
-                (int)($this->currentUser->id ?? 0)
+                $actorId,
+                false,
+                null,
+                true
             );
 
             return $this->success([
@@ -85,20 +91,6 @@ class RevenueResearch extends Base
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'revenue research execution intent create failed'), $this->statusCode($e));
         }
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     * @return array<string, mixed>
-     */
-    private function researchPayload(array $data): array
-    {
-        $candidate = $data['research'] ?? $data['data'] ?? $data;
-        if (!is_array($candidate) || trim((string)($candidate['product_key'] ?? '')) === '') {
-            throw new InvalidArgumentException('revenue research result with product_key is required');
-        }
-
-        return $candidate;
     }
 
     /**

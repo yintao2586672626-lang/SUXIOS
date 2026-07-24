@@ -8,9 +8,89 @@ use app\model\User;
 use app\service\HotelScopeService;
 use app\service\PermissionService;
 use PHPUnit\Framework\TestCase;
+use think\exception\HttpException;
 
 final class PermissionServiceTest extends TestCase
 {
+    public function testHotelPermissionOrFailRejectsHotelBForReadCreateUpdateDelete(): void
+    {
+        $permissions = [
+            'can_view_online_data',
+            'can_fetch_online_data',
+            'can_edit_report',
+            'can_delete_online_data',
+        ];
+        $user = $this->getMockBuilder(User::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['hasHotelPermission'])
+            ->getMock();
+        $user->method('hasHotelPermission')->willReturnCallback(
+            static fn(int $hotelId, string $permission): bool => $hotelId === 7
+                && in_array($permission, $permissions, true)
+        );
+
+        foreach ($permissions as $permission) {
+            $user->hasHotelPermissionOrFail(7, $permission);
+
+            try {
+                $user->hasHotelPermissionOrFail(8, $permission);
+                self::fail('酒店B必须拒绝权限: ' . $permission);
+            } catch (HttpException $e) {
+                self::assertSame(403, $e->getStatusCode(), $permission);
+            }
+        }
+    }
+
+    public function testUserAuthorizationHelpersStayInstanceScopedAndShareOneHotelScope(): void
+    {
+        $firstUser = $this->userWithRole([]);
+        $secondUser = $this->userWithRole([]);
+        $userReflection = new \ReflectionClass(User::class);
+        $hotelScopeMethod = $userReflection->getMethod('hotelScopeService');
+        $permissionMethod = $userReflection->getMethod('permissionService');
+
+        $firstHotelScope = $hotelScopeMethod->invoke($firstUser);
+        $firstPermissionService = $permissionMethod->invoke($firstUser);
+        $secondHotelScope = $hotelScopeMethod->invoke($secondUser);
+
+        self::assertSame($firstHotelScope, $hotelScopeMethod->invoke($firstUser));
+        self::assertNotSame($firstHotelScope, $secondHotelScope);
+
+        $permissionReflection = new \ReflectionClass(PermissionService::class);
+        $scopeProperty = $permissionReflection->getProperty('hotelScopeService');
+        self::assertSame($firstHotelScope, $scopeProperty->getValue($firstPermissionService));
+    }
+
+    public function testHotelScopeMemoizationKeySeparatesCapabilitiesWhileWeakMapOwnsObjectIdentity(): void
+    {
+        $service = new HotelScopeService();
+        $method = (new \ReflectionClass($service))->getMethod('userScopeCacheKey');
+        $firstUser = $this->userWithRole([]);
+        $secondUser = $this->userWithRole([]);
+
+        $firstViewKey = $method->invoke($service, $firstUser, 'ota.view');
+        self::assertSame($firstViewKey, $method->invoke($service, $firstUser, 'ota.view'));
+        self::assertNotSame($firstViewKey, $method->invoke($service, $firstUser, 'ota.collect'));
+        self::assertSame(
+            $firstViewKey,
+            $method->invoke($service, $secondUser, 'ota.view'),
+            'object identity belongs to the WeakMap bucket and must not be encoded with a reusable spl_object_id'
+        );
+    }
+
+    public function testSuperAdminStillRequiresAnEnabledHotelForHotelScopedAuthorization(): void
+    {
+        $service = new PermissionService(new AllowingHotelScopeService());
+        $user = $this->superAdminUser();
+
+        self::assertTrue($service->authorize($user, 'system.config')['allowed']);
+        self::assertTrue($service->authorize($user, 'hotel.update', 7)['allowed']);
+
+        $invalidHotel = $service->authorize($user, 'hotel.update', 8);
+        self::assertFalse($invalidHotel['allowed']);
+        self::assertSame('hotel_scope_denied', $invalidHotel['reason']);
+    }
+
     public function testNormalUserCanReadGrantedOtaButCannotCollect(): void
     {
         $service = new PermissionService(new AllowingHotelScopeService());
@@ -165,6 +245,16 @@ final class PermissionServiceTest extends TestCase
             }
         );
 
+        return $user;
+    }
+
+    private function superAdminUser(): User
+    {
+        $user = $this->getMockBuilder(User::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['isSuperAdmin'])
+            ->getMock();
+        $user->method('isSuperAdmin')->willReturn(true);
         return $user;
     }
 }

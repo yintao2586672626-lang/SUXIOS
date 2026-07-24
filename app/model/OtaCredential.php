@@ -21,6 +21,8 @@ class OtaCredential extends Model
         'secret_mask' => 'string',
         'credential_status' => 'string',
         'rotated_at' => 'datetime',
+        'last_used_at' => 'datetime',
+        'revoked_at' => 'datetime',
         'create_time' => 'datetime',
         'update_time' => 'datetime',
     ];

@@ -101,7 +101,7 @@ function validOtaAttestation() {
       },
     ],
     backup_cleanup: {
-      database_backups_action: 'sanitized',
+      database_backups_action: 'deleted',
       paths_reviewed: ['database/backups'],
       git_tracking_check: `git ls-files database/backups returned no tracked files on ${reviewDate}`,
       release_readiness_check: `review:release-ota-credentials and review:release-readiness rerun recorded on ${reviewDate}`,

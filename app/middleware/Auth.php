@@ -6,7 +6,9 @@ namespace app\middleware;
 use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\model\User;
+use app\service\FixedWindowRateLimiter;
 use app\service\OperationAuditClassifier;
+use app\service\OperationAuditSanitizerService;
 use app\service\ProtectedCapabilityService;
 use Closure;
 use think\Request;
@@ -14,7 +16,7 @@ use think\Response;
 
 class Auth
 {
-    private const TOKEN_MAX_AGE_SECONDS = 86400;
+    private const TOKEN_MAX_AGE_SECONDS = 259200; // 72 hours
 
     private ?ProtectedCapabilityService $protectedCapabilityService = null;
 
@@ -57,6 +59,24 @@ class Auth
             return $this->withRequestId($this->authErrorResponse(401, 'user_not_found', $requestId), $requestId);
         }
 
+        $currentAuthVersion = $user->authSessionVersion();
+        $tokenAuthVersion = is_array($tokenData) ? trim((string)($tokenData['auth_version'] ?? '')) : '';
+        if ($tokenAuthVersion === '') {
+            $tokenAuthVersion = $this->upgradeLegacyTokenAuthVersion(
+                $token,
+                $tokenData,
+                (int)$userId,
+                $currentAuthVersion
+            ) ? $currentAuthVersion : '';
+        }
+        if ($tokenAuthVersion === '' || !hash_equals($currentAuthVersion, $tokenAuthVersion)) {
+            cache('token_' . $token, null);
+            if ((string)cache('user_token_' . $userId) === $token) {
+                cache('user_token_' . $userId, null);
+            }
+            return $this->withRequestId($this->authErrorResponse(401, 'token_revoked', $requestId), $requestId);
+        }
+
         if ($user->status != User::STATUS_ENABLED) {
             return $this->withRequestId($this->authErrorResponse(403, 'user_disabled', $requestId), $requestId);
         }
@@ -80,7 +100,12 @@ class Auth
             }
         }
 
-        $response = $next($request);
+        try {
+            $response = $next($request);
+        } catch (\Throwable $exception) {
+            $this->recordControllerExceptionAudit($request, $user, $requestId, $exception);
+            throw $exception;
+        }
         if ($capability !== null) {
             $response = $this->redactProtectedResponse($request, $response, $protectedCapabilityService, $capability, $user, $requestId);
         }
@@ -103,6 +128,63 @@ class Auth
         return $createdAt + self::TOKEN_MAX_AGE_SECONDS < time();
     }
 
+    /**
+     * Preserve valid pre-upgrade sessions without weakening password-change
+     * revocation. A legacy token is upgraded once, only when no password
+     * change happened after it was issued.
+     */
+    private function upgradeLegacyTokenAuthVersion(
+        string $token,
+        mixed $tokenData,
+        int $userId,
+        string $authVersion
+    ): bool {
+        if (!is_array($tokenData)) {
+            return false;
+        }
+
+        $createdAt = (int)($tokenData['created_at'] ?? 0);
+        $remainingTtl = self::TOKEN_MAX_AGE_SECONDS - max(0, time() - $createdAt);
+        if ($createdAt <= 0 || $remainingTtl <= 0) {
+            return false;
+        }
+
+        try {
+            $revokedAt = $this->normalizeTimestamp(cache('auth_revoked_after_' . $userId));
+            $revokedAt = max(
+                $revokedAt,
+                OperationLog::latestCredentialRevocationTimestamp(
+                    $userId,
+                    time() - self::TOKEN_MAX_AGE_SECONDS
+                )
+            );
+            if ($revokedAt > 0 && $createdAt <= $revokedAt) {
+                return false;
+            }
+
+            $tokenData['auth_version'] = $authVersion;
+            cache('token_' . $token, $tokenData, $remainingTtl);
+            $stored = cache('token_' . $token);
+            return is_array($stored)
+                && hash_equals($authVersion, trim((string)($stored['auth_version'] ?? '')));
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function normalizeTimestamp(mixed $value): int
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->getTimestamp();
+        }
+        if (is_numeric($value)) {
+            return max(0, (int)$value);
+        }
+
+        $timestamp = strtotime(trim((string)$value));
+        return $timestamp === false ? 0 : $timestamp;
+    }
+
     private function protectedCapabilityService(): ProtectedCapabilityService
     {
         if ($this->protectedCapabilityService === null) {
@@ -117,9 +199,10 @@ class Auth
         $messages = [
             'missing_token' => '未提供认证令牌',
             'token_expired' => '登录已过期，请重新登录',
+            'token_revoked' => '登录凭证已撤销，请重新登录',
             'invalid_token' => '认证信息无效',
             'user_not_found' => '用户不存在',
-            'user_disabled' => '账号待审核或已停用，请联系超级管理员启用',
+            'user_disabled' => '账号已停用，请联系管理员启用',
         ];
 
         return json([
@@ -159,14 +242,18 @@ class Auth
     private function recordDataAudit(Request $request, Response $response, User $user): void
     {
         try {
-            $audit = (new OperationAuditClassifier())->classify($request->method(), $request->url());
+            $statusCode = $response->getCode();
+            $classifier = new OperationAuditClassifier();
+            $audit = $statusCode >= 400
+                ? $classifier->classifyFailure($request->method(), $request->url())
+                : $classifier->classify($request->method(), $request->url());
             if ($audit === null) {
                 return;
             }
 
-            $params = $this->sanitizeAuditParams($request->param());
+            $params = $this->sanitizeAuditRequestParams($request, (string)$audit['path']);
             $hotelId = $this->resolveAuditHotelId($params, $user);
-            $statusCode = $response->getCode();
+            $failed = $statusCode >= 400;
 
             OperationLog::record(
                 $audit['module'],
@@ -181,11 +268,54 @@ class Auth
                     'path' => $audit['path'],
                     'params' => $params,
                     'request_id' => (string)($request->request_id ?? ''),
+                    'outcome' => $failed ? 'failed' : 'success',
+                    'http_status' => $statusCode,
                     'response_status' => $statusCode,
+                    'reason_code' => $failed ? 'http_response_failure' : null,
                 ]
             );
         } catch (\Throwable $e) {
             // Audit logging must not break the protected business request.
+        }
+    }
+
+    private function recordControllerExceptionAudit(
+        Request $request,
+        User $user,
+        string $requestId,
+        \Throwable $exception
+    ): void {
+        try {
+            $audit = (new OperationAuditClassifier())->classifyFailure($request->method(), $request->url());
+            if ($audit === null) {
+                return;
+            }
+
+            $params = $this->sanitizeAuditRequestParams($request, (string)$audit['path']);
+            $hotelId = $this->resolveAuditHotelId($params, $user);
+
+            OperationLog::record(
+                $audit['module'],
+                $audit['action'],
+                $audit['description'],
+                (int)$user->id,
+                $hotelId,
+                'controller_exception',
+                [
+                    'audit_type' => $audit['category'],
+                    'method' => strtoupper($request->method()),
+                    'path' => $audit['path'],
+                    'params' => $params,
+                    'request_id' => $requestId,
+                    'outcome' => 'failed',
+                    'http_status' => 500,
+                    'response_status' => 500,
+                    'reason_code' => 'controller_exception',
+                    'exception_type' => get_debug_type($exception),
+                ]
+            );
+        } catch (\Throwable $auditFailure) {
+            // Terminal audit failure must not replace the controller exception.
         }
     }
 
@@ -202,27 +332,61 @@ class Auth
 
     private function sanitizeAuditParams(array $params): array
     {
-        $sensitiveKeys = ['authorization', 'token', 'password', 'cookie', 'cookies', 'api_key', 'apikey', 'auth_data', 'headers'];
-        $safe = [];
+        $safe = (new OperationAuditSanitizerService())->sanitizeArray($params, 1000);
+        return $this->truncateAuditParams($safe, 120);
+    }
 
+    /** @param array<mixed> $params */
+    private function truncateAuditParams(array $params, int $limit): array
+    {
         foreach ($params as $key => $value) {
-            if (in_array(strtolower((string)$key), $sensitiveKeys, true)) {
-                $safe[$key] = '***';
-                continue;
-            }
-
             if (is_array($value)) {
-                $safe[$key] = $this->sanitizeAuditParams($value);
+                $params[$key] = $this->truncateAuditParams($value, $limit);
                 continue;
             }
-
-            $text = is_scalar($value) || $value === null ? (string)$value : '[object]';
-            $safe[$key] = mb_strlen($text) > 120
-                ? mb_substr($text, 0, 120) . '...'
-                : (is_scalar($value) || $value === null ? $value : $text);
+            if (is_string($value) && mb_strlen($value) > $limit) {
+                $params[$key] = mb_substr($value, 0, $limit) . '...';
+            }
         }
 
-        return $safe;
+        return $params;
+    }
+
+    private function sanitizeAuditRequestParams(Request $request, string $path): array
+    {
+        $params = $this->sanitizeAuditParams($request->param());
+        if (!$this->isCredentialAuditPath($path)) {
+            return $params;
+        }
+
+        $params = array_intersect_key($params, array_flip([
+            'id',
+            'config_id',
+            'hotel_id',
+            'system_hotel_id',
+            'platform',
+            'channel',
+            'status',
+        ]));
+        $params['credential_payload_redacted'] = true;
+
+        return $params;
+    }
+
+    private function isCredentialAuditPath(string $path): bool
+    {
+        $path = trim(strtolower($path), '/');
+        foreach ([
+            'api/online-data/save-ctrip-config',
+            'api/online-data/save-meituan-config',
+            'api/online-data/data-sources',
+        ] as $prefix) {
+            if ($path === $prefix || str_starts_with($path, $prefix . '/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -236,7 +400,6 @@ class Auth
         if ($limit <= 0) {
             return null;
         }
-        $bucket = (int)floor(time() / $window);
         $params = $this->sanitizeAuditParams($request->param());
         $tenantId = $this->resolveTenantIdForRateLimit($params, $user);
         $path = (string)$policy['path'];
@@ -246,13 +409,33 @@ class Auth
             (string)$request->ip(),
             (string)$policy['scope'],
             strtoupper($request->method()),
-            $path,
-            $bucket
+            $path
         );
-        $count = (int)cache($key);
+        try {
+            $rateLimit = $this->fixedWindowRateLimiter()->consume($key, $limit, $window);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('Authenticated rate limiter unavailable.', [
+                'exception_type' => get_debug_type($exception),
+                'tenant_id' => $tenantId,
+                'user_id' => (int)$user->id,
+                'scope' => (string)$policy['scope'],
+                'path' => $path,
+                'request_id' => $requestId,
+            ]);
 
-        if ($count >= $limit) {
-            $retryAfter = max(1, (($bucket + 1) * $window) - time());
+            return json([
+                'code' => 503,
+                'message' => 'Rate limiter unavailable',
+                'data' => [
+                    'reason' => 'rate_limiter_unavailable',
+                    'reference_id' => $requestId,
+                ],
+                'request_id' => $requestId,
+            ], 503, ['Retry-After' => '1']);
+        }
+
+        if (!$rateLimit['allowed']) {
+            $retryAfter = $rateLimit['retry_after'];
             $this->recordRateLimitExceeded($request, $user, $policy, $tenantId, $requestId, $retryAfter);
 
             return json([
@@ -269,9 +452,12 @@ class Auth
             ], 429, ['Retry-After' => (string)$retryAfter]);
         }
 
-        cache($key, $count + 1, $window + 5);
-
         return null;
+    }
+
+    protected function fixedWindowRateLimiter(): FixedWindowRateLimiter
+    {
+        return new FixedWindowRateLimiter();
     }
 
     /**
@@ -292,6 +478,20 @@ class Auth
             'api/online-data/cookies-detail',
         ], true)) {
             return ['scope' => 'ota_config_read', 'path' => $path, 'limit' => 0, 'window' => 60];
+        }
+
+        if ($method === 'POST' && in_array($path, [
+            'api/online-data/fetch-ctrip',
+            'api/online-data/fetch-ctrip-temporary-cookie',
+            'api/online-data/fetch-meituan',
+        ], true)) {
+            return [
+                'scope' => 'protected_ota_manual_fetch',
+                'path' => $path,
+                'limit' => 600,
+                'window' => 3600,
+                'capability' => (string)($capability['key'] ?? 'online_data'),
+            ];
         }
 
         if (is_array($capability) && isset($capability['rate_limit']) && is_array($capability['rate_limit'])) {
@@ -338,35 +538,23 @@ class Auth
         string $ip,
         string $scope,
         string $method,
-        string $path,
-        int $bucket
+        string $path
     ): string {
         return sprintf(
-            'rate_limit_tenant_%d_user_%d_ip_%s_scope_%s_endpoint_%s_window_%d',
+            'rate_limit_tenant_%d_user_%d_ip_%s_scope_%s_endpoint_%s_window',
             $tenantId,
             $userId,
             substr(sha1($ip), 0, 16),
             preg_replace('/[^a-z0-9_\-]/i', '_', $scope),
-            sha1(strtoupper($method) . ':' . strtolower($path)),
-            $bucket
+            sha1(strtoupper($method) . ':' . strtolower($path))
         );
     }
 
-    private function resolveTenantIdForRateLimit(array $params, User $user): int
+    private function resolveTenantIdForRateLimit(array $_params, User $user): int
     {
-        foreach (['tenant_id', 'system_hotel_id', 'hotel_id'] as $key) {
-            if (isset($params[$key]) && is_numeric($params[$key]) && (int)$params[$key] > 0) {
-                return (int)$params[$key];
-            }
-        }
-
-        foreach (['tenant_id', 'hotel_id'] as $key) {
-            if (isset($user->{$key}) && is_numeric($user->{$key}) && (int)$user->{$key} > 0) {
-                return (int)$user->{$key};
-            }
-        }
-
-        return 0;
+        return isset($user->tenant_id) && is_numeric($user->tenant_id)
+            ? max(0, (int)$user->tenant_id)
+            : 0;
     }
 
     /**
@@ -440,13 +628,8 @@ class Auth
             // Security audit failure must not mask the actual 403 boundary.
         }
 
-        $this->recordSecurityNotification('protected_access_denied', $user, $hotelId ?: null, $requestId, [
-            'path' => (string)($capability['path'] ?? ''),
-            'capability' => (string)($capability['key'] ?? ''),
-            'reason' => (string)($authorization['reason'] ?? ''),
-            'tenant_id' => (int)($authorization['tenant_id'] ?? 0),
-            'hotel_id' => $hotelId ?: null,
-        ]);
+        // Permission denials remain in OperationLog for administrators. They are not
+        // actionable end-user notifications and can be triggered repeatedly by a stale UI scope.
     }
 
     /**
@@ -454,17 +637,32 @@ class Auth
      */
     private function recordSecurityNotification(string $category, User $user, ?int $hotelId, string $requestId, array $payload): void
     {
+        $copy = match ($category) {
+            'rate_limited' => [
+                'title' => '请求过于频繁',
+                'message' => '系统已暂时限制高频访问，请稍后重试。',
+                'action_label' => '我知道了',
+            ],
+            default => [
+                'title' => '账号安全提醒',
+                'message' => '系统拦截了一次异常访问，请按页面提示处理。',
+                'action_label' => '查看说明',
+            ],
+        };
         try {
             SystemNotification::recordEvent([
                 'hotel_id' => $hotelId,
                 'user_id' => (int)$user->id,
+                'recipient_user_id' => (int)$user->id,
                 'platform' => 'system',
                 'category' => 'security',
                 'severity' => 'warning',
-                'title' => 'SUXIOS security guard',
-                'message' => $category . ' reference=' . $requestId,
+                'title' => $copy['title'],
+                'message' => $copy['message'],
                 'action_type' => 'security_review',
-                'action_payload' => $payload,
+                'action_payload' => array_merge($payload, [
+                    'action_label' => $copy['action_label'],
+                ]),
                 'source_module' => 'security',
                 'source_key' => 'security:' . $category . ':' . $requestId,
             ]);
@@ -495,7 +693,7 @@ class Auth
             $payload['request_id'] = $requestId;
         }
         $payload['protected_trace'] = [
-            'tenant_id' => $service->resolveTenantId($request->param(), $user) ?: null,
+            'tenant_id' => $service->resolveTenantId($user) ?: null,
             'user_id' => (int)$user->id,
             'hotel_id' => $service->resolveHotelId($request->param(), $user) ?: null,
             'request_id' => $requestId,

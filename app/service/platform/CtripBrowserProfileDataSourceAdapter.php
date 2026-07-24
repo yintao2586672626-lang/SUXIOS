@@ -11,6 +11,19 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 {
     private const PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
     private const PROFILE_MODULES_CONFIG_KEY = 'ctrip_profile_capture_modules';
+    private const FACT_GUARDED_NUMERIC_FIELDS = [
+        'amount',
+        'quantity',
+        'book_order_num',
+        'comment_score',
+        'qunar_comment_score',
+        'data_value',
+        'list_exposure',
+        'detail_exposure',
+        'flow_rate',
+        'order_filling_num',
+        'order_submit_num',
+    ];
 
     private string $projectRoot;
     private string $nodeBinary;
@@ -218,6 +231,241 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
     }
 
+    /** @return array<string, mixed> */
+    private function evaluatePlatformIdentity(
+        array $payload,
+        string $expectedHotelId,
+        string $expectedPlatformHotelName = '',
+        bool $trustedNameReference = false
+    ): array
+    {
+        $expectedHotelId = trim($expectedHotelId);
+        $expectedPlatformHotelName = preg_replace('/\s+/u', ' ', trim($expectedPlatformHotelName)) ?? '';
+        if ($expectedHotelId === '') {
+            return [
+                'schema_version' => 1,
+                'status' => 'not_configured',
+                'expected_identifier_present' => false,
+                'observed_identifier_count' => 0,
+                'validated_identifier' => '',
+                'sensitive_values_exposed' => false,
+            ];
+        }
+
+        $scriptValidation = is_array($payload['platform_identity_validation'] ?? null)
+            ? $payload['platform_identity_validation']
+            : [];
+        $scriptStatus = strtolower(trim((string)($scriptValidation['status'] ?? '')));
+        $scriptIdentifier = trim((string)($scriptValidation['validated_identifier'] ?? ''));
+        $scriptObservedCount = max(0, (int)($scriptValidation['observed_identifier_count'] ?? 0));
+        $scriptMatchedCount = max(0, (int)($scriptValidation['matched_identifier_count'] ?? 0));
+        $scriptMismatchedCount = max(0, (int)($scriptValidation['mismatched_identifier_count'] ?? 0));
+        $scriptEvidenceSource = trim((string)($scriptValidation['evidence_source'] ?? ''));
+        $scriptSchemaValid = (int)($scriptValidation['schema_version'] ?? 0) === 1
+            && (int)($scriptValidation['expected_identifier_count'] ?? 0) === 1
+            && ($scriptValidation['sensitive_values_exposed'] ?? true) === false;
+        $requestContractValid = $scriptSchemaValid && $scriptEvidenceSource === 'ota_request';
+        if ($requestContractValid
+            && $scriptStatus === 'matched'
+            && ($scriptValidation['source_validation'] ?? null) === true
+            && $scriptIdentifier !== ''
+            && $scriptObservedCount === 1
+            && $scriptMatchedCount === 1
+            && $scriptMismatchedCount === 0
+        ) {
+            $matched = hash_equals($expectedHotelId, $scriptIdentifier);
+            return [
+                'schema_version' => 1,
+                'status' => $matched ? 'matched' : 'mismatch',
+                'expected_identifier_present' => true,
+                'observed_identifier_count' => 1,
+                'validated_identifier' => $matched ? $expectedHotelId : '',
+                'evidence_source' => 'ota_request',
+                'sensitive_values_exposed' => false,
+            ];
+        }
+        if ($requestContractValid
+            && in_array($scriptStatus, ['mismatch', 'ambiguous'], true)
+            && $scriptObservedCount > 0
+        ) {
+            return [
+                'schema_version' => 1,
+                'status' => 'mismatch',
+                'expected_identifier_present' => true,
+                'observed_identifier_count' => $scriptObservedCount,
+                'validated_identifier' => '',
+                'evidence_source' => 'ota_request',
+                'sensitive_values_exposed' => false,
+            ];
+        }
+
+        $scriptName = preg_replace('/\s+/u', ' ', trim((string)($scriptValidation['validated_name'] ?? ''))) ?? '';
+        $scriptObservedNameCount = max(0, (int)($scriptValidation['observed_name_count'] ?? 0));
+        $scriptMatchedNameCount = max(0, (int)($scriptValidation['matched_name_count'] ?? 0));
+        $scriptMismatchedNameCount = max(0, (int)($scriptValidation['mismatched_name_count'] ?? 0));
+        $scriptObservedPageStateCount = max(0, (int)($scriptValidation['observed_page_state_identifier_count'] ?? 0));
+        $scriptMatchedPageStateCount = max(0, (int)($scriptValidation['matched_page_state_identifier_count'] ?? 0));
+        $scriptMismatchedPageStateCount = max(0, (int)($scriptValidation['mismatched_page_state_identifier_count'] ?? 0));
+        $pageStateContractValid = $scriptSchemaValid
+            && $scriptEvidenceSource === 'trusted_ota_page_state'
+            && $trustedNameReference
+            && $expectedPlatformHotelName !== ''
+            && (int)($scriptValidation['expected_name_count'] ?? 0) === 1;
+        if ($pageStateContractValid
+            && $scriptStatus === 'matched'
+            && ($scriptValidation['source_validation'] ?? null) === true
+            && $scriptObservedCount === 0
+            && $scriptObservedPageStateCount === 1
+            && $scriptMatchedPageStateCount === 1
+            && $scriptMismatchedPageStateCount === 0
+            && $scriptObservedNameCount === 1
+            && $scriptMatchedNameCount === 1
+            && $scriptMismatchedNameCount === 0
+            && hash_equals($expectedHotelId, $scriptIdentifier)
+            && hash_equals($expectedPlatformHotelName, $scriptName)
+        ) {
+            return [
+                'schema_version' => 1,
+                'status' => 'matched',
+                'expected_identifier_present' => true,
+                'observed_identifier_count' => 0,
+                'observed_page_state_identifier_count' => 1,
+                'observed_name_count' => 1,
+                'validated_identifier' => $expectedHotelId,
+                'validated_name' => $expectedPlatformHotelName,
+                'evidence_source' => 'trusted_ota_page_state',
+                'identity_reference_source' => 'trip_public_profile',
+                'sensitive_values_exposed' => false,
+            ];
+        }
+        if ($pageStateContractValid
+            && in_array($scriptStatus, ['mismatch', 'ambiguous'], true)
+            && $scriptObservedPageStateCount > 0
+        ) {
+            return [
+                'schema_version' => 1,
+                'status' => 'mismatch',
+                'expected_identifier_present' => true,
+                'observed_identifier_count' => 0,
+                'observed_page_state_identifier_count' => $scriptObservedPageStateCount,
+                'validated_identifier' => '',
+                'validated_name' => '',
+                'evidence_source' => 'trusted_ota_page_state',
+                'identity_reference_source' => 'trip_public_profile',
+                'sensitive_values_exposed' => false,
+            ];
+        }
+        $nameContractValid = $scriptSchemaValid
+            && $scriptEvidenceSource === 'trusted_ota_page_header'
+            && $trustedNameReference
+            && $expectedPlatformHotelName !== ''
+            && (int)($scriptValidation['expected_name_count'] ?? 0) === 1;
+        if ($nameContractValid && $scriptObservedCount === 0 && $scriptObservedNameCount > 0) {
+            $nameMatched = $scriptObservedNameCount === 1
+                && $scriptMatchedNameCount === 1
+                && $scriptMismatchedNameCount === 0
+                && $scriptName !== ''
+                && hash_equals($expectedPlatformHotelName, $scriptName);
+            return [
+                'schema_version' => 1,
+                // A visible exact name is supporting evidence only. It cannot
+                // synthesize the platform hotel identifier required for writes.
+                'status' => $nameMatched ? 'unverified' : 'mismatch',
+                'expected_identifier_present' => true,
+                'observed_identifier_count' => 0,
+                'observed_name_count' => $scriptObservedNameCount,
+                'validated_identifier' => '',
+                'validated_name' => $nameMatched ? $expectedPlatformHotelName : '',
+                'evidence_source' => 'trusted_ota_page_header',
+                'identity_reference_source' => 'trip_public_profile',
+                'source_validation' => false,
+                'sensitive_values_exposed' => false,
+            ];
+        }
+
+        $observed = [];
+        foreach (is_array($payload['catalog_facts'] ?? null) ? $payload['catalog_facts'] : [] as $fact) {
+            if (!is_array($fact) || strtolower(trim((string)($fact['metric_key'] ?? ''))) !== 'hotel_id') {
+                continue;
+            }
+            $sourceKey = strtolower(trim((string)($fact['source_key'] ?? '')));
+            if (!in_array($sourceKey, ['masterhotelid', 'master_hotel_id', 'hotelid', 'hotel_id'], true)) {
+                continue;
+            }
+            $value = trim((string)($fact['value'] ?? ''));
+            if ($value !== '' && $value !== '-1') {
+                $observed[$value] = true;
+            }
+        }
+        foreach (is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rawData = is_array($row['raw_data'] ?? null) ? $row['raw_data'] : [];
+            if (trim((string)($rawData['hotel_id_source_key'] ?? '')) === '') {
+                continue;
+            }
+            $value = trim((string)($row['hotel_id'] ?? $row['hotelId'] ?? ''));
+            if ($value !== '' && $value !== '-1') {
+                $observed[$value] = true;
+            }
+        }
+
+        $observedIds = array_keys($observed);
+        $status = count($observedIds) === 1 && (string)$observedIds[0] === $expectedHotelId
+            ? 'matched'
+            : ($observedIds !== [] ? 'mismatch' : 'unverified');
+        return [
+            'schema_version' => 1,
+            'status' => $status,
+            'expected_identifier_present' => true,
+            'observed_identifier_count' => count($observedIds),
+            'validated_identifier' => $status === 'matched' ? $expectedHotelId : '',
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /** @return array{valid: bool, name: string, source: string} */
+    private function platformNameIdentityReference(array $source, string $expectedHotelId): array
+    {
+        $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+        $name = $this->firstString([], $config, ['platform_hotel_name', 'platformHotelName']);
+        $name = preg_replace('/\s+/u', ' ', trim($name)) ?? '';
+        $referenceSource = strtolower($this->firstString([], $config, [
+            'platform_hotel_identity_source',
+            'platformHotelIdentitySource',
+        ]));
+        $publicUrl = $this->firstString([], $config, ['platform_hotel_public_url', 'platformHotelPublicUrl']);
+        $checkedAt = $this->firstString([], $config, ['platform_hotel_identity_checked_at', 'platformHotelIdentityCheckedAt']);
+        $parts = $publicUrl !== '' ? parse_url($publicUrl) : false;
+        $host = is_array($parts) ? strtolower((string)($parts['host'] ?? '')) : '';
+        $path = is_array($parts) ? (string)($parts['path'] ?? '') : '';
+        $trustedHost = $host === 'trip.com' || str_ends_with($host, '.trip.com');
+        $pathHasExpectedId = $expectedHotelId !== ''
+            && preg_match(
+                '~(?:^|[^0-9])hotel-detail-' . preg_quote($expectedHotelId, '~') . '(?:[^0-9]|$)~i',
+                $path
+            ) === 1;
+        $valid = $name !== ''
+            && $expectedHotelId !== ''
+            && $referenceSource === 'trip_public_profile'
+            && is_array($parts)
+            && strtolower((string)($parts['scheme'] ?? '')) === 'https'
+            && $trustedHost
+            && $pathHasExpectedId
+            && !isset($parts['user'])
+            && !isset($parts['pass'])
+            && !isset($parts['fragment'])
+            && $checkedAt !== ''
+            && strtotime($checkedAt) !== false;
+
+        return [
+            'valid' => $valid,
+            'name' => $name,
+            'source' => $referenceSource,
+        ];
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -230,6 +478,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 if (!is_array($row)) {
                     continue;
                 }
+                $row = $this->alignStandardMetricPlaceholdersWithFieldFacts($row);
                 $row['source'] = 'ctrip';
                 $row['platform'] = $row['platform'] ?? 'ctrip';
                 $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
@@ -245,6 +494,65 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         return $rows;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function alignStandardMetricPlaceholdersWithFieldFacts(array $row): array
+    {
+        $rawData = $row['raw_data'] ?? null;
+        if (is_string($rawData) && trim($rawData) !== '') {
+            $decoded = json_decode($rawData, true);
+            $rawData = is_array($decoded) ? $decoded : null;
+        }
+        if (!is_array($rawData) || !is_array($rawData['field_facts'] ?? null)) {
+            return $row;
+        }
+
+        $fieldStates = [];
+        foreach ($rawData['field_facts'] as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $storageField = trim((string)($fact['storage_field'] ?? ''));
+            if (!str_starts_with($storageField, 'online_daily_data.')) {
+                continue;
+            }
+            $field = substr($storageField, strlen('online_daily_data.'));
+            if (!in_array($field, self::FACT_GUARDED_NUMERIC_FIELDS, true) || !array_key_exists($field, $row)) {
+                continue;
+            }
+
+            $fieldStates[$field] ??= ['captured' => false];
+            if (strtolower(trim((string)($fact['status'] ?? ''))) === 'captured'
+                && $this->truthy($fact['stored_value_present'] ?? false)
+            ) {
+                $fieldStates[$field]['captured'] = true;
+            }
+        }
+
+        foreach ($fieldStates as $field => $state) {
+            if (($state['captured'] ?? false) === true || !$this->isMissingMetricPlaceholder($row[$field])) {
+                continue;
+            }
+            $row[$field] = null;
+        }
+
+        return $row;
+    }
+
+    private function isMissingMetricPlaceholder(mixed $value): bool
+    {
+        if ($value === null || $value === false || $value === '') {
+            return true;
+        }
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '') {
+                return true;
+            }
+        }
+
+        return is_numeric($value) && (float)$value === 0.0;
     }
 
     /**
@@ -309,13 +617,20 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             $failurePayload['capture_module_results'] = $moduleResults;
             $failureStatus = (string)($firstFailure['status'] ?? 'failed');
             $failureMessage = (string)($firstFailure['message'] ?? 'unknown error');
-            return [
+            $failureResult = [
                 'status' => $failureStatus,
                 'message' => $failureStatus === 'waiting_config'
                     ? $failureMessage
                     : 'Ctrip browser Profile section capture failed: ' . $failureMessage,
                 'payload' => $failurePayload,
             ];
+            foreach (['status_code', 'error_code'] as $key) {
+                $value = trim((string)($firstFailure[$key] ?? ''));
+                if ($value !== '') {
+                    $failureResult[$key] = $value;
+                }
+            }
+            return $failureResult;
         }
 
         $payload = $this->mergeSequentialCapturePayloads(
@@ -362,6 +677,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         array $fieldConfigPayload,
         array $captureOptions = []
     ): array {
+        $identityReference = $this->platformNameIdentityReference($source, $hotelId);
         $args = [
             $this->nodeBinary,
             $scriptPath,
@@ -389,6 +705,9 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($hotelName !== '') {
             $args[] = '--hotel-name=' . $hotelName;
+        }
+        if ($identityReference['valid'] && $identityReference['name'] !== '') {
+            $args[] = '--platform-hotel-name=' . $identityReference['name'];
         }
 
         $fieldConfigPath = '';
@@ -478,6 +797,15 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        $identityReference = $this->platformNameIdentityReference($source, $hotelId);
+        $payload['platform_identity_validation'] = $this->evaluatePlatformIdentity(
+            $payload,
+            $hotelId,
+            $identityReference['name'],
+            $identityReference['valid']
+        );
+        $identityStatus = strtolower(trim((string)($payload['platform_identity_validation']['status'] ?? 'unverified')));
+
         $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         $gateWarning = null;
         if (($gate['status'] ?? 'fail') !== 'pass') {
@@ -493,6 +821,19 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             $gateWarning = $this->buildCaptureGateWarning($gate, $failedCheckIds);
         }
 
+        if ($identityStatus !== 'matched') {
+            $identityStatusCode = $identityStatus === 'mismatch'
+                ? 'ctrip_platform_identity_mismatch'
+                : 'ctrip_platform_identity_unverified';
+            return [
+                'status' => 'failed',
+                'status_code' => $identityStatusCode,
+                'error_code' => $identityStatusCode,
+                'message' => $identityStatusCode,
+                'payload' => $this->compactFailurePayload($payload, $runResult),
+            ];
+        }
+
         $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $hotelId);
         if (empty($rows)) {
             return [
@@ -501,7 +842,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'payload' => $this->compactFailurePayload($payload, $runResult),
             ];
         }
-
         if ($gateWarning !== null) {
             $payload['capture_gate_warning'] = $gateWarning;
         }
@@ -744,6 +1084,16 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 return false;
             }
         }
+        $statusCode = strtolower(trim((string)($result['status_code'] ?? $result['error_code'] ?? '')));
+        if (in_array($statusCode, [
+            'ctrip_platform_identity_mismatch',
+            'ctrip_platform_identity_unverified',
+            'permission_denied',
+            'platform_contract_drift',
+            'anti_bot',
+        ], true)) {
+            return false;
+        }
         return !in_array((string)($result['status'] ?? ''), ['success', 'partial_success'], true);
     }
 
@@ -793,6 +1143,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'capture_gate' => $payload['capture_gate'] ?? null,
             'capture_gate_warning' => $payload['capture_gate_warning'] ?? null,
             'capture_audit' => $payload['capture_audit'] ?? null,
+            'platform_identity_validation' => $payload['platform_identity_validation'] ?? null,
             'pages' => $payload['pages'] ?? [],
             'xhr_urls' => array_slice(is_array($payload['xhr_urls'] ?? null) ? $payload['xhr_urls'] : [], 0, 20),
             'output' => $payload['output'] ?? '',

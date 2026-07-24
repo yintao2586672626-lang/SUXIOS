@@ -4,12 +4,207 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\PlatformDataSyncService;
+use app\service\OnlineDataFieldFactService;
 use app\service\platform\CtripBrowserProfileDataSourceAdapter;
 use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use PHPUnit\Framework\TestCase;
+use think\App;
+use think\facade\Config;
+use think\facade\Db;
 
 final class PlatformDataSyncServiceTest extends TestCase
 {
+    private static array $originalDatabaseConfig = [];
+    private static string $databaseConnection = '';
+    private static string $databasePath = '';
+
+    public static function setUpBeforeClass(): void
+    {
+        (new App())->initialize();
+        self::$originalDatabaseConfig = Config::get('database');
+        self::$databaseConnection = 'platform_data_sync_unit_' . getmypid();
+        self::$databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . self::$databaseConnection . '.sqlite';
+        @unlink(self::$databasePath);
+
+        $database = self::$originalDatabaseConfig;
+        $database['default'] = self::$databaseConnection;
+        $database['connections'][self::$databaseConnection] = [
+            'type' => 'sqlite',
+            'database' => self::$databasePath,
+            'prefix' => '',
+            'fields_strict' => false,
+        ];
+        Config::set($database, 'database');
+        Db::connect(null, true);
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+        Db::name('hotels')->insertAll([
+            ['id' => 7, 'tenant_id' => 1],
+            ['id' => 58, 'tenant_id' => 1],
+            ['id' => 80, 'tenant_id' => 1],
+        ]);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        try {
+            Db::connect(self::$databaseConnection)->close();
+        } catch (\Throwable) {
+        }
+        Config::set(self::$originalDatabaseConfig, 'database');
+        Db::connect(null, true);
+        @unlink(self::$databasePath);
+    }
+
+    public function testExplicitReviewOnlyCaptureDoesNotRequireTrafficEvidence(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'syncRequiresTargetDateTrafficEvidence');
+        $method->setAccessible(true);
+        $source = [
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'ingestion_method' => 'browser_profile',
+        ];
+        $payload = [
+            'sync_summary' => [
+                'traffic_count' => 0,
+                'traffic_forecast_count' => 0,
+                'review_count' => 1,
+            ],
+        ];
+
+        self::assertFalse($method->invoke($service, $source, ['capture_sections' => 'reviews'], $payload));
+        self::assertTrue($method->invoke($service, $source, ['capture_sections' => 'traffic'], $payload));
+    }
+
+    public function testAuthoritativeEmptySyncPayloadIsRecognized(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'isAuthoritativeEmptySyncPayload');
+        $method->setAccessible(true);
+
+        self::assertTrue($method->invoke($service, ['sync_summary' => ['confirmed_empty' => true]]));
+        self::assertFalse($method->invoke($service, ['sync_summary' => ['confirmed_empty' => false]]));
+        self::assertFalse($method->invoke($service, []));
+    }
+
+    public function testCurrentRunMetricReceiptUsesVerifiedSelfRowsOnly(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'verifiedCoreMetricKeysFromRunRows');
+        $method->setAccessible(true);
+        $facts = [
+            ['metric_key' => 'order_amount', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'orderAmount'],
+            ['metric_key' => 'room_nights', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'roomNights'],
+        ];
+        $rows = [[
+            'hotel_id' => 'MT-SELF-80',
+            'hotel_name' => '本店',
+            'data_type' => 'business',
+            'amount' => 1200.0,
+            'quantity' => 3,
+            'raw_data' => json_encode([
+                'row' => ['is_self' => true, 'poi_id' => 'MT-SELF-80'],
+                'field_facts' => $facts,
+            ], JSON_UNESCAPED_UNICODE),
+        ], [
+            'hotel_id' => 'MT-PEER-1',
+            'hotel_name' => '竞店',
+            'data_type' => 'competitor_avg',
+            'compare_type' => 'competitor',
+            'amount' => 99999.0,
+            'quantity' => 1,
+            'raw_data' => json_encode([
+                'row' => ['is_self' => false, 'poi_id' => 'MT-PEER-1'],
+                'field_facts' => $facts,
+            ], JSON_UNESCAPED_UNICODE),
+        ]];
+        $source = [
+            'name' => '本店',
+            'platform' => 'meituan',
+            'config_json' => json_encode(['poi_id' => 'MT-SELF-80'], JSON_UNESCAPED_UNICODE),
+        ];
+
+        self::assertSame(
+            ['revenue', 'room_nights', 'adr'],
+            $method->invoke($service, $rows, $source)
+        );
+
+        $rows[0]['raw_data'] = json_encode([
+            'row' => ['is_self' => true, 'poi_id' => 'MT-SELF-80'],
+            'field_facts' => [$facts[0]],
+        ], JSON_UNESCAPED_UNICODE);
+        self::assertSame(['revenue'], $method->invoke($service, $rows, $source));
+
+        $rows[0]['raw_data'] = json_encode([
+            'row' => ['poi_id' => 'MT-SELF-80'],
+            'field_facts' => $facts,
+        ], JSON_UNESCAPED_UNICODE);
+        self::assertSame([], $method->invoke($service, $rows, $source));
+    }
+
+    public function testAuthoritativeEmptyOrderCaptureVerifiesOnlyOrderCapability(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'applyConfirmedEmptyCapabilityStates');
+        $method->setAccessible(true);
+        $states = ['business' => 'unverified', 'orders' => 'unverified', 'reviews' => 'unverified'];
+
+        $result = $method->invoke($service, $states, ['capture_sections' => 'orders'], []);
+
+        self::assertSame('verified', $result['orders']);
+        self::assertSame('unverified', $result['reviews']);
+        self::assertSame('unverified', $result['business']);
+    }
+
+    public function testMixedCaptureDiagnosticsPreserveEmptyAndNotApplicableSectionEvidence(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
+        $method->setAccessible(true);
+        $diagnostics = $method->invoke(
+            $service,
+            [
+                ['data_date' => '2026-07-19', 'data_type' => 'traffic'],
+                ['data_date' => '2026-07-19', 'data_type' => 'order'],
+            ],
+            2,
+            ['platform' => 'custom', 'data_type' => 'business', 'ingestion_method' => 'manual'],
+            [
+                'data_date' => '2026-07-19',
+                'capture_sections' => 'traffic,orders,reviews',
+                'skipped_sections_no_entry' => ['ads'],
+            ],
+            [
+                'capture_gate' => [
+                    'status' => 'pass',
+                    'requested_sections' => ['traffic', 'orders', 'reviews'],
+                    'section_statuses' => [
+                        'traffic' => 'captured',
+                        'orders' => 'captured',
+                        'reviews' => 'empty_confirmed',
+                    ],
+                ],
+            ],
+            'success',
+            'Platform data synchronized.'
+        );
+
+        self::assertSame([
+            'traffic' => 'captured',
+            'orders' => 'captured',
+            'reviews' => 'empty_confirmed',
+            'ads' => 'not_applicable',
+        ], $diagnostics['capture_section_statuses']);
+        self::assertSame('verified', $diagnostics['capability_states']['reviews']);
+
+        $sanitize = new \ReflectionMethod($service, 'sanitizeSyncDiagnosticsForResponse');
+        $sanitize->setAccessible(true);
+        $safe = $sanitize->invoke($service, $diagnostics, 'success');
+        self::assertSame($diagnostics['capture_section_statuses'], $safe['capture_section_statuses']);
+        self::assertSame('verified', $safe['capability_states']['reviews']);
+    }
+
     public function testBrowserProfileSyncDiagnosticsRequiresTargetDateTrafficFieldFacts(): void
     {
         $service = new PlatformDataSyncService();
@@ -34,11 +229,16 @@ final class PlatformDataSyncServiceTest extends TestCase
         ];
         $rows = $service->normalizeRowsFromPayload([
             'rows' => [[
+                'hotel_id' => '24588',
                 'data_date' => '2026-06-29',
                 'data_type' => 'traffic',
                 'list_exposure' => 100,
                 'detail_exposure' => 20,
                 'flow_rate' => 0.2,
+                'order_filling_num' => 8,
+                'order_submit_num' => 4,
+                'source_trace_id' => 'ctrip:traffic-ready-20260629',
+                'source_url_hash' => str_repeat('a', 64),
             ]],
         ], $source, 88);
         $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
@@ -109,14 +309,14 @@ final class PlatformDataSyncServiceTest extends TestCase
         ]);
     }
 
-    public function testBrowserProfileBackgroundSyncRequiresCurrentSessionProof(): void
+    public function testBrowserProfileBackgroundSyncRequiresReusableSessionProof(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
         $method->setAccessible(true);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('current_session_verified');
+        $this->expectExceptionMessage('profile_session_unverified');
 
         $method->invoke($service, [
             'id' => 79,
@@ -136,7 +336,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         ]);
     }
 
-    public function testBrowserProfileBackgroundSyncDoesNotAcceptHistoricalStatusAndTime(): void
+    public function testBrowserProfileBackgroundSyncReportsUnverifiedHistoricalStatus(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
@@ -158,19 +358,41 @@ final class PlatformDataSyncServiceTest extends TestCase
             'interactive_browser' => false,
         ]);
 
-        self::assertSame(['current_session_verified'], $missing);
+        self::assertSame(['profile_session_unverified'], $missing);
     }
 
-    public function testBrowserProfileInteractiveSynchronizationStillRequiresCurrentSessionProof(): void
+    public function testBrowserProfileBackgroundSyncStopsAfterRiskControlUntilManualReview(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
+        $method->setAccessible(true);
+
+        $missing = $method->invoke($service, [
+            'id' => 801,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'profile_id' => 'hotel_001',
+                'current_session_status' => 'anti_bot',
+                'current_session_backoff_until' => '2099-01-01 00:00:00',
+            ],
+        ], [
+            'trigger_type' => 'daily_profile_reuse',
+            'interactive_browser' => false,
+        ]);
+
+        self::assertSame(['profile_risk_control_manual_review_required'], $missing);
+    }
+
+    public function testBrowserProfileInteractiveSynchronizationDoesNotRequireCurrentSessionProof(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
         $method->setAccessible(true);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('current_session_verified');
-
-        $method->invoke($service, [
+        self::assertNull($method->invoke($service, [
             'id' => 81,
             'platform' => 'ctrip',
             'data_type' => 'traffic',
@@ -182,18 +404,42 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], [
             'trigger_type' => 'manual',
             'interactive_browser' => true,
-        ]);
+        ]));
 
     }
 
-    public function testBrowserProfileBackgroundSyncRejectsHistoricalVerifiedManualLoginState(): void
+    public function testFreshPostLoginCollectionMayRunOnceToVerifyHotelIdentity(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
+        $method->setAccessible(true);
+
+        $missing = $method->invoke($service, [
+            'id' => 811,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'profile_id' => 'hotel_001',
+                'current_session_status' => 'identity_unverified',
+            ],
+        ], [
+            'trigger_type' => 'profile_login_after_login',
+            'interactive_browser' => false,
+        ]);
+
+        self::assertSame([], $missing);
+    }
+
+    public function testBrowserProfileBackgroundSyncRejectsHistoricalVerifiedManualLoginWithoutReusableProof(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
         $method->setAccessible(true);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('current_session_verified');
+        $this->expectExceptionMessage('profile_session_unverified');
 
         $method->invoke($service, [
             'id' => 82,
@@ -238,7 +484,14 @@ final class PlatformDataSyncServiceTest extends TestCase
 
         self::assertSame('blocked', $diagnostics['p0_status']);
         self::assertSame('current_session_not_verified', $diagnostics['operator_message']);
-        self::assertSame(['target_date_traffic_rows', 'current_session_verified'], $diagnostics['missing_inputs']);
+        self::assertSame([
+            'target_date_traffic_rows',
+            'required_traffic_metric_keys',
+            'target_date_required_traffic_metrics_zero_unverified',
+            'platform_hotel_identifier',
+            'page_field_fact_status',
+            'current_session_verified',
+        ], $diagnostics['missing_inputs']);
     }
 
     public function testSyncDiagnosticsDoNotRetainAdapterErrorText(): void
@@ -416,6 +669,32 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertStringContainsString('"data_source_name":"携程手工导入"', $rows[0]['raw_data']);
     }
 
+    public function testCtripAverageIdentityCannotPersistAsOrdinaryCompetitor(): void
+    {
+        $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload([
+            'rows' => [[
+                'hotel_id' => '-1',
+                'hotel_name' => '竞争圈平均',
+                'data_date' => '2026-07-12',
+                'data_type' => 'traffic',
+                'compare_type' => 'competitor',
+                'list_exposure' => 799,
+            ]],
+        ], [
+            'id' => 25,
+            'name' => 'Ctrip Profile Traffic',
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'system_hotel_id' => 80,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 318);
+
+        self::assertCount(1, $rows);
+        self::assertSame('-1', $rows[0]['hotel_id']);
+        self::assertSame('competitor_avg', $rows[0]['compare_type']);
+    }
+
     public function testManualPayloadRejectsMissingBusinessRows(): void
     {
         $service = new PlatformDataSyncService();
@@ -426,6 +705,220 @@ final class PlatformDataSyncServiceTest extends TestCase
             'data_type' => 'traffic',
             'system_hotel_id' => 7,
         ], 34));
+    }
+
+    public function testGenericOtaBindingMismatchFailsClosed(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertGenericOtaPayloadBinding');
+        $method->setAccessible(true);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('binding_mismatch');
+        $method->invoke($service, [
+            'platform' => 'ctrip',
+            'ingestion_method' => 'api',
+            'config' => ['external_hotel_id' => 'ctrip-1001'],
+        ], [
+            'rows' => [[
+                'hotel_id' => 'ctrip-2002',
+                'data_date' => '2026-07-22',
+                'data_type' => 'business',
+            ]],
+        ]);
+    }
+
+    public function testGenericOtaBindingMissingFailsClosed(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertGenericOtaPayloadBinding');
+        $method->setAccessible(true);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('binding_missing');
+        $method->invoke($service, [
+            'platform' => 'meituan',
+            'ingestion_method' => 'manual',
+            'config' => [],
+        ], [
+            'rows' => [[
+                'poi_id' => 'mt-1001',
+                'data_date' => '2026-07-22',
+            ]],
+        ]);
+    }
+
+    public function testResponseLevelMatchedBindingAllowsCompetitorRows(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertGenericOtaPayloadBinding');
+        $method->setAccessible(true);
+
+        $evidence = $method->invoke($service, [
+            'platform' => 'ctrip',
+            'ingestion_method' => 'api',
+            'config' => ['external_hotel_id' => 'ctrip-1001'],
+        ], [
+            'platform_identity_validation' => [
+                'status' => 'matched',
+                'source_validation' => true,
+                'validated_identifier' => 'ctrip-1001',
+            ],
+            'rows' => [[
+                'hotel_id' => 'ctrip-competitor-9',
+                'compare_type' => 'competitor',
+                'data_date' => '2026-07-22',
+            ]],
+        ]);
+
+        self::assertSame(['status' => 'matched', 'proof' => 'platform_identity_validation'], $evidence);
+    }
+
+    public function testGenericOtaMissingMetricsStayNullAndExplicitZeroRemainsObserved(): void
+    {
+        $service = new PlatformDataSyncService();
+        $source = [
+            'id' => 12,
+            'name' => 'Meituan manual fixture',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'manual',
+            'config' => ['poi_id' => 'mt-1001'],
+        ];
+        $rows = $service->normalizeRowsFromPayload([
+            '_ota_binding_evidence' => ['status' => 'matched', 'proof' => 'test_fixture'],
+            'rows' => [
+                ['poi_id' => 'mt-1001', 'data_date' => '2026-07-22', 'dimension' => 'missing'],
+                [
+                    'poi_id' => 'mt-1001',
+                    'data_date' => '2026-07-22',
+                    'dimension' => 'observed-zero',
+                    'list_exposure' => 0,
+                    'detail_exposure' => 0,
+                    'flow_rate' => 0,
+                ],
+            ],
+        ], $source, 34);
+
+        self::assertCount(2, $rows);
+        self::assertNull($rows[0]['list_exposure']);
+        self::assertNull($rows[0]['detail_exposure']);
+        self::assertNull($rows[0]['flow_rate']);
+        self::assertSame('unverified', $rows[0]['validation_status']);
+        self::assertContains('field_missing:list_exposure', json_decode($rows[0]['validation_flags'], true));
+        self::assertSame(0, $rows[1]['list_exposure']);
+        self::assertSame(0, $rows[1]['detail_exposure']);
+        self::assertSame(0.0, $rows[1]['flow_rate']);
+        $facts = array_column(json_decode($rows[1]['raw_data'], true)['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('captured', $facts['list_exposure']['status'] ?? '');
+        self::assertTrue($facts['list_exposure']['stored_value_present'] ?? false);
+    }
+
+    public function testOrderPersistenceIdentityIsDistinctPerOrderAndStableAcrossRetries(): void
+    {
+        $service = new PlatformDataSyncService();
+        $source = $this->meituanBrowserProfileSource();
+        $payload = ['rows' => [
+            [
+                'poi_id' => '68471',
+                'data_date' => '2026-07-22',
+                'data_type' => 'order',
+                'orderId' => 'ORDER-SECRET-A',
+                'amount' => 100,
+            ],
+            [
+                'poi_id' => '68471',
+                'data_date' => '2026-07-22',
+                'data_type' => 'order',
+                'orderId' => 'ORDER-SECRET-B',
+                'amount' => 200,
+            ],
+        ]];
+
+        $first = $service->normalizeRowsFromPayload($payload, $source, 1001);
+        $retry = $service->normalizeRowsFromPayload($payload, $source, 1002);
+
+        self::assertCount(2, $first);
+        self::assertNotSame($first[0]['persistence_identity_hash'], $first[1]['persistence_identity_hash']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $first[0]['persistence_identity_hash']);
+        self::assertSame(
+            array_column($first, 'persistence_identity_hash'),
+            array_column($retry, 'persistence_identity_hash')
+        );
+        self::assertNotSame($first[0]['source_trace_id'], $retry[0]['source_trace_id']);
+        self::assertStringNotContainsString('ORDER-SECRET-A', $first[0]['raw_data']);
+        self::assertStringNotContainsString('ORDER-SECRET-A', $first[0]['persistence_identity_hash']);
+    }
+
+    public function testPersistenceIdentityMigrationIsAdditiveAndDoesNotTouchUsersOrHotels(): void
+    {
+        $migration = (string)file_get_contents(dirname(__DIR__) . '/database/migrations/20260723_add_online_daily_data_persistence_identity.sql');
+        self::assertStringContainsString('persistence_identity_hash', $migration);
+        self::assertStringContainsString('UNIQUE INDEX', strtoupper($migration));
+        self::assertDoesNotMatchRegularExpression('/\b(?:DELETE|TRUNCATE|DROP\s+TABLE)\b/i', $migration);
+        self::assertDoesNotMatchRegularExpression('/`(?:users|hotels|platform_data_sources|ota_profile_bindings)`/i', $migration);
+    }
+
+    public function testCtripCatalogFieldFactsDoNotPromoteMissingZeroPlaceholders(): void
+    {
+        $service = new PlatformDataSyncService();
+        $source = [
+            'id' => 91,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'system_hotel_id' => 80,
+            'ingestion_method' => 'browser_profile',
+        ];
+        $baseRow = [
+            'hotel_id' => '6866634',
+            'data_date' => '2026-07-21',
+            'data_type' => 'traffic',
+            'list_exposure' => 120,
+            'order_submit_num' => 0,
+            'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
+            'capture_evidence' => [
+                'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
+                'source_url_hash' => str_repeat('b', 64),
+            ],
+        ];
+        $fieldFact = [
+            'metric_key' => 'order_submit_user',
+            'source_path' => 'data.0.orderSubmitNum',
+            'storage_field' => 'online_daily_data.order_submit_num',
+            'status' => 'missing',
+            'missing_state' => 'field_missing',
+            'stored_value_present' => false,
+        ];
+
+        $missingRow = $baseRow;
+        $missingRow['raw_data'] = [
+            'source' => 'ctrip_catalog_facts',
+            'field_facts' => [$fieldFact],
+        ];
+        $missing = $service->normalizeRowsFromPayload(['rows' => [$missingRow]], $source, 101);
+        self::assertCount(1, $missing);
+        self::assertNull($missing[0]['order_submit_num']);
+        $missingRaw = json_decode((string)$missing[0]['raw_data'], true);
+        $missingFacts = array_column($missingRaw['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('missing', $missingFacts['order_submit_num']['status'] ?? '');
+
+        $capturedRow = $baseRow;
+        $capturedRow['raw_data'] = [
+            'source' => 'ctrip_catalog_facts',
+            'field_facts' => [array_replace($fieldFact, [
+                'status' => 'captured',
+                'missing_state' => '',
+                'stored_value_present' => true,
+            ])],
+        ];
+        $captured = $service->normalizeRowsFromPayload(['rows' => [$capturedRow]], $source, 102);
+        self::assertCount(1, $captured);
+        self::assertSame(0, $captured[0]['order_submit_num']);
+        $capturedRaw = json_decode((string)$captured[0]['raw_data'], true);
+        $capturedFacts = array_column($capturedRaw['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('captured', $capturedFacts['order_submit_num']['status'] ?? '');
     }
 
     public function testCollectionResourceDefinitionsExposeUnifiedContract(): void
@@ -591,10 +1084,10 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertCount(1, $rows);
         self::assertSame('realtime_snapshot', $rows[0]['data_period']);
         self::assertSame('2026-06-06 13:15:00', $rows[0]['snapshot_time']);
-        self::assertSame('2026060613', $rows[0]['snapshot_bucket']);
+        self::assertSame('202606061315', $rows[0]['snapshot_bucket']);
         self::assertSame(0, $rows[0]['is_final']);
         self::assertStringContainsString('"data_period":"realtime_snapshot"', $rows[0]['raw_data']);
-        self::assertStringContainsString('"snapshot_bucket":"2026060613"', $rows[0]['raw_data']);
+        self::assertStringContainsString('"snapshot_bucket":"202606061315"', $rows[0]['raw_data']);
     }
 
     public function testHistoricalPayloadNormalizesAsFinalDailyData(): void
@@ -688,6 +1181,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('review', $rows[0]['data_type']);
             self::assertSame(3.0, $rows[0]['comment_score']);
             self::assertSame(2, $rows[0]['quantity']);
+            self::assertSame(1.0, $rows[0]['data_value']);
             self::assertStringNotContainsString('This review text must be redacted.', $rows[0]['raw_data']);
         }
     }
@@ -732,6 +1226,189 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertStringNotContainsString('Private Room', $rows[0]['raw_data']);
         self::assertStringNotContainsString('This Meituan review text must be redacted.', $rows[0]['raw_data']);
         self::assertStringNotContainsString('This reply text must be redacted.', $rows[0]['raw_data']);
+    }
+
+    public function testBrowserProfileReviewMapsCapturedCamelCaseSummaryFields(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'data_type' => 'review',
+                'poi_id' => 'mt-001',
+                'data_date' => '2026-07-11',
+                'commentCount' => 5,
+                'commentScore' => 5,
+                'badReviewCount' => 0,
+            ]],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(1, $rows);
+        self::assertSame(5.0, $rows[0]['comment_score']);
+        self::assertSame(5, $rows[0]['quantity']);
+        self::assertSame(0.0, $rows[0]['data_value']);
+    }
+
+    public function testBrowserProfileMissingReviewAndOrderMetricsRemainNull(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [
+                [
+                    'data_type' => 'review',
+                    'poi_id' => 'mt-001',
+                    'data_date' => '2026-07-11',
+                    'score' => '4.6',
+                ],
+                [
+                    'data_type' => 'order',
+                    'poi_id' => 'mt-001',
+                    'data_date' => '2026-07-11',
+                    'orderId' => 'MT-ORDER-001',
+                    'amount' => '588.00',
+                ],
+            ],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(2, $rows);
+        $reviewRow = $rows[0]['data_type'] === 'review' ? $rows[0] : $rows[1];
+        $orderRow = $rows[0]['data_type'] === 'order' ? $rows[0] : $rows[1];
+
+        self::assertSame(4.6, $reviewRow['comment_score']);
+        self::assertNull($reviewRow['amount']);
+        self::assertNull($reviewRow['quantity']);
+        self::assertNull($reviewRow['book_order_num']);
+        self::assertNull($reviewRow['qunar_comment_score']);
+        self::assertNull($reviewRow['data_value']);
+
+        self::assertSame(588.0, $orderRow['amount']);
+        self::assertNull($orderRow['quantity']);
+        self::assertNull($orderRow['book_order_num']);
+        self::assertNull($orderRow['comment_score']);
+        self::assertNull($orderRow['data_value']);
+    }
+
+    public function testBrowserProfilePeerRankStaysRawInsteadOfBecomingGenericDataValue(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'data_type' => 'peer_rank',
+                'poi_id' => 'mt-001',
+                'data_date' => '2026-07-11',
+                'rank' => '2',
+                'rank_type' => 'P_RZ',
+            ]],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(1, $rows);
+        self::assertNull($rows[0]['amount']);
+        self::assertNull($rows[0]['quantity']);
+        self::assertNull($rows[0]['book_order_num']);
+        self::assertNull($rows[0]['data_value']);
+        self::assertStringContainsString('"rank":"2"', $rows[0]['raw_data']);
+    }
+
+    public function testBrowserProfileCommonMetricsRemainNullWhenAbsent(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [
+                ['data_type' => 'business', 'poi_id' => 'mt-001', 'data_date' => '2026-07-11'],
+                ['data_type' => 'traffic', 'poi_id' => 'mt-001', 'data_date' => '2026-07-11'],
+                ['data_type' => 'advertising', 'poi_id' => 'mt-001', 'data_date' => '2026-07-11'],
+            ],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(3, $rows);
+        foreach ($rows as $row) {
+            foreach ([
+                'amount',
+                'quantity',
+                'book_order_num',
+                'list_exposure',
+                'detail_exposure',
+                'order_filling_num',
+                'order_submit_num',
+                'data_value',
+            ] as $field) {
+                self::assertNull($row[$field], $row['data_type'] . '.' . $field);
+            }
+        }
+    }
+
+    public function testBrowserProfileCommonMetricsPreserveExplicitZero(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'data_type' => 'traffic',
+                'poi_id' => 'mt-001',
+                'data_date' => '2026-07-11',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+                'data_value' => 0,
+            ]],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(1, $rows);
+        self::assertSame(0.0, $rows[0]['amount']);
+        self::assertSame(0, $rows[0]['quantity']);
+        self::assertSame(0, $rows[0]['book_order_num']);
+        self::assertSame(0, $rows[0]['list_exposure']);
+        self::assertSame(0, $rows[0]['detail_exposure']);
+        self::assertSame(0, $rows[0]['order_filling_num']);
+        self::assertSame(0, $rows[0]['order_submit_num']);
+        self::assertSame(0.0, $rows[0]['data_value']);
     }
 
     public function testReviewDetailStorageStillRequiresExplicitAuthorization(): void
@@ -960,6 +1637,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                         'campaignId' => 'campaign-1',
                         'impressions' => '10000',
                         'clicks' => '320',
+                        'ctr' => '3.2%',
                         'cvr' => '8.5%',
                         'todayCost' => '256.75',
                         'bookings' => '16',
@@ -986,10 +1664,41 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame(16, $rows[0]['book_order_num']);
         self::assertSame(10000, $rows[0]['list_exposure']);
         self::assertSame(320, $rows[0]['detail_exposure']);
-        self::assertSame(8.5, $rows[0]['flow_rate']);
+        self::assertSame(3.2, $rows[0]['flow_rate']);
         self::assertSame(16, $rows[0]['order_submit_num']);
         self::assertSame(7.35, $rows[0]['data_value']);
         self::assertStringContainsString('"orderAmount":"1888.00"', $rows[0]['raw_data']);
+    }
+
+    public function testAdvertisingRatesDoNotFallbackIntoRoasOrMixCtrWithCvr(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'hotelId' => 'ctrip-3001',
+                'date' => '2026-05-27',
+                'data_type' => 'advertising',
+                'ctr' => '3.2%',
+                'cvr' => '8.5%',
+                'ecpc' => '0.80',
+            ]],
+        ], [
+            'id' => 22,
+            'name' => 'Ctrip ad report',
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 42);
+
+        self::assertCount(1, $rows);
+        self::assertSame('advertising', $rows[0]['data_type']);
+        self::assertSame(3.2, $rows[0]['flow_rate']);
+        self::assertNull($rows[0]['data_value']);
+        self::assertStringContainsString('"cvr":"8.5%"', $rows[0]['raw_data']);
+        self::assertStringContainsString('"ecpc":"0.80"', $rows[0]['raw_data']);
     }
 
     public function testOrderListPayloadMapsAmountRoomNightsAndAveragePriceWithoutPii(): void
@@ -1027,7 +1736,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('order', $rows[0]['data_type']);
         self::assertSame(1200.0, $rows[0]['amount']);
         self::assertSame(6, $rows[0]['quantity']);
-        self::assertSame(1, $rows[0]['book_order_num']);
+        self::assertNull($rows[0]['book_order_num']);
         self::assertSame(200.0, $rows[0]['data_value']);
 
         $rawData = $rows[0]['raw_data'];
@@ -1076,6 +1785,51 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string)($payload['data']['orderList'][0]['order_id_hash'] ?? ''));
         self::assertSame('B***', $payload['data']['orderList'][0]['guest_name_masked'] ?? null);
         self::assertSame('*******1111', $payload['data']['orderList'][0]['phone_masked'] ?? null);
+    }
+
+    public function testRawPayloadStorageSanitizerRecursivelyRemovesUrlCredentialsQueryAndFragment(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'sanitizePayloadForStorage');
+        $method->setAccessible(true);
+
+        $payload = $method->invoke($service, [
+            'source_url' => 'https://user:pass@example.test/data?token=top-secret#fragment',
+            'facts' => [[
+                'value' => 'https://example.test/course?id=1&token=nested-secret#section',
+                'nested' => [
+                    'targetUrl' => '/jump?token=relative-secret#fragment',
+                ],
+            ]],
+        ]);
+
+        self::assertSame('https://example.test/data', $payload['source_url']);
+        self::assertSame('https://example.test/course', $payload['facts'][0]['value']);
+        self::assertSame('/jump', $payload['facts'][0]['nested']['targetUrl']);
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        self::assertStringNotContainsString('top-secret', $encoded);
+        self::assertStringNotContainsString('nested-secret', $encoded);
+        self::assertStringNotContainsString('relative-secret', $encoded);
+        self::assertStringNotContainsString('user:pass@', $encoded);
+    }
+
+    public function testNormalizedFieldFactSummaryRejectsMalformedSourceUrlHash(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'summarizeNormalizedFieldFacts');
+        $method->setAccessible(true);
+
+        $summary = $method->invoke($service, [[
+            'metric_key' => 'list_exposure',
+            'status' => 'captured',
+            'capture_evidence' => [
+                'source_trace_id' => 'ctrip:' . str_repeat('a', 64),
+                'source_url_hash' => 'x',
+            ],
+        ]]);
+
+        self::assertSame(1, $summary['capture_evidence_count']);
+        self::assertSame(0, $summary['desensitized_capture_evidence_count']);
     }
 
     public function testLargeRawPayloadStorageKeepsBoundedTraceableSummary(): void
@@ -1249,6 +2003,245 @@ final class PlatformDataSyncServiceTest extends TestCase
         ]));
     }
 
+    public function testCtripBrowserProfileIdentityUsesObservedHotelFactsInsteadOfConfiguredFallback(): void
+    {
+        $adapter = new CtripBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', static fn() => []);
+        $method = new \ReflectionMethod($adapter, 'evaluatePlatformIdentity');
+        $method->setAccessible(true);
+        $payload = [
+            'catalog_facts' => [[
+                'metric_key' => 'hotel_id',
+                'source_key' => 'masterHotelId',
+                'value' => '6866634',
+            ]],
+        ];
+
+        self::assertSame('matched', $method->invoke($adapter, $payload, '6866634')['status']);
+        self::assertSame('mismatch', $method->invoke($adapter, $payload, '9999999')['status']);
+        $mixedPayload = $payload;
+        $mixedPayload['catalog_facts'][] = [
+            'metric_key' => 'hotel_id',
+            'source_key' => 'hotelId',
+            'value' => '9999999',
+        ];
+        self::assertSame('mismatch', $method->invoke($adapter, $mixedPayload, '6866634')['status']);
+        self::assertSame('unverified', $method->invoke($adapter, ['catalog_facts' => []], '6866634')['status']);
+        self::assertSame('not_configured', $method->invoke($adapter, $payload, '')['status']);
+
+        $requestEvidence = [
+            'platform_identity_validation' => [
+                'schema_version' => 1,
+                'status' => 'matched',
+                'source_validation' => true,
+                'evidence_source' => 'ota_request',
+                'expected_identifier_count' => 1,
+                'observed_identifier_count' => 1,
+                'matched_identifier_count' => 1,
+                'mismatched_identifier_count' => 0,
+                'validated_identifier' => '130079194',
+                'sensitive_values_exposed' => false,
+            ],
+        ];
+        self::assertSame('matched', $method->invoke($adapter, $requestEvidence, '130079194')['status']);
+        self::assertSame('mismatch', $method->invoke($adapter, $requestEvidence, '9999999')['status']);
+
+        $ambiguousRequestEvidence = $requestEvidence;
+        $ambiguousRequestEvidence['platform_identity_validation'] = array_replace(
+            $ambiguousRequestEvidence['platform_identity_validation'],
+            [
+                'status' => 'ambiguous',
+                'source_validation' => false,
+                'observed_identifier_count' => 2,
+                'mismatched_identifier_count' => 1,
+                'validated_identifier' => '',
+            ]
+        );
+        self::assertSame('mismatch', $method->invoke($adapter, $ambiguousRequestEvidence, '130079194')['status']);
+
+        $platformName = 'Dunhuang Molan Club Wild Luxury Homestay (Mingsha Mountain & Crescent Spring Branch)';
+        $headerEvidence = [
+            'platform_identity_validation' => [
+                'schema_version' => 1,
+                'status' => 'matched',
+                'source_validation' => true,
+                'evidence_source' => 'trusted_ota_page_header',
+                'expected_identifier_count' => 1,
+                'observed_identifier_count' => 0,
+                'matched_identifier_count' => 0,
+                'mismatched_identifier_count' => 0,
+                'expected_name_count' => 1,
+                'observed_name_count' => 1,
+                'matched_name_count' => 1,
+                'mismatched_name_count' => 0,
+                'validated_identifier' => '130079194',
+                'validated_name' => $platformName,
+                'sensitive_values_exposed' => false,
+            ],
+        ];
+        $headerResult = $method->invoke($adapter, $headerEvidence, '130079194', $platformName, true);
+        self::assertSame('unverified', $headerResult['status']);
+        self::assertSame('trusted_ota_page_header', $headerResult['evidence_source']);
+        self::assertSame($platformName, $headerResult['validated_name']);
+        self::assertSame('', $headerResult['validated_identifier']);
+
+        $pageStateEvidence = $headerEvidence;
+        $pageStateEvidence['platform_identity_validation'] = array_replace(
+            $pageStateEvidence['platform_identity_validation'],
+            [
+                'status' => 'matched',
+                'source_validation' => true,
+                'evidence_source' => 'trusted_ota_page_state',
+                'observed_page_state_identifier_count' => 1,
+                'matched_page_state_identifier_count' => 1,
+                'mismatched_page_state_identifier_count' => 0,
+            ]
+        );
+        $pageStateResult = $method->invoke($adapter, $pageStateEvidence, '130079194', $platformName, true);
+        self::assertSame('matched', $pageStateResult['status']);
+        self::assertSame('trusted_ota_page_state', $pageStateResult['evidence_source']);
+        self::assertSame('130079194', $pageStateResult['validated_identifier']);
+        self::assertSame('unverified', $method->invoke(
+            $adapter,
+            $headerEvidence,
+            '130079194',
+            $platformName,
+            false
+        )['status']);
+
+        $wrongHeaderEvidence = $headerEvidence;
+        $wrongHeaderEvidence['platform_identity_validation']['validated_name'] = 'Different Ctrip Hotel';
+        self::assertSame('mismatch', $method->invoke(
+            $adapter,
+            $wrongHeaderEvidence,
+            '130079194',
+            $platformName,
+            true
+        )['status']);
+
+        $referenceMethod = new \ReflectionMethod($adapter, 'platformNameIdentityReference');
+        $referenceMethod->setAccessible(true);
+        $reference = $referenceMethod->invoke($adapter, [
+            'config' => [
+                'platform_hotel_name' => $platformName,
+                'platform_hotel_identity_source' => 'trip_public_profile',
+                'platform_hotel_public_url' => 'https://uk.trip.com/hotels/dunhuang-hotel-detail-130079194/dunhuang-molan-club-wild-luxury-homestay/',
+                'platform_hotel_identity_checked_at' => '2026-07-22 18:00:00',
+            ],
+        ], '130079194');
+        self::assertTrue($reference['valid']);
+        self::assertFalse($referenceMethod->invoke($adapter, [
+            'config' => [
+                'platform_hotel_name' => $platformName,
+                'platform_hotel_identity_source' => 'trip_public_profile',
+                'platform_hotel_public_url' => 'https://example.com/hotel-detail-130079194/',
+                'platform_hotel_identity_checked_at' => '2026-07-22 18:00:00',
+            ],
+        ], '130079194')['valid']);
+    }
+
+    public function testCtripBrowserProfileAdapterPassesTrustedPlatformNameButRejectsNameOnlyIdentityProof(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+        $capturedArgs = [];
+        $platformName = 'Dunhuang Molan Club Wild Luxury Homestay (Mingsha Mountain & Crescent Spring Branch)';
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', static function (array $args) use (&$capturedArgs, $platformName): array {
+                $capturedArgs[] = $args;
+                $outputPath = '';
+                foreach ($args as $arg) {
+                    if (str_starts_with((string)$arg, '--output=')) {
+                        $outputPath = substr((string)$arg, strlen('--output='));
+                        break;
+                    }
+                }
+                file_put_contents($outputPath, json_encode([
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'platform_identity_validation' => [
+                        'schema_version' => 1,
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'evidence_source' => 'trusted_ota_page_header',
+                        'expected_identifier_count' => 1,
+                        'observed_identifier_count' => 0,
+                        'matched_identifier_count' => 0,
+                        'mismatched_identifier_count' => 0,
+                        'expected_name_count' => 1,
+                        'observed_name_count' => 1,
+                        'matched_name_count' => 1,
+                        'mismatched_name_count' => 0,
+                        'validated_identifier' => '130079194',
+                        'validated_name' => $platformName,
+                        'sensitive_values_exposed' => false,
+                    ],
+                    'standard_rows' => [[
+                        'hotel_id' => '130079194',
+                        'hotel_name' => '敦煌漠蓝新',
+                        'data_date' => '2026-07-21',
+                        'data_type' => 'business',
+                        'amount' => '1888',
+                        'source_trace_id' => 'trusted-header-proof-row',
+                    ]],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+            });
+            $source = $this->ctripBrowserProfileSource();
+            $source['config'] = array_replace($source['config'], [
+                'hotel_id' => '130079194',
+                'hotel_name' => '敦煌漠蓝新',
+                'capture_sections' => 'business_overview',
+                'platform_hotel_name' => $platformName,
+                'platform_hotel_identity_source' => 'trip_public_profile',
+                'platform_hotel_public_url' => 'https://uk.trip.com/hotels/dunhuang-hotel-detail-130079194/dunhuang-molan-club-wild-luxury-homestay/',
+                'platform_hotel_identity_checked_at' => '2026-07-22 18:00:00',
+            ]);
+
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'data_date' => '2026-07-21',
+            ]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('ctrip_platform_identity_unverified', $result['status_code']);
+            self::assertSame('unverified', $result['payload']['platform_identity_validation']['status']);
+            self::assertSame('', $result['payload']['platform_identity_validation']['validated_identifier']);
+            self::assertTrue((bool)array_filter(
+                $capturedArgs,
+                static fn(array $args): bool => in_array('--platform-hotel-name=' . $platformName, $args, true)
+            ));
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testCtripBrowserProfileAdapterRejectsRowsWithoutVerifiedHotelIdentity(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'catalog_facts' => [],
+                'standard_rows' => [[
+                    'hotel_id' => '24588',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'business',
+                    'amount' => 100,
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), ['interactive_browser' => false]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('ctrip_platform_identity_unverified', $result['status_code']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripBrowserProfileAdapterReturnsWaitingConfigWhenProfileIsMissing(): void
     {
         $root = $this->createCtripBrowserProfileTestRoot();
@@ -1353,6 +2346,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'standard_rows' => [
                             [
                                 'hotel_id' => '24588',
@@ -1400,6 +2394,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'standard_rows' => [[
                             'hotel_id' => '24588',
                             'hotel_name' => 'Ctrip Demo Hotel',
@@ -1451,6 +2446,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                 $payload = [
                     'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                     'capture_gate' => ['status' => 'pass'],
+                    'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                     'standard_rows' => [],
                     'business' => [],
                     'traffic' => [],
@@ -1529,6 +2525,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
                 'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                 'capture_gate' => ['status' => 'pass'],
+                'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                 'standard_rows' => [],
                 'business' => [],
                 'traffic' => [],
@@ -1653,6 +2650,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'by_section' => [
                             $section => [['metric_key' => 'field-config-row-' . $section]],
                         ],
@@ -1763,6 +2761,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'standard_rows' => [
                             [
                                 'hotel_id' => '24588',
@@ -1820,6 +2819,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'capture_execution' => [
                             'mode' => 'parallel_pages',
                             'section_concurrency' => 3,
@@ -1899,6 +2899,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'not_applicable_sections' => $notApplicableSections,
                         'standard_rows' => [
                             [
@@ -1956,6 +2957,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                 file_put_contents($outputPath, json_encode([
                     'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                     'capture_gate' => ['status' => 'pass'],
+                    'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                     'standard_rows' => [
                         [
                             'hotel_id' => '24588',
@@ -2073,6 +3075,12 @@ final class PlatformDataSyncServiceTest extends TestCase
                 str_repeat('c', 64),
                 $trafficRaw['field_facts'][0]['capture_evidence']['source_url_hash'] ?? ''
             );
+            self::assertSame(str_repeat('c', 64), $trafficRaw['source_url_hash'] ?? '');
+            $trafficFactStatus = OnlineDataFieldFactService::buildStatus($trafficRow, $trafficRaw);
+            self::assertGreaterThanOrEqual(
+                3,
+                (int)($trafficFactStatus['matching_desensitized_capture_evidence_count'] ?? 0)
+            );
             self::assertGreaterThanOrEqual(
                 3,
                 (int)($trafficRaw['field_fact_summary']['desensitized_capture_evidence_count'] ?? 0)
@@ -2080,6 +3088,37 @@ final class PlatformDataSyncServiceTest extends TestCase
         } finally {
             $this->removeDirectory($root);
         }
+    }
+
+    public function testBrowserProfileOrderRowPromotesUrlHashForReadyFieldFacts(): void
+    {
+        $sourceUrlHash = str_repeat('d', 64);
+        $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload([
+            'rows' => [[
+                'hotel_id' => '24588',
+                'hotel_name' => 'Ctrip Demo Hotel',
+                'data_date' => '2026-07-21',
+                'data_type' => 'order',
+                'totalAmount' => 388.5,
+                'quantity' => 2,
+                'orderCount' => 1,
+                'source_trace_id' => 'trace-order-row',
+                'source_url_hash' => $sourceUrlHash,
+            ]],
+        ], $this->ctripBrowserProfileSource(), 123);
+
+        self::assertCount(1, $rows);
+        self::assertSame('order', $rows[0]['data_type']);
+
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        self::assertSame($sourceUrlHash, $raw['source_url_hash'] ?? '');
+        self::assertSame($sourceUrlHash, $raw['capture_evidence']['source_url_hash'] ?? '');
+
+        $status = OnlineDataFieldFactService::buildStatus($rows[0], $raw);
+        self::assertSame('ready', $status['status'] ?? '');
+        self::assertSame(3, $status['captured_count'] ?? 0);
+        self::assertSame(3, $status['matching_desensitized_capture_evidence_count'] ?? 0);
     }
 
     public function testMeituanBrowserProfileAdapterSupportsOnlyMeituanBrowserProfileSources(): void
@@ -2145,6 +3184,127 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testMeituanAdsLoginFailureBlocksOnlyTheAdsModule(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => [
+                    'ok' => false,
+                    'status' => 'login_required',
+                    'message' => 'Meituan login expired.',
+                ],
+                'capture_gate' => ['status' => 'not_run'],
+            ]));
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'ads',
+            ]);
+
+            self::assertSame('waiting_config', $result['status']);
+            self::assertSame('profile_session_unverified', $result['status_code']);
+            self::assertSame('ads', $result['payload']['module_status']['module']);
+            self::assertSame('blocked', $result['payload']['module_status']['status']);
+            $service = new PlatformDataSyncService();
+            $safeMessage = new \ReflectionMethod($service, 'safeSyncTaskMessage');
+            $safeMessage->setAccessible(true);
+            self::assertSame(
+                'profile_session_unverified',
+                $safeMessage->invoke($service, $result['status'], $result['message'])
+            );
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterRejectsUnverifiedOrWrongMerchantIdentity(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $basePayload = [
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'traffic' => [[
+                    'poi_id' => '68471',
+                    'data_date' => '2026-07-11',
+                    'date_source' => 'row',
+                    'list_exposure' => 100,
+                ]],
+            ];
+
+            $unverified = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                ...$basePayload,
+                'platform_identity_validation' => [],
+            ]));
+            $unverifiedResult = $unverified->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-07-11',
+            ]);
+            self::assertSame('failed', $unverifiedResult['status']);
+            self::assertSame('meituan_platform_identity_unverified', $unverifiedResult['status_code']);
+
+            $wrongMerchant = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                ...$basePayload,
+                'platform_identity_validation' => [
+                    'status' => 'matched',
+                    'source_validation' => true,
+                    'validated_identifier' => 'wrong-poi',
+                ],
+            ]));
+            $wrongMerchantResult = $wrongMerchant->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-07-11',
+            ]);
+            self::assertSame('failed', $wrongMerchantResult['status']);
+            self::assertSame('meituan_platform_identity_mismatch', $wrongMerchantResult['status_code']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanAdsAgreementPageIsNotApplicableInsteadOfAWholeSourceFailure(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => [
+                    'status' => 'fail',
+                    'failed_check_ids' => ['business_rows_present'],
+                ],
+                'pages' => [[
+                    'name' => 'ads',
+                    'url' => 'https://ebmidas.dianping.com/app/peon-promo-finance/promopoiid/-1/html/online-sign.html',
+                    'ok' => true,
+                ]],
+                'responses' => [],
+                'ads' => [],
+            ]));
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'ads',
+                'data_date' => '2026-07-11',
+            ]);
+
+            self::assertSame('not_applicable', $result['status']);
+            self::assertSame('ads_service_not_opened', $result['status_code']);
+            self::assertSame('ads_service_not_opened', $result['message']);
+            self::assertSame('ads', $result['payload']['module_status']['module']);
+            self::assertSame('not_applicable', $result['payload']['module_status']['status']);
+
+            $service = new PlatformDataSyncService();
+            $method = new \ReflectionMethod($service, 'shouldPreserveSourceStateForModuleResult');
+            $method->setAccessible(true);
+            self::assertTrue($method->invoke($service, $result['status'], $result['payload']));
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testMeituanBrowserProfileAdapterPassesTargetDateToCaptureScript(): void
     {
         $root = $this->createMeituanBrowserProfileTestRoot('store_001');
@@ -2165,11 +3325,17 @@ final class PlatformDataSyncServiceTest extends TestCase
                 }
                 file_put_contents($outputPath, json_encode([
                     'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => '68471',
+                    ],
                     'capture_gate' => ['status' => 'pass'],
                     'traffic' => [
                         [
-                            'poi_id' => '68471',
                             'poi_name' => 'Meituan Demo Hotel',
+                            'data_date' => '2026-07-04',
+                            'date_source' => 'row',
                             'list_exposure' => '1200',
                             'detail_exposure' => '240',
                             'flow_rate' => '20%',
@@ -2193,6 +3359,109 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertContains('--data-date=2026-07-04', $capturedArgs);
             self::assertSame('2026-07-04', $result['payload']['data_source_capture']['data_date']);
             self::assertSame('2026-07-04', $result['payload']['rows'][0]['data_date']);
+            self::assertSame('68471', $result['payload']['rows'][0]['poi_id']);
+            self::assertArrayNotHasKey('store_id', $result['payload']['data_source_capture']);
+            self::assertArrayNotHasKey('poi_id', $result['payload']['data_source_capture']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterRejectsRowsOutsideRequestedTargetDate(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'traffic' => [[
+                    'poi_id' => '68471',
+                    'poi_name' => 'Meituan Demo Hotel',
+                    'data_date' => '2026-07-10',
+                    'list_exposure' => 1200,
+                    'detail_exposure' => 240,
+                ]],
+                'orders' => [],
+                'ads' => [],
+            ]));
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'traffic',
+                'data_date' => '2026-07-11',
+            ]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('meituan_target_date_mismatch', $result['status_code']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterAllowsFutureForecastDate(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'trafficForecast' => [[
+                    'poi_id' => '68471',
+                    'poi_name' => 'Meituan Demo Hotel',
+                    'data_date' => '2026-07-20',
+                    'forecast_value' => 120,
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'traffic',
+                'data_date' => '2026-07-11',
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertSame('traffic_forecast', $result['payload']['rows'][0]['data_type']);
+            self::assertSame('2026-07-20', $result['payload']['rows'][0]['data_date']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterDropsUnverifiedForecastButKeepsVerifiedCoreRows(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'traffic' => [[
+                    'poi_id' => '68471',
+                    'dataDate' => '2026-07-18',
+                    'date_source' => 'request.query.startDate',
+                    'list_exposure' => 1200,
+                ]],
+                'trafficForecast' => [[
+                    'poi_id' => '68471',
+                    'dataDate' => '2026-07-18',
+                    'date_source' => 'capture_context.default_data_date',
+                    'forecast_type' => '1',
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'traffic',
+                'data_date' => '2026-07-18',
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertSame(['traffic'], array_column($result['payload']['rows'], 'data_type'));
+            self::assertSame(1, $result['payload']['sync_summary']['dropped_unverified_supplemental_count']);
+            self::assertSame('unverified_supplemental_rows_dropped', $result['payload']['collection_warnings'][0]['status_code']);
         } finally {
             $this->removeDirectory($root);
         }
@@ -2216,10 +3485,17 @@ final class PlatformDataSyncServiceTest extends TestCase
                 if ($outputPath !== '') {
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                        'platform_identity_validation' => [
+                            'status' => 'matched',
+                            'source_validation' => true,
+                            'validated_identifier' => '68471',
+                        ],
                         'capture_gate' => ['status' => 'pass'],
                         'traffic' => [[
                             'poi_id' => '68471',
                             'poi_name' => 'Meituan Demo Hotel',
+                            'data_date' => '2026-07-04',
+                            'date_source' => 'row',
                             'list_exposure' => '1200',
                             'detail_exposure' => '240',
                             'flow_rate' => '20%',
@@ -2269,6 +3545,11 @@ final class PlatformDataSyncServiceTest extends TestCase
                 }
                 file_put_contents($outputPath, json_encode([
                     'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => '68471',
+                    ],
                     'capture_gate' => ['status' => 'pass'],
                     'traffic' => [[
                         'poi_id' => '68471',
@@ -2402,7 +3683,10 @@ final class PlatformDataSyncServiceTest extends TestCase
                 ],
             ]));
             $source = $this->meituanBrowserProfileSource();
-            $result = $adapter->fetch($source, ['interactive_browser' => false]);
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'data_date' => '2026-05-31',
+            ]);
 
             self::assertSame('success', $result['status']);
             self::assertCount(2, $result['payload']['rows']);
@@ -2416,6 +3700,7 @@ final class PlatformDataSyncServiceTest extends TestCase
 
             self::assertSame('traffic', $trafficRow['data_type']);
             self::assertSame('meituan', $trafficRow['source']);
+            self::assertSame('self', $trafficRow['compare_type']);
             self::assertSame(900, $trafficRow['list_exposure']);
             self::assertSame(180, $trafficRow['detail_exposure']);
             self::assertSame(20.0, $trafficRow['flow_rate']);
@@ -2439,6 +3724,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             );
 
             self::assertSame('order', $orderRow['data_type']);
+            self::assertSame('self', $orderRow['compare_type']);
             self::assertSame(988.0, $orderRow['amount']);
             self::assertSame(5, $orderRow['quantity']);
             self::assertSame(3, $orderRow['book_order_num']);
@@ -2446,6 +3732,44 @@ final class PlatformDataSyncServiceTest extends TestCase
         } finally {
             $this->removeDirectory($root);
         }
+    }
+
+    public function testMeituanMyHotelFunnelAliasesPersistAsCoreTrafficFacts(): void
+    {
+        $source = $this->meituanBrowserProfileSource();
+        $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload([
+            'rows' => [[
+                'poi_id' => '68471',
+                'poi_name' => 'Meituan Demo Hotel',
+                'data_date' => '2026-07-18',
+                'data_type' => 'traffic',
+                'exposureUV' => 81,
+                'intentionUV' => 14,
+                'payOrderCnt' => 2,
+                'intentionPerExposure' => '17.28%',
+                'payOrderPerIntention' => '14.29%',
+                '_source_path' => 'data.myHotel',
+                'source_trace_id' => 'meituan:flow-analysis-trace',
+                'source_url_hash' => str_repeat('f', 64),
+            ]],
+        ], $source, 90);
+
+        self::assertCount(1, $rows);
+        self::assertSame('traffic', $rows[0]['data_type']);
+        self::assertSame(81, $rows[0]['list_exposure']);
+        self::assertSame(14, $rows[0]['detail_exposure']);
+        self::assertSame(2, $rows[0]['order_submit_num']);
+        self::assertSame(17.28, $rows[0]['flow_rate']);
+        self::assertNull($rows[0]['order_filling_num']);
+
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        $facts = array_column($raw['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('data.myHotel.exposureUV', $facts['list_exposure']['source_path'] ?? '');
+        self::assertSame('data.myHotel.intentionUV', $facts['detail_exposure']['source_path'] ?? '');
+        self::assertSame('data.myHotel.intentionPerExposure', $facts['flow_rate']['source_path'] ?? '');
+        self::assertSame('data.myHotel.payOrderCnt', $facts['order_submit_num']['source_path'] ?? '');
+        self::assertSame('missing', $facts['order_filling_num']['status'] ?? '');
     }
 
     public function testMeituanBrowserProfileAdapterMapsUnifiedResourcePayloads(): void
@@ -2485,6 +3809,21 @@ final class PlatformDataSyncServiceTest extends TestCase
                         'exposure_count' => '300',
                     ],
                 ],
+                'order_flow' => [
+                    [
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'dataDate' => '2026-06-06',
+                        'date_source' => 'request.query.endDate',
+                        'order_flow_row_type' => 'summary',
+                        'order_flow_direction' => 'loss',
+                        'order_flow_period' => 'last_30_days',
+                        'dimension' => 'order_flow:last_30_days:loss:summary',
+                        'order_count' => '12',
+                        'room_nights' => '18',
+                        'amount' => '3988.00',
+                    ],
+                ],
                 'roomTypes' => [
                     [
                         'poi_id' => '68471',
@@ -2496,11 +3835,16 @@ final class PlatformDataSyncServiceTest extends TestCase
                 ],
             ]));
             $source = $this->meituanBrowserProfileSource();
-            $result = $adapter->fetch($source, ['interactive_browser' => false, 'capture_sections' => 'businessData,peerRank,searchKeywords,roomTypes']);
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'capture_sections' => 'businessData,peerRank,order_flow,searchKeywords,roomTypes',
+                'data_date' => '2026-06-06',
+            ]);
 
             self::assertSame('success', $result['status']);
-            self::assertCount(4, $result['payload']['rows']);
+            self::assertCount(5, $result['payload']['rows']);
             self::assertSame(1, $result['payload']['sync_summary']['peer_rank_count']);
+            self::assertSame(1, $result['payload']['sync_summary']['order_flow_count']);
             self::assertSame(1, $result['payload']['sync_summary']['search_keyword_count']);
             self::assertSame(1, $result['payload']['sync_summary']['room_type_count']);
 
@@ -2508,15 +3852,21 @@ final class PlatformDataSyncServiceTest extends TestCase
             $types = array_values(array_unique(array_column($rows, 'data_type')));
             sort($types);
 
-            self::assertSame(['business', 'peer_rank', 'room_type', 'search_keyword'], $types);
+            self::assertSame(['business', 'order_flow', 'peer_rank', 'room_type', 'search_keyword'], $types);
+            $orderFlowRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'order_flow'))[0] ?? null;
+            self::assertIsArray($orderFlowRow);
+            self::assertSame(3988.0, $orderFlowRow['amount']);
+            self::assertSame(18, $orderFlowRow['quantity']);
+            self::assertSame(12, $orderFlowRow['book_order_num']);
+            self::assertSame('order_flow:last_30_days:loss:summary', $orderFlowRow['dimension']);
             $peerRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'peer_rank'))[0] ?? null;
             self::assertIsArray($peerRow);
-            self::assertSame(2.0, $peerRow['data_value']);
+            self::assertNull($peerRow['data_value']);
             self::assertSame('P_RZ', $peerRow['compare_type']);
             $peerRaw = json_decode((string)$peerRow['raw_data'], true);
             self::assertIsArray($peerRaw);
             $peerFactsByKey = array_column($peerRaw['field_facts'] ?? [], null, 'metric_key');
-            self::assertSame('online_daily_data.data_value', $peerFactsByKey['peer_rank_value']['storage_field'] ?? '');
+            self::assertSame('raw_data.rank', $peerFactsByKey['peer_rank_value']['storage_field'] ?? '');
             self::assertSame('$.rank', $peerFactsByKey['peer_rank_value']['source_path'] ?? '');
             self::assertTrue($peerFactsByKey['peer_rank_compare_type']['stored_value_present'] ?? false);
         } finally {
@@ -2622,6 +3972,120 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertContains('manual_import_provenance_unverified', $manualImport['quality_flags']);
     }
 
+    public function testNormalizedPersistenceReceiptAndValueReadbackStayTruthful(): void
+    {
+        $service = new PlatformDataSyncService();
+        $receiptMethod = new \ReflectionMethod($service, 'normalizedRowsRollbackReceipt');
+        $receiptMethod->setAccessible(true);
+        $matchMethod = new \ReflectionMethod($service, 'normalizedStoredValueMatches');
+        $matchMethod->setAccessible(true);
+        $identityMethod = new \ReflectionMethod($service, 'normalizedRowIdentityKey');
+        $identityMethod->setAccessible(true);
+
+        $receipt = $receiptMethod->invoke($service, 2, 'readback_mismatch', 'raw_data');
+        self::assertSame(2, $receipt['attempted_count']);
+        self::assertSame(0, $receipt['saved_count']);
+        self::assertFalse($receipt['readback_verified']);
+        self::assertTrue($receipt['rolled_back']);
+        self::assertSame('readback_mismatch', $receipt['failure_reason']);
+        self::assertSame('raw_data', $receipt['mismatch_field']);
+
+        self::assertTrue($matchMethod->invoke($service, '123.500', 123.5));
+        self::assertFalse($matchMethod->invoke($service, '120.000', 123.5));
+        self::assertTrue($matchMethod->invoke($service, '4.9', 4.85, 'comment_score'));
+        self::assertFalse($matchMethod->invoke($service, '4.8', 4.85, 'comment_score'));
+        self::assertFalse($matchMethod->invoke($service, '4.9', 4.85, 'data_value'));
+        self::assertTrue($matchMethod->invoke($service, '{"source":"ctrip","count":2}', '{"count":2,"source":"ctrip"}'));
+        self::assertFalse($matchMethod->invoke($service, '{"source":"meituan"}', '{"source":"ctrip"}'));
+
+        $columns = array_fill_keys(['tenant_id', 'system_hotel_id', 'source', 'platform', 'hotel_id', 'data_type', 'data_date', 'dimension', 'compare_type'], true);
+        $firstIdentity = $identityMethod->invoke($service, [
+            'tenant_id' => 1,
+            'system_hotel_id' => 80,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'hotel_id' => 'platform-hotel',
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-16',
+            'dimension' => 'summary',
+            'compare_type' => '',
+            'source_trace_id' => 'trace-a',
+            'list_exposure' => 10,
+        ], $columns);
+        $duplicateIdentity = $identityMethod->invoke($service, [
+            'tenant_id' => 1,
+            'system_hotel_id' => 80,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'hotel_id' => 'platform-hotel',
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-16',
+            'dimension' => 'summary',
+            'compare_type' => '',
+            'source_trace_id' => 'trace-b',
+            'list_exposure' => 20,
+        ], $columns);
+        self::assertSame($firstIdentity, $duplicateIdentity);
+    }
+
+    public function testXlsxImportRejectsArchiveWithTooManyEntriesBeforeXmlParsing(): void
+    {
+        if (!class_exists(\ZipArchive::class)) {
+            self::markTestSkipped('ZipArchive is not installed.');
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'platform_xlsx_many_');
+        self::assertIsString($path);
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
+        for ($index = 0; $index < 257; $index++) {
+            self::assertTrue($zip->addFromString('xl/custom/entry-' . $index . '.xml', ''));
+        }
+        self::assertTrue($zip->close());
+
+        try {
+            $method = new \ReflectionMethod(new PlatformDataSyncService(), 'parseXlsxImportFile');
+            $method->setAccessible(true);
+            $method->invoke(new PlatformDataSyncService(), $path);
+            self::fail('Oversized XLSX archive entry count must be rejected.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(422, $exception->getCode());
+            self::assertSame('XLSX import archive contains too many entries.', $exception->getMessage());
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function testXlsxImportStillParsesAValidBoundedWorksheet(): void
+    {
+        if (!class_exists(\ZipArchive::class)) {
+            self::markTestSkipped('ZipArchive is not installed.');
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'platform_xlsx_valid_');
+        self::assertIsString($path);
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
+        self::assertTrue($zip->addFromString(
+            'xl/worksheets/sheet1.xml',
+            '<worksheet><sheetData>'
+            . '<row r="1"><c r="A1" t="inlineStr"><is><t>hotel_name</t></is></c></row>'
+            . '<row r="2"><c r="A2" t="inlineStr"><is><t>Bounded Hotel</t></is></c></row>'
+            . '</sheetData></worksheet>'
+        ));
+        self::assertTrue($zip->close());
+
+        try {
+            $service = new PlatformDataSyncService();
+            $method = new \ReflectionMethod($service, 'parseXlsxImportFile');
+            $method->setAccessible(true);
+            $rows = $method->invoke($service, $path);
+            self::assertSame([['hotel_name' => 'Bounded Hotel']], $rows);
+        } finally {
+            @unlink($path);
+        }
+    }
+
     private function ctripBrowserProfileSource(): array
     {
         return [
@@ -2698,7 +4162,30 @@ final class PlatformDataSyncServiceTest extends TestCase
             if ($outputPath === '') {
                 return ['success' => false, 'message' => 'missing output path', 'stdout' => '', 'stderr' => ''];
             }
-            file_put_contents($outputPath, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $capturePayload = $payload;
+            if (!array_key_exists('catalog_facts', $capturePayload)) {
+                foreach (is_array($capturePayload['standard_rows'] ?? null) ? $capturePayload['standard_rows'] : [] as $row) {
+                    $capturedHotelId = trim((string)($row['hotel_id'] ?? $row['hotelId'] ?? ''));
+                    if ($capturedHotelId !== '') {
+                        $capturePayload['catalog_facts'] = [[
+                            'metric_key' => 'hotel_id',
+                            'source_key' => 'masterHotelId',
+                            'value' => $capturedHotelId,
+                        ]];
+                        break;
+                    }
+                }
+            }
+            if (($capturePayload['auth_status']['ok'] ?? false) === true
+                && !array_key_exists('platform_identity_validation', $capturePayload)
+            ) {
+                $capturePayload['platform_identity_validation'] = [
+                    'status' => 'matched',
+                    'source_validation' => true,
+                    'validated_identifier' => '68471',
+                ];
+            }
+            file_put_contents($outputPath, json_encode($capturePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
             return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
         };

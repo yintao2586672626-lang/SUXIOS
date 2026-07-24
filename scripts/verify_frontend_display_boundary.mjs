@@ -2,7 +2,11 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = process.cwd();
-const publicIndex = readFileSync(join(root, 'public', 'index.html'), 'utf8');
+const publicIndex = [
+  readFileSync(join(root, 'public', 'index.html'), 'utf8'),
+  readFileSync(join(root, 'resources', 'frontend', 'app-template.html'), 'utf8'),
+  readFileSync(join(root, 'public', 'app-main.js'), 'utf8'),
+].join('\n');
 const onlineDataConcernDir = join(root, 'app', 'controller', 'concern');
 const onlineDataConcernFiles = existsSync(onlineDataConcernDir)
   ? readdirSync(onlineDataConcernDir)

@@ -1,0 +1,62 @@
+        <div v-if="showCtripCookieEditorModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" @click.self="closeCtripCookieEditor">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-start gap-4 sticky top-0 bg-white">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">查看 / 编辑携程临时 Cookie/API 辅助</h3>
+                        <p class="text-xs text-gray-500 mt-1">仅更新临时 Cookie/API 辅助内容和必要归属信息；接口地址、节点等仍保留在高级参数。</p>
+                    </div>
+                    <button type="button" @click="closeCtripCookieEditor" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div v-if="ctripCookieEditorLoading" class="p-6 text-center text-gray-500">正在读取携程临时 Cookie/API 辅助内容...</div>
+                <form v-else="" @submit.prevent="saveCtripCookieFromHealth" class="p-4 space-y-4">
+                    <div class="grid grid-cols-1 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">归属门店</label>
+                            <select v-model="ctripCookieEditorForm.hotel_id" class="w-full px-3 py-2 border rounded-lg text-sm bg-white">
+                                <option value="">不绑定门店</option>
+                                <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">酒店物理客房总数（人工维护，非当日OTA可售库存） <span class="text-red-500">*</span></label>
+                            <input v-model="ctripCookieEditorForm.hotel_room_count" type="number" min="1" max="1000000" step="1" required="" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="例如 88">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">竞争圈物理客房总数（人工维护，非当日OTA可售库存） <span class="text-red-500">*</span></label>
+                            <input v-model="ctripCookieEditorForm.competitor_room_count" type="number" min="1" max="1000000" step="1" required="" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="例如 360">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Cookie <span class="text-red-500">*</span></label>
+                        <textarea v-model="ctripCookieEditorForm.cookies" rows="7" class="w-full px-3 py-2 border rounded-lg text-sm font-mono" placeholder="只粘贴 Request Headers 里的 Cookie 值，不要粘贴完整 Headers、URL 或 Payload"></textarea>
+                    </div>
+                    <details class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <summary class="cursor-pointer text-sm font-medium text-gray-700">高级参数</summary>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Request URL</label>
+                                <input v-model="ctripCookieEditorForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="可留空，使用系统默认接口">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">携程酒店ID（hotelId）</label>
+                                <input v-model="ctripCookieEditorForm.ctrip_hotel_id" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="填写该门店携程返回的 hotelId（不要填 nodeId）">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">nodeId</label>
+                                <input v-model="ctripCookieEditorForm.node_id" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="可留空，使用配置或后端默认值">
+                            </div>
+                        </div>
+                    </details>
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" @click="closeCtripCookieEditor" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="submit" :disabled="ctripCookieEditorSaving" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
+                            {{ ctripCookieEditorSaving ? '保存中...' : '保存 Cookie/API 辅助' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>

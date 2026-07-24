@@ -135,6 +135,10 @@ window.SUXI_OPERATION_STATIC = (() => {
             { label: '订单', value: formatter.value(ota.orders) },
             { label: '浏览转化率', value: formatter.value(ota.view_rate, '%') },
             { label: '订单转化率', value: formatter.value(ota.order_rate, '%') },
+            { label: '填单人数', value: formatter.value(ota.order_filling) },
+            { label: '提交人数', value: formatter.value(ota.order_submit) },
+            { label: '曝光→详情', value: formatter.value(ota.flow_rate, '%') },
+            { label: '填单→提交', value: formatter.value(ota.fill_submit_rate, '%') },
         ];
     };
     const buildOperationCompetitorCards = (competitors = {}, formatters = {}) => {
@@ -184,7 +188,7 @@ window.SUXI_OPERATION_STATIC = (() => {
 
         return {
             status: '可分析',
-            summary: '数据已覆盖结果、流量、竞对和口碑，可进入根因分析，按优先级拆解流量、转化、价格和评分影响。',
+            summary: '当前来源记录覆盖结果、流量、竞对和口碑，可进入可能影响因素排查；各因素仍需分别取证，不视为已证明根因。',
             className: 'bg-green-50 text-green-700',
         };
     };
@@ -223,19 +227,23 @@ window.SUXI_OPERATION_STATIC = (() => {
     };
     const operationCanApproveExecution = (item) => item?.approval?.status === 'pending_approval';
     const operationCanExecuteWithEvidence = (item) => ['pending_execute', 'executing'].includes(item?.execution?.status || '') && Number(item?.execution?.task_id || 0) > 0;
-    const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+    const operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item) || operationCanExecuteWithEvidence(item) || operationCanReviewExecution(item);
-    const operationExecutionRateText = (value) => value === null || value === undefined ? '-' : `${Number(value).toFixed(0)}%`;
+    const operationHasDisplayValue = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+    const operationExecutionRateText = (value) => operationHasDisplayValue(value) ? `${Number(value).toFixed(0)}%` : '-';
     const buildOperationExecutionSummaryCards = (summary = {}, formatters = {}) => {
         const formatter = operationFormatters(formatters);
+        const numberText = (value) => operationHasDisplayValue(value) ? formatter.value(value) : '-';
+        const moneyText = (value) => operationHasDisplayValue(value) ? formatter.money(value) : '-';
+        const countHint = (label, value) => operationHasDisplayValue(value) ? `${label} ${value}` : `${label}数量未返回`;
         return [
-            { label: '执行单', value: formatter.value(summary.total || 0), hint: '建议转执行意图总数' },
-            { label: '审批率', value: operationExecutionRateText(summary.approval_rate), hint: `已审批 ${summary.approved || 0}` },
-            { label: '执行率', value: operationExecutionRateText(summary.execution_rate), hint: `已执行 ${summary.executed || 0}` },
-            { label: '证据率', value: operationExecutionRateText(summary.evidence_rate), hint: `证据齐备 ${summary.evidence_ready || 0}` },
-            { label: '净收益', value: formatter.money(summary.total_profit || 0), hint: `增量收入 ${formatter.money(summary.total_incremental_revenue || 0)}` },
-            { label: '平均 ROI', value: summary.avg_roi === null || summary.avg_roi === undefined ? '-' : `${summary.avg_roi}%`, hint: `百分比样本 ${summary.roi_percent_ready || 0}` },
-            { label: '价格 Lift', value: summary.avg_revenue_lift === null || summary.avg_revenue_lift === undefined ? '-' : formatter.money(summary.avg_revenue_lift), hint: `金额样本 ${summary.revenue_lift_ready || 0}` },
+            { label: '执行单', value: numberText(summary.total), hint: '建议转执行意图总数' },
+            { label: '审批率', value: operationExecutionRateText(summary.approval_rate), hint: countHint('已审批', summary.approved) },
+            { label: '执行率', value: operationExecutionRateText(summary.execution_rate), hint: countHint('已执行', summary.executed) },
+            { label: '证据率', value: operationExecutionRateText(summary.evidence_rate), hint: countHint('证据齐备', summary.evidence_ready) },
+            { label: '净收益', value: moneyText(summary.total_profit), hint: operationHasDisplayValue(summary.total_incremental_revenue) ? `增量收入 ${moneyText(summary.total_incremental_revenue)}` : '增量收入未返回' },
+            { label: '平均 ROI', value: operationHasDisplayValue(summary.avg_roi) ? `${summary.avg_roi}%` : '-', hint: countHint('百分比样本', summary.roi_percent_ready) },
+            { label: '价格 Lift', value: moneyText(summary.avg_revenue_lift), hint: countHint('金额样本', summary.revenue_lift_ready) },
         ];
     };
     const operationExecutionBottleneckText = (summary = {}, helpers = {}) => {
@@ -258,13 +266,23 @@ window.SUXI_OPERATION_STATIC = (() => {
     }[String(status || '')] || 'border-gray-100 bg-gray-50 text-gray-600');
     const operationExecutionSourceText = (item) => {
         const source = item?.recommendation?.source || '';
-        return source && !source.endsWith('#0') ? source : (item?.recommendation?.source_module || 'manual');
+        const resolved = source && !source.endsWith('#0') ? source : (item?.recommendation?.source_module || '');
+        const sourceKey = String(resolved).toLowerCase();
+        if (sourceKey === 'manual') return '人工创建';
+        if (sourceKey.startsWith('ota_diagnosis_saved')) return 'OTA诊断行动';
+        if (sourceKey.startsWith('daily_workbench_patrol')) return '巡检补证任务';
+        if (sourceKey.startsWith('ota_diagnosis')) return '历史OTA诊断行动';
+        return resolved || '来源未返回';
     };
     const operationExecutionActionText = (item, helpers = {}) => {
         const recommendation = item?.recommendation || {};
-        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动' }[recommendation.object_type] || recommendation.object_type || '动作');
+        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动', data_collection: '证据采集' }[recommendation.object_type] || recommendation.object_type || '动作');
         const strategyTypeLabel = typeof helpers.strategyTypeLabel === 'function' ? helpers.strategyTypeLabel : (type => type || '未知策略');
-        return `${objectText} · ${strategyTypeLabel(recommendation.action_type)}`;
+        const actionText = ({
+            complete_public_page_evidence: '补齐公开页证据',
+            review_public_page_evidence: '复核公开页证据',
+        }[recommendation.action_type] || strategyTypeLabel(recommendation.action_type));
+        return `${objectText} · ${actionText}`;
     };
     const operationExecutionReviewText = (item, helpers = {}) => {
         const review = item?.review || {};
@@ -319,6 +337,11 @@ window.SUXI_OPERATION_STATIC = (() => {
         if (String(summary?.status || '') === 'blocked_by_p0_ota_gate') {
             return { text: 'P0未就绪', className: 'bg-red-50 text-red-700 border-red-100' };
         }
+        const hasClosureStatus = [summary?.status, summary?.process_status, summary?.roi_status]
+            .some(value => value !== null && value !== undefined && String(value).trim() !== '');
+        if (!hasClosureStatus) {
+            return { text: '闭环状态未返回', className: 'bg-gray-50 text-gray-600 border-gray-200' };
+        }
         const processClosed = String(summary?.process_status || '') === 'closed';
         const roiClosed = String(summary?.roi_status || '') === 'closed';
         if (processClosed && roiClosed) {
@@ -329,23 +352,31 @@ window.SUXI_OPERATION_STATIC = (() => {
         }
         return { text: '过程未闭环', className: 'bg-amber-50 text-amber-700 border-amber-100' };
     };
-    const buildOperationClosureSummaryCards = (summary = {}) => [
-        { label: '板块数', value: summary.module_count ?? 0, hint: '收益分析之后的业务板块' },
-        { label: '过程闭环', value: summary.process_closed_count ?? 0, hint: '已形成复盘或执行结果判断' },
-        { label: 'ROI就绪', value: summary.roi_ready_module_count ?? 0, hint: '具备收入/成本或增量收益证据' },
-        { label: '未过程闭环', value: summary.not_process_closed_count ?? 0, hint: '仍停在建议/审批/执行/证据阶段' },
-    ];
+    const buildOperationClosureSummaryCards = (summary = {}) => {
+        const displayCount = (value) => operationHasDisplayValue(value) ? Number(value) : '-';
+        return [
+            { label: '板块数', value: displayCount(summary.module_count), hint: '收益分析之后的业务板块' },
+            { label: '过程闭环', value: displayCount(summary.process_closed_count), hint: '已形成复盘或执行结果判断' },
+            { label: 'ROI就绪', value: displayCount(summary.roi_ready_module_count), hint: '具备收入/成本或增量收益证据' },
+            { label: '未过程闭环', value: displayCount(summary.not_process_closed_count), hint: '仍停在建议/审批/执行/证据阶段' },
+        ];
+    };
     const operationClosureGapText = (module = {}) => {
         const gaps = Array.isArray(module?.data_gaps) ? module.data_gaps : [];
         if (!gaps.length) return '暂无显式缺口';
         const first = gaps[0] || {};
         return first.message || first.code || '存在未说明缺口';
     };
-    const openingRiskTextFallback = (risk) => ({ high: '高风险', medium: '中风险', low: '低风险' }[risk] || '低风险');
-    const openingRiskTextClassFallback = (risk) => ({ high: 'text-red-600', medium: 'text-yellow-600', low: 'text-green-600' }[risk] || 'text-green-600');
-    const safeOpeningOverviewNumber = (value) => {
+    const openingRiskTextFallback = (risk) => ({ high: '高风险', medium: '中风险', low: '低风险' }[risk] || '待评估');
+    const openingRiskTextClassFallback = (risk) => ({ high: 'text-red-600', medium: 'text-yellow-600', low: 'text-green-600' }[risk] || 'text-gray-500');
+    const nullableOpeningOverviewNumber = (value) => {
+        if (value === null || value === undefined || value === '') return null;
         const number = Number(value);
-        return Number.isFinite(number) ? number : 0;
+        return Number.isFinite(number) ? number : null;
+    };
+    const safeOpeningOverviewNumber = (value) => {
+        const number = nullableOpeningOverviewNumber(value);
+        return number === null ? 0 : number;
     };
     const clampOpeningOverviewPercent = (value) => Math.max(0, Math.min(100, safeOpeningOverviewNumber(value)));
     const buildOpeningOverviewCards = (data = null, helpers = {}) => {
@@ -358,92 +389,149 @@ window.SUXI_OPERATION_STATIC = (() => {
             : openingRiskTextClassFallback;
         const metrics = data.metrics || {};
         const project = data.project || {};
-        const daysLeft = safeOpeningOverviewNumber(metrics.days_left);
-        const completionRate = clampOpeningOverviewPercent(metrics.completion_rate);
-        const coreCompletionRate = clampOpeningOverviewPercent(metrics.core_completion_rate);
-        const aiRate = clampOpeningOverviewPercent(metrics.ai_penetration_rate);
-        const completedTasks = safeOpeningOverviewNumber(metrics.completed_tasks);
-        const totalTasks = safeOpeningOverviewNumber(metrics.total_tasks);
-        const coreCompletedTasks = safeOpeningOverviewNumber(metrics.core_completed_tasks);
-        const coreTasks = safeOpeningOverviewNumber(metrics.core_tasks);
+        const truthContext = data.truth_context && typeof data.truth_context === 'object' ? data.truth_context : {};
+        const metricTruth = metrics.metric_truth && typeof metrics.metric_truth === 'object' ? metrics.metric_truth : {};
+        const truthFor = (metricKey, value) => {
+            const observed = metricKey === 'risk_level'
+                ? String(value || '').trim() !== ''
+                : nullableOpeningOverviewNumber(value) !== null;
+            return metricTruth[metricKey] || {
+                ...truthContext,
+                metric_key: metricKey,
+                calculation_status: observed ? 'calculated' : 'missing',
+                value_observed: observed,
+            };
+        };
+        const daysLeftValue = nullableOpeningOverviewNumber(metrics.days_left);
+        const completionRateValue = nullableOpeningOverviewNumber(metrics.completion_rate);
+        const coreCompletionRateValue = nullableOpeningOverviewNumber(metrics.core_completion_rate);
+        const aiRateValue = nullableOpeningOverviewNumber(metrics.ai_penetration_rate);
+        const completedTasks = nullableOpeningOverviewNumber(metrics.completed_tasks);
+        const totalTasks = nullableOpeningOverviewNumber(metrics.total_tasks);
+        const coreCompletedTasks = nullableOpeningOverviewNumber(metrics.core_completed_tasks);
+        const coreTasks = nullableOpeningOverviewNumber(metrics.core_tasks);
+        const daysLeft = daysLeftValue;
+        const completionRate = completionRateValue === null ? null : clampOpeningOverviewPercent(completionRateValue);
+        const coreCompletionRate = coreCompletionRateValue === null ? null : clampOpeningOverviewPercent(coreCompletionRateValue);
+        const aiRate = aiRateValue === null ? null : clampOpeningOverviewPercent(aiRateValue);
         return [
             {
+                metricKey: 'days_left',
                 label: '开业倒计时',
-                value: `${daysLeft}天`,
+                value: daysLeftValue === null ? '—' : `${daysLeft}天`,
                 hint: project.opening_date ? `计划开业 ${project.opening_date}` : '未设置开业日期',
                 icon: 'fas fa-calendar-day',
-                iconClass: daysLeft < 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600',
-                valueClass: daysLeft < 0 ? 'text-red-600' : 'text-gray-900',
+                iconClass: daysLeftValue === null ? 'bg-gray-50 text-gray-500' : (daysLeft < 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'),
+                valueClass: daysLeftValue === null ? 'text-gray-500' : (daysLeft < 0 ? 'text-red-600' : 'text-gray-900'),
             },
             {
+                metricKey: 'overall_score',
                 label: '总评分',
-                value: project.overall_score ?? 0,
+                value: project.overall_score ?? '—',
                 hint: '规则引擎评分 / 100',
                 icon: 'fas fa-chart-line',
                 iconClass: 'bg-slate-50 text-slate-600',
             },
             {
+                metricKey: 'risk_level',
                 label: '风险等级',
                 value: openingRiskText(project.risk_level),
                 hint: '高风险与逾期自动识别',
                 icon: 'fas fa-exclamation-triangle',
-                iconClass: project.risk_level === 'high' ? 'bg-red-50 text-red-600' : (project.risk_level === 'medium' ? 'bg-yellow-50 text-yellow-600' : 'bg-green-50 text-green-600'),
+                iconClass: project.risk_level === 'high' ? 'bg-red-50 text-red-600' : (project.risk_level === 'medium' ? 'bg-yellow-50 text-yellow-600' : (project.risk_level === 'low' ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-500')),
                 valueClass: openingRiskTextClass(project.risk_level),
             },
             {
+                metricKey: 'completion_rate',
                 label: '检查项完成率',
-                value: `${completionRate}%`,
-                hint: totalTasks > 0 ? `已完成 ${completedTasks} 项，共 ${totalTasks} 项` : '暂无检查项',
+                value: completionRateValue === null ? '—' : `${completionRate}%`,
+                hint: totalTasks === null ? '检查项数量未返回' : (totalTasks > 0 ? `已完成 ${completedTasks ?? '-'} 项，共 ${totalTasks} 项` : '暂无检查项'),
                 icon: 'fas fa-tasks',
                 iconClass: 'bg-blue-50 text-blue-600',
                 progress: completionRate,
                 progressClass: 'bg-blue-600',
-                countLabel: totalTasks > 0 ? `${completedTasks}/${totalTasks} 项` : '暂无检查项',
+                countLabel: totalTasks === null ? '数量未返回' : (totalTasks > 0 ? `${completedTasks ?? '-'}/${totalTasks} 项` : '暂无检查项'),
             },
             {
+                metricKey: 'core_completion_rate',
                 label: '核心完成率',
-                value: `${coreCompletionRate}%`,
-                hint: coreTasks > 0 ? `核心项 ${coreCompletedTasks}/${coreTasks} 项` : '暂无核心检查项',
+                value: coreCompletionRateValue === null ? '—' : `${coreCompletionRate}%`,
+                hint: coreTasks === null ? '核心检查项数量未返回' : (coreTasks > 0 ? `核心项 ${coreCompletedTasks ?? '-'}/${coreTasks} 项` : '暂无核心检查项'),
                 icon: 'fas fa-clipboard-check',
                 iconClass: 'bg-green-50 text-green-600',
                 progress: coreCompletionRate,
                 progressClass: 'bg-green-600',
-                countLabel: coreTasks > 0 ? `${coreCompletedTasks}/${coreTasks} 项` : '暂无核心项',
+                countLabel: coreTasks === null ? '数量未返回' : (coreTasks > 0 ? `${coreCompletedTasks ?? '-'}/${coreTasks} 项` : '暂无核心项'),
             },
             {
+                metricKey: 'high_risk_count',
                 label: '高风险事项',
-                value: metrics.high_risk_count ?? 0,
+                value: metrics.high_risk_count ?? '—',
                 hint: '核心阻断优先处理',
                 icon: 'fas fa-fire',
                 iconClass: 'bg-red-50 text-red-600',
-                valueClass: Number(metrics.high_risk_count || 0) > 0 ? 'text-red-600' : 'text-gray-900',
+                valueClass: nullableOpeningOverviewNumber(metrics.high_risk_count) === null ? 'text-gray-500' : (Number(metrics.high_risk_count) > 0 ? 'text-red-600' : 'text-gray-900'),
             },
             {
+                metricKey: 'overdue_count',
                 label: '逾期事项',
-                value: metrics.overdue_count ?? 0,
+                value: metrics.overdue_count ?? '—',
                 hint: '未完成且超过截止时间',
                 icon: 'fas fa-clock',
                 iconClass: 'bg-yellow-50 text-yellow-600',
-                valueClass: Number(metrics.overdue_count || 0) > 0 ? 'text-yellow-600' : 'text-gray-900',
+                valueClass: nullableOpeningOverviewNumber(metrics.overdue_count) === null ? 'text-gray-500' : (Number(metrics.overdue_count) > 0 ? 'text-yellow-600' : 'text-gray-900'),
             },
             {
+                metricKey: 'ai_penetration_rate',
                 label: 'AI建议推进率',
-                value: `${aiRate}%`,
+                value: aiRateValue === null ? '—' : `${aiRate}%`,
                 hint: '带AI建议事项平均进度',
                 icon: 'fas fa-robot',
                 iconClass: 'bg-blue-50 text-blue-600',
                 progress: aiRate,
                 progressClass: 'bg-blue-600',
-                countLabel: totalTasks > 0 ? `${safeOpeningOverviewNumber(metrics.ai_covered_tasks)}/${totalTasks} 项带AI建议` : '暂无检查项',
+                countLabel: totalTasks === null
+                    ? '数量未返回'
+                    : (totalTasks > 0 ? `${nullableOpeningOverviewNumber(metrics.ai_covered_tasks) ?? '-'}/${totalTasks} 项带AI建议` : '暂无检查项'),
             },
-        ];
+        ].map(card => ({
+            ...card,
+            truth: truthFor(
+                card.metricKey,
+                card.metricKey === 'overall_score'
+                    ? project.overall_score
+                    : (card.metricKey === 'risk_level' ? project.risk_level : metrics[card.metricKey])
+            ),
+        }));
     };
     const buildOpeningCategoryProgressCards = (categoryProgress = []) => {
         const list = Array.isArray(categoryProgress) ? categoryProgress : [];
         return list.map((item) => {
-            const total = safeOpeningOverviewNumber(item.total);
-            const done = safeOpeningOverviewNumber(item.done);
-            const progress = clampOpeningOverviewPercent(item.completion_rate);
+            const totalValue = nullableOpeningOverviewNumber(item.total);
+            const doneValue = nullableOpeningOverviewNumber(item.done);
+            const progressValue = nullableOpeningOverviewNumber(item.completion_rate);
+            const total = totalValue ?? 0;
+            const done = doneValue ?? 0;
+            const progress = progressValue === null ? null : clampOpeningOverviewPercent(progressValue);
+            const truth = item?.truth && typeof item.truth === 'object' ? item.truth : {
+                status: 'unverified',
+                status_label: '未验证',
+                metric_scope: 'opening_project',
+                scope_label: '开业准备项目口径，不代表OTA已上线或全酒店经营实绩',
+                failure_reason: '分类指标真值证据未返回',
+            };
+            if (totalValue === null) {
+                return {
+                    category: item.category || '未分类',
+                    progress,
+                    countLabel: '数量未返回',
+                    progressHint: '进度未返回',
+                    status: '数据未返回',
+                    statusClass: 'bg-gray-100 text-gray-600',
+                    progressClass: 'bg-gray-300',
+                    truth,
+                };
+            }
             if (total <= 0) {
                 return {
                     category: item.category || '未分类',
@@ -453,6 +541,7 @@ window.SUXI_OPERATION_STATIC = (() => {
                     status: '待生成',
                     statusClass: 'bg-gray-100 text-gray-600',
                     progressClass: 'bg-gray-300',
+                    truth,
                 };
             }
             if (progress >= 100) {
@@ -464,6 +553,7 @@ window.SUXI_OPERATION_STATIC = (() => {
                     status: '已完成',
                     statusClass: 'bg-green-50 text-green-700',
                     progressClass: 'bg-green-600',
+                    truth,
                 };
             }
             if (done > 0) {
@@ -475,6 +565,7 @@ window.SUXI_OPERATION_STATIC = (() => {
                     status: '推进中',
                     statusClass: 'bg-blue-50 text-blue-700',
                     progressClass: 'bg-blue-600',
+                    truth,
                 };
             }
             return {
@@ -485,6 +576,7 @@ window.SUXI_OPERATION_STATIC = (() => {
                 status: '未开始',
                 statusClass: 'bg-yellow-50 text-yellow-700',
                 progressClass: 'bg-yellow-500',
+                truth,
             };
         });
     };
@@ -663,10 +755,6 @@ window.SUXI_OPERATION_STATIC = (() => {
             task.progress_percent = 100;
         } else if (task.status === 'todo') {
             task.progress_percent = 0;
-        } else if (task.status === 'doing' && progress === 0) {
-            task.progress_percent = 50;
-        } else if (task.status === 'blocked' && progress >= 100) {
-            task.progress_percent = 75;
         } else {
             task.progress_percent = progress;
         }
@@ -714,13 +802,13 @@ window.SUXI_OPERATION_STATIC = (() => {
         }
         return task;
     };
-    const openingRiskText = (risk) => ({ high: '高风险', medium: '中风险', low: '低风险' }[risk] || '低风险');
-    const openingRiskTextClass = (risk) => ({ high: 'text-red-600', medium: 'text-yellow-600', low: 'text-green-600' }[risk] || 'text-green-600');
+    const openingRiskText = (risk) => ({ high: '高风险', medium: '中风险', low: '低风险' }[risk] || '待评估');
+    const openingRiskTextClass = (risk) => ({ high: 'text-red-600', medium: 'text-yellow-600', low: 'text-green-600' }[risk] || 'text-gray-500');
     const openingRiskClass = (risk) => ({
         high: 'bg-red-50 text-red-700 border border-red-100',
         medium: 'bg-yellow-50 text-yellow-700 border border-yellow-100',
         low: 'bg-green-50 text-green-700 border border-green-100',
-    }[risk] || 'bg-green-50 text-green-700 border border-green-100');
+    }[risk] || 'bg-gray-50 text-gray-600 border border-gray-200');
     const buildOpeningTaskStats = (tasks = [], now = new Date()) => {
         const rows = Array.isArray(tasks) ? tasks : [];
         const count = (predicate) => rows.filter(predicate).length;
@@ -837,7 +925,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         const overviewOutputs = Array.isArray(overviewSuggestions)
             ? overviewSuggestions.map(item => String(item || '').trim()).filter(Boolean)
             : [];
-        const taskOutputs = taskRows
+        const allTaskOutputs = taskRows
             .filter(task => String(task.ai_suggestion || '').trim())
             .map(task => {
                 const reason = openingAiTaskReason(task, helpers);
@@ -853,10 +941,10 @@ window.SUXI_OPERATION_STATIC = (() => {
                     priorityScore: openingAiTaskPriorityScore(task, helpers),
                 };
             })
-            .sort((a, b) => b.priorityScore - a.priorityScore)
-            .slice(0, 6);
+            .sort((a, b) => b.priorityScore - a.priorityScore);
+        const taskOutputs = allTaskOutputs.slice(0, 6);
         const total = Math.max(0, Number(stats.total || 0));
-        const aiCovered = taskOutputs.length;
+        const aiCovered = allTaskOutputs.length;
         const aiCoverage = total > 0 ? Math.round(aiCovered / total * 100) : 0;
         const riskOutputCount = taskRows
             .filter(task => (task.risk_level === 'high') || (typeof helpers.taskIsOverdue === 'function' ? helpers.taskIsOverdue(task) : Number(task?.is_overdue) === 1) || task.status === 'blocked')

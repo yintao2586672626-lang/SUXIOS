@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -25,6 +26,7 @@ function runGit(gitArgs, options = {}) {
   const result = spawnSync('git', ['-c', 'core.quotePath=false', ...gitArgs], {
     cwd: repoRoot,
     encoding: options.encoding ?? 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
     shell: false,
   });
   if (result.status !== 0 && !options.allowFailure) {
@@ -38,6 +40,7 @@ function runNodeScript(script, scriptArgs, options = {}) {
   const result = spawnSync(process.execPath, [path.join(scriptRepoRoot, 'scripts', script), ...scriptArgs], {
     cwd: scriptRepoRoot,
     encoding: options.encoding ?? 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
     shell: false,
   });
   if (result.status !== 0 && !options.allowFailure) {
@@ -143,6 +146,42 @@ function writeFileSafe(relativePath, content, encoding = 'utf8') {
   fs.writeFileSync(target, content, encoding);
 }
 
+function writeGitDiffSafe(relativePath, paths) {
+  if (paths.length === 0) {
+    return;
+  }
+
+  const target = path.join(outputRoot, relativePath);
+  const partialTarget = `${target}.partial`;
+  ensureInside(outputRoot, target);
+  ensureInside(outputRoot, partialTarget);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.rmSync(partialTarget, { force: true });
+  const result = runGit(['diff', '--binary', `--output=${partialTarget}`, 'HEAD', '--', ...paths], {
+    allowFailure: true,
+  });
+  if (result.status !== 0) {
+    fs.rmSync(partialTarget, { force: true });
+    const detail = result.error ? String(result.error.message || result.error) : String(result.stderr || 'git diff failed');
+    throw new Error(`Unable to create ${relativePath}: ${detail}`);
+  }
+  fs.renameSync(partialTarget, target);
+}
+
+function patchIntegrity(relativePath) {
+  const target = path.join(outputRoot, relativePath);
+  ensureInside(outputRoot, target);
+  if (!fs.existsSync(target)) {
+    return null;
+  }
+  const content = fs.readFileSync(target);
+  return {
+    path: relativePath,
+    bytes: content.byteLength,
+    sha256: createHash('sha256').update(content).digest('hex'),
+  };
+}
+
 function copyPathSafe(sourceRelativePath, targetRoot) {
   const source = path.join(repoRoot, sourceRelativePath);
   const target = path.join(outputRoot, targetRoot, sourceRelativePath);
@@ -160,18 +199,6 @@ function copyPathSafe(sourceRelativePath, targetRoot) {
     return false;
   }
   return true;
-}
-
-function gitDiffFor(paths, binary = true) {
-  if (paths.length === 0) {
-    return '';
-  }
-  const gitArgs = ['diff'];
-  if (binary) {
-    gitArgs.push('--binary');
-  }
-  gitArgs.push('HEAD', '--', ...paths);
-  return runGit(gitArgs).stdout;
 }
 
 function renderReleaseStagingTsv(entries) {
@@ -209,6 +236,10 @@ function buildManifest(entries, divergence, copiedUntracked, skippedUntracked = 
     release_staging_plan: releaseStagingPlan,
     tracked_patch: tracked.length > 0 ? 'tracked.patch' : null,
     agent_patch: tracked.some((entry) => isAgentPath(entry.path)) ? 'agent.patch' : null,
+    patch_integrity: {
+      tracked: tracked.length > 0 ? patchIntegrity('tracked.patch') : null,
+      agent: tracked.some((entry) => isAgentPath(entry.path)) ? patchIntegrity('agent.patch') : null,
+    },
     untracked_files: loose.map((entry) => ({
       path: entry.path,
       copied: copiedUntracked.includes(entry.path),
@@ -266,10 +297,10 @@ try {
   if (!dryRun) {
     fs.mkdirSync(outputRoot, { recursive: true });
     if (trackedPaths.length > 0) {
-      writeFileSafe('tracked.patch', gitDiffFor(trackedPaths));
+      writeGitDiffSafe('tracked.patch', trackedPaths);
     }
     if (agentPaths.length > 0) {
-      writeFileSafe('agent.patch', gitDiffFor(agentPaths));
+      writeGitDiffSafe('agent.patch', agentPaths);
     }
     for (const entry of loose) {
       if (!includeLocalArtifacts && isReleaseLocalArtifactPath(entry.path)) {

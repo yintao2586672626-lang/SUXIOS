@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\PlatformProfileBindingReadinessService;
+use DateTimeImmutable;
+use DateTimeZone;
 use PHPUnit\Framework\TestCase;
 
 final class PlatformProfileBindingReadinessServiceTest extends TestCase
@@ -43,6 +45,9 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
         self::assertSame('ota_account_store', $contract['profile_reuse_scope']);
         self::assertTrue($contract['profile_daily_reuse_enabled']);
         self::assertTrue($contract['current_session_verified']);
+        self::assertTrue($contract['profile_reusable']);
+        self::assertSame('reusable', $contract['profile_reuse_status']);
+        self::assertFalse($contract['profile_reuse_warning']);
         self::assertFalse($contract['historical_login_metadata_present']);
         self::assertFalse($contract['manual_login_state_verified']);
         self::assertSame('', $contract['last_login_verified_at']);
@@ -51,6 +56,95 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
         self::assertStringNotContainsString('must-not-copy', (string)$encoded);
         self::assertStringNotContainsString('password', strtolower((string)$encoded));
         self::assertStringNotContainsString('cookies', strtolower((string)$encoded));
+    }
+
+    public function testReusableAndWarningProfilesRemainCompleteWithoutClaimingCurrentSessionProof(): void
+    {
+        $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
+        $baseConfig = [
+            'ota_hotel_id' => 'ctrip-58',
+            'profile_id' => 'profile-58',
+            'profile_binding_key' => 'profile-58',
+            'current_session_probe_at' => $now->modify('-1 day')->format('Y-m-d H:i:s'),
+        ];
+        $source = [
+            'id' => 14,
+            'system_hotel_id' => 58,
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+        ];
+
+        $reusable = PlatformProfileBindingReadinessService::buildContract(
+            'ctrip',
+            58,
+            $baseConfig,
+            $source,
+            'profile_reusable',
+            true,
+            'profile-58'
+        );
+        self::assertSame('complete', $reusable['status']);
+        self::assertTrue($reusable['is_complete']);
+        self::assertFalse($reusable['current_session_verified']);
+        self::assertTrue($reusable['profile_reusable']);
+        self::assertSame('reusable', $reusable['profile_reuse_status']);
+        self::assertFalse($reusable['profile_reuse_warning']);
+        self::assertSame(1, $reusable['profile_age_days']);
+        self::assertSame(9, $reusable['days_until_forced_login']);
+        self::assertSame([], $reusable['missing_requirements']);
+        $reusableChecks = PlatformProfileBindingReadinessService::buildChecks(
+            'ctrip',
+            58,
+            $baseConfig,
+            $source,
+            'profile_reusable',
+            true,
+            'profile-58'
+        );
+        $reusableChecksByKey = array_column($reusableChecks, null, 'key');
+        self::assertSame('warning', $reusableChecksByKey['profile_login']['status']);
+        self::assertSame('run_profile_capture', $reusableChecksByKey['profile_login']['action_key']);
+        self::assertSame('platform-auto', $reusableChecksByKey['profile_login']['action_target']);
+
+        $warningConfig = array_replace($baseConfig, [
+            'current_session_probe_at' => $now->modify('-8 days')->format('Y-m-d H:i:s'),
+        ]);
+        $warning = PlatformProfileBindingReadinessService::buildContract(
+            'ctrip',
+            58,
+            $warningConfig,
+            $source,
+            'renewal_warning',
+            true,
+            'profile-58'
+        );
+        self::assertSame('complete', $warning['status']);
+        self::assertTrue($warning['is_complete']);
+        self::assertTrue($warning['profile_reusable']);
+        self::assertFalse($warning['current_session_verified']);
+        self::assertSame('renewal_warning', $warning['profile_reuse_status']);
+        self::assertTrue($warning['profile_reuse_warning']);
+        self::assertSame(8, $warning['profile_age_days']);
+        self::assertSame(2, $warning['days_until_forced_login']);
+        self::assertSame([], $warning['missing_requirements']);
+    }
+
+    public function testExpiredProfileIsIncompleteAndRequestsRenewal(): void
+    {
+        $contract = PlatformProfileBindingReadinessService::buildContract('meituan', 58, [
+            'store_id' => 'mt-store-58',
+            'profile_binding_key' => 'mt-store-58',
+        ], [
+            'id' => 18,
+            'system_hotel_id' => 58,
+            'platform' => 'meituan',
+            'ingestion_method' => 'browser_profile',
+        ], 'login_expired', true, 'mt-store-58');
+
+        self::assertSame('incomplete', $contract['status']);
+        self::assertFalse($contract['profile_reusable']);
+        self::assertSame('expired', $contract['profile_reuse_status']);
+        self::assertSame(['profile_session_expired'], $contract['missing_requirements']);
     }
 
     public function testCtripContractDoesNotTreatProfileOnlyAsStoreBinding(): void
@@ -128,8 +222,8 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
             'ingestion_method' => 'browser_profile',
         ], 'waiting_login', true, 'mt-store-58');
 
-        self::assertSame('incomplete', $contract['status']);
-        self::assertFalse($contract['is_complete']);
+        self::assertSame('complete', $contract['status']);
+        self::assertTrue($contract['is_complete']);
         self::assertSame('mt-store-58', $contract['ota_store_id']);
         self::assertSame('store_id', $contract['ota_store_id_source']);
         self::assertSame('mt-store-58', $contract['profile_id']);
@@ -137,7 +231,9 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
         self::assertTrue($contract['historical_login_metadata_present']);
         self::assertTrue($contract['manual_login_state_verified']);
         self::assertSame('2026-06-27 09:00:00', $contract['last_login_verified_at']);
-        self::assertSame(['current_session_verified'], $contract['missing_requirements']);
+        self::assertTrue($contract['profile_reusable']);
+        self::assertSame('unverified', $contract['profile_reuse_status']);
+        self::assertSame([], $contract['missing_requirements']);
     }
 
     public function testMeituanChecksDoNotRequirePartnerIdForP0ProfileIdentity(): void
@@ -157,7 +253,7 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
         $byKey = array_column($checks, null, 'key');
 
         self::assertSame('ok', $byKey['platform_identity']['status']);
-        self::assertSame('login_platform_profile', $byKey['platform_identity']['action_key']);
+        self::assertSame('run_profile_capture', $byKey['platform_identity']['action_key']);
         self::assertStringContainsString('Browser Profile', $byKey['platform_identity']['detail']);
         self::assertStringNotContainsString('Cookie/API', $byKey['platform_identity']['detail']);
     }

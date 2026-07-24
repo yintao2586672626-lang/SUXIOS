@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 
 const sliceBetween = (source, start, end) => {
@@ -23,22 +24,36 @@ const assertLocatorOnly = (source, label) => {
   );
 };
 
-test('Ctrip execution payloads use config_id plus system_hotel_id without plaintext credentials', () => {
-  const readiness = sliceBetween(ctripStatic, 'const resolveCtripExecutionConfigId =', 'const normalizeCtripExecutionRequestUrls =');
-  assert.match(readiness, /config\?\.config_id \|\| config\?\.id/);
-  assert.match(readiness, /config\?\.has_cookies === true/);
-  assert.match(readiness, /credential_status \|\| ''\) === 'ready'/);
+test('Ctrip saved execution payloads use config_id plus system_hotel_id without plaintext credentials', () => {
+    const readiness = sliceBetween(ctripStatic, 'const resolveCtripExecutionConfigId =', 'const normalizeCtripExecutionRequestUrls =');
+    assert.match(readiness, /config\?\.config_id \|\| config\?\.id/);
+    assert.match(readiness, /config\?\.has_cookies === true/);
+    assert.match(readiness, /credential_status \|\| ''\) === 'ready'/);
 
-  const builders = [
-    ['rank', 'const buildCtripFetchRequestBody =', 'const buildCtripFetchFormFromConfig ='],
-    ['traffic', 'const buildCtripTrafficFetchRequestBody =', 'const buildCtripTrafficResponseModel ='],
-    ['overview', 'const buildCtripOverviewFetchRequestBody =', 'const runCtripOverviewFetchFlow ='],
+    const rankBuilder = sliceBetween(ctripStatic, 'const buildCtripFetchRequestBody =', 'const buildCtripFetchFormFromConfig =');
+    assert.match(rankBuilder, /const normalizedConfigId = String\(configId \|\| ''\)\.trim\(\)/);
+    assert.match(rankBuilder, /if \(normalizedConfigId\) \{\s*body\.config_id = normalizedConfigId/);
+    assert.match(rankBuilder, /if \(!temporaryCookieQuery\) \{\s*body\.system_hotel_id = systemHotelId \|\| null/);
+    assert.doesNotMatch(rankBuilder, /\b(?:auth_data|authorization|headers?|headers_json|payload|payload_json|spidertoken|token)\s*:/i);
+
+    const builders = [
+        ['traffic', 'const buildCtripTrafficFetchRequestBody =', 'const buildCtripTrafficResponseModel ='],
+        ['overview', 'const buildCtripOverviewFetchRequestBody =', 'const runCtripOverviewFetchFlow ='],
     ['ads', 'const buildCtripAdsFetchRequestBody =', 'const runCtripAdsFetchFlow ='],
     ['cookie-api', 'const buildCtripCookieApiFetchRequestBody =', 'const runCtripCookieApiCaptureFlow ='],
   ];
   for (const [label, start, end] of builders) {
     assertLocatorOnly(sliceBetween(ctripStatic, start, end), label);
-  }
+    }
+});
+
+test('Ctrip one-shot rank query transports only a temporary Cookie and cannot persist', () => {
+    const rankBuilder = sliceBetween(ctripStatic, 'const buildCtripFetchRequestBody =', 'const buildCtripFetchFormFromConfig =');
+
+    assert.match(rankBuilder, /const temporaryCookieQuery = !normalizedConfigId && normalizedTemporaryCookie !== ''/);
+    assert.match(rankBuilder, /auto_save: !temporaryCookieQuery/);
+    assert.match(rankBuilder, /if \(temporaryCookieQuery\) \{\s*body\.cookies = normalizedTemporaryCookie/);
+    assert.doesNotMatch(rankBuilder, /\b(?:auth_data|authorization|headers?|headers_json|payload|payload_json|spidertoken|token)\s*:/i);
 });
 
 test('Ctrip generic data configuration is metadata-only and strips credential fields', () => {
@@ -57,13 +72,18 @@ test('Ctrip generic data configuration is metadata-only and strips credential fi
   assert.match(html, /请求体不在通用配置中保存/);
   assert.match(html, /请求头由凭据保险库管理/);
 
-  for (const model of ['ctripForm', 'ctripFlowOverviewForm', 'ctripTrafficForm', 'ctripAdsBrowserCaptureForm', 'ctripOverviewForm']) {
+  for (const model of ['ctripForm', 'ctripTrafficForm', 'ctripAdsBrowserCaptureForm', 'ctripOverviewForm']) {
     assert.match(
       html,
       new RegExp(`<textarea v-model="${model}\\.cookies"[^>]*\\bdisabled\\b[^>]*>`),
       `${model} Cookie execution input must stay disabled`,
     );
   }
+  assert.doesNotMatch(
+    html,
+    /<textarea v-model="ctripFlowOverviewForm\.cookies"[^>]*>/,
+    'removed Ctrip flow-overview Cookie input must not be reintroduced',
+  );
 });
 
 test('Ctrip Profile capture transports profile metadata but no Cookie or authorization material', () => {

@@ -1,0 +1,7 @@
+interface:
+  display_name: "宿析OS语音自动理解"
+  short_description: "字面优先、仅在必要时纠错的宿析OS语音理解"
+  default_prompt: "请用 $suxi-voice-intent 轻量理解消息；清楚的原句直接通过，仅对高置信度语音转录噪声做保守纠正。"
+
+policy:
+  allow_implicit_invocation: true

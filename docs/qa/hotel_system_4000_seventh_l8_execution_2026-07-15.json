@@ -1,0 +1,1110 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-07-15",
+  "batch": "seventh",
+  "generated_at": "2026-07-16T10:09:08.747Z",
+  "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=seventh",
+  "source_matrix": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl",
+  "execution_ledger": "docs/qa/hotel_system_4000_execution_evidence_2026-07-15.json",
+  "execution_boundary": {
+    "automated_scope": "Each case is independently executed with one PHPUnit --filter invocation and must parse as exactly one test.",
+    "status_policy": "Successful automated cases are partial; assertion failures are fail; process, zero/multiple tests, errors, skips, incomplete tests, risky tests, warnings, and parse failures are blocked.",
+    "not_covered": [
+      "complete HTTP flow",
+      "database persistence/readback",
+      "UI flow",
+      "real OTA collection"
+    ],
+    "no_suite_propagation": true
+  },
+  "totals": {
+    "requested_cases": 24,
+    "independently_invoked_cases": 24,
+    "exactly_one_test": 24,
+    "statuses": {
+      "partial": 24
+    }
+  },
+  "cases": [
+    {
+      "case_id": "DX-0825",
+      "base_case_id": "TC-104",
+      "scenario_signature": "sha256:c6a110c61553fda27d90b4b92b17ce5e71cddf285bc5f85933ea38dd8d4be699",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php",
+      "filter": "DX-0825",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "DX-0825",
+          "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter DX-0825 evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:03.621Z",
+      "finished_at": "2026-07-16T10:09:03.792Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.011, Memory: 8.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-0826",
+      "base_case_id": "TC-104",
+      "scenario_signature": "sha256:599bbce79969071b88de56a2d9d275357958cfb16639ab3346b7b4866c18e025",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php",
+      "filter": "DX-0826",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "DX-0826",
+          "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter DX-0826 evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:03.793Z",
+      "finished_at": "2026-07-16T10:09:03.951Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.011, Memory: 8.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-0827",
+      "base_case_id": "TC-104",
+      "scenario_signature": "sha256:a8d178142a2fc43f7860ce7e918a9ea32022c2e5c54697b150954749a7784a53",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php",
+      "filter": "DX-0827",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "DX-0827",
+          "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter DX-0827 evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:03.951Z",
+      "finished_at": "2026-07-16T10:09:04.107Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.013, Memory: 8.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-0828",
+      "base_case_id": "TC-104",
+      "scenario_signature": "sha256:77a0cf2326261224371503b87fb33ba720ea8e8213f8ca35c0891e2f4356fcdc",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php",
+      "filter": "DX-0828",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "DX-0828",
+          "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter DX-0828 evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:04.107Z",
+      "finished_at": "2026-07-16T10:09:04.299Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.010, Memory: 8.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-0829",
+      "base_case_id": "TC-104",
+      "scenario_signature": "sha256:ce92f4c25311f4e2120bd9f656c86d4d19fa013b164cf90e8d061fbdd7b9d2e8",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php",
+      "filter": "DX-0829",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "DX-0829",
+          "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter DX-0829 evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:04.299Z",
+      "finished_at": "2026-07-16T10:09:04.528Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.014, Memory: 8.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-0830",
+      "base_case_id": "TC-104",
+      "scenario_signature": "sha256:a912b917d111ac6c89d9fa58607a0b4d8f4edbea4c37f95a0b3edb9e53195f3f",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php",
+      "filter": "DX-0830",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "DX-0830",
+          "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter DX-0830 evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:04.529Z",
+      "finished_at": "2026-07-16T10:09:04.750Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.016, Memory: 8.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-0831",
+      "base_case_id": "TC-104",
+      "scenario_signature": "sha256:88efbec26a978c29e290d75f15073395dfda5ce463b6711ff1c8429d719a3517",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php",
+      "filter": "DX-0831",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "DX-0831",
+          "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter DX-0831 evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:04.751Z",
+      "finished_at": "2026-07-16T10:09:04.986Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.016, Memory: 8.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-0832",
+      "base_case_id": "TC-104",
+      "scenario_signature": "sha256:43cd0927e5bf52595375d84e7e1ecdb22bf5d203a5142a3a93632b6b0f556682",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php",
+      "filter": "DX-0832",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "DX-0832",
+          "evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter DX-0832 evals/seventh-batch/Tc104CredentialCiphertextTamperL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:04.986Z",
+      "finished_at": "2026-07-16T10:09:05.194Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.015, Memory: 8.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3089",
+      "base_case_id": "TC-387",
+      "scenario_signature": "sha256:20e03ff50eefd48ab6fb4345961bd5d3e928c50efd6e5645998929e788905eae",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php",
+      "filter": "testDx3089",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3089",
+          "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3089 evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:05.194Z",
+      "finished_at": "2026-07-16T10:09:05.419Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.019, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3090",
+      "base_case_id": "TC-387",
+      "scenario_signature": "sha256:3312c33dee6b1af750879ca459ae3bd50a0ad9af6bdeee8eb00de52be10a665e",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php",
+      "filter": "testDx3090",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3090",
+          "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3090 evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:05.419Z",
+      "finished_at": "2026-07-16T10:09:05.627Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.020, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3091",
+      "base_case_id": "TC-387",
+      "scenario_signature": "sha256:b6d7044ade8a656a103e1de8b95171b71a5d1761a84eeff1208775956674e1b3",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php",
+      "filter": "testDx3091",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3091",
+          "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3091 evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:05.627Z",
+      "finished_at": "2026-07-16T10:09:05.859Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.023, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3092",
+      "base_case_id": "TC-387",
+      "scenario_signature": "sha256:dd24ffac6f92e39e2350d301c8bf091f59691e0e4c6e100bd9ca9ba022b235cd",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php",
+      "filter": "testDx3092",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3092",
+          "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3092 evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:05.859Z",
+      "finished_at": "2026-07-16T10:09:06.072Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.018, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3093",
+      "base_case_id": "TC-387",
+      "scenario_signature": "sha256:caabe3f8a9bf1862b3a4a9ec4282487f7622bcfd321efe8e2ee1bb536bbee8a4",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php",
+      "filter": "testDx3093",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3093",
+          "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3093 evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:06.072Z",
+      "finished_at": "2026-07-16T10:09:06.312Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.022, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3094",
+      "base_case_id": "TC-387",
+      "scenario_signature": "sha256:24206994191497e903087c87a2209d5b89d959b35cd5b348ab1383aafa1b2dfa",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php",
+      "filter": "testDx3094",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3094",
+          "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3094 evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:06.312Z",
+      "finished_at": "2026-07-16T10:09:06.548Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.017, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3095",
+      "base_case_id": "TC-387",
+      "scenario_signature": "sha256:9318a312d385971ed88409f85fb2e9a1b0feb1e14cdc1a822b7c760fd9864348",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php",
+      "filter": "testDx3095",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3095",
+          "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3095 evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:06.548Z",
+      "finished_at": "2026-07-16T10:09:06.767Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.021, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3096",
+      "base_case_id": "TC-387",
+      "scenario_signature": "sha256:172e5de0105d6c2848bee264f2709b32e24a7f8cfc310a6dc5366d333458c119",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php",
+      "filter": "testDx3096",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3096",
+          "evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3096 evals/seventh-batch/Tc387CorsOriginRestrictionL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:06.767Z",
+      "finished_at": "2026-07-16T10:09:06.982Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.025, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3225",
+      "base_case_id": "TC-404",
+      "scenario_signature": "sha256:a7bba7aec492707ff6c5d83f7575a3fe8c05e98743de43a8e2997a9158977550",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php",
+      "filter": "testDx3225",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3225",
+          "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3225 evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:06.982Z",
+      "finished_at": "2026-07-16T10:09:07.206Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.017, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3226",
+      "base_case_id": "TC-404",
+      "scenario_signature": "sha256:5de664e65e10ed6b1abc5150a405af50e30622ae6e1e4387767a4d38238b472d",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php",
+      "filter": "testDx3226",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3226",
+          "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3226 evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:07.207Z",
+      "finished_at": "2026-07-16T10:09:07.435Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.012, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3227",
+      "base_case_id": "TC-404",
+      "scenario_signature": "sha256:5a274f3447cca74c927bcac9a30e013ff6b647e2b3c9a6cbf1eb1ce155426e5b",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php",
+      "filter": "testDx3227",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3227",
+          "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3227 evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:07.435Z",
+      "finished_at": "2026-07-16T10:09:07.629Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.009, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3228",
+      "base_case_id": "TC-404",
+      "scenario_signature": "sha256:303bb774ad2dfeee8257c93d5aef1e72c48d9115f3bcda19a8b7db6bf05d86e0",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php",
+      "filter": "testDx3228",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3228",
+          "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3228 evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:07.629Z",
+      "finished_at": "2026-07-16T10:09:07.867Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.016, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3229",
+      "base_case_id": "TC-404",
+      "scenario_signature": "sha256:ab0525bebd7c3036fa54c374319f32d938b4b2c80538d0ad426a20e183d09f5b",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php",
+      "filter": "testDx3229",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3229",
+          "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3229 evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:07.867Z",
+      "finished_at": "2026-07-16T10:09:08.043Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.012, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3230",
+      "base_case_id": "TC-404",
+      "scenario_signature": "sha256:7a9019e53bfabab80e203eef69d3bd49fa574e354ccf0e41f3aeaa6566e07f2e",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php",
+      "filter": "testDx3230",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3230",
+          "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3230 evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:08.043Z",
+      "finished_at": "2026-07-16T10:09:08.256Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.011, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3231",
+      "base_case_id": "TC-404",
+      "scenario_signature": "sha256:85e570a0a28e8bc35b3809813caaffbcdbb4114ef06aef3e2b53fe4ce98a6314",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php",
+      "filter": "testDx3231",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3231",
+          "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3231 evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:08.256Z",
+      "finished_at": "2026-07-16T10:09:08.508Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.016, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-3232",
+      "base_case_id": "TC-404",
+      "scenario_signature": "sha256:292ef4d90f14594a8fd09af6cdf8ac0b343c982d921cb7b2467f219a7dcb2b53",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php",
+      "filter": "testDx3232",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testDx3232",
+          "evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter testDx3232 evals/seventh-batch/Tc404ExternalDependencyTimeoutL8EvalTest.php"
+      },
+      "started_at": "2026-07-16T10:09:08.508Z",
+      "finished_at": "2026-07-16T10:09:08.747Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.014, Memory: 8.00 MB\r\n\r\nOK (1 test, 1 assertion)\r\n",
+      "stderr": ""
+    }
+  ]
+}

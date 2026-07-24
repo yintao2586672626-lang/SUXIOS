@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseJsonTextSafely, safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const root = process.cwd();
 const checks = [];
@@ -44,6 +45,13 @@ function fail(message) {
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function actionableAiEvidenceRespectsUpstreamBlockers(question) {
+  const blockers = asArray(question?.evidence?.blocking_missing_codes).map(String).filter(Boolean);
+  return blockers.length > 0
+    ? question?.status === 'warning'
+    : question?.status === 'proved';
 }
 
 function isObject(value) {
@@ -335,15 +343,19 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     if (payloadCandidateUnverifiedCount > 0) {
       check(`${prefix} P0 payload candidate present state still requires importer dry-run`, payloadCandidateReadyCount === 0 && payloadCandidateIssueCodes.includes('payload_file_present_requires_importer_dry_run'), JSON.stringify(sourceRow ?? {}));
     }
-    check(`${prefix} P0 required metric keys are explicit`, sameStringList(sourceRow?.p0_required_metric_keys, ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num']), JSON.stringify(sourceRow ?? {}));
-    check(`${prefix} P0 required storage fields are explicit`, sameStringList(sourceRow?.p0_required_storage_fields, ['online_daily_data.list_exposure', 'online_daily_data.detail_exposure', 'online_daily_data.flow_rate', 'online_daily_data.order_filling_num', 'online_daily_data.order_submit_num']), JSON.stringify(sourceRow ?? {}));
+    const expectedRequiredMetricKeys = platform === 'meituan'
+      ? ['list_exposure', 'detail_exposure', 'flow_rate']
+      : ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
+    const expectedRequiredStorageFields = expectedRequiredMetricKeys.map((key) => `online_daily_data.${key}`);
+    check(`${prefix} P0 required metric keys are explicit`, sameStringList(sourceRow?.p0_required_metric_keys, expectedRequiredMetricKeys), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 required storage fields are explicit`, sameStringList(sourceRow?.p0_required_storage_fields, expectedRequiredStorageFields), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 required field fact keys are explicit`, sameStringList(sourceRow?.p0_required_field_fact_keys, ['capture_evidence', 'source_path', 'metric_key', 'storage_field', 'stored_value_present']), JSON.stringify(sourceRow ?? {}));
     const expectedPlatformHotelIdentifierSource = platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
     check(`${prefix} P0 platform hotel identity source is explicit and desensitized`, String(sourceRow?.p0_platform_hotel_identifier_source ?? '') === expectedPlatformHotelIdentifierSource, JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 platform hotel identity status is explicit`, ['no_target_date_traffic_rows', 'requires_p0_verifier', 'ready', 'missing'].includes(String(sourceRow?.p0_platform_hotel_identifier_status ?? '')), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 platform hotel identity policy forbids raw ID exposure`, String(sourceRow?.p0_platform_hotel_identifier_policy ?? '').includes('not raw IDs') && !String(sourceRow?.p0_platform_hotel_identifier_policy ?? '').includes('system_hotel_id'), JSON.stringify(sourceRow ?? {}));
     const fieldLoopMatrix = asArray(sourceRow?.p0_field_loop_matrix);
-    check(`${prefix} P0 field loop matrix is explicit`, fieldLoopMatrix.length === 5, JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 field loop matrix is explicit`, fieldLoopMatrix.length === expectedRequiredMetricKeys.length, JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 field loop matrix covers required metric keys`, sameStringList(fieldLoopMatrix.map((item) => item?.metric_key), sourceRow?.p0_required_metric_keys), JSON.stringify(fieldLoopMatrix));
     check(`${prefix} P0 field loop matrix covers required storage fields`, sameStringList(fieldLoopMatrix.map((item) => item?.expected_storage_field), sourceRow?.p0_required_storage_fields), JSON.stringify(fieldLoopMatrix));
     for (const fieldLoop of fieldLoopMatrix) {
@@ -714,13 +726,6 @@ function trustedMetricTrustKeys(metricTrust) {
     .map(([key]) => String(key));
 }
 
-function expectedTrafficActionEntry(action) {
-  const actionCode = String(action?.action_code ?? '');
-  if (actionCode.includes('meituan')) return '/api/online-data/capture-meituan-browser';
-  if (actionCode.includes('ctrip')) return '/api/online-data/capture-ctrip-browser';
-  return '';
-}
-
 function expectedTrafficActionEntries(action) {
   const actionCode = String(action?.action_code ?? '');
   if (actionCode.includes('meituan')) {
@@ -864,6 +869,16 @@ function questionStringFieldMap(rows, field) {
   ]).filter(([key]) => key !== ''));
 }
 
+function safeChildProcessDetail(result, label) {
+  return JSON.stringify({
+    code: `${label}_failed`,
+    exit_code: Number.isInteger(result?.status) ? result.status : null,
+    signal: String(result?.signal || ''),
+    stdout_bytes: Buffer.byteLength(String(result?.stdout || ''), 'utf8'),
+    stderr_bytes: Buffer.byteLength(String(result?.stderr || ''), 'utf8'),
+  });
+}
+
 function runInspector(options, extraArgs = [], label = 'inspector') {
   const args = [
     'scripts\\inspect_phase1_ota_live_closure.php',
@@ -882,14 +897,18 @@ function runInspector(options, extraArgs = [], label = 'inspector') {
     encoding: 'utf8',
     windowsHide: true,
   });
-  check(`${label} exits successfully in non-strict mode`, result.status === 0, result.stderr || result.stdout);
+  check(
+    `${label} exits successfully in non-strict mode`,
+    result.status === 0,
+    result.status === 0 ? '' : safeChildProcessDetail(result, 'phase1_inspector'),
+  );
   if (result.status !== 0) {
     return null;
   }
   try {
-    return JSON.parse(result.stdout);
+    return parseJsonTextSafely(result.stdout, 'phase1_inspector_json');
   } catch (error) {
-    fail(`inspector output is valid JSON: ${error.message}`);
+    fail(`inspector output is valid JSON: ${safeJsonParseErrorCode(error)}`);
     return null;
   }
 }
@@ -927,14 +946,18 @@ function runEvidenceBuilder(options, extraArgs = [], label = 'evidence builder')
     windowsHide: true,
     maxBuffer: 64 * 1024 * 1024,
   });
-  check(`${label} exits successfully in read-only mode`, result.status === 0, result.stderr || result.stdout);
+  check(
+    `${label} exits successfully in read-only mode`,
+    result.status === 0,
+    result.status === 0 ? '' : safeChildProcessDetail(result, 'phase1_evidence_builder'),
+  );
   if (result.status !== 0) {
     return null;
   }
   try {
-    return JSON.parse(result.stdout);
+    return parseJsonTextSafely(result.stdout, 'phase1_evidence_builder_json');
   } catch (error) {
-    fail(`evidence builder output is valid JSON: ${error.message}`);
+    fail(`evidence builder output is valid JSON: ${safeJsonParseErrorCode(error)}`);
     return null;
   }
 }
@@ -942,16 +965,48 @@ function runEvidenceBuilder(options, extraArgs = [], label = 'evidence builder')
 const options = readArgs(process.argv);
 const payload = runInspector(options);
 const evidencePayload = runEvidenceBuilder(options);
+const fixtureOptions = {
+  ...options,
+  platform: options.platform || 'ctrip',
+  system_hotel_id: options.system_hotel_id || '80',
+};
+
+function exactFixtureScope(options, date = options.date) {
+  return {
+    date,
+    system_hotel_id: Number(options.system_hotel_id),
+    platform: options.platform,
+    metric_scope: 'ota_channel',
+  };
+}
+
+function exactDiagnosisOperationLink(actionItemId, diagnosisLogId) {
+  return {
+    source: `ota_diagnosis_saved#${diagnosisLogId}`,
+    source_module: 'ota_diagnosis_saved',
+    source_record_id: diagnosisLogId,
+    evidence: {
+      diagnosis_log_id: diagnosisLogId,
+      action_item_id: actionItemId,
+      metric_scope: 'ota_channel',
+    },
+  };
+}
+
+function untrustedExternalPersistenceClaim() {
+  return {
+    id: '9223372036854775806',
+    saved: true,
+    readback_verified: true,
+  };
+}
 
 function runBlockedDiagnosisEvidenceBuilder(options) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suxi-phase1-diagnosis-'));
   const diagnosisPath = path.join(tempDir, 'blocked-diagnosis.json');
   const diagnosis = {
     source: '/api/agent/ota-diagnosis',
-    scope: {
-      date: options.date,
-      metric_scope: 'ota_channel',
-    },
+    scope: exactFixtureScope(options),
     evidence_sources: [
       {
         ref: 'ota_no_data_scope',
@@ -991,10 +1046,10 @@ function runIncompleteOperationEvidenceBuilder(options) {
   const operationPath = path.join(tempDir, 'incomplete-operation.json');
   const diagnosis = {
     source: '/api/agent/ota-diagnosis',
-    scope: {
-      date: options.date,
-      metric_scope: 'ota_channel',
-    },
+    scope: exactFixtureScope(options),
+    saved_record: untrustedExternalPersistenceClaim(),
+    summary: 'Runtime fixture OTA diagnosis summary.',
+    decision_status: 'action_required',
     evidence_sources: [
       {
         ref: 'ota_channel_metric_evidence',
@@ -1013,13 +1068,11 @@ function runIncompleteOperationEvidenceBuilder(options) {
   };
   const operation = {
     source: '/api/operation/execution-intents',
-    scope: {
-      date: options.date,
-      metric_scope: 'ota_channel',
-    },
+    scope: exactFixtureScope(options),
     execution_intents: [
       {
         id: 1,
+        ...exactDiagnosisOperationLink('ota_action_ready_1', 9001),
         status: 'blocked',
         blocked_reason: 'approval evidence missing',
       },
@@ -1040,14 +1093,10 @@ function runIncompleteOperationEvidenceBuilder(options) {
           id: 1,
           stage: 'blocked',
           recommendation: {
-            source: 'ota_diagnosis#ota_action_ready_1',
+            ...exactDiagnosisOperationLink('ota_action_ready_1', 9001),
             platform: 'ota',
             object_type: 'pricing',
             action_type: 'review',
-            evidence: {
-              evidence_refs: ['ota_channel_metric_evidence'],
-              action_item_id: 'ota_action_ready_1',
-            },
           },
           approval: {
             status: 'blocked',
@@ -1095,10 +1144,10 @@ function runMismatchedDiagnosisEvidenceBuilder(options) {
   const diagnosisPath = path.join(tempDir, 'mismatched-diagnosis.json');
   const diagnosis = {
     source: '/api/agent/ota-diagnosis',
-    scope: {
-      date: previousDate(options.date),
-      metric_scope: 'ota_channel',
-    },
+    scope: exactFixtureScope(options, previousDate(options.date)),
+    saved_record: untrustedExternalPersistenceClaim(),
+    summary: 'Runtime fixture OTA diagnosis summary.',
+    decision_status: 'action_required',
     evidence_sources: [
       {
         ref: 'stale_ota_channel_metric_evidence',
@@ -1127,16 +1176,81 @@ function runMismatchedDiagnosisEvidenceBuilder(options) {
   }
 }
 
-function runMismatchedOperationEvidenceBuilder(options) {
+function runSectionIdentityMismatchEvidenceBuilder(options) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suxi-phase1-section-identity-'));
+  const diagnosisPath = path.join(tempDir, 'wrong-hotel-diagnosis.json');
+  const operationPath = path.join(tempDir, 'wrong-platform-operation.json');
+  const diagnosisScope = exactFixtureScope(options);
+  const operationScope = exactFixtureScope(options);
+  operationScope.platform = options.platform === 'ctrip' ? 'meituan' : 'ctrip';
+  const diagnosis = {
+    source: '/api/agent/ota-diagnosis',
+    scope: diagnosisScope,
+    system_hotel_id: `${options.system_hotel_id}evil`,
+    platform: options.platform === 'ctrip' ? 'meituan' : 'ctrip',
+    saved_record: untrustedExternalPersistenceClaim(),
+    summary: 'Runtime fixture OTA diagnosis summary.',
+    decision_status: 'action_required',
+    evidence_sources: [{ ref: 'wrong_hotel_metric_evidence', metric_scope: 'ota_channel' }],
+    data_gaps: [],
+    action_items: [{
+      id: 'wrong_hotel_action_1',
+      action: 'review OTA channel evidence',
+      status: 'ready',
+      evidence_refs: ['wrong_hotel_metric_evidence'],
+    }],
+  };
+  const operation = {
+    source: '/api/operation/execution-intents',
+    scope: operationScope,
+    execution_intents: [{
+      id: 1,
+      ...exactDiagnosisOperationLink('wrong_hotel_action_1', 9002),
+      status: 'executed',
+    }],
+    execution_flow: {
+      summary: { total: 1, stage_counts: { reviewed: 1 } },
+      list: [{
+        id: 1,
+        stage: 'reviewed',
+        recommendation: {
+          ...exactDiagnosisOperationLink('wrong_hotel_action_1', 9002),
+        },
+        approval: { status: 'approved' },
+        execution: { status: 'executed' },
+        evidence: { count: 1 },
+        review: { status: 'success' },
+        roi: { status: 'data_gap' },
+      }],
+    },
+  };
+  fs.writeFileSync(diagnosisPath, JSON.stringify(diagnosis), 'utf8');
+  fs.writeFileSync(operationPath, JSON.stringify(operation), 'utf8');
+  try {
+    return runEvidenceBuilder(
+      options,
+      [`--diagnosis=${diagnosisPath}`, `--operation=${operationPath}`],
+      'section identity mismatch evidence builder',
+    );
+  } finally {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {
+      // Temporary verifier files are best-effort cleanup only.
+    }
+  }
+}
+
+function runApprovedOnlyOperationEvidenceBuilder(options, mismatchedDate = false, executedOnly = false) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suxi-phase1-operation-scope-'));
   const diagnosisPath = path.join(tempDir, 'actionable-diagnosis.json');
   const operationPath = path.join(tempDir, 'mismatched-operation.json');
   const diagnosis = {
     source: '/api/agent/ota-diagnosis',
-    scope: {
-      date: options.date,
-      metric_scope: 'ota_channel',
-    },
+    scope: exactFixtureScope(options),
+    saved_record: untrustedExternalPersistenceClaim(),
+    summary: 'Runtime fixture OTA diagnosis summary.',
+    decision_status: 'action_required',
     evidence_sources: [
       {
         ref: 'ota_channel_metric_evidence',
@@ -1155,33 +1269,31 @@ function runMismatchedOperationEvidenceBuilder(options) {
   };
   const operation = {
     source: '/api/operation/execution-intents',
-    scope: {
-      date: previousDate(options.date),
-      metric_scope: 'ota_channel',
-    },
+    scope: exactFixtureScope(options, mismatchedDate ? previousDate(options.date) : options.date),
     execution_intents: [
       {
         id: 1,
-        status: 'approved',
+        ...exactDiagnosisOperationLink('ota_action_ready_1', 9003),
+        status: executedOnly ? 'executed' : 'approved',
       },
     ],
     execution_flow: {
       summary: {
         total: 1,
         stage_counts: {
-          approved: 1,
+          [executedOnly ? 'executed' : 'approved']: 1,
         },
         approved: 1,
-        executed: 0,
+        executed: executedOnly ? 1 : 0,
         evidence_ready: 0,
         roi_ready: 0,
       },
       list: [
         {
           id: 1,
-          stage: 'approved',
+          stage: executedOnly ? 'executed' : 'approved',
           recommendation: {
-            source: 'ota_diagnosis#ota_action_ready_1',
+            ...exactDiagnosisOperationLink('ota_action_ready_1', 9003),
             platform: 'ota',
             object_type: 'pricing',
             action_type: 'review',
@@ -1190,7 +1302,7 @@ function runMismatchedOperationEvidenceBuilder(options) {
             status: 'approved',
           },
           execution: {
-            status: 'pending',
+            status: executedOnly ? 'executed' : 'pending',
           },
           evidence: {
             count: 0,
@@ -1205,7 +1317,9 @@ function runMismatchedOperationEvidenceBuilder(options) {
     return runEvidenceBuilder(
       options,
       [`--diagnosis=${diagnosisPath}`, `--operation=${operationPath}`],
-      'mismatched operation evidence builder',
+      mismatchedDate
+        ? 'mismatched operation evidence builder'
+        : (executedOnly ? 'executed-only operation evidence builder' : 'approved-only operation evidence builder'),
     );
   } finally {
     try {
@@ -1222,10 +1336,10 @@ function runUnlinkedOperationEvidenceBuilder(options) {
   const operationPath = path.join(tempDir, 'unlinked-operation.json');
   const diagnosis = {
     source: '/api/agent/ota-diagnosis',
-    scope: {
-      date: options.date,
-      metric_scope: 'ota_channel',
-    },
+    scope: exactFixtureScope(options),
+    saved_record: untrustedExternalPersistenceClaim(),
+    summary: 'Runtime fixture OTA diagnosis summary.',
+    decision_status: 'action_required',
     evidence_sources: [
       {
         ref: 'ota_channel_metric_evidence',
@@ -1244,15 +1358,19 @@ function runUnlinkedOperationEvidenceBuilder(options) {
   };
   const operation = {
     source: '/api/operation/execution-intents',
-    scope: {
-      date: options.date,
-      metric_scope: 'ota_channel',
-    },
+    scope: exactFixtureScope(options),
     execution_intents: [
       {
         id: 1,
-        source_module: 'manual',
+        source: 'ota_diagnosis#unverified_text_only',
+        source_module: 'ota_diagnosis',
         status: 'approved',
+        evidence: {
+          evidence_refs: ['manual_evidence_ref'],
+          data_gaps: ['manual_gap'],
+          action_item_id: 'manual_action_1',
+          diagnosis_summary: 'manual operation summary',
+        },
       },
     ],
     execution_flow: {
@@ -1271,11 +1389,17 @@ function runUnlinkedOperationEvidenceBuilder(options) {
           id: 1,
           stage: 'reviewed',
           recommendation: {
-            source: 'manual#1',
-            source_module: 'manual',
+            source: 'ota_diagnosis#unverified_text_only',
+            source_module: 'ota_diagnosis',
             platform: 'ota',
             object_type: 'pricing',
             action_type: 'review',
+            evidence: {
+              evidence_refs: ['manual_evidence_ref'],
+              data_gaps: ['manual_gap'],
+              action_item_id: 'manual_action_1',
+              diagnosis_summary: 'manual operation summary',
+            },
           },
           approval: {
             status: 'approved',
@@ -1313,19 +1437,31 @@ function runUnlinkedOperationEvidenceBuilder(options) {
   }
 }
 
-const blockedDiagnosisEvidencePayload = runBlockedDiagnosisEvidenceBuilder(options);
-const incompleteOperationEvidencePayload = runIncompleteOperationEvidenceBuilder(options);
-const mismatchedDiagnosisEvidencePayload = runMismatchedDiagnosisEvidenceBuilder(options);
-const mismatchedOperationEvidencePayload = runMismatchedOperationEvidenceBuilder(options);
-const unlinkedOperationEvidencePayload = runUnlinkedOperationEvidenceBuilder(options);
+const blockedDiagnosisEvidencePayload = runBlockedDiagnosisEvidenceBuilder(fixtureOptions);
+const incompleteOperationEvidencePayload = runIncompleteOperationEvidenceBuilder(fixtureOptions);
+const mismatchedDiagnosisEvidencePayload = runMismatchedDiagnosisEvidenceBuilder(fixtureOptions);
+const sectionIdentityMismatchEvidencePayload = runSectionIdentityMismatchEvidenceBuilder(fixtureOptions);
+const approvedOnlyOperationEvidencePayload = runApprovedOnlyOperationEvidenceBuilder(fixtureOptions);
+const executedOnlyOperationEvidencePayload = runApprovedOnlyOperationEvidenceBuilder(fixtureOptions, false, true);
+const mismatchedOperationEvidencePayload = runApprovedOnlyOperationEvidenceBuilder(fixtureOptions, true);
+const unlinkedOperationEvidencePayload = runUnlinkedOperationEvidenceBuilder(fixtureOptions);
+const approvedOnlyOperationInspectionPayload = approvedOnlyOperationEvidencePayload
+  ? runInspectorForEvidencePayload(fixtureOptions, approvedOnlyOperationEvidencePayload, 'approved-only operation inspector')
+  : null;
+const executedOnlyOperationInspectionPayload = executedOnlyOperationEvidencePayload
+  ? runInspectorForEvidencePayload(fixtureOptions, executedOnlyOperationEvidencePayload, 'executed-only operation inspector')
+  : null;
+const sectionIdentityMismatchInspectionPayload = sectionIdentityMismatchEvidencePayload
+  ? runInspectorForEvidencePayload(fixtureOptions, sectionIdentityMismatchEvidencePayload, 'section identity mismatch inspector')
+  : null;
 const mismatchedDiagnosisInspectionPayload = mismatchedDiagnosisEvidencePayload
-  ? runInspectorForEvidencePayload(options, mismatchedDiagnosisEvidencePayload, 'mismatched diagnosis inspector')
+  ? runInspectorForEvidencePayload(fixtureOptions, mismatchedDiagnosisEvidencePayload, 'mismatched diagnosis inspector')
   : null;
 const mismatchedOperationInspectionPayload = mismatchedOperationEvidencePayload
-  ? runInspectorForEvidencePayload(options, mismatchedOperationEvidencePayload, 'mismatched operation inspector')
+  ? runInspectorForEvidencePayload(fixtureOptions, mismatchedOperationEvidencePayload, 'mismatched operation inspector')
   : null;
 const unlinkedOperationInspectionPayload = unlinkedOperationEvidencePayload
-  ? runInspectorForEvidencePayload(options, unlinkedOperationEvidencePayload, 'unlinked operation inspector')
+  ? runInspectorForEvidencePayload(fixtureOptions, unlinkedOperationEvidencePayload, 'unlinked operation inspector')
   : null;
 
 if (payload) {
@@ -1944,7 +2080,10 @@ if (incompleteOperationEvidencePayload) {
   const incompleteQuestions = asArray(incompleteOperationEvidencePayload.employee_questions);
   const incompleteAiQuestion = incompleteQuestions.find((row) => row.question === 'AI 建议依据是什么');
   const incompleteNextQuestion = incompleteQuestions.find((row) => row.question === '下一步该执行什么动作');
-  check('incomplete operation keeps actionable AI evidence proved', incompleteAiQuestion?.status === 'proved', JSON.stringify(incompleteAiQuestion ?? {}));
+  check('incomplete operation keeps actionable AI evidence gated by upstream readiness', actionableAiEvidenceRespectsUpstreamBlockers(incompleteAiQuestion), JSON.stringify(incompleteAiQuestion ?? {}));
+  check('external diagnosis save booleans do not replace database readback', incompleteAiQuestion?.evidence?.persistence_proof?.proved === false, JSON.stringify(incompleteAiQuestion?.evidence ?? {}));
+  check('unverified diagnosis persistence remains an explicit blocker', asArray(incompleteAiQuestion?.evidence?.blocking_missing_codes).includes('ai_diagnosis_persistence_unverified'), JSON.stringify(incompleteAiQuestion?.evidence ?? {}));
+  check('diagnosis persistence proof does not expose raw context', !collectKeys(incompleteAiQuestion?.evidence?.persistence_proof ?? {}).includes('context_data'), JSON.stringify(incompleteAiQuestion?.evidence?.persistence_proof ?? {}));
   check('incomplete operation evidence is warning, not proved', incompleteNextQuestion?.status === 'warning', JSON.stringify(incompleteNextQuestion ?? {}));
   check('incomplete operation counts execution intent', Number(incompleteNextQuestion?.evidence?.execution_intent_count ?? 0) > 0, JSON.stringify(incompleteNextQuestion?.evidence ?? {}));
   check('incomplete operation counts flow item', Number(incompleteNextQuestion?.evidence?.execution_flow_item_count ?? 0) > 0, JSON.stringify(incompleteNextQuestion?.evidence ?? {}));
@@ -1957,10 +2096,55 @@ if (incompleteOperationEvidencePayload) {
   const operationAction = incompleteActions.find((action) => action?.action_code === 'collect_operation_execution_evidence');
   check('incomplete operation keeps operation evidence action visible', Boolean(operationAction), JSON.stringify(incompleteActions));
   if (operationAction) {
-    check('incomplete operation action asks for structured operation evidence', asArray(operationAction.evidence_needed).some((item) => String(item).includes('approval.status=approved')), JSON.stringify(operationAction));
-    check('incomplete operation action preserves protected boundary', String(operationAction.protected_boundary ?? '').includes('不能只凭 AI 建议卡片标记闭环完成'), JSON.stringify(operationAction));
+    check('incomplete operation action asks for execution rather than approval alone', asArray(operationAction.evidence_needed).some((item) => String(item).includes('execution.status=executed')), JSON.stringify(operationAction));
+    check('incomplete operation action preserves approval boundary', String(operationAction.protected_boundary ?? '').includes('审批通过只代表允许执行'), JSON.stringify(operationAction));
   }
   check('incomplete operation keeps closure incomplete', incompleteOperationEvidencePayload.closure_summary?.status === 'incomplete', JSON.stringify(incompleteOperationEvidencePayload.closure_summary ?? {}));
+}
+
+if (approvedOnlyOperationEvidencePayload) {
+  const approvedOnlyQuestions = asArray(approvedOnlyOperationEvidencePayload.employee_questions);
+  const approvedOnlyAiQuestion = approvedOnlyQuestions.find((row) => row?.key === 'ai_evidence');
+  const approvedOnlyNextQuestion = approvedOnlyQuestions.find((row) => row?.key === 'next_operation_action');
+  check('approved-only external diagnosis claims remain unproved without DB readback', approvedOnlyAiQuestion?.evidence?.persistence_proof?.proved === false, JSON.stringify(approvedOnlyAiQuestion?.evidence ?? {}));
+  check('approved-only operation evidence is warning, not proved', approvedOnlyNextQuestion?.status === 'warning', JSON.stringify(approvedOnlyNextQuestion ?? {}));
+  check('approved-only operation retains approval as a separate signal', Number(approvedOnlyNextQuestion?.evidence?.approved_count ?? 0) === 1, JSON.stringify(approvedOnlyNextQuestion?.evidence ?? {}));
+  check('approved-only operation has no executed signal', Number(approvedOnlyNextQuestion?.evidence?.executed_count ?? 0) === 0, JSON.stringify(approvedOnlyNextQuestion?.evidence ?? {}));
+  check('approved-only operation has no execution evidence', Number(approvedOnlyNextQuestion?.evidence?.execution_evidence_count ?? 0) === 0, JSON.stringify(approvedOnlyNextQuestion?.evidence ?? {}));
+  check('approved-only operation has no review signal', Number(approvedOnlyNextQuestion?.evidence?.reviewed_count ?? 0) === 0, JSON.stringify(approvedOnlyNextQuestion?.evidence ?? {}));
+  check('approved-only operation has no ROI signal', Number(approvedOnlyNextQuestion?.evidence?.roi_ready_count ?? 0) === 0, JSON.stringify(approvedOnlyNextQuestion?.evidence ?? {}));
+  check('approved-only operation cannot create a completion signal', Number(approvedOnlyNextQuestion?.evidence?.completion_signal_count ?? -1) === 0, JSON.stringify(approvedOnlyNextQuestion?.evidence ?? {}));
+  check('approved-only operation names incomplete execution evidence', asArray(approvedOnlyNextQuestion?.evidence?.blocking_missing_codes).includes('operation_execution_evidence_incomplete'), JSON.stringify(approvedOnlyNextQuestion?.evidence ?? {}));
+  check('approved-only operation keeps closure incomplete', approvedOnlyOperationEvidencePayload.closure_summary?.status === 'incomplete', JSON.stringify(approvedOnlyOperationEvidencePayload.closure_summary ?? {}));
+}
+
+if (approvedOnlyOperationInspectionPayload) {
+  const inspectedQuestions = asArray(approvedOnlyOperationInspectionPayload.employee_questions);
+  const inspectedAiQuestion = inspectedQuestions.find((row) => row?.key === 'ai_evidence');
+  const inspectedNextQuestion = inspectedQuestions.find((row) => row?.key === 'next_operation_action');
+  check('inspector rejects external diagnosis booleans without DB readback', inspectedAiQuestion?.evidence?.database_persistence_proved === false, JSON.stringify(inspectedAiQuestion?.evidence ?? {}));
+  check('inspector keeps approved-only operation unproved', inspectedNextQuestion?.status === 'warning', JSON.stringify(inspectedNextQuestion ?? {}));
+  check('inspector exposes approved count without treating it as completion', Number(inspectedNextQuestion?.evidence?.approved_count ?? 0) === 1 && Number(inspectedNextQuestion?.evidence?.completion_signal_count ?? -1) === 0, JSON.stringify(inspectedNextQuestion?.evidence ?? {}));
+  check('inspector names approved-only execution gap', asArray(inspectedNextQuestion?.evidence?.blocking_missing_codes).includes('operation_execution_evidence_incomplete'), JSON.stringify(inspectedNextQuestion?.evidence ?? {}));
+  check('inspector keeps approved-only closure incomplete', approvedOnlyOperationInspectionPayload.closure_summary?.status === 'incomplete', JSON.stringify(approvedOnlyOperationInspectionPayload.closure_summary ?? {}));
+}
+
+if (executedOnlyOperationEvidencePayload) {
+  const executedOnlyQuestions = asArray(executedOnlyOperationEvidencePayload.employee_questions);
+  const executedOnlyNextQuestion = executedOnlyQuestions.find((row) => row?.key === 'next_operation_action');
+  check('executed-only operation retains the self-declared executed signal', Number(executedOnlyNextQuestion?.evidence?.executed_count ?? 0) === 1, JSON.stringify(executedOnlyNextQuestion?.evidence ?? {}));
+  check('executed-only operation has no execution evidence', Number(executedOnlyNextQuestion?.evidence?.execution_evidence_count ?? 0) === 0, JSON.stringify(executedOnlyNextQuestion?.evidence ?? {}));
+  check('executed-only operation cannot create a completion signal', Number(executedOnlyNextQuestion?.evidence?.completion_signal_count ?? -1) === 0, JSON.stringify(executedOnlyNextQuestion?.evidence ?? {}));
+  check('executed-only operation remains warning until evidence exists', executedOnlyNextQuestion?.status === 'warning', JSON.stringify(executedOnlyNextQuestion ?? {}));
+  check('executed-only operation keeps closure incomplete', executedOnlyOperationEvidencePayload.closure_summary?.status === 'incomplete', JSON.stringify(executedOnlyOperationEvidencePayload.closure_summary ?? {}));
+}
+
+if (executedOnlyOperationInspectionPayload) {
+  const inspectedQuestions = asArray(executedOnlyOperationInspectionPayload.employee_questions);
+  const inspectedNextQuestion = inspectedQuestions.find((row) => row?.key === 'next_operation_action');
+  check('inspector preserves executed-only signal without promoting it', Number(inspectedNextQuestion?.evidence?.executed_count ?? 0) === 1 && Number(inspectedNextQuestion?.evidence?.completion_signal_count ?? -1) === 0, JSON.stringify(inspectedNextQuestion?.evidence ?? {}));
+  check('inspector blocks executed-only operation without evidence', inspectedNextQuestion?.status === 'warning' && asArray(inspectedNextQuestion?.evidence?.blocking_missing_codes).includes('operation_execution_evidence_incomplete'), JSON.stringify(inspectedNextQuestion ?? {}));
+  check('inspector keeps executed-only closure incomplete', executedOnlyOperationInspectionPayload.closure_summary?.status === 'incomplete', JSON.stringify(executedOnlyOperationInspectionPayload.closure_summary ?? {}));
 }
 
 if (unlinkedOperationEvidencePayload) {
@@ -1969,7 +2153,7 @@ if (unlinkedOperationEvidencePayload) {
   const unlinkedQuestions = asArray(unlinkedOperationEvidencePayload.employee_questions);
   const unlinkedAiQuestion = unlinkedQuestions.find((row) => row?.key === 'ai_evidence');
   const unlinkedNextQuestion = unlinkedQuestions.find((row) => row?.key === 'next_operation_action');
-  check('unlinked operation keeps actionable AI evidence proved', unlinkedAiQuestion?.status === 'proved', JSON.stringify(unlinkedAiQuestion ?? {}));
+  check('unlinked operation keeps actionable AI evidence gated by upstream readiness', actionableAiEvidenceRespectsUpstreamBlockers(unlinkedAiQuestion), JSON.stringify(unlinkedAiQuestion ?? {}));
   check('unlinked operation evidence is warning, not proved', unlinkedNextQuestion?.status === 'warning', JSON.stringify(unlinkedNextQuestion ?? {}));
   check('unlinked operation retains raw execution item count', Number(unlinkedNextQuestion?.evidence?.execution_flow_item_count ?? 0) > 0, JSON.stringify(unlinkedNextQuestion?.evidence ?? {}));
   check('unlinked operation has no OTA diagnosis linked flow item', Number(unlinkedNextQuestion?.evidence?.ota_diagnosis_linked_flow_item_count ?? 0) === 0, JSON.stringify(unlinkedNextQuestion?.evidence ?? {}));
@@ -1994,6 +2178,8 @@ if (mismatchedDiagnosisEvidencePayload) {
   const mismatchDiagnosisNextQuestion = mismatchDiagnosisQuestions.find((row) => row?.key === 'next_operation_action');
   check('mismatched diagnosis evidence is visible but not proved', mismatchDiagnosisAiQuestion?.status === 'warning', JSON.stringify(mismatchDiagnosisAiQuestion ?? {}));
   check('mismatched diagnosis exposes scope mismatch', mismatchDiagnosisAiQuestion?.evidence?.scope_date_status === 'mismatch', JSON.stringify(mismatchDiagnosisAiQuestion?.evidence ?? {}));
+  check('mismatched diagnosis isolates date with matching hotel', mismatchDiagnosisAiQuestion?.evidence?.scope_system_hotel_status === 'matched', JSON.stringify(mismatchDiagnosisAiQuestion?.evidence ?? {}));
+  check('mismatched diagnosis isolates date with matching platform', mismatchDiagnosisAiQuestion?.evidence?.scope_platform_status === 'matched', JSON.stringify(mismatchDiagnosisAiQuestion?.evidence ?? {}));
   check('mismatched diagnosis blocks AI by evidence scope date', asArray(mismatchDiagnosisAiQuestion?.evidence?.blocking_missing_codes).includes('evidence_scope_date_mismatch'), JSON.stringify(mismatchDiagnosisAiQuestion?.evidence ?? {}));
   check('mismatched diagnosis blocks operation by evidence scope date', asArray(mismatchDiagnosisNextQuestion?.evidence?.blocking_missing_codes).includes('evidence_scope_date_mismatch'), JSON.stringify(mismatchDiagnosisNextQuestion?.evidence ?? {}));
   const mismatchDiagnosisActions = asArray(mismatchedDiagnosisEvidencePayload.next_actions);
@@ -2006,15 +2192,46 @@ if (mismatchedDiagnosisEvidencePayload) {
   check('mismatched diagnosis keeps closure incomplete', mismatchedDiagnosisEvidencePayload.closure_summary?.status === 'incomplete', JSON.stringify(mismatchedDiagnosisEvidencePayload.closure_summary ?? {}));
 }
 
+if (sectionIdentityMismatchEvidencePayload) {
+  const identityQuestions = asArray(sectionIdentityMismatchEvidencePayload.employee_questions);
+  const identityAiQuestion = identityQuestions.find((row) => row?.key === 'ai_evidence');
+  const identityNextQuestion = identityQuestions.find((row) => row?.key === 'next_operation_action');
+  check('wrong-hotel diagnosis keeps date matched', identityAiQuestion?.evidence?.scope_date_status === 'matched', JSON.stringify(identityAiQuestion?.evidence ?? {}));
+  check('conflicting diagnosis hotel identities fail closed', identityAiQuestion?.evidence?.scope_system_hotel_status === 'conflict', JSON.stringify(identityAiQuestion?.evidence ?? {}));
+  check('invalid diagnosis hotel identity is retained by builder', sectionIdentityMismatchEvidencePayload.ota_diagnosis?.scope_system_hotel_invalid === true, JSON.stringify(sectionIdentityMismatchEvidencePayload.ota_diagnosis ?? {}));
+  check('conflicting diagnosis platform identities fail closed', identityAiQuestion?.evidence?.scope_platform_status === 'conflict', JSON.stringify(identityAiQuestion?.evidence ?? {}));
+  check('outer scope cannot relabel conflicting diagnosis identity', asArray(identityAiQuestion?.evidence?.blocking_missing_codes).includes('evidence_scope_system_hotel_mismatch'), JSON.stringify(identityAiQuestion?.evidence ?? {}));
+  check('wrong-platform operation keeps date matched', identityNextQuestion?.evidence?.scope_date_status === 'matched', JSON.stringify(identityNextQuestion?.evidence ?? {}));
+  check('wrong-platform operation keeps hotel matched', identityNextQuestion?.evidence?.scope_system_hotel_status === 'matched', JSON.stringify(identityNextQuestion?.evidence ?? {}));
+  check('wrong-platform operation exposes platform mismatch', identityNextQuestion?.evidence?.scope_platform_status === 'mismatch', JSON.stringify(identityNextQuestion?.evidence ?? {}));
+  check('completed signals cannot bypass operation platform mismatch', identityNextQuestion?.status === 'warning' && Number(identityNextQuestion?.evidence?.completion_signal_count ?? 0) > 0, JSON.stringify(identityNextQuestion ?? {}));
+  check('outer scope cannot relabel wrong-platform operation', asArray(identityNextQuestion?.evidence?.blocking_missing_codes).includes('evidence_scope_platform_mismatch'), JSON.stringify(identityNextQuestion?.evidence ?? {}));
+  check('section identity mismatch keeps closure incomplete', sectionIdentityMismatchEvidencePayload.closure_summary?.status === 'incomplete', JSON.stringify(sectionIdentityMismatchEvidencePayload.closure_summary ?? {}));
+}
+
+if (sectionIdentityMismatchInspectionPayload) {
+  const inspectedQuestions = asArray(sectionIdentityMismatchInspectionPayload.employee_questions);
+  const inspectedAiQuestion = inspectedQuestions.find((row) => row?.key === 'ai_evidence');
+  const inspectedNextQuestion = inspectedQuestions.find((row) => row?.key === 'next_operation_action');
+  check('inspector exposes conflicting diagnosis hotel identity', inspectedAiQuestion?.evidence?.scope_system_hotel_status === 'conflict', JSON.stringify(inspectedAiQuestion?.evidence ?? {}));
+  check('inspector exposes conflicting diagnosis platform identity', inspectedAiQuestion?.evidence?.scope_platform_status === 'conflict', JSON.stringify(inspectedAiQuestion?.evidence ?? {}));
+  check('inspector blocks conflicting diagnosis identity', asArray(inspectedAiQuestion?.evidence?.blocking_missing_codes).includes('evidence_scope_system_hotel_mismatch'), JSON.stringify(inspectedAiQuestion?.evidence ?? {}));
+  check('inspector exposes wrong-platform operation identity', inspectedNextQuestion?.evidence?.scope_identity?.platform_status === 'mismatch', JSON.stringify(inspectedNextQuestion?.evidence ?? {}));
+  check('inspector blocks wrong-platform operation', asArray(inspectedNextQuestion?.evidence?.blocking_missing_codes).includes('evidence_scope_platform_mismatch'), JSON.stringify(inspectedNextQuestion?.evidence ?? {}));
+  check('inspector keeps section identity mismatch closure incomplete', sectionIdentityMismatchInspectionPayload.closure_summary?.status === 'incomplete', JSON.stringify(sectionIdentityMismatchInspectionPayload.closure_summary ?? {}));
+}
+
 if (mismatchedOperationEvidencePayload) {
   check('mismatched operation evidence package stays read-only', mismatchedOperationEvidencePayload.generator?.mode === 'read_only' && mismatchedOperationEvidencePayload.generator?.writes_ota_data === false, JSON.stringify(mismatchedOperationEvidencePayload.generator ?? {}));
   check('mismatched operation evidence package stays OTA scoped', mismatchedOperationEvidencePayload.scope?.metric_scope === 'ota_channel', JSON.stringify(mismatchedOperationEvidencePayload.scope ?? {}));
   const mismatchOperationQuestions = asArray(mismatchedOperationEvidencePayload.employee_questions);
   const mismatchOperationAiQuestion = mismatchOperationQuestions.find((row) => row?.key === 'ai_evidence');
   const mismatchOperationNextQuestion = mismatchOperationQuestions.find((row) => row?.key === 'next_operation_action');
-  check('mismatched operation keeps actionable AI evidence proved', mismatchOperationAiQuestion?.status === 'proved', JSON.stringify(mismatchOperationAiQuestion ?? {}));
+  check('mismatched operation keeps actionable AI evidence gated by upstream readiness', actionableAiEvidenceRespectsUpstreamBlockers(mismatchOperationAiQuestion), JSON.stringify(mismatchOperationAiQuestion ?? {}));
   check('mismatched operation evidence is warning, not proved', mismatchOperationNextQuestion?.status === 'warning', JSON.stringify(mismatchOperationNextQuestion ?? {}));
   check('mismatched operation exposes scope mismatch', mismatchOperationNextQuestion?.evidence?.scope_date_status === 'mismatch', JSON.stringify(mismatchOperationNextQuestion?.evidence ?? {}));
+  check('mismatched operation isolates date with matching hotel', mismatchOperationNextQuestion?.evidence?.scope_system_hotel_status === 'matched', JSON.stringify(mismatchOperationNextQuestion?.evidence ?? {}));
+  check('mismatched operation isolates date with matching platform', mismatchOperationNextQuestion?.evidence?.scope_platform_status === 'matched', JSON.stringify(mismatchOperationNextQuestion?.evidence ?? {}));
   check('mismatched operation names scope mismatch blocker', asArray(mismatchOperationNextQuestion?.evidence?.blocking_missing_codes).includes('evidence_scope_date_mismatch'), JSON.stringify(mismatchOperationNextQuestion?.evidence ?? {}));
   const mismatchOperationActions = asArray(mismatchedOperationEvidencePayload.next_actions);
   const alignOperationAction = mismatchOperationActions.find((action) => action?.action_code === 'align_evidence_scope_date');
@@ -2036,7 +2253,7 @@ if (mismatchedOperationInspectionPayload) {
   const inspectedQuestions = asArray(mismatchedOperationInspectionPayload.employee_questions);
   const inspectedAiQuestion = inspectedQuestions.find((row) => row?.key === 'ai_evidence');
   const inspectedNextQuestion = inspectedQuestions.find((row) => row?.key === 'next_operation_action');
-  check('inspector keeps matched diagnosis AI evidence proved for mismatched operation package', inspectedAiQuestion?.status === 'proved', JSON.stringify(inspectedAiQuestion ?? {}));
+  check('inspector keeps matched diagnosis AI evidence gated only by its own upstream readiness', actionableAiEvidenceRespectsUpstreamBlockers(inspectedAiQuestion), JSON.stringify(inspectedAiQuestion ?? {}));
   check('inspector keeps mismatched operation evidence unproved', inspectedNextQuestion?.status === 'warning', JSON.stringify(inspectedNextQuestion ?? {}));
   check('inspector exposes mismatched operation scope blocker', asArray(inspectedNextQuestion?.evidence?.blocking_missing_codes).includes('evidence_scope_date_mismatch'), JSON.stringify(inspectedNextQuestion?.evidence ?? {}));
   check('inspector keeps mismatched operation closure incomplete', mismatchedOperationInspectionPayload.closure_summary?.status === 'incomplete', JSON.stringify(mismatchedOperationInspectionPayload.closure_summary ?? {}));

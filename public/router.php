@@ -3,6 +3,20 @@
  * 路由入口文件 - 处理所有API请求
  */
 
+const SUXI_STATIC_GZIP_LEVEL = 6;
+const SUXI_CSP_REPORT_ONLY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' 'sha256-sGmHtz3c5oX2Qt7Y8ows2buHFKo+q72CzwRiUl1Q3HQ=' 'sha256-KtMDY/XkEbZFabcPqczrirnIjdmMQ+36AkxBBm4FVM4=' 'sha256-LVv/26o2w7ZGbEFyp2a1eeKNc3cZnV/P5lalHh3/N3s='; script-src-attr 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; media-src 'self'; worker-src 'self'; manifest-src 'self'";
+
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: SAMEORIGIN');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Content-Security-Policy-Report-Only: ' . SUXI_CSP_REPORT_ONLY);
+
+$suxiHttpsValue = strtolower(trim((string)($_SERVER['HTTPS'] ?? '')));
+$suxiIsHttps = $suxiHttpsValue !== '' && !in_array($suxiHttpsValue, ['off', '0', 'false', 'no'], true);
+if ($suxiIsHttps) {
+    header('Strict-Transport-Security: max-age=31536000');
+}
+
 function suxi_static_response_variant(string $staticFile, string $extension): string
 {
     if ($extension === 'html' && basename($staticFile) === 'index.html') {
@@ -10,6 +24,24 @@ function suxi_static_response_variant(string $staticFile, string $extension): st
     }
 
     return 'raw';
+}
+
+function suxi_static_request_has_content_hash(string $requestUri, string $staticFile): bool
+{
+    $basename = basename($staticFile);
+    if (preg_match('/(?:^|[._-])h[0-9a-f]{10}(?:[._-]|$)/iD', $basename) === 1) {
+        return true;
+    }
+
+    $query = parse_url($requestUri, PHP_URL_QUERY);
+    if (!is_string($query) || $query === '') {
+        return false;
+    }
+    parse_str($query, $params);
+    $version = is_scalar($params['v'] ?? null) ? trim((string)$params['v']) : '';
+
+    return $version !== ''
+        && preg_match('/(?:^|[-_])h[0-9a-f]{10}(?:[-_]|$)/iD', $version) === 1;
 }
 
 function suxi_trim_index_html_indent(string $source): string
@@ -96,7 +128,23 @@ function suxi_static_response_payload(string $staticFile, string $variant): arra
 
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $staticRequestPath = $requestPath === '/' ? '/index.html' : $requestPath;
-$staticFile = __DIR__ . str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($staticRequestPath));
+$decodedStaticPath = rawurldecode($staticRequestPath);
+$pathSegments = array_values(array_filter(
+    explode('/', str_replace('\\', '/', $decodedStaticPath)),
+    static fn(string $segment): bool => $segment !== ''
+));
+$hasHiddenPathSegment = count(array_filter(
+    $pathSegments,
+    static fn(string $segment): bool => str_starts_with($segment, '.')
+)) > 0;
+if (str_contains($decodedStaticPath, "\0") || $hasHiddenPathSegment) {
+    http_response_code(404);
+    header('Cache-Control: no-store');
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Not Found';
+    return true;
+}
+$staticFile = __DIR__ . str_replace('/', DIRECTORY_SEPARATOR, $decodedStaticPath);
 $publicRoot = realpath(__DIR__);
 $resolvedStaticFile = realpath($staticFile);
 
@@ -112,39 +160,64 @@ if ($publicRoot !== false
         'html' => 'text/html; charset=utf-8',
         'js' => 'application/javascript; charset=utf-8',
         'json' => 'application/json; charset=utf-8',
+        'txt' => 'text/plain; charset=utf-8',
         'map' => 'application/json; charset=utf-8',
         'svg' => 'image/svg+xml; charset=utf-8',
         'png' => 'image/png',
         'jpg' => 'image/jpeg',
         'jpeg' => 'image/jpeg',
         'gif' => 'image/gif',
+        'avif' => 'image/avif',
         'webp' => 'image/webp',
         'ico' => 'image/x-icon',
         'woff' => 'font/woff',
         'woff2' => 'font/woff2',
         'ttf' => 'font/ttf',
     ];
-    $cacheableExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'woff', 'woff2', 'ttf', 'svg'];
+    $basename = basename($staticFile);
+    if (str_starts_with($basename, '.') || !array_key_exists($extension, $mimeTypes)) {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo 'Not Found';
+        return true;
+    }
+    $cacheableExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'avif', 'webp', 'ico', 'woff', 'woff2', 'ttf', 'svg'];
     $compressibleExtensions = ['css', 'html', 'js', 'json', 'map', 'svg'];
     $mtime = (int)filemtime($staticFile);
     $size = (int)filesize($staticFile);
     $responseVariant = suxi_static_response_variant($staticFile, $extension);
+    $contentHashedRequest = suxi_static_request_has_content_hash(
+        (string)($_SERVER['REQUEST_URI'] ?? ''),
+        $staticFile
+    );
     $etag = '"' . md5($staticFile . '|' . $mtime . '|' . $size . '|' . $responseVariant) . '"';
     $lastModified = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
     $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
     $ifModifiedSince = trim((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? ''));
 
-    header('Content-Type: ' . ($mimeTypes[$extension] ?? 'application/octet-stream'));
+    header('Content-Type: ' . $mimeTypes[$extension]);
     header('ETag: ' . $etag);
     header('Last-Modified: ' . $lastModified);
     header('Vary: Accept-Encoding');
     if (in_array($extension, $cacheableExtensions, true)) {
-        header('Cache-Control: public, max-age=2592000, immutable');
+        header($contentHashedRequest
+            ? 'Cache-Control: public, max-age=2592000, immutable'
+            : 'Cache-Control: public, max-age=300, must-revalidate');
     } else {
-        header('Cache-Control: no-cache');
+        if ($extension === 'html' && basename($staticFile) === 'index.html') {
+            header('Cache-Control: public, max-age=60, s-maxage=60, stale-while-revalidate=30');
+            header('CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30');
+            header('Cloudflare-CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30');
+        } else {
+            header('Cache-Control: no-cache');
+        }
     }
 
-    if ($ifNoneMatch === $etag || ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime)) {
+    $notModified = $ifNoneMatch !== ''
+        ? $ifNoneMatch === $etag
+        : ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime);
+    if ($notModified) {
         http_response_code(304);
         return true;
     }
@@ -160,7 +233,7 @@ if ($publicRoot !== false
         && str_contains($acceptEncoding, 'gzip');
     if ($canGzip) {
         $gzipCacheRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'static-gzip';
-        $gzipCacheFile = $gzipCacheRoot . DIRECTORY_SEPARATOR . md5($staticFile . '|' . $responseVariant) . '-' . $mtime . '-' . $size . '-' . $responseSize . '.gz';
+        $gzipCacheFile = $gzipCacheRoot . DIRECTORY_SEPARATOR . md5($staticFile . '|' . $responseVariant) . '-' . $mtime . '-' . $size . '-' . $responseSize . '-gzip-l' . SUXI_STATIC_GZIP_LEVEL . '.gz';
         if (is_file($gzipCacheFile)) {
             header('Content-Encoding: gzip');
             header('Content-Length: ' . (int)filesize($gzipCacheFile));
@@ -171,7 +244,7 @@ if ($publicRoot !== false
         if ($responseContent === null && $responseFile !== null) {
             $responseContent = (string)file_get_contents($responseFile);
         }
-        $encoded = gzencode($responseContent ?? '', 1);
+        $encoded = gzencode($responseContent ?? '', SUXI_STATIC_GZIP_LEVEL);
         if ($encoded !== false) {
             if ((is_dir($gzipCacheRoot) || mkdir($gzipCacheRoot, 0775, true)) && is_writable($gzipCacheRoot)) {
                 file_put_contents($gzipCacheFile, $encoded, LOCK_EX);

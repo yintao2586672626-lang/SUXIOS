@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 
-const html = fs.readFileSync('public/index.html', 'utf8');
+const html = [
+  fs.readFileSync('public/index.html', 'utf8'),
+  fs.readFileSync('resources/frontend/app-template.html', 'utf8'),
+  fs.readFileSync('public/app-main.js', 'utf8'),
+].join('\n');
 const css = fs.readFileSync('public/style.css', 'utf8');
 
 const failures = [];

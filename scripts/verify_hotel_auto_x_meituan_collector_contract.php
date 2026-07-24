@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 use app\controller\concern\MeituanCapturedDataConcern;
 use app\controller\concern\MeituanUtilityConcern;
+use app\controller\concern\OnlineDataHistoryConcern;
 use app\service\BrowserProfileCaptureRequestService;
 
 $root = dirname(__DIR__);
@@ -28,6 +29,9 @@ $harness = new class {
         summarizeMeituanCapturedRows as public summarizeRows;
     }
     use MeituanUtilityConcern;
+    use OnlineDataHistoryConcern {
+        buildHistoryMetricSummary as public summarizeHistoryMetric;
+    }
 
     private function normalizeOnlineDataDate($value): string
     {
@@ -199,6 +203,32 @@ $check(
         && !str_contains((string)$reviewRawText, '13900139000')
         && !str_contains((string)$reviewRawText, 'Bob'),
     ['review_raw' => $reviewRaw]
+);
+
+$missingScoreRows = $harness->buildRows([
+    'store_id' => '68471',
+    'poi_id' => '68471',
+    'poi_name' => 'Mock Meituan Hotel',
+    'default_data_date' => '2026-07-07',
+    'reviews' => [[
+        'commentScore' => 0,
+        'commentCount' => 5,
+        'badReviewCount' => 0,
+        '_source_path' => 'mock.reviews.missing-score',
+    ]],
+], 117);
+$missingScoreRow = $missingScoreRows[0] ?? [];
+$missingScoreRaw = json_decode((string)($missingScoreRow['raw_data'] ?? '{}'), true) ?: [];
+$missingScoreSummary = $harness->summarizeHistoryMetric($missingScoreRow, (string)($missingScoreRow['raw_data'] ?? ''));
+$check(
+    'missing review score remains explicit in storage evidence and page summary',
+    ($missingScoreRow['data_type'] ?? '') === 'review'
+        && (float)($missingScoreRow['comment_score'] ?? 0.0) === 0.0
+        && ($missingScoreRaw['comment_score_status'] ?? '') === 'missing'
+        && ($missingScoreRaw['comment_score_present'] ?? null) === false
+        && str_contains($missingScoreSummary, '评分未返回')
+        && str_contains($missingScoreSummary, '点评 5'),
+    ['review_raw' => $missingScoreRaw, 'summary' => $missingScoreSummary]
 );
 
 $orderRaw = json_decode((string)($rowsByType['order']['raw_data'] ?? '{}'), true) ?: [];

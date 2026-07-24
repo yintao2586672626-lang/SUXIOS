@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\LlmClient;
 use app\service\LlmEndpoint;
+use app\service\OutboundUrlGuard;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
 
@@ -36,17 +37,18 @@ final class LlmClientTest extends TestCase
 
     public function testChatEndpointUrlSupportsProviderSpecificPathsAndQueryStrings(): void
     {
+        $guard = new OutboundUrlGuard(static fn(string $host): array => ['8.8.8.8']);
         self::assertSame(
             'https://api.mistral.ai/v1/chat/completions',
-            LlmEndpoint::chatCompletionUrl('https://api.mistral.ai/v1', 'mistral')
+            LlmEndpoint::chatCompletionUrl('https://api.mistral.ai/v1', 'mistral', $guard)
         );
         self::assertSame(
             'https://api.perplexity.ai/v1/sonar',
-            LlmEndpoint::chatCompletionUrl('https://api.perplexity.ai/v1', 'perplexity')
+            LlmEndpoint::chatCompletionUrl('https://api.perplexity.ai/v1', 'perplexity', $guard)
         );
         self::assertSame(
             'https://example.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview',
-            LlmEndpoint::chatCompletionUrl('https://example.services.ai.azure.com/models?api-version=2024-05-01-preview', 'microsoft_phi')
+            LlmEndpoint::chatCompletionUrl('https://example.services.ai.azure.com/models?api-version=2024-05-01-preview', 'microsoft_phi', $guard)
         );
     }
 
@@ -266,7 +268,10 @@ final class LlmClientTest extends TestCase
 
         self::assertSame(0, $this->invokeNonPublic($client, 'maxRetries', [['max_retries' => -1]]));
         self::assertSame(5, $this->invokeNonPublic($client, 'maxRetries', [['max_retries' => 99]]));
-        self::assertSame(2, $this->invokeNonPublic($client, 'maxRetries', [[]]));
+        self::assertSame(3, $this->invokeNonPublic($client, 'maxRetries', [[]]));
+        self::assertSame(2000, $this->invokeNonPublic($client, 'retryDelayMs', [0, []]));
+        self::assertSame(5000, $this->invokeNonPublic($client, 'retryDelayMs', [1, []]));
+        self::assertSame(10000, $this->invokeNonPublic($client, 'retryDelayMs', [2, []]));
         self::assertSame(400, $this->invokeNonPublic($client, 'retryDelayMs', [
             2,
             [
@@ -275,6 +280,52 @@ final class LlmClientTest extends TestCase
                 'retry_jitter_ms' => 0,
             ],
         ]));
+    }
+
+    public function testTransportTimeoutAndFailureSemanticsAreBoundedAndActionable(): void
+    {
+        $client = new LlmClient();
+
+        self::assertSame(45, $this->invokeNonPublic($client, 'transportTimeoutSeconds', [[]]));
+        self::assertSame(60, $this->invokeNonPublic($client, 'transportTimeoutSeconds', [['timeout' => 999]]));
+        self::assertSame(1, $this->invokeNonPublic($client, 'transportTimeoutSeconds', [['timeout' => 0]]));
+
+        $message = $this->invokeNonPublic($client, 'actionableTransportError', [
+            'dependency timed out with api_key=must-not-be-retained',
+            true,
+        ]);
+        self::assertStringContainsString('timeout', strtolower($message));
+        self::assertStringContainsString('retries exhausted', strtolower($message));
+        self::assertStringContainsString('retry later', strtolower($message));
+        self::assertStringNotContainsString('must-not-be-retained', $message);
+    }
+
+    public function testTransportPinsTheValidatedPublicAddressAndDisablesRedirects(): void
+    {
+        if (!extension_loaded('curl')) {
+            self::markTestSkipped('cURL extension is unavailable');
+        }
+
+        $target = (new OutboundUrlGuard(
+            static fn(string $host): array => $host === 'llm.example.com' ? ['93.184.216.34'] : []
+        ))->validate('https://llm.example.com/v1/chat/completions');
+        $options = $this->invokeNonPublic(new LlmClient(), 'buildCurlOptions', [
+            $target,
+            ['api_key' => 'unit-test-key'],
+            '{"model":"unit-test"}',
+            ['timeout' => 9, 'request_id' => 'req-transport-1'],
+        ]);
+
+        self::assertSame(['llm.example.com:443:93.184.216.34'], $options[CURLOPT_RESOLVE]);
+        self::assertSame('', $options[CURLOPT_PROXY]);
+        self::assertSame('*', $options[CURLOPT_NOPROXY]);
+        self::assertFalse($options[CURLOPT_FOLLOWLOCATION]);
+        self::assertSame(0, $options[CURLOPT_MAXREDIRS]);
+        self::assertTrue($options[CURLOPT_SSL_VERIFYPEER]);
+        self::assertSame(2, $options[CURLOPT_SSL_VERIFYHOST]);
+        self::assertSame(9, $options[CURLOPT_TIMEOUT]);
+        self::assertContains('X-Request-ID: req-transport-1', $options[CURLOPT_HTTPHEADER]);
+        self::assertContains('Idempotency-Key: req-transport-1', $options[CURLOPT_HTTPHEADER]);
     }
 
     public function testDebugIncludesRetryMetadataWithoutMaskingFailure(): void
@@ -299,6 +350,9 @@ final class LlmClientTest extends TestCase
                 'max_retries' => 2,
                 'retryable' => true,
                 'retry_reason' => 'retryable_http_429',
+                'retry_exhausted' => true,
+                'terminal_failure' => true,
+                'failure_state' => 'retry_exhausted',
             ],
             128,
         ]);
@@ -308,6 +362,329 @@ final class LlmClientTest extends TestCase
         self::assertSame(2, $debug['debug']['max_retries']);
         self::assertTrue($debug['debug']['retryable']);
         self::assertSame('retryable_http_429', $debug['debug']['retry_reason']);
+        self::assertTrue($debug['debug']['retry_exhausted']);
+        self::assertTrue($debug['debug']['terminal_failure']);
+        self::assertSame('retry_exhausted', $debug['debug']['failure_state']);
         self::assertSame(429, $debug['debug']['http_status']);
+    }
+
+    public function testTimeoutRetriesUseTwoFiveTenSecondsAndReturnManualDegradationWithout500(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('primary_model', 'deepseek');
+        $client = new ScriptedLlmClient($primary, [], [
+            'primary_model' => array_fill(0, 4, ScriptedLlmClient::transportFailure(CURLE_OPERATION_TIMEDOUT)),
+        ]);
+
+        $result = $client->chat('timeout prompt', 'primary_model', ['request_id' => 'req-timeout'], [
+            'provider_fallback_enabled' => false,
+            'circuit_breaker_enabled' => false,
+            'idempotency_enabled' => false,
+        ]);
+
+        self::assertFalse($result['ok']);
+        self::assertSame(200, $result['code']);
+        self::assertTrue($result['degraded']);
+        self::assertSame('manual', $result['degradation_mode']);
+        self::assertSame('req-timeout', $result['request_id']);
+        self::assertSame([2000, 5000, 10000], $client->sleepDelays);
+        self::assertCount(4, $client->calls);
+        self::assertSame('req-timeout', $client->calls[0]['request_id']);
+    }
+
+    public function testHttp500ExhaustsPrimaryThenFallsBackToBackupProvider(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('primary_model', 'deepseek');
+        $backup = ScriptedLlmClient::modelConfig('backup_model', 'openai');
+        $client = new ScriptedLlmClient($primary, [$backup], [
+            'primary_model' => array_fill(0, 4, ScriptedLlmClient::httpFailure(500)),
+            'backup_model' => [ScriptedLlmClient::success('backup response')],
+        ]);
+
+        $result = $client->chat('provider fallback prompt', 'primary_model', ['request_id' => 'req-fallback'], [
+            'circuit_breaker_enabled' => false,
+            'idempotency_enabled' => false,
+        ]);
+
+        self::assertTrue($result['ok']);
+        self::assertSame(200, $result['code']);
+        self::assertSame('backup response', $result['content']);
+        self::assertSame('openai', $result['provider']);
+        self::assertSame('backup_model', $result['model_key']);
+        self::assertTrue($result['fallback_used']);
+        self::assertSame([2000, 5000, 10000], $client->sleepDelays);
+        self::assertCount(5, $client->calls);
+        self::assertSame('primary_model', $client->calls[3]['model_key']);
+        self::assertSame('backup_model', $client->calls[4]['model_key']);
+    }
+
+    public function testCircuitBreakerTransitionsClosedOpenHalfOpenAndBackToClosed(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('primary_model', 'deepseek');
+        $client = new ScriptedLlmClient($primary, [], [
+            'primary_model' => [
+                ScriptedLlmClient::transportFailure(CURLE_COULDNT_CONNECT),
+                ScriptedLlmClient::success('half-open probe succeeded'),
+            ],
+        ]);
+        $options = [
+            'max_retries' => 0,
+            'provider_fallback_enabled' => false,
+            'response_cache_enabled' => false,
+            'idempotency_enabled' => false,
+            'circuit_failure_threshold' => 1,
+            'circuit_open_seconds' => 60,
+        ];
+
+        $first = $client->chat('circuit prompt', 'primary_model', ['request_id' => 'req-circuit-1'], $options);
+        self::assertFalse($first['ok']);
+        self::assertSame(200, $first['code']);
+        self::assertSame('open', $first['data']['stability']['provider_attempts'][0]['circuit_state']);
+        self::assertCount(1, $client->calls);
+
+        $second = $client->chat('circuit prompt', 'primary_model', ['request_id' => 'req-circuit-2'], $options);
+        self::assertFalse($second['ok']);
+        self::assertSame('circuit_open', $second['data']['stability']['provider_attempts'][0]['error_type']);
+        self::assertSame('open', $second['data']['stability']['provider_attempts'][0]['circuit_state']);
+        self::assertCount(1, $client->calls, 'open circuit must skip the provider');
+
+        $circuitKey = $this->invokeNonPublic($client, 'circuitCacheKey', [$primary]);
+        $client->putState($circuitKey, [
+            'state' => 'open',
+            'failure_count' => 1,
+            'opened_at' => time() - 61,
+        ]);
+        $third = $client->chat('circuit prompt', 'primary_model', ['request_id' => 'req-circuit-3'], $options);
+
+        self::assertTrue($third['ok']);
+        self::assertSame('half-open probe succeeded', $third['content']);
+        self::assertSame('half-open', $third['data']['stability']['provider_attempts'][0]['circuit_state_before']);
+        self::assertSame('closed', $third['data']['stability']['provider_attempts'][0]['circuit_state']);
+        self::assertCount(2, $client->calls);
+    }
+
+    public function testSameRequestIdReplaysOnceAndRejectsDifferentPayload(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('primary_model', 'deepseek');
+        $client = new ScriptedLlmClient($primary, [], [
+            'primary_model' => [ScriptedLlmClient::success('single model result')],
+        ]);
+        $options = [
+            'provider_fallback_enabled' => false,
+            'circuit_breaker_enabled' => false,
+        ];
+
+        $first = $client->chat('same prompt', 'primary_model', ['request_id' => 'req-idempotent'], $options);
+        $replay = $client->chat('same prompt', 'primary_model', ['request_id' => 'req-idempotent'], $options);
+        $conflict = $client->chat('different prompt', 'primary_model', ['request_id' => 'req-idempotent'], $options);
+
+        self::assertTrue($first['ok']);
+        self::assertFalse($first['idempotent_replay']);
+        self::assertTrue($first['business_action_allowed']);
+        self::assertTrue($replay['ok']);
+        self::assertTrue($replay['idempotent_replay']);
+        self::assertFalse($replay['business_action_allowed']);
+        self::assertFalse($conflict['ok']);
+        self::assertSame(409, $conflict['code']);
+        self::assertSame('idempotency_conflict', $conflict['failure_state']);
+        self::assertCount(1, $client->calls, 'replay and conflict must not call the model again');
+    }
+
+    public function testProviderFailureUsesCachedResultBeforeManualHandling(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('primary_model', 'deepseek');
+        $client = new ScriptedLlmClient($primary, [], [
+            'primary_model' => [
+                ScriptedLlmClient::success('cached answer'),
+                ScriptedLlmClient::transportFailure(CURLE_COULDNT_CONNECT),
+            ],
+        ]);
+        $options = [
+            'max_retries' => 0,
+            'provider_fallback_enabled' => false,
+            'circuit_breaker_enabled' => false,
+        ];
+
+        $first = $client->chat('cache prompt', 'primary_model', ['request_id' => 'req-cache-1'], $options);
+        $degraded = $client->chat('cache prompt', 'primary_model', ['request_id' => 'req-cache-2'], $options);
+
+        self::assertTrue($first['ok']);
+        self::assertTrue($degraded['ok']);
+        self::assertTrue($degraded['degraded']);
+        self::assertSame('cache', $degraded['degradation_mode']);
+        self::assertSame('cached answer', $degraded['content']);
+        self::assertFalse($degraded['business_action_allowed']);
+        self::assertTrue($degraded['data']['degradation']['cache_hit']);
+        self::assertCount(2, $client->calls);
+    }
+
+    public function testProviderFailureCanUseExplicitRuleEngineFallback(): void
+    {
+        $primary = ScriptedLlmClient::modelConfig('primary_model', 'deepseek');
+        $client = new ScriptedLlmClient($primary, [], [
+            'primary_model' => [ScriptedLlmClient::httpFailure(503)],
+        ]);
+
+        $result = $client->chat('rule prompt', 'primary_model', ['request_id' => 'req-rule'], [
+            'max_retries' => 0,
+            'provider_fallback_enabled' => false,
+            'circuit_breaker_enabled' => false,
+            'idempotency_enabled' => false,
+            'rule_engine_fallback' => ['status' => 'manual_review', 'source' => 'deterministic_rules'],
+        ]);
+
+        self::assertTrue($result['ok']);
+        self::assertTrue($result['degraded']);
+        self::assertSame('rule_engine', $result['degradation_mode']);
+        self::assertSame('rule_engine', $result['provider']);
+        self::assertStringContainsString('deterministic_rules', $result['content']);
+        self::assertFalse($result['business_action_allowed']);
+    }
+}
+
+final class ScriptedLlmClient extends LlmClient
+{
+    /** @var array<int, array<string, mixed>> */
+    public array $calls = [];
+    /** @var array<int, int> */
+    public array $sleepDelays = [];
+    /** @var array<string, mixed> */
+    private array $testState = [];
+
+    /**
+     * @param array<string, mixed> $primaryConfig
+     * @param array<int, array<string, mixed>> $fallbackConfigs
+     * @param array<string, array<int, array<string, mixed>>> $scripts
+     */
+    public function __construct(
+        private array $primaryConfig,
+        private array $fallbackConfigs,
+        private array $scripts
+    ) {
+    }
+
+    /** @return array<string, mixed> */
+    public static function modelConfig(string $modelKey, string $provider): array
+    {
+        return [
+            'ok' => true,
+            'provider' => $provider,
+            'base_url' => 'https://' . $provider . '.example.com/v1',
+            'api_key' => 'unit-test-key',
+            'model' => $modelKey . '-api-model',
+            'model_key' => $modelKey,
+            'source' => 'database',
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public static function success(string $content): array
+    {
+        return [
+            'response' => json_encode([
+                'choices' => [['message' => ['content' => $content]]],
+            ], JSON_UNESCAPED_UNICODE),
+            'http_status' => 200,
+            'curl_errno' => 0,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public static function httpFailure(int $status): array
+    {
+        return [
+            'response' => json_encode(['error' => ['message' => 'simulated HTTP ' . $status]]),
+            'http_status' => $status,
+            'curl_errno' => 0,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public static function transportFailure(int $errno): array
+    {
+        return ['response' => false, 'http_status' => 0, 'curl_errno' => $errno];
+    }
+
+    protected function configByModelKey(string $modelKey): array
+    {
+        return $this->primaryConfig;
+    }
+
+    protected function providerFallbackConfigs(array $primaryConfig, string $requestedModelKey, array $options): array
+    {
+        return ($options['provider_fallback_enabled'] ?? true) ? $this->fallbackConfigs : [];
+    }
+
+    protected function chatCompletionUrl(array $config): string
+    {
+        return 'https://unit.test/v1/chat/completions';
+    }
+
+    protected function sendOnce(string $url, array $config, string $payloadJson, array $options): array
+    {
+        $modelKey = (string)($config['model_key'] ?? '');
+        $this->calls[] = [
+            'model_key' => $modelKey,
+            'request_id' => (string)($options['request_id'] ?? ''),
+        ];
+        $response = array_shift($this->scripts[$modelKey]);
+        return is_array($response) ? $response : self::transportFailure(CURLE_COULDNT_CONNECT);
+    }
+
+    protected function sleepMilliseconds(int $delayMs): void
+    {
+        $this->sleepDelays[] = $delayMs;
+    }
+
+    protected function finishWithGovernance(
+        array $result,
+        array $governance,
+        array $config,
+        string $prompt,
+        string $response,
+        string $status,
+        string $errorType,
+        string $errorMessage,
+        int $httpStatus,
+        int $payloadSize,
+        float $startedAt,
+        bool $hasConclusion
+    ): array {
+        $result['request_id'] = (string)$governance['request_id'];
+        $result['data'] = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $result['data']['governance'] = [
+            'call_log_id' => 1,
+            'request_id' => (string)$governance['request_id'],
+            'status' => $status,
+            'prompt_version' => (string)$governance['prompt_version'],
+            'confidence_threshold' => (float)$governance['confidence_threshold'],
+            'human_confirmation_required' => (bool)$governance['human_confirmation_required'],
+        ];
+        return $result;
+    }
+
+    protected function withIdempotencyLock(string $requestId, callable $callback): ?array
+    {
+        $result = $callback();
+        return is_array($result) ? $result : null;
+    }
+
+    protected function stateGet(string $key): mixed
+    {
+        return $this->testState[$key] ?? null;
+    }
+
+    protected function stateSet(string $key, mixed $value, int $ttlSeconds): void
+    {
+        $this->testState[$key] = $value;
+    }
+
+    protected function stateDelete(string $key): void
+    {
+        unset($this->testState[$key]);
+    }
+
+    public function putState(string $key, mixed $value): void
+    {
+        $this->testState[$key] = $value;
     }
 }

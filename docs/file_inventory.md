@@ -1,6 +1,6 @@
 # 文件用途与合并清单
 
-更新时间：2026-05-17
+更新时间：2026-05-17（前端模板结构于 2026-07-14 校正）
 
 ## 范围
 
@@ -16,7 +16,7 @@
 | 类型 | 处理 | 原因 |
 |---|---|---|
 | Vite 旧构建产物 | 已删除 `public/assets/` | 当前 `public/index.html` 未引用，保留会造成多版本前端入口混淆 |
-| 前端过渡文件 | 已删除 `public/app-main.*`、`public/app.js`、`public/app-styles.css` | 当前页面未引用，`PACKAGE_MANIFEST.md` 已标记为过渡/废弃 |
+| 前端过渡文件 | 已删除 `public/app.js`、`public/app-styles.css` | `public/app-main.js` 现为运行逻辑入口，`public/app-main.min.js` 为生成产物，不属于已删除过渡文件 |
 | 未引用样式 | 已删除 `public/components.css`、`public/enhanced-components.css`、`public/tailwind-custom.css` | 当前入口未加载，实际样式来源为 `tailwind.min.css`、`style.css`、`ai-custom.css` |
 | 备份样式 | 已删除 `public/tailwind.min.css.bak` | 与当前 `tailwind.min.css` 重复 |
 | 无效配置 | 已删除 `public/nginx.htaccess` | 空文件且当前本地服务使用 ThinkPHP/PHP 内置或 Apache 入口 |
@@ -97,9 +97,8 @@
 | `app/controller/MonthlyTask.php` | 月度任务 API | 保留 |
 | `app/controller/ReportConfig.php` | 报表配置 API | 保留 |
 | `app/controller/SystemConfigController.php` | 系统配置 API | 保留 |
-| `app/controller/Ai.php` | AI 策略/模拟/可行性 API | 保留 |
 | `app/controller/AiConfig.php` | AI 模型配置 API | 保留 |
-| `app/controller/Agent.php` | AI Agent、知识库、工单、收益、资产 API | 保留，核心 |
+| `app/controller/Agent.php` | OTA 诊断、收益建议、知识库与运行日志 API | 保留，核心 |
 | `app/controller/HolidayRevenue.php` | 节假日收益倒计时 API | 保留 |
 | `app/controller/MacroSignal.php` | 宏观经营信号 API | 保留 |
 | `app/controller/Lifecycle.php` | 生命周期数据 API | 保留 |
@@ -172,10 +171,7 @@
 | `app/model/ReportConfig.php` | 报表配置模型 | 保留 |
 | `app/model/AiModelConfig.php` | AI 模型配置模型 | 保留 |
 | `app/model/AgentConfig.php` | Agent 配置模型 | 保留 |
-| `app/model/AgentConversation.php` | Agent 会话模型 | 保留 |
 | `app/model/AgentLog.php` | Agent 日志模型 | 保留 |
-| `app/model/AgentTask.php` | Agent 任务模型 | 保留 |
-| `app/model/AgentWorkOrder.php` | Agent 工单模型 | 保留 |
 | `app/model/KnowledgeBase.php` | 知识库模型 | 保留 |
 | `app/model/KnowledgeCategory.php` | 知识分类模型 | 保留 |
 | `app/model/PriceSuggestion.php` | 定价建议模型 | 保留 |
@@ -184,13 +180,6 @@
 | `app/model/CompetitorDevice.php` | 竞对设备模型 | 保留 |
 | `app/model/CompetitorHotel.php` | 竞对酒店模型 | 保留 |
 | `app/model/CompetitorPriceLog.php` | 竞对价格日志模型 | 保留 |
-| `app/model/Device.php` | 设备模型 | 保留 |
-| `app/model/DeviceCategory.php` | 设备分类模型 | 保留 |
-| `app/model/DeviceMaintenance.php` | 设备维护模型 | 保留 |
-| `app/model/MaintenancePlan.php` | 维护计划模型 | 保留 |
-| `app/model/EnergyBenchmark.php` | 能耗基准模型 | 保留 |
-| `app/model/EnergyConsumption.php` | 能耗数据模型 | 保留 |
-| `app/model/EnergySavingSuggestion.php` | 节能建议模型 | 保留 |
 | `app/model/FeasibilityReport.php` | 可行性报告模型 | 保留 |
 | `app/model/StrategyDataSnapshot.php` | 策略数据快照模型 | 保留 |
 | `app/model/StrategySimulationRecord.php` | 策略推演记录模型 | 保留 |
@@ -245,14 +234,21 @@
 |---|---|---|
 | `public/.htaccess` | Apache 重写配置 | 保留 |
 | `public/index.php` | ThinkPHP Web 入口 | 保留 |
-| `public/index.html` | 当前 Vue CDN 单文件 SPA | 保留，核心 |
+| `public/index.html` | Vue 3 runtime-only 启动壳，加载预编译模板与静态 helper | 保留，运行入口 |
+| `public/app-render.min.js` | 由业务模板预编译生成的根渲染函数 | 保留，生成产物 |
+| `public/app-main.js` | Vue setup 与前端业务逻辑入口 | 保留，继续按 helper 边界拆分 |
+| `public/app-main.min.js` | `app-main.js` 的运行产物 | 保留，生成产物 |
+| `resources/frontend/templates/manifest.json` | 业务模板分片顺序、锚点与兼容快照校验信息 | 保留，模板源码清单 |
+| `resources/frontend/templates/fragments/*.html` | 按业务页面拆分的前端模板唯一编辑源 | 保留，模板源码 |
+| `resources/frontend/app-template.html` | 由业务分片同步生成的兼容快照 | 保留，不独立编辑 |
 | `public/router.php` | PHP 内置服务路由 | 保留 |
 | `public/robots.txt` | 搜索引擎规则 | 保留 |
 | `public/favicon.ico` | 浏览器图标 | 保留 |
 | `public/qrcode.png` | 二维码静态资源 | 保留 |
 | `public/images/logo.svg` | Logo 资源 | 保留 |
 | `public/static/.gitignore` | static 目录占位 | 保留 |
-| `public/vue.global.prod.js` | Vue 3 CDN 本地副本 | 保留 |
+| `public/vue.runtime.global.prod.js` | 当前入口加载的 Vue 3 runtime-only 本地副本 | 保留，运行依赖 |
+| `public/vue.global.prod.js` | 含编译器的 Vue 3 完整构建，正常启动路径不加载 | 保留，回滚资产 |
 | `public/tailwind.min.css` | Tailwind 本地 CSS | 保留 |
 | `public/font-awesome.min.css` | FontAwesome CSS | 保留 |
 | `public/webfonts/fa-solid-900.woff2` | FontAwesome 字体 | 保留 |
@@ -305,6 +301,7 @@
 | `.agents/plugins/marketplace.json` | 本地插件市场配置 | 保留 |
 | `.agents/skills/ecc-codex-adapter/SKILL.md` | ECC/Codex 适配 Skill | 保留 |
 | `.agents/skills/scrapling/SKILL.md` | 授权网页解析与 selector 证据 Skill | 保留 |
+| `.agents/skills/suxi-capability-absorption/` | 多源能力学习、复刻、在线Skill预览与来源锁定、基线评测、接入和防遗忘门禁 | 保留并同步插件分发 |
 | `.agents/skills/suxi-ai-report/SKILL.md` | AI 报告 Skill | 保留 |
 | `.agents/skills/suxi-ai-report/agents/openai.yaml` | AI 报告 Skill agent 配置 | 保留 |
 | `.agents/skills/suxi-ctrip-field-table-closure/SKILL.md` | 携程字段到表闭环 Skill | 保留 |
@@ -323,6 +320,6 @@
 | `.agents/skills/suxi-test-guard/SKILL.md` | 测试守卫 Skill | 保留 |
 | `.agents/skills/suxi-test-guard/agents/openai.yaml` | 测试守卫 agent 配置 | 保留 |
 | `plugins/suxi-os-toolkit/.codex-plugin/plugin.json` | 本地插件定义 | 保留 |
-| `plugins/suxi-os-toolkit/skills/*` | 插件分发版 Skill 内容，包含上述 11 个项目本地 Skill | 保留，与 `.agents/skills` 同源并同步分发 |
+| `plugins/suxi-os-toolkit/skills/*` | 插件分发版 Skill 内容，包含需要跨会话发现的项目本地 Skill | 保留，与 `.agents/skills` 同源并同步分发 |
 | `plugins/suxi-os-toolkit/skills/suxi-ota-ops/references/ctrip-browser-capture.md` | 插件分发版携程浏览器采集参考 | 保留 |
 | `plugins/suxi-os-toolkit/skills/suxi-ota-ops/references/meituan-browser-capture.md` | 插件分发版美团浏览器采集参考 | 保留 |

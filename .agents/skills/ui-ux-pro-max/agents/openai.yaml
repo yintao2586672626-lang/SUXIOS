@@ -1,0 +1,5 @@
+interface:
+  display_name: "UI/UX Pro Max（项目手动）"
+  short_description: "通用设计系统生成与审查；不自动覆盖宿析OS登录页审美"
+policy:
+  allow_implicit_invocation: false

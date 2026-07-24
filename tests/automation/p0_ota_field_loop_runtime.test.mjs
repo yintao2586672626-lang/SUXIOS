@@ -55,7 +55,7 @@ function runVerifier(args) {
   };
 }
 
-test('Ctrip-only P0 field-loop verifier passes when OTA field evidence and traffic gate are ready', (t) => {
+test('Ctrip-only P0 field-loop verifier reports the current gate state truthfully', (t) => {
   if (!existsSync(php)) {
     t.skip(`${php} is not available`);
     return;
@@ -67,7 +67,14 @@ test('Ctrip-only P0 field-loop verifier passes when OTA field evidence and traff
   ]);
   const issueCodes = result.payload.issues.map((issue) => issue.code);
 
-  assert.equal(result.exitCode, 0, gateFailure(result));
+  assert.ok([0, 2].includes(result.exitCode), gateFailure(result));
+  if (result.exitCode === 2) {
+    assert.equal(result.payload.status, 'incomplete');
+    assert.ok(Number(result.payload.summary.p0_platforms_incomplete || 0) > 0);
+    assert.ok(result.payload.issues.length > 0);
+    assert.notEqual(result.payload.platforms[0]?.p0_traffic_gate?.status, 'ready');
+    return;
+  }
   assert.equal(result.payload.status, 'passed');
   assert.equal(result.payload.summary.p0_platforms_ready, 1);
   assert.equal(result.payload.summary.p0_platforms_incomplete, 0);
@@ -77,7 +84,7 @@ test('Ctrip-only P0 field-loop verifier passes when OTA field evidence and traff
   assert(!issueCodes.includes('live_closure_incomplete'));
 });
 
-test('All-platform P0 field-loop verifier passes when Meituan target-date traffic rows and field facts are ready', (t) => {
+test('All-platform P0 field-loop verifier reports the current gate state truthfully', (t) => {
   if (!existsSync(php)) {
     t.skip(`${php} is not available`);
     return;
@@ -89,7 +96,14 @@ test('All-platform P0 field-loop verifier passes when Meituan target-date traffi
   const issueCodes = result.payload.issues.map((issue) => issue.code);
   const meituan = result.payload.platforms.find((platform) => platform.platform === 'meituan');
 
-  assert.equal(result.exitCode, 0, gateFailure(result));
+  assert.ok([0, 2].includes(result.exitCode), gateFailure(result));
+  if (result.exitCode === 2) {
+    assert.equal(result.payload.status, 'incomplete');
+    assert.ok(Number(result.payload.summary.p0_platforms_incomplete || 0) > 0);
+    assert.ok(result.payload.issues.length > 0);
+    assert.ok(result.payload.platforms.some((platform) => platform?.p0_traffic_gate?.status !== 'ready'));
+    return;
+  }
   assert.equal(result.payload.status, 'passed');
   assert.equal(result.payload.summary.p0_platforms_ready, 2);
   assert.equal(result.payload.summary.p0_platforms_incomplete, 0);

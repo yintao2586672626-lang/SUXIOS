@@ -9,25 +9,10 @@ use think\facade\Db;
 class RevenueAiOverviewService
 {
     private const CHANNELS = ['ctrip', 'meituan'];
-    private const TEMPORARY_PRICING_SKIP_REASON = 'missing_pricing_inputs_skipped_by_operator_policy';
-    private const TEMPORARY_SKIPPABLE_PRICING_INPUT_CODES = [
-        'room_types_enabled',
-        'floor_price_or_min_rate_guard',
-        'demand_forecast',
-        'competitor_price_samples',
-        'pricing_candidate_signal',
-    ];
-    private const TEMPORARY_SKIPPABLE_PRICING_REASONS = [
-        self::TEMPORARY_PRICING_SKIP_REASON,
-        'room_types_empty',
-        'pricing_candidate_signals_missing',
-        'floor_price_missing',
-        'competitor_price_fields_missing',
-        'demand_forecasts_not_loaded',
-        'demand_forecasts_empty',
-        'demand_forecasts_metric_missing',
-    ];
     private const CTRIP_COMPETITOR_PLATFORM_VALUES = [1, '1', 'ctrip'];
+
+    /** @var array<int, int> */
+    private array $overviewScopeHotelIds = [];
 
     /**
      * @param array<string, mixed> $filters
@@ -36,22 +21,23 @@ class RevenueAiOverviewService
     public function overview(array $filters = []): array
     {
         $businessDate = $this->businessDate($filters['business_date'] ?? null);
-        $hotelId = $this->hotelId($filters['hotel_id'] ?? $filters['system_hotel_id'] ?? null);
-        $hotelIds = $this->hotelIds($filters['permitted_hotel_ids'] ?? []);
+        $hotelScope = $this->resolveHotelScope($filters);
+        $hotelId = $hotelScope['hotel_id'];
+        $hotelIds = $hotelScope['permitted_hotel_ids'];
         $enabledChannels = $this->enabledChannels($filters['enabled_channels'] ?? null);
         if ($enabledChannels === []) {
             $enabledChannels = $this->enabledChannels($filters['platform'] ?? $filters['channel'] ?? null);
         }
         $channels = $enabledChannels !== [] ? $enabledChannels : self::CHANNELS;
-        if ($hotelId !== null && $hotelIds !== [] && !in_array($hotelId, $hotelIds, true)) {
-            throw new RuntimeException('hotel_id is outside permitted scope', 403);
-        }
         $etl = new OtaStandardEtlService();
         $baseFilters = [
             'start_date' => $businessDate,
             'end_date' => $businessDate,
             'limit' => 5000,
         ];
+        if ($hotelIds !== []) {
+            $baseFilters['permitted_hotel_ids'] = $hotelIds;
+        }
         if ($hotelId !== null) {
             $baseFilters['system_hotel_id'] = $hotelId;
         }
@@ -61,6 +47,7 @@ class RevenueAiOverviewService
             $channelDatasets[$channel] = $etl->buildDataset(array_merge($baseFilters, ['source' => $channel]));
         }
         $dataset = $this->mergeChannelDatasets($channelDatasets);
+        $this->overviewScopeHotelIds = $hotelId !== null ? [$hotelId] : $hotelIds;
         $reviewQueue = $this->priceSuggestionReviewQueue($businessDate, $hotelId);
         $pricingGenerationPreflight = $this->pricingGenerationPreflight($businessDate, $hotelId, $hotelIds, $dataset, $channels);
         $agentActivity = $this->agentActivity($businessDate, $hotelId);
@@ -226,7 +213,7 @@ class RevenueAiOverviewService
         $pricingGenerationPreflight = is_array($context['pricing_generation_preflight'] ?? null)
             ? $context['pricing_generation_preflight']
             : $this->pricingGenerationPreflightUnavailable($businessDate, $hotelId, [], $actualScopedSourceChannels, 'not_loaded', 'price_suggestion_generation_not_loaded');
-        $pricingGenerationPreflight = $this->applyPricingTemporarySkipPolicyToPreflight($pricingGenerationPreflight);
+        $pricingGenerationPreflight = $this->applyPricingInputGapPolicyToPreflight($pricingGenerationPreflight);
         $agentActivity = is_array($context['agent_activity'] ?? null)
             ? $context['agent_activity']
             : $this->agentActivityUnavailable($businessDate, $hotelId, 'not_loaded', 'agent_logs_not_loaded');
@@ -244,13 +231,6 @@ class RevenueAiOverviewService
             $pricingGenerationPreflight
         );
         $pricingReadiness['ai_to_operation_handoff'] = $this->pricingAiToOperationHandoff($pricingReadiness, $executionSummary, $businessDate, $hotelId, $displaySourceChannels);
-        $pricingReadiness['operation_to_investment_handoff'] = $this->pricingOperationToInvestmentHandoff(
-            $pricingReadiness['ai_to_operation_handoff'],
-            $executionSummary,
-            $businessDate,
-            $hotelId,
-            $displaySourceChannels
-        );
         $dailyMetricStatus = $dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'empty';
         $dailyMetricReason = $dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'online_daily_data_empty';
 
@@ -259,7 +239,30 @@ class RevenueAiOverviewService
             'last_success_at' => $lastSuccessAt,
         ];
         $metricContext['date_basis'] = 'data_date';
-        $metricContext['scope'] = 'ota';
+        $metricContext['scope'] = 'ota_channel';
+        $metricContext['scope_note'] = '指标仅代表已加载 OTA 渠道数据，不代表全酒店经营口径。';
+        $metricContext['hotel_id'] = $hotelId;
+        $metricContext['business_date'] = $businessDate;
+        $otaRoomRevenue = $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_revenue'] ?? null) : null;
+        $otaRoomNights = $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_nights'] ?? null) : null;
+        $roomRevenueContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.room_revenue');
+        $roomNightsContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.room_nights');
+        $adrContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.adr');
+        $revparContext = $this->metricContextWithTruth(array_merge($metricContext, [
+            'scope' => 'ota_channel',
+            'scope_note' => '使用 OTA 渠道记录中的可售房晚分母计算；未验证为全酒店可售房晚，不得外推为全酒店 RevPAR。',
+            'denominator_scope' => 'ota_channel',
+            'whole_hotel_denominator_verified' => false,
+        ]), $metricsSummary, 'totals.revpar');
+        $completenessContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.revenue');
+        if (is_array($completenessContext['truth'] ?? null)) {
+            $completenessContext['truth']['source']['caliber'] = 'Revenue AI 数据完整度：目标酒店、目标日期、启用 OTA 渠道、数据集与质量缺口综合评分';
+            if ((string)($completeness['status'] ?? '') !== 'ok' && ($completenessContext['truth']['status'] ?? '') === 'verified') {
+                $completenessContext['truth']['status'] = 'partial';
+                $completenessContext['truth']['status_label'] = '部分数据';
+                $completenessContext['truth']['failure_reason'] = (string)($completeness['reason'] ?? 'data_not_complete');
+            }
+        }
 
         return [
             'data_status' => $dataStatus,
@@ -281,21 +284,21 @@ class RevenueAiOverviewService
                 'ota_room_revenue' => $this->metric(
                     'ota_room_revenue',
                     '昨日OTA房费收入',
-                    $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_revenue'] ?? null) : null,
+                    $dailyFacts !== [] ? $otaRoomRevenue : null,
                     'CNY',
-                    $dailyFacts !== [] ? 'ok' : $dailyMetricStatus,
-                    $dailyFacts !== [] ? '' : $dailyMetricReason,
-                    $metricContext,
+                    $otaRoomRevenue !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
+                    $otaRoomRevenue !== null ? '' : ($dailyFacts !== [] ? 'room_revenue_missing' : $dailyMetricReason),
+                    $roomRevenueContext,
                     'money'
                 ),
                 'ota_room_nights' => $this->metric(
                     'ota_room_nights',
                     '昨日OTA间夜',
-                    $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_nights'] ?? null) : null,
+                    $dailyFacts !== [] ? $otaRoomNights : null,
                     'room_nights',
-                    $dailyFacts !== [] ? 'ok' : $dailyMetricStatus,
-                    $dailyFacts !== [] ? '' : $dailyMetricReason,
-                    $metricContext,
+                    $otaRoomNights !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
+                    $otaRoomNights !== null ? '' : ($dailyFacts !== [] ? 'room_nights_missing' : $dailyMetricReason),
+                    $roomNightsContext,
                     'number'
                 ),
                 'ota_adr' => $this->metric(
@@ -305,19 +308,17 @@ class RevenueAiOverviewService
                     'CNY',
                     $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
                     $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'adr_denominator_zero'),
-                    $metricContext,
+                    $adrContext,
                     'money'
                 ),
                 'ota_contribution_revpar' => $this->metric(
                     'ota_contribution_revpar',
-                    'OTA贡献RevPAR',
+                    'OTA渠道贡献RevPAR',
                     $this->numeric($metricsSummary['totals']['revpar'] ?? null),
                     'CNY',
                     $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
                     $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'available_room_nights_missing'),
-                    array_merge($metricContext, [
-                        'scope' => $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? 'hotel' : 'hotel_required',
-                    ]),
+                    $revparContext,
                     'money'
                 ),
                 'data_completeness' => $this->metric(
@@ -327,7 +328,7 @@ class RevenueAiOverviewService
                     '%',
                     $completeness['status'],
                     (string)($completeness['reason'] ?? ''),
-                    $metricContext,
+                    $completenessContext,
                     'percent'
                 ),
             ],
@@ -340,7 +341,6 @@ class RevenueAiOverviewService
             'agent_activity' => $agentActivity,
             'execution_summary' => $executionSummary,
             'ai_to_operation_handoff' => $pricingReadiness['ai_to_operation_handoff'],
-            'operation_to_investment_handoff' => $pricingReadiness['operation_to_investment_handoff'],
             'actions' => $this->actions($missingDatasets, $qualityIssues, $pricingReadiness, $reviewQueue, $pricingGenerationPreflight),
             'metric_summary' => [
                 'fact_table' => $metricsSummary['fact_table'] ?? [],
@@ -380,6 +380,39 @@ class RevenueAiOverviewService
             throw new RuntimeException('Invalid hotel_id, expected positive integer', 422);
         }
         return (int)$text;
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @return array{hotel_id:?int,permitted_hotel_ids:array<int,int>,portfolio:bool}
+     */
+    private function resolveHotelScope(array $filters): array
+    {
+        $hotelId = $this->hotelId($filters['hotel_id'] ?? $filters['system_hotel_id'] ?? null);
+        $permittedHotelIds = $this->hotelIds($filters['permitted_hotel_ids'] ?? []);
+        sort($permittedHotelIds);
+        $portfolio = $this->boolValue($filters['portfolio'] ?? false);
+        $isSuperAdmin = $this->boolValue($filters['is_super_admin'] ?? false);
+
+        if (!$isSuperAdmin && $permittedHotelIds === []) {
+            throw new RuntimeException('No permitted hotels', 403);
+        }
+        if (!$isSuperAdmin && $hotelId !== null && !in_array($hotelId, $permittedHotelIds, true)) {
+            throw new RuntimeException('hotel_id is outside permitted scope', 403);
+        }
+        if ($hotelId === null) {
+            if (!$isSuperAdmin && count($permittedHotelIds) === 1) {
+                $hotelId = $permittedHotelIds[0];
+            } elseif (!$portfolio) {
+                throw new RuntimeException('hotel_scope_required_for_multi_hotel_user', 422);
+            }
+        }
+
+        return [
+            'hotel_id' => $hotelId,
+            'permitted_hotel_ids' => $isSuperAdmin ? [] : $permittedHotelIds,
+            'portfolio' => $portfolio,
+        ];
     }
 
     /**
@@ -553,8 +586,8 @@ class RevenueAiOverviewService
         if (in_array('available_room_nights_missing', $gapCodes, true)) {
             $missing[] = [
                 'key' => 'available_room_nights',
-                'channel' => 'hotel',
-                'label' => '全酒店可售房晚',
+                'channel' => 'ota_channel',
+                'label' => 'OTA渠道可售房晚分母',
                 'status' => 'missing',
                 'reason' => 'available_room_nights_missing',
             ];
@@ -737,6 +770,10 @@ class RevenueAiOverviewService
             'date_basis' => $context['date_basis'],
             'source_channels' => $context['source_channels'],
             'last_success_at' => $context['last_success_at'],
+            'scope_note' => (string)($context['scope_note'] ?? ''),
+            'denominator_scope' => (string)($context['denominator_scope'] ?? ''),
+            'whole_hotel_denominator_verified' => ($context['whole_hotel_denominator_verified'] ?? null) === true,
+            'truth' => is_array($context['truth'] ?? null) ? $context['truth'] : [],
             'status' => $status,
             'reason' => $reason,
             'display_reason' => $reason === '' ? '数据已命中当前口径。' : $this->issueReasonMeta($reason, '', 'metric')['display_reason'],
@@ -744,6 +781,28 @@ class RevenueAiOverviewService
             'target_page' => 'online-data',
             'target_tab' => 'data-health',
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     * @param array<string, mixed> $metricsSummary
+     * @return array<string, mixed>
+     */
+    private function metricContextWithTruth(array $context, array $metricsSummary, string $metricTrustKey): array
+    {
+        $trust = is_array($metricsSummary['metric_trust'][$metricTrustKey] ?? null)
+            ? $metricsSummary['metric_trust'][$metricTrustKey]
+            : [];
+        $existingTruth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
+        $context['truth'] = $existingTruth !== []
+            ? $existingTruth
+            : OnlineDataTrustStatusService::metricTruthEnvelope($trust, [
+                'hotel_id' => $context['hotel_id'] ?? null,
+                'data_date' => $context['business_date'] ?? null,
+                'platforms' => $context['source_channels'] ?? [],
+            ]);
+        $context['truth']['metric_key'] = $metricTrustKey;
+        return $context;
     }
 
     private function displayValue(float $value, string $format): string
@@ -1349,6 +1408,26 @@ class RevenueAiOverviewService
         $reason = $this->safeLogText($row['reason'] ?? ($row['remark'] ?? ''), 120);
         $riskLevel = $this->safeLogText($row['risk_level'] ?? '', 40);
         $expectedRevparImpact = $this->priceSuggestionExpectedRevparImpact($row['factors'] ?? null);
+        $decisionRecommendation = is_array($row['decision_recommendation'] ?? null)
+            ? $row['decision_recommendation']
+            : [];
+        $trustedDecision = is_array($row['trusted_decision'] ?? null)
+            ? $row['trusted_decision']
+            : (is_array($decisionRecommendation['trusted_decision'] ?? null)
+                ? $decisionRecommendation['trusted_decision']
+                : $this->fallbackTrustedDecision(
+                    $row,
+                    $currentPrice,
+                    $suggestedPrice,
+                    $confidence,
+                    $reason,
+                    $expectedRevparImpact
+                ));
+        $humanConfirmation = is_array($trustedDecision['human_confirmation'] ?? null)
+            ? $trustedDecision['human_confirmation']
+            : [];
+        $canConfirm = ($humanConfirmation['can_confirm'] ?? false) === true;
+        $canTransferToOperationTask = ($humanConfirmation['can_transfer_to_operation_task'] ?? false) === true;
         $missingFields = [];
         foreach ([
             'current_price' => $currentPrice,
@@ -1399,33 +1478,46 @@ class RevenueAiOverviewService
             'missing_fields' => $missingFields,
             'missing_reason' => $missingFields === [] ? '' : 'price_suggestion_required_values_missing',
             'last_success_at' => $this->nullableText($row['update_time'] ?? ($row['create_time'] ?? ($row['applied_time'] ?? null))),
+            'decision_recommendation' => $decisionRecommendation,
+            'trusted_decision' => $trustedDecision,
             'action_entry' => $this->priceSuggestionActionEntry(
                 $statusCode,
                 (int)($row['id'] ?? 0),
                 (int)($row['hotel_id'] ?? 0),
-                $this->nullableText($row['suggestion_date'] ?? null)
+                $this->nullableText($row['suggestion_date'] ?? null),
+                $canConfirm,
+                $canTransferToOperationTask
             ),
             'manual_review_required' => true,
             'auto_write_ota' => false,
             'read_only' => true,
             'can_review' => $statusCode === 1,
+            'can_confirm' => $canConfirm,
+            'can_transfer_to_operation_task' => $canTransferToOperationTask,
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function priceSuggestionActionEntry(int $status, int $id, int $hotelId, ?string $date): array
+    private function priceSuggestionActionEntry(
+        int $status,
+        int $id,
+        int $hotelId,
+        ?string $date,
+        bool $canConfirm,
+        bool $canTransferToOperationTask
+    ): array
     {
         $label = match ($status) {
-            1 => '去审核',
-            2 => '去转单',
+            1 => $canConfirm ? '去审核' : '补证后审核',
+            2 => $canTransferToOperationTask ? '转运营任务' : '查看阻塞',
             4 => '去复盘',
             default => '查看建议',
         };
         $manualActions = match ($status) {
-            1 => ['approve', 'approve_with_changes', 'reject'],
-            2 => ['create_execution_intent'],
+            1 => $canConfirm ? ['approve', 'approve_with_changes', 'reject'] : ['reject'],
+            2 => $canTransferToOperationTask ? ['create_execution_intent'] : [],
             4 => ['effect_review'],
             default => [],
         };
@@ -1444,7 +1536,7 @@ class RevenueAiOverviewService
             'requires_super_admin' => false,
             'requires_hotel_permission' => true,
             'homepage_read_only' => true,
-            'allowed_endpoint' => $status === 2
+            'allowed_endpoint' => $status === 2 && $canTransferToOperationTask
                 ? '/api/revenue-ai/price-suggestions/' . $id . '/execution-intent'
                 : ($status === 1 ? '/api/revenue-ai/price-suggestions/' . $id . '/review' : ''),
             'allowed_endpoints' => [
@@ -1454,6 +1546,127 @@ class RevenueAiOverviewService
             'manual_actions' => $manualActions,
             'forbidden_actions' => ['apply_price', 'ota_write'],
             'note' => 'Revenue AI 可在酒店权限范围内人工审核和转执行，但不应用价格或写 OTA。',
+        ];
+    }
+
+    /**
+     * Legacy/raw rows are displayable but cannot be approved until the server builds
+     * the trusted contract from readback-verified evidence.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $expectedRevparImpact
+     * @return array<string, mixed>
+     */
+    private function fallbackTrustedDecision(
+        array $row,
+        ?float $currentPrice,
+        ?float $suggestedPrice,
+        ?float $confidence,
+        string $reason,
+        array $expectedRevparImpact
+    ): array {
+        $calculable = $currentPrice !== null && $currentPrice > 0 && $suggestedPrice !== null && $suggestedPrice > 0;
+        $rate = $calculable ? round((($suggestedPrice - $currentPrice) / $currentPrice) * 100, 2) : null;
+        $formulaReason = $currentPrice === null || $currentPrice <= 0
+            ? 'current_price_denominator_missing'
+            : (!$calculable ? 'suggested_price_numerator_missing' : '');
+        $gapCodes = ['trusted_decision_contract_missing'];
+        if ($formulaReason !== '') {
+            $gapCodes[] = $formulaReason;
+        }
+        if ($confidence === null) {
+            $gapCodes[] = 'confidence_missing';
+        }
+
+        return [
+            'contract_version' => RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION,
+            'scope' => 'ota_channel',
+            'store' => [
+                'hotel_id' => (int)($row['hotel_id'] ?? 0),
+                'hotel_name' => null,
+                'display' => (int)($row['hotel_id'] ?? 0) > 0
+                    ? '门店 #' . (int)$row['hotel_id']
+                    : '门店未绑定',
+            ],
+            'platform' => ['key' => 'ctrip', 'label' => '携程', 'scope' => 'ota_channel'],
+            'date' => [
+                'value' => $this->nullableText($row['suggestion_date'] ?? null),
+                'basis' => 'suggestion_date',
+                'status' => $this->nullableText($row['suggestion_date'] ?? null) !== null ? 'available' : 'missing',
+            ],
+            'sources' => [
+                'status' => 'unverified',
+                'summary' => $reason,
+                'items' => [],
+                'ref_count' => 0,
+            ],
+            'metric_formula' => [
+                'metric' => 'price_change_rate',
+                'label' => '价格调整率',
+                'expression' => '(建议价 - 当前价) ÷ 当前价 × 100%',
+                'numerator' => $currentPrice !== null && $suggestedPrice !== null
+                    ? round($suggestedPrice - $currentPrice, 2)
+                    : null,
+                'denominator' => $currentPrice,
+                'denominator_required' => true,
+                'value' => $rate,
+                'unit' => '%',
+                'status' => $calculable ? 'calculable' : 'not_calculable',
+                'display' => $calculable
+                    ? (($rate ?? 0) > 0 ? '+' : '') . rtrim(rtrim(number_format((float)$rate, 2, '.', ''), '0'), '.') . '%'
+                    : '不可计算',
+                'reason' => $formulaReason,
+            ],
+            'data_quality' => [
+                'status' => 'unverified',
+                'label' => '未验证',
+                'decision_eligible' => false,
+                'note' => '尚未通过服务端同门店、同平台、同日期范围的数据库回读门禁',
+            ],
+            'confidence' => [
+                'score' => $confidence !== null ? round($confidence, 4) : null,
+                'percentage' => $confidence !== null ? round($confidence * 100, 2) : null,
+                'display' => $confidence !== null
+                    ? rtrim(rtrim(number_format($confidence * 100, 2, '.', ''), '0'), '.') . '%'
+                    : '不可计算',
+                'level' => $confidence === null ? 'unknown' : ($confidence >= 0.8 ? 'high' : ($confidence >= 0.6 ? 'medium' : 'low')),
+                'status' => $confidence !== null ? 'available' : 'missing',
+                'basis' => 'model_signal_confidence',
+            ],
+            'gaps' => array_map(static fn(string $code): array => [
+                'code' => $code,
+                'message' => match ($code) {
+                    'current_price_denominator_missing' => '当前价分母缺失，价格调整率不可计算',
+                    'suggested_price_numerator_missing' => '建议价分子缺失，价格调整率不可计算',
+                    'confidence_missing' => '模型置信度缺失',
+                    default => '可信建议契约尚未由服务端验证数据生成',
+                },
+                'blocking' => true,
+            ], $gapCodes),
+            'recommended_action' => [
+                'summary' => $reason,
+                'action_type' => 'price_adjustment',
+                'current_price' => $currentPrice,
+                'target_price' => $suggestedPrice,
+                'manual_only' => true,
+                'auto_write_ota' => false,
+            ],
+            'expected_effect' => [
+                'status' => (string)($expectedRevparImpact['status'] ?? 'not_calculable'),
+                'metric' => 'revpar',
+                'value' => $expectedRevparImpact['value'] ?? null,
+                'display' => (string)($expectedRevparImpact['display'] ?? '不可计算'),
+                'reason' => (string)($expectedRevparImpact['reason'] ?? 'expected_revpar_impact_missing'),
+            ],
+            'human_confirmation' => [
+                'required' => true,
+                'confirmed' => false,
+                'can_confirm' => false,
+                'can_transfer_to_operation_task' => false,
+                'status' => 'blocked',
+                'operation_task_status_after_transfer' => 'pending_execute',
+                'auto_write_ota' => false,
+            ],
         ];
     }
 
@@ -1722,6 +1935,7 @@ class RevenueAiOverviewService
 
     private function priceSuggestionReviewQueue(string $businessDate, ?int $hotelId): array
     {
+        $scopeHotelIds = $this->overviewScopeHotelIds;
         if (!$this->tableExists('price_suggestions')) {
             return $this->priceSuggestionReviewQueueUnavailable($businessDate, $hotelId, 'missing', 'price_suggestions_missing');
         }
@@ -1738,7 +1952,7 @@ class RevenueAiOverviewService
                 ['missing_fields' => $missingRequired]
             );
         }
-        if ($hotelId !== null && !isset($columns['hotel_id'])) {
+        if (($hotelId !== null || $scopeHotelIds !== []) && !isset($columns['hotel_id'])) {
             return $this->priceSuggestionReviewQueueUnavailable(
                 $businessDate,
                 $hotelId,
@@ -1778,6 +1992,8 @@ class RevenueAiOverviewService
                 ->where('suggestion_date', $businessDate);
             if ($hotelId !== null) {
                 $query->where('hotel_id', $hotelId);
+            } elseif ($scopeHotelIds !== []) {
+                $query->whereIn('hotel_id', $scopeHotelIds);
             }
             if (isset($columns['update_time'])) {
                 $query->order('update_time', 'desc');
@@ -1788,6 +2004,18 @@ class RevenueAiOverviewService
             $rows = $query->limit(1000)->select()->toArray();
         } catch (\Throwable) {
             return $this->priceSuggestionReviewQueueUnavailable($businessDate, $hotelId, 'failed', 'price_suggestions_read_failed');
+        }
+
+        try {
+            $rows = (new RevenuePricingRecommendationService())->enrichSuggestionRows($rows);
+        } catch (\Throwable) {
+            return $this->priceSuggestionReviewQueueUnavailable(
+                $businessDate,
+                $hotelId,
+                'failed',
+                'price_suggestions_trusted_decision_failed',
+                'Trusted decision contract could not be built from server-side readback evidence.'
+            );
         }
 
         return $this->buildPriceSuggestionReviewQueue($rows, $businessDate, $hotelId);
@@ -2107,13 +2335,7 @@ class RevenueAiOverviewService
         }
 
         $requiredInputs = $this->uniqueRequiredInputs($requiredInputs);
-        $temporarySkipPolicy = $this->pricingTemporarySkipPolicy($status, $reason, $requiredInputs, $tableGaps);
-        if (($temporarySkipPolicy['active'] ?? false) === true) {
-            $status = 'skipped_by_operator_policy';
-            $reason = self::TEMPORARY_PRICING_SKIP_REASON;
-            $detail = '已按人工策略暂时跳过房型、保护价、需求预测和竞对价格样本缺口；缺口仍保留为证据，不生成待审建议，不写 OTA。';
-            $requiredInputs = $this->markPricingRequiredInputsSkipped($requiredInputs);
-        }
+        $inputGapPolicy = $this->pricingInputGapPolicy($status, $reason, $requiredInputs, $tableGaps);
 
         return [
             'status' => $status,
@@ -2145,7 +2367,9 @@ class RevenueAiOverviewService
             'candidate_data_gaps' => array_values(array_unique($candidateDataGaps)),
             'table_gaps' => $tableGaps,
             'required_inputs' => $requiredInputs,
-            'temporary_skip_policy' => $temporarySkipPolicy,
+            'input_gap_policy' => $inputGapPolicy,
+            // 兼容旧客户端字段名；active=false，不能作为人工确认或跳过证据。
+            'temporary_skip_policy' => $inputGapPolicy,
             'hotel_checks' => $hotelChecks,
             'can_generate_pending_suggestions' => $status === 'ready_for_manual_generation',
             'manual_review_required' => true,
@@ -2334,30 +2558,8 @@ class RevenueAiOverviewService
      * @param array<int, string> $tableGaps
      * @return array<string, mixed>
      */
-    private function pricingTemporarySkipPolicy(string $status, string $reason, array $requiredInputs, array $tableGaps = []): array
+    private function pricingInputGapPolicy(string $status, string $reason, array $requiredInputs, array $tableGaps = []): array
     {
-        $base = [
-            'active' => false,
-            'mode' => 'operator_explicit_temporary_skip',
-            'reason' => self::TEMPORARY_PRICING_SKIP_REASON,
-            'scope' => 'pricing_input_gaps_only',
-            'original_status' => $status,
-            'original_reason' => $reason,
-            'skipped_input_codes' => [],
-            'non_skippable_input_codes' => [],
-            'preserve_missing_evidence' => true,
-            'auto_generate_pending_suggestions' => false,
-            'auto_write_ota' => false,
-            'operation_intake_allowed' => false,
-            'investment_decision_allowed' => false,
-        ];
-        if (in_array($status, ['failed', 'pending_review_exists', 'ready_for_manual_generation'], true)) {
-            return $base;
-        }
-        if ($tableGaps !== []) {
-            return $base;
-        }
-
         $codes = [];
         foreach ($requiredInputs as $item) {
             if (!is_array($item)) {
@@ -2368,82 +2570,45 @@ class RevenueAiOverviewService
                 $codes[] = $code;
             }
         }
-        $codes = array_values(array_unique($codes));
-        if ($codes === []) {
-            return $base;
-        }
-
-        $nonSkippable = array_values(array_diff($codes, self::TEMPORARY_SKIPPABLE_PRICING_INPUT_CODES));
-        if ($nonSkippable !== []) {
-            $base['non_skippable_input_codes'] = $nonSkippable;
-            return $base;
-        }
-
-        if (!in_array($reason, self::TEMPORARY_SKIPPABLE_PRICING_REASONS, true)) {
-            return $base;
-        }
-
-        $base['active'] = true;
-        $base['skipped_input_codes'] = $codes;
-        return $base;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $items
-     * @return array<int, array<string, mixed>>
-     */
-    private function markPricingRequiredInputsSkipped(array $items): array
-    {
-        $skipReason = self::TEMPORARY_PRICING_SKIP_REASON;
-        return array_map(static function (array $item) use ($skipReason): array {
-            $item['original_status'] = (string)($item['status'] ?? 'missing_or_blocked');
-            $item['status'] = 'skipped_by_operator_policy';
-            $item['skip_policy'] = [
-                'reason' => $skipReason,
-                'preserve_missing_evidence' => true,
-                'auto_write_ota' => false,
-            ];
-            return $item;
-        }, $items);
+        return [
+            'active' => false,
+            'mode' => 'rule_block_on_missing_inputs',
+            'reason' => $reason,
+            'scope' => 'pricing_input_gaps_only',
+            'status' => $status,
+            'blocked_input_codes' => array_values(array_unique($codes)),
+            'table_gaps' => array_values(array_unique($tableGaps)),
+            'manual_confirmation_recorded' => false,
+            'preserve_missing_evidence' => true,
+            'auto_generate_pending_suggestions' => false,
+            'auto_write_ota' => false,
+            'operation_intake_allowed' => false,
+            'investment_decision_allowed' => false,
+        ];
     }
 
     /**
      * @param array<string, mixed> $preflight
      * @return array<string, mixed>
      */
-    private function applyPricingTemporarySkipPolicyToPreflight(array $preflight): array
+    private function applyPricingInputGapPolicyToPreflight(array $preflight): array
     {
         if ($preflight === [] || (string)($preflight['status'] ?? '') === 'not_loaded') {
             return $preflight;
         }
-        if ((string)($preflight['status'] ?? '') === 'skipped_by_operator_policy') {
-            return $preflight;
-        }
 
         $requiredInputs = $this->uniqueRequiredInputs(is_array($preflight['required_inputs'] ?? null) ? $preflight['required_inputs'] : []);
-        $policy = $this->pricingTemporarySkipPolicy(
+        $policy = $this->pricingInputGapPolicy(
             (string)($preflight['status'] ?? ''),
             (string)($preflight['reason'] ?? ''),
             $requiredInputs,
             is_array($preflight['table_gaps'] ?? null) ? $preflight['table_gaps'] : []
         );
-        if (($policy['active'] ?? false) !== true) {
-            if ($requiredInputs !== []) {
-                $preflight['required_inputs'] = $requiredInputs;
-            }
-            $preflight['temporary_skip_policy'] = $policy;
-            return $preflight;
-        }
-
-        $preflight['original_status'] = (string)($preflight['status'] ?? 'blocked');
-        $preflight['status'] = 'skipped_by_operator_policy';
-        $preflight['reason'] = self::TEMPORARY_PRICING_SKIP_REASON;
-        $preflight['detail'] = '已按人工策略暂时跳过房型、保护价、需求预测和竞对价格样本缺口；缺口仍保留为证据，不生成待审建议，不写 OTA。';
-        $preflight['required_inputs'] = $this->markPricingRequiredInputsSkipped($requiredInputs);
+        $preflight['required_inputs'] = $requiredInputs;
+        $preflight['input_gap_policy'] = $policy;
+        // 兼容旧客户端字段名；active=false，不能作为人工确认或跳过证据。
         $preflight['temporary_skip_policy'] = $policy;
-        $preflight['can_generate_pending_suggestions'] = false;
         $preflight['auto_write_ota'] = false;
-        $preflight['next_action'] = $this->pricingGenerationPreflightNextAction(self::TEMPORARY_PRICING_SKIP_REASON);
         return $preflight;
     }
 
@@ -2472,7 +2637,6 @@ class RevenueAiOverviewService
             'price_suggestions_pending_review' => '进入收益 Agent 的定价建议列表完成人工审核；Revenue AI 首页不自动写 OTA。',
             'pricing_generation_hotel_scope_missing' => '先选择或导入可映射到系统酒店的携程 OTA 数据，再生成待审调价建议。',
             'room_types_empty' => '为携程目标酒店配置启用房型和最低保护价，再补需求预测与竞对样本；缺口未补齐前不生成待审建议。',
-            self::TEMPORARY_PRICING_SKIP_REASON => '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口；继续保留缺口证据，不自动生成或写 OTA。',
             'pricing_candidate_signals_missing' => '补齐需求预测、竞对价格、历史价格变化和保护价信号，直到只读预检出现可生成候选。',
             'pricing_generation_candidates_ready' => '可进入收益 Agent 生成待审建议；生成后仍需人工审核，不写 OTA。',
             default => '检查定价建议生成前置表和读取权限；缺口明确前不生成或执行调价建议。',
@@ -3498,6 +3662,7 @@ class RevenueAiOverviewService
 
     private function agentActivity(string $businessDate, ?int $hotelId): array
     {
+        $scopeHotelIds = $this->overviewScopeHotelIds;
         if (!$this->tableExists('agent_logs')) {
             return $this->agentActivityUnavailable($businessDate, $hotelId, 'missing', 'agent_logs_missing');
         }
@@ -3514,7 +3679,7 @@ class RevenueAiOverviewService
                 ['missing_fields' => $missingRequired]
             );
         }
-        if ($hotelId !== null && !isset($columns['hotel_id'])) {
+        if (($hotelId !== null || $scopeHotelIds !== []) && !isset($columns['hotel_id'])) {
             return $this->agentActivityUnavailable(
                 $businessDate,
                 $hotelId,
@@ -3544,6 +3709,8 @@ class RevenueAiOverviewService
                 ->order('create_time', 'desc');
             if ($hotelId !== null) {
                 $query->where('hotel_id', $hotelId);
+            } elseif ($scopeHotelIds !== []) {
+                $query->whereIn('hotel_id', $scopeHotelIds);
             }
             if (isset($columns['id'])) {
                 $query->order('id', 'desc');
@@ -3668,12 +3835,6 @@ class RevenueAiOverviewService
             : $this->pricingAiToOperationHandoff(is_array($pricingReadiness) ? $pricingReadiness : [], [], '', null, []);
         $operationIntakePacket = is_array($aiToOperationHandoff['operation_intake_packet'] ?? null) ? $aiToOperationHandoff['operation_intake_packet'] : [];
         $operationPreflight = is_array($operationIntakePacket['operation_intake_preflight_contract'] ?? null) ? $operationIntakePacket['operation_intake_preflight_contract'] : [];
-        $operationToInvestmentHandoff = is_array($pricingReadiness['operation_to_investment_handoff'] ?? null)
-            ? $pricingReadiness['operation_to_investment_handoff']
-            : $this->pricingOperationToInvestmentHandoff($aiToOperationHandoff, [], '', null, []);
-        $investmentPrecheckPacket = is_array($operationToInvestmentHandoff['investment_precheck_packet'] ?? null)
-            ? $operationToInvestmentHandoff['investment_precheck_packet']
-            : [];
         $pendingReviewCount = (int)($reviewQueue['pending_count'] ?? 0);
         $reason = $pendingReviewCount > 0
             ? 'price_suggestions_pending_review'
@@ -3703,8 +3864,6 @@ class RevenueAiOverviewService
                 'ai_decision_resolution_plan' => $aiDecisionResolutionPlan,
                 'ai_to_operation_handoff' => $aiToOperationHandoff,
                 'operation_intake_preflight_contract' => $operationPreflight,
-                'operation_to_investment_handoff' => $operationToInvestmentHandoff,
-                'investment_precheck_packet' => $investmentPrecheckPacket,
                 'readiness' => $pricingReadiness,
                 'review_queue' => $reviewQueue,
                 'review_queue_summary' => (string)($reviewQueue['display'] ?? ''),
@@ -3735,8 +3894,6 @@ class RevenueAiOverviewService
             }
             if ($status === 'ok') {
                 $readyLabels[] = $label;
-            } elseif ($status === 'skipped_by_operator_policy') {
-                $skippedLabels[] = $label;
             } else {
                 $blockedLabels[] = $label;
             }
@@ -3794,24 +3951,6 @@ class RevenueAiOverviewService
             if (!is_array($basisItem) || ($basisItem['status'] ?? '') === 'ok') {
                 continue;
             }
-            if (($basisItem['status'] ?? '') === 'skipped_by_operator_policy') {
-                $code = (string)($basisItem['key'] ?? '');
-                $evidenceCode = (string)($basisItem['reason'] ?? '');
-                $resolution = $this->pricingAiDecisionResolutionSpec($code, $evidenceCode);
-                $skippedItems[] = [
-                    'code' => $code,
-                    'input_type' => $this->pricingAiReviewInputType($code, $evidenceCode),
-                    'evidence_code' => $evidenceCode,
-                    'status' => 'skipped_by_operator_policy',
-                    'resolution_action' => $resolution['resolution_action'],
-                    'acceptance_check' => $resolution['acceptance_check'],
-                    'unblocks' => $resolution['unblocks'],
-                    'forbidden_shortcut' => $resolution['forbidden_shortcut'],
-                    'skip_policy' => is_array($basisItem['skip_policy'] ?? null) ? $basisItem['skip_policy'] : [],
-                ];
-                continue;
-            }
-
             $code = (string)($basisItem['key'] ?? '');
             $evidenceCode = (string)($basisItem['reason'] ?? '');
             $resolution = $this->pricingAiDecisionResolutionSpec($code, $evidenceCode);
@@ -4009,146 +4148,6 @@ class RevenueAiOverviewService
         ];
     }
 
-    /**
-     * @param array<string, mixed> $aiToOperationHandoff
-     * @param array<string, mixed> $executionSummary
-     * @param array<int, string> $sourceChannels
-     * @return array<string, mixed>
-     */
-    private function pricingOperationToInvestmentHandoff(
-        array $aiToOperationHandoff,
-        array $executionSummary,
-        string $businessDate,
-        ?int $hotelId,
-        array $sourceChannels
-    ): array {
-        $roiGate = $this->pricingOperationRoiGate($executionSummary);
-        $operationRoiReady = $roiGate['ready'];
-        $sourceScope = count($sourceChannels) === 1 && $sourceChannels[0] === 'ctrip'
-            ? 'ctrip_ota_channel_to_operation_roi'
-            : 'ota_channel_to_operation_roi';
-        $upstreamStatus = (string)($aiToOperationHandoff['status'] ?? '');
-        $blockedReasons = $operationRoiReady
-            ? ['decision_record.readiness_ready']
-            : ['closed_operating_roi_missing', 'operation_process_closure_missing'];
-        if ($upstreamStatus !== 'operation_intake_waiting_human_approval' && $upstreamStatus !== 'operation_intake_ready_for_human_create') {
-            $blockedReasons[] = 'operation_intake_not_approved';
-        }
-        $blockedReasons = array_values(array_unique($blockedReasons));
-        $missingEvidence = $operationRoiReady
-            ? [
-                $this->investmentPrecheckMissingEvidence(
-                    'decision_record.readiness_ready',
-                    'InvestmentDecisionSupportService::buildOverviewFromEvidence'
-                ),
-            ]
-            : [
-                $this->investmentPrecheckMissingEvidence(
-                    'operation_execution.roi_ready',
-                    'RevenueAiOverviewService.execution_summary.effect_review'
-                ),
-            ];
-        $status = $operationRoiReady
-            ? 'investment_precheck_waiting_decision_record'
-            : 'investment_precheck_blocked_by_operation_roi';
-
-        return [
-            'status' => $status,
-            'persisted' => false,
-            'target_module' => 'investment_decision',
-            'target_page' => 'investment-decision',
-            'target_service' => 'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-            'target_entry' => '/api/investment-decision/overview',
-            'business_date' => $businessDate,
-            'hotel_id' => $hotelId,
-            'source_scope' => $sourceScope,
-            'metric_scope' => 'ota_channel',
-            'source_channels' => array_values($sourceChannels),
-            'source_platforms' => array_values($sourceChannels),
-            'upstream_operation_intake_status' => $upstreamStatus,
-            'operation_execution_total' => (int)($executionSummary['total_count'] ?? 0),
-            'operation_roi_ready' => $operationRoiReady ? 1 : 0,
-            'operation_roi_ready_count' => (int)$roiGate['ready_count'],
-            'operation_roi_reason' => (string)$roiGate['reason'],
-            'operating_gate_status' => $operationRoiReady ? 'closed_operating_data_ready' : 'not_ready',
-            'business_closure_chain_status' => $operationRoiReady ? 'precheck_only_not_investment_ready' : 'not_closed',
-            'decision_allowed' => false,
-            'can_create_investment_decision' => false,
-            'blocked_reasons' => $blockedReasons,
-            'required_before_investment' => [
-                'operation_execution_intent_created_by_human_review',
-                'operation_execution_approved',
-                'execution_evidence_attached',
-                'operation_effect_review_completed',
-                'operation_execution.roi_ready',
-                'decision_record.readiness_ready',
-                'human_investment_review',
-            ],
-            'forbidden_actions' => [
-                'create_investment_decision_from_ota_channel_only',
-                'claim_investment_decision_allowed',
-                'create_investment_record_without_closed_operation_roi',
-                'use_unreviewed_ai_advice_for_investment',
-                'promote_ota_scope_to_whole_hotel_truth',
-            ],
-            'investment_precheck_packet' => [
-                'status' => $operationRoiReady ? 'waiting_decision_record_readiness' : 'blocked_by_operation_roi',
-                'source_policy' => 'read_only_precheck_from_closed_operation_gate',
-                'upstream_operation_intake_status' => $upstreamStatus,
-                'operation_roi_ready' => $operationRoiReady ? 1 : 0,
-                'operation_roi_ready_count' => (int)$roiGate['ready_count'],
-                'operating_gate_status' => $operationRoiReady ? 'closed_operating_data_ready' : 'not_ready',
-                'business_closure_chain_status' => $operationRoiReady ? 'precheck_only_not_investment_ready' : 'not_closed',
-                'required_gate' => 'operation_execution.roi_ready',
-                'required_before' => 'investment_decision.summary.decision_allowed',
-                'missing_evidence' => $missingEvidence,
-                'missing_evidence_codes' => array_column($missingEvidence, 'code'),
-                'protected_boundary' => 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-            ],
-            'protected_boundary' => 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $executionSummary
-     * @return array{ready:bool,ready_count:int,reason:string}
-     */
-    private function pricingOperationRoiGate(array $executionSummary): array
-    {
-        $effectReview = is_array($executionSummary['effect_review'] ?? null) ? $executionSummary['effect_review'] : [];
-        $summaryRoiReady = (int)($executionSummary['roi_ready_count'] ?? 0);
-        $effectRoiReady = (int)($effectReview['roi_ready_count'] ?? 0);
-        $inputReadyCount = (int)($effectReview['input_ready_count'] ?? 0);
-        $nextDayInputReady = ($effectReview['next_day_input_ready'] ?? false) === true;
-        $inputReason = (string)($effectReview['input_reason'] ?? '');
-        $effectReason = (string)($effectReview['reason'] ?? '');
-        $summaryReason = (string)($executionSummary['reason'] ?? '');
-        $reasonCandidates = array_values(array_filter([$inputReason, $effectReason, $summaryReason], static fn ($reason) => is_string($reason) && $reason !== ''));
-        $readyByReason = in_array('operation_effect_review_ready', $reasonCandidates, true);
-        $ready = $summaryRoiReady > 0
-            || $effectRoiReady > 0
-            || ($readyByReason && ($nextDayInputReady || $inputReadyCount > 0));
-        $readyCount = max($summaryRoiReady, $effectRoiReady, $ready ? max(1, $inputReadyCount) : 0);
-
-        return [
-            'ready' => $ready,
-            'ready_count' => $readyCount,
-            'reason' => $ready ? 'operation_effect_review_ready' : ($reasonCandidates[0] ?? 'operation_execution_not_loaded'),
-        ];
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function investmentPrecheckMissingEvidence(string $code, string $source): array
-    {
-        return [
-            'code' => $code,
-            'status' => 'missing_or_blocked',
-            'source' => $source,
-            'required_before' => 'investment_decision.summary.decision_allowed',
-        ];
-    }
 
     /**
      * @param array<string, mixed> $candidate
@@ -4234,7 +4233,7 @@ class RevenueAiOverviewService
         $map = [
             'available_room_nights_missing' => [
                 'resolution_action' => 'provide_available_room_nights_or_mark_metric_unusable',
-                'acceptance_check' => 'available_room_nights evidence exists or RevPAR remains explicitly not_calculable',
+                'acceptance_check' => 'OTA-channel available_room_nights evidence exists or OTA-channel RevPAR remains explicitly not_calculable',
                 'unblocks' => 'ota_contribution_revpar_review',
                 'forbidden_shortcut' => 'default_available_room_nights',
             ],
@@ -4424,12 +4423,12 @@ class RevenueAiOverviewService
             ),
             $this->pricingGate(
                 'revpar_denominator',
-                '全酒店可售房晚',
+                'OTA渠道可售房晚分母',
                 $this->numeric($metricsSummary['totals']['available_room_nights'] ?? null) !== null
                     && (float)($metricsSummary['totals']['available_room_nights'] ?? 0) > 0,
                 'ok',
                 'available_room_nights_missing',
-                '已具备 OTA贡献RevPAR 分母。'
+                '已具备 OTA 渠道贡献RevPAR分母；该分母未验证为全酒店可售房晚。'
             ),
             $this->pricingGate(
                 'demand_signal_7d',
@@ -4473,19 +4472,10 @@ class RevenueAiOverviewService
             );
         }
         $gates[] = $this->operationFeedbackInputGate($executionSummary);
-        $gates = array_map(function (array $gate): array {
-            return $this->applyPricingTemporarySkipPolicyToGate($gate);
-        }, $gates);
-
         $blockingReasons = [];
         $blockedLabels = [];
-        $skippedLabels = [];
         $nextActions = [];
         foreach ($gates as $gate) {
-            if ($this->pricingGateSkippedByOperatorPolicy($gate)) {
-                $skippedLabels[] = (string)$gate['label'];
-                continue;
-            }
             if (($gate['status'] ?? '') !== 'ok') {
                 $blockingReasons[] = (string)$gate['reason'];
                 $blockedLabels[] = (string)$gate['label'];
@@ -4497,12 +4487,9 @@ class RevenueAiOverviewService
 
         $resolutionPlan = $this->pricingAiDecisionResolutionPlan($gates, $sourceChannels);
         $reviewContract = $this->pricingAiDecisionReviewContract($resolutionPlan);
-        $hasSkippedGates = $skippedLabels !== [];
-        $overallStatus = $blockingReasons === [] ? ($hasSkippedGates ? 'warning' : 'ok') : 'blocked';
+        $overallStatus = $blockingReasons === [] ? 'ok' : 'blocked';
         $summary = $blockingReasons === []
-            ? ($hasSkippedGates
-                ? '已按人工策略暂时跳过抓不到的定价输入缺口；可继续做只读 AI 分析，但不自动生成待审建议、不写 OTA。'
-                : '已具备可审核调价建议的前置条件；第一版仍需人工审核，不自动写 OTA。')
+            ? '已具备可审核调价建议的前置条件；第一版仍需人工审核，不自动写 OTA。'
             : '暂不生成调价建议，' . implode('、', array_slice($blockedLabels, 0, 4)) . (count($blockedLabels) > 4 ? '等条件未满足。' : '未满足。');
 
         return [
@@ -4511,26 +4498,32 @@ class RevenueAiOverviewService
             'can_auto_write_ota' => false,
             'manual_review_required' => true,
             'blocking_reasons' => array_values(array_unique($blockingReasons)),
-            'skipped_reasons' => array_values(array_unique(array_filter(array_map(
-                static fn(array $gate): string => (string)($gate['status'] ?? '') === 'skipped_by_operator_policy' ? (string)($gate['reason'] ?? '') : '',
-                $gates
-            )))),
+            'skipped_reasons' => [],
             'gates' => $gates,
             'next_actions' => array_slice(array_values(array_unique($nextActions)), 0, 4),
             'pricing_generation_preflight' => $pricingGenerationPreflight,
             'ai_decision_review_contract' => $reviewContract,
             'ai_decision_resolution_plan' => $resolutionPlan,
             'temporary_skip_policy' => [
-                'active' => $hasSkippedGates,
-                'reason' => self::TEMPORARY_PRICING_SKIP_REASON,
+                'active' => false,
+                'mode' => 'rule_block_on_missing_inputs',
+                'reason' => $blockingReasons[0] ?? '',
                 'scope' => 'pricing_input_gaps_only',
-                'skipped_gate_count' => count($skippedLabels),
-                'skipped_gate_labels' => array_slice($skippedLabels, 0, 8),
+                'skipped_gate_count' => 0,
+                'skipped_gate_labels' => [],
+                'manual_confirmation_recorded' => false,
                 'preserve_missing_evidence' => true,
                 'auto_write_ota' => false,
                 'auto_generate_pending_suggestions' => false,
                 'operation_intake_allowed' => false,
                 'investment_decision_allowed' => false,
+            ],
+            'input_gap_policy' => [
+                'mode' => 'rule_block_on_missing_inputs',
+                'blocked_gate_count' => count($blockedLabels),
+                'blocked_gate_labels' => array_slice($blockedLabels, 0, 8),
+                'manual_confirmation_recorded' => false,
+                'preserve_missing_evidence' => true,
             ],
             'review_policy' => [
                 'mode' => 'manual_review_only',
@@ -4605,48 +4598,6 @@ class RevenueAiOverviewService
     }
 
     /**
-     * @param array<string, mixed> $gate
-     * @return array<string, mixed>
-     */
-    private function applyPricingTemporarySkipPolicyToGate(array $gate): array
-    {
-        if ((string)($gate['status'] ?? '') !== 'blocked') {
-            return $gate;
-        }
-
-        $reason = (string)($gate['reason'] ?? '');
-        if (!in_array($reason, self::TEMPORARY_SKIPPABLE_PRICING_REASONS, true)) {
-            return $gate;
-        }
-
-        $displayReason = (string)($gate['display_reason'] ?? ($gate['detail'] ?? $reason));
-        $gate['original_status'] = 'blocked';
-        $gate['status'] = 'skipped_by_operator_policy';
-        $gate['severity'] = 'low';
-        $gate['category'] = (string)($gate['category'] ?? 'pricing_gate');
-        $gate['display_reason'] = '已按人工策略暂时跳过；原缺口：' . $displayReason;
-        $gate['next_action'] = '继续保留缺口证据；后续抓到真实房型、保护价、需求预测或竞对样本后再恢复门禁。';
-        $gate['skip_policy'] = [
-            'reason' => self::TEMPORARY_PRICING_SKIP_REASON,
-            'original_reason' => $reason,
-            'preserve_missing_evidence' => true,
-            'auto_write_ota' => false,
-            'auto_generate_pending_suggestions' => false,
-            'operation_intake_allowed' => false,
-            'investment_decision_allowed' => false,
-        ];
-        return $gate;
-    }
-
-    /**
-     * @param array<string, mixed> $gate
-     */
-    private function pricingGateSkippedByOperatorPolicy(array $gate): bool
-    {
-        return (string)($gate['status'] ?? '') === 'skipped_by_operator_policy';
-    }
-
-    /**
      * @param array<string, mixed> $executionSummary
      * @return array<string, mixed>
      */
@@ -4712,7 +4663,7 @@ class RevenueAiOverviewService
     private function issueMessage(string $reason): string
     {
         return match ($reason) {
-            'available_room_nights_missing' => '暂缺可信全酒店可售房晚数据。',
+            'available_room_nights_missing' => '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。',
             'competitor_price_fields_missing' => '暂缺竞对价格字段。',
             'competitor_price_above_competitor' => '本店均价高于竞对均价，需人工复核是否存在价格倒挂或竞争力风险。',
             'competitor_price_below_competitor_review_required' => '本店均价低于竞对均价，需复核是否低于保护价后再判断调价。',
@@ -4901,15 +4852,18 @@ class RevenueAiOverviewService
     }
 
     /**
-     * @param int|null $hotelId
      * @return array<string, array<string, mixed>>
      */
     private function sourceStatusRows(?int $hotelId): array
     {
+        $scopeHotelIds = $this->overviewScopeHotelIds;
         if (!$this->tableExists('platform_data_sources')) {
             return [];
         }
         $columns = $this->tableColumns('platform_data_sources');
+        if (($hotelId !== null || $scopeHotelIds !== []) && !isset($columns['system_hotel_id'])) {
+            return [];
+        }
         $fields = array_values(array_intersect([
             'id',
             'system_hotel_id',
@@ -4932,8 +4886,12 @@ class RevenueAiOverviewService
                 ->order('last_sync_time', 'desc')
                 ->order('update_time', 'desc')
                 ->order('id', 'desc');
-            if ($hotelId !== null && isset($columns['system_hotel_id'])) {
-                $query->where('system_hotel_id', $hotelId);
+            if (isset($columns['system_hotel_id'])) {
+                if ($hotelId !== null) {
+                    $query->where('system_hotel_id', $hotelId);
+                } elseif ($scopeHotelIds !== []) {
+                    $query->whereIn('system_hotel_id', $scopeHotelIds);
+                }
             }
             $rows = $query->select()->toArray();
         } catch (\Throwable) {
@@ -5063,7 +5021,7 @@ class RevenueAiOverviewService
             'RATE_LIMITED' => ['severity' => 'medium', 'category' => 'platform', 'display_reason' => $platformLabel . '平台请求被限流。', 'next_action' => '暂停高频重试，稍后复核采集任务。'],
             'DATE_NOT_AVAILABLE' => ['severity' => 'medium', 'category' => 'data', 'display_reason' => $platformLabel . '未命中目标经营日期入库数据。', 'next_action' => '进入数据健康面板检查目标日期采集和入库记录。'],
             'DATA_STALE' => ['severity' => 'high', 'category' => 'stale', 'display_reason' => $platformLabel . '数据过期，目标经营日期没有新入库证据。', 'next_action' => '进入数据健康面板复核最后同步时间并重新采集。'],
-            'available_room_nights_missing' => ['severity' => 'high', 'category' => 'denominator', 'display_reason' => '暂缺可信全酒店可售房晚数据。', 'next_action' => '补齐全酒店可售房晚口径后再计算 OTA贡献RevPAR。', 'target_platform' => 'hotel'],
+            'available_room_nights_missing' => ['severity' => 'high', 'category' => 'denominator', 'display_reason' => '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。', 'next_action' => '补齐并核验 OTA 渠道可售房晚口径后再计算 OTA 渠道贡献RevPAR。', 'target_platform' => 'ota'],
             'online_daily_data_empty' => ['severity' => 'medium', 'category' => 'data', 'display_reason' => $platformLabel . '目标经营日期没有可用 OTA 入库数据。', 'next_action' => '进入数据健康面板检查该日期采集、导入和字段校验状态。'],
             'ota_revenue_metrics_missing' => ['severity' => 'high', 'category' => 'metric', 'display_reason' => '已命中 OTA 目标日数据，但房费收入或间夜指标缺失。', 'next_action' => '复核 online_daily_data 的 revenue、room_revenue、room_nights 字段映射和入库值。'],
             'ota_room_nights_zero' => ['severity' => 'medium', 'category' => 'metric', 'display_reason' => '已命中 OTA 目标日数据，但间夜为 0，无法计算 ADR。', 'next_action' => '复核携程目标日 business 行的 room_nights/order_count；若确认为 0，则只做观察，不生成调价建议。'],
@@ -5134,7 +5092,6 @@ class RevenueAiOverviewService
             'price_suggestion_generation_not_loaded' => ['severity' => 'medium', 'category' => 'pricing_generation', 'display_reason' => '调价建议生成预检尚未加载。', 'next_action' => '先加载 room_types、demand_forecasts、competitor_analysis 和 price_suggestions 的只读预检，再决定是否生成待审建议。'],
             'pricing_generation_hotel_scope_missing' => ['severity' => 'high', 'category' => 'pricing_generation', 'display_reason' => '调价建议生成缺少目标系统酒店范围。', 'next_action' => '先选择或导入可映射到系统酒店的携程 OTA 数据，再生成待审调价建议。'],
             'room_types_empty' => ['severity' => 'high', 'category' => 'pricing_generation', 'display_reason' => '携程目标酒店暂无启用房型，不能生成待审调价建议。', 'next_action' => '为携程目标酒店配置启用房型、基础价和最低保护价后，再补需求预测与竞对样本。'],
-            self::TEMPORARY_PRICING_SKIP_REASON => ['severity' => 'low', 'category' => 'pricing_generation', 'display_reason' => '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口。', 'next_action' => '继续保留缺口证据；后续抓到真实输入后再恢复调价生成门禁。'],
             'pricing_candidate_signals_missing' => ['severity' => 'medium', 'category' => 'pricing_generation', 'display_reason' => '调价候选信号不足，当前不会生成待审建议。', 'next_action' => '补齐需求预测、竞对价格、历史价格变化和保护价信号，直到只读预检出现可生成候选。'],
             'pricing_generation_candidates_ready' => ['severity' => 'low', 'category' => 'pricing_generation', 'display_reason' => '已存在可生成待审调价建议的只读候选。', 'next_action' => '进入收益 Agent 生成待审建议；生成后仍需人工审核，不写 OTA。'],
             default => [],
@@ -5147,7 +5104,6 @@ class RevenueAiOverviewService
                 'price_suggestion_generation_not_loaded',
                 'pricing_generation_hotel_scope_missing',
                 'room_types_empty',
-                self::TEMPORARY_PRICING_SKIP_REASON,
                 'pricing_candidate_signals_missing',
                 'pricing_generation_candidates_ready',
             ], true)) {

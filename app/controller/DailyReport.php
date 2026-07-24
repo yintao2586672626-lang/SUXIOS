@@ -212,18 +212,26 @@ class DailyReport extends Base
     private function calculateMonthSum($reports): array
     {
         $sum = [];
+        $fieldCounts = [];
+        $reportCount = 0;
         foreach ($reports as $report) {
+            $reportCount++;
             $data = $this->normalizeReportData($report->report_data ?? []);
             foreach ($data as $key => $value) {
-                if (!isset($sum[$key])) {
-                    $sum[$key] = 0;
-                }
                 $num = $this->normalizeNumber($value);
                 if ($num !== null) {
+                    if (!array_key_exists($key, $sum)) {
+                        $sum[$key] = 0.0;
+                    }
                     $sum[$key] += $num;
+                    $fieldCounts[$key] = ($fieldCounts[$key] ?? 0) + 1;
                 }
             }
         }
+        $sum['__evidence'] = [
+            'report_count' => $reportCount,
+            'field_counts' => $fieldCounts,
+        ];
         return $sum;
     }
     
@@ -259,287 +267,257 @@ class DailyReport extends Base
 
     private function calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays, array $onlineRows = []): array
     {
-        // 辅助函数：安全获取数值
-        $getVal = function($data, $key, $default = 0) {
-            if (!isset($data[$key])) {
-                return $default;
+        $reportData = is_array($reportData) ? $reportData : $this->normalizeReportData($reportData);
+        $taskData = is_array($taskData) ? $taskData : $this->normalizeReportData($taskData);
+        $monthSum = is_array($monthSum) ? $monthSum : $this->normalizeReportData($monthSum);
+
+        $getVal = fn(array $data, string $key): ?float => $this->readNumericValue($data, [$key]);
+        $sumRequired = static function (array $values): ?float {
+            if ($values === [] || in_array(null, $values, true)) {
+                return null;
             }
-            $num = $this->normalizeNumber($data[$key]);
-            return $num !== null ? $num : $default;
+            return array_sum($values);
         };
-        
-        // 酒店房间数（需要从酒店信息或配置获取，这里先默认）
+        $roundNullable = static fn(?float $value, int $precision = 2): ?float => $value === null ? null : round($value, $precision);
+        $intNullable = static fn(?float $value): ?int => $value === null ? null : (int)$value;
+
+        $otaRevenueKeys = array_map(static fn(string $key): string => $key . '_revenue', self::OTA_CHANNEL_KEYS);
+        $otaRoomKeys = array_map(static fn(string $key): string => $key . '_rooms', self::OTA_CHANNEL_KEYS);
+        $offlineRevenueKeys = ['walkin_revenue', 'member_exp_revenue', 'web_exp_revenue', 'group_revenue', 'protocol_revenue', 'wechat_revenue', 'free_revenue', 'gold_card_revenue', 'black_gold_revenue', 'hourly_revenue'];
+        $offlineRoomKeys = ['walkin_rooms', 'member_exp_rooms', 'web_exp_rooms', 'group_rooms', 'protocol_rooms', 'wechat_rooms', 'free_rooms', 'gold_card_rooms', 'black_gold_rooms', 'hourly_rooms'];
+        $otherRevenueKeys = ['parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue'];
+        $valuesFor = static function (array $data, array $keys) use ($getVal): array {
+            return array_map(static fn(string $key): ?float => $getVal($data, $key), $keys);
+        };
+        $monthEvidence = is_array($monthSum['__evidence'] ?? null) ? $monthSum['__evidence'] : null;
+        $monthReportCount = (int)($monthEvidence['report_count'] ?? 0);
+        $monthFieldCounts = is_array($monthEvidence['field_counts'] ?? null) ? $monthEvidence['field_counts'] : [];
+        $monthGetVal = function (string $key) use ($monthEvidence, $monthReportCount, $monthFieldCounts, $getVal, $monthSum): ?float {
+            if ($monthEvidence !== null && ($monthReportCount <= 0 || (int)($monthFieldCounts[$key] ?? 0) !== $monthReportCount)) {
+                return null;
+            }
+            return $getVal($monthSum, $key);
+        };
+        $monthValuesFor = static function (array $keys) use ($monthGetVal): array {
+            return array_map(static fn(string $key): ?float => $monthGetVal($key), $keys);
+        };
+
         $totalRooms = $this->resolveSalableRoomsTotal($hotel, $taskData, $reportData);
-        
-        // ==================== 一、销售业绩 ====================
-        
-        // OTA收入
-        $xbRevenue = $getVal($reportData, 'xb_revenue');
-        $mtRevenue = $getVal($reportData, 'mt_revenue');
-        $fliggyRevenue = $getVal($reportData, 'fliggy_revenue');
-        $dyRevenue = $getVal($reportData, 'dy_revenue');
-        $tcRevenue = $getVal($reportData, 'tc_revenue');
-        $qnRevenue = $getVal($reportData, 'qn_revenue');
-        $zxRevenue = $getVal($reportData, 'zx_revenue');
-        $bookingRevenue = $getVal($reportData, 'booking_revenue');
-        $agodaRevenue = $getVal($reportData, 'agoda_revenue');
-        $expediaRevenue = $getVal($reportData, 'expedia_revenue');
-        
-        // 线下收入
-        $walkinRevenue = $getVal($reportData, 'walkin_revenue');
-        $memberExpRevenue = $getVal($reportData, 'member_exp_revenue');
-        $webExpRevenue = $getVal($reportData, 'web_exp_revenue');
-        $groupRevenue = $getVal($reportData, 'group_revenue');
-        $protocolRevenue = $getVal($reportData, 'protocol_revenue');
-        $wechatRevenue = $getVal($reportData, 'wechat_revenue');
-        $freeRevenue = $getVal($reportData, 'free_revenue');
-        $goldCardRevenue = $getVal($reportData, 'gold_card_revenue');
-        $blackGoldRevenue = $getVal($reportData, 'black_gold_revenue');
+        $salableRooms = $getVal($reportData, 'salable_rooms') ?? $totalRooms;
         $hourlyRevenue = $getVal($reportData, 'hourly_revenue');
-        
-        // 其他收入
-        $parkingRevenue = $getVal($reportData, 'parking_revenue');
-        $diningRevenue = $getVal($reportData, 'dining_revenue');
-        $meetingRevenue = $getVal($reportData, 'meeting_revenue');
-        $goodsRevenue = $getVal($reportData, 'goods_revenue');
-        $memberCardRevenue = $getVal($reportData, 'member_card_revenue');
-        $otherRevenue = $getVal($reportData, 'other_revenue');
-        
-        // OTA间夜
-        $xbRooms = $getVal($reportData, 'xb_rooms');
-        $mtRooms = $getVal($reportData, 'mt_rooms');
-        $fliggyRooms = $getVal($reportData, 'fliggy_rooms');
-        $dyRooms = $getVal($reportData, 'dy_rooms');
-        $tcRooms = $getVal($reportData, 'tc_rooms');
-        $qnRooms = $getVal($reportData, 'qn_rooms');
-        $zxRooms = $getVal($reportData, 'zx_rooms');
-        $bookingRooms = $getVal($reportData, 'booking_rooms');
-        $agodaRooms = $getVal($reportData, 'agoda_rooms');
-        $expediaRooms = $getVal($reportData, 'expedia_rooms');
-        
-        // 线下间夜
-        $walkinRooms = $getVal($reportData, 'walkin_rooms');
-        $memberExpRooms = $getVal($reportData, 'member_exp_rooms');
-        $webExpRooms = $getVal($reportData, 'web_exp_rooms');
-        $groupRooms = $getVal($reportData, 'group_rooms');
-        $protocolRooms = $getVal($reportData, 'protocol_rooms');
-        $wechatRooms = $getVal($reportData, 'wechat_rooms');
-        $freeRooms = $getVal($reportData, 'free_rooms');
-        $goldCardRooms = $getVal($reportData, 'gold_card_rooms');
-        $blackGoldRooms = $getVal($reportData, 'black_gold_rooms');
         $hourlyRooms = $getVal($reportData, 'hourly_rooms');
-        
-        // 基础数据
-        $salableRooms = $getVal($reportData, 'salable_rooms', $totalRooms);
-        $overnightRooms = $getVal($reportData, 'overnight_rooms', 0);
-        
-        // 私域数据
+        $overnightRooms = $getVal($reportData, 'overnight_rooms');
+
+        $dayOnlineRevenue = $getVal($reportData, 'online_revenue') ?? $sumRequired($valuesFor($reportData, $otaRevenueKeys));
+        $dayOfflineRevenue = $getVal($reportData, 'offline_revenue') ?? $sumRequired($valuesFor($reportData, $offlineRevenueKeys));
+        $dayOtherRevenue = $getVal($reportData, 'other_revenue_total') ?? $sumRequired($valuesFor($reportData, $otherRevenueKeys));
+        $dayRoomRevenue = $getVal($reportData, 'room_revenue') ?? $sumRequired([$dayOnlineRevenue, $dayOfflineRevenue]);
+        $dayTotalRevenue = $this->readNumericValue($reportData, ['revenue', 'day_revenue'])
+            ?? $sumRequired([$dayRoomRevenue, $dayOtherRevenue]);
+
+        $dayOnlineRooms = $getVal($reportData, 'online_rooms') ?? $sumRequired($valuesFor($reportData, $otaRoomKeys));
+        $dayOfflineRooms = $getVal($reportData, 'offline_rooms') ?? $sumRequired($valuesFor($reportData, $offlineRoomKeys));
+        $dayTotalRooms = $this->readNumericValue($reportData, ['total_rooms', 'day_total_rooms'])
+            ?? $sumRequired([$dayOnlineRooms, $dayOfflineRooms]);
+
+        $dayOvernightRooms = $overnightRooms;
+        $dayNonOvernightRooms = $sumRequired([$dayTotalRooms, $dayOvernightRooms, $hourlyRooms]);
+        if ($dayNonOvernightRooms !== null) {
+            $dayNonOvernightRooms = max(0.0, $dayTotalRooms - $dayOvernightRooms - $hourlyRooms);
+        }
+
+        $dayOccRate = $dayTotalRooms !== null && $salableRooms !== null && $salableRooms > 0
+            ? round(($dayTotalRooms / $salableRooms) * 100, 2)
+            : null;
+        $dayOvernightOccRate = $dayOvernightRooms !== null && $salableRooms !== null && $salableRooms > 0
+            ? round(($dayOvernightRooms / $salableRooms) * 100, 2)
+            : null;
+        $dayAdr = $dayRoomRevenue !== null && $dayTotalRooms !== null && $dayTotalRooms > 0
+            ? round($dayRoomRevenue / $dayTotalRooms, 2)
+            : null;
+        $dayRevpar = $dayRoomRevenue !== null && $salableRooms !== null && $salableRooms > 0
+            ? round($dayRoomRevenue / $salableRooms, 2)
+            : null;
+        $overnightAdr = $dayRoomRevenue !== null && $hourlyRevenue !== null && $dayOvernightRooms !== null && $dayOvernightRooms > 0
+            ? round(($dayRoomRevenue - $hourlyRevenue) / $dayOvernightRooms, 2)
+            : null;
+
+        $otaRoomValues = $valuesFor($reportData, $otaRoomKeys);
+        $otaTotalRooms = $sumRequired($otaRoomValues);
+        $dayGoodReview = $sumRequired($valuesFor($reportData, ['xb_good_review', 'mt_good_review', 'fliggy_good_review']));
+        $dayBadReview = $sumRequired($valuesFor($reportData, ['xb_bad_review', 'mt_bad_review', 'fliggy_bad_review']));
+
+        $monthOnlineRevenue = $monthGetVal('online_revenue') ?? $sumRequired($monthValuesFor($otaRevenueKeys));
+        $monthOfflineRevenue = $monthGetVal('offline_revenue') ?? $sumRequired($monthValuesFor($offlineRevenueKeys));
+        $monthOtherRevenue = $monthGetVal('other_revenue_total') ?? $sumRequired($monthValuesFor($otherRevenueKeys));
+        $monthRoomRevenue = $monthGetVal('room_revenue') ?? $sumRequired([$monthOnlineRevenue, $monthOfflineRevenue]);
+        $monthTotalRevenue = $monthGetVal('revenue') ?? $monthGetVal('day_revenue')
+            ?? $sumRequired([$monthRoomRevenue, $monthOtherRevenue]);
+
+        $monthOnlineRooms = $monthGetVal('online_rooms') ?? $sumRequired($monthValuesFor($otaRoomKeys));
+        $monthOfflineRooms = $monthGetVal('offline_rooms') ?? $sumRequired($monthValuesFor($offlineRoomKeys));
+        $monthTotalRooms = $monthGetVal('total_rooms') ?? $sumRequired([$monthOnlineRooms, $monthOfflineRooms]);
+        $monthSalableRoomNights = $monthGetVal('salable_rooms');
+
+        $monthOccRate = $monthTotalRooms !== null && $monthSalableRoomNights !== null && $monthSalableRoomNights > 0
+            ? round(($monthTotalRooms / $monthSalableRoomNights) * 100, 2)
+            : null;
+        $monthAdr = $monthRoomRevenue !== null && $monthTotalRooms !== null && $monthTotalRooms > 0
+            ? round($monthRoomRevenue / $monthTotalRooms, 2)
+            : null;
+        $monthRevpar = $monthRoomRevenue !== null && $monthSalableRoomNights !== null && $monthSalableRoomNights > 0
+            ? round($monthRoomRevenue / $monthSalableRoomNights, 2)
+            : null;
+
+        $monthRevenueTarget = $this->readNumericValue($taskData, ['revenue_budget', 'revenue_target']);
+        $monthNewMemberTarget = $getVal($taskData, 'new_members');
+        $monthWechatTarget = $getVal($taskData, 'wechat_new_friends');
+        $monthCompleteRate = $monthTotalRevenue !== null && $monthRevenueTarget !== null && $monthRevenueTarget > 0
+            ? round(($monthTotalRevenue / $monthRevenueTarget) * 100, 2)
+            : null;
+        $monthRevenueDiff = $monthTotalRevenue !== null && $monthRevenueTarget !== null
+            ? $monthTotalRevenue - $monthRevenueTarget
+            : null;
+        $dayRevenueTarget = $monthRevenueTarget !== null && $monthDays > 0
+            ? round($monthRevenueTarget / $monthDays, 2)
+            : null;
+        $dayRevenueDiff = $dayTotalRevenue !== null && $dayRevenueTarget !== null
+            ? $dayTotalRevenue - $dayRevenueTarget
+            : null;
+
         $wechatAdd = $getVal($reportData, 'wechat_add');
         $memberCardSold = $getVal($reportData, 'member_card_sold');
         $privateRevenue = $getVal($reportData, 'private_revenue');
         $privateRooms = $getVal($reportData, 'private_rooms');
         $storedValue = $getVal($reportData, 'stored_value');
-        
-        // 大美卡
-        $dameiCardCount = $getVal($reportData, 'damei_card_count');
         $cashIncome = $getVal($reportData, 'cash_income');
-        
-        // 明日预订
         $tomorrowBooking = $getVal($reportData, 'tomorrow_booking');
-        
-        // OTA点评
-        $xbReviewable = $getVal($reportData, 'xb_reviewable');
-        $xbGoodReview = $getVal($reportData, 'xb_good_review');
-        $xbBadReview = $getVal($reportData, 'xb_bad_review');
-        $mtReviewable = $getVal($reportData, 'mt_reviewable');
-        $mtGoodReview = $getVal($reportData, 'mt_good_review');
-        $mtBadReview = $getVal($reportData, 'mt_bad_review');
-        $fliggyReviewable = $getVal($reportData, 'fliggy_reviewable');
-        $fliggyGoodReview = $getVal($reportData, 'fliggy_good_review');
-        $fliggyBadReview = $getVal($reportData, 'fliggy_bad_review');
-        
-        // ===== 日计算数据 =====
-        
-        // 日线上总收入 = 所有OTA收入
-        $dayOnlineRevenue = $xbRevenue + $mtRevenue + $fliggyRevenue + $dyRevenue + $tcRevenue + $qnRevenue + $zxRevenue
-            + $bookingRevenue + $agodaRevenue + $expediaRevenue;
-        
-        // 日线下总收入
-        $dayOfflineRevenue = $walkinRevenue + $memberExpRevenue + $webExpRevenue + $groupRevenue + 
-                             $protocolRevenue + $wechatRevenue + $freeRevenue + $goldCardRevenue + 
-                             $blackGoldRevenue + $hourlyRevenue;
-        
-        // 日其他收入
-        $dayOtherRevenue = $parkingRevenue + $diningRevenue + $meetingRevenue + $goodsRevenue + $memberCardRevenue + $otherRevenue;
-        
-        // 日房费总收入 = 线上 + 线下
-        $dayRoomRevenue = $dayOnlineRevenue + $dayOfflineRevenue;
-        
-        // 日总营收 = 房费 + 其他
-        $dayTotalRevenue = $dayRoomRevenue + $dayOtherRevenue;
-        
-        // 日出租总间数
-        $dayTotalRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms +
-                        $bookingRooms + $agodaRooms + $expediaRooms +
-                        $walkinRooms + $memberExpRooms + $webExpRooms + $groupRooms + 
-                        $protocolRooms + $wechatRooms + $freeRooms + $goldCardRooms + $blackGoldRooms + $hourlyRooms;
-        
-        // 日过夜房间数
-        $dayOvernightRooms = $overnightRooms > 0 ? $overnightRooms : max(0, $dayTotalRooms - $hourlyRooms);
-        $dayNonOvernightRooms = max(0, $dayTotalRooms - $dayOvernightRooms - $hourlyRooms);
-        
-        // 日综合出租率 = (日出租总间数 / 可售房间数) * 100
-        $dayOccRate = $salableRooms > 0 ? round(($dayTotalRooms / $salableRooms) * 100, 2) : 0;
-        
-        // 日过夜出租率
-        $dayOvernightOccRate = $salableRooms > 0 ? round(($dayOvernightRooms / $salableRooms) * 100, 2) : 0;
-        
-        // 日均价 ADR = 日房费收入 / 日出租总间数
-        $dayAdr = $dayTotalRooms > 0 ? round($dayRoomRevenue / $dayTotalRooms, 2) : 0;
-        
-        // 日Revpar = 日房费收入 / 可售房间数
-        $dayRevpar = $salableRooms > 0 ? round($dayRoomRevenue / $salableRooms, 2) : 0;
-        
-        // OTA总量
-        $otaTotalRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms
-            + $bookingRooms + $agodaRooms + $expediaRooms;
-        
-        // 日好评数
-        $dayGoodReview = $xbGoodReview + $mtGoodReview + $fliggyGoodReview;
-        $dayBadReview = $xbBadReview + $mtBadReview + $fliggyBadReview;
-        
-        // ===== 月累计计算 =====
-        
-        // 月线上收入
-        $monthOnlineRevenue = $getVal($monthSum, 'xb_revenue') + $getVal($monthSum, 'mt_revenue') + 
-                              $getVal($monthSum, 'fliggy_revenue') + $getVal($monthSum, 'dy_revenue') + 
-                              $getVal($monthSum, 'tc_revenue') + $getVal($monthSum, 'qn_revenue') + 
-                              $getVal($monthSum, 'zx_revenue') + $getVal($monthSum, 'booking_revenue') +
-                              $getVal($monthSum, 'agoda_revenue') + $getVal($monthSum, 'expedia_revenue');
-        
-        // 月线下收入
-        $monthOfflineRevenue = $getVal($monthSum, 'walkin_revenue') + $getVal($monthSum, 'member_exp_revenue') + 
-                               $getVal($monthSum, 'web_exp_revenue') + $getVal($monthSum, 'group_revenue') + 
-                               $getVal($monthSum, 'protocol_revenue') + $getVal($monthSum, 'wechat_revenue') + 
-                               $getVal($monthSum, 'free_revenue') + $getVal($monthSum, 'gold_card_revenue') + 
-                               $getVal($monthSum, 'black_gold_revenue') + $getVal($monthSum, 'hourly_revenue');
-        
-        // 月其他收入
-        $monthOtherRevenue = $getVal($monthSum, 'parking_revenue') + $getVal($monthSum, 'dining_revenue') + 
-                             $getVal($monthSum, 'meeting_revenue') + $getVal($monthSum, 'goods_revenue') + 
-                             $getVal($monthSum, 'member_card_revenue') + $getVal($monthSum, 'other_revenue');
-        
-        // 月房费收入
-        $monthRoomRevenue = $monthOnlineRevenue + $monthOfflineRevenue;
-        
-        // 月总营收
-        $monthTotalRevenue = $monthRoomRevenue + $monthOtherRevenue;
-        
-        // 月出租总间数
-        $monthTotalRooms = $getVal($monthSum, 'xb_rooms') + $getVal($monthSum, 'mt_rooms') + 
-                           $getVal($monthSum, 'fliggy_rooms') + $getVal($monthSum, 'dy_rooms') + 
-                           $getVal($monthSum, 'tc_rooms') + $getVal($monthSum, 'qn_rooms') + 
-                           $getVal($monthSum, 'zx_rooms') + $getVal($monthSum, 'booking_rooms') +
-                           $getVal($monthSum, 'agoda_rooms') + $getVal($monthSum, 'expedia_rooms') +
-                           $getVal($monthSum, 'walkin_rooms') +
-                           $getVal($monthSum, 'member_exp_rooms') + $getVal($monthSum, 'web_exp_rooms') + 
-                           $getVal($monthSum, 'group_rooms') + $getVal($monthSum, 'protocol_rooms') + 
-                           $getVal($monthSum, 'wechat_rooms') + $getVal($monthSum, 'free_rooms') + 
-                           $getVal($monthSum, 'gold_card_rooms') + $getVal($monthSum, 'black_gold_rooms') +
-                           $getVal($monthSum, 'hourly_rooms');
-        
-        // 月综合出租率
-        $monthOccRate = $totalRooms > 0 && $day > 0 ? 
-                        round(($monthTotalRooms / ($totalRooms * $day)) * 100, 2) : 0;
-        
-        // 月均价
-        $monthAdr = $monthTotalRooms > 0 ? round($monthRoomRevenue / $monthTotalRooms, 2) : 0;
-        
-        // 月Revpar
-        $monthRevpar = $totalRooms > 0 && $day > 0 ? 
-                       round($monthRoomRevenue / ($totalRooms * $day), 2) : 0;
-        
-        // ===== 月任务目标 =====
-        
-        $monthRevenueTarget = $getVal($taskData, 'revenue_budget', 0);
-        $monthOccTarget = $getVal($taskData, 'occupancy_rate_target', 0);
-        $monthOtaTarget = $getVal($taskData, 'ota_total_orders', 0);
-        $monthOnlineTarget = $getVal($taskData, 'online_revenue_target', 0);
-        $monthOfflineTarget = $getVal($taskData, 'offline_revenue_target', 0);
-        $monthNewMemberTarget = $getVal($taskData, 'new_members', 0);
-        $monthWechatTarget = $getVal($taskData, 'wechat_new_friends', 0);
-        
-        // 月完成率
-        $monthCompleteRate = $monthRevenueTarget > 0 ? 
-                             round(($monthTotalRevenue / $monthRevenueTarget) * 100, 2) : 0;
-        
-        // 月营收差额
-        $monthRevenueDiff = $monthTotalRevenue - $monthRevenueTarget;
-        
-        // 日目标（月目标/月天数）
-        $dayRevenueTarget = $monthRevenueTarget > 0 ? round($monthRevenueTarget / $monthDays, 2) : 0;
-        $dayRevenueDiff = $dayTotalRevenue - $dayRevenueTarget;
-        
-        // 月累计会员数
-        $monthNewMembers = $getVal($monthSum, 'member_card_sold');
-        $monthWechatAdd = $getVal($monthSum, 'wechat_add');
-        
-        // 月私域数据
-        $monthPrivateRevenue = $getVal($monthSum, 'private_revenue');
-        $monthPrivateRooms = $getVal($monthSum, 'private_rooms');
-        $monthStoredValue = $getVal($monthSum, 'stored_value');
-        
-        // 私域占比
-        $privateRate = $monthTotalRevenue > 0 ? 
-                       round(($monthPrivateRevenue / $monthTotalRevenue) * 100, 2) : 0;
-        
-        // 月点评
-        $monthGoodReview = $getVal($monthSum, 'xb_good_review') + $getVal($monthSum, 'mt_good_review') + 
-                           $getVal($monthSum, 'fliggy_good_review');
-        $monthBadReview = $getVal($monthSum, 'xb_bad_review') + $getVal($monthSum, 'mt_bad_review') + 
-                          $getVal($monthSum, 'fliggy_bad_review');
-        
-        // 月免费房
-        $monthFreeRooms = $getVal($monthSum, 'free_rooms');
-        
-        // 月现金收入
-        $monthCashIncome = $getVal($monthSum, 'cash_income');
-        
-        // 构建返回数据
+        $protocolRooms = $getVal($reportData, 'protocol_rooms');
+        $walkinRooms = $getVal($reportData, 'walkin_rooms');
+        $groupRooms = $getVal($reportData, 'group_rooms');
+        $wechatRooms = $getVal($reportData, 'wechat_rooms');
+        $dyRooms = $getVal($reportData, 'dy_rooms');
+        $memberExpRooms = $getVal($reportData, 'member_exp_rooms');
+        $webExpRooms = $getVal($reportData, 'web_exp_rooms');
+        $freeRooms = $getVal($reportData, 'free_rooms');
+        $monthNewMembers = $monthGetVal('member_card_sold');
+        $monthWechatAdd = $monthGetVal('wechat_add');
+        $monthPrivateRevenue = $monthGetVal('private_revenue');
+        $monthPrivateRooms = $monthGetVal('private_rooms');
+        $monthStoredValue = $monthGetVal('stored_value');
+        $privateRate = $monthPrivateRevenue !== null && $monthTotalRevenue !== null && $monthTotalRevenue > 0
+            ? round(($monthPrivateRevenue / $monthTotalRevenue) * 100, 2)
+            : null;
+        $monthGoodReview = $sumRequired($monthValuesFor(['xb_good_review', 'mt_good_review', 'fliggy_good_review']));
+        $monthBadReview = $sumRequired($monthValuesFor(['xb_bad_review', 'mt_bad_review', 'fliggy_bad_review']));
+        $monthFreeRooms = $monthGetVal('free_rooms');
+        $monthCashIncome = $monthGetVal('cash_income');
+
+        $dataGaps = [];
+        $addGap = static function (string $code, string $message, array $metrics) use (&$dataGaps): void {
+            $dataGaps[] = ['code' => $code, 'message' => $message, 'metrics' => $metrics];
+        };
+        if ($dayTotalRevenue === null) {
+            $addGap('daily_total_revenue_missing', '日报未提供全酒店总收入，且房费与其他收入证据不完整，未计算当日营收。', ['day_revenue', 'day_revenue_diff']);
+        }
+        if ($dayRoomRevenue === null) {
+            $addGap('daily_room_revenue_missing', '日报未提供房费收入合计，且线上、线下房费证据不完整。', ['day_room_revenue', 'day_adr', 'day_revpar']);
+        }
+        if ($dayTotalRooms === null) {
+            $addGap('daily_sold_room_nights_missing', '日报未提供总出租间夜，且线上、线下间夜证据不完整。', ['day_total_rooms', 'day_occ_rate', 'day_adr']);
+        } elseif ($dayTotalRooms <= 0) {
+            $addGap('daily_sold_room_nights_not_positive', '当日总出租间夜不大于 0，ADR 无定义，不以 0 代替。', ['day_adr']);
+        }
+        if ($salableRooms === null) {
+            $addGap('daily_salable_rooms_missing', '缺少大于 0 的当日可售房间数，OCC 和 RevPAR 不可计算。', ['day_occ_rate', 'day_overnight_occ_rate', 'day_revpar']);
+        } elseif ($salableRooms <= 0) {
+            $addGap('daily_salable_rooms_not_positive', '当日可售房间数不大于 0，OCC 和 RevPAR 无定义。', ['day_occ_rate', 'day_overnight_occ_rate', 'day_revpar']);
+        }
+        if ($monthSalableRoomNights === null) {
+            $addGap('monthly_salable_room_nights_missing', '缺少月累计可售房夜证据，不使用固定房量乘天数代替。', ['month_occ_rate', 'month_revpar']);
+        } elseif ($monthSalableRoomNights <= 0) {
+            $addGap('monthly_salable_room_nights_not_positive', '月累计可售房夜不大于 0，月 OCC 和 RevPAR 无定义。', ['month_occ_rate', 'month_revpar']);
+        }
+        if ($monthTotalRevenue === null) {
+            $addGap('monthly_total_revenue_incomplete', '纳入月累计的日报未逐日提供完整营收证据，未生成月营收及目标完成结论。', ['month_revenue', 'month_complete_rate', 'month_revenue_diff']);
+        }
+        if ($monthRoomRevenue === null) {
+            $addGap('monthly_room_revenue_incomplete', '月累计房费收入证据不完整，未计算月 ADR 和 RevPAR。', ['month_room_revenue', 'month_adr', 'month_revpar']);
+        }
+        if ($monthTotalRooms === null) {
+            $addGap('monthly_sold_room_nights_incomplete', '月累计出租间夜证据不完整，未计算月 OCC 和 ADR。', ['month_occ_rate', 'month_adr']);
+        } elseif ($monthTotalRooms <= 0) {
+            $addGap('monthly_sold_room_nights_not_positive', '月累计出租间夜不大于 0，月 ADR 无定义，不以 0 代替。', ['month_adr']);
+        }
+        if ($monthRevenueTarget === null) {
+            $addGap('monthly_revenue_target_missing', '未设置月营收目标，不生成完成率或目标差额。', ['month_complete_rate', 'month_revenue_diff', 'day_revenue_target', 'day_revenue_diff']);
+        } elseif ($monthRevenueTarget <= 0) {
+            $addGap('monthly_revenue_target_not_positive', '月营收目标不大于 0，完成率无定义，不以 0% 代替。', ['month_complete_rate']);
+        }
+
+        $coreMetricsReady = $dayTotalRevenue !== null
+            && $dayRoomRevenue !== null
+            && $dayTotalRooms !== null
+            && $dayOccRate !== null
+            && $dayAdr !== null
+            && $dayRevpar !== null;
+        $metricStatus = [];
+        foreach ([
+            'day_revenue' => $dayTotalRevenue,
+            'day_room_revenue' => $dayRoomRevenue,
+            'day_total_rooms' => $dayTotalRooms,
+            'day_occ_rate' => $dayOccRate,
+            'day_adr' => $dayAdr,
+            'day_revpar' => $dayRevpar,
+            'month_revenue' => $monthTotalRevenue,
+            'month_occ_rate' => $monthOccRate,
+            'month_adr' => $monthAdr,
+            'month_revpar' => $monthRevpar,
+            'month_complete_rate' => $monthCompleteRate,
+        ] as $metric => $value) {
+            $metricStatus[$metric] = [
+                'status' => $value === null ? 'data_gap' : 'ready',
+                'scope' => 'whole_hotel_daily_report',
+            ];
+        }
+
+        $maintenanceRooms = $totalRooms !== null && $salableRooms !== null && $totalRooms >= $salableRooms
+            ? $totalRooms - $salableRooms
+            : null;
+
         return [
-            'hotel_name' => $hotel->name,
+            'hotel_name' => is_object($hotel) ? ($hotel->name ?? null) : null,
             'report_date' => $reportDate,
             'total_rooms' => $totalRooms,
             'salable_rooms' => $salableRooms,
-            'maintenance_rooms' => $totalRooms - $salableRooms,
+            'maintenance_rooms' => $maintenanceRooms,
             
             // 一、销售业绩
             'month_revenue_target' => $monthRevenueTarget,
-            'month_revenue' => round($monthTotalRevenue, 2),
-            'month_room_revenue' => round($monthRoomRevenue, 2),
-            'month_other_revenue' => round($monthOtherRevenue, 2),
-            'month_revenue_diff' => round($monthRevenueDiff, 2),
+            'month_revenue' => $roundNullable($monthTotalRevenue),
+            'month_room_revenue' => $roundNullable($monthRoomRevenue),
+            'month_other_revenue' => $roundNullable($monthOtherRevenue),
+            'month_revenue_diff' => $roundNullable($monthRevenueDiff),
             'month_complete_rate' => $monthCompleteRate,
             
             'day_revenue_target' => $dayRevenueTarget,
-            'day_revenue' => round($dayTotalRevenue, 2),
-            'day_room_revenue' => round($dayRoomRevenue, 2),
-            'day_other_revenue' => round($dayOtherRevenue, 2),
-            'day_revenue_diff' => round($dayRevenueDiff, 2),
+            'day_revenue' => $roundNullable($dayTotalRevenue),
+            'day_room_revenue' => $roundNullable($dayRoomRevenue),
+            'day_other_revenue' => $roundNullable($dayOtherRevenue),
+            'day_revenue_diff' => $roundNullable($dayRevenueDiff),
             
             'month_occ_rate' => $monthOccRate,
             'day_occ_rate' => $dayOccRate,
             'day_overnight_occ_rate' => $dayOvernightOccRate,
             
-            'day_total_rooms' => (int)$dayTotalRooms,
-            'day_overnight_rooms' => (int)$dayOvernightRooms,
-            'day_non_overnight_rooms' => (int)$dayNonOvernightRooms,
-            'day_hourly_rooms' => (int)$hourlyRooms,
+            'day_total_rooms' => $intNullable($dayTotalRooms),
+            'day_overnight_rooms' => $intNullable($dayOvernightRooms),
+            'day_non_overnight_rooms' => $intNullable($dayNonOvernightRooms),
+            'day_hourly_rooms' => $intNullable($hourlyRooms),
             
             'month_adr' => $monthAdr,
             'day_adr' => $dayAdr,
-            'overnight_adr' => $dayOvernightRooms > 0 ? 
-                               round(($dayRoomRevenue - $hourlyRevenue) / $dayOvernightRooms, 2) : 0,
+            'overnight_adr' => $overnightAdr,
             
             'month_revpar' => $monthRevpar,
             'day_revpar' => $dayRevpar,
@@ -548,58 +526,65 @@ class DailyReport extends Base
             'month_stored_value' => $monthStoredValue,
             
             // 二、客源结构
-            'member_count' => (int)$memberCardSold,
-            'protocol_count' => (int)$protocolRooms,
-            'walkin_count' => (int)$walkinRooms,
-            'group_count' => (int)$groupRooms,
-            'ota_total_rooms' => (int)$otaTotalRooms,
-            'xb_rooms' => (int)$xbRooms,
-            'mt_rooms' => (int)$mtRooms,
-            'tc_rooms' => (int)$tcRooms,
-            'qn_rooms' => (int)$qnRooms,
-            'zx_rooms' => (int)$zxRooms,
-            'fliggy_rooms' => (int)$fliggyRooms,
-            'booking_rooms' => (int)$bookingRooms,
-            'agoda_rooms' => (int)$agodaRooms,
-            'expedia_rooms' => (int)$expediaRooms,
-            'wechat_count' => (int)$wechatRooms,
-            'dy_count' => (int)$dyRooms,
-            'member_exp_rooms' => (int)$memberExpRooms,
-            'web_exp_rooms' => (int)$webExpRooms,
-            'free_rooms' => (int)$freeRooms,
+            'member_count' => $intNullable($memberCardSold),
+            'protocol_count' => $intNullable($protocolRooms),
+            'walkin_count' => $intNullable($walkinRooms),
+            'group_count' => $intNullable($groupRooms),
+            'ota_total_rooms' => $intNullable($otaTotalRooms),
+            'xb_rooms' => $intNullable($getVal($reportData, 'xb_rooms')),
+            'mt_rooms' => $intNullable($getVal($reportData, 'mt_rooms')),
+            'tc_rooms' => $intNullable($getVal($reportData, 'tc_rooms')),
+            'qn_rooms' => $intNullable($getVal($reportData, 'qn_rooms')),
+            'zx_rooms' => $intNullable($getVal($reportData, 'zx_rooms')),
+            'fliggy_rooms' => $intNullable($getVal($reportData, 'fliggy_rooms')),
+            'booking_rooms' => $intNullable($getVal($reportData, 'booking_rooms')),
+            'agoda_rooms' => $intNullable($getVal($reportData, 'agoda_rooms')),
+            'expedia_rooms' => $intNullable($getVal($reportData, 'expedia_rooms')),
+            'wechat_count' => $intNullable($wechatRooms),
+            'dy_count' => $intNullable($dyRooms),
+            'member_exp_rooms' => $intNullable($memberExpRooms),
+            'web_exp_rooms' => $intNullable($webExpRooms),
+            'free_rooms' => $intNullable($freeRooms),
             
             // 三、直销指标
-            'day_new_member' => (int)$memberCardSold,
+            'day_new_member' => $intNullable($memberCardSold),
             'month_new_member_target' => $monthNewMemberTarget,
-            'month_new_member' => (int)$monthNewMembers,
-            'month_member_diff' => $monthNewMembers - $monthNewMemberTarget,
+            'month_new_member' => $intNullable($monthNewMembers),
+            'month_member_diff' => $monthNewMembers !== null && $monthNewMemberTarget !== null ? $monthNewMembers - $monthNewMemberTarget : null,
             
-            'day_wechat_add' => (int)$wechatAdd,
+            'day_wechat_add' => $intNullable($wechatAdd),
             'month_wechat_target' => $monthWechatTarget,
-            'month_wechat_add' => (int)$monthWechatAdd,
-            'month_wechat_diff' => $monthWechatAdd - $monthWechatTarget,
+            'month_wechat_add' => $intNullable($monthWechatAdd),
+            'month_wechat_diff' => $monthWechatAdd !== null && $monthWechatTarget !== null ? $monthWechatAdd - $monthWechatTarget : null,
             
-            'day_private_rooms' => (int)$privateRooms,
+            'day_private_rooms' => $intNullable($privateRooms),
             'day_private_revenue' => $privateRevenue,
-            'month_private_rooms' => (int)$monthPrivateRooms,
+            'month_private_rooms' => $intNullable($monthPrivateRooms),
             'month_private_revenue' => $monthPrivateRevenue,
             'private_rate' => $privateRate,
             
             // 四、OTA点评
-            'day_good_review' => (int)$dayGoodReview,
-            'day_bad_review' => (int)$dayBadReview,
-            'month_good_review' => (int)$monthGoodReview,
-            'month_bad_review' => (int)$monthBadReview,
+            'day_good_review' => $intNullable($dayGoodReview),
+            'day_bad_review' => $intNullable($dayBadReview),
+            'month_good_review' => $intNullable($monthGoodReview),
+            'month_bad_review' => $intNullable($monthBadReview),
             
             // 五、免费房
-            'month_free_rooms' => (int)$monthFreeRooms,
+            'month_free_rooms' => $intNullable($monthFreeRooms),
             
             // 六、明日预订
-            'tomorrow_booking' => (int)$tomorrowBooking,
+            'tomorrow_booking' => $intNullable($tomorrowBooking),
             
             // 七、今日现金
             'day_cash_income' => $cashIncome,
             'month_cash_income' => $monthCashIncome,
+
+            'metric_scope' => 'whole_hotel_daily_report',
+            'data_status' => $coreMetricsReady ? 'ready' : ($reportData === [] ? 'missing' : 'partial'),
+            'core_metrics_ready' => $coreMetricsReady,
+            'data_notice' => '经营指标仅基于 daily_reports 中已填报的全酒店经营字段；OTA 补充摘要保持 ota_channel 口径，不参与全酒店营收、OCC、ADR 或 RevPAR 推导。',
+            'metric_status' => $metricStatus,
+            'data_gaps' => $dataGaps,
             
             // 原始数据
             'raw_data' => $reportData,
@@ -614,8 +599,15 @@ class DailyReport extends Base
             return [];
         }
 
+        $tenantId = $this->tenantIdForHotel($hotelId);
+        if ($tenantId <= 0) {
+            $readStatus = 'scope_missing';
+            return [];
+        }
+
         try {
             $rows = Db::name('online_daily_data')
+                ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
                 ->where('data_date', $reportDate)
                 ->select()
@@ -632,12 +624,17 @@ class DailyReport extends Base
     {
         $advertising = $this->buildDailyOtaAdvertisingSummary($onlineRows);
         $serviceQuality = $this->buildDailyOtaServiceQualitySummary($onlineRows);
-        $hasData = ($advertising['data_status'] ?? '') === 'ok' || ($serviceQuality['data_status'] ?? '') === 'ok';
+        $statuses = [(string)($advertising['data_status'] ?? ''), (string)($serviceQuality['data_status'] ?? '')];
+        $readyCount = count(array_filter($statuses, static fn(string $status): bool => $status === 'ok'));
+        $hasPartialData = in_array('partial', $statuses, true);
+        $dataStatus = $readyCount === count($statuses)
+            ? 'ok'
+            : (($readyCount > 0 || $hasPartialData) ? 'partial' : 'pending');
 
         return [
             'scope' => 'ota_channel',
             'source_table' => 'online_daily_data',
-            'data_status' => $hasData ? 'ok' : 'pending',
+            'data_status' => $dataStatus,
             'data_notice' => 'ota_channel_only_not_whole_hotel_scope',
             'advertising' => $advertising,
             'service_quality' => $serviceQuality,
@@ -647,18 +644,21 @@ class DailyReport extends Base
     private function buildDailyOtaAdvertisingSummary(array $onlineRows): array
     {
         $summary = [
-            'spend' => 0.0,
-            'order_amount' => 0.0,
-            'bookings' => 0,
-            'room_nights' => 0.0,
-            'impressions' => 0,
-            'clicks' => 0,
+            'spend' => null,
+            'order_amount' => null,
+            'bookings' => null,
+            'room_nights' => null,
+            'impressions' => null,
+            'clicks' => null,
             'ctr' => null,
             'cvr' => null,
             'roas' => null,
             'sample_count' => 0,
             'data_status' => 'pending',
+            'data_gaps' => [],
         ];
+        $totals = ['spend' => 0.0, 'order_amount' => 0.0, 'bookings' => 0.0, 'room_nights' => 0.0, 'impressions' => 0.0, 'clicks' => 0.0];
+        $evidenceCounts = array_fill_keys(array_keys($totals), 0);
 
         foreach ($onlineRows as $row) {
             if ($this->normalizeDailyOtaDataType((string)($row['data_type'] ?? '')) !== 'advertising') {
@@ -666,20 +666,24 @@ class DailyReport extends Base
             }
 
             $raw = $this->dailyOtaRawDetail($this->decodeDailyOtaRawData($row['raw_data'] ?? []));
-            $spend = $this->firstDailyOtaNumber($row, $raw, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend']) ?? 0.0;
-            $orderAmount = $this->firstDailyOtaNumber($row, $raw, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']) ?? 0.0;
-            $impressions = (int)round($this->firstDailyOtaNumber($row, $raw, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']) ?? 0.0);
-            $clicks = (int)round($this->firstDailyOtaNumber($row, $raw, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']) ?? 0.0);
-            $bookings = (int)round($this->firstDailyOtaNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']) ?? 0.0);
-            $roomNights = $this->firstDailyOtaNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'nights']) ?? 0.0;
-
-            $summary['spend'] += $spend;
-            $summary['order_amount'] += $orderAmount;
-            $summary['impressions'] += $impressions;
-            $summary['clicks'] += $clicks;
-            $summary['bookings'] += $bookings;
-            $summary['room_nights'] += $roomNights;
-            if ($spend > 0 || $orderAmount > 0 || $impressions > 0 || $clicks > 0 || $bookings > 0 || $roomNights > 0) {
+            $values = [
+                'spend' => $this->firstDailyOtaNumber($row, $raw, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend']),
+                'order_amount' => $this->firstDailyOtaNumber($row, $raw, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']),
+                'impressions' => $this->firstDailyOtaNumber($row, $raw, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']),
+                'clicks' => $this->firstDailyOtaNumber($row, $raw, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']),
+                'bookings' => $this->firstDailyOtaNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']),
+                'room_nights' => $this->firstDailyOtaNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'nights']),
+            ];
+            $hasRowEvidence = false;
+            foreach ($values as $key => $value) {
+                if ($value === null) {
+                    continue;
+                }
+                $hasRowEvidence = true;
+                $totals[$key] += $value;
+                $evidenceCounts[$key]++;
+            }
+            if ($hasRowEvidence) {
                 $summary['sample_count']++;
             }
         }
@@ -688,13 +692,25 @@ class DailyReport extends Base
             return $summary;
         }
 
-        $summary['spend'] = round($summary['spend'], 2);
-        $summary['order_amount'] = round($summary['order_amount'], 2);
-        $summary['room_nights'] = round($summary['room_nights'], 2);
-        $summary['ctr'] = $summary['impressions'] > 0 ? round($summary['clicks'] / $summary['impressions'] * 100, 2) : null;
-        $summary['cvr'] = $summary['clicks'] > 0 ? round($summary['bookings'] / $summary['clicks'] * 100, 2) : null;
-        $summary['roas'] = $summary['spend'] > 0 ? round($summary['order_amount'] / $summary['spend'], 2) : null;
-        $summary['data_status'] = 'ok';
+        foreach ($totals as $key => $value) {
+            if ($evidenceCounts[$key] <= 0) {
+                $summary['data_gaps'][] = 'advertising_' . $key . '_missing';
+                continue;
+            }
+            $summary[$key] = in_array($key, ['bookings', 'impressions', 'clicks'], true)
+                ? (int)round($value)
+                : round($value, 2);
+        }
+        $summary['ctr'] = $summary['impressions'] !== null && $summary['clicks'] !== null && $summary['impressions'] > 0
+            ? round($summary['clicks'] / $summary['impressions'] * 100, 2)
+            : null;
+        $summary['cvr'] = $summary['clicks'] !== null && $summary['bookings'] !== null && $summary['clicks'] > 0
+            ? round($summary['bookings'] / $summary['clicks'] * 100, 2)
+            : null;
+        $summary['roas'] = $summary['spend'] !== null && $summary['order_amount'] !== null && $summary['spend'] > 0
+            ? round($summary['order_amount'] / $summary['spend'], 2)
+            : null;
+        $summary['data_status'] = $summary['data_gaps'] === [] ? 'ok' : 'partial';
 
         return $summary;
     }
@@ -702,10 +718,11 @@ class DailyReport extends Base
     private function buildDailyOtaServiceQualitySummary(array $onlineRows): array
     {
         $summary = [
-            'avg_psi_score' => 0.0,
-            'avg_service_score' => 0.0,
+            'avg_psi_score' => null,
+            'avg_service_score' => null,
             'sample_count' => 0,
             'data_status' => 'pending',
+            'data_gaps' => [],
         ];
         $psiScores = [];
         $serviceScores = [];
@@ -719,13 +736,13 @@ class DailyReport extends Base
             $psi = $this->firstDailyOtaNumber($row, $raw, ['data_value', 'dataValue', 'psi_score', 'psiScore', 'psi', 'PSI', 'serviceQualityScore', 'qualityScore']);
             $serviceScore = $this->firstDailyOtaNumber($row, $raw, ['service_score', 'serviceScore', 'dayReportServiceScore', 'service_score_value']);
 
-            if ($psi !== null && $psi > 0) {
+            if ($psi !== null) {
                 $psiScores[] = $psi;
             }
-            if ($serviceScore !== null && $serviceScore > 0) {
+            if ($serviceScore !== null) {
                 $serviceScores[] = $serviceScore;
             }
-            if (($psi !== null && $psi > 0) || ($serviceScore !== null && $serviceScore > 0)) {
+            if ($psi !== null || $serviceScore !== null) {
                 $summary['sample_count']++;
             }
         }
@@ -736,7 +753,13 @@ class DailyReport extends Base
 
         $summary['avg_psi_score'] = $this->avgDailyOtaNumbers($psiScores);
         $summary['avg_service_score'] = $this->avgDailyOtaNumbers($serviceScores);
-        $summary['data_status'] = 'ok';
+        if ($summary['avg_psi_score'] === null) {
+            $summary['data_gaps'][] = 'quality_psi_score_missing';
+        }
+        if ($summary['avg_service_score'] === null) {
+            $summary['data_gaps'][] = 'quality_service_score_missing';
+        }
+        $summary['data_status'] = $summary['data_gaps'] === [] ? 'ok' : 'partial';
 
         return $summary;
     }
@@ -794,11 +817,11 @@ class DailyReport extends Base
         return null;
     }
 
-    private function avgDailyOtaNumbers(array $values): float
+    private function avgDailyOtaNumbers(array $values): ?float
     {
         $values = array_values(array_filter($values, static fn($value): bool => is_numeric($value)));
         if (empty($values)) {
-            return 0.0;
+            return null;
         }
 
         return round(array_sum(array_map('floatval', $values)) / count($values), 2);
@@ -810,7 +833,6 @@ class DailyReport extends Base
     public function create(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fill_daily_report');
 
         $data = $this->requestData();
 
@@ -825,10 +847,11 @@ class DailyReport extends Base
         $hotelId = (int)$data['hotel_id'];
         $reportDate = $data['report_date'];
 
-        // 权限检查：用户是否有该酒店的填写权限
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($hotelId, 'can_fill_daily_report')) {
-            return $this->error('您没有该酒店的日报填写权限');
-        }
+        $this->currentUser->hasHotelPermissionOrFail(
+            $hotelId,
+            'can_fill_daily_report',
+            '您没有该酒店的日报填写权限'
+        );
 
         // 验证日期：只能填写昨天及之前的日期
         $yesterday = date('Y-m-d', strtotime('-1 day'));
@@ -840,20 +863,30 @@ class DailyReport extends Base
         $dateParts = explode('-', $reportDate);
         $year = (int)$dateParts[0];
         $month = (int)$dateParts[1];
+        $tenantId = $this->tenantIdForHotel($hotelId);
+        if ($tenantId <= 0) {
+            return $this->error('选择的门店缺少有效租户归属');
+        }
 
-        $monthlyTask = MonthlyTask::where('hotel_id', $hotelId)
-            ->where('year', $year)
-            ->where('month', $month)
-            ->find();
+        $monthlyTask = MonthlyTask::runInTenantScope(
+            $tenantId,
+            static fn() => MonthlyTask::where('hotel_id', $hotelId)
+                ->where('year', $year)
+                ->where('month', $month)
+                ->find()
+        );
         
         if (!$monthlyTask) {
             return $this->error("请先添加 {$year}年{$month}月 的月任务，再填写日报");
         }
 
         // 检查是否已存在
-        $exists = DailyReportModel::where('hotel_id', $hotelId)
-            ->where('report_date', $reportDate)
-            ->find();
+        $exists = DailyReportModel::runInTenantScope(
+            $tenantId,
+            static fn() => DailyReportModel::where('hotel_id', $hotelId)
+                ->where('report_date', $reportDate)
+                ->find()
+        );
         if ($exists) {
             return $this->error('该日期的报表已存在，请直接编辑');
         }
@@ -864,7 +897,7 @@ class DailyReport extends Base
         $report = new DailyReportModel();
         $report->hotel_id = $hotelId;
         if ($this->dailyReportsHasColumn('tenant_id')) {
-            $report->tenant_id = $this->tenantIdForHotel($hotelId);
+            $report->tenant_id = $tenantId;
         }
         $report->report_date = $reportDate;
         $report->report_data = $reportData;
@@ -883,17 +916,13 @@ class DailyReport extends Base
     public function update(int $id): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_edit_report');
 
         $report = DailyReportModel::find($id);
         if (!$report) {
             return $this->error('报表不存在');
         }
 
-        // 权限检查
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($report->hotel_id, 'can_edit_report')) {
-            return $this->error('无权编辑此报表');
-        }
+        $this->currentUser->hasHotelPermissionOrFail((int)$report->hotel_id, 'can_edit_report', '无权编辑此报表');
 
         $data = $this->requestData();
 
@@ -918,17 +947,13 @@ class DailyReport extends Base
     public function delete(int $id): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_delete_report');
 
         $report = DailyReportModel::find($id);
         if (!$report) {
             return $this->error('报表不存在');
         }
 
-        // 权限检查
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($report->hotel_id, 'can_delete_report')) {
-            return $this->error('无权删除此报表');
-        }
+        $this->currentUser->hasHotelPermissionOrFail((int)$report->hotel_id, 'can_delete_report', '无权删除此报表');
 
         $reportDate = $report->report_date;
         $hotelId = $report->hotel_id;
@@ -992,7 +1017,7 @@ class DailyReport extends Base
         return (float)$clean;
     }
 
-    private function resolveSalableRoomsTotal($hotel, array $taskData, array $reportData): float
+    private function resolveSalableRoomsTotal($hotel, array $taskData, array $reportData): ?float
     {
         foreach ([
             [$taskData, ['salable_rooms_total']],
@@ -1005,12 +1030,12 @@ class DailyReport extends Base
             }
         }
 
-        return 0.0;
+        return null;
     }
 
-    private function resolveReportSalableRooms(array $data): float
+    private function resolveReportSalableRooms(array $data): ?float
     {
-        return $this->readNumericValue($data, ['salable_rooms', 'total_rooms_count', 'room_count']) ?? 0.0;
+        return $this->readNumericValue($data, ['salable_rooms', 'total_rooms_count', 'room_count']);
     }
 
     private function readNumericValue($source, array $keys): ?float
@@ -1131,18 +1156,28 @@ class DailyReport extends Base
     {
         $expr = $formula;
         $error = null;
+        $missingTokens = [];
 
         // 替换变量：report.xxx / task.xxx / month.xxx / calc.xxx
-        $expr = preg_replace_callback('/[a-zA-Z_][a-zA-Z0-9_\.]*/', function ($matches) use ($context) {
+        $expr = preg_replace_callback('/[a-zA-Z_][a-zA-Z0-9_\.]*/', function ($matches) use ($context, &$missingTokens) {
             $token = $matches[0];
             if (strpos($token, '.') !== false) {
                 [$source, $field] = explode('.', $token, 2);
                 $value = $this->resolveContextValue($context, $source, $field);
                 $num = $this->normalizeNumber($value);
-                return $num !== null ? (string)$num : '0';
+                if ($num === null) {
+                    $missingTokens[] = $token;
+                    return '0';
+                }
+                return (string)$num;
             }
             return $token;
         }, $expr);
+
+        if ($missingTokens !== []) {
+            $error = '公式缺少字段: ' . implode(', ', array_values(array_unique($missingTokens)));
+            return null;
+        }
 
         // 仅允许数字、运算符与括号
         if (preg_match('/[^0-9\.\+\-\*\/\(\)\s]/', $expr)) {
@@ -1275,7 +1310,7 @@ class DailyReport extends Base
             $field = $matches[2];
             $value = $this->resolveContextValue($context, $source, $field);
             if ($value === null) {
-                return '0';
+                return '—';
             }
             return (string)$value;
         }, $template);
@@ -1330,7 +1365,10 @@ class DailyReport extends Base
         return [
             'report' => $makeList(array_keys($reportData ?? []), $dailyConfigs),
             'task' => $makeList(array_keys($taskData ?? []), $monthlyConfigs),
-            'month' => $makeList(array_keys($monthSum ?? []), $dailyConfigs),
+            'month' => $makeList(array_values(array_filter(
+                array_keys($monthSum ?? []),
+                static fn(string $key): bool => !str_starts_with($key, '__')
+            )), $dailyConfigs),
             'calc' => $makeList(array_keys($calc ?? []), $calcLabels),
         ];
     }
@@ -1341,7 +1379,6 @@ class DailyReport extends Base
     public function export(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_view_report');
 
         $startDate = $this->request->get('start_date');
         $endDate = $this->request->get('end_date');
@@ -1353,11 +1390,11 @@ class DailyReport extends Base
             return $this->exportSingle((int)$reportId);
         }
 
-        // 批量导出：验证用户对指定酒店的权限
-        if ($hotelId && !$this->currentUser->isSuperAdmin()) {
-            if (!$this->currentUser->hasHotelPermission((int)$hotelId, 'can_view_report')) {
-                return $this->error('无权导出该酒店的报表');
+        if ($hotelId !== null && $hotelId !== '') {
+            if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
+                throw new \think\exception\HttpException(403, '无权导出该酒店的报表');
             }
+            $this->currentUser->hasHotelPermissionOrFail((int)$hotelId, 'can_view_report', '无权导出该酒店的报表');
         }
 
         // 批量导出
@@ -1374,10 +1411,7 @@ class DailyReport extends Base
             return $this->error('报表不存在');
         }
         
-        // 权限检查：用户是否有权限查看该酒店的报表
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($report->hotel_id, 'can_view_report')) {
-            return $this->error('无权导出该报表');
-        }
+        $this->currentUser->hasHotelPermissionOrFail((int)$report->hotel_id, 'can_view_report', '无权导出该报表');
         
         $hotel = $report->hotel;
         $reportData = $this->normalizeReportData($report->report_data ?? []);
@@ -1430,7 +1464,16 @@ class DailyReport extends Base
 
         // 权限过滤
         if (!$this->currentUser->isSuperAdmin()) {
-            $hotelIds = $this->currentUser->getPermittedHotelIds();
+            $hotelIds = array_values(array_filter(
+                array_map('intval', $this->currentUser->getPermittedHotelIds()),
+                fn(int $candidateHotelId): bool => $this->currentUser->hasHotelPermission(
+                    $candidateHotelId,
+                    'can_view_report'
+                )
+            ));
+            if ($hotelIds === []) {
+                throw new \think\exception\HttpException(403, '无权导出酒店报表');
+            }
             $query->whereIn('hotel_id', $hotelIds);
         }
 
@@ -1471,11 +1514,23 @@ class DailyReport extends Base
         }
 
         $monthTaskData = [];
+        $reportHotelIds = [];
+        foreach ($reports as $report) {
+            $reportHotelId = (int)($report->hotel_id ?? 0);
+            if ($reportHotelId > 0) {
+                $reportHotelIds[] = $reportHotelId;
+            }
+        }
+        $reportHotelIds = array_values(array_unique($reportHotelIds));
+        if ($reportHotelIds === [] && is_numeric($hotelId) && (int)$hotelId > 0) {
+            $reportHotelIds[] = (int)$hotelId;
+        }
+        $watermarkHotelId = count($reportHotelIds) === 1 ? $reportHotelIds[0] : null;
 
         $exportData = [
             'reports' => [],
             'month_task' => $monthTaskData,
-            'watermark' => $this->buildExportWatermark($hotelId ? (int)$hotelId : null, $reportCount),
+            'watermark' => $this->buildExportWatermark($watermarkHotelId, $reportCount, $reportHotelIds),
         ];
         
         // 获取酒店名称用于文件名
@@ -1523,22 +1578,50 @@ class DailyReport extends Base
         return $reportCount <= self::EXPORT_BATCH_LIMIT;
     }
 
-    private function buildExportWatermark(?int $hotelId, int $reportCount): array
+    private function buildExportWatermark(?int $hotelId, int $reportCount, array $reportHotelIds = []): array
     {
         $userId = (int)($this->currentUser->id ?? 0);
         $username = trim((string)($this->currentUser->realname ?? $this->currentUser->username ?? 'unknown'));
         $exportedAt = date('Y-m-d H:i:s');
-        $tenantId = (int)($this->currentUser->tenant_id ?? 0);
-        if ($tenantId <= 0) {
-            $tenantId = $hotelId ?? (int)($this->currentUser->hotel_id ?? 0);
+        $hotelIds = array_values(array_unique(array_filter(
+            array_map('intval', $reportHotelIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($hotelIds === [] && $hotelId !== null && $hotelId > 0) {
+            $hotelIds[] = $hotelId;
         }
+        $tenantRows = $hotelIds === []
+            ? []
+            : Db::name('hotels')->whereIn('id', $hotelIds)->column('tenant_id', 'id');
+        $tenantIds = [];
+        $unresolvedHotelIds = [];
+        foreach ($hotelIds as $targetHotelId) {
+            $targetTenantId = (int)($tenantRows[$targetHotelId] ?? 0);
+            if ($targetTenantId <= 0) {
+                $unresolvedHotelIds[] = $targetHotelId;
+                continue;
+            }
+            $tenantIds[] = $targetTenantId;
+        }
+        $tenantIds = array_values(array_unique($tenantIds));
+        sort($tenantIds);
+        $tenantId = $unresolvedHotelIds === [] && count($tenantIds) === 1 ? $tenantIds[0] : null;
+        $tenantScope = $hotelIds === []
+            ? 'none'
+            : ($unresolvedHotelIds !== [] ? 'unresolved' : (count($tenantIds) === 1 ? 'single' : 'mixed'));
+        $tenantLabel = $tenantId !== null
+            ? (string)$tenantId
+            : ($tenantIds !== [] ? 'mixed[' . implode(',', $tenantIds) . ']' : 'unknown');
         $requestId = trim((string)($this->request->request_id ?? $this->request->header('X-Request-ID', '')));
         if ($requestId === '') {
             $requestId = 'missing_request_id';
         }
 
         return [
-            'tenant_id' => $tenantId > 0 ? $tenantId : null,
+            'tenant_id' => $tenantId,
+            'tenant_ids' => $tenantIds,
+            'tenant_scope' => $tenantScope,
+            'unresolved_hotel_ids' => $unresolvedHotelIds,
             'user_id' => $userId,
             'username' => $username,
             'hotel_id' => $hotelId,
@@ -1546,7 +1629,7 @@ class DailyReport extends Base
             'exported_at' => $exportedAt,
             'generated_at' => $exportedAt,
             'request_id' => $requestId,
-            'text' => sprintf('SUXIOS Export Watermark | tenant=%s | user=%s#%d | hotel=%s | request=%s | count=%d | generated=%s', $tenantId > 0 ? (string)$tenantId : 'unknown', $username, $userId, $hotelId ?? 'mixed', $requestId, $reportCount, $exportedAt),
+            'text' => sprintf('SUXIOS Export Watermark | tenant=%s | user=%s#%d | hotel=%s | request=%s | count=%d | generated=%s', $tenantLabel, $username, $userId, $hotelId ?? 'mixed', $requestId, $reportCount, $exportedAt),
         ];
     }
 
@@ -1578,12 +1661,16 @@ class DailyReport extends Base
         ];
     }
 
-    private function sumBatchMonthTaskValue(array $reports, string $field, float $fallback = 0): float
+    private function sumBatchMonthTaskValue(array $reports, string $field, ?float $fallback = null): ?float
     {
         $sum = 0.0;
         $seen = [];
+        $hasValue = false;
 
         foreach ($reports as $report) {
+            if (!array_key_exists('month_task', $report)) {
+                continue;
+            }
             $key = (string)($report['month_task_key'] ?? (($report['hotel_id'] ?? '') . '-' . substr((string)($report['report_date'] ?? ''), 0, 7)));
             if ($key === '' || isset($seen[$key])) {
                 continue;
@@ -1592,16 +1679,18 @@ class DailyReport extends Base
 
             $taskData = $report['month_task'] ?? [];
             if (!is_array($taskData)) {
-                continue;
+                return null;
             }
 
             $value = $this->readNumericValue($taskData, [$field]);
-            if ($value !== null) {
-                $sum += $value;
+            if ($value === null) {
+                return null;
             }
+            $sum += $value;
+            $hasValue = true;
         }
 
-        return $sum > 0 ? $sum : $fallback;
+        return $hasValue ? $sum : $fallback;
     }
 
     /**
@@ -1670,14 +1759,17 @@ class DailyReport extends Base
         unset($report);
         
         // 月任务数据
-        $monthRevenueTarget = $monthTask['revenue_budget'] ?? 0;
-        $onlineTarget = $monthTask['online_revenue_target'] ?? 0;
-        $offlineTarget = $monthTask['offline_revenue_target'] ?? 0;
+        $monthRevenueTarget = $this->readNumericValue($monthTask, ['revenue_budget', 'revenue_target']);
+        $onlineTarget = $this->readNumericValue($monthTask, ['online_revenue_target']);
+        $offlineTarget = $this->readNumericValue($monthTask, ['offline_revenue_target']);
         if ($mode === 'batch') {
-            $monthRevenueTarget = $this->sumBatchMonthTaskValue($reports, 'revenue_budget', (float)$monthRevenueTarget);
-            $onlineTarget = $this->sumBatchMonthTaskValue($reports, 'online_revenue_target', (float)$onlineTarget);
-            $offlineTarget = $this->sumBatchMonthTaskValue($reports, 'offline_revenue_target', (float)$offlineTarget);
+            $monthRevenueTarget = $this->sumBatchMonthTaskValue($reports, 'revenue_budget', $monthRevenueTarget);
+            $onlineTarget = $this->sumBatchMonthTaskValue($reports, 'online_revenue_target', $onlineTarget);
+            $offlineTarget = $this->sumBatchMonthTaskValue($reports, 'offline_revenue_target', $offlineTarget);
         }
+        $ratio = static fn($numerator, $denominator): ?float => is_numeric($numerator) && is_numeric($denominator) && (float)$denominator > 0
+            ? (float)$numerator / (float)$denominator
+            : null;
         
         // 星期数组
         $weekArray = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -1815,7 +1907,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $html .= '<td style="background:#D9E1F2;font-weight:bold">' . $col . '</td>';
         }
         // 私域流量（3列）
-        $cols = ['微信加粉率', '微信加粉人数', '新增会员人数'];
+        $cols = ['微信加粉率（口径待确认）', '微信加粉人数', '新增会员人数'];
         foreach ($cols as $col) {
             $html .= '<td style="background:#D9E1F2;font-weight:bold">' . $col . '</td>';
         }
@@ -1837,7 +1929,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         
         // 合计区域数据 - 黄色背景
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($monthRevenueTarget) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['total_revenue'] / max($monthRevenueTarget, 1)) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($ratio($totals['total_revenue'], $monthRevenueTarget)) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['total_revenue']) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['room_revenue']) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['revpar']) . '</td>';
@@ -1852,7 +1944,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         
         // 线上合计 - 黄色背景
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($onlineTarget) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['online_revenue'] / max($onlineTarget, 1)) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($ratio($totals['online_revenue'], $onlineTarget)) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['online_revenue']) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['online_rooms'], 0) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['online_adr']) . '</td>';
@@ -1861,13 +1953,13 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         foreach (self::OTA_CHANNEL_KEYS as $key) {
             $revKey = $key . '_revenue';
             $roomKey = $key . '_rooms';
-            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$revKey] ?? 0) . '</td>';
-            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$roomKey] ?? 0, 0) . '</td>';
+            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$revKey] ?? null) . '</td>';
+            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$roomKey] ?? null, 0) . '</td>';
         }
         
         // 线下合计 - 黄色背景
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($offlineTarget) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['offline_revenue'] / max($offlineTarget, 1)) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($ratio($totals['offline_revenue'], $offlineTarget)) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['offline_revenue']) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['offline_rooms'], 0) . '</td>';
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['offline_adr']) . '</td>';
@@ -1875,8 +1967,8 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         // 各线下渠道 - 黄色背景
         $offlineChannels = ['walkin', 'member_exp', 'web_exp', 'group', 'protocol', 'wechat', 'free', 'gold_card', 'black_gold'];
         foreach ($offlineChannels as $channel) {
-            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$channel . '_revenue'] ?? 0) . '</td>';
-            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$channel . '_rooms'] ?? 0, 0) . '</td>';
+            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$channel . '_revenue'] ?? null) . '</td>';
+            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$channel . '_rooms'] ?? null, 0) . '</td>';
         }
         
         // 钟点房 - 黄色背景
@@ -1887,7 +1979,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['other_revenue_total']) . '</td>';
         foreach (['parking', 'dining', 'meeting', 'goods', 'member_card', 'other'] as $key) {
             $valKey = $key . '_revenue';
-            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$valKey] ?? 0) . '</td>';
+            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$valKey] ?? null) . '</td>';
         }
         
         // 好评 - 黄色背景
@@ -1897,18 +1989,18 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         
         // 各平台好评 - 黄色背景
         foreach (['xb', 'mt', 'fliggy'] as $platform) {
-            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$platform . '_reviewable'] ?? 0, 0) . '</td>';
-            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$platform . '_good_review'] ?? 0, 0) . '</td>';
+            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$platform . '_reviewable'] ?? null, 0) . '</td>';
+            $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals[$platform . '_good_review'] ?? null, 0) . '</td>';
         }
         
         // 流量 - 黄色背景
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['xb_exposure'] ?? 0, 0) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['xb_exp_rate'] ?? 0) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['xb_bk_rate'] ?? 0) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['xb_clinch_rate'] ?? 0) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['mt_exposure'] ?? 0, 0) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['mt_click_rate'] ?? 0) . '</td>';
-        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['mt_pay_rate'] ?? 0) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['xb_exposure'] ?? null, 0) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['xb_exp_rate'] ?? null) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['xb_bk_rate'] ?? null) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['xb_clinch_rate'] ?? null) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtNum($totals['mt_exposure'] ?? null, 0) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['mt_click_rate'] ?? null) . '</td>';
+        $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['mt_pay_rate'] ?? null) . '</td>';
         
         // 私域流量 - 黄色背景
         $html .= '<td style="background:yellow;text-align:right">' . $this->fmtPct($totals['wechat_add_rate']) . '</td>';
@@ -1947,14 +2039,14 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $html .= '<td' . ($isWeekend ? ' style="background:#FFC7CE;text-align:center"' : '') . '>' . $weekday . '</td>';
             
             // 获取数据
-            $getVal = function($key, $default = 0) use ($data) {
-                $num = array_key_exists($key, $data) ? $this->normalizeNumber($data[$key]) : null;
-                return $num !== null ? $num : $default;
-            };
+            $getVal = fn(string $key): ?float => $this->readNumericValue($data, [$key]);
+            $sumRequired = static fn(array $values): ?float => $values !== [] && !in_array(null, $values, true)
+                ? array_sum($values)
+                : null;
             $rowMonthTask = is_array($report['month_task'] ?? null) ? $report['month_task'] : $monthTask;
-            $rowMonthRevenueTarget = (float)($rowMonthTask['revenue_budget'] ?? $monthRevenueTarget);
-            $rowOnlineTarget = (float)($rowMonthTask['online_revenue_target'] ?? $onlineTarget);
-            $rowOfflineTarget = (float)($rowMonthTask['offline_revenue_target'] ?? $offlineTarget);
+            $rowMonthRevenueTarget = $this->readNumericValue($rowMonthTask, ['revenue_budget', 'revenue_target']) ?? $monthRevenueTarget;
+            $rowOnlineTarget = $this->readNumericValue($rowMonthTask, ['online_revenue_target']) ?? $onlineTarget;
+            $rowOfflineTarget = $this->readNumericValue($rowMonthTask, ['offline_revenue_target']) ?? $offlineTarget;
             
             // 可售房数
             $salableRooms = $this->resolveReportSalableRooms($data);
@@ -2017,39 +2109,41 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $otherRevenue = $getVal('other_revenue');
             
             // 计算汇总
-            $onlineRevenue = $xbRevenue + $mtRevenue + $fliggyRevenue + $dyRevenue + $tcRevenue + $qnRevenue + $zxRevenue
-                + $bookingRevenue + $agodaRevenue + $expediaRevenue;
-            $onlineRooms = $xbRooms + $mtRooms + $fliggyRooms + $dyRooms + $tcRooms + $qnRooms + $zxRooms
-                + $bookingRooms + $agodaRooms + $expediaRooms;
-            $offlineRevenue = $walkinRevenue + $memberExpRevenue + $webExpRevenue + $groupRevenue + $protocolRevenue + $wechatRevenue + $freeRevenue + $goldCardRevenue + $blackGoldRevenue + $hourlyRevenue;
-            $offlineRooms = $walkinRooms + $memberExpRooms + $webExpRooms + $groupRooms + $protocolRooms + $wechatRooms + $freeRooms + $goldCardRooms + $blackGoldRooms + $hourlyRooms;
-            $otherRevenueTotal = $parkingRevenue + $diningRevenue + $meetingRevenue + $goodsRevenue + $memberCardRevenue + $otherRevenue;
-            $roomRevenue = $onlineRevenue + $offlineRevenue;
-            $totalRevenue = $roomRevenue + $otherRevenueTotal;
-            $totalRooms = $onlineRooms + $offlineRooms;
-            $overnightRooms = $totalRooms - $hourlyRooms;
+            $onlineRevenue = $getVal('online_revenue') ?? $sumRequired([$xbRevenue, $mtRevenue, $fliggyRevenue, $dyRevenue, $tcRevenue, $qnRevenue, $zxRevenue, $bookingRevenue, $agodaRevenue, $expediaRevenue]);
+            $onlineRooms = $getVal('online_rooms') ?? $sumRequired([$xbRooms, $mtRooms, $fliggyRooms, $dyRooms, $tcRooms, $qnRooms, $zxRooms, $bookingRooms, $agodaRooms, $expediaRooms]);
+            $offlineRevenue = $getVal('offline_revenue') ?? $sumRequired([$walkinRevenue, $memberExpRevenue, $webExpRevenue, $groupRevenue, $protocolRevenue, $wechatRevenue, $freeRevenue, $goldCardRevenue, $blackGoldRevenue, $hourlyRevenue]);
+            $offlineRooms = $getVal('offline_rooms') ?? $sumRequired([$walkinRooms, $memberExpRooms, $webExpRooms, $groupRooms, $protocolRooms, $wechatRooms, $freeRooms, $goldCardRooms, $blackGoldRooms, $hourlyRooms]);
+            $otherRevenueTotal = $getVal('other_revenue_total') ?? $sumRequired([$parkingRevenue, $diningRevenue, $meetingRevenue, $goodsRevenue, $memberCardRevenue, $otherRevenue]);
+            $roomRevenue = $getVal('room_revenue') ?? $sumRequired([$onlineRevenue, $offlineRevenue]);
+            $totalRevenue = $this->readNumericValue($data, ['revenue', 'day_revenue']) ?? $sumRequired([$roomRevenue, $otherRevenueTotal]);
+            $totalRooms = $this->readNumericValue($data, ['total_rooms', 'day_total_rooms']) ?? $sumRequired([$onlineRooms, $offlineRooms]);
+            $overnightRooms = $getVal('overnight_rooms');
+            $overnightRevenue = $sumRequired([$roomRevenue, $hourlyRevenue]);
+            if ($overnightRevenue !== null) {
+                $overnightRevenue = $roomRevenue - $hourlyRevenue;
+            }
             
             // 合计区域 - 蓝色背景
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($rowMonthRevenueTarget) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($totalRevenue / max($rowMonthRevenueTarget, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($ratio($totalRevenue, $rowMonthRevenueTarget)) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($totalRevenue) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($roomRevenue) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($roomRevenue / max($salableRooms, 1)) . '</td>'; // Revpar
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($totalRooms / max($salableRooms, 1)) . '</td>'; // 出租率
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($roomRevenue / max($totalRooms, 1)) . '</td>'; // 平均房价
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($overnightRooms / max($salableRooms, 1)) . '</td>'; // 过夜出租率
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum(($roomRevenue - $hourlyRevenue) / max($overnightRooms, 1)) . '</td>'; // 过夜均价
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum(($roomRevenue - $hourlyRevenue) / max($salableRooms, 1)) . '</td>'; // 过夜Revpar
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($onlineRooms / max($totalRooms, 1)) . '</td>'; // OTA间夜占比
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($ratio($roomRevenue, $salableRooms)) . '</td>'; // Revpar
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($ratio($totalRooms, $salableRooms)) . '</td>'; // 出租率
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($ratio($roomRevenue, $totalRooms)) . '</td>'; // 平均房价
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($ratio($overnightRooms, $salableRooms)) . '</td>'; // 过夜出租率
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($ratio($overnightRevenue, $overnightRooms)) . '</td>'; // 过夜均价
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($ratio($overnightRevenue, $salableRooms)) . '</td>'; // 过夜Revpar
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($ratio($onlineRooms, $totalRooms)) . '</td>'; // OTA间夜占比
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($totalRooms, 0) . '</td>'; // 售房数
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($salableRooms, 0) . '</td>'; // 可售房数量
             
             // 线上合计 - 蓝色背景
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($rowOnlineTarget) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($onlineRevenue / max($rowOnlineTarget, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($ratio($onlineRevenue, $rowOnlineTarget)) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($onlineRevenue) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($onlineRooms, 0) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($onlineRevenue / max($onlineRooms, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($ratio($onlineRevenue, $onlineRooms)) . '</td>';
             
             // 携程 - 绿色背景
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($xbRevenue) . '</td>';
@@ -2084,10 +2178,10 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             
             // 线下合计 - 蓝色背景
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($rowOfflineTarget) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($offlineRevenue / max($rowOfflineTarget, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($ratio($offlineRevenue, $rowOfflineTarget)) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($offlineRevenue) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($offlineRooms, 0) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($offlineRevenue / max($offlineRooms, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($ratio($offlineRevenue, $offlineRooms)) . '</td>';
             
             // 各线下渠道 - 绿色背景
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($walkinRevenue) . '</td>';
@@ -2130,13 +2224,13 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $fliggyReviewable = $getVal('fliggy_reviewable');
             $fliggyGoodReview = $getVal('fliggy_good_review');
             
-            $totalReviewable = $xbReviewable + $mtReviewable + $fliggyReviewable;
-            $totalGoodReview = $xbGoodReview + $mtGoodReview + $fliggyGoodReview;
+            $totalReviewable = $sumRequired([$xbReviewable, $mtReviewable, $fliggyReviewable]);
+            $totalGoodReview = $sumRequired([$xbGoodReview, $mtGoodReview, $fliggyGoodReview]);
             
             // 好评合计 - 蓝色背景
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($totalReviewable, 0) . '</td>';
             $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtNum($totalGoodReview, 0) . '</td>';
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($totalGoodReview / max($totalReviewable, 1)) . '</td>';
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct($ratio($totalGoodReview, $totalReviewable)) . '</td>';
             
             // 各平台好评 - 绿色背景
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($xbReviewable, 0) . '</td>';
@@ -2171,7 +2265,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
             $memberCardSold = $getVal('member_card_sold');
             $storedValue = $getVal('stored_value');
             
-            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct(($wechatAdd - $hourlyRooms) / max($totalRooms, 1)) . '</td>'; // 微信加粉率
+            $html .= '<td style="background:#B2CFEA;text-align:right">' . $this->fmtPct(null) . '</td>'; // 暂无已验证的微信加粉率口径
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($wechatAdd, 0) . '</td>';
             $html .= '<td style="background:#EBF1DE;text-align:right">' . $this->fmtNum($memberAdd, 0) . '</td>';
             
@@ -2200,176 +2294,119 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
     /**
      * 计算合计数据
      */
-    private function calculateTotals(array $reports, float $monthTarget, float $onlineTarget, float $offlineTarget): array
+    private function calculateTotals(array $reports, ?float $monthTarget, ?float $onlineTarget, ?float $offlineTarget): array
     {
-        $totals = [
-            'total_revenue' => 0,
-            'room_revenue' => 0,
-            'total_rooms' => 0,
-            'salable_rooms' => 0,
-            'hourly_revenue' => 0,
-            'hourly_rooms' => 0,
-            'online_revenue' => 0,
-            'online_rooms' => 0,
-            'offline_revenue' => 0,
-            'offline_rooms' => 0,
-            'xb_revenue' => 0, 'xb_rooms' => 0,
-            'mt_revenue' => 0, 'mt_rooms' => 0,
-            'fliggy_revenue' => 0, 'fliggy_rooms' => 0,
-            'dy_revenue' => 0, 'dy_rooms' => 0,
-            'tc_revenue' => 0, 'tc_rooms' => 0,
-            'qn_revenue' => 0, 'qn_rooms' => 0,
-            'zx_revenue' => 0, 'zx_rooms' => 0,
-            'qn_zx_revenue' => 0, 'qn_zx_rooms' => 0,
-            'booking_revenue' => 0, 'booking_rooms' => 0,
-            'agoda_revenue' => 0, 'agoda_rooms' => 0,
-            'expedia_revenue' => 0, 'expedia_rooms' => 0,
-            'walkin_revenue' => 0, 'walkin_rooms' => 0,
-            'member_exp_revenue' => 0, 'member_exp_rooms' => 0,
-            'web_exp_revenue' => 0, 'web_exp_rooms' => 0,
-            'group_revenue' => 0, 'group_rooms' => 0,
-            'protocol_revenue' => 0, 'protocol_rooms' => 0,
-            'wechat_revenue' => 0, 'wechat_rooms' => 0,
-            'free_revenue' => 0, 'free_rooms' => 0,
-            'gold_card_revenue' => 0, 'gold_card_rooms' => 0,
-            'black_gold_revenue' => 0, 'black_gold_rooms' => 0,
-            'parking_revenue' => 0, 'dining_revenue' => 0,
-            'meeting_revenue' => 0, 'goods_revenue' => 0,
-            'member_card_revenue' => 0, 'other_revenue' => 0,
-            'other_revenue_total' => 0,
-            'xb_reviewable' => 0, 'xb_good_review' => 0,
-            'mt_reviewable' => 0, 'mt_good_review' => 0,
-            'fliggy_reviewable' => 0, 'fliggy_good_review' => 0,
-            'xb_exposure' => 0, 'xb_exp_rate' => 0,
-            'xb_bk_rate' => 0, 'xb_clinch_rate' => 0,
-            'mt_exposure' => 0, 'mt_click_rate' => 0, 'mt_pay_rate' => 0,
-            'wechat_add' => 0, 'member_add' => 0,
-            'private_revenue' => 0, 'private_rooms' => 0,
-            'member_card_sold' => 0, 'stored_value' => 0,
-        ];
-        
-        foreach ($reports as $report) {
-            $data = $this->normalizeReportData($report['data'] ?? []);
-            
-            $getVal = function($key, $default = 0) use ($data) {
-                $num = array_key_exists($key, $data) ? $this->normalizeNumber($data[$key]) : null;
-                return $num !== null ? $num : $default;
-            };
-            
-            // 累加各项
-            $totals['salable_rooms'] += $this->resolveReportSalableRooms($data);
-            $totals['hourly_revenue'] += $getVal('hourly_revenue');
-            $totals['hourly_rooms'] += $getVal('hourly_rooms');
-            
-            // OTA
-            $totals['xb_revenue'] += $getVal('xb_revenue');
-            $totals['xb_rooms'] += $getVal('xb_rooms');
-            $totals['mt_revenue'] += $getVal('mt_revenue');
-            $totals['mt_rooms'] += $getVal('mt_rooms');
-            $totals['fliggy_revenue'] += $getVal('fliggy_revenue');
-            $totals['fliggy_rooms'] += $getVal('fliggy_rooms');
-            $totals['dy_revenue'] += $getVal('dy_revenue');
-            $totals['dy_rooms'] += $getVal('dy_rooms');
-            $totals['tc_revenue'] += $getVal('tc_revenue');
-            $totals['tc_rooms'] += $getVal('tc_rooms');
-            $totals['qn_revenue'] += $getVal('qn_revenue');
-            $totals['qn_rooms'] += $getVal('qn_rooms');
-            $totals['zx_revenue'] += $getVal('zx_revenue');
-            $totals['zx_rooms'] += $getVal('zx_rooms');
-            $totals['qn_zx_revenue'] += $getVal('qn_revenue') + $getVal('zx_revenue');
-            $totals['qn_zx_rooms'] += $getVal('qn_rooms') + $getVal('zx_rooms');
-            $totals['booking_revenue'] += $getVal('booking_revenue');
-            $totals['booking_rooms'] += $getVal('booking_rooms');
-            $totals['agoda_revenue'] += $getVal('agoda_revenue');
-            $totals['agoda_rooms'] += $getVal('agoda_rooms');
-            $totals['expedia_revenue'] += $getVal('expedia_revenue');
-            $totals['expedia_rooms'] += $getVal('expedia_rooms');
-            
-            // 线下
-            $totals['walkin_revenue'] += $getVal('walkin_revenue');
-            $totals['walkin_rooms'] += $getVal('walkin_rooms');
-            $totals['member_exp_revenue'] += $getVal('member_exp_revenue');
-            $totals['member_exp_rooms'] += $getVal('member_exp_rooms');
-            $totals['web_exp_revenue'] += $getVal('web_exp_revenue');
-            $totals['web_exp_rooms'] += $getVal('web_exp_rooms');
-            $totals['group_revenue'] += $getVal('group_revenue');
-            $totals['group_rooms'] += $getVal('group_rooms');
-            $totals['protocol_revenue'] += $getVal('protocol_revenue');
-            $totals['protocol_rooms'] += $getVal('protocol_rooms');
-            $totals['wechat_revenue'] += $getVal('wechat_revenue');
-            $totals['wechat_rooms'] += $getVal('wechat_rooms');
-            $totals['free_revenue'] += $getVal('free_revenue');
-            $totals['free_rooms'] += $getVal('free_rooms');
-            $totals['gold_card_revenue'] += $getVal('gold_card_revenue');
-            $totals['gold_card_rooms'] += $getVal('gold_card_rooms');
-            $totals['black_gold_revenue'] += $getVal('black_gold_revenue');
-            $totals['black_gold_rooms'] += $getVal('black_gold_rooms');
-            
-            // 其他收入
-            $totals['parking_revenue'] += $getVal('parking_revenue');
-            $totals['dining_revenue'] += $getVal('dining_revenue');
-            $totals['meeting_revenue'] += $getVal('meeting_revenue');
-            $totals['goods_revenue'] += $getVal('goods_revenue');
-            $totals['member_card_revenue'] += $getVal('member_card_revenue');
-            $totals['other_revenue'] += $getVal('other_revenue');
-            
-            // 好评
-            $totals['xb_reviewable'] += $getVal('xb_reviewable');
-            $totals['xb_good_review'] += $getVal('xb_good_review');
-            $totals['mt_reviewable'] += $getVal('mt_reviewable');
-            $totals['mt_good_review'] += $getVal('mt_good_review');
-            $totals['fliggy_reviewable'] += $getVal('fliggy_reviewable');
-            $totals['fliggy_good_review'] += $getVal('fliggy_good_review');
-            
-            // 流量
-            $totals['xb_exposure'] += $getVal('xb_exposure');
-            $totals['mt_exposure'] += $getVal('mt_exposure');
-            
-            // 私域
-            $totals['wechat_add'] += $getVal('wechat_add');
-            $totals['member_add'] += $getVal('member_add');
-            $totals['private_revenue'] += $getVal('private_revenue');
-            $totals['private_rooms'] += $getVal('private_rooms');
-            $totals['member_card_sold'] += $getVal('member_card_sold');
-            $totals['stored_value'] += $getVal('stored_value');
+        $rows = array_map(
+            fn(array $report): array => $this->normalizeReportData($report['data'] ?? []),
+            $reports
+        );
+        $read = fn(array $data, array $keys): ?float => $this->readNumericValue($data, $keys);
+        $completeSum = static function (array $values): ?float {
+            return $values !== [] && !in_array(null, $values, true) ? array_sum($values) : null;
+        };
+        $sumMetric = static function (callable $resolver) use ($rows): ?float {
+            if ($rows === []) {
+                return null;
+            }
+            $sum = 0.0;
+            foreach ($rows as $data) {
+                $value = $resolver($data);
+                if ($value === null) {
+                    return null;
+                }
+                $sum += $value;
+            }
+            return $sum;
+        };
+        $sumField = fn(string $key): ?float => $sumMetric(fn(array $data): ?float => $read($data, [$key]));
+        $sumFieldsForRow = fn(array $data, array $keys): ?float => $completeSum(array_map(
+            fn(string $key): ?float => $read($data, [$key]),
+            $keys
+        ));
+        $ratio = static fn(?float $numerator, ?float $denominator): ?float => $numerator !== null && $denominator !== null && $denominator > 0
+            ? $numerator / $denominator
+            : null;
+
+        $otaRevenueKeys = array_map(static fn(string $key): string => $key . '_revenue', self::OTA_CHANNEL_KEYS);
+        $otaRoomKeys = array_map(static fn(string $key): string => $key . '_rooms', self::OTA_CHANNEL_KEYS);
+        $offlineChannels = ['walkin', 'member_exp', 'web_exp', 'group', 'protocol', 'wechat', 'free', 'gold_card', 'black_gold', 'hourly'];
+        $offlineRevenueKeys = array_map(static fn(string $key): string => $key . '_revenue', $offlineChannels);
+        $offlineRoomKeys = array_map(static fn(string $key): string => $key . '_rooms', $offlineChannels);
+        $otherRevenueKeys = ['parking_revenue', 'dining_revenue', 'meeting_revenue', 'goods_revenue', 'member_card_revenue', 'other_revenue'];
+
+        $onlineRevenueForRow = fn(array $data): ?float => $read($data, ['online_revenue']) ?? $sumFieldsForRow($data, $otaRevenueKeys);
+        $onlineRoomsForRow = fn(array $data): ?float => $read($data, ['online_rooms']) ?? $sumFieldsForRow($data, $otaRoomKeys);
+        $offlineRevenueForRow = fn(array $data): ?float => $read($data, ['offline_revenue']) ?? $sumFieldsForRow($data, $offlineRevenueKeys);
+        $offlineRoomsForRow = fn(array $data): ?float => $read($data, ['offline_rooms']) ?? $sumFieldsForRow($data, $offlineRoomKeys);
+        $otherRevenueForRow = fn(array $data): ?float => $read($data, ['other_revenue_total']) ?? $sumFieldsForRow($data, $otherRevenueKeys);
+        $roomRevenueForRow = fn(array $data): ?float => $read($data, ['room_revenue'])
+            ?? $completeSum([$onlineRevenueForRow($data), $offlineRevenueForRow($data)]);
+        $totalRevenueForRow = fn(array $data): ?float => $read($data, ['revenue', 'day_revenue'])
+            ?? $completeSum([$roomRevenueForRow($data), $otherRevenueForRow($data)]);
+        $totalRoomsForRow = fn(array $data): ?float => $read($data, ['total_rooms', 'day_total_rooms'])
+            ?? $completeSum([$onlineRoomsForRow($data), $offlineRoomsForRow($data)]);
+
+        $totals = [];
+        foreach (array_merge(
+            $otaRevenueKeys,
+            $otaRoomKeys,
+            $offlineRevenueKeys,
+            $offlineRoomKeys,
+            $otherRevenueKeys,
+            ['xb_reviewable', 'xb_good_review', 'mt_reviewable', 'mt_good_review', 'fliggy_reviewable', 'fliggy_good_review', 'xb_exposure', 'mt_exposure', 'wechat_add', 'member_add', 'private_revenue', 'private_rooms', 'member_card_sold', 'stored_value']
+        ) as $key) {
+            $totals[$key] = $sumField($key);
         }
-        
-        // 计算汇总
-        $totals['online_revenue'] = 0;
-        $totals['online_rooms'] = 0;
-        foreach (self::OTA_CHANNEL_KEYS as $channel) {
-            $totals['online_revenue'] += $totals[$channel . '_revenue'] ?? 0;
-            $totals['online_rooms'] += $totals[$channel . '_rooms'] ?? 0;
+
+        $totals['online_revenue'] = $sumMetric($onlineRevenueForRow);
+        $totals['online_rooms'] = $sumMetric($onlineRoomsForRow);
+        $totals['offline_revenue'] = $sumMetric($offlineRevenueForRow);
+        $totals['offline_rooms'] = $sumMetric($offlineRoomsForRow);
+        $totals['other_revenue_total'] = $sumMetric($otherRevenueForRow);
+        $totals['room_revenue'] = $sumMetric($roomRevenueForRow);
+        $totals['total_revenue'] = $sumMetric($totalRevenueForRow);
+        $totals['total_rooms'] = $sumMetric($totalRoomsForRow);
+        $totals['salable_rooms'] = $sumMetric(fn(array $data): ?float => $read($data, ['salable_rooms', 'total_rooms_count', 'room_count']));
+        $totals['overnight_rooms'] = $sumField('overnight_rooms');
+        $totals['qn_zx_revenue'] = $completeSum([$totals['qn_revenue'], $totals['zx_revenue']]);
+        $totals['qn_zx_rooms'] = $completeSum([$totals['qn_rooms'], $totals['zx_rooms']]);
+
+        $totals['occ_rate'] = $ratio($totals['total_rooms'], $totals['salable_rooms']);
+        $totals['adr'] = $ratio($totals['room_revenue'], $totals['total_rooms']);
+        $totals['revpar'] = $ratio($totals['room_revenue'], $totals['salable_rooms']);
+        $totals['overnight_occ_rate'] = $ratio($totals['overnight_rooms'], $totals['salable_rooms']);
+        $overnightRevenue = $completeSum([$totals['room_revenue'], $totals['hourly_revenue']]);
+        if ($overnightRevenue !== null) {
+            $overnightRevenue = $totals['room_revenue'] - $totals['hourly_revenue'];
         }
-        $totals['offline_revenue'] = $totals['walkin_revenue'] + $totals['member_exp_revenue'] + $totals['web_exp_revenue'] +
-                                     $totals['group_revenue'] + $totals['protocol_revenue'] + $totals['wechat_revenue'] +
-                                     $totals['free_revenue'] + $totals['gold_card_revenue'] + $totals['black_gold_revenue'] + $totals['hourly_revenue'];
-        $totals['offline_rooms'] = $totals['walkin_rooms'] + $totals['member_exp_rooms'] + $totals['web_exp_rooms'] +
-                                   $totals['group_rooms'] + $totals['protocol_rooms'] + $totals['wechat_rooms'] +
-                                   $totals['free_rooms'] + $totals['gold_card_rooms'] + $totals['black_gold_rooms'] + $totals['hourly_rooms'];
-        $totals['other_revenue_total'] = $totals['parking_revenue'] + $totals['dining_revenue'] + $totals['meeting_revenue'] +
-                                         $totals['goods_revenue'] + $totals['member_card_revenue'] + $totals['other_revenue'];
-        $totals['room_revenue'] = $totals['online_revenue'] + $totals['offline_revenue'];
-        $totals['total_revenue'] = $totals['room_revenue'] + $totals['other_revenue_total'];
-        $totals['total_rooms'] = $totals['online_rooms'] + $totals['offline_rooms'];
-        
-        // 计算比率
-        $reportCount = max(count($reports), 1);
-        $totals['occ_rate'] = $totals['total_rooms'] / max($totals['salable_rooms'], 1);
-        $totals['adr'] = $totals['room_revenue'] / max($totals['total_rooms'], 1);
-        $totals['revpar'] = $totals['room_revenue'] / max($totals['salable_rooms'], 1);
-        $totals['overnight_occ_rate'] = ($totals['total_rooms'] - $totals['hourly_rooms']) / max($totals['salable_rooms'], 1);
-        $totals['overnight_adr'] = ($totals['room_revenue'] - $totals['hourly_revenue']) / max($totals['total_rooms'] - $totals['hourly_rooms'], 1);
-        $totals['overnight_revpar'] = ($totals['room_revenue'] - $totals['hourly_revenue']) / max($totals['salable_rooms'], 1);
-        $totals['ota_room_rate'] = $totals['online_rooms'] / max($totals['total_rooms'], 1);
-        $totals['online_adr'] = $totals['online_revenue'] / max($totals['online_rooms'], 1);
-        $totals['offline_adr'] = $totals['offline_revenue'] / max($totals['offline_rooms'], 1);
-        $totals['good_review_rate'] = ($totals['xb_good_review'] + $totals['mt_good_review'] + $totals['fliggy_good_review']) / 
-                                       max($totals['xb_reviewable'] + $totals['mt_reviewable'] + $totals['fliggy_reviewable'], 1);
-        $totals['review_orders'] = $totals['xb_reviewable'] + $totals['mt_reviewable'] + $totals['fliggy_reviewable'];
-        $totals['good_reviews'] = $totals['xb_good_review'] + $totals['mt_good_review'] + $totals['fliggy_good_review'];
-        $totals['wechat_add_rate'] = ($totals['wechat_add'] - $totals['hourly_rooms']) / max($totals['total_rooms'], 1);
-        
+        $totals['overnight_adr'] = $ratio($overnightRevenue, $totals['overnight_rooms']);
+        $totals['overnight_revpar'] = $ratio($overnightRevenue, $totals['salable_rooms']);
+        $totals['ota_room_rate'] = $ratio($totals['online_rooms'], $totals['total_rooms']);
+        $totals['online_adr'] = $ratio($totals['online_revenue'], $totals['online_rooms']);
+        $totals['offline_adr'] = $ratio($totals['offline_revenue'], $totals['offline_rooms']);
+        $totals['review_orders'] = $completeSum([$totals['xb_reviewable'], $totals['mt_reviewable'], $totals['fliggy_reviewable']]);
+        $totals['good_reviews'] = $completeSum([$totals['xb_good_review'], $totals['mt_good_review'], $totals['fliggy_good_review']]);
+        $totals['good_review_rate'] = $ratio($totals['good_reviews'], $totals['review_orders']);
+
+        // 当前项目没有已验证的微信加粉率分母，不再用钟点房冲减加粉数伪造比率。
+        $totals['wechat_add_rate'] = null;
+        foreach (['xb_exp_rate', 'xb_bk_rate', 'xb_clinch_rate', 'mt_click_rate', 'mt_pay_rate'] as $rateKey) {
+            $totals[$rateKey] = null;
+        }
+        $totals['data_status'] = $totals['total_revenue'] !== null
+            && $totals['room_revenue'] !== null
+            && $totals['total_rooms'] !== null
+            && $totals['salable_rooms'] !== null
+            ? 'ready'
+            : ($rows === [] ? 'missing' : 'partial');
+        $totals['data_gaps'] = [];
+        if ($totals['total_revenue'] === null) {
+            $totals['data_gaps'][] = 'export_total_revenue_incomplete';
+        }
+        if ($totals['total_rooms'] === null || $totals['salable_rooms'] === null) {
+            $totals['data_gaps'][] = 'export_occupancy_denominator_incomplete';
+        }
+
         return $totals;
     }
     
@@ -2379,7 +2416,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
     private function fmtNum($value, int $decimals = 2): string
     {
         if (!is_numeric($value)) {
-            return '0';
+            return '—';
         }
         return number_format((float)$value, $decimals, '.', ',');
     }
@@ -2390,7 +2427,7 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
     private function fmtPct($value): string
     {
         if (!is_numeric($value)) {
-            return '0.00%';
+            return '—';
         }
         return number_format((float)$value * 100, 2, '.', ',') . '%';
     }
@@ -2428,7 +2465,15 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
 
     private function tenantIdForHotel(int $hotelId): int
     {
-        return max(0, $hotelId);
+        if ($hotelId <= 0) {
+            return 0;
+        }
+
+        $query = $this->currentUser && $this->currentUser->isSuperAdmin()
+            ? Hotel::withoutTenantScope()
+            : Hotel::where([]);
+
+        return max(0, (int)$query->where('id', $hotelId)->value('tenant_id'));
     }
 
     /**
@@ -2441,20 +2486,6 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         }
         // 非超级管理员必须有酒店关联
         $this->requireHotel();
-    }
-
-    /**
-     * 检查操作权限
-     */
-    private function checkActionPermission(string $permission): void
-    {
-        if ($this->currentUser->isSuperAdmin()) {
-            return;
-        }
-        
-        if (!$this->currentUser->hasPermission($permission)) {
-            abort(403, '无权限操作');
-        }
     }
 
     /**
@@ -2533,16 +2564,20 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
     public function parseImport(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fill_daily_report');
 
         $file = $this->request->file('file');
         $hotelId = $this->request->post('hotel_id');
         if (!$hotelId && !$this->currentUser->isSuperAdmin()) {
             $hotelId = $this->currentUser->hotel_id;
         }
-        if ($hotelId && !$this->currentUser->hasHotelPermission((int)$hotelId, 'can_fill_daily_report')) {
-            return $this->error('无权导入该酒店日报');
+        if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
+            throw new \think\exception\HttpException(403, '请选择有权限的门店');
         }
+        $this->currentUser->hasHotelPermissionOrFail(
+            (int)$hotelId,
+            'can_fill_daily_report',
+            '无权导入该酒店日报'
+        );
         
         if (!$file) {
             return $this->error('请上传文件');
@@ -2933,6 +2968,7 @@ PYTHON;
         $mergedData = [];
         $result = [];
         $unmatched = [];
+        $dataGaps = [];
         
         foreach ($structuredData as $item) {
             $itemName = $item['item_name'] ?? '';
@@ -2961,10 +2997,23 @@ PYTHON;
                         $fieldType = $mapping['field_type'];
                         
                         // 从cells中根据列号取值
-                        $rawValue = $cells[$valueColumn] ?? '0';
+                        $rawValue = $cells[$valueColumn] ?? null;
                         // 根据目标字段的单位判断是否为百分比字段
                         $isPercentField = in_array($systemField, $percentFields);
-                        $value = $isPercentField ? $this->parsePercent($rawValue) : $this->parseNumber($rawValue);
+                        $value = is_scalar($rawValue)
+                            ? ($isPercentField ? $this->parsePercent((string)$rawValue) : $this->parseNumber((string)$rawValue))
+                            : null;
+                        if ($value === null) {
+                            $dataGaps[] = [
+                                'code' => 'import_mapped_value_missing',
+                                'message' => "第 {$rowNum} 行 {$valueColumn} 列未提供有效数值，未写入 {$systemField}。",
+                                'row' => $rowNum,
+                                'column' => $valueColumn,
+                                'system_field' => $systemField,
+                            ];
+                            $matched = true;
+                            break;
+                        }
                         
                         // 存储数据（直接存储，同名项目自动覆盖）
                         if (!isset($mergedData[$systemField])) {
@@ -2989,9 +3038,9 @@ PYTHON;
             }
             
             // 未匹配的项目（取E列作为默认值显示）
-            $rawValue = $cells['E'] ?? '0';
-            $valueToday = $this->parseNumber($rawValue);
-            if ($valueToday !== 0) {
+            $rawValue = $cells['E'] ?? null;
+            $valueToday = is_scalar($rawValue) ? $this->parseNumber((string)$rawValue) : null;
+            if ($valueToday !== null) {
                 $unmatched[] = [
                     'row' => $rowNum,
                     'item_name' => $itemName,
@@ -3006,7 +3055,7 @@ PYTHON;
         foreach ($mergedData as $systemField => $data) {
             $values = array_column($data['values'], 'value');
             // 对于同名系统字段，取最后一个有效值（或者可以改为求和）
-            $result[$systemField] = !empty($values) ? end($values) : 0;
+            $result[$systemField] = $values !== [] ? end($values) : null;
         }
         
         // 计算派生字段
@@ -3030,7 +3079,7 @@ PYTHON;
                     'system_field' => $systemField,
                     'item_count' => count($data['values']),
                     'items' => $data['values'],
-                    'result' => $filteredData[$systemField] ?? 0,
+                    'result' => $filteredData[$systemField] ?? null,
                 ];
             }
         }
@@ -3044,6 +3093,8 @@ PYTHON;
             'unmatched' => $unmatched,
             'suggestions' => $suggestions,
             'mapping_count' => count($mappings),
+            'data_status' => $dataGaps === [] ? 'ready' : 'partial',
+            'data_gaps' => $dataGaps,
         ];
     }
 
@@ -3137,51 +3188,85 @@ PYTHON;
      */
     private function calculateDerivedFields(array &$data): void
     {
+        $deriveCompleteSum = function (array $keys) use (&$data): ?float {
+            $sum = 0.0;
+            foreach ($keys as $key) {
+                $value = $this->readNumericValue($data, [$key]);
+                if ($value === null) {
+                    return null;
+                }
+                $sum += $value;
+            }
+            return $sum;
+        };
+
         // 计算可售房数 = 总房数 - 维修房数
-        if (isset($data['total_rooms_count']) && !isset($data['salable_rooms'])) {
-            $maintenance = $data['maintenance_rooms'] ?? 0;
-            $data['salable_rooms'] = $data['total_rooms_count'] - $maintenance;
+        if (!array_key_exists('salable_rooms', $data)) {
+            $totalRoomCount = $this->readNumericValue($data, ['total_rooms_count']);
+            $maintenanceRooms = $this->readNumericValue($data, ['maintenance_rooms']);
+            if ($totalRoomCount !== null && $maintenanceRooms !== null && $totalRoomCount >= $maintenanceRooms) {
+                $data['salable_rooms'] = $totalRoomCount - $maintenanceRooms;
+            }
         }
         
         // 如果有过夜房和钟点房，计算总间夜数
-        if (!isset($data['total_rooms'])) {
-            $overnight = $data['overnight_rooms'] ?? 0;
-            $hourly = $data['hourly_rooms'] ?? 0;
-            if ($overnight > 0 || $hourly > 0) {
+        if (!array_key_exists('total_rooms', $data)) {
+            $overnight = $this->readNumericValue($data, ['overnight_rooms']);
+            $hourly = $this->readNumericValue($data, ['hourly_rooms']);
+            if ($overnight !== null && $hourly !== null) {
                 $data['total_rooms'] = $overnight + $hourly;
             }
         }
 
         // 计算线上合计
-        $onlineRevenue = 0;
-        $onlineRooms = 0;
-        foreach (self::OTA_CHANNEL_KEYS as $channel) {
-            $onlineRevenue += $data[$channel . '_revenue'] ?? 0;
-            $onlineRooms += $data[$channel . '_rooms'] ?? 0;
+        $onlineRevenueKeys = array_map(static fn(string $channel): string => $channel . '_revenue', self::OTA_CHANNEL_KEYS);
+        $onlineRoomKeys = array_map(static fn(string $channel): string => $channel . '_rooms', self::OTA_CHANNEL_KEYS);
+        if (!array_key_exists('online_revenue', $data)) {
+            $onlineRevenue = $deriveCompleteSum($onlineRevenueKeys);
+            if ($onlineRevenue !== null) {
+                $data['online_revenue'] = $onlineRevenue;
+            }
         }
-        $data['online_revenue'] = $onlineRevenue;
-        $data['online_rooms'] = $onlineRooms;
+        if (!array_key_exists('online_rooms', $data)) {
+            $onlineRooms = $deriveCompleteSum($onlineRoomKeys);
+            if ($onlineRooms !== null) {
+                $data['online_rooms'] = $onlineRooms;
+            }
+        }
 
-        // 计算线下合计（不含钟点房）
-        $offlineRevenue = 0;
-        $offlineRooms = 0;
-        foreach (['walkin', 'member_exp', 'web_exp', 'group', 'protocol', 'wechat', 'free', 'gold_card', 'black_gold'] as $channel) {
-            $offlineRevenue += $data[$channel . '_revenue'] ?? 0;
-            $offlineRooms += $data[$channel . '_rooms'] ?? 0;
+        // 计算线下合计（含钟点房，与日报详情口径一致）
+        $offlineChannels = ['walkin', 'member_exp', 'web_exp', 'group', 'protocol', 'wechat', 'free', 'gold_card', 'black_gold', 'hourly'];
+        $offlineRevenueKeys = array_map(static fn(string $channel): string => $channel . '_revenue', $offlineChannels);
+        $offlineRoomKeys = array_map(static fn(string $channel): string => $channel . '_rooms', $offlineChannels);
+        if (!array_key_exists('offline_revenue', $data)) {
+            $offlineRevenue = $deriveCompleteSum($offlineRevenueKeys);
+            if ($offlineRevenue !== null) {
+                $data['offline_revenue'] = $offlineRevenue;
+            }
         }
-        $data['offline_revenue'] = $offlineRevenue;
-        $data['offline_rooms'] = $offlineRooms;
+        if (!array_key_exists('offline_rooms', $data)) {
+            $offlineRooms = $deriveCompleteSum($offlineRoomKeys);
+            if ($offlineRooms !== null) {
+                $data['offline_rooms'] = $offlineRooms;
+            }
+        }
 
         // 计算平均房价
-        if (!isset($data['adr']) && isset($data['room_revenue']) && isset($data['total_rooms'])) {
-            $totalRooms = max($data['total_rooms'], 1);
-            $data['adr'] = $data['room_revenue'] / $totalRooms;
+        if (!array_key_exists('adr', $data)) {
+            $roomRevenue = $this->readNumericValue($data, ['room_revenue']);
+            $totalRooms = $this->readNumericValue($data, ['total_rooms']);
+            if ($roomRevenue !== null && $totalRooms !== null && $totalRooms > 0) {
+                $data['adr'] = $roomRevenue / $totalRooms;
+            }
         }
 
         // 计算OTA间夜占比
-        if (isset($data['online_rooms']) && isset($data['total_rooms'])) {
-            $totalRooms = max($data['total_rooms'], 1);
-            $data['ota_room_rate'] = $data['online_rooms'] / $totalRooms;
+        if (!array_key_exists('ota_room_rate', $data)) {
+            $onlineRooms = $this->readNumericValue($data, ['online_rooms']);
+            $totalRooms = $this->readNumericValue($data, ['total_rooms']);
+            if ($onlineRooms !== null && $totalRooms !== null && $totalRooms > 0) {
+                $data['ota_room_rate'] = $onlineRooms / $totalRooms;
+            }
         }
     }
 
@@ -3189,26 +3274,36 @@ PYTHON;
     /**
      * 解析数字
      */
-    private function parseNumber(string $value): float
+    private function parseNumber(string $value): ?float
     {
-        // 移除百分号并转换
-        if (strpos($value, '%') !== false) {
-            return floatval(str_replace('%', '', $value)) / 100;
+        $value = trim(str_replace([',', "\u{00A0}"], '', $value));
+        if ($value === '') {
+            return null;
         }
-        return floatval($value);
+        $isPercent = strpos($value, '%') !== false;
+        $numeric = trim(str_replace('%', '', $value));
+        if ($numeric === '' || !is_numeric($numeric)) {
+            return null;
+        }
+        $number = (float)$numeric;
+        return $isPercent ? $number / 100 : $number;
     }
     
     /**
      * 解析百分比为显示值
      */
-    private function parsePercent(string $value): float
+    private function parsePercent(string $value): ?float
     {
-        $value = trim($value);
-        if (strpos($value, '%') !== false) {
-            return floatval(str_replace('%', '', $value));
+        $value = trim(str_replace([',', "\u{00A0}"], '', $value));
+        if ($value === '') {
+            return null;
         }
-        $num = floatval($value);
-        // 如果小于100，认为是小数形式，乘以100
-        return $num < 100 ? $num * 100 : $num;
+        $numeric = trim(str_replace('%', '', $value));
+        if ($numeric === '' || !is_numeric($numeric)) {
+            return null;
+        }
+        $num = (float)$numeric;
+        // 0~1 视为小数比例；其他数值按百分数原值保留。
+        return strpos($value, '%') === false && $num >= 0 && $num <= 1 ? $num * 100 : $num;
     }
 }

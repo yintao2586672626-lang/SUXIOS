@@ -5,6 +5,9 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\MeituanManualIdentityService;
+use app\service\OtaExecutionStageException;
+use app\service\OtaProfileSessionProofService;
 use app\service\OtaTrafficUrlNormalizer;
 use app\service\PlatformDataSyncService;
 use think\Response;
@@ -47,6 +50,44 @@ trait OnlineDataRequestConcern
     }
 
     /**
+     * @param array<int, mixed> $responses
+     * @return array<int, array<string, int|string>>
+     */
+    private function summarizeCtripCookieApiResponses(array $responses): array
+    {
+        $summary = [];
+        foreach (array_slice($responses, 0, 20) as $response) {
+            if (!is_array($response)) {
+                continue;
+            }
+            $rawUrl = trim((string)($response['url'] ?? ''));
+            $providedHash = strtolower(trim((string)($response['source_url_hash'] ?? '')));
+            $sourceUrlHash = preg_match('/^[a-f0-9]{64}$/', $providedHash) === 1
+                ? $providedHash
+                : ($rawUrl !== '' ? hash('sha256', $rawUrl) : '');
+            $item = [
+                'url' => $rawUrl !== '' ? $this->auditUrlWithoutQuery($rawUrl) : '',
+                'source_url_hash' => $sourceUrlHash,
+                'status' => max(0, (int)($response['status'] ?? 0)),
+            ];
+            foreach (['section', 'endpoint_id', 'data_type', 'request_type', 'business_error', 'error'] as $key) {
+                $value = trim((string)($response[$key] ?? ''));
+                if ($value !== '' && preg_match('/^[a-z0-9_.:-]{1,96}$/i', $value) === 1) {
+                    $item[$key] = $value;
+                }
+            }
+            foreach (['catalog_fact_count', 'standard_row_count'] as $key) {
+                if (array_key_exists($key, $response)) {
+                    $item[$key] = max(0, (int)$response[$key]);
+                }
+            }
+            $summary[] = $item;
+        }
+
+        return $summary;
+    }
+
+    /**
      * @param array<string, mixed> $requestData
      * @return array<string, scalar|array<int, scalar|null>|null>
      */
@@ -82,6 +123,7 @@ trait OnlineDataRequestConcern
         if (!is_array($payload)) {
             return $this->error('Invalid Meituan captured payload');
         }
+        $manualImport = $this->isMeituanManualCapturedPayload($requestData, $payload);
 
         $systemHotelId = $this->resolveOnlineDataSystemHotelId(
             $requestData['system_hotel_id']
@@ -90,15 +132,86 @@ trait OnlineDataRequestConcern
             ?? $payload['hotel_id']
             ?? null
         );
+        if (!$systemHotelId) {
+            return $this->error('Meituan captured payload requires a system hotel binding.', 409, [
+                'status_code' => $manualImport ? 'meituan_manual_binding_missing' : 'meituan_profile_binding_missing',
+            ]);
+        }
+        try {
+            $profileIdentity = $manualImport
+                ? $this->resolveMeituanCapturedManualIdentity($requestData, $payload, (int)$systemHotelId)
+                : $this->resolveMeituanCapturedProfileIdentity($requestData, $payload, (int)$systemHotelId);
+        } catch (\Throwable $e) {
+            $status = $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409;
+            return $this->error($e->getMessage(), $status, [
+                'status_code' => $e->getMessage(),
+                'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
+            ]);
+        }
+        $targetDataDate = $this->normalizeOnlineDataDate(
+            $requestData['data_date']
+            ?? $requestData['dataDate']
+            ?? $payload['default_data_date']
+            ?? $payload['defaultDataDate']
+            ?? ''
+        );
+        if ($targetDataDate === '') {
+            return $this->error('meituan_target_date_missing', 422, [
+                'status_code' => 'meituan_target_date_missing',
+            ]);
+        }
+        $payload['default_data_date'] = $targetDataDate;
         $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        $supplementalFilter = BrowserProfileCaptureRequestService::filterUnverifiedMeituanSupplementalRows($rows, $targetDataDate);
+        $rows = $supplementalFilter['rows'];
+        if ($supplementalFilter['dropped_count'] > 0) {
+            $payload['collection_warnings'][] = [
+                'status_code' => 'unverified_supplemental_rows_dropped',
+                'data_types' => $supplementalFilter['dropped_types'],
+                'dropped_count' => $supplementalFilter['dropped_count'],
+            ];
+        }
+        $mismatchedDates = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates($rows, $targetDataDate);
+        if ($mismatchedDates !== []) {
+            return $this->error('meituan_target_date_mismatch', 422, [
+                'status_code' => 'meituan_target_date_mismatch',
+                'target_date' => $targetDataDate,
+                'returned_dates' => $mismatchedDates,
+            ]);
+        }
+        $unverifiedDates = BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, $targetDataDate);
+        if ($unverifiedDates !== []) {
+            return $this->error('meituan_target_date_unverified', 422, [
+                'status_code' => 'meituan_target_date_unverified',
+                'target_date' => $targetDataDate,
+                'unverified_rows' => $unverifiedDates,
+            ]);
+        }
         if (empty($rows)) {
-            return $this->success([
-                'saved_count' => 0,
-                'row_count' => 0,
-                'counts' => [],
-            ], 'No Meituan captured rows to save');
+            $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+            if (!$manualImport && BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
+                return $this->success([
+                    'saved_count' => 0,
+                    'row_count' => 0,
+                    'counts' => [],
+                    'capture_gate' => $gate,
+                    'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
+                ], 'Meituan returned an authoritative empty result; no rows were written.');
+            }
+            return $this->error('meituan_capture_no_business_rows', 422, [
+                'status_code' => 'meituan_capture_no_business_rows',
+                'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
+            ]);
         }
 
+        $dataSourceId = (int)($profileIdentity['data_source_id'] ?? 0);
+        if ($dataSourceId > 0) {
+            foreach ($rows as &$row) {
+                $row['data_source_id'] = $dataSourceId;
+            }
+            unset($row);
+        }
+        $rows = $this->uniqueMeituanCapturedRowsForPersistence($rows);
         $savedCount = $this->saveMeituanCapturedDailyRows($rows);
         if ($this->currentUser && isset($this->currentUser->id)) {
             OperationLog::record(
@@ -114,7 +227,110 @@ trait OnlineDataRequestConcern
             'saved_count' => $savedCount,
             'row_count' => count($rows),
             'counts' => $this->summarizeMeituanCapturedRows($rows),
+            'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
         ]);
+    }
+
+    /** @param array<string, mixed> $requestData @param array<string, mixed> $payload */
+    private function isMeituanManualCapturedPayload(array $requestData, array $payload): bool
+    {
+        $method = strtolower(trim((string)(
+            $requestData['ingestion_method']
+            ?? $requestData['ingestionMethod']
+            ?? $payload['data_period']
+            ?? $payload['dataPeriod']
+            ?? $payload['ingestion_method']
+            ?? $payload['ingestionMethod']
+            ?? ''
+        )));
+        if (in_array($method, ['manual_dom_csv', 'manual_import'], true)) {
+            return true;
+        }
+        foreach (['orders', 'traffic', 'ads', 'reviews'] as $section) {
+            foreach (is_array($payload[$section] ?? null) ? $payload[$section] : [] as $row) {
+                if (is_array($row)
+                    && in_array(strtolower(trim((string)($row['_ingestion_method'] ?? ''))), ['manual_dom_csv', 'manual_import'], true)
+                ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $payload
+     * @return array{store_id:string,poi_id:string,shop_id:string,data_source_id:int}
+     */
+    private function resolveMeituanCapturedManualIdentity(array $requestData, array &$payload, int $systemHotelId): array
+    {
+        $configId = trim((string)($requestData['config_id'] ?? $requestData['configId'] ?? $payload['config_id'] ?? $payload['configId'] ?? ''));
+        if ($configId === '') {
+            throw new \RuntimeException('meituan_manual_config_missing', 409);
+        }
+        $storedConfig = $this->resolveMeituanManualFetchConfigMetadata($configId, $systemHotelId);
+        if ($storedConfig === []) {
+            throw new \RuntimeException('meituan_config_locator_mismatch', 409);
+        }
+        $identity = (new MeituanManualIdentityService())->resolveCapturedPayloadIdentity($payload, $storedConfig);
+        $payload['store_id'] = $identity['store_id'];
+        $payload['poi_id'] = $identity['poi_id'];
+        $payload['shop_id'] = $identity['shop_id'];
+        return $identity + ['data_source_id' => 0];
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $payload
+     * @return array{store_id:string,poi_id:string,shop_id:string,data_source_id:int}
+     */
+    private function resolveMeituanCapturedProfileIdentity(array $requestData, array &$payload, int $systemHotelId): array
+    {
+        $profileKey = trim((string)(
+            $requestData['profile_key']
+            ?? $requestData['profileKey']
+            ?? $requestData['store_id']
+            ?? $requestData['storeId']
+            ?? $requestData['poi_id']
+            ?? $requestData['poiId']
+            ?? $payload['store_id']
+            ?? $payload['storeId']
+            ?? $payload['poi_id']
+            ?? $payload['poiId']
+            ?? ''
+        ));
+        if ($profileKey === '') {
+            throw new \RuntimeException('meituan_profile_binding_missing', 409);
+        }
+
+        $this->assertOtaProfileBindingForHotel('meituan', $systemHotelId, $profileKey);
+        $source = $this->loadProfileSessionSource('meituan', $systemHotelId, $profileKey);
+        if (!is_array($source)) {
+            throw new \RuntimeException('meituan_profile_source_missing', 409);
+        }
+        $storedConfig = json_decode((string)($source['config_json'] ?? ''), true);
+        if (!is_array($storedConfig)) {
+            throw new \RuntimeException('meituan_profile_source_invalid', 409);
+        }
+
+        $identityCheck = BrowserProfileCaptureRequestService::assessMeituanPlatformIdentity($payload, [
+            $storedConfig['store_id'] ?? $storedConfig['storeId'] ?? null,
+            $storedConfig['poi_id'] ?? $storedConfig['poiId'] ?? null,
+        ]);
+        if (($identityCheck['ok'] ?? false) !== true) {
+            throw new \RuntimeException(
+                (string)($identityCheck['status_code'] ?? 'meituan_platform_identity_unverified'),
+                409
+            );
+        }
+
+        $identity = (new MeituanManualIdentityService())->resolveCapturedPayloadIdentity($payload, $storedConfig);
+        $payload['store_id'] = $identity['store_id'];
+        $payload['poi_id'] = $identity['poi_id'];
+        $payload['shop_id'] = $identity['shop_id'];
+
+        return $identity + ['data_source_id' => max(0, (int)($source['id'] ?? 0))];
     }
 
     // Launch local browser profile capture, then save the captured payload.
@@ -176,6 +392,7 @@ trait OnlineDataRequestConcern
         }
 
         $outputPath = $capturePlan['output_path'];
+        $targetDataDate = (string)($capturePlan['data_date'] ?? '');
         $timeoutSeconds = (int)$capturePlan['timeout_seconds'];
 
         $args = $capturePlan['args'];
@@ -247,6 +464,68 @@ trait OnlineDataRequestConcern
         }
 
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        if ($loginOnly) {
+            $loginContract = $this->evaluateBrowserProfileLoginPayload($payload);
+            if ($systemHotelId) {
+                $this->cachePlatformProfileStatus('meituan', (int)$systemHotelId, $storeId, [
+                    'checked_at' => date('Y-m-d H:i:s'),
+                    'auth_status' => $authStatus,
+                    'session_probe' => $loginContract['session_probe'],
+                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'status_code' => $loginContract['status_code'],
+                    'output' => $outputPath,
+                ]);
+            }
+            if (!$loginContract['collectable']) {
+                return $this->error((string)$loginContract['message'], 400, [
+                    'auth_status' => $authStatus,
+                    'session_probe' => $loginContract['session_probe'],
+                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'status_code' => $loginContract['status_code'],
+                    'output' => $outputPath,
+                ]);
+            }
+
+            $responsePayload = [
+                'mode' => (string)($payload['mode'] ?? 'login_only'),
+                'store_id' => (string)($payload['store_id'] ?? $storeId),
+                'poi_id' => (string)($payload['poi_id'] ?? $poiId),
+                'auth_status' => $authStatus,
+                'session_probe' => $loginContract['session_probe'],
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'status_code' => $loginContract['status_code'],
+                'hotel_identity_verified' => $loginContract['proof_eligible'],
+                'pages' => $payload['pages'] ?? [],
+                'saved_count' => 0,
+                'row_count' => 0,
+                'counts' => [],
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+            ];
+            if ($systemHotelId && $this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
+                if (!$loginContract['proof_eligible']) {
+                    $responsePayload['data_source_binding'] = [
+                        'status' => 'blocked',
+                        'reason' => 'hotel_identity_unverified',
+                    ];
+                } else {
+                    $responsePayload['data_source'] = $this->bindVerifiedBrowserProfileDataSource(
+                        'meituan',
+                        (int)$systemHotelId,
+                        $storeId,
+                        $requestData,
+                        $payload
+                    );
+                }
+            }
+
+            return $this->success(
+                $responsePayload,
+                $loginContract['proof_eligible']
+                    ? '美团浏览器 Profile 登录态与门店身份已验证，未执行数据采集和入库'
+                    : '美团账号 Session 可用，但门店身份尚未核验；未绑定数据源、未执行采集和入库'
+            );
+        }
         if ($authStatus !== [] && empty($authStatus['ok'])) {
             if ($systemHotelId) {
                 $this->cachePlatformProfileStatus('meituan', (int)$systemHotelId, $storeId, [
@@ -275,27 +554,6 @@ trait OnlineDataRequestConcern
             ]);
         }
 
-        if ($loginOnly) {
-            $responsePayload = [
-                'mode' => (string)($payload['mode'] ?? 'login_only'),
-                'store_id' => (string)($payload['store_id'] ?? $storeId),
-                'poi_id' => (string)($payload['poi_id'] ?? $poiId),
-                'auth_status' => $payload['auth_status'] ?? null,
-                'capture_gate' => $payload['capture_gate'] ?? null,
-                'pages' => $payload['pages'] ?? [],
-                'saved_count' => 0,
-                'row_count' => 0,
-                'counts' => [],
-                'output' => $outputPath,
-                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
-            ];
-            if ($systemHotelId && $this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
-                $responsePayload['data_source'] = $this->bindBrowserProfileDataSource('meituan', (int)$systemHotelId, $requestData, $payload);
-            }
-
-            return $this->success($responsePayload, '美团浏览器 Profile 登录状态已准备，未执行数据采集和入库');
-        }
-
         $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         if ($gate !== [] && ($gate['status'] ?? 'fail') !== 'pass') {
             return $this->error('美团浏览器 Profile 采集门禁未通过，未入库空数据', 400, [
@@ -309,8 +567,54 @@ trait OnlineDataRequestConcern
             ]);
         }
 
+        try {
+            $profileIdentity = $this->resolveMeituanCapturedProfileIdentity($requestData, $payload, (int)$systemHotelId);
+        } catch (\Throwable $e) {
+            $status = $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409;
+            return $this->error($e->getMessage(), $status, [
+                'status_code' => in_array($e->getMessage(), [
+                    'meituan_platform_identity_mismatch',
+                    'meituan_platform_identity_unverified',
+                ], true)
+                    ? $e->getMessage()
+                    : 'meituan_profile_binding_blocked',
+                'capture_gate' => $gate,
+                'output' => $outputPath,
+            ]);
+        }
+
         $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        $mismatchedDates = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates($rows, $targetDataDate);
+        if ($mismatchedDates !== []) {
+            return $this->error('美团浏览器 Profile 返回了目标日期之外的累计数据，未入库', 422, [
+                'status_code' => 'meituan_target_date_mismatch',
+                'target_date' => $targetDataDate,
+                'returned_dates' => $mismatchedDates,
+                'capture_gate' => $gate,
+                'output' => $outputPath,
+            ]);
+        }
+        $unverifiedDates = BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, $targetDataDate);
+        if ($unverifiedDates !== []) {
+            return $this->error('美团浏览器 Profile 缺少可验证的目标日期证据，未入库', 422, [
+                'status_code' => 'meituan_target_date_unverified',
+                'target_date' => $targetDataDate,
+                'unverified_rows' => $unverifiedDates,
+                'capture_gate' => $gate,
+                'output' => $outputPath,
+            ]);
+        }
         if (empty($rows)) {
+            if (BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
+                return $this->success(array_merge([
+                    'auth_status' => $payload['auth_status'] ?? null,
+                    'capture_gate' => $gate,
+                    'saved_count' => 0,
+                    'row_count' => 0,
+                    'counts' => [],
+                    'output' => $outputPath,
+                ], $this->browserProfileCollectionProofStatusPayload('not_recorded', 'no_persisted_rows')), '美团平台已确认当前条件无数据，未写入空行');
+            }
             return $this->error('美团浏览器 Profile 采集未解析到业务行，未入库空数据', 400, [
                 'auth_status' => $payload['auth_status'] ?? null,
                 'capture_gate' => $payload['capture_gate'] ?? null,
@@ -322,7 +626,8 @@ trait OnlineDataRequestConcern
         }
         $dataSourceBinding = null;
         $dataSourceBindingError = '';
-        $dataSourceId = null;
+        $resolvedDataSourceId = (int)($profileIdentity['data_source_id'] ?? 0);
+        $dataSourceId = $resolvedDataSourceId > 0 ? $resolvedDataSourceId : null;
         if ($systemHotelId && $this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
             try {
                 $dataSourceBinding = $this->bindBrowserProfileDataSource('meituan', (int)$systemHotelId, $requestData, $payload);
@@ -340,6 +645,7 @@ trait OnlineDataRequestConcern
             }
             unset($row);
         }
+        $rows = $this->uniqueMeituanCapturedRowsForPersistence($rows);
         $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
 
         if ($this->currentUser && isset($this->currentUser->id)) {
@@ -355,12 +661,17 @@ trait OnlineDataRequestConcern
         $responsePayload = [
             'saved_count' => $savedCount,
             'row_count' => count($rows),
+            'persistence_status' => $savedCount === count($rows) ? 'readback_verified' : 'readback_not_verified',
+            'auth_status' => $payload['auth_status'] ?? null,
+            'capture_gate' => $gate,
             'counts' => $this->summarizeMeituanCapturedRows($rows),
+            'collection_warnings' => $payload['collection_warnings'] ?? [],
             'payload_counts' => [
                 'reviews' => $this->countMeituanPayloadSection($payload, 'reviews'),
                 'traffic' => $this->countMeituanPayloadSection($payload, 'traffic'),
                 'peer_rank' => $this->countMeituanPayloadSection($payload, 'peerRank'),
                 'traffic_analysis' => $this->countMeituanPayloadSection($payload, 'flowAnalysis'),
+                'order_flow' => $this->countMeituanPayloadSection($payload, 'order_flow'),
                 'search_keywords' => $this->countMeituanPayloadSection($payload, 'searchKeywords'),
                 'traffic_forecast' => $this->countMeituanPayloadSection($payload, 'trafficForecast'),
                 'ads' => $this->countMeituanPayloadSection($payload, 'ads'),
@@ -379,7 +690,29 @@ trait OnlineDataRequestConcern
             $responsePayload['data_source_binding'] = ['status' => 'failed', 'message' => $dataSourceBindingError];
         }
 
-        return $this->success($responsePayload, $savedCount > 0 ? '美团浏览器抓取完成并已入库' : '美团浏览器抓取完成，但未解析到可入库数据');
+        if ($savedCount !== count($rows)) {
+            return json([
+                'code' => 500,
+                'message' => '美团浏览器已解析到业务行，但数据库完整回读未通过；本次不标记为入库成功。',
+                'data' => $responsePayload,
+            ], 500);
+        }
+
+        $identityIdentifier = trim((string)($profileIdentity['store_id'] ?? $profileIdentity['poi_id'] ?? ''));
+        $sessionProof = $this->recordBrowserProfileCollectionProofOutcome(
+            'meituan',
+            (int)$systemHotelId,
+            $storeId,
+            (int)($dataSourceId ?? 0),
+            $authStatus,
+            $identityIdentifier,
+            $savedCount,
+            count($rows),
+            $savedCount === count($rows)
+        );
+        $responsePayload = array_merge($responsePayload, $sessionProof);
+
+        return $this->success($responsePayload, '美团浏览器抓取完成并已确认入库');
     }
 
     // Direct Ctrip comment-detail browser capture is disabled.
@@ -415,7 +748,7 @@ trait OnlineDataRequestConcern
 
         $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
         if ($dataDate === '') {
-            $dataDate = date('Y-m-d', strtotime('-1 day'));
+            return $this->error('请选择本次采集数据对应的业务日期；系统不会为空日期自动代填。', 422);
         }
 
         $hotelId = BrowserProfileCaptureRequestService::resolveCtripHotelId($requestData);
@@ -531,39 +864,56 @@ trait OnlineDataRequestConcern
 
         if ($loginOnly) {
             $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
-            if ($authStatus !== [] && empty($authStatus['ok'])) {
-                $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, $profileId, [
-                    'checked_at' => date('Y-m-d H:i:s'),
+            $loginContract = $this->evaluateBrowserProfileLoginPayload($payload);
+            $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, $profileId, [
+                'checked_at' => date('Y-m-d H:i:s'),
+                'auth_status' => $authStatus,
+                'session_probe' => $loginContract['session_probe'],
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'status_code' => $loginContract['status_code'],
+                'output' => $outputPath,
+            ]);
+            if (!$loginContract['collectable']) {
+                return $this->error((string)$loginContract['message'], 400, [
                     'auth_status' => $authStatus,
+                    'session_probe' => $loginContract['session_probe'],
                     'capture_gate' => $payload['capture_gate'] ?? null,
-                    'status_code' => 'login_expired',
-                    'output' => $outputPath,
-                ]);
-                return $this->error('重新登录携程平台账号', 400, [
-                    'auth_status' => $authStatus,
-                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'status_code' => $loginContract['status_code'],
                     'output' => $outputPath,
                     'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
                 ]);
             }
-
-            $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, $profileId, [
-                'checked_at' => date('Y-m-d H:i:s'),
-                'auth_status' => $authStatus !== [] ? $authStatus : ['ok' => true, 'status' => 'logged_in'],
-                'capture_gate' => $payload['capture_gate'] ?? null,
-                'status_code' => 'logged_in',
-                'output' => $outputPath,
-            ]);
             $responsePayload = $this->buildCtripLoginOnlyResponsePayload(
                 $payload,
                 $outputPath,
                 $this->trimMeituanCaptureLog($runResult['stdout'] ?? '')
             );
+            $responsePayload['session_probe'] = $loginContract['session_probe'];
+            $responsePayload['status_code'] = $loginContract['status_code'];
+            $responsePayload['hotel_identity_verified'] = $loginContract['proof_eligible'];
             if ($this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
-                $responsePayload['data_source'] = $this->bindBrowserProfileDataSource('ctrip', (int)$systemHotelId, $requestData, $payload);
+                if (!$loginContract['proof_eligible']) {
+                    $responsePayload['data_source_binding'] = [
+                        'status' => 'blocked',
+                        'reason' => 'hotel_identity_unverified',
+                    ];
+                } else {
+                    $responsePayload['data_source'] = $this->bindVerifiedBrowserProfileDataSource(
+                        'ctrip',
+                        (int)$systemHotelId,
+                        $profileId,
+                        $requestData,
+                        $payload
+                    );
+                }
             }
 
-            return $this->success($responsePayload, '携程浏览器 Profile 登录状态已准备，未执行数据采集和入库');
+            return $this->success(
+                $responsePayload,
+                $loginContract['proof_eligible']
+                    ? '携程浏览器 Profile 登录态与门店身份已验证，未执行数据采集和入库'
+                    : '携程账号 Session 可用，但门店身份尚未核验；未绑定数据源、未执行采集和入库'
+            );
         }
 
         $captureGateDecision = $this->buildCtripCaptureGateDecision($payload);
@@ -591,9 +941,27 @@ trait OnlineDataRequestConcern
             }
         }
 
+        $identityConfig = $requestData;
+        if ($hotelId !== '') {
+            $identityConfig['ctrip_hotel_id'] = $hotelId;
+        }
+        $identityCheck = $this->validateCtripPayloadHotelIdentity($payload, (int)$systemHotelId, $identityConfig);
+        if (empty($identityCheck['ok'])
+            || empty($identityCheck['expected_hotel_ids'])
+            || ($identityCheck['status'] ?? '') !== 'matched'
+        ) {
+            return $this->error((string)($identityCheck['message'] ?? '携程门店身份未通过校验，本次未绑定数据源、未入库。'), 409, [
+                'reason' => 'hotel_identity_unverified',
+                'identity_check' => $identityCheck,
+                'saved_count' => 0,
+                'output' => $outputPath,
+            ]);
+        }
+
         $dataSourceBinding = null;
         $dataSourceBindingError = '';
-        $dataSourceId = null;
+        $existingDataSourceId = $this->findBrowserProfileDataSourceId((int)$systemHotelId, 'ctrip', $profileId);
+        $dataSourceId = $existingDataSourceId > 0 ? $existingDataSourceId : null;
         if ($this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
             try {
                 $dataSourceBinding = $this->bindBrowserProfileDataSource('ctrip', (int)$systemHotelId, $requestData, $payload);
@@ -662,7 +1030,33 @@ trait OnlineDataRequestConcern
             $responsePayload['data_source_binding'] = ['status' => 'failed', 'message' => $dataSourceBindingError];
         }
 
-        return $this->success($responsePayload, $savedCount > 0 ? '携程浏览器 Profile 采集完成并已入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
+        if ($rowCount > 0 && $savedCount <= 0) {
+            $responsePayload['persistence_status'] = 'readback_not_verified';
+            return json([
+                'code' => 500,
+                'message' => '携程浏览器 Profile 已解析到数据，但未确认数据库入库；请检查回读结果后重试。',
+                'data' => $responsePayload,
+            ], 500);
+        }
+
+        $responsePayload['persistence_status'] = $savedCount > 0 ? 'readback_verified' : 'no_parsed_rows';
+        $validatedHotelIds = array_values(array_intersect(
+            array_map('strval', is_array($identityCheck['captured_hotel_ids'] ?? null) ? $identityCheck['captured_hotel_ids'] : []),
+            array_map('strval', is_array($identityCheck['expected_hotel_ids'] ?? null) ? $identityCheck['expected_hotel_ids'] : [])
+        ));
+        $sessionProof = $this->recordBrowserProfileCollectionProofOutcome(
+            'ctrip',
+            (int)$systemHotelId,
+            $profileId,
+            (int)($dataSourceId ?? 0),
+            is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [],
+            trim((string)($validatedHotelIds[0] ?? '')),
+            $savedCount,
+            $rowCount,
+            $savedCount > 0
+        );
+        $responsePayload = array_merge($responsePayload, $sessionProof);
+        return $this->success($responsePayload, $savedCount > 0 ? '携程浏览器 Profile 采集完成并已确认入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
     }
 
     public function validateCtripEndpointEvidence(): Response
@@ -805,6 +1199,7 @@ trait OnlineDataRequestConcern
                     'status' => ($status['status_code'] ?? '') === 'logged_in' ? 'logged_in' : 'login_required',
                     'message' => (string)($status['next_action'] ?? ''),
                 ],
+                'session_probe' => $status['session_probe'] ?? null,
                 'capture_gate' => $status['capture_gate'] ?? null,
                 'status_code' => (string)($status['status_code'] ?? 'login_expired'),
                 'output' => (string)($status['output'] ?? ''),
@@ -971,21 +1366,104 @@ trait OnlineDataRequestConcern
             return $this->error('不支持的平台登录类型', 400);
         }
 
-        $platformName = $platform === 'ctrip' ? '携程' : '美团';
-        return $this->error(
-            $platformName . '授权必须由账号使用者在自己电脑完成。宿析不会在服务器或管理员电脑打开平台登录窗口；请在当前账号电脑打开平台后台完成短信/验证码/人机验证后，使用浏览器辅助采集 JSON 或本机采集器导入授权证据。',
-            409,
-            [
-                'status' => 'blocked',
-                'status_code' => 'client_local_authorization_required',
-                'error_code' => 'client_local_authorization_required',
-                'platform' => $platform,
-                'platform_name' => $platformName,
-                'authorization_policy' => 'account_owner_local_computer_only',
-                'server_browser_launch_disabled' => true,
-                'next_action' => 'open_platform_on_account_owner_computer_and_import_browser_assist_json',
-            ]
+        if (!$this->isLocalPlatformProfileLoginRequest()) {
+            $platformName = $platform === 'ctrip' ? '携程' : '美团';
+            return $this->error(
+                $platformName . '授权必须由账号使用者在自己电脑完成。当前不是本机访问，已禁止启动平台登录窗口；请使用浏览器辅助采集 JSON 或本机采集器导入授权证据。',
+                409,
+                [
+                    'status' => 'blocked',
+                    'status_code' => 'client_local_authorization_required',
+                    'error_code' => 'client_local_authorization_required',
+                    'platform' => $platform,
+                    'platform_name' => $platformName,
+                    'authorization_policy' => 'account_owner_local_computer_only',
+                    'server_browser_launch_disabled' => true,
+                    'next_action' => 'open_platform_on_account_owner_computer_and_import_browser_assist_json',
+                ]
+            );
+        }
+
+        $requestData = $this->requestData();
+        try {
+            $requestData = $this->applyPlatformProfileLoginDataSourceRequest($platform, $requestData);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 400);
+        }
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? $requestData['hotel_id']
+            ?? $requestData['hotelId']
+            ?? null
         );
+        if (!$systemHotelId) {
+            return $this->error('请选择酒店后登录平台账号', 400);
+        }
+
+        $profileKey = $this->resolvePlatformProfileLoginProfileKey($platform, $requestData, (int)$systemHotelId);
+        if ($profileKey === '') {
+            return $this->error($platform === 'ctrip' ? '请填写携程 Profile ID 或酒店 ID' : '请填写美团 Store ID / POI ID', 400);
+        }
+
+        $requestData['allow_existing_local_profile_rebind'] = true;
+        $requestData = $this->preparePlatformProfileLoginRequest($platform, $requestData, (int)$systemHotelId, $profileKey);
+
+        try {
+            $currentTask = $this->readPlatformProfileLoginCurrentTask($platform, (int)$systemHotelId, $profileKey);
+            $currentStatus = strtolower(trim((string)($currentTask['status'] ?? '')));
+            if ($currentTask !== []
+                && in_array($currentStatus, ['queued', 'browser_opened', 'running', 'syncing_after_login'], true)
+                && !$this->isPlatformProfileLoginTaskStale($currentTask, $currentStatus === 'queued' ? 45 : 600)) {
+                return $this->error('同一平台 Profile 登录任务正在运行，请勿重复提交', 409, [
+                    'status' => 'blocked',
+                    'status_code' => 'resource_busy_login',
+                    'error_code' => 'resource_busy_login',
+                    'platform' => $platform,
+                    'system_hotel_id' => (int)$systemHotelId,
+                ]);
+            }
+
+            $task = $this->createPlatformProfileLoginTask($platform, (int)$systemHotelId, $profileKey, $requestData);
+            if (!$this->launchPlatformProfileLoginTask($task)) {
+                $task = array_merge($task, [
+                    'status' => 'failed',
+                    'message' => '无法启动平台登录后台任务，请检查 PHP CLI / think 命令是否可用',
+                    'finished_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+                $this->cachePlatformProfileLoginTask($task);
+                return $this->error($task['message'], 500, $this->normalizePlatformProfileLoginTask($task));
+            }
+
+            OperationLog::record(
+                'online_data',
+                'trigger_profile_login',
+                '从账号使用者本机触发' . ($platform === 'ctrip' ? '携程' : '美团') . '平台账号登录: ' . $profileKey,
+                $this->currentUser->id ?? null,
+                (int)$systemHotelId
+            );
+
+            return $this->success(
+                $this->normalizePlatformProfileLoginTask($task),
+                ($platform === 'ctrip' ? '携程' : '美团') . '专用 Profile 浏览器正在打开，请在弹出的窗口中完成验证'
+            );
+        } catch (\Throwable $e) {
+            return $this->error('启动平台登录失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function isLocalPlatformProfileLoginRequest(): bool
+    {
+        $ip = strtolower(trim((string)$this->request->ip()));
+        $localIp = in_array($ip, ['127.0.0.1', '::1', '::ffff:127.0.0.1'], true);
+        if (!$localIp) {
+            return false;
+        }
+
+        $hostHeader = strtolower(trim((string)$this->request->server('HTTP_HOST', '')));
+        $host = (string)(parse_url('http://' . $hostHeader, PHP_URL_HOST) ?: '');
+        return in_array($host, ['127.0.0.1', 'localhost', '::1'], true);
     }
 
     public function platformProfileLoginStatus(string $platform): Response
@@ -1092,18 +1570,16 @@ trait OnlineDataRequestConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
             return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('ctrip_cookie_api_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Ctrip Cookie API credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-            ]);
-            return $this->error('请求异常', 500);
+            return $this->otaUnknownExecutionFailureResponse('ctrip_cookie_api_fetch', $e);
         }
     }
 
@@ -1134,7 +1610,12 @@ trait OnlineDataRequestConcern
                 return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY', 500);
             }
 
-            $prepared = $this->prepareCtripCookieApiCaptureFiles($requestData, $projectRoot, $systemHotelId);
+            $prepared = $this->prepareCtripCookieApiCaptureFiles(
+                $requestData,
+                $projectRoot,
+                $systemHotelId,
+                $credentialPayload
+            );
             $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', $systemHotelId, $cookies);
             if ($cookieFile === '') {
                 return $this->error('无法创建 OTA 凭据临时文件', 500);
@@ -1235,14 +1716,25 @@ trait OnlineDataRequestConcern
                 );
             }
 
-            return $this->success([
+            $capturedRowCount = (int)($capturedCounts['business'] ?? 0)
+                + (int)($capturedCounts['traffic'] ?? 0)
+                + (int)($capturedCounts['standard_rows'] ?? 0);
+            $savedCount = (int)($saveResult['saved_count'] ?? 0);
+            $saveStatus = $saveBlockedIdentity !== null
+                ? 'blocked'
+                : (!$autoSave
+                    ? 'skipped'
+                    : ($capturedRowCount === 0
+                        ? 'no_parsed_rows'
+                        : ($savedCount > 0 ? 'readback_verified' : 'readback_not_verified')));
+            $responsePayload = [
                 'status' => $readiness['status'],
                 'is_ready' => $readiness['is_ready'],
                 'next_action' => $readiness['next_action'],
                 'warning' => $readiness['warning'],
                 'auth_status' => $payload['auth_status'] ?? null,
-                'saved_count' => (int)($saveResult['saved_count'] ?? 0),
-                'row_count' => (int)$capturedCounts['standard_rows'],
+                'saved_count' => $savedCount,
+                'row_count' => $capturedRowCount,
                 'counts' => [
                     'business' => (int)($saveResult['business_saved'] ?? 0),
                     'traffic' => (int)($saveResult['traffic_saved'] ?? 0),
@@ -1251,15 +1743,28 @@ trait OnlineDataRequestConcern
                 'captured_counts' => $capturedCounts,
                 'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
                 'identity_check' => $saveBlockedIdentity ?? $identityCheck,
-                'save_status' => $saveBlockedIdentity !== null ? 'blocked' : ($autoSave ? 'saved_or_empty' : 'skipped'),
+                'save_status' => $saveStatus,
+                'persistence_status' => $saveStatus,
                 'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
                 'standard_section_counts' => $capturedCounts['standard_by_section'],
                 'request_count' => count($prepared['config']['endpoints'] ?? []),
                 'cookie_source' => 'credential_vault',
-                'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
+                'responses' => $this->summarizeCtripCookieApiResponses(
+                    is_array($payload['responses'] ?? null) ? $payload['responses'] : []
+                ),
                 'error_count' => count(is_array($payload['errors'] ?? null) ? $payload['errors'] : []),
                 'output' => $prepared['output_path'],
-            ], $readiness['is_ready'] ? '携程 Cookie API 采集完成' : '携程 Cookie API 未达到诊断就绪');
+            ];
+
+            if ($autoSave && $saveBlockedIdentity === null && $capturedRowCount > 0 && $savedCount <= 0) {
+                return json([
+                    'code' => 500,
+                    'message' => '携程 Cookie API 已解析到数据，但数据库回读未通过；本次不标记为入库成功。',
+                    'data' => $responsePayload,
+                ], 500);
+            }
+
+            return $this->success($responsePayload, $readiness['is_ready'] ? '携程 Cookie API 采集完成并已确认入库' : '携程 Cookie API 未达到诊断就绪');
         } catch (\InvalidArgumentException) {
             return $this->error('携程 Cookie API 业务参数无效', 400);
         } catch (\Throwable $e) {
@@ -1429,19 +1934,65 @@ trait OnlineDataRequestConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
             return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('ctrip_overview_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Ctrip overview credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-            ]);
-            return $this->error('请求异常', 500);
+            return $this->otaUnknownExecutionFailureResponse('ctrip_overview_fetch', $e);
         }
+    }
+
+    /**
+     * @param array<int, mixed> $requestUrls
+     * @param array<int, mixed> $xhrUrls
+     * @param array<int, mixed> $responses
+     * @return array{request_urls: array<int, string>, xhr_urls: array<int, array<string, mixed>>, responses: array<int, array<string, mixed>>}
+     */
+    private function summarizeCtripOverviewExecutionEvidence(
+        array $requestUrls,
+        array $xhrUrls,
+        array $responses
+    ): array {
+        $safeRequestUrls = [];
+        foreach ($requestUrls as $requestUrl) {
+            $url = trim((string)$requestUrl);
+            if ($url !== '' && !in_array($url, $safeRequestUrls, true)) {
+                $safeRequestUrls[] = $url;
+            }
+        }
+
+        $summarizeRows = static function (array $rows): array {
+            $summaries = [];
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $url = trim((string)($row['url'] ?? $row['request_url'] ?? $row['requestUrl'] ?? ''));
+                if ($url === '') {
+                    continue;
+                }
+
+                $summaries[] = [
+                    'url' => $url,
+                    'status' => (int)($row['status'] ?? $row['http_code'] ?? 0),
+                    'request_type' => strtolower(trim((string)($row['request_type'] ?? $row['method'] ?? ''))),
+                ];
+            }
+
+            return $summaries;
+        };
+
+        return [
+            'request_urls' => $safeRequestUrls,
+            'xhr_urls' => $summarizeRows($xhrUrls),
+            'responses' => $summarizeRows($responses),
+        ];
     }
 
     /**
@@ -1517,10 +2068,14 @@ trait OnlineDataRequestConcern
             ];
         }
 
+        $executionEvidence = $this->summarizeCtripOverviewExecutionEvidence($requestUrls, $xhrUrls, $responses);
+
         if (empty($responses) && !empty($errors)) {
             return $this->error('携程今日概况接口请求失败: ' . implode('；', array_slice($errors, 0, 3)), 400, [
                 'errors' => $errors,
-                'request_urls' => $requestUrls,
+                'request_urls' => $executionEvidence['request_urls'],
+                'xhr_urls' => $executionEvidence['xhr_urls'],
+                'responses' => $executionEvidence['responses'],
             ]);
         }
 
@@ -1551,20 +2106,33 @@ trait OnlineDataRequestConcern
             );
         }
 
-        return $this->success([
+        $responsePayload = [
             'data' => $overviewRows,
             'total' => count($overviewRows),
             'saved_count' => $savedCount,
             'row_count' => count($overviewRows),
+            'persistence_status' => $savedCount > 0 ? 'readback_verified' : (count($overviewRows) > 0 ? 'readback_not_verified' : 'no_parsed_rows'),
             'counts' => ['overview' => count($overviewRows)],
             'metrics' => $this->summarizeCtripOverviewRows($overviewRows),
             'payload_counts' => [
                 'responses' => count($responses),
                 'xhr_urls' => count($xhrUrls),
             ],
-            'request_urls' => $requestUrls,
+            'request_urls' => $executionEvidence['request_urls'],
+            'xhr_urls' => $executionEvidence['xhr_urls'],
+            'responses' => $executionEvidence['responses'],
             'errors' => $errors,
-        ], $savedCount > 0 ? '携程今日概况获取完成并已入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
+        ];
+
+        if (count($overviewRows) > 0 && $savedCount <= 0) {
+            return json([
+                'code' => 500,
+                'message' => '携程今日概况已解析到数据，但数据库回读未通过；本次不标记为入库成功。',
+                'data' => $responsePayload,
+            ], 500);
+        }
+
+        return $this->success($responsePayload, $savedCount > 0 ? '携程今日概况获取完成并已确认入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
     }
 
     public function fetchCustom(): Response
@@ -1588,17 +2156,31 @@ trait OnlineDataRequestConcern
             $result = $this->sendCustomRequest($url, $method, $headers, $body);
 
             if ($result['success']) {
-                OperationLog::record('online_data', 'fetch_custom', '获取自定义线上数据: ' . $url, $this->currentUser->id);
+                $auditUrl = $this->auditUrlWithoutQuery((string)$url);
+                OperationLog::record('online_data', 'fetch_custom', '获取自定义线上数据: ' . $auditUrl, $this->currentUser->id, null, null, [
+                    'audit_type' => 'acquisition',
+                    'outcome' => 'success',
+                    'method' => strtoupper((string)$method),
+                    'target_url' => $auditUrl,
+                    'http_status' => (int)($result['status'] ?? 0),
+                ]);
                 return $this->success([
                     'data' => $result['data'],
                     'status' => $result['status'],
                     'headers' => $result['response_headers'],
                 ]);
             } else {
-                return $this->error('请求失败: ' . $result['error']);
+                return $this->error('请求失败，请核对平台接口状态', 502, [
+                    'reason' => 'ota_custom_request_failed',
+                ]);
             }
         } catch (\Throwable $e) {
-            return $this->error('请求异常: ' . $e->getMessage());
+            \think\facade\Log::warning('OTA custom request failed.', [
+                'exception_type' => get_debug_type($e),
+            ]);
+            return $this->error('请求异常，请稍后重试', 500, [
+                'reason' => 'ota_custom_request_exception',
+            ]);
         }
     }
 
@@ -1668,6 +2250,21 @@ trait OnlineDataRequestConcern
         try {
             $requestData = $this->requestData();
             $config = $this->saveCtripConfigPayload($requestData);
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $systemHotelId = (int)($config['system_hotel_id'] ?? 0);
+            $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+            OperationLog::record('online_data', 'save_ctrip_config', 'OTA credential metadata saved', $actorId, $systemHotelId, null, [
+                'audit_type' => 'security',
+                'lifecycle_action' => 'save',
+                'actor_id' => $actorId,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $systemHotelId,
+                'platform' => 'ctrip',
+                'config_id' => (string)($config['config_id'] ?? $config['id'] ?? ''),
+                'credential_ref' => (int)($config['credential_ref'] ?? 0),
+                'status' => (string)($config['credential_status'] ?? ''),
+                'outcome' => 'success',
+            ]);
             $this->clearAutoFetchLightConfigListCache('ctrip');
             return json(['code' => 200, 'message' => '配置保存成功', 'data' => $this->sanitizeSecretConfig($config)]);
         } catch (\think\exception\HttpException $e) {
@@ -1715,13 +2312,6 @@ trait OnlineDataRequestConcern
             throw new \InvalidArgumentException('配置不存在');
         }
         $originalConfig = $isUpdate ? $list[$id] : [];
-        $storedConfigId = trim((string)($originalConfig['config_id'] ?? $originalConfig['id'] ?? $id));
-        if ($isUpdate && ($storedConfigId === '' || !hash_equals($id, $storedConfigId))) {
-            throw new \InvalidArgumentException('配置 ID 绑定冲突');
-        }
-        if ($isUpdate && $this->otaConfigHasHotelBindingConflict($originalConfig)) {
-            throw new \InvalidArgumentException('配置的酒店绑定冲突，需要先迁移');
-        }
 
         $hotelCandidates = [];
         foreach (['system_hotel_id', 'systemHotelId', 'hotel_id'] as $field) {
@@ -1737,6 +2327,13 @@ trait OnlineDataRequestConcern
         $requestedHotelId = $hotelCandidates[0] ?? null;
 
         if ($isUpdate) {
+            $storedConfigId = trim((string)($originalConfig['config_id'] ?? $originalConfig['id'] ?? $id));
+            if ($storedConfigId === '' || !hash_equals($id, $storedConfigId)) {
+                throw new \InvalidArgumentException('配置 ID 绑定冲突');
+            }
+            if ($this->otaConfigHasHotelBindingConflict($originalConfig)) {
+                throw new \InvalidArgumentException('配置的酒店绑定冲突，需要先迁移');
+            }
             $originalHotelId = $this->otaConfigBoundSystemHotelId($originalConfig);
             if ($originalHotelId === null) {
                 throw new \InvalidArgumentException('配置未绑定系统酒店，需要先迁移');
@@ -1755,7 +2352,19 @@ trait OnlineDataRequestConcern
                 throw new \InvalidArgumentException('请选择系统酒店');
             }
             $this->checkOtaConfigMaintenancePermission($resolvedHotelId);
-            $id = 'ctrip_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
+            $primaryConfig = $this->selectLatestSuccessfulCtripConfigForHotel($list, $resolvedHotelId);
+            $primaryConfigId = trim((string)($primaryConfig['config_id'] ?? $primaryConfig['id'] ?? ''));
+            if ($primaryConfigId !== ''
+                && isset($list[$primaryConfigId])
+                && is_array($list[$primaryConfigId])
+                && $this->isOtaConfigVisibleToCurrentUser($list[$primaryConfigId])
+                && $this->currentUserCanMaintainOtaConfigItem($list[$primaryConfigId], $resolvedHotelId)) {
+                $id = $primaryConfigId;
+                $isUpdate = true;
+                $originalConfig = $list[$primaryConfigId];
+            } else {
+                $id = 'ctrip_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
+            }
         }
 
         $name = trim((string)($requestData['name'] ?? $originalConfig['name'] ?? ''));
@@ -1778,6 +2387,14 @@ trait OnlineDataRequestConcern
             ?? $originalConfig['otaHotelId']
             ?? ''
         ));
+        $hotelRoomCount = $this->requiredPositiveCtripRoomCount(
+            $requestData['hotel_room_count'] ?? $requestData['hotelRoomCount'] ?? null,
+            '酒店实际房量'
+        );
+        $competitorRoomCount = $this->requiredPositiveCtripRoomCount(
+            $requestData['competitor_room_count'] ?? $requestData['competitorRoomCount'] ?? null,
+            '竞争圈总房量'
+        );
         $captureOptions = $this->buildCtripProfileCaptureConfigOptions($requestData, $originalConfig);
         if ($captureOptions['approved_mappings_path'] !== '') {
             $mappingCheck = $this->resolveCtripApprovedMappingsPath(
@@ -1802,6 +2419,8 @@ trait OnlineDataRequestConcern
             'ctrip_hotel_id' => $ctripHotelId,
             'ctripHotelId' => $ctripHotelId,
             'ota_hotel_id' => $ctripHotelId,
+            'hotel_room_count' => $hotelRoomCount,
+            'competitor_room_count' => $competitorRoomCount,
             'url' => $requestData['url'] ?? ($safeOriginal['url'] ?? ''),
             'node_id' => $requestData['node_id'] ?? ($safeOriginal['node_id'] ?? ''),
             'user_id' => $userId,
@@ -1810,6 +2429,20 @@ trait OnlineDataRequestConcern
         ], $captureOptions, $secretPayload);
 
         return $this->persistCtripConfigMetadata($config, (int)$this->currentUser->id, $isUpdate);
+    }
+
+    private function requiredPositiveCtripRoomCount(mixed $value, string $label): int
+    {
+        if (is_bool($value) || is_float($value)) {
+            throw new \think\exception\HttpException(422, $label . '必须为正整数');
+        }
+
+        $text = trim((string)$value);
+        if (preg_match('/^[1-9]\d*$/D', $text) !== 1 || (int)$text > 1000000) {
+            throw new \think\exception\HttpException(422, $label . '必须为1-1000000之间的正整数');
+        }
+
+        return (int)$text;
     }
 
     /**
@@ -1833,10 +2466,8 @@ trait OnlineDataRequestConcern
 
             $list = $this->filterOtaConfigListForCurrentUser($list);
             $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
-
-            usort($list, function($a, $b) {
-                return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
-            });
+            $list = $this->collapseCtripConfigListByHotel($list);
+            $list = $this->appendOtaConfigCollectionEvidence(array_values($list), 'ctrip');
 
             return $this->success(array_values($list));
         } catch (\Throwable $e) {
@@ -1925,41 +2556,25 @@ trait OnlineDataRequestConcern
                 $this->checkActionPermission('can_delete_online_data');
             }
 
-            $name = (string)($config['name'] ?? '');
-            Db::transaction(function () use ($key, $id, $systemHotelId): void {
-                $locked = Db::name('system_configs')->where('config_key', $key)->lock(true)->find();
-                if (!$locked) {
-                    throw new \RuntimeException('Ctrip config list disappeared during delete.');
-                }
-                $lockedList = json_decode((string)$locked['config_value'], true, 512, JSON_THROW_ON_ERROR);
-                if (!is_array($lockedList) || !isset($lockedList[$id]) || !is_array($lockedList[$id])) {
-                    throw new \RuntimeException('Ctrip config disappeared during delete.');
-                }
-                $lockedConfig = $lockedList[$id];
-                $lockedConfigId = trim((string)($lockedConfig['config_id'] ?? $lockedConfig['id'] ?? $id));
-                if ($this->otaConfigHasHotelBindingConflict($lockedConfig)
-                    || $this->otaConfigBoundSystemHotelId($lockedConfig) !== $systemHotelId
-                    || $lockedConfigId === ''
-                    || !hash_equals($id, $lockedConfigId)) {
-                    throw new \RuntimeException('Ctrip config hotel binding changed during delete.');
-                }
-
-                $this->deleteOtaConfigCredential($systemHotelId, 'ctrip', $id);
-                unset($lockedList[$id]);
-                $jsonValue = json_encode(
-                    $lockedList,
-                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
-                );
-                Db::name('system_configs')->where('config_key', $key)->update([
-                    'config_value' => $jsonValue,
-                    'update_time' => date('Y-m-d H:i:s'),
-                ]);
-            });
+            $deleted = $this->deleteCtripConfigMetadata($id, $systemHotelId);
 
             \app\model\SystemConfig::clearProtectedOtaCaches();
             $this->clearAutoFetchLightConfigListCache('ctrip');
 
-            OperationLog::record('online_data', 'delete_ctrip_config', "删除携程配置: {$name}", $this->currentUser->id);
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+            OperationLog::record('online_data', 'delete_ctrip_config', 'OTA credential revoked', $actorId, $systemHotelId, null, [
+                'audit_type' => 'security',
+                'lifecycle_action' => 'revoke',
+                'actor_id' => $actorId,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $systemHotelId,
+                'platform' => 'ctrip',
+                'config_id' => (string)($deleted['config_id'] ?? $deleted['id'] ?? $id),
+                'credential_ref' => (int)($deleted['credential_ref'] ?? 0),
+                'status' => (string)($deleted['credential_status'] ?? ''),
+                'outcome' => 'success',
+            ]);
 
             return $this->success(null, '删除成功');
         } catch (\think\exception\HttpException $e) {
@@ -2100,7 +2715,7 @@ trait OnlineDataRequestConcern
         if ($httpCode !== 200) {
             return [
                 'success' => false,
-                'error' => "HTTP错误: {$httpCode}" . ($httpCode === 302 ? ' (可能Cookie已失效，请重新登录携程)' : ''),
+                'error' => "HTTP错误: {$httpCode}" . ($httpCode === 302 ? ' (Cookie已失效，请重新登录携程)' : ''),
                 'http_code' => $httpCode,
                 'raw' => $decodedResponse,
             ];
@@ -2110,7 +2725,7 @@ trait OnlineDataRequestConcern
         if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $decodedResponse)) {
             return [
                 'success' => false,
-                'error' => '返回了HTML页面而非JSON数据（可能Cookie已过期或请求参数不一致，请重新获取）',
+                'error' => '返回了HTML页面而非JSON数据，未获取到业务数据；请检查登录状态与请求参数后重试',
                 'http_code' => $httpCode,
                 'raw' => substr($decodedResponse, 0, 500),
             ];
@@ -2212,7 +2827,7 @@ trait OnlineDataRequestConcern
 
         if ($httpCode !== 200) {
             if (in_array($httpCode, [301, 302], true)) {
-                $result['error'] = 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie';
+                $result['error'] = 'Cookie已失效，请重新登录携程 eBooking 后复制 Cookie';
             } elseif ($httpCode === 415) {
                 $result['error'] = '携程流量接口必须使用 JSON Body，请检查 Content-Type 和 POSTFIELDS';
             } else {
@@ -2323,7 +2938,7 @@ trait OnlineDataRequestConcern
         }
         if ($httpCode !== 200) {
             if (in_array($httpCode, [301, 302], true)) {
-                $result['error'] = 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie';
+                $result['error'] = 'Cookie已失效，请重新登录携程 eBooking 后复制 Cookie';
             } else {
                 $result['error'] = '携程广告接口 HTTP 错误: ' . $httpCode;
             }
@@ -2417,6 +3032,236 @@ trait OnlineDataRequestConcern
         return false;
     }
 
+    /**
+     * @return array{collectable:bool,proof_eligible:bool,status_code:string,message:string,session_probe:array<string,mixed>}
+     */
+    private function evaluateBrowserProfileLoginPayload(array $payload): array
+    {
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        $sessionProbe = is_array($payload['session_probe'] ?? null) ? $payload['session_probe'] : [];
+        $authStatusCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        $proofService = new OtaProfileSessionProofService();
+        $collectable = ($authStatus['ok'] ?? null) === true
+            && in_array($authStatusCode, ['logged_in', 'authorized'], true)
+            && $proofService->isCollectableProfileLoginSessionProbe($sessionProbe);
+        $proofEligible = $collectable && $proofService->isStrongProfileLoginSessionProbe($sessionProbe);
+        $statusCode = $this->ctripProfileProbeStatusCode($payload, $authStatus);
+        $message = trim((string)($sessionProbe['message'] ?? ''));
+        if ($message === '') {
+            $message = $collectable
+                ? '平台账号 Session 可用，但门店身份尚未核验。'
+                : '当前 Profile 尚未形成可验证登录态，请重新登录后检测。';
+        }
+
+        return [
+            'collectable' => $collectable,
+            'proof_eligible' => $proofEligible,
+            'status_code' => $statusCode,
+            'message' => $message,
+            'session_probe' => $sessionProbe,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function bindVerifiedBrowserProfileDataSource(
+        string $platform,
+        int $systemHotelId,
+        string $profileKey,
+        array $requestData,
+        array $payload
+    ): array {
+        $source = $this->bindBrowserProfileDataSource($platform, $systemHotelId, $requestData, $payload);
+        $sourceId = (int)($source['id'] ?? 0);
+        if ($sourceId <= 0) {
+            throw new \RuntimeException('Profile data source was saved without an id.', 500);
+        }
+        $proof = (new OtaProfileSessionProofService())->recordProfileLoginVerified(
+            $sourceId,
+            $systemHotelId,
+            $platform,
+            $profileKey,
+            true,
+            is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [],
+            is_array($payload['session_probe'] ?? null) ? $payload['session_probe'] : []
+        );
+        $source['current_session_verified'] = (bool)($proof['current_session_verified'] ?? false);
+        $source['sensitive_values_exposed'] = false;
+        return $source;
+    }
+
+    /** @param array<string, mixed> $authStatus */
+    private function recordVerifiedBrowserProfileCollectionProof(
+        string $platform,
+        int $systemHotelId,
+        string $profileKey,
+        int $dataSourceId,
+        array $authStatus,
+        string $validatedIdentifier,
+        int $savedCount,
+        int $rowCount,
+        bool $readbackVerified
+    ): bool {
+        $outcome = $this->recordBrowserProfileCollectionProofOutcome(
+            $platform,
+            $systemHotelId,
+            $profileKey,
+            $dataSourceId,
+            $authStatus,
+            $validatedIdentifier,
+            $savedCount,
+            $rowCount,
+            $readbackVerified
+        );
+
+        return ($outcome['session_proof_status'] ?? '') === 'verified';
+    }
+
+    /**
+     * @param array<string, mixed> $authStatus
+     * @return array<string, string>
+     */
+    private function recordBrowserProfileCollectionProofOutcome(
+        string $platform,
+        int $systemHotelId,
+        string $profileKey,
+        int $dataSourceId,
+        array $authStatus,
+        string $validatedIdentifier,
+        int $savedCount,
+        int $rowCount,
+        bool $readbackVerified
+    ): array {
+        $blocker = $this->browserProfileCollectionProofBlocker(
+            $systemHotelId,
+            $profileKey,
+            $dataSourceId,
+            $authStatus,
+            $validatedIdentifier,
+            $savedCount,
+            $rowCount,
+            $readbackVerified
+        );
+        if ($blocker !== '') {
+            return $this->browserProfileCollectionProofStatusPayload('not_recorded', $blocker);
+        }
+
+        try {
+            (new OtaProfileSessionProofService())->recordCollectionPreflightVerified(
+                $dataSourceId,
+                $systemHotelId,
+                $platform,
+                $profileKey,
+                true,
+                $authStatus,
+                [
+                    'status' => 'matched',
+                    'validated_identifier' => $validatedIdentifier,
+                    'sensitive_values_exposed' => false,
+                ]
+            );
+            return $this->browserProfileCollectionProofStatusPayload('verified', 'none');
+        } catch (\Throwable) {
+            return $this->browserProfileCollectionProofStatusPayload('not_recorded', 'proof_write_failed');
+        }
+    }
+
+    /** @param array<string, mixed> $authStatus */
+    private function browserProfileCollectionProofEligible(
+        int $systemHotelId,
+        string $profileKey,
+        int $dataSourceId,
+        array $authStatus,
+        string $validatedIdentifier,
+        int $savedCount,
+        int $rowCount,
+        bool $readbackVerified
+    ): bool {
+        return $this->browserProfileCollectionProofBlocker(
+            $systemHotelId,
+            $profileKey,
+            $dataSourceId,
+            $authStatus,
+            $validatedIdentifier,
+            $savedCount,
+            $rowCount,
+            $readbackVerified
+        ) === '';
+    }
+
+    /** @param array<string, mixed> $authStatus */
+    private function browserProfileCollectionProofBlocker(
+        int $systemHotelId,
+        string $profileKey,
+        int $dataSourceId,
+        array $authStatus,
+        string $validatedIdentifier,
+        int $savedCount,
+        int $rowCount,
+        bool $readbackVerified
+    ): string {
+        $authCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        if ($savedCount <= 0 || $rowCount <= 0) {
+            return 'no_persisted_rows';
+        }
+        if (!$readbackVerified) {
+            return 'readback_not_verified';
+        }
+        if ($dataSourceId <= 0 || $systemHotelId <= 0 || trim($profileKey) === '') {
+            return 'data_source_scope_missing';
+        }
+        if (($authStatus['ok'] ?? null) !== true || !in_array($authCode, ['logged_in', 'authorized'], true)) {
+            return 'auth_evidence_unverified';
+        }
+        if (trim($validatedIdentifier) === '') {
+            return 'hotel_identity_unverified';
+        }
+        return '';
+    }
+
+    /** @return array<string, string> */
+    private function browserProfileCollectionProofStatusPayload(string $status, string $reasonCode): array
+    {
+        $reasonCode = trim($reasonCode) !== '' ? trim($reasonCode) : 'proof_write_failed';
+        $copy = [
+            'none' => [
+                '登录证据已与本次采集结果关联并持久化。',
+                '继续核对目标日期数据、收益分析和下游业务链状态。',
+            ],
+            'no_persisted_rows' => [
+                '本次没有目标日期入库行，因此未生成可复用的登录证据。',
+                '核对目标日期和采集模块后重新采集；确认无数据时无需重复登录。',
+            ],
+            'readback_not_verified' => [
+                '本次数据尚未通过数据库回读，登录证据未记录。',
+                '先排查保存与数据库回读，再重新执行最小采集。',
+            ],
+            'data_source_scope_missing' => [
+                '数据已保存，但当前 Profile 尚未绑定到可归属的数据源，登录证据未记录。',
+                '绑定当前门店的平台 Profile 数据源后，重新执行一次最小采集。',
+            ],
+            'auth_evidence_unverified' => [
+                '数据已保存，但本次登录态证据不足，未写入可复用 Session 证明。',
+                '由账号使用者在本机完成平台登录并重新检测 Session，再执行最小采集。',
+            ],
+            'hotel_identity_unverified' => [
+                '数据已保存，但平台门店身份尚未核验，登录证据未记录。',
+                '核对平台门店标识与系统门店绑定后重新执行最小采集。',
+            ],
+            'proof_write_failed' => [
+                '数据已保存并完成回读，但登录证据写入失败。',
+                '刷新登录状态后重试；若仍失败，请检查 Profile 数据源状态。',
+            ],
+        ];
+        [$message, $nextAction] = $copy[$reasonCode] ?? $copy['proof_write_failed'];
+
+        return [
+            'session_proof_status' => $status === 'verified' ? 'verified' : 'not_recorded',
+            'session_proof_reason_code' => $status === 'verified' ? 'none' : $reasonCode,
+            'session_proof_message' => $message,
+            'session_proof_next_action' => $nextAction,
+        ];
+    }
+
     private function sendCustomRequest(string $url, string $method, string $headersStr, string $body): array
     {
         $headers = [];
@@ -2478,5 +3323,21 @@ trait OnlineDataRequestConcern
             'status' => $status,
             'response_headers' => $responseHeaders,
         ];
+    }
+
+    private function auditUrlWithoutQuery(string $url): string
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return '[invalid-url]';
+        }
+        $scheme = strtolower((string)($parts['scheme'] ?? 'https'));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $path = (string)($parts['path'] ?? '/');
+        if ($host === '') {
+            return '[invalid-url]';
+        }
+
+        return $scheme . '://' . $host . ($path !== '' ? $path : '/');
     }
 }

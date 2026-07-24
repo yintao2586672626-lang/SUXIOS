@@ -29,6 +29,37 @@ final class OnlineDataAnalysisReportServiceTest extends TestCase
         self::assertStringNotContainsString('bg-gradient-to-r', $html);
     }
 
+    public function testUnverifiedCompetitorPreviewKeepsMissingValuesVisibleAndHasNoAdvice(): void
+    {
+        $data = $this->sampleReportData();
+        $data['trust_status'] = 'unverified_client_preview';
+        $data['metric_scope'] = 'ota_competitor_sample';
+        $data['total_room_revenue'] = null;
+        $data['avg_room_revenue'] = null;
+        $data['avg_price_per_night'] = null;
+
+        $html = (new OnlineDataAnalysisReportService())->render($data, false);
+
+        self::assertStringContainsString('未验证竞对数据预览', $html);
+        self::assertStringContainsString('不得用于本店收益、定价或运营执行', $html);
+        self::assertStringContainsString('未返回', $html);
+        self::assertStringNotContainsString('AI经营建议', $html);
+    }
+
+    public function testHotelNamesAreEscapedBeforeRenderingHtml(): void
+    {
+        $data = $this->sampleReportData();
+        $data['top5_by_room_nights'][0]['hotelName'] = '<img src=x onerror=alert(1)>';
+        $data['top5_by_revenue'][0]['hotelName'] = '<script>alert(2)</script>';
+
+        $html = (new OnlineDataAnalysisReportService())->render($data);
+
+        self::assertStringNotContainsString('<img src=x onerror=alert(1)>', $html);
+        self::assertStringNotContainsString('<script>alert(2)</script>', $html);
+        self::assertStringContainsString('&lt;img src=x onerror=alert(1)&gt;', $html);
+        self::assertStringContainsString('&lt;script&gt;alert(2)&lt;/script&gt;', $html);
+    }
+
     /**
      * @return array<string, mixed>
      */

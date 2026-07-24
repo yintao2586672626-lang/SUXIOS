@@ -4,6 +4,7 @@ import {
   buildCtripApprovedMappingDryRun,
   renderCtripApprovedMappingDryRunMarkdown,
 } from './lib/ctrip_approved_mapping.mjs';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -30,7 +31,10 @@ function readJson(path, label) {
   if (!path || !existsSync(path)) {
     throw new Error(`${label} file not found: ${path || '(empty)'}`);
   }
-  return JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+  return parseJsonTextSafely(
+    readFileSync(path, 'utf8').replace(/^\uFEFF/, ''),
+    `ctrip_${label}_json`,
+  );
 }
 
 function ensureParent(path) {

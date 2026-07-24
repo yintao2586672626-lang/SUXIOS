@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 import { parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -162,7 +163,10 @@ function ensureParent(path) {
 }
 
 function readJson(path) {
-  return JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+  return parseJsonTextSafely(
+    readFileSync(path, 'utf8').replace(/^\uFEFF/, ''),
+    'ctrip_capture_json',
+  );
 }
 
 function boolArg(value) {

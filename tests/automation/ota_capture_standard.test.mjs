@@ -125,6 +125,30 @@ test('classifies OTA JSON responses by platform and section', () => {
   });
   assert.equal(asset.capture, false);
   assert.equal(asset.reason, 'non_business_resource');
+
+  const orderIframeDocument = classifyOtaResponse('meituan', 'https://eb.meituan.com/ebooking/order-eb/index.html#/checkin', {
+    status: 200,
+    resourceType: 'document',
+    contentType: 'text/html; charset=utf-8',
+  });
+  assert.equal(orderIframeDocument.capture, false);
+  assert.equal(orderIframeDocument.reason, 'order_json_xhr_required');
+
+  const orderListJson = classifyOtaResponse('meituan', 'https://eb.meituan.com/api/v1/ebooking/orders/list', {
+    status: 200,
+    resourceType: 'xhr',
+    contentType: 'application/json; charset=utf-8',
+  });
+  assert.equal(orderListJson.capture, true);
+  assert.equal(orderListJson.section, 'orders');
+
+  const currentOrderListJson = classifyOtaResponse('meituan', 'https://eb.meituan.com/api/v1/ebooking/orders?startTime=1784390400000&endTime=1784476799999', {
+    status: 200,
+    resourceType: 'xhr',
+    contentType: 'application/json; charset=utf-8',
+  });
+  assert.equal(currentOrderListJson.capture, true);
+  assert.equal(currentOrderListJson.section, 'orders');
 });
 
 test('extracts request date evidence only when the request proves one target date', () => {
@@ -154,6 +178,13 @@ test('extracts request date evidence only when the request proves one target dat
       url: 'https://example.test/traffic?startDate=2026-06-13&endDate=2026-06-14',
     }),
     { date: '', date_source: '' },
+  );
+
+  assert.deepEqual(
+    extractOtaRequestDateEvidence({
+      url: 'https://eb.meituan.com/api/v1/ebooking/orders?startTime=1783699200000&endTime=1783785599999',
+    }),
+    { date: '2026-07-11', date_source: 'request.query.startTime' },
   );
 });
 
@@ -227,6 +258,8 @@ test('sanitizes order payloads before capture output is written', () => {
       Cookie: 'session=secret-cookie',
       Authorization: 'Bearer secret-token',
     },
+    spiderkey: 'dynamic-spider-secret',
+    fingerPrintKeys: 'dynamic-fingerprint-secret',
   }, 'orders');
 
   const encoded = JSON.stringify(sanitized);
@@ -238,6 +271,8 @@ test('sanitizes order payloads before capture output is written', () => {
   assert.equal(encoded.includes('late arrival'), false);
   assert.equal(encoded.includes('secret-cookie'), false);
   assert.equal(encoded.includes('secret-token'), false);
+  assert.equal(encoded.includes('dynamic-spider-secret'), false);
+  assert.equal(encoded.includes('dynamic-fingerprint-secret'), false);
   assert.match(sanitized.data.orderList[0].order_id_hash, /^[a-f0-9]{64}$/);
   assert.equal(sanitized.data.orderList[0].guest_name_masked, 'A***');
   assert.equal(sanitized.data.orderList[0].guest_phone_masked, '*******5678');

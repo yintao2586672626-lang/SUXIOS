@@ -4,6 +4,9 @@ import vm from 'node:vm';
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const readContractSource = (file) => file === 'public/index.html'
+  ? `${read(file)}\n${read('resources/frontend/app-template.html')}\n${read('public/app-main.js')}`
+  : read(file);
 const checks = [];
 
 function check(file, label, ok, detail = '') {
@@ -11,14 +14,14 @@ function check(file, label, ok, detail = '') {
 }
 
 function includesAll(file, label, needles) {
-  const source = read(file);
+  const source = readContractSource(file);
   for (const needle of needles) {
     check(file, `${label}: ${needle}`, source.includes(needle), needle);
   }
 }
 
 function excludesAll(file, label, needles) {
-  const source = read(file);
+  const source = readContractSource(file);
   for (const needle of needles) {
     check(file, `${label}: excludes ${needle}`, !source.includes(needle), needle);
   }
@@ -242,10 +245,6 @@ includesAll('scripts/verify_revenue_ai_ctrip_scope.php', 'Ctrip-only Revenue AI 
   "'agent_and_execution_state_loaded'",
   'verify_p0_ota_field_loop_closure.php',
   "'ctrip_ota_channel'",
-  "'ctrip_ota_channel_to_operation_roi'",
-  "'operation_execution.roi_ready'",
-  "'decision_allowed'",
-  "'can_create_investment_decision'",
   "'meituan_not_present'",
   "'source_policy' => 'read_current_database_revenue_ai_overview_only'",
 ]);
@@ -257,11 +256,8 @@ includesAll('scripts/verify_revenue_ai_ctrip_generation_smoke.php', 'Ctrip gener
   'ctrip_generation_insert_fixture_inputs',
   'RevenueAiOverviewService',
   'OperationManagementService',
-  'InvestmentDecisionSupportService',
   'new Agent($app)',
   'generatePriceSuggestions()',
-  'buildOverviewFromEvidence',
-  'ctrip_generation_investment_closure_overview',
   '--complete-operation-roi',
   'approveExecutionIntent(',
   'executeExecutionTask(',
@@ -296,13 +292,6 @@ includesAll('scripts/verify_revenue_ai_ctrip_generation_smoke.php', 'Ctrip gener
   "'operation_execution_records_local_roi_evidence'",
   "'operation_review_marks_roi_ready'",
   "'overview_reads_operation_roi_ready_after_review'",
-  "'investment_support_reads_closed_operation_roi_without_decision'",
-  "'investment_support_action_queue_requires_decision_readiness'",
-  "'investment_precheck_waiting_decision_record'",
-  "'closed_operating_data_only'",
-  "'operation_execution.roi_ready + decision_record.readiness_ready'",
-  "'can_use_for_investment_judgement'",
-  "'investment_overview_business_scope'",
   "'operation_execution_tasks'",
   "'operation_execution_evidence'",
   "'operation_execution.roi_ready'",
@@ -616,7 +605,11 @@ includesAll('scripts/report_revenue_ai_ctrip_input_readiness.php', 'Ctrip input 
   'competitor_analysis',
   'competitor_price_log',
   'ctrip_input_readiness_apply_ctrip_platform_filter',
-  "whereIn('ota_platform', [1, '1', 'ctrip'])",
+  "whereIn($column, [1, '1', 'ctrip', 'xc'])",
+  "where('store_id', $hotelId)",
+  "where('readback_verified', 1)",
+  "whereIn('validation_status', ['available', 'normal', 'ok', 'valid', 'verified'])",
+  "whereNotNull('comparison_key')",
   'This report reads counts and aggregate Ctrip traffic trend only; it does not expose raw Ctrip rows.',
   'No OTA price write is allowed by this report.',
 ]);
@@ -1908,23 +1901,15 @@ includesAll('app/service/RevenueAiOverviewService.php', 'Revenue AI overview sep
   'pricingAiDecisionResolutionPlan',
   'pricingAiDecisionReviewContract',
   'pricingAiToOperationHandoff',
-  'pricingOperationToInvestmentHandoff',
-  'pricingOperationRoiGate',
   'pricingOperationIntakePreflightContract',
   "'ai_decision_review_contract'",
   "'ai_decision_resolution_plan'",
   "'ai_to_operation_handoff'",
-  "'operation_to_investment_handoff'",
   "'operation_intake_preflight_contract'",
-  "'investment_precheck_packet'",
   'OperationManagementService::buildExecutionIntentPayload',
   '/api/operation/execution-intents',
-  'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-  '/api/investment-decision/overview',
-  'operation_execution.roi_ready',
   'manual_review_requires_explicit_evidence_no_auto_apply',
   'operation_intake_requires_approved_ai_review_and_price_target_no_auto_create',
-  'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
   'fill_missing_evidence_with_defaults',
   'provide_available_room_nights_or_mark_metric_unusable',
   'persist_or_attach_manual_review_record',
@@ -1933,8 +1918,6 @@ includesAll('app/service/RevenueAiOverviewService.php', 'Revenue AI overview sep
   "'target_revenue_tab'",
   'call_create_execution_intent_before_ai_review_approval',
   'auto_create_operation_execution_intent',
-  'create_investment_decision_from_ota_channel_only',
-  'create_investment_record_without_closed_operation_roi',
 ]);
 
 includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual review and effect review actions without fake closure', [
@@ -1944,9 +1927,9 @@ includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual rev
   'buildRevenueAiReviewQueueItems',
   'canApproveWithChanges',
   'canCreateExecutionIntent',
+  'actionButtons',
   'actionEntry',
   'autoWriteOta',
-  'buildRevenueAiInvestmentPrecheckSummary',
   'buildRevenueAiResolutionPlanSummary',
   'buildRevenueAiPricingGenerationPreflightSummary',
   'buildRevenueAiPriceSuggestionGenerateResult',
@@ -1954,16 +1937,10 @@ includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual rev
   'targetRevenueTab',
   'reviewQueueTarget',
   'reviewQueueCanOpenTarget',
-  'investmentPrecheckSummary',
-  'investmentPrecheckVisible',
   'pricingGenerationPreflightSummary',
   'pricingGenerationPreflightVisible',
   'resolutionPlanSummary',
   'resolutionPlanVisible',
-  'operation_to_investment_handoff',
-  'investment_precheck_packet',
-  'investment_precheck_blocked_by_operation_roi',
-  'operation_execution.roi_ready',
   'buildRevenueAiExecutionRows',
   'buildRevenueAiEffectReviewRows',
   'inputActionKey: item.input_action_key ||',
@@ -1976,10 +1953,8 @@ includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual rev
 ]);
 
 includesAll('public/index.html', 'Revenue AI homepage can execute the manual closure path only through local evidence routes', [
-  '@click="submitRevenueAiReviewAction(item, \'approve\')"',
-  '@click="submitRevenueAiReviewAction(item, \'approve_with_changes\')"',
-  '@click="submitRevenueAiReviewAction(item, \'reject\')"',
-  '@click="submitRevenueAiReviewAction(item, \'execution_intent\')"',
+  'item.actionButtons',
+  '@click="submitRevenueAiReviewAction(item, button.key)"',
   "if (normalizedAction === 'execution_intent') {",
   "const revenueAiResolveReviewActionDraft = requireRevenueAiStatic('resolveRevenueAiReviewActionDraft');",
   'const draft = revenueAiResolveReviewActionDraft({ item, action });',
@@ -2000,7 +1975,9 @@ includesAll('public/index.html', 'Revenue AI homepage can execute the manual clo
   "evidence_type: 'manual_roi_evidence'",
   "evidence_boundary: 'local_manual_evidence_no_ota_write'",
   "evidence_boundary: 'local_manual_roi_evidence_no_ota_write'",
-  '{{ item.impactLine }}',
+  'data-testid="revenue-ai-trusted-decision"',
+  'item.trustedDecisionRows',
+  '转运营任务',
   'data-testid="revenue-ai-investment-precheck"',
   'data-testid="revenue-ai-resolution-plan"',
   'data-testid="revenue-ai-pricing-generation-preflight"',
@@ -2053,12 +2030,9 @@ includesAll('public/index.html', 'Revenue AI homepage can execute the manual clo
   'Agent 定价建议工作台人工',
   "request(`/revenue-ai/price-suggestions/${id}/execution-intent`",
   "source: 'agent_pricing_suggestions'",
-  'action.reviewQueueCanOpenTarget',
   'action.pricingGenerationPreflightVisible',
-  'openRevenueAiDecisionBasis(action.reviewQueueTarget)',
   'action.investmentPrecheckVisible',
   'action.resolutionPlanVisible',
-  'action.investmentPrecheckSummary?.targetEntry',
   '只读',
 ]);
 
@@ -2097,21 +2071,13 @@ includesAll('tests/RevenueAiOverviewServiceTest.php', 'overview tests prove revi
   'ai_decision_review_contract',
   'ai_decision_resolution_plan',
   'ai_to_operation_handoff',
-  'operation_to_investment_handoff',
   'operation_intake_preflight_contract',
-  'investment_precheck_packet',
   'manual_review_requires_explicit_evidence_no_auto_apply',
   'operation_intake_requires_approved_ai_review_and_price_target_no_auto_create',
-  'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
   'fill_missing_evidence_with_defaults',
   'provide_floor_price_or_min_rate_guard',
   'persist_or_attach_manual_review_record',
   'OperationManagementService::buildExecutionIntentPayload',
-  'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-  '/api/investment-decision/overview',
-  'operation_execution.roi_ready',
-  'create_investment_decision_from_ota_channel_only',
-  'create_investment_record_without_closed_operation_roi',
   'ctrip_ota_channel',
   "self::assertSame('record_roi_evidence'",
   "self::assertSame('record_execution_evidence'",
@@ -2124,13 +2090,9 @@ includesAll('tests/automation/revenue_ai_static.test.mjs', 'static helper tests 
   "platform: ''",
   'Revenue AI action rows expose readonly price suggestion review queue',
   'Revenue AI action rows expose AI decision resolution plan as operator evidence checklist',
-  'Revenue AI action rows expose readonly operation to investment precheck',
   'Revenue AI execution helpers keep process and effect review separate',
   'Revenue AI effect review rows expose next-day inputs without fake ROI',
   'buildRevenueAiResolutionPlanSummary',
-  'buildRevenueAiInvestmentPrecheckSummary',
-  "assert.equal(summary.decisionAllowed, false)",
-  "assert.equal(summary.canCreateInvestmentDecision, false)",
   "assert.equal(summary.autoWriteOta, false)",
   "assert.equal(rows[0].reviewQueueItems[0].canApproveWithChanges, true)",
   "assert.equal(partialRows[0].inputActionKey, 'record_roi_evidence')",
@@ -2142,6 +2104,48 @@ try {
     filename: 'public/revenue-ai-static.js',
   });
   const helpers = context.window.SUXI_REVENUE_AI_STATIC || {};
+  const trustedDecision = ({ canConfirm = false, canTransfer = false } = {}) => ({
+    contract_version: 'revenue_ai_trusted_decision.v1',
+    scope: 'ota_channel',
+    store: { hotel_id: 7, hotel_name: 'Test Hotel', display: 'Test Hotel (#7)' },
+    platform: { key: 'ctrip', label: 'Ctrip', scope: 'ota_channel' },
+    date: { value: '2026-06-25', basis: 'suggestion_date', status: 'available' },
+    sources: {
+      status: 'verified',
+      summary: 'Verified database readback',
+      items: [{ ref: 'online_daily_data#pricing_history:7:2026-06-01:2026-06-25' }],
+      ref_count: 1,
+    },
+    metric_formula: {
+      metric: 'price_change_rate',
+      expression: '(suggested_price - current_price) / current_price * 100%',
+      status: 'calculable',
+      display: '+13.57%',
+    },
+    data_quality: {
+      status: 'verified',
+      label: 'verified',
+      decision_eligible: true,
+      note: 'Database readback verified',
+    },
+    confidence: { score: 0.82, display: '82%', status: 'available' },
+    gaps: [],
+    recommended_action: {
+      summary: 'Adjust target price after human review; never write OTA automatically.',
+      auto_write_ota: false,
+    },
+    expected_effect: {
+      status: 'verification_target',
+      display: 'Read back channel revenue, orders, and ADR after execution',
+    },
+    human_confirmation: {
+      required: true,
+      confirmed: canTransfer,
+      can_confirm: canConfirm,
+      can_transfer_to_operation_task: canTransfer,
+      auto_write_ota: false,
+    },
+  });
   const actionRows = helpers.buildRevenueAiActionRows({
     overview: {
       actions: [{
@@ -2169,6 +2173,9 @@ try {
             manual_review_required: true,
             auto_write_ota: false,
             can_review: true,
+            can_confirm: true,
+            can_transfer_to_operation_task: false,
+            trusted_decision: trustedDecision({ canConfirm: true }),
             action_entry: {
               allowed_endpoints: {
                 review: '/api/revenue-ai/price-suggestions/11/review',
@@ -2189,6 +2196,9 @@ try {
             min_price_display: '220元',
             manual_review_required: true,
             auto_write_ota: false,
+            can_confirm: false,
+            can_transfer_to_operation_task: true,
+            trusted_decision: trustedDecision({ canTransfer: true }),
             action_entry: {
               allowed_endpoint: '/api/revenue-ai/price-suggestions/12/execution-intent',
               allowed_endpoints: {
@@ -2206,59 +2216,24 @@ try {
   const approved = actionRows[0]?.reviewQueueItems?.[1] || {};
   check(
     'public/revenue-ai-static.js',
-    'runtime helper exposes approve/approve_with_changes/reject but no OTA write',
+    'runtime helper exposes trusted approve/approve_with_changes/reject but no OTA write',
     pending.canApprove === true
       && pending.canApproveWithChanges === true
       && pending.canReject === true
       && pending.autoWriteOta === false
       && pending.allowedEndpoints.review === '/api/revenue-ai/price-suggestions/11/review'
-      && pending.impactLine === '预计RevPAR影响 +12.5元',
+      && pending.trustedContractValid === true
+      && pending.trustedDecisionRows.length === 10,
     JSON.stringify(pending)
   );
   check(
     'public/revenue-ai-static.js',
-    'runtime helper exposes approved suggestion only as execution intent',
+    'runtime helper exposes approved trusted suggestion as operation task handoff',
     approved.canCreateExecutionIntent === true
       && approved.canApprove === false
-      && approved.allowedEndpoint === '/api/revenue-ai/price-suggestions/12/execution-intent',
+      && approved.allowedEndpoint === '/api/revenue-ai/price-suggestions/12/execution-intent'
+      && approved.actionLabel === '转运营任务',
     JSON.stringify(approved)
-  );
-
-  const investmentSummary = helpers.buildRevenueAiInvestmentPrecheckSummary({
-    overview: {
-      operation_to_investment_handoff: {
-        status: 'investment_precheck_blocked_by_operation_roi',
-        target_service: 'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-        target_entry: '/api/investment-decision/overview',
-        source_scope: 'ctrip_ota_channel_to_operation_roi',
-        source_channels: ['ctrip'],
-        upstream_operation_intake_status: 'operation_intake_blocked_by_manual_review',
-        operation_roi_ready: 0,
-        decision_allowed: false,
-        can_create_investment_decision: false,
-        blocked_reasons: ['closed_operating_roi_missing'],
-        forbidden_actions: ['create_investment_decision_from_ota_channel_only'],
-        investment_precheck_packet: {
-          status: 'blocked_by_operation_roi',
-          required_gate: 'operation_execution.roi_ready',
-          missing_evidence_codes: ['operation_execution.roi_ready'],
-          protected_boundary: 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-        },
-      },
-    },
-  });
-  check(
-    'public/revenue-ai-static.js',
-    'runtime helper exposes investment precheck as readonly blocked state',
-    investmentSummary.visible === true
-      && investmentSummary.targetEntry === '/api/investment-decision/overview'
-      && investmentSummary.requiredGate === 'operation_execution.roi_ready'
-      && investmentSummary.decisionAllowed === false
-      && investmentSummary.canCreateInvestmentDecision === false
-      && investmentSummary.autoWriteOta === false
-      && investmentSummary.missingEvidenceCodes.includes('operation_execution.roi_ready')
-      && investmentSummary.forbiddenActions.includes('create_investment_decision_from_ota_channel_only'),
-    JSON.stringify(investmentSummary)
   );
 
   const effectRows = helpers.buildRevenueAiEffectReviewRows({

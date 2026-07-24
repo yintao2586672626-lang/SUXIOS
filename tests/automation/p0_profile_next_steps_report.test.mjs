@@ -117,7 +117,6 @@ test('P0 Profile next-step report exposes only sanitized login and verifier acti
       'revenue_analysis',
       'ai_decision_advice',
       'operation_closure',
-      'investment_judgment',
     ]);
     assert(payload.downstream_gate.blocking_missing_inputs.includes('current_session_probe_verified'));
     assert(payload.downstream_gate.allowed_claims.includes('no_whole_hotel_or_downstream_closure_claim'));

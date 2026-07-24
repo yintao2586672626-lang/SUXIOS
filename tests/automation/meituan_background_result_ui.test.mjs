@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
+const meituanStaticHash = createHash('sha256').update(meituanStatic).digest('hex').slice(0, 10);
 
 const sliceFrom = (source, needle, endNeedle) => {
   const start = source.indexOf(needle);
@@ -17,7 +20,7 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
   const taskBuilder = sliceFrom(meituanStatic, 'const buildMeituanBatchFetchTasks = ({', 'const buildMeituanBatchFetchResultEntry');
   const fetchFlow = sliceFrom(meituanStatic, 'const runMeituanBatchFetchFlow = async ({', 'const buildMeituanRankDisplayRows');
   const pendingSetup = sliceFrom(meituanStatic, 'const results = fetchTasks.map', 'let totalSavedCount = 0;');
-  const acceptedLoopUpdate = sliceFrom(meituanStatic, 'results[index] = buildMeituanBatchFetchResultEntry', '            }));');
+  const acceptedLoopUpdate = sliceFrom(meituanStatic, 'const bestEntry = buildMeituanBatchFetchResultEntry', '            }));');
   const acceptedBranch = sliceFrom(meituanStatic, 'if (acceptedCount > 0) {', 'const modelRes = await requestDisplayModel');
   const failedBranch = sliceFrom(meituanStatic, 'if (fetchTasks.length > 0 && failedCount === fetchTasks.length) {', 'const modelRes = await requestDisplayModel');
 
@@ -33,14 +36,14 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
   assert.match(taskBuilder, /system_hotel_id: form\.hotelId/);
   assert.doesNotMatch(taskBuilder, /\b(?:cookies?|auth_data|authorization|token|spidertoken|mtgsig|headers)\s*:/i);
   assert.match(fetchFlow, /await Promise\.all\(fetchTasks\.map\(async \(task, index\) => \{/);
-  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: false, background: false \};/);
-  assert.doesNotMatch(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: true, background: true \};/);
+  assert.match(fetchFlow, /background = false/);
+  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: background === true, background: background === true \};/);
   assert.doesNotMatch(fetchFlow, /setHotelsList\(\[\]\);/);
   assert.doesNotMatch(pendingSetup, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
   assert.match(failedBranch, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
   assert.match(failedBranch, /return \{ status: loginFailed \? 'login_required' : 'failed'/);
   assert.match(pendingSetup, /setOnlineDataResult\(\[\.\.\.results\]\);/);
-  assert.match(pendingSetup, /setFetchSuccess\(true\);/);
+  assert.doesNotMatch(pendingSetup, /setFetchSuccess\(true\);/);
 
   assert.match(meituanStatic, /const isMeituanPendingResult = \(result = \{\}\)/);
   assert.match(meituanStatic, /const isMeituanBackgroundResult = \(result = \{\}\)/);
@@ -69,4 +72,32 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
   assert.match(acceptedBranch, /refreshOnlineData\(\)/);
   assert.match(acceptedBranch, /return \{ status: 'accepted', results, acceptedCount, totalSavedCount \};/);
   assert.doesNotMatch(acceptedBranch, /unexpected_background/);
+});
+
+test('Meituan ranking production flow commits deferred candidates through the authenticated endpoint', () => {
+  const productionFlow = sliceFrom(html, 'const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
+
+  assert.match(
+    productionFlow,
+    /requestCommit:\s*body\s*=>\s*request\('\/online-data\/meituan\/rank-candidates\/commit'/
+  );
+});
+
+test('Meituan production flow invalidates stale runs when the hotel changes', () => {
+  const productionFlow = sliceFrom(html, 'const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
+  const hotelWatcher = sliceFrom(html, 'watch(() => meituanForm.value.hotelId, () => {', 'watch(() => meituanForm.value.dateRanges');
+
+  assert.match(html, /let meituanFetchRunToken = 0;/);
+  assert.match(productionFlow, /const runToken = \+\+meituanFetchRunToken;/);
+  assert.match(productionFlow, /const isActive = \(\) => runToken === meituanFetchRunToken;/);
+  assert.match(productionFlow, /isActive,/);
+  assert.match(productionFlow, /if \(preparingConfig && isActive\(\)\)/);
+  assert.match(hotelWatcher, /meituanFetchRunToken \+= 1;/);
+});
+
+test('Meituan ranking candidate flow ships with a fresh browser cache key', () => {
+  assert.match(
+    html,
+    new RegExp(`meituan-static\\.js\\?v=[^"']*h${meituanStaticHash}`)
+  );
 });

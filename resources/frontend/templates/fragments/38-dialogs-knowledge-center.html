@@ -1,0 +1,229 @@
+        <!-- 智能知识中枢：单元编辑 -->
+        <div v-if="showKnowledgeCenterUnitModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <h3 class="text-lg font-semibold">{{ knowledgeCenterForm.unit_id ? '编辑经验单元' : '新增经验单元' }}</h3>
+                    <button @click="showKnowledgeCenterUnitModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="saveKnowledgeUnit" class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">经验名称 *</label>
+                        <input v-model="knowledgeCenterForm.name" type="text" required="" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">绑定门店</label>
+                            <select v-model="knowledgeCenterForm.hotel_id" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="0">通用知识</option>
+                                <option v-for="hotel in knowledgeCenterHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">来源</label>
+                            <select v-model="knowledgeCenterForm.source" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option v-for="source in knowledgeCenterSourceOptions" :key="source" :value="source">{{ knowledgeCenterSourceLabel(source) }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
+                            <select v-model="knowledgeCenterForm.status" class="w-full px-4 py-2 border rounded-lg">
+                                <option value="pending">待处理</option>
+                                <option value="done">已完成</option>
+                                <option value="error">异常</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
+                        <input v-model="knowledgeCenterForm.tags" type="text" placeholder="逗号分隔，如 收益管理,前厅,OTA,复盘" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                        <textarea v-model="knowledgeCenterForm.description" rows="3" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div class="flex justify-end space-x-3 pt-4">
+                        <button type="button" @click="showKnowledgeCenterUnitModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="submit" :disabled="userSaving" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60">
+                            <i v-if="userSaving" class="fas fa-spinner fa-spin mr-1"></i>{{ userSaving ? '保存中' : '保存' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 智能知识中枢：资料导入 -->
+        <div v-if="showKnowledgeCenterImportModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-xl mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <h3 class="text-lg font-semibold">复制粘贴门店文档</h3>
+                    <button @click="showKnowledgeCenterImportModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="importKnowledgeUnits" class="p-4 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">绑定门店 *</label>
+                            <select v-model="knowledgeCenterImportForm.hotel_id" required="" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">请选择门店</option>
+                                <option v-for="hotel in knowledgeCenterHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">读取模型</label>
+                            <select v-model="knowledgeCenterImportForm.model_key" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option v-for="model in availableAiModelOptions" :key="model.value" :value="model.value">{{ model.label }}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">标签</label>
+                        <input v-model="knowledgeCenterImportForm.tags" type="text" placeholder="逗号分隔，如 点评SOP,卫生整改" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">文档内容 *</label>
+                        <div class="mb-2 border border-dashed border-gray-300 rounded-lg bg-gray-50 px-3 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2" tabindex="0" @paste="handleKnowledgeDocumentPaste" @dragover.prevent="" @drop.prevent="handleKnowledgeDocumentDrop">
+                            <div class="min-w-0 flex items-center gap-2 text-sm text-gray-600">
+                                <i class="fas fa-file-lines text-blue-500"></i>
+                                <span class="font-medium text-gray-700">粘贴 / 拖入文档</span>
+                                <span v-if="knowledgeCenterImportReading" class="text-blue-600">读取中...</span>
+                                <span v-else-if="knowledgeCenterImportDocumentNotice" class="truncate">{{ knowledgeCenterImportDocumentNotice }}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button type="button" @click="focusKnowledgeDocumentTextarea" class="px-3 py-1.5 border rounded-lg text-sm hover:bg-white">
+                                    <i class="fas fa-paste mr-1"></i>粘贴正文
+                                </button>
+                                <button type="button" @click="openKnowledgeDocumentFilePicker" :disabled="knowledgeCenterImportReading" class="px-3 py-1.5 border rounded-lg text-sm hover:bg-white disabled:opacity-60">
+                                    <i class="fas fa-file-import mr-1"></i>选择文档
+                                </button>
+                            </div>
+                            <input ref="knowledgeDocumentFileInput" type="file" class="hidden" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.docx" multiple="" @change="handleKnowledgeDocumentFileSelect">
+                        </div>
+                        <p v-if="knowledgeCenterImportDocumentError" class="text-xs text-red-600 mb-2">{{ knowledgeCenterImportDocumentError }}</p>
+                        <textarea v-model="knowledgeCenterImportForm.raw" rows="10" ref="knowledgeDocumentTextarea" @paste="handleKnowledgeDocumentPaste" @dragover.prevent="" @drop.prevent="handleKnowledgeDocumentDrop" placeholder="从 Word、飞书、微信、会议纪要、SOP 或复盘文档中复制内容，直接粘贴到这里。多个文档可用空行分隔。" class="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm leading-6 resize-y"></textarea>
+                    </div>
+                    <div class="flex justify-end space-x-3 pt-4">
+                        <button type="button" @click="showKnowledgeCenterImportModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="submit" :disabled="knowledgeCenterImporting || knowledgeCenterImportReading" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-60">
+                            {{ knowledgeCenterImporting ? '读取中...' : (knowledgeCenterImportReading ? '文档读取中...' : '让 AI 读取') }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 智能知识中枢：片段查看 -->
+        <div v-if="showKnowledgeCenterChunksModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[88vh] overflow-hidden flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <div>
+                        <h3 class="text-lg font-semibold">{{ knowledgeCenterSelectedUnit?.name || '知识片段' }}</h3>
+                        <p class="text-sm text-gray-500">{{ knowledgeCenterVisibleChunks.length }} 个匹配片段<span v-if="knowledgeCenterVisibleChunks.length !== knowledgeCenterChunks.length">（共 {{ knowledgeCenterChunks.length }} 个）</span></p>
+                    </div>
+                    <button @click="showKnowledgeCenterChunksModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-hidden">
+                    <div class="lg:col-span-2 space-y-3 max-h-[68vh] overflow-y-auto pr-1">
+                        <div v-for="chunk in knowledgeCenterVisibleChunks" :key="chunk.chunk_id" class="border border-gray-100 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium">{{ chunk.type || 'manual' }}</span>
+                                <span class="text-xs text-gray-400">#{{ chunk.chunk_id }} · {{ chunk.created_at || '-' }}</span>
+                            </div>
+                            <template v-for="view in [knowledgeChunkView(chunk)]" :key="'chunk-view-' + chunk.chunk_id">
+                                <h4 v-if="view.title" class="text-base font-semibold text-gray-900 mb-2">{{ view.title }}</h4>
+                                <div v-if="view.summary" class="text-sm text-gray-700 leading-6">{{ view.summary }}</div>
+                                <div v-if="view.sopFields.length" class="mt-3 space-y-2">
+                                    <div v-for="field in view.sopFields" :key="field.label + field.value" class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm leading-6">
+                                        <div class="font-semibold text-gray-700">{{ field.label || '内容' }}</div>
+                                        <div class="mt-1 whitespace-pre-wrap text-gray-700">{{ field.value || '未填写' }}</div>
+                                    </div>
+                                </div>
+                                <div v-if="view.steps.length || view.acceptanceCriteria.length" class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div v-if="view.steps.length" class="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                                        <div class="text-xs font-semibold text-emerald-800 mb-1">执行步骤</div>
+                                        <ol class="space-y-1 text-xs leading-5 text-emerald-900"><li v-for="(item, index) in view.steps" :key="item">{{ index + 1 }}. {{ item }}</li></ol>
+                                    </div>
+                                    <div v-if="view.acceptanceCriteria.length" class="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                                        <div class="text-xs font-semibold text-amber-800 mb-1">验收条件</div>
+                                        <ul class="space-y-1 text-xs leading-5 text-amber-900"><li v-for="item in view.acceptanceCriteria" :key="item">- {{ item }}</li></ul>
+                                    </div>
+                                </div>
+                                <div v-if="view.worksheetHeaders.length" class="mt-3 overflow-x-auto rounded-lg border border-gray-200">
+                                    <table class="min-w-full text-xs">
+                                        <thead class="bg-gray-50"><tr><th v-for="header in view.worksheetHeaders" :key="header" class="px-3 py-2 text-left font-semibold text-gray-600">{{ header }}</th></tr></thead>
+                                        <tbody><tr v-for="(row, rowIndex) in view.worksheetRows" :key="rowIndex" class="border-t border-gray-100"><td v-for="(cell, cellIndex) in row" :key="cellIndex" class="px-3 py-2 text-gray-700">{{ cell || '待填写' }}</td></tr></tbody>
+                                    </table>
+                                </div>
+                                <div v-if="view.profileRows.length" class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div v-for="row in view.profileRows" :key="row.label" class="rounded border border-gray-100 bg-gray-50 px-3 py-2 text-xs">
+                                        <span class="text-gray-500">{{ row.label }}：</span>
+                                        <span class="text-gray-800">{{ row.value }}</span>
+                                    </div>
+                                </div>
+                                <div v-if="view.facts.length || view.actions.length || view.boundaries.length" class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    <div v-if="view.facts.length">
+                                        <div class="text-xs font-semibold text-gray-500 mb-1">事实</div>
+                                        <ul class="space-y-1 text-xs text-gray-700">
+                                            <li v-for="item in view.facts" :key="item">- {{ item }}</li>
+                                        </ul>
+                                    </div>
+                                    <div v-if="view.actions.length">
+                                        <div class="text-xs font-semibold text-gray-500 mb-1">动作</div>
+                                        <ul class="space-y-1 text-xs text-gray-700">
+                                            <li v-for="item in view.actions" :key="item">- {{ item }}</li>
+                                        </ul>
+                                    </div>
+                                    <div v-if="view.boundaries.length">
+                                        <div class="text-xs font-semibold text-gray-500 mb-1">边界</div>
+                                        <ul class="space-y-1 text-xs text-gray-700">
+                                            <li v-for="item in view.boundaries" :key="item">- {{ item }}</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div v-if="view.metaRows.length" class="mt-3 flex flex-wrap gap-2">
+                                    <span v-for="row in view.metaRows" :key="row.label" class="px-2 py-1 rounded bg-slate-50 text-slate-600 text-xs">{{ row.label }}：{{ row.value }}</span>
+                                </div>
+                                <div v-if="view.taskTemplate" class="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                        <div>
+                                            <div class="text-sm font-semibold text-blue-900">可生成运营任务草稿</div>
+                                            <div class="text-xs text-blue-700 mt-1">带入步骤、验收条件、来源版本与7天截止日期；仍需人工审批。</div>
+                                        </div>
+                                        <button type="button" @click="createKnowledgeSopTask(chunk)" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 whitespace-nowrap">转运营任务</button>
+                                    </div>
+                                </div>
+                                <details v-if="view.rawText" class="mt-3 rounded-lg border border-gray-100 bg-gray-50">
+                                    <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-gray-600">查看原文</summary>
+                                    <pre class="px-3 pb-3 text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">{{ view.rawText }}</pre>
+                                </details>
+                                <details class="mt-2 rounded-lg border border-gray-100 bg-gray-50">
+                                    <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-gray-600">查看完整 JSON</summary>
+                                    <pre class="px-3 pb-3 text-xs text-gray-700 overflow-auto whitespace-pre-wrap max-h-56">{{ view.fullJson }}</pre>
+                                </details>
+                            </template>
+                        </div>
+                        <div v-if="knowledgeCenterVisibleChunks.length === 0" class="border border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-500">当前筛选条件下暂无匹配片段</div>
+                    </div>
+                    <form v-if="knowledgeCenterSelectedUnit?.can_edit !== false" @submit.prevent="saveKnowledgeChunk" class="border border-gray-100 rounded-lg p-4 space-y-4 h-fit">
+                        <h4 class="font-semibold text-gray-800">新增经验片段</h4>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">类型</label>
+                            <input v-model="knowledgeCenterChunkForm.type" type="text" placeholder="视频 / 链接 / 文本 / 策略复盘" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">内容 JSON</label>
+                            <textarea v-model="knowledgeCenterChunkForm.content" rows="8" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"></textarea>
+                        </div>
+                        <button type="submit" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">写入片段</button>
+                    </form>
+                    <div v-else class="border border-blue-100 bg-blue-50 rounded-lg p-4 h-fit text-sm text-blue-800">
+                        <div class="font-semibold">系统参考知识（只读）</div>
+                        <p class="mt-2 leading-6">可检索、查看并用于生成运营任务；来源版本由系统维护，避免门店误改公共模板。</p>
+                    </div>
+                </div>
+            </div>
+        </div>

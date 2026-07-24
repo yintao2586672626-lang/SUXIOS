@@ -3,10 +3,15 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\controller\Base;
 use app\controller\RevenueAi;
 use app\model\PriceSuggestion;
+use app\model\User;
+use app\service\RevenuePricingRecommendationService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use ReflectionProperty;
+use RuntimeException;
 use Tests\Support\ReflectionHelper;
 
 final class RevenueAiControllerTest extends TestCase
@@ -177,5 +182,139 @@ final class RevenueAiControllerTest extends TestCase
         self::assertFalse($payload['local_price_updated']);
         self::assertFalse($payload['ota_write']);
         self::assertSame('operation_execution_manual_evidence', $payload['next_action']);
+    }
+
+    public function testExecutionIntentPayloadTargetsCreatedOperationTask(): void
+    {
+        $payload = $this->invokeNonPublic($this->controller(), 'priceSuggestionExecutionIntentPayload', [[
+            'id' => 88,
+            'hotel_id' => 7,
+            'status' => PriceSuggestion::STATUS_APPROVED,
+        ], [
+            'id' => 99,
+            'hotel_id' => 7,
+            'status' => 'approved',
+            'tasks' => [
+                ['id' => 101, 'status' => 'pending_execute'],
+                ['id' => 102, 'status' => 'pending_execute'],
+            ],
+        ], false]);
+
+        self::assertTrue($payload['operation_task_created']);
+        self::assertSame(102, $payload['operation_task']['id']);
+        self::assertSame('record_execution', $payload['target_action']);
+        self::assertSame(102, $payload['target_id']);
+        self::assertSame('task', $payload['target_kind']);
+        self::assertSame('operation_task_manual_execution_evidence', $payload['next_action']);
+        self::assertFalse($payload['auto_write_ota']);
+    }
+
+    public function testTrustedDecisionConfirmationGateRequiresVerifiedSourceAndDenominator(): void
+    {
+        $trusted = [
+            'contract_version' => RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION,
+            'sources' => ['status' => 'verified', 'ref_count' => 1],
+            'metric_formula' => ['status' => 'calculable', 'denominator' => 280],
+            'data_quality' => ['status' => 'verified', 'decision_eligible' => true],
+            'confidence' => ['status' => 'available', 'score' => 0.82],
+            'human_confirmation' => ['can_confirm' => true],
+        ];
+
+        $this->invokeNonPublic($this->controller(), 'assertTrustedDecisionCanBeConfirmed', [$trusted]);
+        self::assertTrue(true);
+
+        $trusted['metric_formula'] = [
+            'status' => 'not_calculable',
+            'denominator' => null,
+            'display' => '不可计算',
+        ];
+        try {
+            $this->invokeNonPublic($this->controller(), 'assertTrustedDecisionCanBeConfirmed', [$trusted]);
+            self::fail('Missing denominator unexpectedly passed the trusted decision gate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(422, $e->getCode());
+            self::assertStringContainsString('metric_denominator', $e->getMessage());
+        }
+    }
+
+    public function testApproveToTaskBooleanInputIsExplicit(): void
+    {
+        self::assertTrue($this->invokeNonPublic($this->controller(), 'booleanInput', [true]));
+        self::assertTrue($this->invokeNonPublic($this->controller(), 'booleanInput', ['1']));
+        self::assertFalse($this->invokeNonPublic($this->controller(), 'booleanInput', ['false']));
+    }
+
+    public function testBasicHotelMemberCannotReviewOrCreateExecutionIntent(): void
+    {
+        $controller = $this->controllerWithPermissions([]);
+        $suggestion = $this->suggestionForHotel(7);
+
+        foreach (['can_use_ai_decision', 'operation.execute'] as $permission) {
+            try {
+                $this->invokeNonPublic($controller, 'priceSuggestionHotelScope', [$suggestion, $permission]);
+                self::fail('Basic hotel member unexpectedly received Revenue AI write capability: ' . $permission);
+            } catch (RuntimeException $e) {
+                self::assertSame(403, $e->getCode());
+                self::assertSame('revenue_ai_permission_denied:' . $permission, $e->getMessage());
+            }
+        }
+    }
+
+    public function testAuthorizedRolesPassOnlyTheirRevenueAiWriteCapability(): void
+    {
+        $suggestion = $this->suggestionForHotel(7);
+        $reviewController = $this->controllerWithPermissions(['can_use_ai_decision']);
+        self::assertSame(
+            [[7], 7],
+            $this->invokeNonPublic($reviewController, 'priceSuggestionHotelScope', [$suggestion, 'can_use_ai_decision'])
+        );
+
+        try {
+            $this->invokeNonPublic($reviewController, 'priceSuggestionHotelScope', [$suggestion, 'operation.execute']);
+            self::fail('AI decision reviewer unexpectedly received operation.execute');
+        } catch (RuntimeException $e) {
+            self::assertSame(403, $e->getCode());
+            self::assertSame('revenue_ai_permission_denied:operation.execute', $e->getMessage());
+        }
+
+        $executionController = $this->controllerWithPermissions(['operation.execute']);
+        self::assertSame(
+            [[7], 7],
+            $this->invokeNonPublic($executionController, 'priceSuggestionHotelScope', [$suggestion, 'operation.execute'])
+        );
+    }
+
+    /** @param array<int, string> $permissions */
+    private function controllerWithPermissions(array $permissions): RevenueAi
+    {
+        $controller = $this->controller();
+        $user = $this->getMockBuilder(User::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['isSuperAdmin', 'getPermittedHotelIds', 'hasHotelPermission'])
+            ->getMock();
+        $user->method('isSuperAdmin')->willReturn(false);
+        $user->method('getPermittedHotelIds')->willReturn([7]);
+        $user->method('hasHotelPermission')->willReturnCallback(
+            static fn(int $hotelId, string $permission): bool => $hotelId === 7
+                && in_array($permission, $permissions, true)
+        );
+
+        $currentUser = new ReflectionProperty(Base::class, 'currentUser');
+        $currentUser->setAccessible(true);
+        $currentUser->setValue($controller, $user);
+
+        return $controller;
+    }
+
+    private function suggestionForHotel(int $hotelId): PriceSuggestion
+    {
+        $suggestion = $this->getMockBuilder(PriceSuggestion::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__get'])
+            ->getMock();
+        $suggestion->method('__get')->willReturnCallback(
+            static fn(string $name): mixed => $name === 'hotel_id' ? $hotelId : null
+        );
+        return $suggestion;
     }
 }

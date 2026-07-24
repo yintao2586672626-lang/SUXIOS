@@ -1,0 +1,108 @@
+                    <div v-if="currentPage === 'roles'">
+                        <!-- 角色权限说明卡片 -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div class="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-5 text-white">
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
+                                        <i class="fas fa-user-shield text-xl"></i>
+                                    </div>
+                                    <div class="font-semibold">超级管理员</div>
+                                </div>
+                                <div class="text-red-100 text-sm">拥有系统所有权限，可管理酒店、用户、角色及系统配置</div>
+                            </div>
+                            <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-5 text-white">
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
+                                        <i class="fas fa-user-tie text-xl"></i>
+                                    </div>
+                                    <div class="font-semibold">内测用户</div>
+                                </div>
+                                <div class="text-orange-100 text-sm">发给可信内测方；按角色能力开放授权门店查看/采集，不开放用户和系统配置</div>
+                            </div>
+                            <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-5 text-white">
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div class="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
+                                        <i class="fas fa-user text-xl"></i>
+                                    </div>
+                                    <div class="font-semibold">普通用户</div>
+                                </div>
+                                <div class="text-green-100 text-sm">发给外部试用或门店员工；必须分配门店，只读授权 OTA 数据，不开放采集和高风险操作</div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="p-5 border-b border-gray-100 flex justify-between items-center">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-gray-800">角色权限</h3>
+                                    <p class="text-sm text-gray-400 mt-1">管理系统角色及其权限配置</p>
+                                </div>
+                                <button @click="openRoleModal()" class="btn-primary">
+                                    <i class="fas fa-plus mr-2"></i>添加角色
+                                </button>
+                            </div>
+                            <div class="table-container overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr>
+                                            <th class="px-6 py-4 text-left">ID</th>
+                                            <th class="px-6 py-4 text-left">角色名称</th>
+                                            <th class="px-6 py-4 text-left">发放边界</th>
+                                            <th class="px-6 py-4 text-left">权限摘要</th>
+                                            <th class="px-6 py-4 text-left">标识</th>
+                                            <th class="px-6 py-4 text-left">等级</th>
+                                            <th class="px-6 py-4 text-left">用户数</th>
+                                            <th class="px-6 py-4 text-left">状态</th>
+                                            <th class="px-6 py-4 text-left">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="r in rolesList" :key="r.id">
+                                            <td class="px-6 py-4 text-gray-500">#{{ r.id }}</td>
+                                            <td class="px-6 py-4 font-semibold text-gray-800">{{ r.display_name }}</td>
+                                            <td class="px-6 py-4 min-w-[16rem]">
+                                                <div class="text-sm font-medium text-slate-700">{{ roleIssueProfile(r).audience }}</div>
+                                                <div class="mt-1 text-xs text-slate-500 leading-5">{{ roleIssueProfile(r).boundary }}</div>
+                                            </td>
+                                            <td class="px-6 py-4 min-w-[15rem]">
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    <span v-for="tag in rolePermissionTags(roleIssueProfile(r))" :key="`${r.id}-${tag.text}`" :class="['rounded-full border px-2 py-0.5 text-[11px] font-medium', tag.class]">
+                                                        {{ tag.text }}
+                                                    </span>
+                                                </div>
+                                                <div class="mt-2 text-xs text-slate-500">已选 {{ rolePermissionList(r).length }} 项权限</div>
+                                                <div v-if="roleIssueProfile(r).issueBlockers?.length" class="mt-1 text-xs leading-5 text-amber-700">
+                                                    {{ roleIssueProfile(r).issueBlockers[0] }}
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4"><code class="bg-gray-100 px-2 py-1 rounded text-sm text-gray-600">{{ r.name }}</code></td>
+                                            <td class="px-6 py-4">
+                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{{ r.level }}</span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-sm">
+                                                    <i class="fas fa-user text-xs mr-1.5 text-gray-400"></i>{{ r.users?.length || 0 }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span :class="r.status === 1 ? 'badge-success' : 'badge-danger'" class="badge">
+                                                    {{ r.status === 1 ? '正常' : '禁用' }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <div class="flex items-center gap-2">
+                                                    <button @click="openRoleModal(r)" class="action-btn action-btn-edit" title="编辑">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button v-if="![1,2,3].includes(r.id)" @click="deleteRole(r)" class="action-btn action-btn-delete" title="删除">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Revenue AI 首页壳 -->

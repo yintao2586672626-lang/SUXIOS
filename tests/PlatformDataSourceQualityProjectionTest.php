@@ -172,6 +172,30 @@ final class PlatformDataSourceQualityProjectionTest extends TestCase
         self::assertStringContainsString("->whereOr('data_period', 'not in', ['next_7_days', 'next_30_days', 'forecast', 'future_forecast'])", $source);
     }
 
+    public function testPlatformDataTaskResponseDoesNotExposePartialOrFailedWorkAsSuccess(): void
+    {
+        $controller = (new ReflectionClass(OnlineData::class))->newInstanceWithoutConstructor();
+
+        $success = $this->invokeNonPublic($controller, 'platformDataTaskResponse', [[
+            'status' => 'success',
+            'saved_count' => 2,
+        ], '同步']);
+        $partial = $this->invokeNonPublic($controller, 'platformDataTaskResponse', [[
+            'status' => 'partial_success',
+            'saved_count' => 1,
+        ], '同步']);
+        $failed = $this->invokeNonPublic($controller, 'platformDataTaskResponse', [[
+            'status' => 'failed',
+            'saved_count' => 0,
+        ], '同步']);
+
+        self::assertSame(200, $success->getCode());
+        self::assertSame(422, $partial->getCode());
+        self::assertSame(500, $failed->getCode());
+        self::assertSame(1, json_decode($partial->getContent(), true)['data']['saved_count']);
+        self::assertSame(0, json_decode($failed->getContent(), true)['data']['saved_count']);
+    }
+
     public function testCollectionStatusRowExposesOnlySafeTaskQualitySnapshot(): void
     {
         $controller = (new ReflectionClass(OnlineData::class))->newInstanceWithoutConstructor();

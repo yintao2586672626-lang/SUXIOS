@@ -11,59 +11,94 @@ class Lifecycle extends Base
     public function overview(): Response
     {
         $hotelIds = $this->resolveHotelIds();
+        $stages = [
+            $this->investmentStage(),
+            $this->openingStage($hotelIds),
+            $this->operationStage($hotelIds),
+            $this->revenueStage($hotelIds),
+            $this->transferStage($hotelIds),
+        ];
+        $stageStatuses = array_column($stages, 'status');
+        $overviewStatus = in_array('unavailable', $stageStatuses, true) || in_array('partial', $stageStatuses, true)
+            ? 'partial'
+            : 'ready';
 
         return $this->success([
             'generated_at' => date('Y-m-d H:i:s'),
-            'stages' => [
-                $this->investmentStage(),
-                $this->openingStage($hotelIds),
-                $this->operationStage($hotelIds),
-                $this->revenueStage($hotelIds),
-                $this->transferStage($hotelIds),
-            ],
+            'status' => $overviewStatus,
+            'scope_note' => '仅汇总当前账号可读取的模块记录；记录数不代表数据来源已验证，也不代表业务动作已执行。',
+            'stages' => $stages,
         ]);
     }
 
     private function investmentStage(): array
     {
-        $count = $this->safeInt(fn() => Db::name('feasibility_reports')->whereNull('deleted_at')->count());
-        $latest = $this->safeRow(fn() => Db::name('feasibility_reports')->whereNull('deleted_at')->order('id', 'desc')->find());
+        $reportQuery = fn() => $this->withCurrentUser(Db::name('feasibility_reports'), 'created_by')
+            ->whereNull('deleted_at');
+        $countRead = $this->readInt(fn() => $reportQuery()->count());
+        $latestRead = $this->readRow(fn() => $reportQuery()->order('id', 'desc')->find());
+        $count = $countRead['value'];
+        $latest = is_array($latestRead['value']) ? $latestRead['value'] : [];
 
-        return $this->stage('investment', 'Investment', $count > 0 ? 'active' : 'pending', [
+        return $this->stage('investment', '投资测算', $this->stageStatus([$countRead, $latestRead], ($count ?? 0) > 0), [
             ['label' => 'reports', 'value' => $count],
-            ['label' => 'latest_grade', 'value' => (string)($latest['conclusion_grade'] ?? '-')],
-            ['label' => 'latest_project', 'value' => (string)($latest['project_name'] ?? '-')],
+            ['label' => 'latest_grade', 'value' => $latest['conclusion_grade'] ?? null],
+            ['label' => 'latest_project', 'value' => $latest['project_name'] ?? null],
         ]);
     }
 
     private function openingStage(array $hotelIds): array
     {
-        $projectQuery = fn() => Db::name('opening_projects');
-        $projectIds = $this->safeArray(fn() => $projectQuery()->column('id'));
+        $projectQuery = fn() => $this->withCurrentUser(
+            $this->withHotelIds(Db::name('opening_projects'), $hotelIds, 'hotel_id'),
+            'created_by'
+        );
+        $projectIdsRead = $this->readArray(fn() => $projectQuery()->column('id'));
+        $projectIds = $projectIdsRead['value'];
         $taskQuery = function () use ($projectIds) {
             $query = Db::name('opening_tasks');
             return empty($projectIds) ? $query->whereRaw('1=0') : $query->whereIn('project_id', array_map('intval', $projectIds));
         };
-        $projectCount = $this->safeInt(fn() => $projectQuery()->count());
-        $openTaskCount = $this->safeInt(fn() => $taskQuery()->whereIn('status', ['todo', 'doing', 'blocked'])->count());
-        $overdueTaskCount = $this->safeInt(fn() => $taskQuery()->where('deadline', '<', date('Y-m-d'))->whereNotIn('status', ['done'])->count());
-        $avgScore = $this->safeFloat(fn() => $projectQuery()->avg('overall_score'));
+        $projectCountRead = $this->readInt(fn() => $projectQuery()->count());
+        $openTaskRead = $projectIdsRead['ok']
+            ? $this->readInt(fn() => $taskQuery()->whereIn('status', ['todo', 'doing', 'blocked'])->count())
+            : $this->failedRead();
+        $overdueTaskRead = $projectIdsRead['ok']
+            ? $this->readInt(fn() => $taskQuery()->where('deadline', '<', date('Y-m-d'))->whereNotIn('status', ['done'])->count())
+            : $this->failedRead();
+        $avgScoreRead = $this->readFloat(fn() => $projectQuery()->avg('overall_score'));
+        $projectCount = $projectCountRead['value'];
+        $openTaskCount = $openTaskRead['value'];
+        $overdueTaskCount = $overdueTaskRead['value'];
+        $avgScore = $avgScoreRead['value'];
 
-        return $this->stage('opening', 'Opening', $projectCount > 0 ? 'active' : 'pending', [
+        return $this->stage('opening', '筹开管理', $this->stageStatus([
+            $projectIdsRead,
+            $projectCountRead,
+            $openTaskRead,
+            $overdueTaskRead,
+            $avgScoreRead,
+        ], ($projectCount ?? 0) > 0), [
             ['label' => 'projects', 'value' => $projectCount],
             ['label' => 'open_tasks', 'value' => $openTaskCount],
             ['label' => 'overdue_tasks', 'value' => $overdueTaskCount],
-            ['label' => 'avg_score', 'value' => round($avgScore, 1)],
+            ['label' => 'avg_score', 'value' => $avgScore === null ? null : round($avgScore, 1)],
         ]);
     }
 
     private function operationStage(array $hotelIds): array
     {
-        $alerts = $this->safeInt(fn() => $this->withHotelIds(Db::name('operation_alerts'), $hotelIds, 'hotel_id')->where('status', 'unread')->whereNull('deleted_at')->count());
-        $actions = $this->safeInt(fn() => $this->withHotelIds(Db::name('operation_action_tracks'), $hotelIds, 'hotel_id')->where('status', 'active')->whereNull('deleted_at')->count());
-        $onlineRows = $this->safeInt(fn() => $this->withHotelIds(Db::name('online_daily_data'), $hotelIds, 'system_hotel_id')->count());
+        $alertsRead = $this->readInt(fn() => $this->withHotelIds(Db::name('operation_alerts'), $hotelIds, 'hotel_id')->where('status', 'unread')->whereNull('deleted_at')->count());
+        $actionsRead = $this->readInt(fn() => $this->withHotelIds(Db::name('operation_action_tracks'), $hotelIds, 'hotel_id')->where('status', 'active')->whereNull('deleted_at')->count());
+        $onlineRowsRead = $this->readInt(fn() => $this->withHotelIds(Db::name('online_daily_data'), $hotelIds, 'system_hotel_id')->count());
+        $alerts = $alertsRead['value'];
+        $actions = $actionsRead['value'];
+        $onlineRows = $onlineRowsRead['value'];
 
-        return $this->stage('operation', 'Operation', ($alerts + $actions + $onlineRows) > 0 ? 'active' : 'pending', [
+        return $this->stage('operation', '运营管理', $this->stageStatus(
+            [$alertsRead, $actionsRead, $onlineRowsRead],
+            (($alerts ?? 0) + ($actions ?? 0) + ($onlineRows ?? 0)) > 0
+        ), [
             ['label' => 'unread_alerts', 'value' => $alerts],
             ['label' => 'active_actions', 'value' => $actions],
             ['label' => 'ota_rows', 'value' => $onlineRows],
@@ -72,11 +107,17 @@ class Lifecycle extends Base
 
     private function revenueStage(array $hotelIds): array
     {
-        $pending = $this->safeInt(fn() => $this->withHotelIds(Db::name('price_suggestions'), $hotelIds, 'hotel_id')->where('status', 1)->count());
-        $applied = $this->safeInt(fn() => $this->withHotelIds(Db::name('price_suggestions'), $hotelIds, 'hotel_id')->where('status', 4)->count());
-        $forecasts = $this->safeInt(fn() => $this->withHotelIds(Db::name('demand_forecasts'), $hotelIds, 'hotel_id')->where('forecast_date', '>=', date('Y-m-d'))->count());
+        $pendingRead = $this->readInt(fn() => $this->withHotelIds(Db::name('price_suggestions'), $hotelIds, 'hotel_id')->where('status', 1)->count());
+        $appliedRead = $this->readInt(fn() => $this->withHotelIds(Db::name('price_suggestions'), $hotelIds, 'hotel_id')->where('status', 4)->count());
+        $forecastsRead = $this->readInt(fn() => $this->withHotelIds(Db::name('demand_forecasts'), $hotelIds, 'hotel_id')->where('forecast_date', '>=', date('Y-m-d'))->count());
+        $pending = $pendingRead['value'];
+        $applied = $appliedRead['value'];
+        $forecasts = $forecastsRead['value'];
 
-        return $this->stage('revenue', 'Revenue', ($pending + $applied + $forecasts) > 0 ? 'active' : 'pending', [
+        return $this->stage('revenue', '收益分析', $this->stageStatus(
+            [$pendingRead, $appliedRead, $forecastsRead],
+            (($pending ?? 0) + ($applied ?? 0) + ($forecasts ?? 0)) > 0
+        ), [
             ['label' => 'pending_prices', 'value' => $pending],
             ['label' => 'applied_prices', 'value' => $applied],
             ['label' => 'future_forecasts', 'value' => $forecasts],
@@ -85,10 +126,18 @@ class Lifecycle extends Base
 
     private function transferStage(array $hotelIds): array
     {
-        $simulations = $this->safeInt(fn() => Db::name('strategy_simulation_records')->count());
-        $competitorLogs = $this->safeInt(fn() => $this->withHotelIds(Db::name('competitor_price_log'), $hotelIds, 'hotel_id')->count());
+        $simulationsRead = $this->readInt(fn() => $this->withCurrentUser(
+            Db::name('strategy_simulation_records'),
+            'created_by'
+        )->count());
+        $competitorLogsRead = $this->readInt(fn() => $this->withHotelIds(Db::name('competitor_price_log'), $hotelIds, 'store_id')->count());
+        $simulations = $simulationsRead['value'];
+        $competitorLogs = $competitorLogsRead['value'];
 
-        return $this->stage('transfer', 'Transfer', ($simulations + $competitorLogs) > 0 ? 'active' : 'pending', [
+        return $this->stage('transfer', '转让决策', $this->stageStatus(
+            [$simulationsRead, $competitorLogsRead],
+            (($simulations ?? 0) + ($competitorLogs ?? 0)) > 0
+        ), [
             ['label' => 'strategy_simulations', 'value' => $simulations],
             ['label' => 'competitor_price_logs', 'value' => $competitorLogs],
         ]);
@@ -100,9 +149,26 @@ class Lifecycle extends Base
             'key' => $key,
             'title' => $title,
             'status' => $status,
-            'status_text' => $status === 'active' ? 'linked' : 'waiting_data',
+            'status_text' => [
+                'active' => '有可读记录',
+                'pending' => '暂无记录',
+                'partial' => '部分来源不可用',
+                'unavailable' => '来源不可用',
+            ][$status] ?? '状态未核验',
             'metrics' => $metrics,
         ];
+    }
+
+    private function stageStatus(array $reads, bool $hasRecords): string
+    {
+        $availableCount = count(array_filter($reads, static fn(array $read): bool => !empty($read['ok'])));
+        if ($availableCount === 0) {
+            return 'unavailable';
+        }
+        if ($availableCount < count($reads)) {
+            return 'partial';
+        }
+        return $hasRecords ? 'active' : 'pending';
     }
 
     private function resolveHotelIds(): array
@@ -111,50 +177,74 @@ class Lifecycle extends Base
             return [];
         }
         $ids = array_map('intval', $this->currentUser->getPermittedHotelIds());
+        $ids = array_values(array_filter(
+            $ids,
+            fn(int $hotelId): bool => $hotelId > 0
+                && $this->currentUser->hasHotelPermission($hotelId, 'can_use_investment')
+        ));
         return empty($ids) ? [0] : $ids;
+    }
+
+    private function withCurrentUser($query, string $field)
+    {
+        if (!$this->currentUser || $this->currentUser->isSuperAdmin()) {
+            return $query;
+        }
+        $userId = (int)($this->currentUser->id ?? 0);
+        return $userId > 0 ? $query->where($field, $userId) : $query->whereRaw('1 = 0');
     }
 
     private function withHotelIds($query, array $hotelIds, string $field)
     {
+        $hadExplicitScope = $hotelIds !== [];
         $hotelIds = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
+        if ($hadExplicitScope && empty($hotelIds)) {
+            return $query->whereRaw('1 = 0');
+        }
         return empty($hotelIds) ? $query : $query->whereIn($field, $hotelIds);
     }
 
-    private function safeInt(callable $reader): int
+    private function readInt(callable $reader): array
     {
         try {
-            return (int)$reader();
+            return ['ok' => true, 'value' => (int)$reader()];
         } catch (\Throwable $e) {
-            return 0;
+            return $this->failedRead();
         }
     }
 
-    private function safeFloat(callable $reader): float
-    {
-        try {
-            return (float)$reader();
-        } catch (\Throwable $e) {
-            return 0.0;
-        }
-    }
-
-    private function safeRow(callable $reader): array
-    {
-        try {
-            $row = $reader();
-            return is_array($row) ? $row : [];
-        } catch (\Throwable $e) {
-            return [];
-        }
-    }
-
-    private function safeArray(callable $reader): array
+    private function readFloat(callable $reader): array
     {
         try {
             $value = $reader();
-            return is_array($value) ? $value : [];
+            return ['ok' => true, 'value' => $value === null ? null : (float)$value];
         } catch (\Throwable $e) {
-            return [];
+            return $this->failedRead();
         }
+    }
+
+    private function readRow(callable $reader): array
+    {
+        try {
+            $row = $reader();
+            return ['ok' => true, 'value' => is_array($row) ? $row : []];
+        } catch (\Throwable $e) {
+            return $this->failedRead();
+        }
+    }
+
+    private function readArray(callable $reader): array
+    {
+        try {
+            $value = $reader();
+            return ['ok' => true, 'value' => is_array($value) ? $value : []];
+        } catch (\Throwable $e) {
+            return $this->failedRead();
+        }
+    }
+
+    private function failedRead(): array
+    {
+        return ['ok' => false, 'value' => null];
     }
 }

@@ -11,6 +11,7 @@ use Throwable;
 class OpeningService
 {
     private LlmClient $client;
+    private AiDecisionQualityService $decisionQualityService;
     private int $actorUserId = 0;
     private bool $actorIsSuperAdmin = false;
 
@@ -33,9 +34,10 @@ class OpeningService
         '开业营销推广' => 5,
     ];
 
-    public function __construct(?LlmClient $client = null)
+    public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
         $this->client = $client ?: new LlmClient();
+        $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
     }
 
     public function forActor(int $userId, bool $isSuperAdmin): self
@@ -61,9 +63,10 @@ class OpeningService
     {
         $now = $this->now();
         $hotelName = trim((string)$input['hotel_name']);
+        $hotelId = $this->resolveProjectHotelId($input, $hotelIds);
 
         $data = [
-            'hotel_id' => $this->resolveProjectHotelId($input, $hotelIds),
+            'hotel_id' => $hotelId,
             'project_name' => trim((string)$input['project_name']),
             'hotel_name' => $hotelName,
             'city' => trim((string)($input['city'] ?? '')),
@@ -82,7 +85,7 @@ class OpeningService
         ];
 
         return (int)Db::name('opening_projects')->insertGetId(
-            $this->withTenantId($data, 'opening_projects', $this->resolveProjectTenantId($hotelIds))
+            $this->withTenantId($data, 'opening_projects', $this->resolveProjectTenantId($hotelId))
         );
     }
 
@@ -91,9 +94,9 @@ class OpeningService
         $query = Db::name('opening_projects')
             ->where('status', '<>', 'archived')
             ->order('id', 'desc');
-        $this->applyOwnerScope($query, $userId, $isSuperAdmin);
+        $this->applyProjectScope($query, $hotelIds, $userId, $isSuperAdmin);
 
-        $projects = array_map([$this, 'normalizeProject'], $query->select()->toArray());
+        $projects = $this->attachProjectTaskTruth(array_map([$this, 'normalizeProject'], $query->select()->toArray()));
         $intentIds = $this->executionIntentIdsForProjects(array_column($projects, 'id'));
         foreach ($projects as &$project) {
             $project['execution_intent_id'] = (int)($intentIds[(int)$project['id']] ?? 0);
@@ -118,6 +121,9 @@ class OpeningService
         }
         if (array_key_exists('hotel_id', $input)) {
             $data['hotel_id'] = $this->resolveProjectHotelId($input, $hotelIds, (int)($project['hotel_id'] ?? 0), false);
+            if ($this->tableHasColumn('opening_projects', 'tenant_id')) {
+                $data['tenant_id'] = $this->resolveProjectTenantId((int)$data['hotel_id']);
+            }
         }
         if (array_key_exists('opening_date', $input)) {
             $data['opening_date'] = $this->normalizeDate((string)$input['opening_date']);
@@ -162,14 +168,23 @@ class OpeningService
         return [
             'project' => $metrics['project'],
             'metrics' => $metrics['metrics'],
+            'truth_context' => $metrics['truth_context'],
             'ai_suggestions' => $metrics['ai_suggestions'],
+            'ai_recommendations' => $metrics['ai_recommendations'],
+            'recommendation_quality' => $metrics['recommendation_quality'],
+            'ai_suggestions_source' => $metrics['opening_suggestion_source'],
+            'opening_suggestions' => $metrics['opening_suggestions'],
+            'opening_suggestion_source' => $metrics['opening_suggestion_source'],
+            'opening_suggestion_source_label' => $metrics['opening_suggestion_source_label'],
             'high_risk_tasks' => array_values(array_filter($tasks, static fn(array $task): bool => $task['risk_level'] === self::RISK_HIGH)),
             'overdue_tasks' => array_values(array_filter($tasks, static fn(array $task): bool => !empty($task['is_overdue']))),
             'category_progress' => $metrics['category_progress'],
             'recent_result' => [
                 'overall_score' => $metrics['project']['overall_score'],
+                'overall_score_status' => $metrics['project']['overall_score_status'],
                 'risk_level' => $metrics['project']['risk_level'],
                 'updated_at' => $metrics['project']['updated_at'],
+                'truth' => $metrics['metrics']['metric_truth']['overall_score'],
             ],
             'history' => $this->recentProjects($hotelIds, $projectId, $userId, $isSuperAdmin),
         ];
@@ -251,7 +266,11 @@ class OpeningService
             $data['status'] = $status;
         }
         if (array_key_exists('progress_percent', $input)) {
-            $data['progress_percent'] = $this->normalizeProgressPercent($input['progress_percent']);
+            $progressPercent = $this->normalizeProgressPercent($input['progress_percent']);
+            if ($progressPercent === null) {
+                throw new \InvalidArgumentException('任务进度不能为空');
+            }
+            $data['progress_percent'] = $progressPercent;
         }
 
         if (array_key_exists('status', $data) && $data['status'] === self::STATUS_DONE) {
@@ -296,9 +315,12 @@ class OpeningService
 
         $metrics = $this->calculateMetrics($project, $tasks, false);
         Db::name('opening_projects')->where('id', $projectId)->update([
-            'overall_score' => $metrics['project']['overall_score'],
+            // The legacy column is NOT NULL. The API truth context keeps this
+            // compatibility zero separate from a genuinely calculated score.
+            'overall_score' => $metrics['project']['overall_score'] ?? 0,
             'risk_level' => $metrics['project']['risk_level'],
-            'ai_penetration_rate' => $metrics['project']['ai_penetration_rate'],
+            // 数据库旧列为 NOT NULL；空任务集仍以 0 保存兼容值，API 用 data_status 表达无数据。
+            'ai_penetration_rate' => $metrics['project']['ai_penetration_rate'] ?? 0,
             'updated_at' => $this->now(),
         ]);
 
@@ -308,7 +330,7 @@ class OpeningService
     public function requireProject(int $projectId, array $hotelIds, int $userId = 0, bool $isSuperAdmin = false): array
     {
         $project = Db::name('opening_projects')->where('id', $projectId)->find();
-        if (!$project || !$this->canAccessOwnedProject($project, $userId, $isSuperAdmin)) {
+        if (!$project || !$this->canAccessOwnedProject($project, $hotelIds, $userId, $isSuperAdmin)) {
             throw new \RuntimeException('开业项目不存在');
         }
 
@@ -373,49 +395,292 @@ class OpeningService
     {
         $total = count($tasks);
         $done = count(array_filter($tasks, static fn(array $task): bool => $task['status'] === self::STATUS_DONE));
-        $progressTotal = array_sum(array_map(fn(array $task): int => $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO)), $tasks));
+        $progress = $this->progressSummary($tasks);
         $core = array_values(array_filter($tasks, static fn(array $task): bool => (int)$task['is_core'] === 1));
         $coreDone = count(array_filter($core, static fn(array $task): bool => $task['status'] === self::STATUS_DONE));
         $highRisk = count(array_filter($tasks, static fn(array $task): bool => $task['risk_level'] === self::RISK_HIGH));
         $overdue = count(array_filter($tasks, static fn(array $task): bool => !empty($task['is_overdue'])));
-        $aiTasks = array_values(array_filter($tasks, static fn(array $task): bool => trim((string)$task['ai_suggestion']) !== ''));
-        $aiProgressTotal = array_sum(array_map(fn(array $task): int => $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO)), $aiTasks));
+        $suggestedTasks = array_values(array_filter($tasks, static fn(array $task): bool => trim((string)($task['ai_suggestion'] ?? '')) !== ''));
+        $suggestedTaskProgress = $this->progressSummary($suggestedTasks);
+        $suggestionSourceCounts = [];
+        foreach ($suggestedTasks as $task) {
+            $source = $this->taskSuggestionSource($task);
+            $suggestionSourceCounts[$source] = ($suggestionSourceCounts[$source] ?? 0) + 1;
+        }
         $categoryProgress = $this->categoryProgress($tasks);
+        $suggestionBundle = $withSuggestions
+            ? $this->buildOpeningSuggestionBundle($project, $tasks, $highRisk, $overdue)
+            : [
+                'items' => [],
+                'recommendations' => [],
+                'recommendation_quality' => $this->decisionQualityService->summarize([], ['scope' => 'opening_project']),
+                'source' => 'not_generated',
+                'source_label' => '本次未生成',
+            ];
 
-        $score = 0.0;
-        foreach (self::SCORE_WEIGHTS as $category => $weight) {
-            $score += (($categoryProgress[$category]['completion_rate'] ?? 0) * $weight / 100);
+        $score = $total > 0 ? 0.0 : null;
+        if ($score !== null) {
+            foreach (self::SCORE_WEIGHTS as $category => $weight) {
+                $completionRate = $categoryProgress[$category]['completion_rate'] ?? null;
+                $score += (is_numeric($completionRate) ? (float)$completionRate : 0.0) * $weight / 100;
+            }
         }
 
-        $riskLevel = self::RISK_LOW;
+        $riskLevel = $total === 0 ? self::RISK_MEDIUM : self::RISK_LOW;
         if ($highRisk > 0 || $overdue > 0) {
             $riskLevel = self::RISK_HIGH;
         } elseif ($total > $done) {
             $riskLevel = self::RISK_MEDIUM;
         }
 
-        $project['overall_score'] = round($score, 1);
+        $project['overall_score'] = $score === null ? null : round($score, 1);
+        $project['overall_score_status'] = $total === 0
+            ? 'no_tasks'
+            : ($progress['data_status'] === 'complete' ? 'calculated' : 'partial');
         $project['risk_level'] = $riskLevel;
-        $project['ai_penetration_rate'] = count($aiTasks) > 0 ? round($aiProgressTotal / count($aiTasks), 1) : 0;
+        // 兼容数据库旧字段：它保存的是“含建议任务的平均进度”，不是 AI 渗透率。
+        $project['ai_penetration_rate'] = $suggestedTaskProgress['progress_rate'];
+        $project['suggested_task_progress_rate'] = $suggestedTaskProgress['progress_rate'];
+        $project['suggestion_metric_source'] = 'opening_task.progress_percent';
+
+        $truthContext = $this->openingMetricsTruthContext($project, $tasks, $progress);
+        foreach ($categoryProgress as &$categoryRow) {
+            $categoryRow['truth'] = $this->openingMetricTruth(
+                $truthContext,
+                'category_completion_rate:' . (string)($categoryRow['category'] ?? ''),
+                $categoryRow['completion_rate'] ?? null
+            );
+        }
+        unset($categoryRow);
+
+        $metricValues = [
+            'days_left' => $this->daysLeft((string)$project['opening_date']),
+            'overall_score' => $project['overall_score'],
+            'total_tasks' => $total,
+            'completed_tasks' => $done,
+            'completion_rate' => $total > 0 ? round($done / $total * 100, 1) : null,
+            'progress_rate' => $progress['progress_rate'],
+            'recorded_progress_rate' => $progress['recorded_progress_rate'],
+            'progress_recorded_tasks' => $progress['recorded'],
+            'progress_missing_tasks' => $progress['missing'],
+            'progress_data_status' => $progress['data_status'],
+            'core_tasks' => count($core),
+            'core_completed_tasks' => $coreDone,
+            'core_completion_rate' => count($core) > 0 ? round($coreDone / count($core) * 100, 1) : null,
+            'high_risk_count' => $highRisk,
+            'overdue_count' => $overdue,
+            'suggested_task_count' => count($suggestedTasks),
+            'suggestion_coverage_rate' => $total > 0 ? round(count($suggestedTasks) / $total * 100, 1) : null,
+            'suggested_task_progress_rate' => $suggestedTaskProgress['progress_rate'],
+            'suggested_task_recorded_progress_rate' => $suggestedTaskProgress['recorded_progress_rate'],
+            'suggested_task_progress_recorded_tasks' => $suggestedTaskProgress['recorded'],
+            'suggested_task_progress_missing_tasks' => $suggestedTaskProgress['missing'],
+            'suggested_task_progress_data_status' => $suggestedTaskProgress['data_status'],
+            'task_suggestion_source_counts' => $suggestionSourceCounts,
+            // Legacy aliases stay readable, while truth metadata prevents scope inflation.
+            'ai_covered_tasks' => count($suggestedTasks),
+            'ai_penetration_rate' => $project['ai_penetration_rate'],
+            'data_status' => $total === 0 ? 'no_tasks' : $progress['data_status'],
+        ];
+        $metricValues['metric_truth'] = $this->openingMetricTruthMap($metricValues, $truthContext);
+        $metricValues['legacy_field_definitions'] = [
+            'ai_covered_tasks' => 'suggested_task_count 的兼容别名，包含规则模板建议',
+            'ai_penetration_rate' => 'suggested_task_progress_rate 的兼容别名，不代表 AI 渗透率',
+        ];
 
         return [
             'project' => $project,
-            'metrics' => [
-                'days_left' => $this->daysLeft((string)$project['opening_date']),
-                'total_tasks' => $total,
-                'completed_tasks' => $done,
-                'completion_rate' => $total > 0 ? round($done / $total * 100, 1) : 0,
-                'progress_rate' => $total > 0 ? round($progressTotal / $total, 1) : 0,
-                'core_tasks' => count($core),
-                'core_completed_tasks' => $coreDone,
-                'core_completion_rate' => count($core) > 0 ? round($coreDone / count($core) * 100, 1) : 0,
-                'high_risk_count' => $highRisk,
-                'overdue_count' => $overdue,
-                'ai_covered_tasks' => count($aiTasks),
-                'ai_penetration_rate' => $project['ai_penetration_rate'],
-            ],
+            'metrics' => $metricValues,
+            'truth_context' => $truthContext,
             'category_progress' => array_values($categoryProgress),
-            'ai_suggestions' => $withSuggestions ? $this->buildOpeningSuggestions($project, $tasks, $highRisk, $overdue) : [],
+            'ai_suggestions' => $suggestionBundle['items'],
+            'ai_recommendations' => $suggestionBundle['recommendations'],
+            'recommendation_quality' => $suggestionBundle['recommendation_quality'],
+            'opening_suggestions' => $suggestionBundle['items'],
+            'opening_suggestion_source' => $suggestionBundle['source'],
+            'opening_suggestion_source_label' => $suggestionBundle['source_label'],
+        ];
+    }
+
+    /**
+     * Opening metrics describe an internal preparation checklist. They never
+     * prove OTA go-live or whole-hotel operating performance.
+     *
+     * @param array<int, array<string, mixed>> $tasks
+     * @param array<string, mixed> $progress
+     * @return array<string, mixed>
+     */
+    private function openingMetricsTruthContext(array $project, array $tasks, array $progress): array
+    {
+        $projectId = (int)($project['id'] ?? 0);
+        $hotelId = (int)($project['hotel_id'] ?? 0);
+        $taskIds = array_values(array_filter(array_map(
+            static fn(array $task): int => (int)($task['id'] ?? 0),
+            $tasks
+        ), static fn(int $id): bool => $id > 0));
+        $updatedAt = array_values(array_filter(array_merge(
+            [trim((string)($project['updated_at'] ?? ''))],
+            array_map(static fn(array $task): string => trim((string)($task['updated_at'] ?? '')), $tasks)
+        ), static fn(string $value): bool => $value !== ''));
+        sort($updatedAt);
+
+        $gaps = [];
+        if ($projectId <= 0) {
+            $gaps[] = 'project_readback_missing';
+        }
+        if ($hotelId <= 0) {
+            $gaps[] = 'target_hotel_missing';
+        }
+        if ($tasks === []) {
+            $gaps[] = 'opening_checklist_missing';
+        } elseif (($progress['data_status'] ?? '') !== 'complete') {
+            $gaps[] = 'task_progress_incomplete';
+        }
+
+        $status = match (true) {
+            $projectId <= 0 || $tasks === [] => 'unverified',
+            $hotelId <= 0 => 'binding_missing',
+            ($progress['data_status'] ?? '') !== 'complete' => 'partial',
+            default => 'verified',
+        };
+        $failureReasons = [];
+        if ($projectId <= 0) {
+            $failureReasons[] = '项目记录未完成数据库回读';
+        }
+        if ($hotelId <= 0) {
+            $failureReasons[] = '项目未绑定目标门店';
+        }
+        if ($tasks === []) {
+            $failureReasons[] = '检查清单尚未生成，完成率与总评分不可计算';
+        } elseif (($progress['data_status'] ?? '') !== 'complete') {
+            $failureReasons[] = '部分任务进度未记录';
+        }
+
+        return [
+            'status' => $status,
+            'status_label' => match ($status) {
+                'verified' => '已验证',
+                'binding_missing' => '未绑定门店',
+                'partial' => '部分数据',
+                default => '未验证',
+            },
+            'metric_scope' => 'opening_project',
+            'scope_label' => '开业准备项目口径，不代表OTA已上线或全酒店经营实绩',
+            'hotels' => $hotelId > 0 ? [[
+                'id' => $hotelId,
+                'name' => trim((string)($project['hotel_name'] ?? '')),
+            ]] : [],
+            'hotel_id' => $hotelId > 0 ? $hotelId : null,
+            'platforms' => ['internal'],
+            'date_range' => [
+                'start' => trim((string)($project['opening_date'] ?? '')) ?: null,
+                'end' => trim((string)($project['opening_date'] ?? '')) ?: null,
+            ],
+            'source_methods' => ['manual_project_tracking', 'deterministic_checklist_formula'],
+            'source' => [
+                'table' => 'opening_projects,opening_tasks',
+                'row_ids' => array_values(array_merge($projectId > 0 ? [$projectId] : [], $taskIds)),
+                'trace_ids' => [],
+                'methods' => ['manual_project_tracking', 'deterministic_checklist_formula'],
+                'caliber' => 'opening_project',
+            ],
+            'collected_at_range' => ['start' => null, 'end' => null],
+            'collection_time_applicability' => 'not_applicable_internal_manual_tracking',
+            'updated_at_range' => [
+                'start' => $updatedAt[0] ?? null,
+                'end' => $updatedAt !== [] ? $updatedAt[count($updatedAt) - 1] : null,
+            ],
+            'persistence' => [
+                'stored' => $projectId > 0,
+                'readback_verified' => $projectId > 0,
+                'stored_count' => ($projectId > 0 ? 1 : 0) + count($taskIds),
+                'readback_verified_count' => ($projectId > 0 ? 1 : 0) + count($taskIds),
+            ],
+            'failure_reason' => $failureReasons === [] ? null : implode('；', $failureReasons),
+            'data_gaps' => $gaps,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $metricValues
+     * @param array<string, mixed> $truthContext
+     * @return array<string, array<string, mixed>>
+     */
+    private function openingMetricTruthMap(array $metricValues, array $truthContext): array
+    {
+        $truth = [];
+        foreach ([
+            'days_left',
+            'overall_score',
+            'total_tasks',
+            'completed_tasks',
+            'completion_rate',
+            'progress_rate',
+            'recorded_progress_rate',
+            'progress_recorded_tasks',
+            'progress_missing_tasks',
+            'core_tasks',
+            'core_completed_tasks',
+            'core_completion_rate',
+            'high_risk_count',
+            'overdue_count',
+            'suggested_task_count',
+            'suggestion_coverage_rate',
+            'suggested_task_progress_rate',
+            'suggested_task_recorded_progress_rate',
+            'suggested_task_progress_recorded_tasks',
+            'suggested_task_progress_missing_tasks',
+        ] as $metricKey) {
+            $truth[$metricKey] = $this->openingMetricTruth(
+                $truthContext,
+                $metricKey,
+                $metricValues[$metricKey] ?? null
+            );
+        }
+        return $truth;
+    }
+
+    /** @param array<string, mixed> $truthContext */
+    private function openingMetricTruth(array $truthContext, string $metricKey, mixed $value): array
+    {
+        $calculated = $value !== null && is_numeric($value) && is_finite((float)$value);
+        return array_merge($truthContext, [
+            'metric_key' => $metricKey,
+            'calculation_status' => $calculated ? 'calculated' : 'missing',
+            'value_observed' => $calculated,
+            'calculation_basis' => 'opening_checklist_formula',
+        ]);
+    }
+
+    private function progressSummary(array $tasks): array
+    {
+        $total = count($tasks);
+        $recorded = 0;
+        $sum = 0;
+        foreach ($tasks as $task) {
+            $progress = $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO));
+            if ($progress === null) {
+                continue;
+            }
+            $recorded++;
+            $sum += $progress;
+        }
+
+        $dataStatus = match (true) {
+            $total === 0 => 'no_tasks',
+            $recorded === 0 => 'missing',
+            $recorded < $total => 'partial',
+            default => 'complete',
+        };
+        $recordedProgressRate = $recorded > 0 ? round($sum / $recorded, 1) : null;
+
+        return [
+            'total' => $total,
+            'recorded' => $recorded,
+            'missing' => $total - $recorded,
+            'data_status' => $dataStatus,
+            'recorded_progress_rate' => $recordedProgressRate,
+            'progress_rate' => $recorded === $total && $total > 0 ? $recordedProgressRate : null,
         ];
     }
 
@@ -423,24 +688,31 @@ class OpeningService
     {
         $groups = [];
         foreach (array_keys(self::SCORE_WEIGHTS) as $category) {
-            $groups[$category] = ['category' => $category, 'total' => 0, 'done' => 0, 'completion_rate' => 0, 'progress_rate' => 0, 'progress_sum' => 0];
+            $groups[$category] = ['category' => $category, 'total' => 0, 'done' => 0, 'completion_rate' => null, 'progress_rate' => null, 'progress_sum' => 0, 'progress_recorded' => 0];
         }
 
         foreach ($tasks as $task) {
             $category = $this->scoreCategory((string)$task['category']);
             if (!isset($groups[$category])) {
-                $groups[$category] = ['category' => $category, 'total' => 0, 'done' => 0, 'completion_rate' => 0, 'progress_rate' => 0, 'progress_sum' => 0];
+                $groups[$category] = ['category' => $category, 'total' => 0, 'done' => 0, 'completion_rate' => null, 'progress_rate' => null, 'progress_sum' => 0, 'progress_recorded' => 0];
             }
             $groups[$category]['total']++;
-            $groups[$category]['progress_sum'] += $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO));
+            $progress = $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO));
+            if ($progress !== null) {
+                $groups[$category]['progress_sum'] += $progress;
+                $groups[$category]['progress_recorded']++;
+            }
             if ($task['status'] === self::STATUS_DONE) {
                 $groups[$category]['done']++;
             }
         }
 
         foreach ($groups as &$group) {
-            $group['completion_rate'] = $group['total'] > 0 ? round($group['done'] / $group['total'] * 100, 1) : 0;
-            $group['progress_rate'] = $group['total'] > 0 ? round($group['progress_sum'] / $group['total'], 1) : 0;
+            $group['completion_rate'] = $group['total'] > 0 ? round($group['done'] / $group['total'] * 100, 1) : null;
+            $group['recorded_progress_rate'] = $group['progress_recorded'] > 0 ? round($group['progress_sum'] / $group['progress_recorded'], 1) : null;
+            $group['progress_rate'] = $group['total'] > 0 && $group['progress_recorded'] === $group['total'] ? $group['recorded_progress_rate'] : null;
+            $group['progress_missing'] = $group['total'] - $group['progress_recorded'];
+            $group['progress_data_status'] = $group['total'] === 0 ? 'no_tasks' : ($group['progress_recorded'] === 0 ? 'missing' : ($group['progress_recorded'] < $group['total'] ? 'partial' : 'complete'));
             unset($group['progress_sum']);
         }
         unset($group);
@@ -463,22 +735,30 @@ class OpeningService
         $row['is_core'] = (int)($row['is_core'] ?? 0);
         $row['sort_order'] = (int)($row['sort_order'] ?? 0);
         $row['progress_percent'] = $this->normalizeProgressPercent($row['progress_percent'] ?? null, (string)($row['status'] ?? self::STATUS_TODO));
+        $row['progress_percent_known'] = $row['progress_percent'] !== null;
+        $row['suggestion_source'] = $this->taskSuggestionSource($row);
+        $row['suggestion_source_label'] = $row['suggestion_source'] === 'rule_template' ? '规则模板建议' : '无建议';
         $row['risk_level'] = $this->taskRiskLevel($row, $project);
         $row['is_overdue'] = $this->isOverdue($row);
         return $row;
     }
 
-    private function normalizeProgressPercent(mixed $value, string $status = self::STATUS_TODO): int
+    private function normalizeProgressPercent(mixed $value, string $status = self::STATUS_TODO): ?int
     {
         if ($value === null || $value === '') {
-            return match ($status) {
-                self::STATUS_DONE => 100,
-                self::STATUS_DOING => 50,
-                self::STATUS_BLOCKED => 25,
-                default => 0,
-            };
+            return null;
         }
         return max(0, min(100, (int)round((float)$value)));
+    }
+
+    private function taskSuggestionSource(array $task): string
+    {
+        if (trim((string)($task['ai_suggestion'] ?? '')) === '') {
+            return 'none';
+        }
+
+        // opening_tasks.ai_suggestion 由 taskTemplates 写入；历史字段名保留，但内容不是 AI 生成。
+        return 'rule_template';
     }
 
     private function taskRiskLevel(array $task, array $project): string
@@ -518,7 +798,7 @@ class OpeningService
         $deadline = fn(int $i): string => date('Y-m-d', strtotime($openingDate . ' ' . $days[$i] . ' days'));
         $positioningImpact = $this->positioningPreparationImpact($project);
 
-        return [
+        $templates = [
             ['category' => '证照合规', 'task_name' => '营业证照办理确认', 'task_desc' => '确认营业执照、特种行业许可、卫生许可等开业必要证照状态。', 'is_core' => true, 'deadline' => $deadline(0), 'acceptance_standard' => '证照清单完整，缺口项有责任人和补齐日期。', 'ai_suggestion' => '优先建立证照缺口台账，开业前7天仍未闭环的事项升级到店总。'],
             ['category' => '证照合规', 'task_name' => '消防与安全验收资料归档', 'task_desc' => '整理消防验收、安全巡检与应急预案资料。', 'is_core' => true, 'deadline' => $deadline(1), 'acceptance_standard' => '消防、安全资料可追溯，现场抽查无重大缺陷。', 'ai_suggestion' => '消防、安全关键词属于高优先级风险，建议提前做一次全员应急演练。'],
             ['category' => 'PMS系统配置', 'task_name' => 'PMS基础档案配置', 'task_desc' => '完成酒店、楼栋、楼层、房间、账号、权限和夜审规则配置。', 'is_core' => true, 'deadline' => $deadline(2), 'acceptance_standard' => 'PMS可完成入住、续住、换房、退房、夜审全流程。', 'ai_suggestion' => '先用测试订单跑通前台高频流程，再开放正式账号。'],
@@ -535,6 +815,11 @@ class OpeningService
             ['category' => '开业营销推广', 'task_name' => '开业营销素材发布', 'task_desc' => '完成开业海报、OTA促销、会员触达和本地渠道宣发。', 'is_core' => false, 'deadline' => $deadline(13), 'acceptance_standard' => '开业促销可见，渠道权益和价格口径一致。', 'ai_suggestion' => $positioningImpact['marketing']],
             ['category' => '财务收银风控', 'task_name' => '收银权限与风控检查', 'task_desc' => '确认收银权限、备用金、退款审批、交班稽核和异常账处理。', 'is_core' => true, 'deadline' => $deadline(14), 'acceptance_standard' => '支付、收银、退款、交班均可追溯。', 'ai_suggestion' => '支付和财务风控事项未完成默认高风险，需在试营业前闭环。'],
         ];
+
+        return array_map(static function (array $task): array {
+            $task['suggestion_source'] = 'rule_template';
+            return $task;
+        }, $templates);
     }
 
     private function positioningPreparationImpact(array $project): array
@@ -628,20 +913,108 @@ class OpeningService
 
     private function buildOpeningSuggestions(array $project, array $tasks, int $highRisk, int $overdue): array
     {
+        return $this->buildOpeningSuggestionBundle($project, $tasks, $highRisk, $overdue)['items'];
+    }
+
+    private function buildOpeningSuggestionBundle(array $project, array $tasks, int $highRisk, int $overdue): array
+    {
         if (empty($tasks)) {
-            return ['先生成标准开业检查清单，再按负责人和截止时间推进闭环。'];
+            return $this->formatOpeningSuggestionBundle(
+                ['先生成标准开业检查清单，再按负责人和截止时间推进闭环。'],
+                'rule_template',
+                '规则模板建议',
+                $project,
+                $tasks,
+                $highRisk,
+                $overdue
+            );
         }
 
         try {
             $aiSuggestions = $this->buildAiOpeningSuggestions($project, $tasks, $highRisk, $overdue);
             if (!empty($aiSuggestions)) {
-                return $aiSuggestions;
+                return $this->formatOpeningSuggestionBundle(
+                    $aiSuggestions,
+                    'llm',
+                    '大模型生成建议',
+                    $project,
+                    $tasks,
+                    $highRisk,
+                    $overdue
+                );
             }
         } catch (Throwable $e) {
             // AI 不可用时继续使用规则建议，避免影响开业总览加载。
         }
 
-        return $this->buildFallbackOpeningSuggestions($project, $tasks, $highRisk, $overdue);
+        return $this->formatOpeningSuggestionBundle(
+            $this->buildFallbackOpeningSuggestions($project, $tasks, $highRisk, $overdue),
+            'rule_fallback',
+            '规则兜底建议',
+            $project,
+            $tasks,
+            $highRisk,
+            $overdue
+        );
+    }
+
+    private function formatOpeningSuggestionBundle(
+        array $items,
+        string $source,
+        string $sourceLabel,
+        array $project,
+        array $tasks,
+        int $highRisk,
+        int $overdue
+    ): array {
+        $context = $this->openingDecisionQualityContext($project, $tasks, $highRisk, $overdue);
+        $recommendations = $this->decisionQualityService->enrichRecommendations($items, $context);
+
+        return [
+            'items' => array_values(array_filter(array_map(
+                static fn(mixed $item): string => trim((string)(is_array($item) ? ($item['action'] ?? $item['detail'] ?? '') : $item)),
+                $items
+            ))),
+            'recommendations' => $recommendations,
+            'recommendation_quality' => $this->decisionQualityService->summarize($recommendations, $context),
+            'source' => $source,
+            'source_label' => $sourceLabel,
+        ];
+    }
+
+    private function openingDecisionQualityContext(array $project, array $tasks, int $highRisk, int $overdue): array
+    {
+        $sources = [[
+            'ref' => 'opening_project#' . (int)($project['id'] ?? 0),
+            'source' => 'opening_project',
+            'date' => (string)($project['updated_at'] ?? ''),
+            'scope' => 'opening_project',
+            'quality_status' => (int)($project['id'] ?? 0) > 0 ? 'available' : 'user_provided_unverified',
+            'summary' => '开业日期、定位、房量和项目风险来自当前开业项目记录。',
+        ]];
+        foreach (array_slice($tasks, 0, 8) as $task) {
+            if (!is_array($task)) {
+                continue;
+            }
+            $sources[] = [
+                'ref' => 'opening_task#' . (int)($task['id'] ?? 0),
+                'source' => 'opening_tasks',
+                'date' => (string)($task['updated_at'] ?? $task['deadline'] ?? ''),
+                'scope' => 'opening_project',
+                'quality_status' => (int)($task['id'] ?? 0) > 0 ? 'available' : 'unverified',
+                'metric_keys' => ['status', 'progress_percent', 'risk_level', 'deadline'],
+                'summary' => (string)($task['task_name'] ?? ''),
+            ];
+        }
+
+        return [
+            'scope' => 'opening_project',
+            'hotel_id' => (int)($project['hotel_id'] ?? 0),
+            'data_basis' => $sources,
+            'basis_summary' => sprintf('高风险事项%d项，逾期事项%d项；仅表示开业准备项目记录，不代表OTA已上线或开业后经营效果。', $highRisk, $overdue),
+            'default_risk_level' => (string)($project['risk_level'] ?? ($highRisk > 0 || $overdue > 0 ? 'high' : 'medium')),
+            'review_window' => '在建议截止日和开业前最终验收节点，按任务回读、责任人确认和验收证据复核',
+        ];
     }
 
     private function buildAiOpeningSuggestions(array $project, array $tasks, int $highRisk, int $overdue): array
@@ -650,7 +1023,7 @@ class OpeningService
         $blockedTasks = array_values(array_filter($tasks, static fn(array $task): bool => ($task['status'] ?? '') === self::STATUS_BLOCKED));
         $highRiskTasks = array_values(array_filter($tasks, static fn(array $task): bool => ($task['risk_level'] ?? '') === self::RISK_HIGH));
         $overdueTasks = array_values(array_filter($tasks, static fn(array $task): bool => !empty($task['is_overdue'])));
-        $progressTotal = array_sum(array_map(fn(array $task): int => $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO)), $tasks));
+        $progress = $this->progressSummary($tasks);
 
         $messages = [
             [
@@ -677,7 +1050,11 @@ class OpeningService
                     'metrics' => [
                         'total_tasks' => count($tasks),
                         'done_tasks' => count(array_filter($tasks, static fn(array $task): bool => ($task['status'] ?? '') === self::STATUS_DONE)),
-                        'progress_rate' => count($tasks) > 0 ? round($progressTotal / count($tasks), 1) : 0,
+                        'progress_rate' => $progress['progress_rate'],
+                        'recorded_progress_rate' => $progress['recorded_progress_rate'],
+                        'progress_recorded_tasks' => $progress['recorded'],
+                        'progress_missing_tasks' => $progress['missing'],
+                        'progress_data_status' => $progress['data_status'],
                         'high_risk_count' => $highRisk,
                         'overdue_count' => $overdue,
                         'blocked_count' => count($blockedTasks),
@@ -697,14 +1074,15 @@ class OpeningService
 
     private function openingSuggestionTaskSnapshot(array $tasks): array
     {
-        return array_map(static fn(array $task): array => [
+        return array_map(fn(array $task): array => [
             'category' => (string)($task['category'] ?? ''),
             'task_name' => (string)($task['task_name'] ?? ''),
             'is_core' => (int)($task['is_core'] ?? 0),
             'owner_name' => (string)($task['owner_name'] ?? ''),
             'deadline' => (string)($task['deadline'] ?? ''),
             'status' => (string)($task['status'] ?? ''),
-            'progress_percent' => (int)($task['progress_percent'] ?? 0),
+            'progress_percent' => $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO)),
+            'progress_percent_known' => $this->normalizeProgressPercent($task['progress_percent'] ?? null, (string)($task['status'] ?? self::STATUS_TODO)) !== null,
             'risk_level' => (string)($task['risk_level'] ?? ''),
             'is_overdue' => !empty($task['is_overdue']),
             'remark' => mb_substr(trim((string)($task['remark'] ?? '')), 0, 80),
@@ -780,9 +1158,53 @@ class OpeningService
     private function recentProjects(array $hotelIds, int $currentProjectId, int $userId = 0, bool $isSuperAdmin = false): array
     {
         $query = Db::name('opening_projects')->where('id', '<>', $currentProjectId)->order('updated_at', 'desc')->limit(10);
-        $this->applyOwnerScope($query, $userId, $isSuperAdmin);
+        $this->applyProjectScope($query, $hotelIds, $userId, $isSuperAdmin);
 
-        return array_map([$this, 'normalizeProject'], $query->select()->toArray());
+        return $this->attachProjectTaskTruth(array_map([$this, 'normalizeProject'], $query->select()->toArray()));
+    }
+
+    /** @param array<int, array<string, mixed>> $projects */
+    private function attachProjectTaskTruth(array $projects): array
+    {
+        $projectIds = array_values(array_filter(array_map(
+            static fn(array $project): int => (int)($project['id'] ?? 0),
+            $projects
+        ), static fn(int $id): bool => $id > 0));
+        $counts = [];
+        $countReadbackVerified = $projectIds === [];
+        if ($projectIds !== []) {
+            try {
+                $rows = Db::name('opening_tasks')
+                    ->whereIn('project_id', $projectIds)
+                    ->field('project_id, COUNT(*) AS task_count')
+                    ->group('project_id')
+                    ->select()
+                    ->toArray();
+                foreach ($rows as $row) {
+                    $counts[(int)($row['project_id'] ?? 0)] = (int)($row['task_count'] ?? 0);
+                }
+                $countReadbackVerified = true;
+            } catch (Throwable $e) {
+                $counts = [];
+                $countReadbackVerified = false;
+            }
+        }
+
+        foreach ($projects as &$project) {
+            $projectId = (int)($project['id'] ?? 0);
+            $taskCount = $counts[$projectId] ?? 0;
+            $project['task_count'] = $countReadbackVerified ? $taskCount : null;
+            $project['overall_score_status'] = !$countReadbackVerified
+                ? 'task_count_readback_failed'
+                : ($taskCount > 0 ? 'calculated' : 'no_tasks');
+            if (!$countReadbackVerified || $taskCount === 0) {
+                // The database keeps a NOT NULL compatibility zero. Do not expose
+                // that storage default as an actual calculated score.
+                $project['overall_score'] = null;
+            }
+        }
+        unset($project);
+        return $projects;
     }
 
     private function applyOwnerScope($query, int $userId, bool $isSuperAdmin): void
@@ -799,9 +1221,36 @@ class OpeningService
         $query->where('created_by', $userId);
     }
 
-    private function canAccessOwnedProject(array $project, int $userId, bool $isSuperAdmin): bool
+    private function applyProjectScope($query, array $hotelIds, int $userId, bool $isSuperAdmin): void
     {
-        return $isSuperAdmin || ($userId > 0 && (int)($project['created_by'] ?? 0) === $userId);
+        if ($isSuperAdmin) {
+            return;
+        }
+
+        $this->applyOwnerScope($query, $userId, false);
+        $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
+        if ($ids === []) {
+            $query->whereRaw('1 = 0');
+            return;
+        }
+
+        $query->where(static function ($scopeQuery) use ($ids): void {
+            $scopeQuery->whereIn('hotel_id', $ids)->whereOr('hotel_id', 0);
+        });
+    }
+
+    private function canAccessOwnedProject(array $project, array $hotelIds, int $userId, bool $isSuperAdmin): bool
+    {
+        if ($isSuperAdmin) {
+            return true;
+        }
+        if ($userId <= 0 || (int)($project['created_by'] ?? 0) !== $userId) {
+            return false;
+        }
+
+        $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
+        $projectHotelId = (int)($project['hotel_id'] ?? 0);
+        return $ids !== [] && ($projectHotelId === 0 || in_array($projectHotelId, $ids, true));
     }
 
     private function normalizeProject(array $row): array
@@ -886,10 +1335,17 @@ class OpeningService
         };
     }
 
-    private function resolveProjectTenantId(array $hotelIds): int
+    private function resolveProjectTenantId(int $hotelId): int
     {
-        $ids = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
-        return count($ids) === 1 ? $ids[0] : 0;
+        if ($hotelId <= 0 || !$this->tableHasColumn('hotels', 'tenant_id')) {
+            return 0;
+        }
+
+        try {
+            return max(0, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
+        } catch (Throwable $e) {
+            return 0;
+        }
     }
 
     private function resolveProjectHotelId(array $input, array $hotelIds, int $currentHotelId = 0, bool $autoBindSingle = true): int

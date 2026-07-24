@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+backup_dir='/var/backups/suxios/mysql'
+backup_file=''
+env_file='/etc/suxios/suxios.env'
+
+while (($#)); do
+  case "$1" in
+    --backup) backup_file="$2"; shift 2 ;;
+    --env-file) env_file="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 64 ;;
+  esac
+done
+
+if [[ $EUID -ne 0 ]]; then
+  echo 'Run as root.' >&2
+  exit 77
+fi
+
+test -f "$env_file"
+database_line="$(grep -E '^[[:space:]]*DB_NAME[[:space:]]*=' "$env_file" | tail -n 1 || true)"
+database="${database_line#*=}"
+database="${database//$'\r'/}"
+database="${database#\"}"
+database="${database%\"}"
+database="${database#\'}"
+database="${database%\'}"
+if [[ ! "$database" =~ ^[A-Za-z0-9_]{1,64}$ ]]; then
+  echo 'Invalid or missing DB_NAME in the controlled environment file.' >&2
+  exit 65
+fi
+
+exec 9>/run/lock/suxios-db-restore-verify.lock
+if ! flock -n 9; then
+  echo 'restore_verify_skipped=already_running'
+  exit 0
+fi
+
+if [[ -z "$backup_file" ]]; then
+  backup_file="$(find "$backup_dir" -maxdepth 1 -type f \
+    -name "${database}_*.sql.gz" -printf '%T@ %p\n' \
+    | sort -nr | awk 'NR == 1 { sub(/^[^ ]+ /, ""); print; exit }')"
+fi
+
+if [[ -z "$backup_file" ]]; then
+  echo 'No database backup is available.' >&2
+  exit 66
+fi
+
+resolved_backup="$(readlink -f -- "$backup_file")"
+if [[ ! "$resolved_backup" =~ ^/var/backups/suxios/mysql/${database}_[0-9]{8}-[0-9]{6}\.sql\.gz$ ]]; then
+  echo 'Backup path is outside the controlled backup directory.' >&2
+  exit 65
+fi
+
+checksum_file="${resolved_backup}.sha256"
+test -s "$resolved_backup"
+test -s "$checksum_file"
+(
+  cd "$backup_dir"
+  sha256sum -c "$(basename "$checksum_file")"
+)
+gzip -t "$resolved_backup"
+
+verify_database="suxios_restore_verify_$(date '+%Y%m%d%H%M%S')_$$"
+if [[ ! "$verify_database" =~ ^suxios_restore_verify_[0-9_]+$ ]]; then
+  echo 'Invalid temporary database name.' >&2
+  exit 65
+fi
+
+cleanup() {
+  mariadb -e "DROP DATABASE IF EXISTS \`${verify_database}\`;" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+mariadb -e "CREATE DATABASE \`${verify_database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+gzip -dc -- "$resolved_backup" | mariadb "$verify_database"
+
+table_count="$(mariadb --batch --skip-column-names -e \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${verify_database}';")"
+schema_table_count="$(mariadb --batch --skip-column-names -e \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${verify_database}' AND table_name='schema_versions';")"
+critical_table_count="$(mariadb --batch --skip-column-names -e \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${verify_database}' AND table_name IN ('users', 'hotels');")"
+
+if [[ ! "$table_count" =~ ^[0-9]+$ || "$table_count" -lt 1 || "$schema_table_count" != '1' || "$critical_table_count" != '2' ]]; then
+  echo 'Restored database did not contain the expected schema.' >&2
+  exit 69
+fi
+
+schema_version_rows="$(mariadb --batch --skip-column-names -e \
+  "SELECT COUNT(*) FROM \`${verify_database}\`.schema_versions;")"
+user_rows="$(mariadb --batch --skip-column-names -e \
+  "SELECT COUNT(*) FROM \`${verify_database}\`.users;")"
+hotel_rows="$(mariadb --batch --skip-column-names -e \
+  "SELECT COUNT(*) FROM \`${verify_database}\`.hotels;")"
+if [[ ! "$schema_version_rows" =~ ^[0-9]+$ || "$schema_version_rows" -lt 1 ]]; then
+  echo 'Restored schema version ledger is empty.' >&2
+  exit 69
+fi
+
+logger -t suxios-db-restore-verify \
+  "restore verified: $(basename "$resolved_backup"), tables=$table_count, schema_versions=$schema_version_rows, users=$user_rows, hotels=$hotel_rows"
+printf 'RESTORE_VERIFIED backup=%s tables=%s schema_versions=%s users=%s hotels=%s\n' \
+  "$(basename "$resolved_backup")" "$table_count" "$schema_version_rows" "$user_rows" "$hotel_rows"

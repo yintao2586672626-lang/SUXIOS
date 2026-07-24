@@ -2670,6 +2670,16 @@ trait CtripProfileConfigConcern
 
     private function defaultCtripProfileFieldMeta(string $fieldKey): array
     {
+        $futureSearchMeta = CtripProfileFieldMetaService::futureSearch($fieldKey);
+        if ($futureSearchMeta !== []) {
+            return array_merge([
+                'source_interface' => 'querySearchFlowDetails',
+                'status' => 'confirmed',
+                'enabled' => true,
+                'notes' => '携程未来30天搜索热度；累计/昨日、本店/竞圈统一采集，保持 OTA 渠道口径。',
+            ], $futureSearchMeta);
+        }
+
         $flowMeta = CtripProfileFieldMetaService::flowTransform($fieldKey);
         if ($flowMeta !== []) {
             $flowSourceKeys = [

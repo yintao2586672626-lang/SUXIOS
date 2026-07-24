@@ -1,4 +1,15 @@
 import { spawnSync } from 'node:child_process';
+import { parseJsonTextSafely, safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
+
+function safeChildProcessDetail(result, label) {
+  return JSON.stringify({
+    code: `${label}_failed`,
+    exit_code: Number.isInteger(result?.status) ? result.status : null,
+    signal: String(result?.signal || ''),
+    stdout_bytes: Buffer.byteLength(String(result?.stdout || ''), 'utf8'),
+    stderr_bytes: Buffer.byteLength(String(result?.stderr || ''), 'utf8'),
+  });
+}
 
 const php = process.env.PHP_BIN || 'C:\\xampp\\php\\php.exe';
 const result = spawnSync(
@@ -8,23 +19,22 @@ const result = spawnSync(
 );
 
 if (result.error) {
-  console.error(`[hotel-ota-login-eligibility-behavior] failed to start PHP: ${result.error.message}`);
+  console.error('[hotel-ota-login-eligibility-behavior] failed to start PHP');
   process.exit(1);
 }
 
 if (result.status !== 0) {
   console.error('[hotel-ota-login-eligibility-behavior] verifier exited non-zero');
-  console.error(result.stderr || result.stdout);
+  console.error(safeChildProcessDetail(result, 'hotel_ota_login_eligibility'));
   process.exit(result.status ?? 1);
 }
 
 let report;
 try {
-  report = JSON.parse(result.stdout);
+  report = parseJsonTextSafely(result.stdout, 'hotel_ota_login_eligibility_json');
 } catch (error) {
   console.error('[hotel-ota-login-eligibility-behavior] verifier did not emit valid JSON');
-  console.error(error.message);
-  console.error(result.stdout.slice(0, 1000));
+  console.error(safeJsonParseErrorCode(error));
   process.exit(1);
 }
 
@@ -41,7 +51,10 @@ const missingHotelResult = spawnSync(
 
 let missingHotelReport = null;
 try {
-  missingHotelReport = JSON.parse(missingHotelResult.stdout || '{}');
+  missingHotelReport = parseJsonTextSafely(
+    missingHotelResult.stdout || '{}',
+    'hotel_ota_login_missing_hotel_json',
+  );
 } catch {
   missingHotelReport = null;
 }
@@ -93,7 +106,11 @@ check('summary blocked count matches emitted rows', Number(report.summary?.block
 check('summary strategy candidate count matches emitted rows', Number(report.summary?.strategy_candidate_hotels || 0) === strategies.length, `${report.summary?.strategy_candidate_hotels || 0} vs ${strategies.length}`);
 check('summary orphan count matches emitted rows', Number(report.summary?.orphan_source_groups || 0) === orphans.length, `${report.summary?.orphan_source_groups || 0} vs ${orphans.length}`);
 check('missing requested hotel exits non-zero', missingHotelResult.status !== 0, String(missingHotelResult.status));
-check('missing requested hotel emits hotel_not_found', Array.isArray(missingHotelReport?.issues) && missingHotelReport.issues.some((issue) => issue.code === 'hotel_not_found'), missingHotelResult.stdout.slice(0, 500));
+check(
+  'missing requested hotel emits hotel_not_found',
+  Array.isArray(missingHotelReport?.issues) && missingHotelReport.issues.some((issue) => issue.code === 'hotel_not_found'),
+  safeChildProcessDetail(missingHotelResult, 'hotel_ota_login_missing_hotel'),
+);
 check('missing requested hotel keeps zero platform rows explicit', Number(missingHotelReport?.summary?.platform_rows || 0) === 0, String(missingHotelReport?.summary?.platform_rows));
 check('row recheck commands use strict mode', rows.every((row) => String(row.recheck_command || '').includes('--strict')), rows.map((row) => row.recheck_command).slice(0, 3).join(' | '));
 check('strict single-store check exits non-zero for active blocked rows', activeBlockedRows.length === 0 || (strictBlockedResult && strictBlockedResult.status !== 0), strictBlockedResult ? String(strictBlockedResult.status) : 'no active blocked rows');

@@ -87,7 +87,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         return formatAutoFetchElapsed(seconds);
     };
     const autoFetchResultStatusText = (row) => {
-        if (row?.success) return '成功';
+        if (row?.readback_verified === true || row?.persistence_status === 'readback_verified') return '已回读核验';
+        if (row?.success) return '执行成功';
         if (row?.skipped) return '跳过';
         return '失败';
     };
@@ -116,21 +117,25 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
     const platformProfileMachineText = (value) => /[a-z]+[_-][a-z]+|\/api\/|https?:|[{}[\]=]/i.test(String(value || ''));
     const platformProfileStatusLabel = (item) => {
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
-        if (statusCode === 'cookies_incomplete') return 'Cookie incomplete';
-        if (statusCode === 'anti_bot') return 'Anti bot';
-        if (statusCode === 'session_expired') return 'Session expired';
-        if (statusCode === 'resource_busy_login') return 'Login busy';
+        if (statusCode === 'cookies_incomplete') return '授权信息不完整';
+        if (statusCode === 'anti_bot') return '需要人机验证';
+        if (statusCode === 'session_expired') return '授权已失效';
+        if (statusCode === 'resource_busy_login') return '授权任务占用中';
+        if (statusCode === 'platform_contract_drift') return '平台规则疑似变化';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '无权限';
         if (statusCode === 'hotel_mismatch') return '门店不匹配';
         const map = {
             unconfigured: '未配置',
             waiting_login: '登录待验证',
             logged_in: '登录态已验证',
-            session_expired: 'Session expired',
+            profile_reusable: '可直接尝试采集',
+            renewal_warning: '可采集·建议续登',
+            session_expired: '授权已失效',
             login_expired: '登录失效',
             login_required: '需要登录',
-            anti_bot: 'Anti bot',
-            resource_busy_login: 'Login busy',
+            anti_bot: '需要人机验证',
+            resource_busy_login: '授权任务占用中',
+            platform_contract_drift: '平台规则疑似变化',
             permission_denied: '无权限',
             no_permission: '无权限',
             unauthorized: '无权限',
@@ -155,7 +160,10 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         anti_bot: 'bg-red-50 text-red-700 border-red-200',
         session_expired: 'bg-red-50 text-red-700 border-red-200',
         resource_busy_login: 'bg-amber-50 text-amber-700 border-amber-200',
+        platform_contract_drift: 'bg-amber-50 text-amber-700 border-amber-200',
         logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        profile_reusable: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        renewal_warning: 'bg-amber-50 text-amber-700 border-amber-200',
         waiting_login: 'bg-amber-50 text-amber-700 border-amber-200',
         login_expired: 'bg-red-50 text-red-700 border-red-200',
         permission_denied: 'bg-red-50 text-red-700 border-red-200',
@@ -222,20 +230,26 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (statusCode === 'hotel_mismatch') return '重新绑定门店';
         if (statusCode === 'anti_bot') return '人工处理风控';
         if (statusCode === 'resource_busy_login') return '等待当前任务完成';
+        if (statusCode === 'platform_contract_drift') return '查看规则漂移证据';
         if (statusCode === 'session_expired') return '本机重新授权平台账号';
         if (item?.status_code === 'login_expired') return '本机重新授权平台账号';
-        return item?.platform === 'meituan' ? '本机授权美团' : '本机授权携程';
+        if (item?.platform === 'meituan') return '本机授权美团';
+        if (item?.platform === 'ctrip') return '本机授权携程';
+        return '先确认平台再授权';
     };
     const platformProfileNextActionText = (item) => {
         const raw = String(item?.next_action || '').trim();
         const statusCode = String(item?.status_code || '').trim().toLowerCase();
         if (statusCode === 'cookies_incomplete') return '账号使用者在本机刷新平台授权；页面可访问，但业务 Cookie/API 辅助内容不完整。';
-        if (statusCode === 'anti_bot') return 'Platform risk-control or human verification was detected; stop automated retries and complete verification in the authorized browser Profile.';
-        if (statusCode === 'resource_busy_login') return 'A login window or collector lock is active for this platform/store; wait for it to finish before starting another login.';
+        if (statusCode === 'anti_bot') return '已触发平台风控或人机验证；请停止自动重试，由账号使用者在已授权的浏览器 Profile 中完成验证。';
+        if (statusCode === 'resource_busy_login') return '当前平台或门店已有授权窗口或采集任务占用；请等待完成后再启动新的授权。';
+        if (statusCode === 'platform_contract_drift') return '平台返回与当前识别规则不一致；先查看同步日志并校准规则，不要反复登录。';
         if (statusCode === 'session_expired') return '平台授权已失效；账号使用者在本机授权浏览器内重新验证后再采集。';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '当前账号无该门店采集权限，请切换账号或补授权。';
         if (statusCode === 'hotel_mismatch') return 'Profile 登录态存在，但绑定门店与当前门店不匹配，请重新绑定正确门店。';
-        if (['logged_in'].includes(statusCode)) return '登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。';
+        if (statusCode === 'renewal_warning') return 'Profile 仍可自动采集；建议在强制续登日前重新登录。';
+        if (statusCode === 'logged_in') return '当天登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。';
+        if (statusCode === 'profile_reusable') return 'Profile 可直接尝试采集；仅在平台实际返回登录失效时重新登录。';
         if (['waiting_login', 'login_expired', 'login_required'].includes(statusCode) || /login|auth|cookie|登录|授权|过期|失效/i.test(raw)) {
             return '账号使用者在本机完成或刷新平台授权后，再运行现有自动采集';
         }
@@ -252,8 +266,16 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         const status = String(task.status || '').trim().toLowerCase();
         const message = String(task.message || '').trim();
         const sync = task.after_login_sync || null;
+        const syncSavedCount = Number(sync?.saved_count || 0);
+        const syncPersistenceStatus = String(sync?.persistence_status || '').trim().toLowerCase();
+        const syncReadbackVerified = sync?.readback_verified === true
+            || sync?.database_readback?.verified === true
+            || sync?.database_readback?.readback_verified === true
+            || syncPersistenceStatus === 'readback_verified';
         if (status === 'syncing_after_login' || sync?.status === 'running') return '登录已完成，正在同步目标日 OTA 数据';
-        if (sync?.status === 'success' && Number(sync?.saved_count || 0) > 0) return `登录后同步完成，目标日已入库 ${Number(sync.saved_count || 0)} 条`;
+        if (sync?.status === 'success' && syncSavedCount > 0 && syncReadbackVerified) return `登录后同步已入库 ${syncSavedCount} 条，并完成数据库回读核验`;
+        if (sync?.status === 'success' && syncSavedCount > 0) return `登录后同步请求已完成，接口报告处理 ${syncSavedCount} 条，尚未确认数据库回读`;
+        if (sync?.status === 'success') return '登录后同步请求已完成，未解析到可保存记录';
         if (sync?.status && sync.status !== 'success' && sync.status !== 'skipped') return `登录已完成，但目标日同步未闭环：${String(sync.message || sync.status).trim()}`;
         const combined = `${statusText} ${status} ${message}`;
         if (/success|done|logged|完成|成功|已登录|登录态已验证/i.test(combined)) return '本机授权已完成，请刷新状态并运行现有采集';
@@ -593,8 +615,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
 
             const res = await requestTest(requestContext.apiUrl, requestContext.body);
             if (res.code === 200) {
-                notify('连接测试成功！数据获取正常');
-                return { ...requestContext, status: 'success', response: res };
+                notify('连接请求已返回，尚未验证数据解析或入库结果', 'info');
+                return { ...requestContext, status: 'request_completed', response: res };
             }
 
             notify(res.message || '连接测试失败', 'error');
@@ -640,6 +662,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         setFetching = () => {},
         startTimer = () => {},
         stopTimer = () => {},
+        startMonitor = () => {},
         getTimestamp = () => new Date().toLocaleString('zh-CN', { hour12: false }),
         getBrowserHeadless = () => false,
         getCtripExecutionText = () => '',
@@ -668,9 +691,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             return { status: 'missing_config' };
         }
 
-        setFetching(true);
-        startTimer();
         const startedAt = getTimestamp();
+        setFetching(true);
+        startTimer(startedAt);
         const browserHeadless = !!getBrowserHeadless();
         const modePayload = buildModePayload() || {};
         setRunState(buildAutoFetchRunStartState({
@@ -687,6 +710,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             browserHeadless,
             modePayload,
         });
+        let backgroundAccepted = false;
         try {
             const res = await requestAutoFetch(requestBody);
             const finishedAt = getTimestamp();
@@ -694,6 +718,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             if (res.code === 200) {
                 const responseStatus = String(res.data?.status || '').toLowerCase();
                 if (['running', 'queued', 'accepted'].includes(responseStatus)) {
+                    backgroundAccepted = true;
                     const message = res.message || `自动获取已提交后台执行（启动耗时 ${durationText}）`;
                     updateLastResult(res, null, message);
                     setRunState({
@@ -704,27 +729,58 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                         finished_at: '',
                     });
                     notify(message, 'info');
+                    runPostFetchRefresh(startMonitor, {
+                        hotelId,
+                        startedAt,
+                        taskId: String(res.data?.task_id || ''),
+                    });
                     runPostFetchRefresh(loadAutoFetchStatus);
                     runPostFetchRefresh(loadBackendGlobalNotifications);
                     return { status: 'accepted', response: res, requestBody };
                 }
-                const message = `采集完成并入库 ${res.data?.saved_count || 0} 条 OTA 指标行（耗时 ${durationText}）`;
-                updateLastResult(res, true, res.message || message);
+                const savedCount = Number(res.data?.saved_count || 0);
+                const persistenceStatus = String(res.data?.persistence_status || '').trim().toLowerCase();
+                const readbackVerified = res.data?.readback_verified === true
+                    || res.data?.database_readback?.verified === true
+                    || res.data?.database_readback?.readback_verified === true
+                    || persistenceStatus === 'readback_verified';
+                const persisted = savedCount > 0 && (readbackVerified || res.data?.persisted === true || persistenceStatus === 'persisted');
+                const businessFailed = ['failed', 'error', 'blocked', 'not_persisted'].includes(responseStatus)
+                    || ['failed', 'blocked', 'not_persisted', 'readback_failed'].includes(persistenceStatus);
+                const businessCompleted = ['success', 'completed', 'complete', 'partial_success'].includes(responseStatus);
+                const message = businessFailed
+                    ? `自动采集请求已返回，但业务处理未完成：${res.message || '请查看返回的失败原因'}（耗时 ${durationText}）`
+                    : readbackVerified && savedCount > 0
+                        ? `采集业务已完成，接口报告 ${savedCount} 次写入操作，并完成数据库回读核验（耗时 ${durationText}）`
+                        : persisted
+                            ? `后端明确报告已持久化 ${savedCount} 次写入操作，尚未完成数据库回读核验（耗时 ${durationText}）`
+                            : savedCount > 0
+                            ? `采集请求已完成，接口报告 ${savedCount} 次写入操作，尚未确认数据库回读（耗时 ${durationText}）`
+                            : businessCompleted
+                                ? `采集请求已完成，未解析到可保存记录（耗时 ${durationText}）`
+                                : `采集请求已返回，但未收到明确的业务完成状态，尚未确认入库（耗时 ${durationText}）`;
+                updateLastResult(res, readbackVerified && savedCount > 0, message);
                 setRunState({
                     active: false,
-                    type: 'success',
+                    type: businessFailed ? 'error' : (readbackVerified && savedCount > 0 ? 'success' : 'warning'),
                     message,
                     started_at: startedAt,
                     finished_at: finishedAt,
                 });
-                notify(message);
+                notify(message, businessFailed ? 'error' : (readbackVerified && savedCount > 0 ? 'success' : 'warning'));
                 runPostFetchRefresh(refreshOnlineData);
                 runPostFetchRefresh(refreshOnlineHistory);
                 runPostFetchRefresh(refreshLatestCtripData, { silent: true });
                 runPostFetchRefresh(openCtripProfileFieldsForReview);
                 runPostFetchRefresh(loadAutoFetchStatus);
                 runPostFetchRefresh(loadBackendGlobalNotifications);
-                return { status: 'success', response: res, requestBody };
+                return {
+                    status: businessFailed ? 'business_failed' : (businessCompleted ? 'success' : 'request_completed'),
+                    response: res,
+                    requestBody,
+                    persisted,
+                    readback_verified: readbackVerified,
+                };
             }
 
             const message = `${res.message || '获取失败'}（耗时 ${durationText}）`;
@@ -756,8 +812,10 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             runPostFetchRefresh(loadBackendGlobalNotifications);
             return { status: 'exception', error, requestBody };
         } finally {
-            stopTimer();
-            setFetching(false);
+            if (!backgroundAccepted) {
+                stopTimer();
+                setFetching(false);
+            }
         }
     };
 

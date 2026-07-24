@@ -142,7 +142,7 @@ final class P0TrafficRegistrationScopeTest extends TestCase
             'status' => 'disabled',
             'config_json' => $managedConfig,
         ]));
-        self::assertSame('update_managed_source', $policy([
+        self::assertSame('keep_managed_source', $policy([
             'status' => 'waiting_config',
             'config_json' => $managedConfig,
         ]));
@@ -150,6 +150,25 @@ final class P0TrafficRegistrationScopeTest extends TestCase
             'status' => 'success',
             'config_json' => '{}',
         ]));
+    }
+
+    public function testEnabledManagedSourceRegistrationIsIdempotentAndPreservesRuntimeState(): void
+    {
+        $source = (string)file_get_contents(self::SCRIPT);
+        $start = strpos($source, 'function persist_source');
+        $end = strpos($source, "\n}\n", is_int($start) ? $start : 0);
+
+        self::assertIsInt($start);
+        self::assertIsInt($end);
+        $method = substr($source, $start, $end - $start);
+
+        self::assertStringContainsString("\$existingPolicy === 'keep_managed_source'", $method);
+        self::assertStringContainsString("'action' => 'kept_existing_managed_source'", $method);
+        self::assertStringContainsString('OtaProfileSessionProofService', $method);
+        self::assertStringContainsString('->isCurrentVerified($existing)', $method);
+        self::assertStringNotContainsString("'action' => 'would_update'", $method);
+        self::assertStringNotContainsString("'action' => 'updated'", $method);
+        self::assertStringNotContainsString("->where('id', (int)\$existing['id'])->update(\$data)", $method);
     }
 
     public function testProfileBindingHashUsesTheAuthoritativeCanonicalizer(): void

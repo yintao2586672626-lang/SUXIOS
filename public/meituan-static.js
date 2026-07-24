@@ -109,7 +109,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return Array.isArray(rows) ? rows : [];
     };
 
-    const getOnlineDataMetricNumber = (item, keys) => {
+    const getOnlineDataMetricMaybeNumber = (item, keys) => {
         for (const key of keys) {
             const value = item?.[key];
             if (value !== undefined && value !== null && value !== '') {
@@ -119,7 +119,47 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 }
             }
         }
-        return 0;
+        return null;
+    };
+
+    const getOnlineDataMetricNumber = (item, keys) => getOnlineDataMetricMaybeNumber(item, keys) ?? 0;
+
+    const parseMeituanOnlineRawObject = (value) => {
+        if (!value) return {};
+        if (typeof value === 'object' && !Array.isArray(value)) return value;
+        if (typeof value !== 'string') return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (_error) {
+            return {};
+        }
+    };
+
+    const getMeituanNestedMetricMaybeNumber = (item, keys) => {
+        const rowValue = getOnlineDataMetricMaybeNumber(item, keys);
+        if (rowValue !== null) {
+            return rowValue;
+        }
+        const raw = parseMeituanOnlineRawObject(item?.raw_data);
+        const candidates = [
+            raw,
+            raw?.metrics,
+            raw?.summary,
+            raw?.reviewSummary,
+            raw?.review_summary,
+            raw?.data,
+        ];
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+                continue;
+            }
+            const value = getOnlineDataMetricMaybeNumber(candidate, keys);
+            if (value !== null) {
+                return value;
+            }
+        }
+        return null;
     };
 
     const safeDivideMetric = (numerator, denominator) => {
@@ -131,100 +171,388 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return top / bottom;
     };
 
-    const getMeituanExposureMetric = (item) => getOnlineDataMetricNumber(item, ['list_exposure', 'exposure_count', 'exposure', 'data_value']);
-    const getMeituanClickMetric = (item) => getOnlineDataMetricNumber(item, ['detail_exposure', 'click_count', 'clicks', 'order_filling_num']);
-    const getMeituanVisitorMetric = (item) => getOnlineDataMetricNumber(item, ['order_filling_num', 'visitor_count', 'unique_visitors', 'detail_exposure']);
-    const getMeituanSubmitMetric = (item) => getOnlineDataMetricNumber(item, ['order_submit_num', 'submit_users', 'book_order_num']);
-    const getMeituanFlowRateMetric = (item) => {
-        const explicit = getOnlineDataMetricNumber(item, ['flow_rate', 'conversion_rate', 'conversionRate']);
-        if (explicit > 0) {
+    const getMeituanExposureMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['list_exposure', 'exposure_count', 'exposure']);
+    const getMeituanClickMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['detail_exposure', 'click_count', 'clicks', 'order_filling_num']);
+    const getMeituanVisitorMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['order_filling_num', 'visitor_count', 'unique_visitors', 'detail_exposure']);
+    const getMeituanSubmitMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['order_submit_num', 'submit_users', 'book_order_num']);
+    const getMeituanFlowRateMetricValue = (item) => {
+        const explicit = getOnlineDataMetricMaybeNumber(item, ['flow_rate', 'conversion_rate', 'conversionRate']);
+        if (explicit !== null) {
             return explicit;
         }
-        return safeDivideMetric(getMeituanClickMetric(item), getMeituanExposureMetric(item)) * 100;
+        const exposure = getMeituanExposureMetricValue(item);
+        const click = getMeituanClickMetricValue(item);
+        if (exposure === null || click === null || exposure === 0) {
+            return null;
+        }
+        return safeDivideMetric(click, exposure) * 100;
     };
-    const isMeituanTrafficDataRow = (item) => item?.source === 'meituan' && (item?.data_type === 'traffic' || getMeituanExposureMetric(item) > 0);
+    const getMeituanExposureMetric = (item) => getMeituanExposureMetricValue(item) ?? 0;
+    const getMeituanClickMetric = (item) => getMeituanClickMetricValue(item) ?? 0;
+    const getMeituanVisitorMetric = (item) => getMeituanVisitorMetricValue(item) ?? 0;
+    const getMeituanSubmitMetric = (item) => getMeituanSubmitMetricValue(item) ?? 0;
+    const getMeituanFlowRateMetric = (item) => getMeituanFlowRateMetricValue(item) ?? 0;
+    const hasMeituanExposureMetric = (item) => getMeituanExposureMetricValue(item) !== null;
+    const hasMeituanClickMetric = (item) => getMeituanClickMetricValue(item) !== null;
+    const hasMeituanVisitorMetric = (item) => getMeituanVisitorMetricValue(item) !== null;
+    const hasMeituanFlowRateMetric = (item) => getMeituanFlowRateMetricValue(item) !== null;
+    const isMeituanOverviewDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'peer_rank';
+    const isMeituanTrafficDataRow = (item) => item?.source === 'meituan' && ['traffic', 'traffic_analysis'].includes(item?.data_type);
     const isMeituanOrderDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'order';
+    const isMeituanReviewDataRow = (item) => item?.source === 'meituan' && ['review', 'comment', 'comments'].includes(item?.data_type);
     const isMeituanAdsDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'advertising';
+    const getMeituanReviewScoreMetricValue = (item) => {
+        const score = getMeituanNestedMetricMaybeNumber(item, [
+            'comment_score',
+            'commentScore',
+            'score',
+            'star',
+            'rating',
+            'rate',
+            'totalScore',
+            'overallScore',
+        ]);
+        return score !== null && score > 0 ? score : null;
+    };
+    const getMeituanReviewCountMetricValue = (item) => getMeituanNestedMetricMaybeNumber(item, [
+        'quantity',
+        'review_count',
+        'reviewCount',
+        'comment_count',
+        'commentCount',
+        'count',
+        'reviewTotal',
+        'review_total',
+        'commentTotal',
+        'comment_total',
+    ]);
+    const getMeituanBadReviewCountMetricValue = (item) => getMeituanNestedMetricMaybeNumber(item, [
+        'data_value',
+        'dataValue',
+        'bad_review_count',
+        'badReviewCount',
+        'negativeCommentCount',
+        'negative_count',
+        'negativeCount',
+        'badCount',
+        'lowScoreCount',
+        'noRecommendCount',
+    ]);
+    const buildMeituanReviewDisplayRow = (item) => {
+        const raw = parseMeituanOnlineRawObject(item?.raw_data);
+        return {
+            ...item,
+            review_score_value: getMeituanReviewScoreMetricValue(item),
+            review_count_value: getMeituanReviewCountMetricValue(item),
+            bad_review_count_value: getMeituanBadReviewCountMetricValue(item),
+            review_dimension_label: item?.dimension
+                || raw?.dimension
+                || raw?.dimName
+                || raw?.reviewDimension
+                || raw?.review_dimension
+                || '点评聚合',
+        };
+    };
+
+    const hasMeituanTrafficDisplayMetric = (item) => [
+        getMeituanExposureMetricValue(item),
+        getMeituanClickMetricValue(item),
+        getMeituanFlowRateMetricValue(item),
+        getMeituanVisitorMetricValue(item),
+        getMeituanSubmitMetricValue(item),
+    ].some(value => value !== null);
+
+    const meituanVisibleFactKey = (item, module) => {
+        const hotelKey = item?.system_hotel_id ?? item?.hotel_id ?? item?.hotel_name;
+        const dataDate = String(item?.data_date || '').trim();
+        if (hotelKey === undefined || hotelKey === null || String(hotelKey).trim() === '' || dataDate === '') {
+            return '';
+        }
+        const token = value => value === null ? 'missing' : String(value);
+        let metrics = [];
+        if (module === 'traffic') {
+            metrics = [
+                getMeituanExposureMetricValue(item),
+                getMeituanClickMetricValue(item),
+                getMeituanFlowRateMetricValue(item),
+                getMeituanVisitorMetricValue(item),
+                getMeituanSubmitMetricValue(item),
+            ];
+        } else if (module === 'order') {
+            metrics = [
+                getOnlineDataMetricMaybeNumber(item, ['book_order_num']),
+                getOnlineDataMetricMaybeNumber(item, ['quantity']),
+                getOnlineDataMetricMaybeNumber(item, ['amount']),
+                getOnlineDataMetricMaybeNumber(item, ['data_value']),
+            ];
+        } else if (module === 'review') {
+            metrics = [
+                getMeituanReviewScoreMetricValue(item),
+                getMeituanReviewCountMetricValue(item),
+                getMeituanBadReviewCountMetricValue(item),
+            ];
+        } else if (module === 'ads') {
+            metrics = [
+                getMeituanExposureMetricValue(item),
+                getMeituanClickMetricValue(item),
+                getMeituanFlowRateMetricValue(item),
+                getOnlineDataMetricMaybeNumber(item, ['amount']),
+                getOnlineDataMetricMaybeNumber(item, ['book_order_num']),
+            ];
+        }
+        return `${module}|${String(hotelKey).trim()}|${dataDate}|${metrics.map(token).join('|')}`;
+    };
+
+    const includeLatestMeituanVisibleFact = (seenKeys, item, module) => {
+        const key = meituanVisibleFactKey(item, module);
+        if (key === '') {
+            return true;
+        }
+        if (seenKeys.has(key)) {
+            return false;
+        }
+        seenKeys.add(key);
+        return true;
+    };
 
     const buildMeituanDownloadData = (rows = []) => {
+        const allRows = [];
         const overviewRows = [];
         const trafficRows = [];
         const orderRows = [];
+        const reviewRows = [];
         const adsRows = [];
+        const trafficFactKeys = new Set();
+        const orderFactKeys = new Set();
+        const reviewFactKeys = new Set();
+        const adsFactKeys = new Set();
 
-        let overviewBookOrder = 0;
-        let overviewAmount = 0;
-        let overviewQuantity = 0;
+        const overviewHotels = new Set();
+        const overviewDates = new Set();
+        let overviewMetricValueCount = 0;
+        let overviewRankCount = 0;
+        let overviewPercentCount = 0;
         let trafficExposure = 0;
         let trafficClick = 0;
+        let trafficExposureAvailable = false;
+        let trafficClickAvailable = false;
         let trafficFlowRateSum = 0;
         let trafficFlowRateCount = 0;
         let orderBookOrder = 0;
         let orderQuantity = 0;
         let orderAmount = 0;
+        let orderBookOrderAvailable = false;
+        let orderQuantityAvailable = false;
+        let orderAmountAvailable = false;
+        let reviewScoreSum = 0;
+        let reviewScoreCount = 0;
+        let reviewTotalCount = 0;
+        let reviewTotalAvailable = false;
+        let reviewBadCount = 0;
+        let reviewBadAvailable = false;
         let adsExposure = 0;
         let adsClick = 0;
+        let adsExposureAvailable = false;
+        let adsClickAvailable = false;
 
         for (const item of Array.isArray(rows) ? rows : []) {
             if (item?.source !== 'meituan') {
                 continue;
             }
-            overviewRows.push(item);
-            overviewBookOrder += Number(item?.book_order_num || 0);
-            overviewAmount += Number(item?.amount || 0);
-            overviewQuantity += Number(item?.quantity || 0);
+            allRows.push(item);
+            if (isMeituanOverviewDataRow(item)) {
+                const overviewRow = {
+                    ...item,
+                    overview_hotel_name: item?.captured_hotel_name || item?.hotel_name || '',
+                };
+                overviewRows.push(overviewRow);
+                const hotelKey = overviewRow.overview_hotel_name || item?.hotel_id || item?.system_hotel_id;
+                if (hotelKey !== undefined && hotelKey !== null && String(hotelKey).trim() !== '') {
+                    overviewHotels.add(String(hotelKey));
+                }
+                if (item?.data_date) overviewDates.add(String(item.data_date));
+                if (getOnlineDataMetricMaybeNumber(item, ['data_value']) !== null) overviewMetricValueCount++;
+                if (getOnlineDataMetricMaybeNumber(item, ['rank', 'ranking']) !== null) overviewRankCount++;
+                if (getOnlineDataMetricMaybeNumber(item, ['rank_percent', 'percent']) !== null) overviewPercentCount++;
+            }
 
-            if (isMeituanTrafficDataRow(item)) {
+            if (isMeituanTrafficDataRow(item)
+                && hasMeituanTrafficDisplayMetric(item)
+                && includeLatestMeituanVisibleFact(trafficFactKeys, item, 'traffic')
+            ) {
                 trafficRows.push(item);
-                const exposure = getMeituanExposureMetric(item);
-                const click = getMeituanClickMetric(item);
-                trafficExposure += exposure;
-                trafficClick += click;
-                const flowRate = getMeituanFlowRateMetric(item);
-                if (flowRate > 0) {
+                const exposure = getMeituanExposureMetricValue(item);
+                const click = getMeituanClickMetricValue(item);
+                if (exposure !== null) {
+                    trafficExposure += exposure;
+                    trafficExposureAvailable = true;
+                }
+                if (click !== null) {
+                    trafficClick += click;
+                    trafficClickAvailable = true;
+                }
+                const flowRate = getMeituanFlowRateMetricValue(item);
+                if (flowRate !== null) {
                     trafficFlowRateSum += flowRate;
                     trafficFlowRateCount++;
                 }
             }
 
-            if (isMeituanOrderDataRow(item)) {
+            if (isMeituanOrderDataRow(item) && includeLatestMeituanVisibleFact(orderFactKeys, item, 'order')) {
                 orderRows.push(item);
-                orderBookOrder += Number(item?.book_order_num || 0);
-                orderQuantity += Number(item?.quantity || 0);
-                orderAmount += Number(item?.amount || 0);
+                const bookOrder = getOnlineDataMetricMaybeNumber(item, ['book_order_num']);
+                const quantity = getOnlineDataMetricMaybeNumber(item, ['quantity']);
+                const amount = getOnlineDataMetricMaybeNumber(item, ['amount']);
+                if (bookOrder !== null) {
+                    orderBookOrder += bookOrder;
+                    orderBookOrderAvailable = true;
+                }
+                if (quantity !== null) {
+                    orderQuantity += quantity;
+                    orderQuantityAvailable = true;
+                }
+                if (amount !== null) {
+                    orderAmount += amount;
+                    orderAmountAvailable = true;
+                }
             }
 
-            if (isMeituanAdsDataRow(item)) {
+            if (isMeituanReviewDataRow(item) && includeLatestMeituanVisibleFact(reviewFactKeys, item, 'review')) {
+                const reviewRow = buildMeituanReviewDisplayRow(item);
+                reviewRows.push(reviewRow);
+                const score = reviewRow.review_score_value;
+                if (score !== null) {
+                    reviewScoreSum += score;
+                    reviewScoreCount++;
+                }
+                const reviewCount = reviewRow.review_count_value;
+                if (reviewCount !== null) {
+                    reviewTotalCount += reviewCount;
+                    reviewTotalAvailable = true;
+                }
+                const badCount = reviewRow.bad_review_count_value;
+                if (badCount !== null) {
+                    reviewBadCount += badCount;
+                    reviewBadAvailable = true;
+                }
+            }
+
+            if (isMeituanAdsDataRow(item) && includeLatestMeituanVisibleFact(adsFactKeys, item, 'ads')) {
                 adsRows.push(item);
-                adsExposure += getMeituanExposureMetric(item);
-                adsClick += getMeituanClickMetric(item);
+                const exposure = getMeituanExposureMetricValue(item);
+                const click = getMeituanClickMetricValue(item);
+                if (exposure !== null) {
+                    adsExposure += exposure;
+                    adsExposureAvailable = true;
+                }
+                if (click !== null) {
+                    adsClick += click;
+                    adsClickAvailable = true;
+                }
             }
         }
 
-        const trafficAvgFlowRate = trafficFlowRateCount > 0 ? trafficFlowRateSum / trafficFlowRateCount : 0;
+        const trafficAvgFlowRate = trafficFlowRateCount > 0 ? trafficFlowRateSum / trafficFlowRateCount : null;
+        const trafficExposureValue = trafficExposureAvailable ? trafficExposure : null;
+        const trafficClickValue = trafficClickAvailable ? trafficClick : null;
+        const adsExposureValue = adsExposureAvailable ? adsExposure : null;
+        const adsClickValue = adsClickAvailable ? adsClick : null;
 
         return {
+            allRows,
+            allRowsCount: allRows.length,
             overviewRows,
             trafficRows,
             orderRows,
             adsRows,
+            visibleRowsCountByTab: {
+                all: allRows.length,
+                overview: overviewRows.length,
+                traffic: trafficRows.length,
+                orders: orderRows.length,
+                reviews: reviewRows.length,
+                ads: adsRows.length,
+            },
             overviewRowsCount: overviewRows.length,
-            overviewBookOrder,
-            overviewAmount,
-            overviewQuantity,
-            trafficExposure,
-            trafficClick,
+            overviewHotelCount: overviewHotels.size,
+            overviewDateCount: overviewDates.size,
+            overviewMetricValueCount,
+            overviewRankCount,
+            overviewPercentCount,
+            trafficExposure: trafficExposureValue,
+            trafficClick: trafficClickValue,
             trafficAvgFlowRate,
-            trafficClickRate: safeDivideMetric(trafficClick, trafficExposure) * 100,
+            trafficClickRate: trafficExposureAvailable && trafficClickAvailable && trafficExposure !== 0
+                ? safeDivideMetric(trafficClick, trafficExposure) * 100
+                : null,
             orderRowsCount: orderRows.length,
-            orderBookOrder,
-            orderQuantity,
-            orderAmount,
+            orderBookOrder: orderBookOrderAvailable ? orderBookOrder : null,
+            orderQuantity: orderQuantityAvailable ? orderQuantity : null,
+            orderAmount: orderAmountAvailable ? orderAmount : null,
+            reviewRows,
+            reviewRowsCount: reviewRows.length,
+            reviewAverageScore: reviewScoreCount > 0 ? reviewScoreSum / reviewScoreCount : null,
+            reviewTotalCount: reviewTotalAvailable ? reviewTotalCount : null,
+            reviewBadCount: reviewBadAvailable ? reviewBadCount : null,
             adsRowsCount: adsRows.length,
-            adsExposure,
-            adsClick,
-            adsClickRate: safeDivideMetric(adsClick, adsExposure) * 100,
+            adsExposure: adsExposureValue,
+            adsClick: adsClickValue,
+            adsClickRate: adsExposureAvailable && adsClickAvailable && adsExposure !== 0
+                ? safeDivideMetric(adsClick, adsExposure) * 100
+                : null,
         };
+    };
+
+    const resolveMeituanAdsApplicability = (sources = [], hotelId = '') => {
+        const targetHotelId = String(hotelId ?? '').trim();
+        if (targetHotelId === '') {
+            return { status: 'unknown', reason: 'hotel_not_selected' };
+        }
+
+        const candidates = (Array.isArray(sources) ? sources : [])
+            .filter(item => {
+                const enabled = item?.enabled;
+                const isEnabled = enabled === undefined
+                    || enabled === null
+                    || enabled === true
+                    || Number(enabled) === 1
+                    || String(enabled).trim().toLowerCase() === 'true';
+                return String(item?.platform || '').trim().toLowerCase() === 'meituan'
+                    && ['browser_profile', 'profile_browser'].includes(String(item?.ingestion_method || '').trim().toLowerCase())
+                    && String(item?.system_hotel_id ?? item?.hotel_id ?? '').trim() === targetHotelId
+                    && isEnabled
+                    && String(item?.status || '').trim().toLowerCase() !== 'disabled';
+            })
+            .sort((left, right) => Number(right?.id || 0) - Number(left?.id || 0));
+
+        for (const source of candidates) {
+            const config = source?.config && typeof source.config === 'object' && !Array.isArray(source.config)
+                ? source.config
+                : {};
+            const moduleState = config?.module_states?.ads || config?.moduleStates?.ads || {};
+            const reason = String(config?.ads_status_reason || config?.adsStatusReason || moduleState?.reason || '').trim().toLowerCase();
+            const status = String(config?.ads_status || config?.adsStatus || moduleState?.status || '').trim().toLowerCase();
+            const adsUrl = String(config?.ads_url || config?.adsUrl || '').trim();
+            const hasAdsEnabled = Object.prototype.hasOwnProperty.call(config, 'ads_enabled')
+                || Object.prototype.hasOwnProperty.call(config, 'adsEnabled');
+            const rawAdsEnabled = config?.ads_enabled ?? config?.adsEnabled;
+            const adsEnabled = rawAdsEnabled === true
+                || Number(rawAdsEnabled) === 1
+                || String(rawAdsEnabled).trim().toLowerCase() === 'true';
+            const hasExplicitEvidence = reason !== '' || status !== '' || adsUrl !== '' || hasAdsEnabled;
+            if (!hasExplicitEvidence) {
+                continue;
+            }
+            if (reason === 'ads_service_not_opened' || status === 'not_applicable' || (hasAdsEnabled && !adsEnabled)) {
+                return { status: 'not_applicable', reason: reason || 'ads_service_not_opened', source_id: source?.id || null };
+            }
+            if (adsUrl !== '' || adsEnabled || ['available', 'ready', 'enabled', 'active', 'captured'].includes(status)) {
+                return { status: 'available', reason: '', source_id: source?.id || null };
+            }
+            return { status: 'unknown', reason: reason || status || 'ads_state_unverified', source_id: source?.id || null };
+        }
+
+        return { status: 'unknown', reason: 'ads_state_unverified' };
     };
 
     const defaultMeituanAdsUrl = () => 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
@@ -241,6 +569,80 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
         }
     };
+    const buildMeituanPersistenceOutcome = (data = {}) => {
+        const savedCount = Number(data?.saved_count || 0);
+        const businessStatus = String(data?.status || data?.business_status || '').trim().toLowerCase();
+        const persistenceStatus = String(data?.persistence_status || '').trim().toLowerCase();
+        const readbackVerified = data?.readback_verified === true
+            || data?.database_readback?.verified === true
+            || data?.database_readback?.readback_verified === true
+            || persistenceStatus === 'readback_verified';
+        const persisted = savedCount > 0 && (
+            readbackVerified
+            || data?.persisted === true
+            || persistenceStatus === 'persisted'
+        );
+        const businessFailed = ['failed', 'error', 'blocked', 'not_persisted'].includes(businessStatus)
+            || ['failed', 'blocked', 'not_persisted', 'readback_failed'].includes(persistenceStatus);
+        const businessCompleted = ['success', 'completed', 'complete', 'partial_success'].includes(businessStatus);
+        return {
+            savedCount,
+            businessStatus,
+            persistenceStatus,
+            readbackVerified,
+            persisted,
+            businessFailed,
+            businessCompleted,
+        };
+    };
+    const buildMeituanPersistenceNotice = ({
+        label = '美团数据',
+        data = {},
+        hasDisplayRows = false,
+        failureMessage = '',
+    } = {}) => {
+        const outcome = buildMeituanPersistenceOutcome(data);
+        if (outcome.businessFailed) {
+            return {
+                ...outcome,
+                level: 'error',
+                message: `${label}请求已返回，但业务处理未完成：${failureMessage || '请查看返回的失败原因'}`,
+            };
+        }
+        if (outcome.readbackVerified && outcome.savedCount > 0) {
+            return {
+                ...outcome,
+                level: 'success',
+                message: `${label}已入库 ${outcome.savedCount} 条，并完成数据库回读核验`,
+            };
+        }
+        if (outcome.persisted) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}后端明确报告已持久化 ${outcome.savedCount} 条，尚未完成数据库回读核验`,
+            };
+        }
+        if (outcome.savedCount > 0) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}请求已完成，接口报告处理 ${outcome.savedCount} 条，尚未确认数据库回读`,
+            };
+        }
+        if (hasDisplayRows) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}请求已完成，已返回可展示数据，但尚未确认入库`,
+            };
+        }
+        return {
+            ...outcome,
+            level: 'warning',
+            message: `${label}请求已完成，未解析到可保存记录`,
+        };
+    };
 
     const createMeituanRankingForm = () => ({
         url: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
@@ -248,7 +650,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         partnerId: '',
         poiId: '',
         rankType: 'P_RZ',
-        rankTypes: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL_EXPOSE'],
+        rankTypes: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'],
         dateRanges: ['1'],
         startDate: '',
         endDate: '',
@@ -304,6 +706,136 @@ window.SUXI_MEITUAN_STATIC = (() => {
         payloadJson: '',
     });
 
+    const getMeituanOrderFlowPeriods = () => ([
+        { key: 'yesterday', label: '昨天', days: 1 },
+        { key: 'last_7_days', label: '近7天', days: 7 },
+        { key: 'last_30_days', label: '近30天', days: 30 },
+    ]);
+
+    const formatMeituanOrderFlowDate = (date) => {
+        const value = date instanceof Date ? date : new Date(date);
+        if (Number.isNaN(value.getTime())) return '';
+        return [
+            value.getFullYear(),
+            String(value.getMonth() + 1).padStart(2, '0'),
+            String(value.getDate()).padStart(2, '0'),
+        ].join('-');
+    };
+
+    const resolveMeituanOrderFlowDateRange = (period = 'last_7_days', now = new Date()) => {
+        const config = getMeituanOrderFlowPeriods().find(item => item.key === period)
+            || getMeituanOrderFlowPeriods()[1];
+        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        end.setDate(end.getDate() - 1);
+        const start = new Date(end.getTime());
+        start.setDate(start.getDate() - Math.max(0, config.days - 1));
+        return {
+            period: config.key,
+            label: config.label,
+            startDate: formatMeituanOrderFlowDate(start),
+            endDate: formatMeituanOrderFlowDate(end),
+        };
+    };
+
+    const parseMeituanOrderFlowRaw = (value) => {
+        if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+        if (typeof value !== 'string' || !value.trim()) return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (error) {
+            return {};
+        }
+    };
+
+    const firstMeituanOrderFlowValue = (...values) => values.find(value => (
+        value !== undefined && value !== null && String(value).trim() !== ''
+    ));
+
+    const meituanOrderFlowNumber = (value) => {
+        if (value === undefined || value === null || String(value).trim() === '') return null;
+        const text = String(value).trim();
+        if (text === '-' || text === '--' || /暂无|无数据|更新中/i.test(text)) return null;
+        const multiplier = text.includes('亿') ? 100000000 : (text.includes('万') ? 10000 : 1);
+        const match = text.replace(/,/g, '').replace(/[%￥¥元万亿\s]/g, '').match(/-?\d+(?:\.\d+)?/);
+        if (!match) return null;
+        const number = Number(match[0]) * multiplier;
+        return Number.isFinite(number) ? number : null;
+    };
+
+    const meituanOrderFlowRatioPercent = (value) => {
+        const number = meituanOrderFlowNumber(value);
+        if (number === null) return null;
+        const percent = Math.abs(number) <= 1 ? number * 100 : number;
+        return Number(percent.toFixed(2));
+    };
+
+    const buildMeituanOrderFlowView = (rows = [], period = 'last_7_days') => {
+        const source = Array.isArray(rows) ? rows : [];
+        const normalized = source.map(row => {
+            const raw = parseMeituanOrderFlowRaw(row?.raw_data);
+            return { row: row || {}, raw };
+        }).filter(item => (
+            String(item.row.data_type || '').toLowerCase() === 'order_flow'
+            && String(item.raw.order_flow_period || '').toLowerCase() === period
+        ));
+        const findSummary = direction => normalized.find(item => (
+            String(item.raw.order_flow_direction || '').toLowerCase() === direction
+            && String(item.raw.order_flow_row_type || '').toLowerCase() === 'summary'
+        ));
+        const normalizeSummary = (entry) => {
+            if (!entry) return null;
+            const { row, raw } = entry;
+            return {
+                orderCount: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.order_count, row.book_order_num)),
+                roomNights: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.room_nights, row.quantity)),
+                amount: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.amount, row.amount)),
+                periodStart: String(raw.period_start || ''),
+                periodEnd: String(raw.period_end || row.data_date || ''),
+            };
+        };
+        const normalizeDetails = direction => normalized.filter(item => (
+            String(item.raw.order_flow_direction || '').toLowerCase() === direction
+            && String(item.raw.order_flow_row_type || '').toLowerCase() === 'hotel_detail'
+        )).map(({ row, raw }, index) => {
+            const rooms = Array.isArray(raw.lossRoomList) ? raw.lossRoomList : [];
+            return {
+                key: String(raw.poiId || raw.poi_id || row.hotel_id || `${direction}-${index}`),
+                hotelId: String(raw.poiId || raw.poi_id || row.hotel_id || ''),
+                hotelName: String(raw.poiName || raw.poi_name || row.hotel_name || '未返回酒店名称'),
+                image: String(raw.frontImg || raw.front_img || ''),
+                star: String(raw.lossPoiStar || raw.loss_poi_star || ''),
+                circleName: String(raw.circleName || raw.circle_name || ''),
+                distance: meituanOrderFlowNumber(raw.distance),
+                score: meituanOrderFlowNumber(raw.score),
+                lowestPrice: meituanOrderFlowNumber(raw.lowestPrice ?? raw.lowest_price),
+                vip: raw.vipTag === true || raw.vip_tag === true || raw.vipTag === 1,
+                followStatus: meituanOrderFlowNumber(raw.followStatus ?? raw.follow_status),
+                orderCount: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.order_count, raw.lossOrderCount, row.book_order_num)),
+                orderRatio: meituanOrderFlowRatioPercent(firstMeituanOrderFlowValue(raw.order_ratio, raw.lossOrderRatio)),
+                amount: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.amount, raw.lossSinglePayAmount, row.amount)),
+                rooms: rooms.map(room => ({
+                    name: String(room?.lossRoomName || room?.roomName || '').trim(),
+                    count: meituanOrderFlowNumber(room?.lossRoomCnt ?? room?.roomCount),
+                })).filter(room => room.name),
+            };
+        }).sort((left, right) => (right.orderCount ?? -1) - (left.orderCount ?? -1));
+
+        const loss = { summary: normalizeSummary(findSummary('loss')), rows: normalizeDetails('loss') };
+        const inflow = { summary: normalizeSummary(findSummary('inflow')), rows: normalizeDetails('inflow') };
+        const firstSummary = loss.summary || inflow.summary;
+        const capturedAt = normalized.map(item => String(item.row.update_time || item.row.create_time || '')).filter(Boolean).sort().at(-1) || '';
+        return {
+            status: loss.summary && inflow.summary ? 'complete' : (loss.summary || inflow.summary ? 'partial' : 'empty'),
+            period,
+            periodStart: firstSummary?.periodStart || '',
+            periodEnd: firstSummary?.periodEnd || '',
+            capturedAt,
+            loss,
+            inflow,
+        };
+    };
+
     const getMeituanBrowserCapturePresets = () => ([
         {
             key: 'realtime',
@@ -345,7 +877,27 @@ window.SUXI_MEITUAN_STATIC = (() => {
         },
     ]);
 
-    const createEmptyMeituanBusinessSummary = () => ({ status: 'empty', metrics: {}, cards: [] });
+    const meituanDataFreshnessNotice = '每日9点更新前日数据。数据仅作经营参考，不作结算依据。';
+    const shouldShowMeituanPreviousDayUpdateNotice = (dateRanges = [], hour = new Date().getHours()) => {
+        const normalizedHour = Number(hour);
+        return Array.isArray(dateRanges)
+            && dateRanges.map(item => String(item)).includes('1')
+            && Number.isFinite(normalizedHour)
+            && normalizedHour >= 0
+            && normalizedHour < 9;
+    };
+    const createEmptyMeituanBusinessSummary = () => ({
+        status: 'empty',
+        metrics: {},
+        cards: [],
+        data_freshness: {
+            update_policy: 'daily_09_previous_day',
+            update_time: '09:00',
+            settlement_basis: false,
+            notice: meituanDataFreshnessNotice,
+        },
+        source_notice: meituanDataFreshnessNotice,
+    });
 
     const buildMeituanRankingFetchResetState = () => ({
         formPatch: {
@@ -364,13 +916,179 @@ window.SUXI_MEITUAN_STATIC = (() => {
         dataFetchTime: '',
     });
 
-    const isMeituanPendingResult = (result = {}) => ['fetching', 'submitting'].includes(String(result?.status || '').toLowerCase());
+    const isMeituanPendingResult = (result = {}) => ['fetching', 'submitting', 'saving'].includes(String(result?.status || '').toLowerCase());
 
     const isMeituanBackgroundResult = (result = {}) => ['accepted', 'running', 'queued'].includes(String(result?.status || '').toLowerCase());
 
     const hasMeituanPendingResults = (results = []) => Array.isArray(results) && results.some(isMeituanPendingResult);
 
     const hasMeituanBackgroundResults = (results = []) => Array.isArray(results) && results.some(isMeituanBackgroundResult);
+
+    const buildMeituanFetchPresentation = (results = []) => {
+        const source = Array.isArray(results) ? results : [];
+        const totalCount = source.length;
+        const pending = source.filter(isMeituanPendingResult);
+        const background = source.filter(isMeituanBackgroundResult);
+        const completedCount = source.filter(item => item?.rankDataComplete === true).length;
+        const derivedCount = source.filter(item => (
+            item?.rankDataComplete === true && String(item?.rankDataMode || '').toLowerCase() === 'derived'
+        )).length;
+        const selfOnlyCount = source.filter(item => (
+            item?.rankDataComplete === true && String(item?.rankDataMode || '').toLowerCase() === 'self_only'
+        )).length;
+        const returnedCount = source.filter(item => (
+            item?.platformResponseReceived === true
+            || item?.rankDataComplete === true
+            || (!isMeituanPendingResult(item) && !isMeituanBackgroundResult(item) && Number(item?.attemptCount || 0) > 0)
+        )).length;
+        const failedCount = source.filter(item => Boolean(
+            item?.error
+            || item?.retryExhausted
+            || ['exception', 'failed', 'incomplete', 'partial', 'login_required'].includes(String(item?.status || '').toLowerCase())
+        )).length;
+        const inProgress = pending.length > 0;
+        const backgroundAccepted = background.length > 0;
+        const hasErrors = failedCount > 0;
+        const isPartial = !inProgress && !backgroundAccepted && completedCount > 0 && hasErrors;
+        const activeAttempt = pending.reduce((max, item) => Math.max(max, Number(item?.attemptCount || 0)), 0);
+        const activeMaxAttempts = pending.reduce((max, item) => Math.max(max, Number(item?.maxAttempts || 0)), 0);
+        let buttonText = '获取数据';
+        if (inProgress) {
+            buttonText = `获取中 · 已返回${returnedCount}/${totalCount}榜`;
+            if (activeAttempt > 0 && activeMaxAttempts > 0) {
+                buttonText += ` · 第${activeAttempt}/${activeMaxAttempts}轮`;
+            }
+        }
+        return {
+            totalCount,
+            completedCount,
+            derivedCount,
+            selfOnlyCount,
+            returnedCount,
+            failedCount,
+            inProgress,
+            backgroundAccepted,
+            hasErrors,
+            isPartial,
+            buttonText,
+        };
+    };
+
+    const applyMeituanFetchHealthToCards = (cards = [], presentation = {}) => {
+        const source = Array.isArray(cards) ? cards : [];
+        const totalCount = Number(presentation?.totalCount || 0);
+        if (totalCount <= 0) {
+            return source;
+        }
+        const completedCount = Math.max(0, Number(presentation?.completedCount || 0));
+        const derivedCount = Math.max(0, Number(presentation?.derivedCount || 0));
+        const selfOnlyCount = Math.max(0, Number(presentation?.selfOnlyCount || 0));
+        const partial = Boolean(presentation?.isPartial || presentation?.hasErrors);
+        const stateText = presentation?.inProgress
+            ? '本次抓取中'
+            : (partial ? '本次部分返回' : ((derivedCount > 0 || selfOnlyCount > 0) ? '本次可用' : '本次已完整'));
+        return source.map(card => {
+            const isRankHealth = card?.key === 'rankHealth'
+                || card?.key === 'fallback-rank-health'
+                || card?.key === 'rank-health'
+                || card?.label === '榜单健康度';
+            if (!isRankHealth) {
+                return card;
+            }
+            return {
+                ...card,
+                value: `${completedCount}/${totalCount}`,
+                level: stateText,
+                note: presentation?.inProgress
+                    ? `本次已有 ${completedCount}/${totalCount} 类榜单字段完整`
+                    : (partial
+                        ? `本次 ${completedCount}/${totalCount} 类榜单可用，其余保持缺失`
+                        : (selfOnlyCount > 0
+                            ? `本次 ${completedCount}/${totalCount} 类榜单可用，其中 ${selfOnlyCount} 类为本店实时值和同行名次`
+                            : (derivedCount > 0
+                                ? `本次 ${completedCount}/${totalCount} 类榜单可用，其中 ${derivedCount} 类按本店真实值和平台百分比计算`
+                                : `本次 ${completedCount}/${totalCount} 类榜单原始字段完整`))),
+                valueClass: presentation?.inProgress ? 'text-blue-700' : (partial ? 'text-amber-700' : (card?.valueClass || 'text-blue-700')),
+                panelClass: presentation?.inProgress
+                    ? 'bg-blue-50 border border-blue-200'
+                    : (partial ? 'bg-amber-50 border border-amber-200' : card?.panelClass),
+                className: presentation?.inProgress
+                    ? 'bg-blue-50 text-blue-700 border-blue-100'
+                    : (partial ? 'bg-amber-50 text-amber-700 border-amber-100' : card?.className),
+            };
+        });
+    };
+
+    const applyMeituanFetchHealthToRows = (rows = [], results = []) => {
+        const sourceRows = Array.isArray(rows) ? rows : [];
+        const resultByRankType = new Map(
+            (Array.isArray(results) ? results : [])
+                .filter(item => item?.rankType)
+                .map(item => [String(item.rankType), item])
+        );
+        return sourceRows.map(row => {
+            const result = resultByRankType.get(String(row?.key || ''));
+            if (!result) {
+                return row;
+            }
+            if (isMeituanPendingResult(result)) {
+                const attempt = Number(result?.attemptCount || 0);
+                const maxAttempts = Number(result?.maxAttempts || 0);
+                return {
+                    ...row,
+                    status: 'fetching',
+                    statusText: attempt > 0 && maxAttempts > 0 ? `抓取中 ${attempt}/${maxAttempts}` : '抓取中',
+                    sourceLabel: '本次平台请求进行中',
+                    className: 'bg-blue-50 text-blue-700 border-blue-100',
+                };
+            }
+            if (isMeituanBackgroundResult(result)) {
+                return {
+                    ...row,
+                    status: 'running',
+                    statusText: '后台执行中',
+                    sourceLabel: '本次平台任务已提交后台',
+                    className: 'bg-blue-50 text-blue-700 border-blue-100',
+                };
+            }
+            if (result?.rankDataComplete === true) {
+                const isDerived = String(result?.rankDataMode || '').toLowerCase() === 'derived';
+                const isSelfOnly = String(result?.rankDataMode || '').toLowerCase() === 'self_only';
+                const readbackVerified = result?.readbackVerified === true
+                    || result?.readback_verified === true
+                    || String(result?.persistenceStatus || result?.persistence_status || '').toLowerCase() === 'readback_verified';
+                return {
+                    ...row,
+                    status: 'ok',
+                    statusText: isSelfOnly ? '本店实时值可用' : (isDerived ? '比例结果可用' : '原始完整'),
+                    sourceLabel: isSelfOnly
+                        ? '本店真实值 + 同行名次；本次同行数值未返回'
+                        : (isDerived
+                            ? (readbackVerified
+                                ? '平台百分比 + 本店真实值锚点；已完成数据库回读核验'
+                                : '平台百分比 + 本店真实值锚点；保存状态以数据库回读为准')
+                            : '本次平台原始字段完整'),
+                    className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                };
+            }
+            if (result?.retryExhausted) {
+                return {
+                    ...row,
+                    status: 'missing',
+                    statusText: '未抓到',
+                    sourceLabel: `已尝试 ${Number(result?.attemptCount || 0)} 轮，平台仍未返回完整榜单`,
+                    className: 'bg-red-50 text-red-700 border-red-100',
+                };
+            }
+            return {
+                ...row,
+                status: 'incomplete',
+                statusText: '未完整',
+                sourceLabel: '本次榜单仍缺少字段',
+                className: 'bg-amber-50 text-amber-700 border-amber-100',
+            };
+        });
+    };
 
     const getMeituanBrowserCaptureSupplementModules = () => ([
         { key: 'peer_rank', label: '同行排名', endpoint: 'peer/rank/data/detail' },
@@ -486,6 +1204,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
             flow_forecast: 'traffic',
             trafficforecast: 'traffic',
             traffic_forecast: 'traffic',
+            orderflow: 'order_flow',
+            order_flow: 'order_flow',
+            orderloss: 'order_flow',
+            order_loss: 'order_flow',
             searchkeyword: 'traffic',
             searchkeywords: 'traffic',
             search_keyword: 'traffic',
@@ -755,6 +1477,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             traffic_analysis: '流量分析',
             search_keywords: '搜索词',
             traffic_forecast: '未来30天预测',
+            order_flow: '订单流向',
         };
         const normalizedSections = normalizeMeituanCaptureSections(sections);
         if (!normalizedSections.length) {
@@ -873,6 +1596,23 @@ window.SUXI_MEITUAN_STATIC = (() => {
         };
     };
 
+    const buildMeituanSessionProofNotice = (data = {}, fallback = {}) => {
+        if (String(data?.session_proof_status || '').trim() !== 'not_recorded') {
+            return fallback;
+        }
+        const reasonCode = String(data?.session_proof_reason_code || '').trim();
+        const message = String(data?.session_proof_message || '').trim()
+            || '数据已保存，但登录证据未持久化。';
+        const nextAction = String(data?.session_proof_next_action || '').trim()
+            || '刷新登录状态后重新执行一次最小采集。';
+        return {
+            ...fallback,
+            level: reasonCode === 'no_persisted_rows' ? 'info' : 'warning',
+            message: `${message} 下一步：${nextAction}`,
+            sessionProofMissing: true,
+        };
+    };
+
     const runMeituanBrowserCaptureFlow = async ({
         getForm = () => ({}),
         getSystemHotelId = () => null,
@@ -913,7 +1653,20 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = res.data || {};
                 setCaptureResult(data);
                 setOnlineDataResult(data);
-                notify(res.message || (requestContext.loginOnly ? '美团 Profile 登录状态已保存' : `抓取完成，已入库 ${data?.saved_count || 0} 条`));
+                const hasDisplayRows = ['rows', 'data', 'display_rows', 'display_hotels'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团 Profile 采集',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                const sessionProofNotice = buildMeituanSessionProofNotice(data, notice);
+                if (requestContext.loginOnly) {
+                    notify('美团 Profile 登录请求已完成；请刷新状态确认 Profile 可复用', 'info');
+                } else {
+                    notify(sessionProofNotice.message, sessionProofNotice.level);
+                }
                 if (!requestContext.loginOnly) {
                     runPostFetchRefresh(refreshOnlineHistory);
                 }
@@ -923,7 +1676,18 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         runPostFetchRefresh(refreshPlatformDataSources);
                     }
                 }
-                return { status: 'success', response: res, requestContext, data };
+                return {
+                    status: requestContext.loginOnly
+                        ? 'success'
+                        : (notice.businessFailed
+                            ? 'business_failed'
+                            : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete')),
+                    response: res,
+                    requestContext,
+                    data,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
             notify(res.message || '抓取失败', 'error');
@@ -964,11 +1728,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         }
 
         const storeId = String(form.storeId || '').trim();
-        const poiId = String(form.poiId || storeId || '').trim();
+        const payloadStoreId = String(payload.store_id || payload.storeId || payload.poi_id || payload.poiId || '').trim();
+        if (!payloadStoreId) {
+            return { ok: false, status: 'missing_payload_identity', level: 'error', message: '抓取结果缺少美团门店标识' };
+        }
         const poiName = String(form.poiName || hotelName || '').trim();
         const enrichedPayload = { ...payload };
-        enrichedPayload.store_id = enrichedPayload.store_id || storeId || poiId;
-        enrichedPayload.poi_id = enrichedPayload.poi_id || poiId || storeId;
         enrichedPayload.poi_name = enrichedPayload.poi_name || poiName;
         enrichedPayload.system_hotel_id = enrichedPayload.system_hotel_id || Number(systemHotelId);
 
@@ -978,6 +1743,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             payload: enrichedPayload,
             requestBody: {
                 system_hotel_id: systemHotelId,
+                profile_key: storeId || payloadStoreId,
                 payload: enrichedPayload,
             },
         };
@@ -1013,9 +1779,23 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = res.data || {};
                 setCaptureResult(data);
                 setOnlineDataResult(data);
-                notify(`保存成功，已入库 ${data?.saved_count || 0} 条`);
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团抓取结果',
+                    data,
+                    failureMessage: res.message || '',
+                });
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, saveContext, data };
+                return {
+                    status: notice.businessFailed
+                        ? 'business_failed'
+                        : ((notice.savedCount > 0 || notice.businessCompleted) ? 'success' : 'incomplete'),
+                    response: res,
+                    saveContext,
+                    data,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
             notify(res.message || '保存失败', 'error');
@@ -1054,8 +1834,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const validateMeituanBatchFetchInput = ({
         form = {},
         configId = '',
-        partnerId = '',
-        poiId = '',
     } = {}) => {
         if (!form.hotelId) {
             return { ok: false, status: 'missing_hotel', level: 'error', message: '请选择目标酒店' };
@@ -1063,23 +1841,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (!String(configId || '').trim()) {
             return { ok: false, status: 'missing_config', level: 'warning', message: '当前酒店未配置可执行的美团凭证' };
         }
-        const missingResourceFields = [];
-        if (!String(partnerId || '').trim()) {
-            missingResourceFields.push('平台接口标识');
-        }
-        if (!String(poiId || '').trim()) {
-            missingResourceFields.push('平台门店标识');
-        }
-        if (missingResourceFields.length > 0) {
-            return {
-                ok: false,
-                level: 'warning',
-                message: `需补充一次性门店标识：${missingResourceFields.join(' / ')}。请先在酒店管理中保存后再获取美团榜单。`,
-            };
-        }
         const dateRanges = Array.isArray(form.dateRanges) ? form.dateRanges : [];
         if (dateRanges.length === 0) {
             return { ok: false, level: 'error', message: '请至少选择一个时间维度' };
+        }
+        if (dateRanges.length > 1) {
+            return { ok: false, level: 'warning', message: '每次只获取一个时间周期，请重新选择' };
         }
         if (dateRanges.includes('custom') && (!form.startDate || !form.endDate)) {
             return { ok: false, level: 'error', message: '请填写历史自定义时间的开始和结束日期' };
@@ -1099,16 +1866,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
             ok: true,
             level: 'success',
             configId: String(configId || '').trim(),
-            partnerId: String(partnerId || '').trim(),
-            poiId: String(poiId || '').trim(),
         };
     };
 
     const buildMeituanBatchFetchTasks = ({
         form = {},
         configId = '',
-        partnerId = '',
-        poiId = '',
     } = {}) => {
         const dateRanges = Array.isArray(form.dateRanges) ? form.dateRanges : [];
         const tasks = [];
@@ -1117,17 +1880,15 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const rangeName = meituanBatchDateRangeNames[dateRange] || dateRange;
                 const rankName = meituanBatchRankTypeNames[rankType] || rankType;
                 const includeSelfMetrics = rankIndex === 0;
+                const includeSelfTradeMetrics = ['P_RZ', 'P_XS'].includes(rankType);
                 const body = {
                     config_id: String(configId || '').trim(),
-                    url: form.url,
-                    partner_id: partnerId,
-                    poi_id: poiId,
                     rank_type: rankType,
                     date_range: dateRange,
-                    include_self_trade_metrics: includeSelfMetrics,
+                    include_self_trade_metrics: includeSelfTradeMetrics,
                     include_self_traffic_metrics: includeSelfMetrics,
                     include_self_business_metrics: includeSelfMetrics,
-                    auto_save: true,
+                    auto_save: false,
                     system_hotel_id: form.hotelId,
                 };
                 if (dateRange === 'custom') {
@@ -1153,12 +1914,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
             dateRange: task.dateRange,
             dateRangeName: task.dateRangeName,
             response,
+            platformResponseReceived: true,
         };
         if (response.code === 200) {
             const responseData = response.data || {};
             const responseStatus = String(responseData.status || '').toLowerCase();
             const displayHotels = Array.isArray(responseData.display_hotels) ? responseData.display_hotels : [];
-            const savedCount = Number(responseData.saved_count || 0) || 0;
+            const persistenceOutcome = buildMeituanPersistenceOutcome(responseData);
+            const savedCount = persistenceOutcome.savedCount;
             const displayCount = Number(responseData.display_hotel_count ?? displayHotels.length) || 0;
             if (['accepted', 'running', 'queued'].includes(responseStatus)) {
                 return {
@@ -1174,12 +1937,15 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     displayHotels,
                     displaySummary: responseData.display_summary || null,
                     displayCount,
+                    persistenceStatus: persistenceOutcome.persistenceStatus,
+                    persisted: persistenceOutcome.persisted,
+                    readbackVerified: persistenceOutcome.readbackVerified,
                 };
             }
             return {
                 ...base,
                 message: response.message || '',
-                status: responseData.status || 'success',
+                status: responseData.status || (savedCount > 0 ? 'processed' : 'response_received'),
                 taskId: responseData.task_id || '',
                 data: responseData.data,
                 savedCount,
@@ -1188,6 +1954,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 displayHotels,
                 displaySummary: responseData.display_summary || null,
                 displayCount,
+                persistenceStatus: persistenceOutcome.persistenceStatus,
+                persisted: persistenceOutcome.persisted,
+                readbackVerified: persistenceOutcome.readbackVerified,
             };
         }
         return {
@@ -1212,6 +1981,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
         displayHotels: [],
         displaySummary: null,
         displayCount: 0,
+        attemptCount: 0,
+        retryCount: 0,
+        maxAttempts: meituanRankMaxAttempts(task),
+        rankDataComplete: false,
+        retryExhausted: false,
     });
     const mergeMeituanSelfMetricValues = (...sources) => {
         const result = {};
@@ -1232,6 +2006,15 @@ window.SUXI_MEITUAN_STATIC = (() => {
             });
         });
         return result;
+    };
+    const mergeMeituanSelfMetricStatus = (...sources) => {
+        const statuses = sources
+            .map(value => String(value || '').trim())
+            .filter(Boolean);
+        return statuses.find(value => /(?:returned|provided)/i.test(value))
+            || statuses.find(value => value.toLowerCase() !== 'missing')
+            || statuses[0]
+            || '';
     };
     const buildMeituanDisplayModelGroups = ({ results = [], form = {} } = {}) => {
         const groupsByRange = new Map();
@@ -1264,6 +2047,125 @@ window.SUXI_MEITUAN_STATIC = (() => {
         }
         const status = String(response.data?.status || '').toLowerCase();
         return ['accepted', 'running', 'queued'].includes(status);
+    };
+    const meituanPeerRankDimensions = (value = {}) => {
+        const candidates = [
+            value?.data?.data?.data?.peerRankData,
+            value?.data?.data?.peerRankData,
+            value?.response?.data?.data?.data?.peerRankData,
+            value?.response?.data?.data?.peerRankData,
+        ];
+        const dimensions = candidates.find(item => Array.isArray(item));
+        return Array.isArray(dimensions) ? dimensions : [];
+    };
+    const meituanTodayExtendedRetryRankTypes = new Set(['P_RZ', 'P_XS']);
+    const meituanRealtimeDerivableRankTypes = new Set(['P_RZ']);
+    const meituanRankMaxAttempts = () => 3;
+    const meituanRetryDelayMs = (attempt = 1) => Math.min(2500, Math.max(600, Number(attempt || 1) * 600));
+    const isMeituanNonRetryableFetchError = (error) => (
+        /登录态|登录失效|重新登录|login|required|unauthorized|forbidden|credential|配置.*不一致|跨门店|权限/i
+            .test(String(error?.message || error || ''))
+    );
+    const meituanRankResponseQuality = (response = {}) => {
+        const dimensions = meituanPeerRankDimensions(response);
+        let rowCount = 0;
+        let absoluteValueCount = 0;
+        let positivePercentCount = 0;
+        let signalDimensionCount = 0;
+        dimensions.forEach(dimension => {
+            const rows = Array.isArray(dimension?.roundRanks) ? dimension.roundRanks : [];
+            rowCount += rows.length;
+            const dimensionAbsoluteCount = rows.filter(row => row?.dataValue !== null && row?.dataValue !== undefined && row?.dataValue !== '').length;
+            const dimensionPositivePercentCount = rows.filter(row => Number(row?.percent) > 0).length;
+            absoluteValueCount += dimensionAbsoluteCount;
+            positivePercentCount += dimensionPositivePercentCount;
+            if (dimensionAbsoluteCount > 0 || dimensionPositivePercentCount > 0) {
+                signalDimensionCount += 1;
+            }
+        });
+        const displayHotels = Array.isArray(response?.data?.display_hotels)
+            ? response.data.display_hotels
+            : (Array.isArray(response?.displayHotels) ? response.displayHotels : []);
+        const selfRowCount = displayHotels.filter(row => row?.isSelf === true).length;
+        return {
+            dimensionCount: dimensions.length,
+            signalDimensionCount,
+            rowCount,
+            absoluteValueCount,
+            positivePercentCount,
+            selfRowCount,
+            score: absoluteValueCount * 10000
+                + signalDimensionCount * 1000
+                + dimensions.length * 100
+                + positivePercentCount * 10
+                + rowCount
+                + selfRowCount,
+        };
+    };
+    const meituanRankCandidateValueMode = (response = {}) => String(
+        response?.data?.rank_candidate?.value_mode
+        || response?.data?.rank_candidate?.valueMode
+        || ''
+    ).trim().toLowerCase();
+    const hasMeituanCompleteAbsoluteRankRows = (response = {}) => {
+        const dimensions = meituanPeerRankDimensions(response);
+        return dimensions.length >= 2 && dimensions.every(dimension => {
+            const rows = Array.isArray(dimension?.roundRanks) ? dimension.roundRanks : [];
+            return rows.length > 0 && rows.every(row => (
+                row?.dataValue !== null
+                && row?.dataValue !== undefined
+                && row?.dataValue !== ''
+            ));
+        });
+    };
+    const isMeituanRankResponseComplete = (response = {}, task = {}) => {
+        if (response?.code !== 200 || isMeituanBackgroundAcceptedResponse(response)) {
+            return false;
+        }
+        const quality = meituanRankResponseQuality(response);
+        if (quality.dimensionCount > 0) {
+            const rankType = String(task?.rankType ?? task?.rank_type ?? '');
+            const isStayOrSales = meituanTodayExtendedRetryRankTypes.has(rankType);
+            if (isStayOrSales) {
+                if (hasMeituanCompleteAbsoluteRankRows(response)) {
+                    return true;
+                }
+                if (String(task?.dateRange ?? task?.date_range ?? '') === '0') {
+                    return meituanRealtimeDerivableRankTypes.has(rankType)
+                        && ['derived', 'self_only'].includes(meituanRankCandidateValueMode(response));
+                }
+                return meituanRankCandidateValueMode(response) === 'derived';
+            }
+            return quality.dimensionCount >= 2 && quality.signalDimensionCount === quality.dimensionCount;
+        }
+        const fallbackRows = [
+            response?.data?.display_hotels,
+            response?.data?.data,
+            response?.displayHotels,
+        ].find(value => Array.isArray(value) && value.length > 0);
+        return Boolean(fallbackRows) || Number(response?.data?.display_hotel_count || 0) > 0;
+    };
+    const isMeituanHistoricalPercentOnlyStayOrSales = (response = {}, task = {}) => {
+        if (String(task?.dateRange ?? task?.date_range ?? '') === '0'
+            || !meituanTodayExtendedRetryRankTypes.has(String(task?.rankType ?? task?.rank_type ?? ''))
+        ) {
+            return false;
+        }
+        const dimensions = meituanPeerRankDimensions(response);
+        if (dimensions.length < 2) return false;
+        return dimensions.every(dimension => {
+            const rows = Array.isArray(dimension?.roundRanks) ? dimension.roundRanks : [];
+            return rows.length > 0
+                && rows.every(row => row?.dataValue === null || row?.dataValue === undefined || row?.dataValue === '')
+                && rows.some(row => Number(row?.percent) > 0);
+        });
+    };
+    const selectBetterMeituanRankResponse = (current = null, candidate = null) => {
+        if (!current) return candidate;
+        if (!candidate) return current;
+        return meituanRankResponseQuality(candidate).score >= meituanRankResponseQuality(current).score
+            ? candidate
+            : current;
     };
     const buildMeituanDisplayModelPayload = ({ results = [], form = {} } = {}) => {
         const displayGroups = buildMeituanDisplayModelGroups({ results, form });
@@ -1318,7 +2220,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (explicit) return explicit;
         const hotelName = String(options?.hotelName || '').trim();
         const poiId = String(form?.poi_id || form?.poiId || '').trim();
-        const fallbackDate = String(options?.fallbackDate || '').trim() || new Date().toISOString().slice(0, 10);
+        const fallbackDate = String(options?.fallbackDate || '').trim() || todayDateText();
         if (hotelName) return `${hotelName}美团Cookie`;
         if (poiId) return `美团${poiId}Cookie`;
         return `美团Cookie ${fallbackDate}`;
@@ -1518,18 +2420,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const formHotelId = String(form.hotelId || '').trim();
         const configHotelId = firstMeituanConfigText(config.hotel_id, config.system_hotel_id);
         if (formHotelId && configHotelId && formHotelId !== configHotelId) return false;
-
-        const formPartnerId = String(form.partnerId || '').trim();
-        const formPoiId = String(form.poiId || '').trim();
-        if (!formPartnerId || !formPoiId) return false;
-
-        const configPartnerId = firstMeituanConfigText(config.partner_id, config.partnerId);
-        const configPoiId = firstMeituanConfigText(config.poi_id, config.poiId, config.store_id, config.storeId);
-        if (!configPartnerId || !configPoiId) return false;
-        if (configPartnerId && formPartnerId !== configPartnerId) return false;
-        if (configPoiId && formPoiId !== configPoiId) return false;
-
-        return true;
+        return isMeituanExecutionConfigReady(config);
     };
 
     const isMeituanConfigBoundToFormHotel = (form = {}, config = {}) => {
@@ -1544,6 +2435,29 @@ window.SUXI_MEITUAN_STATIC = (() => {
         .replace(/\s+/g, '')
         .replace(/(?:\u7f8e\u56e2|\u643a\u7a0b)?\u6570\u636e\u6e90$/u, '');
 
+    const selectLatestSuccessfulMeituanConfig = (configs = []) => {
+        const candidates = (Array.isArray(configs) ? configs : []).filter(Boolean);
+        if (!candidates.length) return null;
+        const successful = candidates.filter(item => (
+            resolveMeituanExecutionConfigId(item)
+            && item?.has_cookies === true
+            && String(item?.credential_status || '') === 'ready'
+        ));
+        const source = successful.length ? successful : candidates;
+        const recencyText = item => String(
+            item?.update_time || item?.updated_at || item?.created_at || item?.create_time || ''
+        ).trim();
+        return [...source].sort((left, right) => {
+            const leftTime = recencyText(left);
+            const rightTime = recencyText(right);
+            if (leftTime !== rightTime) return rightTime > leftTime ? 1 : -1;
+            const leftId = String(left?.config_id || left?.id || '');
+            const rightId = String(right?.config_id || right?.id || '');
+            if (leftId === rightId) return 0;
+            return rightId > leftId ? 1 : -1;
+        })[0] || null;
+    };
+
     const findMeituanConfigForHotel = ({
         hotelId = '',
         hotelName = '',
@@ -1554,17 +2468,22 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const normalizeName = typeof normalizeHotelName === 'function' ? normalizeHotelName : normalizeMeituanConfigHotelName;
         const idText = String(hotelId || '').trim();
         if (idText) {
-            const idMatched = sourceConfigs.find(item => String(item?.system_hotel_id || item?.hotel_id || '').trim() === idText);
+            const idMatched = selectLatestSuccessfulMeituanConfig(sourceConfigs.filter(
+                item => String(item?.system_hotel_id || item?.hotel_id || '').trim() === idText
+            ));
             if (idMatched) return idMatched;
         }
 
         const normalizedHotelName = normalizeName(hotelName);
         if (!normalizedHotelName) return null;
-        return sourceConfigs.find(item => {
+        const nameFallbackConfigs = idText
+            ? sourceConfigs.filter(item => !firstMeituanConfigText(item?.system_hotel_id, item?.hotel_id))
+            : sourceConfigs;
+        return selectLatestSuccessfulMeituanConfig(nameFallbackConfigs.filter(item => {
             const configHotelName = normalizeName(item?.hotel_name || item?.hotelName || '');
             const configName = normalizeName(item?.name || '');
             return configHotelName === normalizedHotelName || configName === normalizedHotelName;
-        }) || null;
+        }));
     };
 
     const resolveMeituanConfigStatus = ({
@@ -1591,11 +2510,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const buildMeituanManualCredentialState = (config = null) => {
         const status = String(config?.credential_status || '').trim().toLowerCase();
         if (isMeituanExecutionConfigReady(config)) {
+            const profileVerified = config?.configuration_verified === true;
             return {
                 key: 'ready',
                 canFetch: true,
                 label: '美团凭据已就绪',
-                detail: '加密凭据可用，可以获取数据。',
+                detail: profileVerified
+                    ? '凭据已就绪，且当前门店 Profile 登录验证成功。'
+                    : '凭据已就绪，可以直接获取数据验证；Profile 自动采集仍需单独完成登录验证。',
                 tone: 'success',
             };
         }
@@ -2120,6 +3042,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         syncTrafficConfig = async () => {},
         syncOrderConfig = async () => {},
         syncAdsConfig = async () => {},
+        loadOrderFlow = async () => {},
         applyRankingConfig = async () => {},
     } = {}) => {
         const isActive = () => getCurrentPage() === 'meituan-ebooking' && getCurrentTab() === tab;
@@ -2139,6 +3062,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (tab === 'meituan-ads') {
             await syncAdsConfig();
             return { status: 'synced', tab, target: 'ads' };
+        }
+        if (tab === 'meituan-order-flow') {
+            await loadOrderFlow();
+            return { status: 'synced', tab, target: 'order_flow' };
         }
         await applyRankingConfig();
         return { status: 'synced', tab, target: 'ranking' };
@@ -2240,17 +3167,33 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const trafficData = data.data;
                 setOnlineDataResult(trafficData);
                 setLatestTrafficData(trafficData);
-                const savedCount = data.saved_count || 0;
-                if (savedCount > 0) {
-                    notify(`获取成功！已保存 ${savedCount} 条流量数据`);
+                const hasDisplayRows = Array.isArray(trafficData)
+                    ? trafficData.length > 0
+                    : Boolean(trafficData && typeof trafficData === 'object' && Object.keys(trafficData).length > 0);
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团流量数据',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                notify(notice.message, notice.level);
+                if (notice.savedCount > 0) {
                     runPostFetchRefresh(refreshOnlineHistory);
                     if (getOnlineDataTab() === 'data') {
                         refreshOnlineData();
                     }
-                } else {
-                    notify('获取成功，但未解析到有效流量数据');
                 }
-                return { status: 'success', response: res, requestBody: directRequestBody, data: trafficData, savedCount };
+                return {
+                    status: notice.businessFailed
+                        ? 'business_failed'
+                        : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete'),
+                    response: res,
+                    requestBody: directRequestBody,
+                    data: trafficData,
+                    savedCount: notice.savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
             notify(res.message || '获取失败', 'error');
@@ -2332,6 +3275,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
     return new Date().getFullYear() + '-' + mmdd;
   }
 
+  function localDateText() {
+    var date = new Date();
+    var month = String(date.getMonth() + 1).padStart(2, '0');
+    var day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
+  }
+
   function nearestOrderContainer(anchor) {
     var node = anchor;
     for (var i = 0; i < 12 && node && node.parentElement; i++) {
@@ -2395,7 +3345,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = '美团订单_订单页导出_' + new Date().toISOString().slice(0, 10) + '_共' + data.length + '条.csv';
+    a.download = '美团订单_订单页导出_' + localDateText() + '_共' + data.length + '条.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2550,12 +3500,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const buildMeituanOrderCsvImportRequestBody = ({
         csvText = '',
         form = {},
+        configId = '',
         systemHotelId = null,
         hotelName = '',
     } = {}) => {
         const orders = parseMeituanOrderCsvText(csvText);
         const poiId = String(form.poiId || '').trim();
         return {
+            config_id: String(configId || '').trim(),
             system_hotel_id: systemHotelId,
             hotel_id: systemHotelId,
             payload: {
@@ -2563,7 +3515,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 poi_id: poiId,
                 poi_name: hotelName,
                 system_hotel_id: systemHotelId,
-                default_data_date: form.endDate || form.startDate || new Date().toISOString().slice(0, 10),
+                config_id: String(configId || '').trim(),
+                default_data_date: form.endDate || form.startDate || todayDateText(),
                 data_period: 'manual_dom_csv',
                 orders,
             },
@@ -2573,6 +3526,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const runMeituanOrderCsvImportFlow = async ({
         getForm = () => ({}),
+        getConfigId = () => '',
         getSystemHotelId = () => null,
         getHotelNameById = () => '',
         notify = () => {},
@@ -2585,6 +3539,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const form = normalizeMeituanOrderFetchForm(getForm() || {});
         const csvText = String(form.csvText || '').trim();
         const systemHotelId = getSystemHotelId();
+        const configId = String(getConfigId() || '').trim();
         if (!systemHotelId) {
             notify('请选择目标酒店后再导入 CSV', 'error');
             return { status: 'missing_system_hotel_id', form };
@@ -2593,9 +3548,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify('请先粘贴美团订单 CSV 内容', 'error');
             return { status: 'missing_csv_text', form };
         }
+        if (!configId) {
+            notify('请先选择已绑定的美团配置', 'error');
+            return { status: 'missing_config_id', form };
+        }
         const requestBody = buildMeituanOrderCsvImportRequestBody({
             csvText,
             form,
+            configId,
             systemHotelId,
             hotelName: getHotelNameById(systemHotelId),
         });
@@ -2613,13 +3573,24 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = { ...(res.data || {}), import_row_count: requestBody.parsed_count };
                 setOrderResult(data);
                 setOnlineDataResult(data);
-                const savedCount = data.saved_count || 0;
-                notify(
-                    savedCount > 0 ? `CSV订单导入成功，已入库 ${savedCount} 条` : 'CSV已解析，但未形成可入库订单行',
-                    savedCount > 0 ? 'success' : 'warning'
-                );
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团 CSV 订单导入',
+                    data,
+                    failureMessage: res.message || '',
+                });
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody, data, savedCount };
+                return {
+                    status: notice.businessFailed
+                        ? 'business_failed'
+                        : ((notice.savedCount > 0 || notice.businessCompleted) ? 'success' : 'incomplete'),
+                    response: res,
+                    requestBody,
+                    data,
+                    savedCount: notice.savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
             notify(res.message || 'CSV订单导入失败', 'error');
             return { status: 'failed', response: res, requestBody };
@@ -2673,6 +3644,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = res.data || {};
                 const runningPayload = {
                     status: data.status || 'running',
+                    ui_flow_status: 'accepted',
                     task_id: data.task_id || '',
                     platform: data.platform || 'meituan',
                     async: true,
@@ -2688,20 +3660,49 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             if (res.code === 200) {
                 const data = res.data || {};
-                setOrderResult(data);
-                setOnlineDataResult(data);
-                const savedCount = data.saved_count || 0;
-                notify(
-                    savedCount > 0 ? `订单数据获取成功，已入库 ${savedCount} 条` : '订单接口请求成功，但未解析到可入库数据',
-                    savedCount > 0 ? 'success' : 'warning'
-                );
+                const hasDisplayRows = ['rows', 'orders', 'data'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团订单数据',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                const flowStatus = notice.businessFailed
+                    ? 'business_failed'
+                    : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete');
+                const visibleData = {
+                    ...data,
+                    ui_flow_status: flowStatus,
+                    ui_message: notice.message,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
+                setOrderResult(visibleData);
+                setOnlineDataResult(visibleData);
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody: directRequestBody, data, savedCount };
+                return {
+                    status: flowStatus,
+                    response: res,
+                    requestBody: directRequestBody,
+                    data: visibleData,
+                    savedCount: notice.savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
-            notify(res.message || '订单数据获取失败', 'error');
+            const failureMessage = res.message || '订单数据获取失败';
+            const failureResult = { ...(res.data || {}), ui_flow_status: 'failed', error: failureMessage };
+            setOrderResult(failureResult);
+            setOnlineDataResult(failureResult);
+            notify(failureMessage, 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            const failureResult = { ...(error?.data?.data || {}), ui_flow_status: 'exception', error: error.message };
+            setOrderResult(failureResult);
+            setOnlineDataResult(failureResult);
             notify('订单数据获取失败: ' + error.message, 'error');
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
@@ -2792,6 +3793,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = res.data || {};
                 const runningPayload = {
                     status: data.status || 'running',
+                    ui_flow_status: 'accepted',
                     task_id: data.task_id || '',
                     platform: data.platform || 'meituan',
                     async: true,
@@ -2807,20 +3809,49 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             if (res.code === 200) {
                 const data = res.data || {};
-                setAdsResult(data);
-                setOnlineDataResult(data);
-                const savedCount = data.saved_count || 0;
-                notify(
-                    savedCount > 0 ? `广告数据获取成功，已入库 ${savedCount} 条` : '广告接口请求成功，但未解析到可入库数据',
-                    savedCount > 0 ? 'success' : 'warning'
-                );
+                const hasDisplayRows = ['rows', 'ads', 'campaigns', 'data'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团广告数据',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                const flowStatus = notice.businessFailed
+                    ? 'business_failed'
+                    : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete');
+                const visibleData = {
+                    ...data,
+                    ui_flow_status: flowStatus,
+                    ui_message: notice.message,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
+                setAdsResult(visibleData);
+                setOnlineDataResult(visibleData);
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody: directRequestBody, data, savedCount };
+                return {
+                    status: flowStatus,
+                    response: res,
+                    requestBody: directRequestBody,
+                    data: visibleData,
+                    savedCount: notice.savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
-            notify(res.message || '广告数据获取失败', 'error');
+            const failureMessage = res.message || '广告数据获取失败';
+            const failureResult = { ...(res.data || {}), ui_flow_status: 'failed', error: failureMessage };
+            setAdsResult(failureResult);
+            setOnlineDataResult(failureResult);
+            notify(failureMessage, 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            const failureResult = { ...(error?.data?.data || {}), ui_flow_status: 'exception', error: error.message };
+            setAdsResult(failureResult);
+            setOnlineDataResult(failureResult);
             notify('广告数据获取失败: ' + error.message, 'error');
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
@@ -2839,7 +3870,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         setHotelsList = () => {},
         getEmptyBusinessSummary = () => ({}),
         setBusinessSummary = () => {},
+        isActive = () => true,
         requestFetch = async () => ({}),
+        requestCommit = null,
+        waitForRetry = async () => {},
         requestDisplayModel = async () => ({}),
         useDisplayModel = rows => rows,
         setSavedCount = () => {},
@@ -2849,7 +3883,16 @@ window.SUXI_MEITUAN_STATIC = (() => {
         refreshOnlineHistory = async () => {},
         getOnlineDataTab = () => '',
         refreshOnlineData = () => {},
+        background = false,
+        suppressPostFetchRefresh = false,
     } = {}) => {
+        const runIsActive = () => {
+            try {
+                return isActive() !== false;
+            } catch (_) {
+                return false;
+            }
+        };
         let form = getForm() || {};
         const selectedMeituanConfig = form.hotelId
             ? getSelectedConfig()
@@ -2865,6 +3908,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     refreshList: false,
                     skipIfAligned: true,
                 });
+                if (!runIsActive()) {
+                    return { status: 'stale', results: [], totalSavedCount: 0 };
+                }
                 form = getForm() || form;
             }
         }
@@ -2875,27 +3921,24 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const configId = isMeituanExecutionConfigReady(selectedMeituanConfig)
             ? resolveMeituanExecutionConfigId(selectedMeituanConfig)
             : '';
-        const partnerId = String(form.partnerId || '').trim();
-        const poiId = String(form.poiId || '').trim();
         const batchInput = validateMeituanBatchFetchInput({
             form,
             configId,
-            partnerId,
-            poiId,
         });
         if (!batchInput.ok) {
             notify(batchInput.message, batchInput.level);
             return { status: batchInput.status || 'invalid_input', batchInput };
         }
 
+        if (!runIsActive()) {
+            return { status: 'stale', results: [], totalSavedCount: 0 };
+        }
         setFetching(true);
         setOnlineDataResult(null);
         setFetchSuccess(false);
         const fetchTasks = buildMeituanBatchFetchTasks({
             form,
             configId,
-            partnerId,
-            poiId,
         });
         const results = fetchTasks.map(task => buildMeituanBatchFetchPendingEntry(task));
         let resultUpdateTimer = null;
@@ -2905,6 +3948,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             const commit = () => {
                 resultUpdateTimer = null;
                 cancelResultUpdate = null;
+                if (!runIsActive()) return;
                 setOnlineDataResult([...results]);
             };
             if (typeof requestAnimationFrame === 'function') {
@@ -2929,12 +3973,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             resultUpdateTimer = null;
             cancelResultUpdate = null;
+            if (!runIsActive()) return;
             setOnlineDataResult([...results]);
         };
         if (results.length > 0) {
             setOnlineDataResult([...results]);
-            setFetchSuccess(true);
-            setDataFetchTime(getFetchTime());
         }
         let totalSavedCount = 0;
         let acceptedCount = 0;
@@ -2944,22 +3987,169 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 notify(fetchTasks.length === 1 ? fetchTasks[0].toastText : `正在获取 ${fetchTasks.length} 个美团榜单任务...`);
             }
             await Promise.all(fetchTasks.map(async (task, index) => {
-                const requestBody = { ...task.body, async: false, background: false };
+                const requestBody = { ...task.body, async: background === true, background: background === true };
+                const maxAttempts = meituanRankMaxAttempts(task);
+                let attemptCount = 0;
                 try {
-                    const res = await requestFetch(requestBody);
+                    const attemptEntries = [];
+                    let bestResponse = null;
+                    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+                        const attemptRequestBody = attempt === 1
+                            ? requestBody
+                            : {
+                                ...requestBody,
+                                include_self_trade_metrics: false,
+                                include_self_traffic_metrics: false,
+                                include_self_business_metrics: false,
+                            };
+                        let attemptResponse;
+                        try {
+                            attemptResponse = await requestFetch(attemptRequestBody);
+                            attemptCount = attempt;
+                            if (!runIsActive()) return;
+                        } catch (error) {
+                            if (!runIsActive()) return;
+                            attemptCount = attempt;
+                            const retryable = attempt < maxAttempts && !isMeituanNonRetryableFetchError(error);
+                            if (!retryable) {
+                                throw error;
+                            }
+                            const delayMs = meituanRetryDelayMs(attempt);
+                            results[index] = {
+                                ...buildMeituanBatchFetchPendingEntry(task),
+                                status: 'fetching',
+                                message: `${task.dateRangeName || '所选区间'}第 ${attempt} / ${maxAttempts} 轮请求暂时失败，${delayMs}ms 后重试`,
+                                attemptCount: attempt,
+                                retryCount: Math.max(0, attempt - 1),
+                                maxAttempts,
+                                rankDataComplete: false,
+                                retryExhausted: false,
+                                lastRetryError: String(error?.message || error || '请求失败'),
+                            };
+                            setOnlineDataResult([...results]);
+                            await waitForRetry(delayMs);
+                            if (!runIsActive()) return;
+                            continue;
+                        }
+                        bestResponse = selectBetterMeituanRankResponse(bestResponse, attemptResponse);
+                        const attemptEntry = buildMeituanBatchFetchResultEntry(task, attemptResponse);
+                        attemptEntries.push(attemptEntry);
+                        if (attemptResponse?.code !== 200 || isMeituanBackgroundAcceptedResponse(attemptResponse)) {
+                            break;
+                        }
+                        const attemptComplete = isMeituanRankResponseComplete(attemptResponse, task);
+                        if (attemptComplete) {
+                            break;
+                        }
+                        results[index] = {
+                            ...attemptEntry,
+                            status: 'fetching',
+                            message: `${task.dateRangeName || '所选区间'}第 ${attempt} / ${maxAttempts} 轮未完整，继续抓取`,
+                            attemptCount: attempt,
+                            retryCount: Math.max(0, attempt - 1),
+                            maxAttempts,
+                            rankDataComplete: false,
+                            retryExhausted: false,
+                        };
+                        setOnlineDataResult([...results]);
+                    }
+                    const res = bestResponse || {};
                     const accepted = isMeituanBackgroundAcceptedResponse(res);
+                    const rankDataComplete = isMeituanRankResponseComplete(res, task);
+                    const rankCandidate = res?.data?.rank_candidate;
+                    const rankDataMode = meituanRankCandidateValueMode(res)
+                        || (hasMeituanCompleteAbsoluteRankRows(res) ? 'raw' : 'platform');
+                    if (rankDataComplete
+                        && typeof requestCommit === 'function'
+                        && !rankCandidate?.candidate_id) {
+                        const candidateError = res?.data?.rank_candidate_error;
+                        throw new Error(candidateError?.message || 'Meituan server rejected this complete ranking candidate');
+                    }
+                    if (rankDataComplete
+                        && rankCandidate?.candidate_id
+                        && typeof requestCommit === 'function') {
+                        const savingEntry = buildMeituanBatchFetchResultEntry(task, res);
+                        results[index] = {
+                            ...savingEntry,
+                            status: 'saving',
+                            message: rankDataMode === 'self_only'
+                                ? '本店实时值已返回，正在保存榜单名次并核对数据库'
+                                : (rankDataMode === 'derived'
+                                    ? '平台仅返回百分比，已按本店真实值和平台百分比计算；正在保存并核对数据库'
+                                    : '平台榜单原始字段已返回，正在保存并核对数据库'),
+                            attemptCount,
+                            retryCount: Math.max(0, attemptCount - 1),
+                            maxAttempts,
+                            rankDataComplete: true,
+                            rankDataMode,
+                            retryExhausted: false,
+                        };
+                        if (runIsActive()) {
+                            setOnlineDataResult([...results]);
+                        }
+                        const commitResponse = await requestCommit({ ...rankCandidate });
+                        if (!runIsActive()) return;
+                        if (commitResponse?.code !== 200) {
+                            throw new Error(commitResponse?.message || 'Meituan rank candidate commit failed');
+                        }
+                        if (!res.data || typeof res.data !== 'object') {
+                            res.data = {};
+                        }
+                        res.data.saved_count = Number(commitResponse?.data?.saved_count || 0);
+                        res.data.persistence_status = commitResponse?.data?.persistence_status || '';
+                        res.data.database_readback = commitResponse?.data?.database_readback || null;
+                        res.data.readback_verified = commitResponse?.data?.readback_verified === true;
+                    }
+                    const retryExhausted = !rankDataComplete
+                        && !accepted
+                        && res?.code === 200
+                        && attemptCount >= maxAttempts;
+                    const percentOnlyWithoutAnchor = isMeituanHistoricalPercentOnlyStayOrSales(res, task);
+                    const incompleteMessage = retryExhausted
+                        ? (percentOnlyWithoutAnchor
+                            ? `${task.dateRangeName || '所选区间'}已尝试 ${attemptCount} 轮，仍只有排名百分比且本店真实值锚点不足，未抓到可保存的完整榜单`
+                            : `${task.dateRangeName || '所选区间'}已尝试 ${attemptCount} 轮，未抓到完整榜单`)
+                        : '';
                     if (accepted) {
                         acceptedCount += 1;
                     }
-                    results[index] = buildMeituanBatchFetchResultEntry(task, res);
+                    const bestEntry = buildMeituanBatchFetchResultEntry(task, res);
+                    const mergedSelfMetricValues = mergeMeituanSelfMetricValues(
+                        ...attemptEntries.map(entry => entry?.selfMetricValues)
+                    );
+                    const mergedSelfMetricStatus = mergeMeituanSelfMetricStatus(
+                        ...attemptEntries.map(entry => entry?.selfMetricStatus)
+                    );
+                    results[index] = {
+                        ...bestEntry,
+                        ...(Object.keys(mergedSelfMetricValues).length > 0 ? { selfMetricValues: mergedSelfMetricValues } : {}),
+                        ...(mergedSelfMetricStatus ? { selfMetricStatus: mergedSelfMetricStatus } : {}),
+                        attemptCount,
+                        retryCount: Math.max(0, attemptCount - 1),
+                        maxAttempts,
+                        rankDataComplete,
+                        rankDataMode,
+                        retryExhausted,
+                        ...(retryExhausted ? {
+                            status: 'incomplete',
+                            message: incompleteMessage,
+                            error: incompleteMessage,
+                        } : {}),
+                    };
                     if (res.code === 200 && !accepted) {
                         totalSavedCount += res.data.saved_count || 0;
                     }
-                    setOnlineDataResult([...results]);
+                    if (runIsActive()) {
+                        setOnlineDataResult([...results]);
+                    }
                 } catch (error) {
+                    if (!runIsActive()) return;
                     results[index] = {
                         ...buildMeituanBatchFetchPendingEntry(task),
                         status: 'exception',
+                        attemptCount,
+                        retryCount: Math.max(0, attemptCount - 1),
+                        maxAttempts,
                         message: error.message || '请求异常',
                         error: error.message || '请求异常',
                     };
@@ -2968,9 +4158,26 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 scheduleResultUpdate();
             }));
 
+            if (!runIsActive()) {
+                if (resultUpdateTimer && typeof cancelResultUpdate === 'function') {
+                    cancelResultUpdate();
+                }
+                resultUpdateTimer = null;
+                cancelResultUpdate = null;
+                return { status: 'stale', results, totalSavedCount };
+            }
             flushResultUpdate();
             setSavedCount(totalSavedCount);
+            const verifiedSavedCount = results.reduce((sum, item) => (
+                item?.readbackVerified === true ? sum + Number(item?.savedCount || 0) : sum
+            ), 0);
             const failedCount = results.filter(item => item?.error).length;
+            const incompleteCount = results.filter(item => (
+                item?.rankDataComplete !== true
+                && !item?.error
+                && !isMeituanPendingResult(item)
+                && !isMeituanBackgroundResult(item)
+            )).length;
             const loginFailed = results.some(item => item?.credentialStatus === 'login_required' || item?.status === 'login_required' || /未登录|登录态|Cookie|授权/.test(String(item?.error || item?.message || '')));
             if (acceptedCount > 0) {
                 setFetchSuccess(true);
@@ -2981,9 +4188,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         : `美团手动获取已提交 ${acceptedCount} 个后台任务，其余任务已返回结果`,
                     'info'
                 );
-                runPostFetchRefresh(refreshOnlineHistory);
-                if (getOnlineDataTab() === 'data') {
-                    refreshOnlineData();
+                if (!suppressPostFetchRefresh) {
+                    runPostFetchRefresh(refreshOnlineHistory);
+                    if (getOnlineDataTab() === 'data') {
+                        refreshOnlineData();
+                    }
                 }
                 return { status: 'accepted', results, acceptedCount, totalSavedCount };
             }
@@ -2994,32 +4203,72 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 return { status: loginFailed ? 'login_required' : 'failed', results, totalSavedCount, failedCount };
             }
             const modelRes = await requestDisplayModel(buildMeituanDisplayModelPayload({ results, form }));
+            if (!runIsActive()) {
+                return { status: 'stale', results, totalSavedCount };
+            }
             if (modelRes.code !== 200) {
                 throw new Error(modelRes.message || '构建美团展示模型失败');
             }
             const allHotels = useDisplayModel(modelRes.data || {});
+            setFetchSuccess(failedCount < fetchTasks.length);
             setDataFetchTime(getFetchTime());
             updateAiAnalysisHotelList();
 
-            if (totalSavedCount > 0) {
-                notify(`批量获取完成！共保存 ${totalSavedCount} 条数据`);
-                runPostFetchRefresh(refreshOnlineHistory);
-                if (getOnlineDataTab() === 'data') {
-                    refreshOnlineData();
+            if (verifiedSavedCount > 0) {
+                notify(
+                    failedCount + incompleteCount > 0
+                        ? `已入库 ${verifiedSavedCount} 条完整榜单数据并完成数据库回读核验，但有 ${failedCount + incompleteCount} 个榜单只返回部分字段`
+                        : `美团榜单已入库 ${verifiedSavedCount} 条，并完成数据库回读核验`,
+                    failedCount + incompleteCount > 0 ? 'warning' : undefined
+                );
+                if (!suppressPostFetchRefresh) {
+                    runPostFetchRefresh(refreshOnlineHistory);
+                    if (getOnlineDataTab() === 'data') {
+                        refreshOnlineData();
+                    }
+                }
+            } else if (totalSavedCount > 0) {
+                notify(
+                    failedCount + incompleteCount > 0
+                        ? `批量请求已完成，接口报告处理 ${totalSavedCount} 条；${failedCount + incompleteCount} 个榜单字段不完整，且尚未确认数据库回读`
+                        : `批量请求已完成，接口报告处理 ${totalSavedCount} 条，尚未确认数据库回读`,
+                    'warning'
+                );
+                if (!suppressPostFetchRefresh) {
+                    runPostFetchRefresh(refreshOnlineHistory);
+                    if (getOnlineDataTab() === 'data') {
+                        refreshOnlineData();
+                    }
                 }
             } else if (allHotels.length > 0) {
-                notify(`获取成功！共 ${allHotels.length} 家酒店数据`);
+                notify(
+                    incompleteCount > 0
+                        ? `平台返回了 ${allHotels.length} 家酒店的排名/百分比，但实际数值不完整，未按完整数据保存`
+                        : `平台已返回 ${allHotels.length} 家酒店的可展示数据，尚未确认入库`,
+                    'warning'
+                );
             } else if (failedCount > 0) {
                 notify(loginFailed ? '美团登录态已失效，请重新登录美团后台后更新 Cookie/API 辅助内容' : `美团获取失败：${failedCount} 个任务未返回有效数据`, loginFailed ? 'error' : 'warning');
             } else {
-                notify('获取完成，但未找到有效数据');
+                notify('请求已完成，但未解析到有效数据', 'warning');
             }
-            return { status: 'success', results, totalSavedCount, allHotels };
+            return {
+                status: failedCount + incompleteCount > 0 ? 'partial' : 'success',
+                results,
+                totalSavedCount,
+                verifiedSavedCount,
+                allHotels,
+            };
         } catch (error) {
+            if (!runIsActive()) {
+                return { status: 'stale', results, totalSavedCount };
+            }
             notify('请求失败: ' + error.message, 'error');
             return { status: 'error', error, results, totalSavedCount };
         } finally {
-            setFetching(false);
+            if (runIsActive()) {
+                setFetching(false);
+            }
         }
     };
 
@@ -3181,22 +4430,39 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanRankInsightCards,
         buildMeituanVisibleRankInsightCards,
         buildMeituanRankHealthRows,
+        getOnlineDataMetricMaybeNumber,
         getOnlineDataMetricNumber,
+        getMeituanExposureMetricValue,
+        getMeituanClickMetricValue,
+        getMeituanVisitorMetricValue,
+        getMeituanSubmitMetricValue,
+        getMeituanFlowRateMetricValue,
         getMeituanExposureMetric,
         getMeituanClickMetric,
         getMeituanVisitorMetric,
         getMeituanSubmitMetric,
         getMeituanFlowRateMetric,
+        hasMeituanExposureMetric,
+        hasMeituanClickMetric,
+        hasMeituanVisitorMetric,
+        hasMeituanFlowRateMetric,
+        hasMeituanTrafficDisplayMetric,
+        isMeituanOverviewDataRow,
         isMeituanTrafficDataRow,
         isMeituanOrderDataRow,
+        isMeituanReviewDataRow,
         isMeituanAdsDataRow,
         buildMeituanDownloadData,
+        resolveMeituanAdsApplicability,
         defaultMeituanAdsUrl,
         createMeituanRankingForm,
         createMeituanTrafficForm,
         createMeituanOrderForm,
         createMeituanAdsForm,
         createMeituanBrowserCaptureForm,
+        getMeituanOrderFlowPeriods,
+        resolveMeituanOrderFlowDateRange,
+        buildMeituanOrderFlowView,
         createEmptyMeituanBusinessSummary,
         buildMeituanRankingFetchResetState,
         resolveMeituanTopSummaryRows,
@@ -3204,6 +4470,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         isMeituanBackgroundResult,
         hasMeituanPendingResults,
         hasMeituanBackgroundResults,
+        buildMeituanFetchPresentation,
+        applyMeituanFetchHealthToCards,
+        applyMeituanFetchHealthToRows,
+        shouldShowMeituanPreviousDayUpdateNotice,
         getMeituanBrowserCapturePresets,
         getMeituanBrowserCaptureSupplementModules,
         buildMeituanBrowserCaptureSupplementCounts,
@@ -3224,6 +4494,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanBrowserCaptureCommand,
         buildMeituanBrowserCaptureReadinessNotice,
         buildMeituanBrowserCaptureRequestContext,
+        buildMeituanSessionProofNotice,
         runMeituanBrowserCaptureFlow,
         buildMeituanCapturedPayloadSaveContext,
         runMeituanCapturedPayloadSaveFlow,

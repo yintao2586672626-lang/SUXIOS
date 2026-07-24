@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\model\CompetitorDevice;
+use app\service\FixedWindowRateLimiter;
+use think\db\BaseQuery;
 use think\Response;
 
 trait CookieEndpointConcern
@@ -76,22 +79,48 @@ trait CookieEndpointConcern
     {
         $window = max(1, $window);
         $limit = max(1, $limit);
-        $bucket = (int)floor(time() / $window);
         $ipHash = substr(sha1((string)$this->request->ip()), 0, 16);
-        $key = sprintf('public_endpoint_rate_%s_%s_%d', preg_replace('/[^a-z0-9_]/i', '_', $endpoint), $ipHash, $bucket);
-        $count = (int)cache($key);
+        $key = sprintf('public_endpoint_rate_%s_%s', preg_replace('/[^a-z0-9_]/i', '_', $endpoint), $ipHash);
+        $rateLimit = $this->fixedWindowRateLimiter()->consume($key, $limit, $window);
 
-        if ($count >= $limit) {
+        if (!$rateLimit['allowed']) {
             return [
                 'limit' => $limit,
                 'window' => $window,
-                'retry_after' => max(1, (($bucket + 1) * $window) - time()),
+                'retry_after' => $rateLimit['retry_after'],
                 'ip_hash' => $ipHash,
             ];
         }
 
-        cache($key, $count + 1, $window + 5);
         return null;
+    }
+
+    protected function fixedWindowRateLimiter(): FixedWindowRateLimiter
+    {
+        return new FixedWindowRateLimiter();
+    }
+
+    private function publicEndpointRateLimiterUnavailableResponse(
+        string $endpoint,
+        \Throwable $exception,
+        bool $cors = false
+    ): Response {
+        \think\facade\Log::error('Public endpoint rate limiter unavailable.', [
+            'exception_type' => get_debug_type($exception),
+            'endpoint' => preg_replace('/[^a-z0-9_]/i', '_', $endpoint),
+            'ip_hash' => substr(sha1((string)$this->request->ip()), 0, 16),
+        ]);
+
+        $response = json([
+            'code' => 503,
+            'message' => '限流服务暂不可用，请稍后重试',
+            'data' => [
+                'reason' => 'rate_limiter_unavailable',
+                'retry_after' => 1,
+            ],
+        ], 503, ['Retry-After' => '1']);
+
+        return $cors ? $response->header($this->cookieCorsHeaders()) : $response;
     }
 
     /**
@@ -183,7 +212,7 @@ trait CookieEndpointConcern
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
         }
 
-        return [
+        $row = [
             'endpoint' => $endpoint,
             'method' => $meta['method'],
             'path' => $meta['path'],
@@ -198,6 +227,12 @@ trait CookieEndpointConcern
             'status_counts' => $statusCounts,
             'security_note' => 'Audited failures store endpoint, reason, status, method, origin and hashed IP only; secrets are masked.',
         ];
+
+        if (array_key_exists('active_binding_count', $meta)) {
+            $row['active_binding_count'] = (int)$meta['active_binding_count'];
+        }
+
+        return $row;
     }
 
     private function serializePublicEndpointFailureLog(array $log, string $endpoint = ''): array
@@ -256,6 +291,19 @@ trait CookieEndpointConcern
     public function receiveCookies(): Response
     {
         $origin = $this->resolveCookieCorsOrigin();
+        $isOptions = $this->request->method() === 'OPTIONS';
+        if (!$isOptions) {
+            try {
+                $rateLimited = $this->checkPublicEndpointRateLimit('receive_cookies', 30, 60);
+            } catch (\Throwable $exception) {
+                return $this->publicEndpointRateLimiterUnavailableResponse('receive_cookies', $exception, true);
+            }
+            if ($rateLimited !== null) {
+                $this->recordPublicEndpointFailure('receive_cookies', 'rate_limited', 429, $rateLimited);
+                return $this->corsError('Too many receive-cookies requests, please retry later.', 429);
+            }
+        }
+
         if ($this->request->header('Origin', '') !== '' && $origin === '') {
             $this->recordPublicEndpointFailure('receive_cookies', 'origin_not_allowed', 403, [
                 'origin' => (string)$this->request->header('Origin', ''),
@@ -271,14 +319,8 @@ trait CookieEndpointConcern
         header('Access-Control-Allow-Headers: Content-Type, Authorization');
         header('Vary: Origin');
 
-        if ($this->request->method() === 'OPTIONS') {
+        if ($isOptions) {
             return response('', 204, $this->cookieCorsHeaders($origin));
-        }
-
-        $rateLimited = $this->checkPublicEndpointRateLimit('receive_cookies', 30, 60);
-        if ($rateLimited !== null) {
-            $this->recordPublicEndpointFailure('receive_cookies', 'rate_limited', 429, $rateLimited);
-            return $this->corsError('Too many receive-cookies requests, please retry later.', 429);
         }
 
         $this->recordPublicEndpointFailure('receive_cookies', 'legacy_bookmarklet_disabled', 410, [
@@ -338,14 +380,14 @@ trait CookieEndpointConcern
             'external_rate_limited',
         ];
 
-        $logs = OperationLog::where('module', 'online_data')
+        $logs = $this->publicEndpointOperationLogQuery()->where('module', 'online_data')
             ->whereIn('action', $actions)
             ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->order('create_time', 'desc')
             ->limit(100)
             ->select()
             ->toArray();
-        $competitorLogs = OperationLog::where('module', 'competitor')
+        $competitorLogs = $this->publicEndpointOperationLogQuery()->where('module', 'competitor')
             ->whereIn('action', $competitorActions)
             ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->order('create_time', 'desc')
@@ -355,6 +397,18 @@ trait CookieEndpointConcern
         $logs = array_merge($logs, $competitorLogs);
         usort($logs, static fn(array $a, array $b): int => strcmp((string)($b['create_time'] ?? ''), (string)($a['create_time'] ?? '')));
         $logs = array_slice($logs, 0, 100);
+
+        $competitorDeviceQuery = CompetitorDevice::where('status', 1)
+            ->whereNull('revoked_at')
+            ->where('token_hash', '<>', '');
+        if (!$this->currentUser->isSuperAdmin()) {
+            $tenantId = (int)($this->currentUser->tenant_id ?? 0);
+            if ($tenantId <= 0) {
+                abort(403, 'Authenticated tenant context is required');
+            }
+            $competitorDeviceQuery->where('tenant_id', $tenantId);
+        }
+        $activeCompetitorBindingCount = (int)$competitorDeviceQuery->count();
 
         return $this->success([
             'period' => [
@@ -388,18 +442,20 @@ trait CookieEndpointConcern
                 $this->buildPublicEndpointSecurityRow('competitor_task', $logs, [
                     'method' => 'POST',
                     'path' => '/api/competitor/task',
-                    'auth' => 'X-Task-Token header only',
+                    'auth' => 'binding-scoped X-Task-Token header only',
                     'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
-                    'token_configured' => trim((string)\think\facade\Env::get('COMPETITOR_TASK_TOKEN', '')) !== '',
+                    'token_configured' => $activeCompetitorBindingCount > 0,
+                    'active_binding_count' => $activeCompetitorBindingCount,
                     'failure_actions' => ['task_denied', 'external_rate_limited'],
                     'failure_scope' => 'task',
                 ]),
                 $this->buildPublicEndpointSecurityRow('competitor_report', $logs, [
                     'method' => 'POST',
                     'path' => '/api/competitor/report',
-                    'auth' => 'X-Report-Token header only',
+                    'auth' => 'binding-scoped X-Report-Token header only',
                     'rate_limit' => ['limit' => 60, 'window_seconds' => 60],
-                    'token_configured' => trim((string)\think\facade\Env::get('COMPETITOR_REPORT_TOKEN', '')) !== '',
+                    'token_configured' => $activeCompetitorBindingCount > 0,
+                    'active_binding_count' => $activeCompetitorBindingCount,
                     'failure_actions' => ['report_denied', 'external_rate_limited'],
                     'failure_scope' => 'report',
                 ]),
@@ -430,6 +486,15 @@ trait CookieEndpointConcern
                 '新增或更换凭据请使用平台采集源；日常采集请使用门店浏览器 Profile。',
             ],
         ]);
+    }
+
+    private function publicEndpointOperationLogQuery(): BaseQuery
+    {
+        if ($this->currentUser && $this->currentUser->isSuperAdmin()) {
+            return OperationLog::withoutTenantScope();
+        }
+
+        return OperationLog::where([]);
     }
 
     private function buildDisabledCookieBookmarkletScript(string $platform): string

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { checkDesignHandoff } from './lib/design_handoff_checks.mjs';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -341,7 +342,9 @@ try {
   console.log(`Creation result: ${resultPath}`);
   console.log(`Wrote ${outputPath}`);
 } catch (error) {
-  const message = String(error?.message || error);
+  const message = error instanceof SyntaxError
+    ? `Design handoff evidence is not valid JSON (${safeJsonParseErrorCode(error)}).`
+    : String(error?.message || error);
   writeResult(resultPath, resultPayload('failed', [message]));
   console.error(`FAIL: ${message}`);
   console.error(`Creation result: ${resultPath}`);

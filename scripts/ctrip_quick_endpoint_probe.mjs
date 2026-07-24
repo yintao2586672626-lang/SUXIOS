@@ -13,7 +13,8 @@ import {
   sectionLabel,
 } from './lib/ctrip_capture_catalog.mjs';
 import { buildCtripCaptureAudit, evaluateCtripCaptureAuditGate } from './lib/ctrip_capture_audit.mjs';
-import { sanitizeOtaPayloadForStorage } from './lib/ota_capture_standard.mjs';
+import { buildOtaCaptureEvidence, sanitizeOtaPayloadForStorage } from './lib/ota_capture_standard.mjs';
+import { sanitizeOtaObservedUrl } from './lib/ota_session_probe.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -76,14 +77,14 @@ try {
         await page.waitForTimeout(2000);
       } catch (err) {
         ok = false;
-        error = err?.message || String(err);
+        error = 'page_navigation_failed';
       }
       payload.pages.push({
         name: section,
         label: sectionLabel(section),
-        configured_url: target.url,
+        configured_url: sanitizeOtaObservedUrl(target.url),
         confidence: target.confidence || '',
-        url: page.url(),
+        url: sanitizeOtaObservedUrl(page.url()),
         ok,
         elapsed_ms: Date.now() - startedAt,
         ...(error ? { error } : {}),
@@ -127,7 +128,8 @@ function registerResponseCapture(pageInstance, target) {
     if (!isCtripCaptureUrl(url)) {
       return;
     }
-    target.xhr_urls.push({ url, status: response.status(), request_type: requestType, method: request.method() });
+    const urlMetadata = captureUrlMetadata(url);
+    target.xhr_urls.push({ ...urlMetadata, status: response.status(), request_type: requestType, method: request.method() });
     if (response.status() !== 200) {
       return;
     }
@@ -136,7 +138,7 @@ function registerResponseCapture(pageInstance, target) {
     const section = endpoint?.section || activeSection || '';
     if (!section || !requestedSections.includes(section)) {
       if (!endpoint) {
-        target.unmatched_xhr_urls.push({ url, status: response.status(), request_type: requestType, method: request.method() });
+        target.unmatched_xhr_urls.push({ ...urlMetadata, status: response.status(), request_type: requestType, method: request.method() });
       }
       return;
     }
@@ -145,7 +147,7 @@ function registerResponseCapture(pageInstance, target) {
     try {
       body = parseResponseBody(await response.text());
     } catch (err) {
-      target.responses.push({ url, section, endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: err?.message || String(err) });
+      target.responses.push({ ...urlMetadata, section, endpoint_id: endpoint?.id || '', status: response.status(), request_type: requestType, error: 'response_json_invalid' });
       return;
     }
 
@@ -159,6 +161,13 @@ function registerResponseCapture(pageInstance, target) {
       dataDate,
       capturedAt,
       url,
+      captureEvidence: {
+        source_trace_id: urlMetadata.source_trace_id || '',
+        source_url_hash: urlMetadata.source_url_hash || '',
+      },
+      sourceTraceId: urlMetadata.source_trace_id || '',
+      sourceUrlHash: urlMetadata.source_url_hash || '',
+      persistRawSourceUrl: false,
     };
     const catalogFacts = extractCtripCatalogFacts(safeBody, factContext);
     const standardRows = buildCtripStandardRowsFromFacts(catalogFacts, {
@@ -173,7 +182,7 @@ function registerResponseCapture(pageInstance, target) {
     target.by_section[section] ||= [];
     target.by_section[section].push(...standardRows);
     target.responses.push({
-      url,
+      ...urlMetadata,
       section,
       section_label: sectionLabel(section),
       endpoint_id: endpoint?.id || '',
@@ -182,7 +191,7 @@ function registerResponseCapture(pageInstance, target) {
       status: response.status(),
       request_type: requestType,
       method: request.method(),
-      post_data: request.postData() || '',
+      request_payload_present: Boolean(request.postData()),
       catalog_fact_count: catalogFacts.length,
       standard_row_count: standardRows.length,
       data: safeBody,
@@ -195,11 +204,17 @@ function parseResponseBody(text) {
   if (!trimmed) {
     return null;
   }
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return { text: trimmed.slice(0, 20000) };
-  }
+  return JSON.parse(trimmed);
+}
+
+function captureUrlMetadata(value) {
+  const rawUrl = stringValue(value);
+  const evidence = buildOtaCaptureEvidence('ctrip', { url: rawUrl });
+  return {
+    url: sanitizeOtaObservedUrl(rawUrl),
+    source_trace_id: evidence.source_trace_id || '',
+    source_url_hash: evidence.source_url_hash || '',
+  };
 }
 
 function isCtripCaptureUrl(value) {

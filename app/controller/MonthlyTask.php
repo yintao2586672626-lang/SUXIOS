@@ -96,7 +96,6 @@ class MonthlyTask extends Base
     public function create(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fill_monthly_task');
 
         $data = $this->requestData();
 
@@ -113,10 +112,11 @@ class MonthlyTask extends Base
 
         $hotelId = (int)$data['hotel_id'];
 
-        // 权限检查
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($hotelId, 'can_fill_monthly_task')) {
-            return $this->error('您没有该酒店的月任务填写权限');
-        }
+        $this->currentUser->hasHotelPermissionOrFail(
+            $hotelId,
+            'can_fill_monthly_task',
+            '您没有该酒店的月任务填写权限'
+        );
 
         // 检查是否已存在
         $exists = MonthlyTaskModel::where('hotel_id', $hotelId)
@@ -132,9 +132,6 @@ class MonthlyTask extends Base
 
         $task = new MonthlyTaskModel();
         $task->hotel_id = $hotelId;
-        if ($this->monthlyTasksHasColumn('tenant_id')) {
-            $task->tenant_id = $hotelId;
-        }
         $task->year = $data['year'];
         $task->month = $data['month'];
         $task->task_data = $taskData;
@@ -153,17 +150,13 @@ class MonthlyTask extends Base
     public function update(int $id): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_edit_report');
 
         $task = MonthlyTaskModel::find($id);
         if (!$task) {
             return $this->error('任务不存在');
         }
 
-        // 权限检查
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($task->hotel_id, 'can_edit_report')) {
-            return $this->error('无权编辑此任务');
-        }
+        $this->currentUser->hasHotelPermissionOrFail((int)$task->hotel_id, 'can_edit_report', '无权编辑此任务');
 
         $data = $this->requestData();
 
@@ -184,17 +177,13 @@ class MonthlyTask extends Base
     public function delete(int $id): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_delete_report');
 
         $task = MonthlyTaskModel::find($id);
         if (!$task) {
             return $this->error('任务不存在');
         }
 
-        // 权限检查
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($task->hotel_id, 'can_delete_report')) {
-            return $this->error('无权删除此任务');
-        }
+        $this->currentUser->hasHotelPermissionOrFail((int)$task->hotel_id, 'can_delete_report', '无权删除此任务');
 
         // 检查是否有关联的日报表
         $dailyReportCount = \app\model\DailyReport::where('hotel_id', $task->hotel_id)
@@ -255,32 +244,4 @@ class MonthlyTask extends Base
         $this->requireHotel();
     }
 
-    private function monthlyTasksHasColumn(string $column): bool
-    {
-        static $columns = null;
-        if ($columns === null) {
-            try {
-                $rows = Db::query('SHOW COLUMNS FROM monthly_tasks');
-                $columns = array_fill_keys(array_column($rows, 'Field'), true);
-            } catch (\Throwable $e) {
-                $columns = [];
-            }
-        }
-
-        return isset($columns[$column]);
-    }
-
-    /**
-     * 检查操作权限
-     */
-    private function checkActionPermission(string $permission): void
-    {
-        if ($this->currentUser->isSuperAdmin()) {
-            return;
-        }
-        
-        if (!$this->currentUser->hasPermission($permission)) {
-            abort(403, '无权限操作');
-        }
-    }
 }

@@ -84,9 +84,15 @@ class CompetitorHotelController extends Base
             'hotel_name.require' => '请输入酒店名称',
         ]);
 
+        $storeId = (int)$data['store_id'];
+        $tenantId = $this->resolveStoreTenantId($storeId);
+        if ($tenantId <= 0) {
+            return $this->error('门店不存在或租户归属未配置', 422);
+        }
+
         $hotel = new CompetitorHotel();
-        $hotel->tenant_id = (int)$data['store_id'];
-        $hotel->store_id = (int)$data['store_id'];
+        $hotel->tenant_id = $tenantId;
+        $hotel->store_id = $storeId;
         $hotel->platform = $data['platform'];
         $hotel->city = $data['city'];
         $hotel->hotel_name = $data['hotel_name'];
@@ -110,9 +116,14 @@ class CompetitorHotelController extends Base
         if (isset($data['platform']) && !in_array((string)$data['platform'], CompetitorHotel::platformCodes(), true)) {
             return $this->error('平台不支持');
         }
+        $storeId = isset($data['store_id']) ? (int)$data['store_id'] : (int)$hotel->store_id;
+        $tenantId = $this->resolveStoreTenantId($storeId);
+        if ($tenantId <= 0) {
+            return $this->error('门店不存在或租户归属未配置', 422);
+        }
+        $hotel->tenant_id = $tenantId;
         if (isset($data['store_id'])) {
-            $hotel->tenant_id = (int)$data['store_id'];
-            $hotel->store_id = (int)$data['store_id'];
+            $hotel->store_id = $storeId;
         }
         if (isset($data['platform'])) $hotel->platform = $data['platform'];
         if (isset($data['city'])) $hotel->city = $data['city'];
@@ -137,5 +148,14 @@ class CompetitorHotelController extends Base
 
         OperationLog::record('competitor', 'delete', '删除竞对酒店: ' . $name, $this->currentUser->id);
         return $this->success(null, '删除成功');
+    }
+
+    private function resolveStoreTenantId(int $storeId): int
+    {
+        if ($storeId <= 0) {
+            return 0;
+        }
+
+        return (int)(Db::name('hotels')->where('id', $storeId)->value('tenant_id') ?? 0);
     }
 }

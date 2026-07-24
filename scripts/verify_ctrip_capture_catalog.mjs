@@ -419,9 +419,18 @@ function verifyCatalog() {
   assertContract(trafficSeqEndpoint?.section === 'traffic_report', 'fetchCurrentHotelSeqInfoV1 must be available under traffic_report');
   assertContract(trafficSeqEndpoint?.dataType === 'traffic', 'traffic_hotel_seq must remain traffic data');
   const trafficRankField = trafficSeqEndpoint?.fields.find((field) => field.id === 'traffic_rank');
-  for (const sourceKey of ['rank', 'seqRank', 'trafficRank', 'qunarRank', 'qunarCompetitorRank']) {
+  for (const sourceKey of ['rank', 'seqRank', 'trafficRank', 'appDetailUvRank']) {
     assertContract(trafficRankField?.sourceKeys.includes(sourceKey), `traffic_rank must include source key: ${sourceKey}`);
   }
+  const trafficCompetitorRankField = trafficSeqEndpoint?.fields.find((field) => field.id === 'traffic_competitor_rank');
+  for (const sourceKey of ['competitorRank', 'qunarCompetitorRank']) {
+    assertContract(trafficCompetitorRankField?.sourceKeys.includes(sourceKey), `traffic_competitor_rank must include source key: ${sourceKey}`);
+  }
+  const trafficCompetitorTotalField = trafficSeqEndpoint?.fields.find((field) => field.id === 'traffic_competitor_hotel_total');
+  assertContract(
+    trafficCompetitorTotalField?.sourceKeys.includes('competitorHotelTotal'),
+    'traffic_competitor_hotel_total must include source key: competitorHotelTotal',
+  );
   assertContract(
     findCtripEndpointByUrl(
       'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCurrentHotelSeqInfoV1',
@@ -534,9 +543,9 @@ function verifyCatalog() {
     });
     assertContract(rows.length >= 2, `${platform} APP funnel sample must build self and competitor rows`);
     assertContract(rows.every((row) => row.platform === platform), `${platform} APP funnel rows must preserve platform`);
-    assertContract(rows.some((row) => row.compare_type === 'competitor'), `${platform} APP funnel rows must preserve hotelId=-1 competitor average`);
+    assertContract(rows.some((row) => row.compare_type === 'competitor_avg'), `${platform} APP funnel rows must preserve hotelId=-1 competitor average`);
     const selfRow = rows.find((row) => row.compare_type === 'self');
-    const competitorRow = rows.find((row) => row.compare_type === 'competitor');
+    const competitorRow = rows.find((row) => row.compare_type === 'competitor_avg');
     assertContract(selfRow?.list_exposure === 1297, `${platform} self APP funnel row must store listExposure`);
     assertContract(selfRow?.detail_exposure === 231, `${platform} self APP funnel row must store detailExposure`);
     assertContract(selfRow?.order_filling_num === 9, `${platform} self APP funnel row must store orderFillingNum`);
@@ -553,9 +562,10 @@ function verifyCatalog() {
     assertContract(Math.abs(Number(competitorRow?.flow_rate) - 21.53) < 0.001, `${platform} competitor APP funnel row must store computed exposure conversion rate`);
   }
   const onlineDataSource = readFileSync('app/controller/OnlineData.php', 'utf8');
+  const otaActionHandlerSource = readFileSync('app/service/Ota/OtaActionHandler.php', 'utf8');
   const ctripFieldMetaSource = readFileSync('app/service/CtripProfileFieldMetaService.php', 'utf8');
   const ctripProfileConfigSource = readFileSync('app/controller/concern/CtripProfileConfigConcern.php', 'utf8');
-  const ctripProfileFieldSource = `${onlineDataSource}\n${ctripFieldMetaSource}\n${ctripProfileConfigSource}`;
+  const ctripProfileFieldSource = `${onlineDataSource}\n${otaActionHandlerSource}\n${ctripFieldMetaSource}\n${ctripProfileConfigSource}`;
   for (const fieldKey of [
     'competition_rank_order_count',
     'competition_rank_order_amount',

@@ -1,7 +1,17 @@
 import { readFileSync } from 'node:fs';
+import { loadFrontendTemplateSource } from './lib/frontend_template_source.mjs';
 
 const read = (path) => readFileSync(path, 'utf8');
-const publicSource = read('public/index.html');
+const decodeTemplateSource = (source) => String(source || '')
+  .replaceAll('&amp;', '&')
+  .replaceAll('&gt;', '>')
+  .replaceAll('&lt;', '<')
+  .replaceAll('&quot;', '"');
+const publicSource = [
+  read('public/index.html'),
+  decodeTemplateSource(loadFrontendTemplateSource(process.cwd()).template),
+  read('public/app-main.js'),
+].join('\n');
 const dataHealthSource = read('public/data-health-static.js');
 const packageSource = read('package.json');
 

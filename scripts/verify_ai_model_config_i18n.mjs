@@ -3,9 +3,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const html = readFileSync(join(root, 'public/index.html'), 'utf8');
+const publicEntry = readFileSync(join(root, 'public/index.html'), 'utf8');
+const appTemplate = readFileSync(join(root, 'resources/frontend/app-template.html'), 'utf8');
+const appMain = readFileSync(join(root, 'public/app-main.js'), 'utf8');
+const appBootstrap = readFileSync(join(root, 'public/app-bootstrap.js'), 'utf8');
+const html = `${publicEntry}\n${appTemplate}\n${appMain}`;
 const systemStatic = readFileSync(join(root, 'public/system-static.js'), 'utf8');
-const contractSource = `${html}\n${systemStatic}`;
+const contractSource = `${html}\n${appBootstrap}\n${systemStatic}`;
 
 const stripHtmlComments = (content) => content.replace(/<!--[\s\S]*?-->/g, '');
 const extractPageBlock = (pageName) => {
@@ -23,12 +27,24 @@ const pageBlockSource = extractPageBlock('ai-model-config');
 const modalMatch = html.match(/<div v-if="showAiModelConfigModal"[\s\S]*?<!-- 系统配置模态框 -->/);
 const scriptMatch = html.match(/const loadAiModelConfigs = async \(\) => \{[\s\S]*?const handleLogin = async \(\) => \{/);
 const failures = [];
-const localeSwitchCount = (html.match(/data-locale-switch/g) || []).length;
+const localeSwitchCount = (contractSource.match(/data-locale-switch/g) || []).length;
 const appHeaderMatch = html.match(/<header class="header px-6 py-4 sticky top-0 z-10">[\s\S]*?<\/header>/);
 const initialLocaleMatch = contractSource.match(/const getInitialLocale = (?:\(\)|\(\{[\s\S]*?\} = \{\}\)) => \{[\s\S]*?\n    \};/);
 
 if (localeSwitchCount < 2) {
-  failures.push('global locale switch should appear on login page and app header');
+  failures.push('global locale switch should appear on the public login shell and app header');
+}
+
+const publicLoginLocaleSnippets = [
+  'data-testid="public-login-locale-select"',
+  "document.getElementById('public-login-locale-select')",
+  "localeSelect.addEventListener('change'",
+  'applyPublicLocale(event.target.value)',
+];
+for (const snippet of publicLoginLocaleSnippets) {
+  if (!appBootstrap.includes(snippet)) {
+    failures.push(`missing public login locale contract: ${snippet}`);
+  }
 }
 
 if (!appHeaderMatch) {
@@ -176,8 +192,8 @@ const requiredSnippets = [
   "localStorage.setItem('suxios_locale', normalized)",
   'document.documentElement.lang = normalized',
   'updateCurrentTime',
-  'new Date().toLocaleString(currentLocale.value)',
-  '@change="switchLocale($event.target.value)"',
+  "const appTimeZone = 'Asia/Shanghai'",
+  'new Intl.DateTimeFormat(locale',
 ];
 
 for (const snippet of requiredSnippets) {

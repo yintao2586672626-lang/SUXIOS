@@ -175,7 +175,7 @@ trait CtripOverviewRequestConcern
 
         if ($httpCode !== 200) {
             $result['error'] = in_array($httpCode, [301, 302], true)
-                ? 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie'
+                ? 'Cookie已失效，请重新登录携程 eBooking 后复制 Cookie'
                 : '携程今日概况接口 HTTP 错误: ' . $httpCode;
             return $result;
         }

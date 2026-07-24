@@ -3,9 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDesignHandoff } from './lib/design_handoff_checks.mjs';
 import { checkLlmConnectivityAttestation as checkLlmAttestationFile } from './lib/llm_attestation_checks.mjs';
-import { checkBackupCredentialFields, checkOtaCredentialRotationAttestation as checkOtaAttestationFile } from './lib/ota_credential_checks.mjs';
+import { checkOtaCredentialRelease } from './lib/ota_credential_checks.mjs';
 import { checkProductionEnvFile } from './lib/release_env_checks.mjs';
 import { checkSecurityScanReports } from './lib/security_scan_checks.mjs';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const releaseEvidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -183,17 +184,10 @@ function checkDesignArtifacts() {
   result.failures.forEach(addFailure);
 }
 
-function checkBackups() {
-  const result = checkBackupCredentialFields({ repoRoot });
-  result.passes.forEach(addPass);
-  result.warnings.forEach(addWarning);
-  result.failures.forEach(addFailure);
-}
-
-function checkOtaCredentialRotationAttestation() {
+function checkOtaCredentialReadiness() {
   const attestationPath = process.env.OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE
     || existingEvidenceOrRepo('ota_credential_rotation_attestation.json', 'docs/ota_credential_rotation_attestation.json');
-  const result = checkOtaAttestationFile({
+  const result = checkOtaCredentialRelease({
     repoRoot,
     attestationPath,
     requireOutsideRepo: Boolean(process.env.OTA_CREDENTIAL_ROTATION_ATTESTATION_FILE) || attestationPath !== 'docs/ota_credential_rotation_attestation.json',
@@ -310,7 +304,7 @@ function checkReleasePrCandidateResult() {
     stat = fs.statSync(resolvedPath);
     result = readJsonFile(resultPath);
   } catch (error) {
-    addFailure(`Release PR candidate result is not readable JSON: ${error.message}`);
+    addFailure(`Release PR candidate result is not readable JSON (${safeJsonParseErrorCode(error)}).`);
     return;
   }
 
@@ -386,7 +380,7 @@ function checkReleaseStagedScopeResult() {
     stat = fs.statSync(resolvedPath);
     result = readJsonFile(resultPath);
   } catch (error) {
-    addFailure(`Release staged-scope result is not readable JSON: ${error.message}`);
+    addFailure(`Release staged-scope result is not readable JSON (${safeJsonParseErrorCode(error)}).`);
     return;
   }
 
@@ -477,7 +471,7 @@ function checkExternalStateResult() {
     stat = fs.statSync(resolvedPath);
     result = readJsonFile(resultPath);
   } catch (error) {
-    addFailure(`Release external-state result is not readable JSON: ${error.message}`);
+    addFailure(`Release external-state result is not readable JSON (${safeJsonParseErrorCode(error)}).`);
     return;
   }
 
@@ -582,8 +576,7 @@ checkEnvReadiness();
 checkOpenAiEntrypoints();
 checkLlmConnectivityAttestation();
 checkDesignArtifacts();
-checkBackups();
-checkOtaCredentialRotationAttestation();
+checkOtaCredentialReadiness();
 checkReleasePackageScope();
 checkCodexSecurityScan();
 checkTooling();

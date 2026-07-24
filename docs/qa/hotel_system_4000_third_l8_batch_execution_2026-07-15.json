@@ -1,0 +1,1110 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-07-15",
+  "batch": "third",
+  "generated_at": "2026-07-16T10:08:45.547Z",
+  "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=third",
+  "source_matrix": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl",
+  "execution_ledger": "docs/qa/hotel_system_4000_execution_evidence_2026-07-15.json",
+  "execution_boundary": {
+    "automated_scope": "Each case is independently executed with one PHPUnit --filter invocation and must parse as exactly one test.",
+    "status_policy": "Successful automated cases are partial; assertion failures are fail; process, zero/multiple tests, errors, skips, incomplete tests, risky tests, warnings, and parse failures are blocked.",
+    "not_covered": [
+      "complete HTTP flow",
+      "database persistence/readback",
+      "UI flow",
+      "real OTA collection"
+    ],
+    "no_suite_propagation": true
+  },
+  "totals": {
+    "requested_cases": 24,
+    "independently_invoked_cases": 24,
+    "exactly_one_test": 24,
+    "statuses": {
+      "partial": 24
+    }
+  },
+  "cases": [
+    {
+      "case_id": "DX-2257",
+      "base_case_id": "TC-283",
+      "scenario_signature": "sha256:4a4a60fca0e08f5f92ea9ac63f9028055f10d631323f7b729a2744963b6d9579",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc283OperationApprovalL8Test.php",
+      "filter": "testTc283OperationApprovalRequiresAllFourGuards@DX-2257 authorized complete fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc283OperationApprovalRequiresAllFourGuards@DX-2257 authorized complete fresh success",
+          "tests/Tc283OperationApprovalL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc283OperationApprovalRequiresAllFourGuards@DX-2257 authorized complete fresh success\" tests/Tc283OperationApprovalL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:38.844Z",
+      "finished_at": "2026-07-16T10:08:39.104Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 40,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.021, Memory: 10.00 MB\r\n\r\nOK (1 test, 40 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2258",
+      "base_case_id": "TC-283",
+      "scenario_signature": "sha256:14e533ef1168e000c8437fe3ed3bcccc84a6c472742a4a723aded053d0609286",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc283OperationApprovalL8Test.php",
+      "filter": "testTc283OperationApprovalRequiresAllFourGuards@DX-2258 authorized complete stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc283OperationApprovalRequiresAllFourGuards@DX-2258 authorized complete stale failure",
+          "tests/Tc283OperationApprovalL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc283OperationApprovalRequiresAllFourGuards@DX-2258 authorized complete stale failure\" tests/Tc283OperationApprovalL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:39.105Z",
+      "finished_at": "2026-07-16T10:08:39.387Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.026, Memory: 10.00 MB\r\n\r\nOK (1 test, 36 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2259",
+      "base_case_id": "TC-283",
+      "scenario_signature": "sha256:871539b260a071ec6fae47526839ba628a382169fa1e3d083776aa3e3097758f",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc283OperationApprovalL8Test.php",
+      "filter": "testTc283OperationApprovalRequiresAllFourGuards@DX-2259 authorized missing fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc283OperationApprovalRequiresAllFourGuards@DX-2259 authorized missing fresh failure",
+          "tests/Tc283OperationApprovalL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc283OperationApprovalRequiresAllFourGuards@DX-2259 authorized missing fresh failure\" tests/Tc283OperationApprovalL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:39.387Z",
+      "finished_at": "2026-07-16T10:08:39.658Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.021, Memory: 10.00 MB\r\n\r\nOK (1 test, 36 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2260",
+      "base_case_id": "TC-283",
+      "scenario_signature": "sha256:243208a8d0dac370aae7cd990e41b4f63bcefa056f9ede8ea31802bfbe2b3855",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc283OperationApprovalL8Test.php",
+      "filter": "testTc283OperationApprovalRequiresAllFourGuards@DX-2260 authorized missing stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc283OperationApprovalRequiresAllFourGuards@DX-2260 authorized missing stale success",
+          "tests/Tc283OperationApprovalL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc283OperationApprovalRequiresAllFourGuards@DX-2260 authorized missing stale success\" tests/Tc283OperationApprovalL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:39.659Z",
+      "finished_at": "2026-07-16T10:08:39.881Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.024, Memory: 10.00 MB\r\n\r\nOK (1 test, 36 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2261",
+      "base_case_id": "TC-283",
+      "scenario_signature": "sha256:1c9ce36040dfd5e35b0550de91202e8b420db451638728a00ad6cbbbd19e22ec",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc283OperationApprovalL8Test.php",
+      "filter": "testTc283OperationApprovalRequiresAllFourGuards@DX-2261 restricted complete fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc283OperationApprovalRequiresAllFourGuards@DX-2261 restricted complete fresh failure",
+          "tests/Tc283OperationApprovalL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc283OperationApprovalRequiresAllFourGuards@DX-2261 restricted complete fresh failure\" tests/Tc283OperationApprovalL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:39.881Z",
+      "finished_at": "2026-07-16T10:08:40.115Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.022, Memory: 10.00 MB\r\n\r\nOK (1 test, 19 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2262",
+      "base_case_id": "TC-283",
+      "scenario_signature": "sha256:ad6eb474fddda411a34385345eaa89240c46a600045d4486a6d36cce523c48ec",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc283OperationApprovalL8Test.php",
+      "filter": "testTc283OperationApprovalRequiresAllFourGuards@DX-2262 restricted complete stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc283OperationApprovalRequiresAllFourGuards@DX-2262 restricted complete stale success",
+          "tests/Tc283OperationApprovalL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc283OperationApprovalRequiresAllFourGuards@DX-2262 restricted complete stale success\" tests/Tc283OperationApprovalL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:40.115Z",
+      "finished_at": "2026-07-16T10:08:40.407Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.022, Memory: 10.00 MB\r\n\r\nOK (1 test, 19 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2263",
+      "base_case_id": "TC-283",
+      "scenario_signature": "sha256:1f39456004fd542b303905d594508b5c26d99340ed10cab33e3dca1ce8c0be63",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc283OperationApprovalL8Test.php",
+      "filter": "testTc283OperationApprovalRequiresAllFourGuards@DX-2263 restricted missing fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc283OperationApprovalRequiresAllFourGuards@DX-2263 restricted missing fresh success",
+          "tests/Tc283OperationApprovalL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc283OperationApprovalRequiresAllFourGuards@DX-2263 restricted missing fresh success\" tests/Tc283OperationApprovalL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:40.407Z",
+      "finished_at": "2026-07-16T10:08:40.653Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.030, Memory: 10.00 MB\r\n\r\nOK (1 test, 19 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2264",
+      "base_case_id": "TC-283",
+      "scenario_signature": "sha256:9d9a640ba59f0236c040a02c77a85501c932549491fa0f12198d6ccb1b52da40",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc283OperationApprovalL8Test.php",
+      "filter": "testTc283OperationApprovalRequiresAllFourGuards@DX-2264 restricted missing stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc283OperationApprovalRequiresAllFourGuards@DX-2264 restricted missing stale failure",
+          "tests/Tc283OperationApprovalL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc283OperationApprovalRequiresAllFourGuards@DX-2264 restricted missing stale failure\" tests/Tc283OperationApprovalL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:40.653Z",
+      "finished_at": "2026-07-16T10:08:40.916Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.029, Memory: 10.00 MB\r\n\r\nOK (1 test, 19 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2297",
+      "base_case_id": "TC-288",
+      "scenario_signature": "sha256:4b80120fe9a7437e3ee4fdc66666cc18188bc806f41586bfdc9f586618888503",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc288OperationTaskStateMachineL8Test.php",
+      "filter": "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2297 authorized complete fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2297 authorized complete fresh success",
+          "tests/Tc288OperationTaskStateMachineL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2297 authorized complete fresh success\" tests/Tc288OperationTaskStateMachineL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:40.916Z",
+      "finished_at": "2026-07-16T10:08:41.290Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.119, Memory: 12.00 MB\r\n\r\nOK (1 test, 15 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2298",
+      "base_case_id": "TC-288",
+      "scenario_signature": "sha256:9e7adca2afdf2ae4ff3be70f25e50592e52e3288f647431c19f20336db13b54d",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc288OperationTaskStateMachineL8Test.php",
+      "filter": "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2298 authorized complete stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2298 authorized complete stale failure",
+          "tests/Tc288OperationTaskStateMachineL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2298 authorized complete stale failure\" tests/Tc288OperationTaskStateMachineL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:41.290Z",
+      "finished_at": "2026-07-16T10:08:41.566Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.096, Memory: 12.00 MB\r\n\r\nOK (1 test, 11 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2299",
+      "base_case_id": "TC-288",
+      "scenario_signature": "sha256:1d4f528af90340c50c3929895ab2d537b76eaa673fd17a22c38ed28424cf51b6",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc288OperationTaskStateMachineL8Test.php",
+      "filter": "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2299 authorized missing fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2299 authorized missing fresh failure",
+          "tests/Tc288OperationTaskStateMachineL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2299 authorized missing fresh failure\" tests/Tc288OperationTaskStateMachineL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:41.566Z",
+      "finished_at": "2026-07-16T10:08:41.842Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.097, Memory: 12.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2300",
+      "base_case_id": "TC-288",
+      "scenario_signature": "sha256:0931f21db2e66fe2b33ec87ce30a0911e5b67b2b4ae2f9224f82d3a01ff21445",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc288OperationTaskStateMachineL8Test.php",
+      "filter": "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2300 authorized missing stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2300 authorized missing stale success",
+          "tests/Tc288OperationTaskStateMachineL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2300 authorized missing stale success\" tests/Tc288OperationTaskStateMachineL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:41.843Z",
+      "finished_at": "2026-07-16T10:08:42.102Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.098, Memory: 12.00 MB\r\n\r\nOK (1 test, 11 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2301",
+      "base_case_id": "TC-288",
+      "scenario_signature": "sha256:0f43e0a5d837fd5d20840cda600348b6f141215e5f98017724dffd57632706c0",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc288OperationTaskStateMachineL8Test.php",
+      "filter": "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2301 restricted complete fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2301 restricted complete fresh failure",
+          "tests/Tc288OperationTaskStateMachineL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2301 restricted complete fresh failure\" tests/Tc288OperationTaskStateMachineL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:42.102Z",
+      "finished_at": "2026-07-16T10:08:42.368Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.088, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2302",
+      "base_case_id": "TC-288",
+      "scenario_signature": "sha256:a9c7496d6ac6bce54eeec1e7e17cd2e3789bbceeca0d2f9df5564b3d0d5d9027",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc288OperationTaskStateMachineL8Test.php",
+      "filter": "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2302 restricted complete stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2302 restricted complete stale success",
+          "tests/Tc288OperationTaskStateMachineL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2302 restricted complete stale success\" tests/Tc288OperationTaskStateMachineL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:42.368Z",
+      "finished_at": "2026-07-16T10:08:42.652Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.107, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2303",
+      "base_case_id": "TC-288",
+      "scenario_signature": "sha256:0abec0984b590464d5703406bfc15e033e8028d174854d7422db49b17aa5771b",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc288OperationTaskStateMachineL8Test.php",
+      "filter": "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2303 restricted missing fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2303 restricted missing fresh success",
+          "tests/Tc288OperationTaskStateMachineL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2303 restricted missing fresh success\" tests/Tc288OperationTaskStateMachineL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:42.652Z",
+      "finished_at": "2026-07-16T10:08:42.934Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.091, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2304",
+      "base_case_id": "TC-288",
+      "scenario_signature": "sha256:a53fd92961510618029fa2c22ecde1843c04402e812049b3fd3fd45fb65e5a1f",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc288OperationTaskStateMachineL8Test.php",
+      "filter": "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2304 restricted missing stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2304 restricted missing stale failure",
+          "tests/Tc288OperationTaskStateMachineL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc288OnlyAllowsCurrentEvidenceBackedTransitionsAndNeverRollsBackTerminalState@DX-2304 restricted missing stale failure\" tests/Tc288OperationTaskStateMachineL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:42.934Z",
+      "finished_at": "2026-07-16T10:08:43.182Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.081, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2361",
+      "base_case_id": "TC-296",
+      "scenario_signature": "sha256:28c5ecc86e59726dbe9c322634265b6baefa76ba88796bf506cdee952896a52f",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc296ExecutionIdempotencyL8Test.php",
+      "filter": "testTc296ExecutionSideEffectsAreIdempotent@DX-2361 authorized complete fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc296ExecutionSideEffectsAreIdempotent@DX-2361 authorized complete fresh success",
+          "tests/Tc296ExecutionIdempotencyL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc296ExecutionSideEffectsAreIdempotent@DX-2361 authorized complete fresh success\" tests/Tc296ExecutionIdempotencyL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:43.182Z",
+      "finished_at": "2026-07-16T10:08:43.440Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 19,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.091, Memory: 12.00 MB\r\n\r\nOK (1 test, 19 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2362",
+      "base_case_id": "TC-296",
+      "scenario_signature": "sha256:a472cf57bed7434b43b499cbcdd2fa5d69c2933b8c4e84a9a97a3df5b33f3a2f",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc296ExecutionIdempotencyL8Test.php",
+      "filter": "testTc296ExecutionSideEffectsAreIdempotent@DX-2362 authorized complete stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc296ExecutionSideEffectsAreIdempotent@DX-2362 authorized complete stale failure",
+          "tests/Tc296ExecutionIdempotencyL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc296ExecutionSideEffectsAreIdempotent@DX-2362 authorized complete stale failure\" tests/Tc296ExecutionIdempotencyL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:43.440Z",
+      "finished_at": "2026-07-16T10:08:43.686Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 26,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.098, Memory: 12.00 MB\r\n\r\nOK (1 test, 26 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2363",
+      "base_case_id": "TC-296",
+      "scenario_signature": "sha256:0c688f513b93997ec5d5d52b3d09459851a3a9a232e658c6050ae98250f52333",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc296ExecutionIdempotencyL8Test.php",
+      "filter": "testTc296ExecutionSideEffectsAreIdempotent@DX-2363 authorized missing fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc296ExecutionSideEffectsAreIdempotent@DX-2363 authorized missing fresh failure",
+          "tests/Tc296ExecutionIdempotencyL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc296ExecutionSideEffectsAreIdempotent@DX-2363 authorized missing fresh failure\" tests/Tc296ExecutionIdempotencyL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:43.686Z",
+      "finished_at": "2026-07-16T10:08:43.962Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.104, Memory: 12.00 MB\r\n\r\nOK (1 test, 15 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2364",
+      "base_case_id": "TC-296",
+      "scenario_signature": "sha256:4f6ae3e6cdbcfd259a97bd588ba9bb505ee01c42ade2af66797a5cd3978c5f41",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc296ExecutionIdempotencyL8Test.php",
+      "filter": "testTc296ExecutionSideEffectsAreIdempotent@DX-2364 authorized missing stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc296ExecutionSideEffectsAreIdempotent@DX-2364 authorized missing stale success",
+          "tests/Tc296ExecutionIdempotencyL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc296ExecutionSideEffectsAreIdempotent@DX-2364 authorized missing stale success\" tests/Tc296ExecutionIdempotencyL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:43.962Z",
+      "finished_at": "2026-07-16T10:08:44.264Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 22,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.123, Memory: 12.00 MB\r\n\r\nOK (1 test, 22 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2365",
+      "base_case_id": "TC-296",
+      "scenario_signature": "sha256:5e4fef3c3ec3ca29929baa63f4f31aa918f2a29d08e238230639b255ef089bc3",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc296ExecutionIdempotencyL8Test.php",
+      "filter": "testTc296ExecutionSideEffectsAreIdempotent@DX-2365 restricted complete fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc296ExecutionSideEffectsAreIdempotent@DX-2365 restricted complete fresh failure",
+          "tests/Tc296ExecutionIdempotencyL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc296ExecutionSideEffectsAreIdempotent@DX-2365 restricted complete fresh failure\" tests/Tc296ExecutionIdempotencyL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:44.264Z",
+      "finished_at": "2026-07-16T10:08:44.551Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.110, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2366",
+      "base_case_id": "TC-296",
+      "scenario_signature": "sha256:b2056e3c5a35130bbc4ed5f1e50fff207282356254257454b2cbb39c2c862c1a",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc296ExecutionIdempotencyL8Test.php",
+      "filter": "testTc296ExecutionSideEffectsAreIdempotent@DX-2366 restricted complete stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc296ExecutionSideEffectsAreIdempotent@DX-2366 restricted complete stale success",
+          "tests/Tc296ExecutionIdempotencyL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc296ExecutionSideEffectsAreIdempotent@DX-2366 restricted complete stale success\" tests/Tc296ExecutionIdempotencyL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:44.551Z",
+      "finished_at": "2026-07-16T10:08:44.810Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 27,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.103, Memory: 12.00 MB\r\n\r\nOK (1 test, 27 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2367",
+      "base_case_id": "TC-296",
+      "scenario_signature": "sha256:b9edc779c3ae5b39024f2cee4a607863a9d7b46b5c2d5d8f76f56b92f45715af",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc296ExecutionIdempotencyL8Test.php",
+      "filter": "testTc296ExecutionSideEffectsAreIdempotent@DX-2367 restricted missing fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc296ExecutionSideEffectsAreIdempotent@DX-2367 restricted missing fresh success",
+          "tests/Tc296ExecutionIdempotencyL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc296ExecutionSideEffectsAreIdempotent@DX-2367 restricted missing fresh success\" tests/Tc296ExecutionIdempotencyL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:44.810Z",
+      "finished_at": "2026-07-16T10:08:45.077Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.109, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2368",
+      "base_case_id": "TC-296",
+      "scenario_signature": "sha256:4a746136d690ba37785124f3d008a92a897af2dd4fecdbaa0fd37cf25ec898da",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc296ExecutionIdempotencyL8Test.php",
+      "filter": "testTc296ExecutionSideEffectsAreIdempotent@DX-2368 restricted missing stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc296ExecutionSideEffectsAreIdempotent@DX-2368 restricted missing stale failure",
+          "tests/Tc296ExecutionIdempotencyL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc296ExecutionSideEffectsAreIdempotent@DX-2368 restricted missing stale failure\" tests/Tc296ExecutionIdempotencyL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:45.077Z",
+      "finished_at": "2026-07-16T10:08:45.547Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 23,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.153, Memory: 12.00 MB\r\n\r\nOK (1 test, 23 assertions)\r\n",
+      "stderr": ""
+    }
+  ]
+}

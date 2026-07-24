@@ -82,11 +82,75 @@ trait OnlineDataSupportConcern
         if (!$this->currentUser) {
             abort(401, '未登录');
         }
+        $hotelId = $this->actionPermissionHotelId();
         if ($this->currentUser->isSuperAdmin()) {
+            if ($hotelId !== null) {
+                $this->currentUser->hasHotelPermissionOrFail($hotelId, $permission, '无权限操作该门店');
+            }
             return;
         }
-        if (!$this->currentUser->hasPermission($permission)) {
-            abort(403, '无权限操作');
+        if ($hotelId === null) {
+            abort(403, '请选择有权限的门店');
         }
+
+        $this->currentUser->hasHotelPermissionOrFail($hotelId, $permission, '无权限操作该门店');
+    }
+
+    private function actionPermissionHotelId(): ?int
+    {
+        // Generic OnlineData payloads also use hotel_id for OTA platform hotel
+        // identifiers. Only system_hotel_id is authoritative at this shared gate;
+        // endpoint-specific handlers validate any legacy hotel_id binding later.
+        foreach (['system_hotel_id', 'systemHotelId'] as $key) {
+            $value = $this->request->param($key, null);
+            if ($value === null || $value === '') {
+                continue;
+            }
+            if (!is_numeric($value) || (int)$value <= 0) {
+                abort(403, '无权限操作该门店');
+            }
+            return (int)$value;
+        }
+
+        $primaryHotelId = (int)($this->currentUser->hotel_id ?? 0);
+        if ($primaryHotelId > 0) {
+            return $primaryHotelId;
+        }
+
+        return null;
+    }
+
+    private function checkHotelActionPermission(int $hotelId, string $permission): void
+    {
+        if (!$this->currentUser) {
+            abort(401, '未登录');
+        }
+        if ($hotelId <= 0) {
+            abort(403, '无权限操作该门店');
+        }
+        $this->currentUser->hasHotelPermissionOrFail($hotelId, $permission, '无权限操作该门店');
+    }
+
+    /**
+     * @return array<int, int>|null null means super-admin scope
+     */
+    private function permittedHotelIdsForAction(string $permission): ?array
+    {
+        if (!$this->currentUser) {
+            abort(401, '未登录');
+        }
+        if ($this->currentUser->isSuperAdmin()) {
+            return null;
+        }
+
+        $hotelIds = [];
+        foreach ($this->currentUser->getPermittedHotelIds() as $hotelId) {
+            $hotelId = (int)$hotelId;
+            if ($hotelId > 0 && $this->currentUser->hasHotelPermission($hotelId, $permission)) {
+                $hotelIds[] = $hotelId;
+            }
+        }
+
+        return array_values(array_unique($hotelIds));
     }
 }

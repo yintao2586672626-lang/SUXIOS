@@ -26,7 +26,11 @@ function excludesAll(file, label, source, needles) {
 const service = read('app/service/InvestmentDecisionSupportService.php');
 const controller = read('app/controller/InvestmentDecision.php');
 const route = read('route/app.php');
-const frontend = read('public/index.html');
+const frontend = [
+  read('public/index.html'),
+  read('resources/frontend/app-template.html'),
+  read('public/app-main.js'),
+].join('\n');
 const systemStatic = read('public/system-static.js');
 const homeStatic = read('public/home-static.js');
 const packageJson = read('package.json');
@@ -147,12 +151,11 @@ includesAll('public/index.html', 'P4 frontend exposes backend action queue with 
   'sourceLabel: \'风险提示\'',
 ]);
 
-includesAll('public/system-static.js', 'P4 menu entry exists under lifecycle auxiliary', systemStatic, [
-  "name: 'P4·投决辅助'",
-  "path: 'investment-decision'",
+excludesAll('public/system-static.js', 'P4 menu entry stays frozen while backend compatibility remains', systemStatic, [
+  "{ name: 'P4·投决辅助', path: 'investment-decision'",
 ]);
 
-includesAll('public/home-static.js', 'home investment card enters P4 decision support', homeStatic, [
+excludesAll('public/home-static.js', 'home core loop does not bypass the frozen P4 navigation', homeStatic, [
   "key: 'investment-decision'",
   "entry: { page: 'investment-decision' }",
 ]);

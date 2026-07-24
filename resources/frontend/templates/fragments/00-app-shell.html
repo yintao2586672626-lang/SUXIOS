@@ -1,0 +1,399 @@
+
+        <!-- 登录页面 -->
+        <div v-if="!isLoggedIn" class="login-bg min-h-screen flex items-center justify-center p-4 relative">
+            <!-- 底部光晕 -->
+            <div class="login-glow-bottom"></div>
+            <!-- 左侧装饰光晕 -->
+            <div class="login-glow-purple"></div>
+
+            <div class="login-stage relative z-10">
+                <section class="login-context-panel" aria-label="宿析OS登录主视觉">
+                    <div class="login-context-topline">
+                        <span class="login-context-kicker">酒店全周期经营决策系统</span>
+                    </div>
+                    <p class="login-brand-mark">宿析OS</p>
+                    <h2 class="login-hero-lines">
+                        <span>看见数据</span>
+                        <span>看懂经营</span>
+                            <span>评估未来情景</span>
+                    </h2>
+                    <p class="login-hero-lead">让酒店每个关键决策，都有数据依据</p>
+                    <p class="login-hero-subcopy">以数据采集、经营分析、策略推演、结果追踪为核心，帮助酒店从经验判断走向数据决策。</p>
+                </section>
+
+                <div class="login-card rounded-2xl p-10 w-full max-w-md relative">
+                    <!-- Logo 和标题 -->
+                    <div class="login-card-head text-center mb-8">
+                        <div class="login-logo login-logo-brand inline-flex items-center justify-center w-20 h-20 rounded-xl mb-5 shadow-lg">
+                            <img src="images/logo.svg" alt="宿析OS" class="login-brand-logo-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <i class="fas fa-hotel text-4xl text-white" style="display:none"></i>
+                        </div>
+                        <p class="login-card-kicker">SUXIOS</p>
+                        <h1 class="login-title text-3xl font-bold mb-2">宿析OS</h1>
+                        <p class="login-slogan text-base font-medium tracking-wide">进入宿析OS经营系统</p>
+                        <p class="login-copy">让酒店经营从经验判断走向数据决策</p>
+                    </div>
+
+                <!-- 登录表单 -->
+                <form @submit.prevent="handleLogin" @focusin="scheduleLoginAutofillSync" class="space-y-5">
+                    <!-- 用户名输入 -->
+                    <div class="input-group">
+                        <label for="login-username" class="input-label block text-sm font-medium mb-2">
+                            <i class="fas fa-user mr-2"></i>用户名
+                        </label>
+                        <div class="relative">
+                            <i class="fas fa-at input-icon-prefix"></i>
+                            <input id="login-username" v-model="loginForm.username" @input="handleLoginFieldInput" @change="handleLoginFieldInput" type="text" name="username" autocomplete="username" data-testid="login-username" class="input-field w-full" placeholder="请输入用户名" :aria-invalid="loginError ? 'true' : 'false'" :aria-describedby="loginError ? 'login-error' : null" required="">
+                        </div>
+                    </div>
+
+                    <!-- 密码输入 -->
+                    <div class="input-group">
+                        <label for="login-password" class="input-label block text-sm font-medium mb-2">
+                            <i class="fas fa-key mr-2"></i>密码
+                        </label>
+                        <div class="relative">
+                            <i class="fas fa-lock input-icon-prefix"></i>
+                            <input id="login-password" v-model="loginForm.password" @input="handleLoginFieldInput" @change="handleLoginFieldInput" @keydown="handleLoginPasswordKeyEvent" @keyup="handleLoginPasswordKeyEvent" @blur="clearLoginPasswordCapsLock" :type="showPassword ? 'text' : 'password'" name="password" autocomplete="current-password" data-testid="login-password" class="input-field w-full" style="padding-right: 3.5rem;" placeholder="请输入密码" :aria-invalid="loginError ? 'true' : 'false'" :aria-describedby="loginError ? (passwordCapsLockOn ? 'login-error login-caps-lock' : 'login-error') : (passwordCapsLockOn ? 'login-caps-lock' : null)" required="">
+                            <button type="button" @click="showPassword = !showPassword" data-testid="login-toggle-password" class="password-toggle absolute" style="right: 0.75rem; top: 50%; transform: translateY(-50%);" :aria-label="showPassword ? '隐藏密码' : '显示密码'" :title="showPassword ? '隐藏密码' : '显示密码'" :aria-pressed="showPassword ? 'true' : 'false'" aria-controls="login-password">
+                                <i :class="showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                        <p v-if="passwordCapsLockOn" id="login-caps-lock" class="login-caps-lock" role="status" aria-live="polite">
+                            <i class="fas fa-arrow-up" aria-hidden="true"></i>
+                            <span>大写锁定已开启，请注意密码大小写</span>
+                        </p>
+                    </div>
+
+                    <!-- 错误提示 -->
+                    <div v-if="loginError" id="login-error" class="login-error flex items-center gap-3" role="alert" aria-live="assertive" aria-atomic="true">
+                        <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+                        <span>{{ loginError }}</span>
+                    </div>
+
+                    <!-- 记住选项 -->
+                    <div class="flex items-center text-sm">
+                        <label class="flex items-center text-slate-400 cursor-pointer hover:text-slate-200 transition" title="由浏览器密码管理器保存，宿析OS不存储明文密码">
+                            <input type="checkbox" v-model="rememberPassword" class="remember-checkbox mr-3">
+                            <span>记住密码</span>
+                        </label>
+                    </div>
+
+                    <!-- 登录按钮 -->
+                    <button type="submit" :disabled="loading || !loginForm.username || !loginForm.password" :class="{ 'is-loading': loading }" :aria-busy="loading ? 'true' : 'false'" data-testid="login-submit" class="btn-login w-full py-3.5 text-base flex items-center justify-center gap-2">
+                        <template v-if="loading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>登录中...</span>
+                        </template>
+                        <template v-else="">
+                            <i class="fas fa-sign-in-alt"></i>
+                            <span>进入决策中心</span>
+                        </template>
+                    </button>
+                </form>
+
+                    <div class="login-card-foot">
+                        <button type="button" @click="openLoginSupport" data-testid="login-support-open" class="director-entry-link" aria-haspopup="dialog" :aria-expanded="loginSupportOpen ? 'true' : 'false'">
+                            账号登录遇到问题？联系管理员
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="login-public-footer" aria-label="登录页使用说明">
+                <span>宿析OS · 酒店经营决策系统</span>
+                <span aria-hidden="true">·</span>
+                <span>仅限授权用户使用</span>
+                <span aria-hidden="true">·</span>
+                <span>请勿共享密码、验证码或 Cookie</span>
+            </footer>
+
+            <div v-if="loginSupportOpen" class="login-support-backdrop" @click.self="closeLoginSupport">
+                <section data-testid="login-support-dialog" class="login-support-dialog" role="dialog" aria-modal="true" aria-labelledby="login-support-title" aria-describedby="login-support-description" tabindex="-1" @keydown="handleLoginSupportKeydown">
+                    <div class="login-support-head">
+                        <div>
+                            <p class="login-support-kicker">账号协助</p>
+                            <h2 id="login-support-title">联系管理员</h2>
+                        </div>
+                        <button type="button" @click="closeLoginSupport" class="login-support-close" aria-label="关闭联系管理员弹窗">
+                            <i class="fas fa-times" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                    <p id="login-support-description" class="login-support-description">开通账号或处理登录问题，请通过以下方式联系管理员。</p>
+                    <div class="login-support-contact" aria-live="polite" aria-atomic="true">
+                        <div v-if="loginSupportLoading" class="login-support-state">
+                            <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                            <span>正在获取联系方式...</span>
+                        </div>
+                        <div v-else-if="loginSupportError" class="login-support-state is-error" role="alert">
+                            <span>{{ loginSupportError }}</span>
+                            <button type="button" @click="loadLoginSupportContact">重试</button>
+                        </div>
+                        <p v-else class="login-support-value">{{ loginSupportContact }}</p>
+                    </div>
+                    <p class="login-support-safety"><i class="fas fa-shield-alt" aria-hidden="true"></i> 请勿发送密码、验证码或浏览器 Cookie。</p>
+                    <div class="login-support-actions">
+                        <button type="button" @click="closeLoginSupport" class="login-support-secondary">关闭</button>
+                        <button type="button" @click="copyLoginSupportContact" :disabled="loginSupportLoading || !!loginSupportError || !loginSupportContact" data-testid="login-support-copy" class="login-support-primary">
+                            <i class="fas fa-copy" aria-hidden="true"></i>
+                            <span>复制联系方式</span>
+                        </button>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- 主应用 -->
+        <div v-else="" class="suxi-app-shell flex h-screen bg-gray-50">
+            <!-- 侧边栏 -->
+            <aside class="sidebar text-white relative flex flex-col" :class="{ 'collapsed': sidebarCollapsed }">
+                <div class="p-3 border-b border-white/10">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
+                            <div v-if="systemConfig.logo_url" class="w-8 h-8 rounded-xl overflow-hidden bg-white/10 flex items-center justify-center flex-shrink-0 shadow-md">
+                                <img :src="systemConfig.logo_url" class="sidebar-logo-img" onerror="this.style.display='none'">
+                            </div>
+                            <div v-else="" class="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-lg flex-shrink-0">
+                                <i class="fas fa-hotel text-sm"></i>
+                            </div>
+                            <span v-show="!sidebarCollapsed" class="font-bold text-lg truncate ml-2">{{ systemConfig.system_name || '宿析' }}</span>
+                        </div>
+                        <button v-show="!sidebarCollapsed" @click.prevent="toggleSidebar" class="flex-shrink-0 p-2 rounded-lg hover:bg-white/15 active:bg-white/25 cursor-pointer transition-all border border-white/10" title="收起侧边栏">
+                            <i class="fas fa-chevron-left text-xs"></i>
+                        </button>
+                        <button v-show="sidebarCollapsed" @click.prevent="toggleSidebar" class="flex-shrink-0 p-2 rounded-lg hover:bg-white/15 active:bg-white/25 cursor-pointer transition-all border border-white/10" title="展开侧边栏">
+                            <i class="fas fa-chevron-right text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+                <nav class="flex-1 py-4 overflow-y-auto custom-scrollbar" data-testid="app-nav">
+                    <template v-for="item in visibleMenuItems" :key="item.path || item.name">
+                        <!-- 第一层: 有子菜单 -->
+                        <div v-if="item.children" class="mobile-nav-group mb-1">
+                            <a @click="handleParentMenuClick(item)" @keydown.enter.prevent="handleParentMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" :aria-expanded="expandedMenus.includes(item.name) ? 'true' : 'false'" role="button" tabindex="0" class="mobile-nav-trigger sidebar-item flex items-center justify-between px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'justify-center': sidebarCollapsed }">
+                                <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
+                                    <i :class="item.icon" class="w-5 text-center text-blue-300"></i>
+                                    <span v-show="!sidebarCollapsed" class="text-sm font-medium">{{ item.name }}</span>
+                                </div>
+                                <i v-show="!sidebarCollapsed" :class="['fas', 'fa-chevron-down', 'text-xs', 'transition-transform', expandedMenus.includes(item.name) ? 'rotate-180' : '']"></i>
+                            </a>
+
+                            <!-- 第二层 -->
+                            <div v-show="expandedMenus.includes(item.name) &amp;&amp; !sidebarCollapsed" class="mobile-nav-submenu bg-black/10" role="menu" :aria-label="getMenuItemName(item) + '子菜单'">
+                                <template v-for="child in item.children" :key="child.path || child.name">
+                                    <!-- 第二层: 有孙菜单 -->
+                                    <div v-if="child.children">
+                                        <a @click.stop="toggleSubmenu(child.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center justify-between px-4 py-2.5 cursor-pointer mx-2 pl-10">
+                                            <div class="flex items-center">
+                                                <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
+                                                <span class="text-sm">{{ child.name }}</span>
+                                            </div>
+                                            <i :class="['fas', 'fa-chevron-right', 'text-[10px]', 'transition-transform', expandedMenus.includes(child.name) ? 'rotate-90' : '']"></i>
+                                        </a>
+                                        <!-- 第三层 -->
+                                        <div v-show="expandedMenus.includes(child.name)" class="bg-black/5">
+                                        <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleNestedMenuClick(grandChild, item.name)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': isSidebarMenuItemActive(grandChild) }" :aria-current="isSidebarMenuItemActive(grandChild) ? 'page' : undefined">
+                                                <i :class="grandChild.icon" class="w-4 text-center mr-2 text-blue-300/60 text-[10px]"></i>
+                                                <span>{{ getMenuItemName(grandChild) }}</span>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    <!-- 第二层: 普通项 -->
+                                <a v-else="" @click.stop="handleNestedMenuClick(child, item.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': isSidebarMenuItemActive(child) }" :aria-current="isSidebarMenuItemActive(child) ? 'page' : undefined">
+                                        <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
+                                        <span class="text-sm">{{ getMenuItemName(child) }}</span>
+                                    </a>
+                                </template>
+                            </div>
+                        </div>
+                        <!-- 普通顶层菜单项 -->
+                        <a v-else="" @click="handleMenuClick(item)" @keydown.enter.prevent="handleMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" role="button" tabindex="0" class="sidebar-item flex items-center px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': isSidebarMenuItemActive(item), 'justify-center': sidebarCollapsed }" :aria-current="isSidebarMenuItemActive(item) ? 'page' : undefined">
+                            <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
+                                <i :class="item.icon" class="w-5 text-center text-blue-300"></i>
+                                <span v-show="!sidebarCollapsed" class="text-sm font-medium">{{ getMenuItemName(item) }}</span>
+                            </div>
+                        </a>
+                    </template>
+                </nav>
+                <div class="p-3 border-t border-white/10 bg-black/20">
+                    <div class="flex items-center mb-2" :class="sidebarCollapsed ? 'justify-center' : ''">
+                        <div class="user-avatar w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-user text-white text-sm"></i>
+                        </div>
+                        <div v-show="!sidebarCollapsed" class="ml-2 overflow-hidden">
+                            <div class="font-medium text-sm truncate">{{ user?.realname || user?.username }}</div>
+                            <div class="text-xs text-blue-300/80">{{ user?.role_name || '员工' }}</div>
+                        </div>
+                    </div>
+                    <button @click="handleLogout" class="w-full text-left text-sm text-blue-300/80 hover:text-white py-2 px-2 rounded-lg hover:bg-white/10 transition flex items-center" :class="sidebarCollapsed ? 'justify-center' : ''">
+                        <i class="fas fa-sign-out-alt" :class="sidebarCollapsed ? '' : 'mr-2'"></i>
+                        <span v-show="!sidebarCollapsed">退出登录</span>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- 主内容区 -->
+            <main class="flex-1 overflow-auto" data-testid="app-main" :data-current-page="currentPage">
+                <!-- 顶部栏 -->
+                <header class="header px-6 py-4 sticky top-0 z-10">
+                    <div class="header-layout flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="header-page-identity">
+                            <span class="header-page-eyebrow">SUXIOS · 经营工作台</span>
+                            <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
+                        </div>
+                        <div class="header-utility-cluster flex flex-wrap items-center justify-end gap-3" role="group" aria-label="顶栏工具">
+                            <div data-locale-switch="" data-testid="header-locale-switch" class="locale-switch header-locale-switch header-language-control" role="group" :aria-label="aiModelConfigText('global.languageLabel')">
+                                <span class="header-utility-label">
+                                    <i class="fas fa-globe-asia" aria-hidden="true"></i>
+                                    <span>{{ aiModelConfigText('global.languageLabel') }}</span>
+                                </span>
+                                <span class="header-language-options">
+                                    <button v-for="option in languageOptions" :key="option.value" type="button" @click="switchLocale(option.value)" :aria-pressed="currentLocale === option.value" :title="option.label" :data-testid="'header-locale-' + option.value" :class="['header-language-option', currentLocale === option.value ? 'is-active' : '']">
+                                        {{ option.value === 'en-US' ? 'EN' : option.label }}
+                                    </button>
+                                </span>
+                            </div>
+                            <div class="relative header-notification-control">
+                                <button type="button" data-testid="header-notification-trigger" @click="toggleGlobalNotifications" @keydown.esc.stop="globalNotificationOpen = false" class="header-notification-button" :class="globalNotificationOpen ? 'is-open' : ''" :aria-expanded="globalNotificationOpen ? 'true' : 'false'" aria-controls="global-notification-panel" :aria-label="globalNotificationUnreadCount ? `通知中心，${globalNotificationUnreadCount} 条未读` : '通知中心，无未读提醒'">
+                                    <span class="header-utility-icon"><i class="fas fa-bell" aria-hidden="true"></i></span>
+                                    <span class="header-notification-copy">
+                                        <span class="header-notification-title">通知</span>
+                                    </span>
+                                    <span v-if="globalNotificationUnreadCount" class="header-notification-count" aria-live="polite">
+                                        {{ globalNotificationUnreadCount &gt; 99 ? '99+' : globalNotificationUnreadCount }}
+                                    </span>
+                                </button>
+                                <div v-if="globalNotificationOpen" id="global-notification-panel" data-testid="header-notification-panel" role="dialog" aria-label="通知中心" @keydown.esc.stop="globalNotificationOpen = false" class="header-notification-panel absolute right-0 top-full z-30 mt-2 w-[calc(100vw-2rem)] max-w-[25rem] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                                    <div class="flex items-start justify-between gap-3 border-b border-gray-100 px-4 py-3">
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-900">采集 / 登录-Cookie告警</div>
+                                            <div class="mt-1 text-xs text-gray-500">{{ globalNotificationSummaryText }}</div>
+                                        </div>
+                                        <div class="flex shrink-0 items-center gap-1.5">
+                                            <button type="button" @click="refreshGlobalNotifications" :disabled="globalNotificationLoading" class="header-notification-panel-action rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-60">
+                                                <i :class="['fas fa-sync-alt mr-1', globalNotificationLoading ? 'fa-spin' : '']"></i>刷新
+                                            </button>
+                                            <button type="button" @click="globalNotificationOpen = false" class="header-notification-panel-close" aria-label="关闭通知中心" title="关闭">
+                                                <i class="fas fa-times" aria-hidden="true"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div v-if="globalNotificationVisibleItems.length" class="max-h-96 overflow-y-auto">
+                                        <button v-for="item in globalNotificationVisibleItems" :key="item.id" type="button" @click="openGlobalNotification(item)" :class="['header-notification-item block w-full border-b border-gray-100 px-4 py-3 text-left last:border-b-0 hover:bg-gray-50', item.is_read ? 'is-read bg-white' : 'is-unread bg-blue-50/60']">
+                                            <div class="flex items-start gap-3">
+                                                <span :class="['mt-1 h-2.5 w-2.5 shrink-0 rounded-full', globalNotificationSeverityDotClass(item.severity)]"></span>
+                                                <div class="min-w-0 flex-1">
+                                                    <div class="flex items-center justify-between gap-3">
+                                                        <span class="truncate text-sm font-medium text-gray-900">{{ item.title }}</span>
+                                                        <span class="shrink-0 text-xs text-gray-400">{{ item.time_label || '刚刚' }}</span>
+                                                    </div>
+                                                    <div class="mt-1 line-clamp-2 text-xs leading-relaxed text-gray-600">{{ item.detail }}</div>
+                                                    <div class="mt-2 flex items-center justify-between gap-2">
+                                                        <span :class="['rounded border px-2 py-0.5 text-[11px]', globalNotificationBadgeClass(item.severity)]">{{ item.category_label }}</span>
+                                                        <span class="text-[11px] font-medium text-blue-600">{{ item.action_label || '查看处理' }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                    <div v-else="" class="px-4 py-8 text-center">
+                                        <div class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-green-50 text-green-600">
+                                            <i class="fas fa-check"></i>
+                                        </div>
+                                        <div class="mt-3 text-sm font-medium text-gray-800">暂无需要处理的采集通知</div>
+                                        <div class="mt-1 text-xs text-gray-500">只代表 OTA 授权采集状态，不代表全酒店经营口径。</div>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-4 py-2">
+                                        <span class="text-[11px] text-gray-400">显示最近 {{ globalNotificationVisibleItems.length }} 条 · 共 {{ globalNotificationTotalCount }} 条</span>
+                                        <div class="flex items-center gap-3">
+                                            <button type="button" @click="markAllGlobalNotificationsRead" :disabled="globalNotificationLoading" class="header-notification-footer-action text-xs text-gray-600 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50">全部已读</button>
+                                            <button type="button" @click="clearGlobalNotifications" :disabled="globalNotificationLoading" class="header-notification-footer-action text-xs text-gray-600 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50">清空全部普通提醒</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div data-testid="header-time-panel" class="header-time-panel" :title="currentTimeZoneLabel">
+                                <span class="header-utility-icon"><i class="fas fa-clock" aria-hidden="true"></i></span>
+                                <span class="header-time-copy">
+                                    <span class="header-clock-row"><strong>{{ currentClockText }}</strong><small>{{ currentTimeZoneLabel }}</small></span>
+                                    <span class="header-date-row">{{ currentDateText }}</span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <div v-if="strongOtaReminderCount" class="px-6 pt-4" data-testid="ota-auth-strong-reminder-banner">
+                    <section class="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between" role="alert">
+                        <div class="flex min-w-0 items-start gap-3">
+                            <span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-600 text-white">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </span>
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold text-red-900">{{ strongOtaReminderCount }} 项 OTA Cookie 状态需处理</div>
+                                <div class="mt-1 text-xs leading-5 text-red-700">Cookie 可能已失效，相关数据可能暂时无法获取；更新并验证后可恢复采集。</div>
+                            </div>
+                        </div>
+                        <button type="button" @click="showStrongOtaReminder" class="shrink-0 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-800">
+                            立即处理
+                        </button>
+                    </section>
+                </div>
+
+                <div v-if="strongOtaReminderOpen &amp;&amp; strongOtaReminderCount" @click.self="deferStrongOtaReminder" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-4" data-testid="ota-auth-strong-reminder-modal" role="dialog" aria-modal="true" aria-labelledby="ota-auth-strong-reminder-title">
+                    <section @pointerdown="restartStrongOtaReminderAutoDismissCountdown" @keydown="restartStrongOtaReminderAutoDismissCountdown" @wheel.passive="restartStrongOtaReminderAutoDismissCountdown" class="ota-auth-reminder-panel flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-red-200 bg-white shadow-2xl" style="max-height: calc(100vh - 2rem);">
+                        <div class="shrink-0 border-b border-red-100 bg-red-50 px-5 py-4">
+                            <div class="flex items-start gap-3">
+                                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-700 text-base text-white">
+                                    <i class="fas fa-user-lock"></i>
+                                </span>
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-xs font-semibold uppercase tracking-wider text-red-600">OTA Cookie 状态提醒</div>
+                                    <h2 id="ota-auth-strong-reminder-title" class="mt-0.5 text-lg font-bold text-slate-900">部分账号 Cookie 可能已失效</h2>
+                                    <p class="mt-1 text-xs leading-5 text-slate-600">{{ strongOtaReminderCount }} 项 Cookie 状态需处理，失效后可能暂时无法获取 OTA 数据；可选择门店更新 Cookie。</p>
+                                </div>
+                                <button type="button" @click="deferStrongOtaReminder" data-testid="ota-auth-strong-reminder-close" aria-label="关闭弹窗，顶部提醒仍保留" title="关闭弹窗，顶部提醒仍保留" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-white text-sm font-semibold text-slate-600 transition hover:bg-red-100 hover:text-red-800">
+                                    <i class="fas fa-times" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="ota-auth-reminder-grid min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="ota-auth-strong-reminder-list">
+                            <article v-for="item in strongOtaReminderItems" :key="item.reminder_key" class="ota-auth-reminder-card flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-sm transition-colors">
+                                <div class="flex min-w-0 items-start gap-3">
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="truncate text-sm font-semibold text-slate-900" :title="item.hotel_name || ('门店 ' + item.hotel_id)">{{ item.hotel_name || ('门店 ' + item.hotel_id) }}</span>
+                                            <span class="shrink-0 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700">{{ item.platform === 'ctrip' ? '携程' : (item.platform === 'meituan' ? '美团' : 'OTA') }}</span>
+                                        </div>
+                                        <div class="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-red-800">
+                                            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" aria-hidden="true"></span>
+                                            <span class="truncate font-medium">Cookie 可能已失效</span>
+                                        </div>
+                                    </div>
+                                    <button type="button" @click="openStrongOtaReminderItem(item)" aria-label="更新 Cookie 并验证" class="shrink-0 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
+                                        更新 Cookie
+                                    </button>
+                                </div>
+                            </article>
+                        </div>
+                        <div class="shrink-0 flex flex-col gap-2.5 border-t border-slate-100 bg-slate-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between" data-testid="ota-auth-strong-reminder-footer">
+                            <span class="ota-auth-reminder-footer-note flex max-w-md items-start gap-2 text-xs leading-5 text-slate-500" data-testid="ota-auth-auto-dismiss-countdown" aria-live="polite" aria-atomic="true">
+                                <i class="fas fa-info-circle mt-0.5 shrink-0 text-slate-400" aria-hidden="true"></i>
+                                <span>未操作将在 {{ strongOtaReminderAutoDismissSecondsRemaining }} 秒后自动关闭，顶部提醒仍会保留。</span>
+                            </span>
+                            <div class="flex flex-col gap-2 sm:flex-row">
+                                <button type="button" @click="snoozeStrongOtaReminder24Hours" data-testid="ota-auth-strong-reminder-snooze-24h" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                                    {{ strongOtaReminderSnoozeHours }} 小时内不再弹窗
+                                </button>
+                                <button type="button" @click="deferStrongOtaReminder" data-testid="ota-auth-strong-reminder-defer" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                                    下次登录再提醒
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- 内容区 -->
+                <div class="suxi-page-body p-6 page-enter" :data-testid="pageTestId(currentPage)">
+
+                    <!-- 运营管理：策案·策略模拟 -->
