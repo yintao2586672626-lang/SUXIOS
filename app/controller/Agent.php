@@ -22,6 +22,7 @@ use app\service\FeasibilityReportService;
 use app\service\LlmClient;
 use app\service\OperationManagementService;
 use app\service\OtaOperatingScope;
+use app\service\RevenueAiOverviewService;
 use app\service\RevenueForecastReadinessService;
 use app\service\RevenuePricingRecommendationService;
 use think\Response;
@@ -33,6 +34,13 @@ use think\facade\Db;
  */
 class Agent extends Base
 {
+    /** @var array<string, array<int, array<string, mixed>>> */
+    private array $revenueForecastRangeCache = [];
+    /** @var array<string, array<string, mixed>> */
+    private array $revenueForecastAccuracyCache = [];
+    /** @var array<string, array<int, string>> */
+    private array $revenueHighDemandDatesCache = [];
+
     private function feasibilityService(): FeasibilityReportService
     {
         return new FeasibilityReportService();
@@ -154,6 +162,16 @@ class Agent extends Base
     {
         if (!$this->currentUser) {
             abort(401, '请先登录');
+        }
+    }
+
+    private function assertRevenueHotelPermission(int $hotelId): void
+    {
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('revenue hotel scope is invalid', 422);
+        }
+        if (!$this->currentUser || !$this->currentUser->hasHotelPermission($hotelId, 'can_use_ai_decision')) {
+            throw new \RuntimeException('no can_use_ai_decision permission for this hotel', 403);
         }
     }
 
@@ -816,102 +834,6 @@ class Agent extends Base
             'target_value' => is_array($targetValue) ? $targetValue : [],
             'workflow_schedule' => $this->otaDiagnosisIntentWorkflowSchedule($existing),
         ];
-    }
-
-    private function createOtaDiagnosisExecutionIntentLegacy(int $id, int $actionIndex): Response
-    {
-        $this->checkAdmin();
-        if ($id <= 0 || $actionIndex < 0) {
-            return $this->error('OTA诊断行动标识无效', 422);
-        }
-
-        try {
-            $log = AgentLog::where('id', $id)
-                ->where('action', 'ota_diagnosis')
-                ->where('agent_type', AgentLog::AGENT_TYPE_REVENUE)
-                ->find();
-            if (!$log) {
-                return $this->error('未找到已保存的OTA诊断', 404);
-            }
-
-            $context = $log->context_data;
-            if (is_string($context)) {
-                $decoded = json_decode($context, true);
-                $context = is_array($decoded) ? $decoded : [];
-            }
-            if (($context['record_status'] ?? '') === 'superseded') {
-                return $this->error('该诊断记录已被更新的同范围诊断替代，不能创建运营执行意图', 409);
-            }
-            $snapshot = is_array($context['diagnosis_result'] ?? null) ? $context['diagnosis_result'] : [];
-            if (($snapshot['record_status'] ?? '') === 'superseded') {
-                return $this->error('该诊断记录已被更新的同范围诊断替代，不能创建运营执行意图', 409);
-            }
-            if (($snapshot['decision_status'] ?? $snapshot['decision_closure']['status'] ?? '') !== 'action_required') {
-                return $this->error('该诊断不是“需要行动”状态，不能创建运营执行意图', 409);
-            }
-
-            $actionItems = array_values(array_filter((array)($snapshot['action_items'] ?? []), 'is_array'));
-            $action = $actionItems[$actionIndex] ?? null;
-            if (!is_array($action)
-                || ($action['execution_ready'] ?? false) !== true
-                || ($action['can_request_execution_intent'] ?? false) !== true
-                || !$this->isOtaDiagnosisActionDecisionQualityExecutionReady($action)
-            ) {
-                return $this->error('该行动缺少可执行证据，不能转入运营执行', 409);
-            }
-
-            $hotelId = (int)($log->hotel_id ?? 0);
-            if ($hotelId <= 0 || ((int)($snapshot['hotel']['id'] ?? $hotelId) > 0 && (int)$snapshot['hotel']['id'] !== $hotelId)) {
-                return $this->error('诊断酒店范围与保存记录不一致', 409);
-            }
-
-            $intentInput = $this->buildOtaDiagnosisExecutionIntentInput($snapshot, $action, $id, $hotelId);
-            $existing = null;
-            if ($this->tableExists('operation_execution_intents')) {
-                $existing = Db::name('operation_execution_intents')
-                    ->where('source_module', (string)$intentInput['source_module'])
-                    ->where('source_record_id', $id)
-                    ->where('hotel_id', $hotelId)
-                    ->where('action_type', (string)$intentInput['action_type'])
-                    ->whereNull('deleted_at')
-                    ->order('id', 'desc')
-                    ->find();
-            }
-
-            $reused = is_array($existing);
-            $intent = $reused
-                ? [
-                    'id' => (int)($existing['id'] ?? 0),
-                    'status' => (string)($existing['status'] ?? ''),
-                    'hotel_id' => (int)($existing['hotel_id'] ?? $hotelId),
-                    'platform' => (string)($existing['platform'] ?? $snapshot['platform'] ?? ''),
-                    'source_module' => (string)($existing['source_module'] ?? $intentInput['source_module']),
-                    'source_record_id' => (int)($existing['source_record_id'] ?? $id),
-                ]
-                : (new OperationManagementService())->createExecutionIntent(
-                    [$hotelId],
-                    $hotelId,
-                    $intentInput,
-                    (int)($this->currentUser->id ?? 0),
-                    false,
-                    null,
-                    true
-                );
-
-            return $this->success([
-                'execution_intent' => $intent,
-                'saved_diagnosis_id' => $id,
-                'action_index' => $actionIndex,
-                'reused_existing_intent' => $reused,
-                'next_page' => 'ops-track',
-                'next_entry' => '/api/operation/execution-flow?hotel_id=' . $hotelId,
-                'source_policy' => 'saved_ota_diagnosis_evidence_only_manual_execution',
-            ], $reused ? '已存在对应执行意图' : '执行意图已创建，等待人工审批');
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
-        } catch (\Throwable $e) {
-            return $this->error('OTA诊断转运营执行失败: ' . $this->sanitizeLlmErrorMessage($e->getMessage()), 500);
-        }
     }
 
     public function analyzeCapturedOtaData(): Response
@@ -6298,28 +6220,78 @@ class Agent extends Base
     // ==================== 收益管理Agent - 增强功能 ====================
 
     /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function revenueForecastRange(int $hotelId, string $startDate, string $endDate): array
+    {
+        $key = $hotelId . '|' . $startDate . '|' . $endDate;
+        if (!array_key_exists($key, $this->revenueForecastRangeCache)) {
+            $this->revenueForecastRangeCache[$key] = DemandForecast::getForecastRange(
+                $hotelId,
+                $startDate,
+                $endDate
+            )->toArray();
+        }
+        return $this->revenueForecastRangeCache[$key];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function revenueForecastAccuracy(int $hotelId, int $days = 30): array
+    {
+        $key = $hotelId . '|' . $days;
+        if (!array_key_exists($key, $this->revenueForecastAccuracyCache)) {
+            $this->revenueForecastAccuracyCache[$key] = DemandForecast::getAccuracyStats($hotelId, $days);
+        }
+        return $this->revenueForecastAccuracyCache[$key];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function revenueHighDemandDates(int $hotelId, float $threshold = 80): array
+    {
+        $key = $hotelId . '|' . $threshold;
+        if (!array_key_exists($key, $this->revenueHighDemandDatesCache)) {
+            $this->revenueHighDemandDatesCache[$key] = DemandForecast::getHighDemandDates($hotelId, $threshold);
+        }
+        return $this->revenueHighDemandDatesCache[$key];
+    }
+
+    /**
      * 获取需求预测
      */
     public function demandForecasts(): Response
     {
-        $this->checkAdmin();
-        
         $hotelId = (int) $this->request->param('hotel_id', 0);
         $startDate = (string) $this->request->param('start_date', date('Y-m-d'));
         $endDate = (string) $this->request->param('end_date', date('Y-m-d', strtotime('+30 days')));
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+        if (!$this->isDateString($startDate) || !$this->isDateString($endDate) || $startDate > $endDate) {
+            return $this->error('start_date and end_date must be a valid date range', 422);
+        }
+        $this->assertRevenueHotelPermission($hotelId);
         
-        $forecasts = DemandForecast::getForecastRange($hotelId, $startDate, $endDate)->toArray();
+        return $this->success($this->buildDemandForecastsPayload($hotelId, $startDate, $endDate));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildDemandForecastsPayload(int $hotelId, string $startDate, string $endDate): array
+    {
+        $forecasts = $this->revenueForecastRange($hotelId, $startDate, $endDate);
         $forecastIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $forecasts), static fn(int $id): bool => $id > 0));
         $forecasts = (new RevenueForecastReadinessService())->enrichForecastRows($forecasts, $this->priceSuggestionStatsByForecastId($hotelId, $forecastIds));
-        
-        // 获取准确率统计
-        $accuracy = DemandForecast::getAccuracyStats($hotelId, 30);
-        
-        return $this->success([
+
+        return [
             'forecasts' => $forecasts,
-            'accuracy' => $accuracy,
-            'high_demand_dates' => DemandForecast::getHighDemandDates($hotelId, 80),
-        ]);
+            'accuracy' => $this->revenueForecastAccuracy($hotelId, 30),
+            'high_demand_dates' => $this->revenueHighDemandDates($hotelId, 80),
+        ];
     }
 
     private function priceSuggestionStatsByForecastId(int $hotelId, array $forecastIds): array
@@ -6363,13 +6335,12 @@ class Agent extends Base
      */
     public function createForecast(): Response
     {
-        $this->checkAdmin();
-        
         try {
             $data = $this->normalizeDemandForecastPayload($this->request->post());
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         }
+        $this->assertRevenueHotelPermission((int)$data['hotel_id']);
         
         $forecast = DemandForecast::createForecast($data['hotel_id'], $data['forecast_date'], $data);
         
@@ -6392,8 +6363,6 @@ class Agent extends Base
      */
     public function competitorAnalysis(): Response
     {
-        $this->checkAdmin();
-        
         $hotelId = (int) $this->request->param('hotel_id', 0);
         $date = (string) $this->request->param('date', date('Y-m-d'));
         if ($hotelId <= 0) {
@@ -6402,7 +6371,16 @@ class Agent extends Base
         if (!$this->isDateString($date)) {
             return $this->error('date must be YYYY-MM-DD', 422);
         }
-        
+        $this->assertRevenueHotelPermission($hotelId);
+
+        return $this->success($this->buildCompetitorAnalysisPayload($hotelId, $date));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildCompetitorAnalysisPayload(int $hotelId, string $date): array
+    {
         // 获取价格矩阵
         $priceMatrix = CompetitorAnalysis::getPriceMatrix($hotelId, $date);
         $competitorReadinessService = new CompetitorPriceReadinessService();
@@ -6419,18 +6397,9 @@ class Agent extends Base
         $alerts = CompetitorAnalysis::getAlertCompetitors($hotelId, 20, $date);
         
         // 获取价格趋势
-        $trendStartDate = date('Y-m-d', strtotime($date . ' -6 days'));
-        $competitors = CompetitorAnalysis::where('hotel_id', $hotelId)
-            ->whereBetween('analysis_date', [$trendStartDate, $date])
-            ->group('competitor_hotel_id')
-            ->column('competitor_hotel_id');
+        $trends = CompetitorAnalysis::getPriceTrends($hotelId, [], 0, $date);
         
-        $trends = [];
-        foreach ($competitors as $competitorId) {
-            $trends[$competitorId] = CompetitorAnalysis::getPriceTrend($hotelId, $competitorId, 0, $date);
-        }
-        
-        return $this->success([
+        return [
             'price_matrix' => $priceMatrix,
             'alerts' => $alerts,
             'trends' => $trends,
@@ -6440,7 +6409,7 @@ class Agent extends Base
                 'date' => $date,
                 'metric_scope' => 'ota_channel',
             ],
-        ]);
+        ];
     }
 
     /**
@@ -6647,13 +6616,12 @@ class Agent extends Base
      */
     public function recordCompetitorPrice(): Response
     {
-        $this->checkAdmin();
-        
         try {
             $data = $this->normalizeCtripCompetitorPricePayload($this->request->post());
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         }
+        $this->assertRevenueHotelPermission((int)$data['hotel_id']);
         
         $analysis = CompetitorAnalysis::recordAnalysis(
             $data['hotel_id'],
@@ -6669,11 +6637,37 @@ class Agent extends Base
      */
     public function priceSuggestions(): Response
     {
-        $this->checkAdmin();
-        
         $hotelId = (int) $this->request->param('hotel_id', 0);
         $status = (int) $this->request->param('status', 0);
         $date = (string) $this->request->param('date', date('Y-m-d'));
+        $pagination = $this->getPagination();
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+        if (!$this->isDateString($date)) {
+            return $this->error('date must be YYYY-MM-DD', 422);
+        }
+        $this->assertRevenueHotelPermission($hotelId);
+
+        return $this->success($this->buildPriceSuggestionsPayload(
+            $hotelId,
+            $status,
+            $date,
+            $pagination['page'],
+            $pagination['page_size']
+        ));
+    }
+
+    /**
+     * @return array{list:array<int, array<string, mixed>>, pagination:array<string, int|float>}
+     */
+    private function buildPriceSuggestionsPayload(
+        int $hotelId,
+        int $status,
+        string $date,
+        int $page,
+        int $pageSize
+    ): array {
         
         $query = PriceSuggestion::where('hotel_id', $hotelId)
             ->where('suggestion_date', $date);
@@ -6682,11 +6676,10 @@ class Agent extends Base
             $query->where('status', $status);
         }
         
-        $pagination = $this->getPagination();
         $total = $query->count();
         $list = $query->with('roomType')
             ->order('id', 'desc')
-            ->page($pagination['page'], $pagination['page_size'])
+            ->page($page, $pageSize)
             ->select()
             ->toArray();
         $pricingService = new RevenuePricingRecommendationService();
@@ -6695,7 +6688,15 @@ class Agent extends Base
             $this->priceSuggestionExecutionItemsByRecordId($hotelId, array_column($list, 'id'))
         );
         
-        return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
+        return [
+            'list' => $list,
+            'pagination' => [
+                'total' => $total,
+                'page' => $page,
+                'page_size' => $pageSize,
+                'total_page' => (int)ceil($total / $pageSize),
+            ],
+        ];
     }
 
     /**
@@ -6780,8 +6781,6 @@ class Agent extends Base
 
     public function generatePriceSuggestions(): Response
     {
-        $this->checkAdmin();
-
         $hotelId = (int)$this->request->param('hotel_id', 0);
         $date = (string)$this->request->param('date', date('Y-m-d'));
         if ($hotelId <= 0) {
@@ -6790,6 +6789,7 @@ class Agent extends Base
         if (!$this->isDateString($date)) {
             return $this->error('date must be YYYY-MM-DD', 422);
         }
+        $this->assertRevenueHotelPermission($hotelId);
 
         $roomTypes = RoomType::getHotelRoomTypes($hotelId);
         $pricingService = new RevenuePricingRecommendationService();
@@ -7094,6 +7094,7 @@ class Agent extends Base
                 'platform' => (string)$this->request->param('platform', $this->request->param('channel', '')),
                 'room_type_key' => (string)$this->request->param('room_type_key', ''),
                 'rate_plan_key' => (string)$this->request->param('rate_plan_key', ''),
+                'execution_date' => (string)$this->request->param('execution_date', ''),
                 'expected_metric' => (string)$this->request->param('expected_metric', 'orders'),
                 'expected_delta' => (float)$this->request->param('expected_delta', 0),
             ]);
@@ -7270,20 +7271,27 @@ class Agent extends Base
 
     public function roomTypes(): Response
     {
-        $this->checkAdmin();
-
         $hotelId = (int)$this->request->param('hotel_id', 0);
         if ($hotelId <= 0) {
             return $this->error('hotel_id is required', 422);
         }
+        $this->assertRevenueHotelPermission($hotelId);
 
+        return $this->success($this->buildRoomTypesPayload($hotelId));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildRoomTypesPayload(int $hotelId): array
+    {
         $rows = RoomType::where('hotel_id', $hotelId)
             ->order('sort_order', 'asc')
             ->order('id', 'asc')
             ->select()
             ->toArray();
 
-        return $this->success([
+        return [
             'list' => $rows,
             'input_scope' => 'manual_pricing_configuration',
             'target_workflow' => 'ctrip_revenue_ai_pricing_generation',
@@ -7292,18 +7300,86 @@ class Agent extends Base
             'next_action' => count($rows) > 0
                 ? '继续补齐需求预测和竞对价格样本后，再生成待审调价建议。'
                 : '先配置至少一个启用房型、基础价和最低保护价；未配置前不生成待审调价建议。',
+        ];
+    }
+
+    /**
+     * Load the read-only Revenue Agent workbench in one authenticated request.
+     */
+    public function revenueBundle(): Response
+    {
+        $hotelId = (int)$this->request->param('hotel_id', 0);
+        $startDate = (string)$this->request->param('start_date', date('Y-m-d', strtotime('-7 days')));
+        $endDate = (string)$this->request->param('end_date', date('Y-m-d'));
+        $businessDate = (string)$this->request->param('business_date', date('Y-m-d'));
+        $priceDate = (string)$this->request->param('date', $businessDate);
+        $competitorDate = (string)$this->request->param('competitor_date', $businessDate);
+        $status = (int)$this->request->param('status', 0);
+        $pagination = $this->getPagination();
+
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+        foreach ([
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'business_date' => $businessDate,
+            'date' => $priceDate,
+            'competitor_date' => $competitorDate,
+        ] as $field => $date) {
+            if (!$this->isDateString($date)) {
+                return $this->error($field . ' must be YYYY-MM-DD', 422);
+            }
+        }
+        if ($startDate > $endDate) {
+            return $this->error('start_date must not be after end_date', 422);
+        }
+        $this->assertRevenueHotelPermission($hotelId);
+
+        $overviewFilters = [
+            'hotel_id' => $hotelId,
+            'business_date' => $businessDate,
+            'permitted_hotel_ids' => array_values(array_unique(array_filter(
+                array_map('intval', $this->currentUser?->getPermittedHotelIds() ?? []),
+                static fn(int $id): bool => $id > 0
+            ))),
+            'is_super_admin' => (bool)($this->currentUser?->isSuperAdmin() ?? false),
+        ];
+
+        return $this->success([
+            'overview' => (new RevenueAiOverviewService())->overview($overviewFilters),
+            'analysis' => $this->buildRevenueAnalysisPayload($hotelId, $startDate, $endDate),
+            'dashboard' => $this->buildRevenueDashboardPayload($hotelId),
+            'forecasts' => $this->buildDemandForecastsPayload($hotelId, $startDate, $endDate),
+            'competitor' => $this->buildCompetitorAnalysisPayload($hotelId, $competitorDate),
+            'room_types' => $this->buildRoomTypesPayload($hotelId),
+            'price_suggestions' => $this->buildPriceSuggestionsPayload(
+                $hotelId,
+                $status,
+                $priceDate,
+                $pagination['page'],
+                $pagination['page_size']
+            ),
+            'query_scope' => [
+                'hotel_id' => $hotelId,
+                'metric_scope' => 'ota_channel',
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'business_date' => $businessDate,
+                'price_date' => $priceDate,
+                'competitor_date' => $competitorDate,
+            ],
         ]);
     }
 
     public function saveRoomType(): Response
     {
-        $this->checkAdmin();
-
         try {
             $payload = $this->normalizeRoomTypePayload($this->request->post());
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         }
+        $this->assertRevenueHotelPermission((int)$payload['hotel_id']);
 
         $id = (int)($payload['id'] ?? 0);
         unset($payload['id']);
@@ -7413,38 +7489,51 @@ class Agent extends Base
      */
     public function revenueAnalysis(): Response
     {
-        $this->checkAdmin();
-        
         $hotelId = (int) $this->request->param('hotel_id', 0);
         $startDate = (string) $this->request->param('start_date', date('Y-m-d', strtotime('-7 days')));
         $endDate = (string) $this->request->param('end_date', date('Y-m-d'));
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+        if (!$this->isDateString($startDate) || !$this->isDateString($endDate) || $startDate > $endDate) {
+            return $this->error('start_date and end_date must be a valid date range', 422);
+        }
+        $this->assertRevenueHotelPermission($hotelId);
         
+        return $this->success($this->buildRevenueAnalysisPayload($hotelId, $startDate, $endDate));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildRevenueAnalysisPayload(int $hotelId, string $startDate, string $endDate): array
+    {
         // 获取建议统计
         $stats = PriceSuggestion::getStatistics($hotelId, $startDate, $endDate);
         
         // 获取房型列表
-        $roomTypes = RoomType::getHotelRoomTypes($hotelId);
+        $roomTypes = RoomType::getHotelRoomTypes($hotelId)->toArray();
         
         // 获取需求预测统计
-        $forecastStats = DemandForecast::getAccuracyStats($hotelId, 30);
-        $highDemandDates = DemandForecast::getHighDemandDates($hotelId, 80);
+        $forecastStats = $this->revenueForecastAccuracy($hotelId, 30);
+        $highDemandDates = $this->revenueHighDemandDates($hotelId, 80);
         
         // 计算RevPAR趋势（基于预测和历史数据）
         $revparTrend = [];
-        $forecasts = DemandForecast::getForecastRange($hotelId, $startDate, $endDate);
+        $forecasts = $this->revenueForecastRange($hotelId, $startDate, $endDate);
         foreach ($forecasts as $forecast) {
             $revparTrend[] = [
-                'date' => $forecast->forecast_date,
-                'predicted_revpar' => $forecast->predicted_revpar,
-                'predicted_occupancy' => $forecast->predicted_occupancy,
-                'confidence' => $forecast->confidence_score,
+                'date' => $forecast['forecast_date'] ?? null,
+                'predicted_revpar' => $forecast['predicted_revpar'] ?? null,
+                'predicted_occupancy' => $forecast['predicted_occupancy'] ?? null,
+                'confidence' => $forecast['confidence_score'] ?? null,
             ];
         }
         
         // 获取定价策略建议
         $pricingStrategies = $this->generatePricingStrategies($hotelId, $highDemandDates);
         
-        return $this->success([
+        return [
             'statistics' => $stats,
             'room_types' => $roomTypes,
             'forecast_accuracy' => $forecastStats,
@@ -7452,7 +7541,7 @@ class Agent extends Base
             'high_demand_dates' => $highDemandDates,
             'pricing_strategies' => $pricingStrategies,
             'date_range' => ['start' => $startDate, 'end' => $endDate],
-        ]);
+        ];
     }
 
     /**
@@ -7505,29 +7594,40 @@ class Agent extends Base
      */
     public function revenueDashboard(): Response
     {
-        $this->checkAdmin();
-        
         $hotelId = (int) $this->request->param('hotel_id', 0);
-        
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+        $this->assertRevenueHotelPermission($hotelId);
+
+        return $this->success($this->buildRevenueDashboardPayload($hotelId));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildRevenueDashboardPayload(int $hotelId): array
+    {
         // 今日定价建议
         $todaySuggestions = PriceSuggestion::where('hotel_id', $hotelId)
             ->where('suggestion_date', date('Y-m-d'))
             ->with('roomType')
-            ->select();
+            ->select()
+            ->toArray();
         
         $pendingCount = PriceSuggestion::where('hotel_id', $hotelId)
             ->where('status', PriceSuggestion::STATUS_PENDING)
             ->count();
         
         // 预测准确率
-        $forecastAccuracy = DemandForecast::getAccuracyStats($hotelId, 30);
+        $forecastAccuracy = $this->revenueForecastAccuracy($hotelId, 30);
         $pricingModelSummary = (new RevenuePricingRecommendationService())->hotelPricingModelSummary($hotelId, date('Y-m-d'));
         
         // 竞对监控概览
         $competitorAlerts = CompetitorAnalysis::getAlertCompetitors($hotelId, 15);
         
         // 本周RevPAR预测
-        $weekForecasts = DemandForecast::getForecastRange(
+        $weekForecasts = $this->revenueForecastRange(
             $hotelId,
             date('Y-m-d'),
             date('Y-m-d', strtotime('+7 days'))
@@ -7535,7 +7635,7 @@ class Agent extends Base
         
         $revparValues = [];
         foreach ($weekForecasts as $forecast) {
-            $value = $forecast->predicted_revpar ?? null;
+            $value = $forecast['predicted_revpar'] ?? null;
             if (is_numeric($value)) {
                 $revparValues[] = (float)$value;
             }
@@ -7544,17 +7644,17 @@ class Agent extends Base
             ? round(array_sum($revparValues) / count($revparValues), 2)
             : null;
         
-        return $this->success([
+        return [
             'today_suggestions' => $todaySuggestions,
             'pending_count' => $pendingCount,
             'forecast_accuracy' => $forecastAccuracy,
             'competitor_alerts' => $competitorAlerts,
             'week_revpar_forecast' => $avgPredictedRevpar,
             'week_revpar_forecast_status' => $avgPredictedRevpar === null ? 'insufficient_data' : 'available',
-            'high_demand_count' => count(DemandForecast::getHighDemandDates($hotelId, 80)),
+            'high_demand_count' => count($this->revenueHighDemandDates($hotelId, 80)),
             'pricing_backtest' => $pricingModelSummary['backtest'] ?? [],
             'pricing_model_summary' => $pricingModelSummary,
-        ]);
+        ];
     }
 
     // ==================== Agent日志 ====================

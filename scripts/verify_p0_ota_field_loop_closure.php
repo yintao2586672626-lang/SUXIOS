@@ -1071,36 +1071,6 @@ function p0_platform_hotel_identifier_source(string $platform): string
     return strtolower(trim($platform)) === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
 }
 
-function p0_platform_hotel_identifier_present(array $row, string $platform): bool
-{
-    $expectedSource = p0_platform_hotel_identifier_source($platform);
-    $proofPresent = $row['platform_hotel_identifier_present'] ?? null;
-    $proofSource = trim((string)($row['platform_hotel_identifier_source'] ?? ''));
-    if ($proofPresent === true && ($proofSource === '' || $proofSource === $expectedSource)) {
-        return true;
-    }
-
-    $keys = strtolower(trim($platform)) === 'meituan'
-        ? ['poiId', 'poi_id', 'storeId', 'store_id', 'shopId', 'shop_id', 'mtPoiId', 'mt_poi_id', 'partnerId', 'partner_id']
-        : ['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'masterHotelId', 'master_hotel_id', 'nodeId', 'node_id'];
-    $candidates = [$row];
-    foreach (['row', 'raw_data', 'source_row'] as $containerKey) {
-        if (is_array($row[$containerKey] ?? null)) {
-            $candidates[] = (array)$row[$containerKey];
-        }
-    }
-
-    foreach ($candidates as $candidate) {
-        foreach ($keys as $key) {
-            if (trim((string)($candidate[$key] ?? '')) !== '') {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
 /**
  * Keys are normalized before comparison, so snake_case and camelCase remain
  * equivalent without widening the accepted identifier families.
@@ -2242,15 +2212,6 @@ function p0_item_url_looks_traffic(array $item, array $keys): bool
 function p0_count_items_with_any_key(array $items, array $keys): int
 {
     return count(array_filter($items, static fn(array $item): bool => p0_item_has_any_key($item, $keys)));
-}
-
-/**
- * @param array<int, array<string, mixed>> $items
- * @param array<int, string> $keys
- */
-function p0_count_items_with_traffic_url(array $items, array $keys): int
-{
-    return count(array_filter($items, static fn(array $item): bool => p0_item_url_looks_traffic($item, $keys)));
 }
 
 /**

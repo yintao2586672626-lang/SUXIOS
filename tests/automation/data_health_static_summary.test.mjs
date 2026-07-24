@@ -19,6 +19,43 @@ vm.runInNewContext(dataHealthStaticSource, context, {
 
 const helpers = context.window.SUXI_DATA_HEALTH_STATIC;
 
+test('truth summaries use concise Chinese and hide raw storage codes by default', () => {
+  const missingText = helpers.onlineTruthDetailText({
+    status: 'unverified',
+    status_label: '未验证',
+    source: { table: 'online_daily_data' },
+    failure_reason: 'source_rows_missing; source_update_time_missing; hotel_missing; platform_missing; data_date_missing; source_method_or_trace_missing; collected_at_missing',
+  });
+  assert.match(missingText, /^未验证；OTA入库数据；原因：目标日没有可用数据；门店、平台或日期信息不完整；另有 2 项信息待补$/);
+  assert.doesNotMatch(missingText, /source_rows_missing|online_daily_data|状态：|计算：/);
+  assert.equal(
+    helpers.onlineTruthSummaryText({
+      status: 'unverified',
+      failure_reason: 'source_rows_missing; hotel_missing; platform_missing; data_date_missing',
+    }),
+    '未验证：目标日没有可用数据',
+  );
+  assert.equal(
+    helpers.onlineTruthNextActionText({
+      status: 'unverified',
+      failure_reason: 'source_rows_missing; hotel_missing; platform_missing; data_date_missing',
+    }),
+    '补齐门店、平台和目标日期',
+  );
+
+  const verifiedText = helpers.onlineTruthDetailText({
+    status: 'verified',
+    status_label: '已验证',
+    hotels: [{ system_hotel_id: 80, name: '敦煌漠蓝新' }],
+    data_date: '2026-07-23',
+    source: { table: 'online_daily_data', methods: ['profile_browser'] },
+    persistence: { record_count: 2, stored_count: 2, readback_verified_count: 2 },
+  });
+  assert.equal(verifiedText, '已验证；敦煌漠蓝新（ID 80）；2026-07-23；OTA入库数据、本机浏览器 Profile；入库已验证');
+  assert.equal(helpers.onlineTruthSummaryText({ status: 'verified' }), '已验证，可用于当前指标');
+  assert.equal(helpers.onlineTruthNextActionText({ status: 'verified' }), '');
+});
+
 test('Ctrip overview does not show verified authorization as pending', () => {
   const authState = helpers.buildCollectionHealthCtripOverviewAuthState([
     { is_usable: true, status: 'ok' },

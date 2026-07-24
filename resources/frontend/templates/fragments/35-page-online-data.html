@@ -38,6 +38,53 @@
                                         <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
                                         <span>{{ hotelDashboardError || collectionReliabilityError || dailyWorkbenchError }}</span>
                                     </div>
+                                    <section data-testid="dual-ota-continuous-trust" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                            <div>
+                                                <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">双 OTA 连续可信闭环</div>
+                                                <h4 class="mt-1 text-lg font-bold text-slate-950">来源 → 门店 → 日期 → 字段事实 → 保存 → 回读 → 页面 → P0</h4>
+                                                <p class="mt-1 text-xs leading-5 text-slate-500">{{ dualOtaContinuousSummaryText }}</p>
+                                            </div>
+                                            <div class="flex flex-col items-start gap-1 sm:items-end">
+                                                <span :class="['rounded-full border px-3 py-1 font-mono text-xs font-semibold', dualOtaContinuousStatusClass(dualOtaContinuousTrust.status)]">{{ dualOtaContinuousStatusText(dualOtaContinuousTrust.status) }}</span>
+                                                <span class="text-[11px] text-slate-500">{{ dualOtaContinuousTrust.start_date || '未返回' }} ~ {{ dualOtaContinuousTrust.end_date || '未返回' }}</span>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="dualOtaContinuousDays.length" class="mt-4 space-y-3">
+                                            <article v-for="day in dualOtaContinuousDays.slice(0, 7)" :key="day.date" class="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="font-mono text-xs font-semibold text-slate-700">{{ day.date }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold', dualOtaContinuousStatusClass(day.status)]">{{ dualOtaContinuousStatusText(day.status) }}</span>
+                                                </div>
+                                                <div class="mt-3 grid gap-3 lg:grid-cols-2">
+                                                    <div v-for="platform in day.platforms" :key="day.date + '-' + platform.platform" class="rounded-lg border border-slate-200 bg-white p-3">
+                                                        <div class="flex items-start justify-between gap-3">
+                                                            <div>
+                                                                <div class="text-sm font-bold text-slate-900">{{ dualOtaContinuousPlatformLabel(platform.platform) }}</div>
+                                                                <div class="mt-0.5 text-[11px] text-slate-500">来源：{{ platform.source_method || '未验证' }} · P0：{{ platform.p0_status || 'blocked' }}</div>
+                                                            </div>
+                                                            <span :class="['rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold', dualOtaContinuousStatusClass(platform.status)]">{{ dualOtaContinuousStatusText(platform.status) }}</span>
+                                                        </div>
+                                                        <div class="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                                                            <div v-for="step in dualOtaContinuousStepRows(platform)" :key="step.key" :class="['rounded-md border px-2 py-1.5 text-[10px]', step.ready ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-red-100 bg-red-50 text-red-700']">
+                                                                <i :class="step.ready ? 'fas fa-check-circle mr-1' : 'fas fa-times-circle mr-1'"></i>{{ step.label }}
+                                                            </div>
+                                                        </div>
+                                                        <div v-if="platform.missing_metric_keys &amp;&amp; platform.missing_metric_keys.length" class="mt-2 text-[11px] leading-5 text-red-700">
+                                                            缺失字段事实：{{ platform.missing_metric_keys.join('、') }}
+                                                        </div>
+                                                        <div v-if="platform.failure_reason" class="mt-1 text-[11px] leading-5 text-red-700">失败原因：{{ platform.failure_reason }}</div>
+                                                    </div>
+                                                </div>
+                                            </article>
+                                            <p v-if="dualOtaContinuousDays.length > 7" class="text-[11px] text-slate-400">页面展示最近 7 天；顶部连续天数按完整查询周期计算。</p>
+                                        </div>
+                                        <div v-else class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                            {{ dualOtaContinuousTrust.reason || '当前门店尚无可验证的双 OTA 连续证据，状态保持 partial。' }}
+                                        </div>
+                                        <p class="mt-3 text-[11px] leading-5 text-slate-400">仅统计当前门店、目标日期、Profile/云同步来源且已数据库回读的数据；旧数据、空值或数值 0 不替代缺失证据。</p>
+                                    </section>
                                     <section data-testid="core-operations-loop" class="overflow-hidden rounded-2xl border border-slate-800 bg-white shadow-xl shadow-slate-200/60">
                                         <header class="relative overflow-hidden bg-slate-950 px-5 py-5 text-white sm:px-6">
                                             <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.22),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.16),transparent_38%)]"></div>
@@ -104,7 +151,7 @@
                                                         <p class="mt-1 text-xs leading-5 text-slate-500">读取目标日已入库数据；缺失或读取失败不按 0 展示。</p>
                                                     </div>
                                                     <div class="flex flex-col items-stretch gap-1.5 sm:items-end">
-                                                        <span class="text-xs text-slate-500">{{ coreOperationsTargetDate }} · 门店编号 {{ coreOperationsHotelId || '-' }}</span>
+                                                        <span class="text-xs text-slate-500">{{ getHotelNameById(coreOperationsHotelId) || '未选择门店' }} · {{ coreOperationsTargetDate }}</span>
                                                         <button v-if="coreOperationsCanCollect" data-testid="core-loop-yesterday-fetch" type="button" @click="runCoreOperationsYesterdayFetch()" :disabled="coreOperationsSourceFetchRunning || fetchingData || !coreOperationsHotelId || coreOperationsTargetDate !== coreOperationsMaxDate || coreOperationsProfileSessionBlockedRows.length > 0" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50">
                                                             <i :class="coreOperationsSourceFetchRunning || fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-cloud-download-alt mr-2'"></i>{{ coreOperationsSourceFetchActionText }}
                                                         </button>
@@ -127,7 +174,7 @@
                                                                 <span :class="['flex h-9 w-9 items-center justify-center rounded-lg text-white', platform.accentClass]"><i :class="platform.icon"></i></span>
                                                                 <div>
                                                                     <h6 class="text-sm font-bold text-slate-900">{{ platform.label }}</h6>
-                                                                    <div class="mt-0.5 text-[11px] text-slate-500">目标日源数据 {{ platform.sourceRowsText }} · {{ platform.evidenceStatus }}</div>
+                                                                    <div class="mt-0.5 text-[11px] text-slate-500">目标日源数据 {{ platform.sourceRowsText }} · {{ platform.evidenceStatusText }}</div>
                                                                 </div>
                                                             </div>
                                                             <div class="flex flex-col items-end gap-1.5">
@@ -145,7 +192,7 @@
                                                                     </div>
                                                                 </div>
                                                                 <div :data-testid="'core-operations-metric-value-' + platform.key + '-' + metric.key" class="mt-1.5 text-base font-bold text-slate-900">{{ metric.value }}</div>
-                                                                <div :data-testid="'core-operations-metric-truth-detail-' + platform.key + '-' + metric.key" class="mt-2 text-[10px] leading-5 text-slate-500" v-text="onlineTruthDetailText(metric.truth)"></div>
+                                                                <online-truth-summary :truth="metric.truth" :testid="'core-operations-metric-truth-detail-' + platform.key + '-' + metric.key"></online-truth-summary>
                                                             </div>
                                                         </div>
                                                         <div v-if="platform.message" class="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{{ platform.message }}</div>
@@ -715,7 +762,7 @@
                                         <div v-if="phase1EmployeeCollectionSourceRows.length" data-testid="phase1-employee-collection-source-summary" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                                                 <div class="text-sm font-semibold text-gray-900">平台源数据摘要</div>
-                                                <div class="text-[11px] text-slate-500">只读 online_daily_data / OTA 渠道口径</div>
+                                                <div class="text-[11px] text-slate-500">只读 OTA 入库数据 / 渠道口径</div>
                                             </div>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                 <div v-for="row in phase1EmployeeCollectionSourceRows" :key="row.platform" class="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2">
@@ -1762,7 +1809,7 @@
                                         <div v-for="card in onlineAnalysisSummaryCards" :key="card.key" data-testid="truth-metric" class="border rounded-lg bg-white p-4">
                                             <div class="text-xs text-gray-500">{{ card.label }}</div>
                                             <div class="mt-2 text-xl font-semibold" :class="card.className">{{ card.value }}</div>
-                                            <div class="mt-2 text-xs text-gray-500" v-text="onlineTruthDetailText(card.truth)"></div>
+                                            <online-truth-summary :truth="card.truth"></online-truth-summary>
                                         </div>
                                     </div>
 
@@ -1798,7 +1845,7 @@
                                                 <div><div class="text-xs text-gray-400">ROAS</div><div class="font-semibold text-gray-900">{{ onlineAnalysisMetricText(onlineDataSummary.ota_channel_supplement.advertising?.roas, formatNumber) }}</div></div>
                                                 <div><div class="text-xs text-gray-400">订单</div><div class="font-semibold text-gray-900">{{ onlineAnalysisMetricText(onlineDataSummary.ota_channel_supplement.advertising?.bookings, formatNumber) }}</div></div>
                                             </div>
-                                            <div class="mt-3 text-xs text-gray-500" v-text="onlineTruthDetailText(onlineDataSummary.ota_channel_supplement.advertising?.truth_context)"></div>
+                                            <online-truth-summary :truth="onlineDataSummary.ota_channel_supplement.advertising?.truth_context"></online-truth-summary>
                                         </div>
                                         <div class="border rounded-lg bg-white p-4">
                                             <div class="flex items-center justify-between mb-3">
@@ -1809,7 +1856,7 @@
                                                 <div><div class="text-xs text-gray-400">PSI</div><div class="font-semibold text-gray-900">{{ onlineAnalysisMetricText(onlineDataSummary.ota_channel_supplement.service_quality?.avg_psi_score, formatNumber) }}</div></div>
                                                 <div><div class="text-xs text-gray-400">服务分</div><div class="font-semibold text-gray-900">{{ onlineAnalysisMetricText(onlineDataSummary.ota_channel_supplement.service_quality?.avg_service_score, formatNumber) }}</div></div>
                                             </div>
-                                            <div class="mt-3 text-xs text-gray-500" v-text="onlineTruthDetailText(onlineDataSummary.ota_channel_supplement.service_quality?.truth_context)"></div>
+                                            <online-truth-summary :truth="onlineDataSummary.ota_channel_supplement.service_quality?.truth_context"></online-truth-summary>
                                         </div>
                                     </div>
 
@@ -1818,7 +1865,7 @@
                                             <div class="flex items-start justify-between gap-3 mb-3">
                                                 <div>
                                                     <h5 class="font-medium text-gray-800">趋势</h5>
-                                                    <div class="mt-1 text-xs text-gray-500" v-text="onlineTruthDetailText(analysisData.summary?.truth_context)"></div>
+                                                    <online-truth-summary :truth="analysisData.summary?.truth_context"></online-truth-summary>
                                                 </div>
                                                 <div class="flex gap-2">
                                                     <button @click="loadAnalysisData('day')" :class="['px-3 py-1 rounded text-sm', analysisDimension==='day' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200']">日</button>
@@ -1836,7 +1883,7 @@
 
                                         <div class="border rounded-lg bg-white p-4">
                                             <h5 class="font-medium text-gray-800">酒店排名</h5>
-                                            <div class="mt-1 mb-3 text-xs text-gray-500" v-text="onlineTruthDetailText(analysisData.summary?.truth_context)"></div>
+                                            <online-truth-summary :truth="analysisData.summary?.truth_context"></online-truth-summary>
                                             <div v-if="analysisData.hotel_ranking &amp;&amp; analysisData.hotel_ranking.length" class="space-y-2">
                                                 <div v-for="(hotel, index) in analysisData.hotel_ranking.slice(0, 8)" :key="hotel.hotel_id + '_' + (hotel.period || index)" class="flex items-center justify-between gap-3 border-b pb-2 last:border-b-0">
                                                     <div class="min-w-0">
@@ -1858,7 +1905,7 @@
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
                                                 <div class="text-xs text-gray-500">当前筛选 {{ onlineAnalysisMetricText(onlineAnalysisPagination.total, formatNumber) }} 条，展示 {{ onlineAnalysisMetricText(onlineAnalysisRows.length, formatNumber) }} 条；汇总已排除 {{ onlineAnalysisMetricText(analysisData.summary?.excluded_untrusted_count, formatNumber) }} 条未可信记录。</div>
-                                                <div class="mt-1 text-xs text-gray-500" v-text="onlineTruthDetailText(analysisData.summary?.truth_context)"></div>
+                                                <online-truth-summary :truth="analysisData.summary?.truth_context"></online-truth-summary>
                                                 <div v-if="onlineAnalysisQualitySummary" class="mt-1 text-xs text-amber-700">{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows({ force: true })" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
@@ -1906,7 +1953,7 @@
                                                         </td>
                                                         <td v-for="metric in buildOnlineAnalysisRowMetricCells(item, formatNumber)" :key="item.id + '-' + metric.key" class="px-4 py-3 text-right">{{ metric.value }}</td>
                                                         <td class="px-4 py-3 text-gray-600 max-w-xs truncate" :title="item.dimension || '-'">{{ item.dimension || '-' }}</td>
-                                                        <td class="px-4 py-3 text-xs" v-text="onlineTruthDetailText(item)"></td>
+                                                        <td class="px-4 py-3 text-xs"><online-truth-summary :truth="item"></online-truth-summary></td>
                                                     </tr>
                                                     <tr v-if="!onlineAnalysisRowsLoading &amp;&amp; onlineAnalysisRows.length === 0">
                                                         <td colspan="10" class="px-4 py-8 text-center text-gray-500">当前筛选范围暂无入库明细。</td>
@@ -1989,6 +2036,7 @@
                                                             </div>
                                                             <div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs text-slate-400">下一步</span><div class="flex gap-2">
                                                                 <button type="button" @click="togglePlatformAccountCenterDetails(row.channels.ctrip.key)" class="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">{{ platformAccountCenterExpandedKey === row.channels.ctrip.key ? '收起' : '详情' }}</button>
+                                                                <button v-if="row.channels.ctrip.showFailureLog" type="button" @click="openHotelSyncLogs(row.hotel, 'ctrip')" class="rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50">失败详情</button>
                                                                 <button type="button" @click="openPlatformAccountCenterAction(row.channels.ctrip)" :disabled="row.channels.ctrip.readinessCode === 'inactive'" class="rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-black disabled:bg-slate-300">{{ row.channels.ctrip.actionText }}</button>
                                                             </div></div>
                                                         </section>
@@ -2010,6 +2058,7 @@
                                                             </div>
                                                             <div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs text-slate-400">下一步</span><div class="flex gap-2">
                                                                 <button type="button" @click="togglePlatformAccountCenterDetails(row.channels.meituan.key)" class="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">{{ platformAccountCenterExpandedKey === row.channels.meituan.key ? '收起' : '详情' }}</button>
+                                                                <button v-if="row.channels.meituan.showFailureLog" type="button" @click="openHotelSyncLogs(row.hotel, 'meituan')" class="rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50">失败详情</button>
                                                                 <button type="button" @click="openPlatformAccountCenterAction(row.channels.meituan)" :disabled="row.channels.meituan.readinessCode === 'inactive'" class="rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-black disabled:bg-slate-300">{{ row.channels.meituan.actionText }}</button>
                                                             </div></div>
                                                         </section>
@@ -2017,7 +2066,7 @@
                                                 </article>
                                                 <div v-if="!filteredPlatformAccountCenterRows.length" class="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">没有符合筛选条件的门店；未配置状态不会被伪装为可采集。</div>
                                             </div>
-                                            <div class="mt-3 text-xs leading-5 text-slate-500">浏览器 Profile 只要已绑定就优先直接尝试采集，不要求当天登录证明；平台实际返回登录失效时再提示重新登录。采集成功仍需以目标日期入库和数据库回读为准，不代表全酒店经营状态。</div>
+                                            <div class="mt-3 text-xs leading-5 text-slate-500">Profile 采集统一从“昨日经营闭环”进入；未验证会话需先登录。成功以目标日入库回读为准，仅代表 OTA 渠道。</div>
                                         </div>
                                     </section>
 
@@ -2217,10 +2266,10 @@
                                                         <div class="text-sm font-semibold text-slate-900">{{ item.platform_name || item.platform || '-' }}</div>
                                                         <div class="mt-1 text-xs text-slate-500" :title="platformProfileBindingRawText(item)">{{ platformProfileBindingText(item) }}</div>
                                                         <div v-if="item.binding_contract" class="mt-2 flex flex-wrap gap-1 text-[11px] text-slate-500">
-                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">current_session_verified={{ item.binding_contract.current_session_verified ? 'true' : 'false' }}</span>
-                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">Profile={{ item.binding_contract.profile_status || item.status_code || '-' }}</span>
-                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">historical_manual_login_state_verified={{ item.binding_contract.manual_login_state_verified ? 'true' : 'false' }}</span>
-                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">historical_last_verified={{ item.binding_contract.last_login_verified_at || '-' }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">当天会话：{{ item.binding_contract.current_session_verified ? '已验证' : '未验证' }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">Profile：{{ platformProfileStatusLabel(item) }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">历史登录：{{ item.binding_contract.manual_login_state_verified ? '已验证' : '未验证' }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">上次验证：{{ item.binding_contract.last_login_verified_at || '无记录' }}</span>
                                                         </div>
                                                     </div>
                                                     <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-xs', platformProfileStatusBadgeClass(item.status_code)]">{{ platformProfileStatusLabel(item) }}</span>
@@ -2749,17 +2798,17 @@ Authorization: Bearer xxx"></textarea>
                                     <div class="mb-6 rounded-xl border border-gray-200 bg-white overflow-hidden">
                                         <div class="px-5 py-4 border-b bg-white">
                                             <h4 class="font-semibold text-gray-900 text-lg">
-                                                <i class="fas fa-key mr-2 text-slate-600"></i>平台账号登录管理
+                                                <i class="fas fa-bolt mr-2 text-slate-600"></i>Cookie/API 补采
                                             </h4>
                                         </div>
                                         <div class="p-5">
                                             <div class="space-y-4">
                                                 <p class="text-sm text-gray-600">
-                                                    美团“立即采集”直接使用当前门店已保存的 Cookie/API 配置，不要求先绑定 Profile；定时自动采集才复用账号使用者本机 Profile。任一路径失败都会保留真实原因，不写空数据。
+                                                    本页仅用已保存 Cookie/API 补采；Profile 采集请到“昨日经营闭环”。
                                                 </p>
                                                 <div class="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
                                                     <i class="fas fa-info-circle mr-2"></i>
-                                                    携程/美团授权必须在账号使用者自己的电脑完成。这里会在当前浏览器打开平台后台，并引导导入浏览器辅助采集 JSON；宿析不会在服务器或管理员电脑弹出平台登录窗口。
+                                                    “本机授权”只登录 Profile，不开始采集。
                                                 </div>
 
                                                 <div class="max-w-xl">
@@ -2770,6 +2819,7 @@ Authorization: Bearer xxx"></textarea>
                                                     </select>
                                                 </div>
 
+                                                <div class="text-xs font-semibold text-slate-600">Profile 登录（仅准备）</div>
                                                  <div class="flex flex-wrap gap-3">
                                                      <button type="button" @click="triggerPlatformProfileLogin('meituan')" :disabled="meituanBrowserCaptureRunning" class="px-3 py-2 rounded-md border border-blue-600 text-blue-700 bg-white hover:bg-blue-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50 text-sm">
                                                         <i class="fas fa-globe mr-2"></i>本机授权美团
@@ -2780,13 +2830,13 @@ Authorization: Bearer xxx"></textarea>
                                                     <button type="button" @click="loadPlatformProfileStatus" :disabled="platformProfileStatusLoading" class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 disabled:text-gray-400 disabled:bg-gray-50 text-sm">
                                                         <i :class="platformProfileStatusLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>刷新状态
                                                     </button>
-                                                    <button type="button" @click="triggerAutoFetch" :disabled="fetchingData || !canTriggerAutoFetchByHotelId(autoFetchHotelId)" class="px-3 py-2 rounded-md border border-gray-900 bg-gray-900 text-white hover:bg-black disabled:border-gray-200 disabled:bg-gray-200 text-sm">
-                                                          <i :class="fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>{{ fetchingData ? ('采集中 ' + formatAutoFetchElapsed(autoFetchRunElapsedSeconds)) : '立即采集' }}
+                                                    <button data-testid="cookie-api-temporary-fetch" type="button" @click="triggerAutoFetch" :disabled="fetchingData || !canTriggerAutoFetchByHotelId(autoFetchHotelId)" class="px-3 py-2 rounded-md border border-gray-900 bg-gray-900 text-white hover:bg-black disabled:border-gray-200 disabled:bg-gray-200 text-sm">
+                                                          <i :class="fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>{{ fetchingData ? ((getHotelNameById(autoFetchHotelId) || '当前门店') + ' · 补采中 ' + formatAutoFetchElapsed(autoFetchRunElapsedSeconds)) : 'Cookie/API 补采' }}
                                                       </button>
                                                   </div>
 
                                                 <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
-                                                    <span class="font-semibold">采集方式：</span>立即采集＝已保存 Cookie/API 直连；定时计划＝已绑定 Profile。定时任务未绑定或登录失效时会明确阻塞，不回退到旧数据。
+                                                    失败不回退旧数据。
                                                 </div>
 
                                                 <platform-auto-settings-panels v-if="platformAutoSettingsPanelsReady" :ctx="$root">

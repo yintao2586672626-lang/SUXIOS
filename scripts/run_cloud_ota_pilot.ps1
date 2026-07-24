@@ -239,12 +239,20 @@ try {
         [int]$_.data_source_id -le 0 `
             -or [int]$_.sync_task_id -le 0 `
             -or [string]$_.platform -notin @('ctrip', 'meituan') `
-            -or [string]$_.collection_status -notin @('success', 'partial')
+            -or [string]$_.collection_status -notin @('success', 'partial') `
+            -or [string]$_.p0_status -ne 'ready' `
+            -or @($_.row_ids | Where-Object { [int]$_ -gt 0 }).Count -eq 0
     })
+    $receiptRequiredPlatforms = @($collectionReceipt.required_platforms | ForEach-Object {
+        [string]$_
+    } | Sort-Object -Unique)
+    $requiredPlatformsMatch = $receiptRequiredPlatforms.Count -eq 2 `
+        -and @(Compare-Object -ReferenceObject @('ctrip', 'meituan') -DifferenceObject $receiptRequiredPlatforms).Count -eq 0
     $receiptScopeMatches = $receiptSourceIds.Count -eq $sourceIdValues.Count `
         -and @(Compare-Object -ReferenceObject $sourceIdValues -DifferenceObject $receiptSourceIds).Count -eq 0 `
         -and $taskSourceIds.Count -eq $sourceIdValues.Count `
-        -and @(Compare-Object -ReferenceObject $sourceIdValues -DifferenceObject $taskSourceIds).Count -eq 0
+        -and @(Compare-Object -ReferenceObject $sourceIdValues -DifferenceObject $taskSourceIds).Count -eq 0 `
+        -and $requiredPlatformsMatch
     $receiptCollectionComplete = [bool]$collectionReceipt.collection_complete
     $receiptSnapshotExportable = [bool]$collectionReceipt.exportable_snapshot_complete
     $receiptStatus = [string]$collectionReceipt.status

@@ -72,10 +72,9 @@ class SystemNotificationController extends Base
             $query->where('notification.hotel_id', $hotelId);
         }
 
-        $total = (int)(clone $query)->count('DISTINCT notification.id');
-        $unreadCount = (int)(clone $query)
-            ->whereRaw('(notification_state.is_read IS NULL OR notification_state.is_read <> 1)')
-            ->count('DISTINCT notification.id');
+        $countSummary = $this->notificationCountSummary($query);
+        $total = $countSummary['total'];
+        $unreadCount = $countSummary['unread_count'];
         if (SystemNotification::recipientTargetingReady()) {
             $query->orderRaw(
                 "CASE WHEN notification.category = 'ota_auth_required'"
@@ -109,6 +108,27 @@ class SystemNotificationController extends Base
             'unread_count' => $unreadCount,
             'poll_interval_ms' => 120000,
         ]);
+    }
+
+    /**
+     * The list and unread counters share the same visibility scope. Keeping
+     * both counters in one aggregate avoids scanning the notification/state
+     * join twice on every poll.
+     *
+     * @return array{total: int, unread_count: int}
+     */
+    private function notificationCountSummary($query): array
+    {
+        $row = (clone $query)->field(implode(',', [
+            'COUNT(DISTINCT notification.id) AS total',
+            'COUNT(DISTINCT CASE WHEN notification_state.is_read IS NULL'
+                . ' OR notification_state.is_read <> 1 THEN notification.id END) AS unread_count',
+        ]))->find();
+
+        return [
+            'total' => (int)($row['total'] ?? 0),
+            'unread_count' => (int)($row['unread_count'] ?? 0),
+        ];
     }
 
     /** @return array<int, array<string, mixed>> */

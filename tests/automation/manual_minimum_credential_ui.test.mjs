@@ -3235,10 +3235,12 @@ test('FontAwesome stylesheet does not block the core shell first second', () => 
 test('Login background preload does not compete with cached-auth shell', () => {
   const head = sliceFrom('<head>', '</head>');
   const preloadOffset = head.indexOf("const loginBackgroundPreload = 'images/login-hotel-lobby-bg.avif';");
-  const tailwindOffset = head.indexOf('href="tailwind.min.css?v=');
+  const loginCriticalOffset = head.indexOf('href="login-critical.css?v=');
 
   assert.doesNotMatch(head, /<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']/);
-  assert.ok(preloadOffset >= 0 && tailwindOffset >= 0 && preloadOffset < tailwindOffset);
+  assert.doesNotMatch(head, /href=["']tailwind\.min\.css\?v=/);
+  assert.match(html, /"src": "tailwind\.min\.css\?v=[^"]+"[\s\S]*"type": "style"/);
+  assert.ok(preloadOffset >= 0 && loginCriticalOffset >= 0 && preloadOffset < loginCriticalOffset);
   assert.match(head, /const readStartupAuthToken = \(\) => \{/);
   assert.match(head, /const shouldPreloadLoginBackground = \(\) => \{/);
   assert.match(head, /return !readStartupAuthToken\(\) \|\| !localStorage\.getItem\('suxios_auth_user_cache_v1'\)/);

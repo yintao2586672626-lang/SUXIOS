@@ -80,6 +80,18 @@ final class CloudOtaBundleImportContractTest extends TestCase
         self::assertStringContainsString('loadVerifiedSyncTask(', $source);
     }
 
+    public function testPartialCollectionUsesExplicitPartialReceiptInsteadOfSuccessReceipt(): void
+    {
+        $source = (string)file_get_contents((new ReflectionMethod(
+            CloudOtaBundleImportService::class,
+            'processInboxFile'
+        ))->getFileName());
+
+        self::assertStringContainsString("!== 'success'", $source);
+        self::assertStringContainsString("'.partial.json'", $source);
+        self::assertStringContainsString("'status' => \$resultStatus === 'succeeded' ? 'success' : 'partial'", $source);
+    }
+
     public function testExportCommandParsesExactSourceToSyncTaskBindings(): void
     {
         $method = new ReflectionMethod(new RunCloudDataBridge(), 'parseSyncTaskIds');

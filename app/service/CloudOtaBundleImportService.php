@@ -83,11 +83,11 @@ final class CloudOtaBundleImportService
                 $readback += (int)$packageResult['readback_count'];
             }
 
-            $hasFailedCollection = count(array_filter($packageResults, static fn(array $item): bool =>
-                !in_array((string)$item['collection_status'], ['success', 'partial'], true)
+            $hasIncompleteCollection = count(array_filter($packageResults, static fn(array $item): bool =>
+                (string)$item['collection_status'] !== 'success'
             )) > 0;
             return [
-                'status' => $hasFailedCollection ? 'partial' : 'succeeded',
+                'status' => $hasIncompleteCollection ? 'partial' : 'succeeded',
                 'dry_run' => false,
                 'bundle_id' => (string)$bundle['bundle_id'],
                 'payload_sha256' => (string)$bundle['payload_sha256'],
@@ -135,10 +135,14 @@ final class CloudOtaBundleImportService
             $failed = count(array_filter($results, static fn(array $result): bool =>
                 in_array((string)($result['status'] ?? ''), ['retry_scheduled', 'rejected'], true)
             ));
+            $partial = count(array_filter($results, static fn(array $result): bool =>
+                (string)($result['status'] ?? '') === 'partial'
+            ));
             return [
-                'status' => $failed > 0 ? 'partial' : 'succeeded',
+                'status' => $failed > 0 || $partial > 0 ? 'partial' : 'succeeded',
                 'processed_count' => count($results),
                 'failed_count' => $failed,
+                'partial_count' => $partial,
                 'inbox_count' => count(glob($paths['inbox'] . DIRECTORY_SEPARATOR . '*.json') ?: []),
                 'results' => $results,
                 'collection_triggered' => false,
@@ -853,19 +857,22 @@ final class CloudOtaBundleImportService
             $bundle = $this->readBundleFile($path);
             $bundleId = (string)$bundle['bundle_id'];
             $successReceipt = $paths['receipts'] . DIRECTORY_SEPARATOR . $bundleId . '.success.json';
-            if (is_file($successReceipt)) {
+            $partialReceipt = $paths['receipts'] . DIRECTORY_SEPARATOR . $bundleId . '.partial.json';
+            if (is_file($successReceipt) || is_file($partialReceipt)) {
                 $this->moveFile($path, $paths['processed'] . DIRECTORY_SEPARATOR . $bundleId . '.json');
                 return ['status' => 'duplicate', 'bundle_id' => $bundleId, 'file' => basename($path)];
             }
             $result = $this->importBundle($bundle, $actorUserId, false);
+            $resultStatus = (string)($result['status'] ?? 'partial');
+            $receiptPath = $resultStatus === 'succeeded' ? $successReceipt : $partialReceipt;
             $receipt = [
-                'status' => 'success',
+                'status' => $resultStatus === 'succeeded' ? 'success' : 'partial',
                 'processed_at' => date('Y-m-d H:i:s'),
                 'bundle_id' => $bundleId,
                 'file_sha256' => $fileHash,
                 'result' => $result,
             ];
-            $this->writeJsonAtomic($successReceipt, $receipt);
+            $this->writeJsonAtomic($receiptPath, $receipt);
             if (is_file($retryPath)) {
                 @unlink($retryPath);
             }

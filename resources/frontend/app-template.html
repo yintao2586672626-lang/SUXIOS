@@ -2103,9 +2103,7 @@
                                     <div class="mt-2">
                                         <span :data-testid="`transfer-source-metric-${row.key}-truth-status`" :class="onlineTruthStatusClass(row.truth)">{{ onlineTruthStatusText(row.truth) }}</span>
                                     </div>
-                                    <div :data-testid="`transfer-source-metric-${row.key}-truth-detail`" class="mt-2 text-[11px] leading-5 text-gray-500 break-words">
-                                        {{ onlineTruthDetailText(row.truth) }}
-                                    </div>
+                                    <online-truth-summary :truth="row.truth" :testid="`transfer-source-metric-${row.key}-truth-detail`"></online-truth-summary>
                                 </div>
                             </div>
                         </div>
@@ -2693,7 +2691,7 @@
                                             <span class="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">计算：{{ card.truth?.calculation_status === 'calculated' ? '已计算' : '缺值' }}</span>
                                             <span :class="onlineTruthStatusClass(card.truth)">真值：{{ onlineTruthStatusText(card.truth) }}</span>
                                         </div>
-                                        <div class="mt-2 text-[10px] leading-5 text-slate-500" v-text="onlineTruthDetailText(card.truth)"></div>
+                                        <online-truth-summary :truth="card.truth"></online-truth-summary>
                                         <div v-if="card.progress != null" class="mt-3">
                                             <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
                                                 <div :class="['h-full rounded-full', card.progressClass || 'bg-blue-600']" :style="{ width: card.progress + '%' }"></div>
@@ -2745,7 +2743,7 @@
                                                      <span class="font-semibold text-gray-800">{{ item.progress == null ? '—' : item.progress + '%' }}</span>
                                                  </div>
                                                  <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]"><span :class="onlineTruthStatusClass(item.truth)">{{ onlineTruthStatusText(item.truth) }}</span></div>
-                                                 <div class="mt-1 text-[10px] leading-5 text-slate-500" v-text="onlineTruthDetailText(item.truth)"></div>
+                                                 <online-truth-summary :truth="item.truth"></online-truth-summary>
                                              </div>
                                         </div>
                                     </div>
@@ -2762,7 +2760,7 @@
                                         <div class="mt-5 pt-4 border-t border-gray-100">
                                             <div class="text-xs text-gray-500 mb-2">最近一次结果</div>
                                             <div class="text-sm text-gray-700">评分 {{ openingOverview.recent_result.overall_score ?? '—' }}，风险 {{ openingRiskText(openingOverview.recent_result.risk_level) }}，更新时间 {{ openingOverview.recent_result.updated_at || '-' }}</div>
-                                            <div class="mt-2 text-[10px] leading-5 text-slate-500" v-text="onlineTruthDetailText(openingOverview.recent_result.truth)"></div>
+                                            <online-truth-summary :truth="openingOverview.recent_result.truth"></online-truth-summary>
                                         </div>
                                     </div>
                                 </div>
@@ -3659,8 +3657,7 @@
                                             <span class="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-700">{{ metric.scopeText }}</span>
                                             <span v-if="metric.resultTypeCode === 'derived'" class="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">派生指标</span>
                                         </div>
-                                        <div class="mt-2 break-all text-[11px] text-gray-400">来源引用：{{ metric.sourceRefsText }}</div>
-                                        <div :data-testid="`ai-daily-report-metric-${metric.key}-truth-detail`" class="mt-2 text-[11px] leading-5 text-gray-500">{{ metric.truthDetailText }}</div>
+                                        <online-truth-summary :truth="metric.truth" :testid="`ai-daily-report-metric-${metric.key}-truth-detail`"></online-truth-summary>
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
@@ -5389,7 +5386,6 @@
                                 <div v-if="user?.is_super_admin" class="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
                                     <button v-if="String(u?.status) !== '1'" @click="activateUser(u)" class="rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700">启用账号</button>
                                     <button v-if="String(u?.status) === '1' &amp;&amp; u.id !== user?.id" @click="deactivateUser(u)" class="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">停用账号</button>
-                                    <button v-if="isExternalIssueUser(u)" @click="copyUserBasicLoginInfo(u)" class="rounded-lg bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700">复制账号</button>
                                     <button v-if="isExternalIssueUser(u)" @click="openUserLoginInfoModal(u)" class="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700">重置密码</button>
                                     <button @click="openUserModal(u)" class="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">编辑</button>
                                     <button v-if="u.id !== user?.id" @click="deleteUser(u)" class="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">删除</button>
@@ -5418,7 +5414,12 @@
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">角色</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">门店范围</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
-                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">上次登录</th>
+                                            <th :aria-sort="userLastLoginSortDirection === 'desc' ? 'descending' : 'ascending'" class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                                <button type="button" data-testid="employee-last-login-sort" @click="toggleUserLastLoginSort" :aria-label="userLastLoginSortDirection === 'desc' ? '上次登录，当前降序，点击切换为升序' : '上次登录，当前升序，点击切换为降序'" class="inline-flex items-center gap-1 rounded-md hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                                    <span>上次登录</span>
+                                                    <i :class="userLastLoginSortDirection === 'desc' ? 'fas fa-arrow-down' : 'fas fa-arrow-up'" aria-hidden="true"></i>
+                                                </button>
+                                            </th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
                                         </tr>
                                     </thead>
@@ -5457,10 +5458,6 @@
                                                     <button v-if="u &amp;&amp; String(u?.status) === '1' &amp;&amp; u.id !== user?.id &amp;&amp; (user?.is_super_admin)" @click="deactivateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium" title="停用账号">
                                                         <i class="fas fa-ban text-xs"></i>
                                                         <span>停用账号</span>
-                                                    </button>
-                                                    <button v-if="u &amp;&amp; isExternalIssueUser(u) &amp;&amp; (user?.is_super_admin)" @click="copyUserBasicLoginInfo(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors text-xs font-medium" title="复制登录地址和用户名，不修改密码">
-                                                        <i class="fas fa-copy text-xs"></i>
-                                                        <span>复制账号</span>
                                                     </button>
                                                     <button v-if="u &amp;&amp; isExternalIssueUser(u) &amp;&amp; (user?.is_super_admin)" @click="openUserLoginInfoModal(u)" :title="existingUserIssueGuideBlocker(u) || '重置密码并复制登录地址、用户名和密码'" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-xs font-medium">
                                                         <i class="fas fa-key text-xs"></i>
@@ -6001,27 +5998,23 @@
                                         </div>
                                     </div>
                                     <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5" data-testid="revenue-ai-metric-cards">
-                                        <button type="button" v-for="card in revenueAiMetricCards" :key="card.key" @click="openRevenueAiMetric(card)" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
-                                            <div class="flex items-start justify-between gap-3">
-                                                <div class="min-w-0">
-                                                    <div class="truncate text-xs font-semibold text-slate-500" :title="card.label">{{ card.label }}</div>
-                                                    <div class="mt-2 truncate text-xl font-bold text-slate-900" :title="card.display">{{ card.display }}</div>
+                                        <div v-for="card in revenueAiMetricCards" :key="card.key" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+                                            <button type="button" @click="openRevenueAiMetric(card)" class="w-full text-left">
+                                                <div class="flex items-start justify-between gap-3">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-xs font-semibold text-slate-500" :title="card.label">{{ card.label }}</div>
+                                                        <div class="mt-2 truncate text-xl font-bold text-slate-900" :title="card.display">{{ card.display }}</div>
+                                                    </div>
+                                                    <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.className]">{{ card.statusLabel }}</span>
                                                 </div>
-                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.className]">{{ card.statusLabel }}</span>
-                                            </div>
-                                            <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.scopeLabel }}</span>
-                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.dateBasisLabel }}</span>
-                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">计算：{{ card.metricStatusLabel }}</span>
-                                            </div>
-                                            <div class="mt-2 text-xs leading-5 text-slate-500" :title="card.reasonText">{{ card.reasonText }}</div>
-                                            <dl class="mt-2 space-y-1 border-t border-slate-100 pt-2 text-[11px] leading-4 text-slate-500" data-testid="revenue-ai-metric-truth">
-                                                <div v-for="line in card.truthLines" :key="`${card.key}-${line.key}`" class="grid grid-cols-[52px_minmax(0,1fr)] gap-1">
-                                                    <dt class="font-medium text-slate-400">{{ line.label }}</dt>
-                                                    <dd class="break-words text-slate-600">{{ line.value }}</dd>
+                                                <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                                                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.scopeLabel }}</span>
+                                                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.dateBasisLabel }}</span>
+                                                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5">计算：{{ card.metricStatusLabel }}</span>
                                                 </div>
-                                            </dl>
-                                        </button>
+                                            </button>
+                                            <online-truth-summary :truth="card.truth" :testid="`revenue-ai-metric-truth-${card.key}`"></online-truth-summary>
+                                        </div>
                                     </div>
                                 </details>
                                 <details class="suxi-evidence-fold suxi-work-fold" data-testid="revenue-ai-business-closure-fold">
@@ -6194,36 +6187,23 @@
                                         </div>
                                     </div>
                                     <div class="xl:col-span-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                                        <div class="mb-3 flex items-center justify-between gap-3">
-                                            <div>
-                                                <div class="text-sm font-semibold text-slate-900">今日调价建议</div>
-                                                <div class="mt-1 text-xs text-slate-500">人工审核，不自动写 OTA。</div>
-                                            </div>
-                                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">人工审核</span>
-                                        </div>
+                                        <div class="mb-3 text-sm font-semibold text-slate-900">今日调价建议 · 人工审核</div>
                                         <div class="space-y-2">
-                                            <div v-for="action in revenueAiActionRows" :key="action.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                            <div v-for="action in revenueAiActionRows" :key="action.key" :title="action.reasonText" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                                                 <div class="flex items-center justify-between gap-3">
                                                     <span class="text-sm font-semibold text-slate-900">{{ action.title }}</span>
                                                     <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', action.className]">{{ action.statusLabel }}</span>
                                                 </div>
-                                                <div class="mt-1 line-clamp-3 text-xs leading-5 text-slate-500" :title="action.reasonText">{{ action.reasonText }}</div>
                                                 <div v-if="action.decisionBasisDisplay" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-decision-basis">
                                                     <div class="flex items-center justify-between gap-2">
                                                         <span class="truncate text-[11px] font-semibold text-slate-600" :title="action.decisionBasisDisplay">{{ action.decisionBasisDisplay }}</span>
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.decisionBasisClassName]">{{ action.decisionBasisStatusLabel || '依据状态' }}</span>
                                                     </div>
                                                     <div v-if="action.decisionBasisItems?.length" class="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
-                                                        <button type="button" v-for="basis in action.decisionBasisItems" :key="basis.key" @click="openRevenueAiDecisionBasis(basis)" class="min-w-0 rounded-md bg-slate-50 px-2 py-1 text-left transition hover:bg-slate-100">
-                                                            <div class="flex items-center justify-between gap-2">
-                                                                <span class="truncate text-[11px] text-slate-600" :title="basis.label">{{ basis.label }}</span>
-                                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', basis.className]">{{ basis.statusLabel }}</span>
-                                                            </div>
-                                                            <div class="mt-0.5 truncate text-[10px] text-slate-400" :title="basis.reasonText">{{ basis.reasonText }}</div>
+                                                        <button type="button" v-for="basis in action.decisionBasisItems" :key="basis.key" @click="openRevenueAiDecisionBasis(basis)" :title="basis.reasonText" class="flex min-w-0 items-center justify-between gap-2 rounded-md bg-slate-50 px-2 py-1 text-left hover:bg-slate-100">
+                                                            <span class="truncate text-[11px] text-slate-600">{{ basis.label }}</span>
+                                                            <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px]', basis.className]">{{ basis.statusLabel }}</span>
                                                         </button>
-                                                    </div>
-                                                    <div v-if="action.decisionBasisHiddenDisplay" class="mt-1 text-[10px] leading-4 text-amber-600" data-testid="revenue-ai-decision-basis-hidden">
-                                                        {{ action.decisionBasisHiddenDisplay }}
                                                     </div>
                                                 </div>
                                                 <div v-if="action.resolutionPlanVisible" class="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1.5" data-testid="revenue-ai-resolution-plan">
@@ -6232,16 +6212,10 @@
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.resolutionPlanSummary?.className]">{{ action.resolutionPlanSummary?.statusLabel || '补证状态' }}</span>
                                                     </div>
                                                     <div v-if="action.resolutionPlanItems?.length" class="mt-1 space-y-1">
-                                                        <button type="button" v-for="item in action.resolutionPlanItems" :key="item.key" @click="openRevenueAiDecisionBasis(item)" class="w-full min-w-0 rounded-md bg-white px-2 py-1 text-left transition hover:bg-amber-100">
-                                                            <div class="flex items-center justify-between gap-2">
-                                                                <span class="truncate text-[11px] text-amber-900" :title="item.resolutionAction">{{ item.order }}. {{ item.resolutionAction }}</span>
-                                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', item.severityClass]">{{ item.severityLabel }}</span>
-                                                            </div>
-                                                            <div class="mt-0.5 line-clamp-2 text-[10px] leading-4 text-amber-700" :title="item.acceptanceCheck">{{ item.acceptanceCheck }}</div>
+                                                        <button type="button" v-for="item in action.resolutionPlanItems" :key="item.key" @click="openRevenueAiDecisionBasis(item)" :title="item.acceptanceCheck" class="flex w-full min-w-0 items-center justify-between gap-2 rounded-md bg-white px-2 py-1 text-left hover:bg-amber-100">
+                                                            <span class="truncate text-[11px] text-amber-900">{{ item.order }}. {{ item.resolutionAction }}</span>
+                                                            <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px]', item.severityClass]">{{ item.severityLabel }}</span>
                                                         </button>
-                                                    </div>
-                                                    <div v-if="action.resolutionPlanSummary?.hiddenCount" class="mt-1 text-[10px] leading-4 text-amber-700">
-                                                        另有 {{ action.resolutionPlanSummary.hiddenCount }} 项补证未展示
                                                     </div>
                                                 </div>
                                                 <button type="button" v-if="action.pricingGenerationPreflightVisible" @click="openRevenueAiDecisionBasis(action.pricingGenerationPreflightSummary?.target)" :disabled="!action.pricingGenerationPreflightSummary?.canOpenTarget" class="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-white" data-testid="revenue-ai-pricing-generation-preflight">
@@ -6250,22 +6224,12 @@
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.pricingGenerationPreflightSummary?.className]">{{ action.pricingGenerationPreflightSummary?.statusLabel || '预检状态' }}</span>
                                                     </div>
                                                     <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="action.pricingGenerationPreflightSummary?.detailText">{{ action.pricingGenerationPreflightSummary?.detailText }}</div>
-                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="action.pricingGenerationPreflightSummary?.reasonText">{{ action.pricingGenerationPreflightSummary?.reasonText }}</div>
-                                                    <div v-if="action.pricingGenerationPreflightSummary?.requiredInputs?.length" class="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-500">
-                                                        <span v-for="item in action.pricingGenerationPreflightSummary.requiredInputs" :key="item.code" class="rounded-md bg-slate-50 px-1.5 py-0.5" :title="item.nextAction">{{ item.code }}</span>
-                                                        <span v-if="action.pricingGenerationPreflightSummary.hiddenRequiredInputCount" class="rounded-md bg-slate-50 px-1.5 py-0.5">+{{ action.pricingGenerationPreflightSummary.hiddenRequiredInputCount }}</span>
-                                                    </div>
                                                 </button>
-                                                <button type="button" v-if="action.reviewQueueSummary" @click="openRevenueAiDecisionBasis(action.reviewQueueTarget)" :disabled="!action.reviewQueueCanOpenTarget" class="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-white" data-testid="revenue-ai-review-queue">
-                                                    <span class="truncate text-[11px] text-slate-600" :title="action.reviewQueueSummary">{{ action.reviewQueueSummary }}</span>
-                                                    <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.reviewQueueClassName]">{{ action.reviewQueueStatusLabel || '队列状态' }}</span>
-                                                </button>
-                                                <div v-if="action.executionPendingDisplay" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5" data-testid="revenue-ai-execution-pending">
+                                                <div v-if="action.executionPendingDisplay" :title="action.executionPendingReasonText" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5" data-testid="revenue-ai-execution-pending">
                                                     <div class="flex items-center justify-between gap-2">
                                                         <span class="truncate text-[11px] font-semibold text-blue-700" :title="action.executionPendingDisplay">{{ action.executionPendingDisplay }}</span>
                                                         <span class="shrink-0 rounded-full border border-blue-200 bg-white px-1.5 py-0.5 text-[11px] text-blue-700 whitespace-nowrap">待执行交接</span>
                                                     </div>
-                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-blue-600" :title="action.executionPendingReasonText">{{ action.executionPendingReasonText }}</div>
                                                 </div>
                                                 <div v-if="action.investmentPrecheckVisible" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-investment-precheck">
                                                     <div class="flex items-center justify-between gap-2">
@@ -6273,50 +6237,19 @@
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.investmentPrecheckSummary?.className]">{{ action.investmentPrecheckSummary?.statusLabel || '预检状态' }}</span>
                                                     </div>
                                                     <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="action.investmentPrecheckSummary?.detailText">{{ action.investmentPrecheckSummary?.detailText || '等待运营 ROI 与投决记录证据。' }}</div>
-                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="action.investmentPrecheckSummary?.reasonText">{{ action.investmentPrecheckSummary?.reasonText }}</div>
-                                                    <div class="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
-                                                        <span v-if="action.investmentPrecheckSummary?.requiredGate" class="rounded-md bg-slate-50 px-1.5 py-0.5">门禁 {{ action.investmentPrecheckSummary.requiredGate }}</span>
-                                                        <span v-if="action.investmentPrecheckSummary?.targetEntry" class="rounded-md bg-slate-50 px-1.5 py-0.5">{{ action.investmentPrecheckSummary.targetEntry }}</span>
-                                                        <span class="rounded-md bg-slate-50 px-1.5 py-0.5">只读</span>
-                                                    </div>
                                                 </div>
                                                 <div v-if="action.reviewQueueItems?.length" class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white" data-testid="revenue-ai-review-queue-items">
                                                     <div v-for="item in action.reviewQueueItems" :key="item.key" class="border-b border-slate-100 px-2 py-2 last:border-b-0">
                                                         <div class="flex items-start justify-between gap-2">
-                                                            <div class="min-w-0">
-                                                                <div class="truncate text-xs font-semibold text-slate-700" :title="item.title">{{ item.title }}</div>
-                                                                <div class="mt-0.5 text-[11px] text-slate-400">{{ item.suggestionDate }}</div>
-                                                            </div>
+                                                            <b class="min-w-0 truncate text-xs text-slate-700" :title="item.title">{{ item.title }}</b>
                                                             <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', item.className]">{{ item.statusLabel }}</span>
                                                         </div>
-                                                        <div class="mt-1 truncate text-[11px] leading-4 text-slate-600" :title="item.priceLine">{{ item.priceLine }}</div>
-                                                        <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.evidenceLine">{{ item.evidenceLine }}</div>
-                                                        <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.impactLine">{{ item.impactLine }}</div>
-                                                        <div v-if="item.factorLine &amp;&amp; item.factorLine !== '--'" class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.factorLine">{{ item.factorLine }}</div>
-                                                        <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="item.reasonText">{{ item.reasonText }}</div>
-                                                        <div v-if="item.canApprove || item.canApproveWithChanges || item.canReject || item.canCreateExecutionIntent" class="mt-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-                                                            <span class="text-[10px] text-slate-400">{{ item.actionHelpText }}</span>
-                                                            <div class="flex flex-wrap items-center gap-1">
-                                                                <button v-if="item.canApprove" type="button" @click="submitRevenueAiReviewAction(item, 'approve')" :disabled="isRevenueAiReviewActionLoading(item, 'approve')" class="shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:border-emerald-200 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">
-                                                                    {{ isRevenueAiReviewActionLoading(item, 'approve') ? '处理中' : '批准' }}
-                                                                </button>
-                                                                <button v-if="item.canApproveWithChanges" type="button" @click="submitRevenueAiReviewAction(item, 'approve_with_changes')" :disabled="isRevenueAiReviewActionLoading(item, 'approve_with_changes')" class="shrink-0 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:border-amber-200 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60">
-                                                                    {{ isRevenueAiReviewActionLoading(item, 'approve_with_changes') ? '处理中' : '改价批准' }}
-                                                                </button>
-                                                                <button v-if="item.canReject" type="button" @click="submitRevenueAiReviewAction(item, 'reject')" :disabled="isRevenueAiReviewActionLoading(item, 'reject')" class="shrink-0 rounded-lg border border-rose-100 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:border-rose-200 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60">
-                                                                    {{ isRevenueAiReviewActionLoading(item, 'reject') ? '处理中' : '拒绝' }}
-                                                                </button>
-                                                                <button v-if="item.canCreateExecutionIntent" type="button" @click="submitRevenueAiReviewAction(item, 'execution_intent')" :disabled="isRevenueAiReviewActionLoading(item, 'execution_intent')" class="shrink-0 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:border-blue-200 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
-                                                                    {{ isRevenueAiReviewActionLoading(item, 'execution_intent') ? '处理中' : '转执行' }}
-                                                                </button>
-                                                            </div>
+                                                        <div class="mt-2 grid gap-1 sm:grid-cols-2" data-testid="revenue-ai-trusted-decision">
+                                                            <p v-for="field in item.trustedDecisionRows" :key="field.key" :data-field="field.key" :class="field.status === 'not_calculable' ? 'text-amber-700' : 'text-slate-600'" class="break-words rounded bg-slate-50 p-1.5 text-[11px]"><b class="text-[10px] text-slate-400">{{ field.label }}：</b>{{ field.value }}</p>
                                                         </div>
-                                                    </div>
-                                                </div>
-                                                <div v-if="action.nextActions?.length" class="mt-2 space-y-1">
-                                                    <div v-for="nextAction in action.nextActions" :key="nextAction" class="flex items-start gap-1.5 text-[11px] leading-4 text-slate-600">
-                                                        <span class="mt-1 h-1 w-1 shrink-0 rounded-full bg-slate-400"></span>
-                                                        <span>{{ nextAction }}</span>
+                                                        <div v-if="item.actionButtons?.length" :title="item.actionHelpText" class="mt-1.5 flex flex-wrap justify-end gap-1">
+                                                            <button v-for="button in item.actionButtons" :key="button.key" type="button" @click="submitRevenueAiReviewAction(item, button.key)" :disabled="isRevenueAiReviewActionLoading(item, button.key)" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{{ isRevenueAiReviewActionLoading(item, button.key) ? '处理中' : button.label }}</button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -14893,6 +14826,53 @@
                                         <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
                                         <span>{{ hotelDashboardError || collectionReliabilityError || dailyWorkbenchError }}</span>
                                     </div>
+                                    <section data-testid="dual-ota-continuous-trust" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                            <div>
+                                                <div class="text-[11px] font-semibold tracking-[0.18em] text-slate-400">双 OTA 连续可信闭环</div>
+                                                <h4 class="mt-1 text-lg font-bold text-slate-950">来源 → 门店 → 日期 → 字段事实 → 保存 → 回读 → 页面 → P0</h4>
+                                                <p class="mt-1 text-xs leading-5 text-slate-500">{{ dualOtaContinuousSummaryText }}</p>
+                                            </div>
+                                            <div class="flex flex-col items-start gap-1 sm:items-end">
+                                                <span :class="['rounded-full border px-3 py-1 font-mono text-xs font-semibold', dualOtaContinuousStatusClass(dualOtaContinuousTrust.status)]">{{ dualOtaContinuousStatusText(dualOtaContinuousTrust.status) }}</span>
+                                                <span class="text-[11px] text-slate-500">{{ dualOtaContinuousTrust.start_date || '未返回' }} ~ {{ dualOtaContinuousTrust.end_date || '未返回' }}</span>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="dualOtaContinuousDays.length" class="mt-4 space-y-3">
+                                            <article v-for="day in dualOtaContinuousDays.slice(0, 7)" :key="day.date" class="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="font-mono text-xs font-semibold text-slate-700">{{ day.date }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold', dualOtaContinuousStatusClass(day.status)]">{{ dualOtaContinuousStatusText(day.status) }}</span>
+                                                </div>
+                                                <div class="mt-3 grid gap-3 lg:grid-cols-2">
+                                                    <div v-for="platform in day.platforms" :key="day.date + '-' + platform.platform" class="rounded-lg border border-slate-200 bg-white p-3">
+                                                        <div class="flex items-start justify-between gap-3">
+                                                            <div>
+                                                                <div class="text-sm font-bold text-slate-900">{{ dualOtaContinuousPlatformLabel(platform.platform) }}</div>
+                                                                <div class="mt-0.5 text-[11px] text-slate-500">来源：{{ platform.source_method || '未验证' }} · P0：{{ platform.p0_status || 'blocked' }}</div>
+                                                            </div>
+                                                            <span :class="['rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold', dualOtaContinuousStatusClass(platform.status)]">{{ dualOtaContinuousStatusText(platform.status) }}</span>
+                                                        </div>
+                                                        <div class="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                                                            <div v-for="step in dualOtaContinuousStepRows(platform)" :key="step.key" :class="['rounded-md border px-2 py-1.5 text-[10px]', step.ready ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-red-100 bg-red-50 text-red-700']">
+                                                                <i :class="step.ready ? 'fas fa-check-circle mr-1' : 'fas fa-times-circle mr-1'"></i>{{ step.label }}
+                                                            </div>
+                                                        </div>
+                                                        <div v-if="platform.missing_metric_keys &amp;&amp; platform.missing_metric_keys.length" class="mt-2 text-[11px] leading-5 text-red-700">
+                                                            缺失字段事实：{{ platform.missing_metric_keys.join('、') }}
+                                                        </div>
+                                                        <div v-if="platform.failure_reason" class="mt-1 text-[11px] leading-5 text-red-700">失败原因：{{ platform.failure_reason }}</div>
+                                                    </div>
+                                                </div>
+                                            </article>
+                                            <p v-if="dualOtaContinuousDays.length > 7" class="text-[11px] text-slate-400">页面展示最近 7 天；顶部连续天数按完整查询周期计算。</p>
+                                        </div>
+                                        <div v-else class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                            {{ dualOtaContinuousTrust.reason || '当前门店尚无可验证的双 OTA 连续证据，状态保持 partial。' }}
+                                        </div>
+                                        <p class="mt-3 text-[11px] leading-5 text-slate-400">仅统计当前门店、目标日期、Profile/云同步来源且已数据库回读的数据；旧数据、空值或数值 0 不替代缺失证据。</p>
+                                    </section>
                                     <section data-testid="core-operations-loop" class="overflow-hidden rounded-2xl border border-slate-800 bg-white shadow-xl shadow-slate-200/60">
                                         <header class="relative overflow-hidden bg-slate-950 px-5 py-5 text-white sm:px-6">
                                             <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.22),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.16),transparent_38%)]"></div>
@@ -14959,7 +14939,7 @@
                                                         <p class="mt-1 text-xs leading-5 text-slate-500">读取目标日已入库数据；缺失或读取失败不按 0 展示。</p>
                                                     </div>
                                                     <div class="flex flex-col items-stretch gap-1.5 sm:items-end">
-                                                        <span class="text-xs text-slate-500">{{ coreOperationsTargetDate }} · 门店编号 {{ coreOperationsHotelId || '-' }}</span>
+                                                        <span class="text-xs text-slate-500">{{ getHotelNameById(coreOperationsHotelId) || '未选择门店' }} · {{ coreOperationsTargetDate }}</span>
                                                         <button v-if="coreOperationsCanCollect" data-testid="core-loop-yesterday-fetch" type="button" @click="runCoreOperationsYesterdayFetch()" :disabled="coreOperationsSourceFetchRunning || fetchingData || !coreOperationsHotelId || coreOperationsTargetDate !== coreOperationsMaxDate || coreOperationsProfileSessionBlockedRows.length > 0" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50">
                                                             <i :class="coreOperationsSourceFetchRunning || fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-cloud-download-alt mr-2'"></i>{{ coreOperationsSourceFetchActionText }}
                                                         </button>
@@ -14982,7 +14962,7 @@
                                                                 <span :class="['flex h-9 w-9 items-center justify-center rounded-lg text-white', platform.accentClass]"><i :class="platform.icon"></i></span>
                                                                 <div>
                                                                     <h6 class="text-sm font-bold text-slate-900">{{ platform.label }}</h6>
-                                                                    <div class="mt-0.5 text-[11px] text-slate-500">目标日源数据 {{ platform.sourceRowsText }} · {{ platform.evidenceStatus }}</div>
+                                                                    <div class="mt-0.5 text-[11px] text-slate-500">目标日源数据 {{ platform.sourceRowsText }} · {{ platform.evidenceStatusText }}</div>
                                                                 </div>
                                                             </div>
                                                             <div class="flex flex-col items-end gap-1.5">
@@ -15000,7 +14980,7 @@
                                                                     </div>
                                                                 </div>
                                                                 <div :data-testid="'core-operations-metric-value-' + platform.key + '-' + metric.key" class="mt-1.5 text-base font-bold text-slate-900">{{ metric.value }}</div>
-                                                                <div :data-testid="'core-operations-metric-truth-detail-' + platform.key + '-' + metric.key" class="mt-2 text-[10px] leading-5 text-slate-500" v-text="onlineTruthDetailText(metric.truth)"></div>
+                                                                <online-truth-summary :truth="metric.truth" :testid="'core-operations-metric-truth-detail-' + platform.key + '-' + metric.key"></online-truth-summary>
                                                             </div>
                                                         </div>
                                                         <div v-if="platform.message" class="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{{ platform.message }}</div>
@@ -15570,7 +15550,7 @@
                                         <div v-if="phase1EmployeeCollectionSourceRows.length" data-testid="phase1-employee-collection-source-summary" class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                                                 <div class="text-sm font-semibold text-gray-900">平台源数据摘要</div>
-                                                <div class="text-[11px] text-slate-500">只读 online_daily_data / OTA 渠道口径</div>
+                                                <div class="text-[11px] text-slate-500">只读 OTA 入库数据 / 渠道口径</div>
                                             </div>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                 <div v-for="row in phase1EmployeeCollectionSourceRows" :key="row.platform" class="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2">
@@ -16617,7 +16597,7 @@
                                         <div v-for="card in onlineAnalysisSummaryCards" :key="card.key" data-testid="truth-metric" class="border rounded-lg bg-white p-4">
                                             <div class="text-xs text-gray-500">{{ card.label }}</div>
                                             <div class="mt-2 text-xl font-semibold" :class="card.className">{{ card.value }}</div>
-                                            <div class="mt-2 text-xs text-gray-500" v-text="onlineTruthDetailText(card.truth)"></div>
+                                            <online-truth-summary :truth="card.truth"></online-truth-summary>
                                         </div>
                                     </div>
 
@@ -16653,7 +16633,7 @@
                                                 <div><div class="text-xs text-gray-400">ROAS</div><div class="font-semibold text-gray-900">{{ onlineAnalysisMetricText(onlineDataSummary.ota_channel_supplement.advertising?.roas, formatNumber) }}</div></div>
                                                 <div><div class="text-xs text-gray-400">订单</div><div class="font-semibold text-gray-900">{{ onlineAnalysisMetricText(onlineDataSummary.ota_channel_supplement.advertising?.bookings, formatNumber) }}</div></div>
                                             </div>
-                                            <div class="mt-3 text-xs text-gray-500" v-text="onlineTruthDetailText(onlineDataSummary.ota_channel_supplement.advertising?.truth_context)"></div>
+                                            <online-truth-summary :truth="onlineDataSummary.ota_channel_supplement.advertising?.truth_context"></online-truth-summary>
                                         </div>
                                         <div class="border rounded-lg bg-white p-4">
                                             <div class="flex items-center justify-between mb-3">
@@ -16664,7 +16644,7 @@
                                                 <div><div class="text-xs text-gray-400">PSI</div><div class="font-semibold text-gray-900">{{ onlineAnalysisMetricText(onlineDataSummary.ota_channel_supplement.service_quality?.avg_psi_score, formatNumber) }}</div></div>
                                                 <div><div class="text-xs text-gray-400">服务分</div><div class="font-semibold text-gray-900">{{ onlineAnalysisMetricText(onlineDataSummary.ota_channel_supplement.service_quality?.avg_service_score, formatNumber) }}</div></div>
                                             </div>
-                                            <div class="mt-3 text-xs text-gray-500" v-text="onlineTruthDetailText(onlineDataSummary.ota_channel_supplement.service_quality?.truth_context)"></div>
+                                            <online-truth-summary :truth="onlineDataSummary.ota_channel_supplement.service_quality?.truth_context"></online-truth-summary>
                                         </div>
                                     </div>
 
@@ -16673,7 +16653,7 @@
                                             <div class="flex items-start justify-between gap-3 mb-3">
                                                 <div>
                                                     <h5 class="font-medium text-gray-800">趋势</h5>
-                                                    <div class="mt-1 text-xs text-gray-500" v-text="onlineTruthDetailText(analysisData.summary?.truth_context)"></div>
+                                                    <online-truth-summary :truth="analysisData.summary?.truth_context"></online-truth-summary>
                                                 </div>
                                                 <div class="flex gap-2">
                                                     <button @click="loadAnalysisData('day')" :class="['px-3 py-1 rounded text-sm', analysisDimension==='day' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200']">日</button>
@@ -16691,7 +16671,7 @@
 
                                         <div class="border rounded-lg bg-white p-4">
                                             <h5 class="font-medium text-gray-800">酒店排名</h5>
-                                            <div class="mt-1 mb-3 text-xs text-gray-500" v-text="onlineTruthDetailText(analysisData.summary?.truth_context)"></div>
+                                            <online-truth-summary :truth="analysisData.summary?.truth_context"></online-truth-summary>
                                             <div v-if="analysisData.hotel_ranking &amp;&amp; analysisData.hotel_ranking.length" class="space-y-2">
                                                 <div v-for="(hotel, index) in analysisData.hotel_ranking.slice(0, 8)" :key="hotel.hotel_id + '_' + (hotel.period || index)" class="flex items-center justify-between gap-3 border-b pb-2 last:border-b-0">
                                                     <div class="min-w-0">
@@ -16713,7 +16693,7 @@
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
                                                 <div class="text-xs text-gray-500">当前筛选 {{ onlineAnalysisMetricText(onlineAnalysisPagination.total, formatNumber) }} 条，展示 {{ onlineAnalysisMetricText(onlineAnalysisRows.length, formatNumber) }} 条；汇总已排除 {{ onlineAnalysisMetricText(analysisData.summary?.excluded_untrusted_count, formatNumber) }} 条未可信记录。</div>
-                                                <div class="mt-1 text-xs text-gray-500" v-text="onlineTruthDetailText(analysisData.summary?.truth_context)"></div>
+                                                <online-truth-summary :truth="analysisData.summary?.truth_context"></online-truth-summary>
                                                 <div v-if="onlineAnalysisQualitySummary" class="mt-1 text-xs text-amber-700">{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows({ force: true })" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
@@ -16761,7 +16741,7 @@
                                                         </td>
                                                         <td v-for="metric in buildOnlineAnalysisRowMetricCells(item, formatNumber)" :key="item.id + '-' + metric.key" class="px-4 py-3 text-right">{{ metric.value }}</td>
                                                         <td class="px-4 py-3 text-gray-600 max-w-xs truncate" :title="item.dimension || '-'">{{ item.dimension || '-' }}</td>
-                                                        <td class="px-4 py-3 text-xs" v-text="onlineTruthDetailText(item)"></td>
+                                                        <td class="px-4 py-3 text-xs"><online-truth-summary :truth="item"></online-truth-summary></td>
                                                     </tr>
                                                     <tr v-if="!onlineAnalysisRowsLoading &amp;&amp; onlineAnalysisRows.length === 0">
                                                         <td colspan="10" class="px-4 py-8 text-center text-gray-500">当前筛选范围暂无入库明细。</td>
@@ -16844,6 +16824,7 @@
                                                             </div>
                                                             <div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs text-slate-400">下一步</span><div class="flex gap-2">
                                                                 <button type="button" @click="togglePlatformAccountCenterDetails(row.channels.ctrip.key)" class="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">{{ platformAccountCenterExpandedKey === row.channels.ctrip.key ? '收起' : '详情' }}</button>
+                                                                <button v-if="row.channels.ctrip.showFailureLog" type="button" @click="openHotelSyncLogs(row.hotel, 'ctrip')" class="rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50">失败详情</button>
                                                                 <button type="button" @click="openPlatformAccountCenterAction(row.channels.ctrip)" :disabled="row.channels.ctrip.readinessCode === 'inactive'" class="rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-black disabled:bg-slate-300">{{ row.channels.ctrip.actionText }}</button>
                                                             </div></div>
                                                         </section>
@@ -16865,6 +16846,7 @@
                                                             </div>
                                                             <div class="mt-3 flex items-center justify-between gap-2"><span class="text-xs text-slate-400">下一步</span><div class="flex gap-2">
                                                                 <button type="button" @click="togglePlatformAccountCenterDetails(row.channels.meituan.key)" class="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">{{ platformAccountCenterExpandedKey === row.channels.meituan.key ? '收起' : '详情' }}</button>
+                                                                <button v-if="row.channels.meituan.showFailureLog" type="button" @click="openHotelSyncLogs(row.hotel, 'meituan')" class="rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50">失败详情</button>
                                                                 <button type="button" @click="openPlatformAccountCenterAction(row.channels.meituan)" :disabled="row.channels.meituan.readinessCode === 'inactive'" class="rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-black disabled:bg-slate-300">{{ row.channels.meituan.actionText }}</button>
                                                             </div></div>
                                                         </section>
@@ -16872,7 +16854,7 @@
                                                 </article>
                                                 <div v-if="!filteredPlatformAccountCenterRows.length" class="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">没有符合筛选条件的门店；未配置状态不会被伪装为可采集。</div>
                                             </div>
-                                            <div class="mt-3 text-xs leading-5 text-slate-500">浏览器 Profile 只要已绑定就优先直接尝试采集，不要求当天登录证明；平台实际返回登录失效时再提示重新登录。采集成功仍需以目标日期入库和数据库回读为准，不代表全酒店经营状态。</div>
+                                            <div class="mt-3 text-xs leading-5 text-slate-500">Profile 采集统一从“昨日经营闭环”进入；未验证会话需先登录。成功以目标日入库回读为准，仅代表 OTA 渠道。</div>
                                         </div>
                                     </section>
 
@@ -17072,10 +17054,10 @@
                                                         <div class="text-sm font-semibold text-slate-900">{{ item.platform_name || item.platform || '-' }}</div>
                                                         <div class="mt-1 text-xs text-slate-500" :title="platformProfileBindingRawText(item)">{{ platformProfileBindingText(item) }}</div>
                                                         <div v-if="item.binding_contract" class="mt-2 flex flex-wrap gap-1 text-[11px] text-slate-500">
-                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">current_session_verified={{ item.binding_contract.current_session_verified ? 'true' : 'false' }}</span>
-                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">Profile={{ item.binding_contract.profile_status || item.status_code || '-' }}</span>
-                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">historical_manual_login_state_verified={{ item.binding_contract.manual_login_state_verified ? 'true' : 'false' }}</span>
-                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">historical_last_verified={{ item.binding_contract.last_login_verified_at || '-' }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">当天会话：{{ item.binding_contract.current_session_verified ? '已验证' : '未验证' }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">Profile：{{ platformProfileStatusLabel(item) }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">历史登录：{{ item.binding_contract.manual_login_state_verified ? '已验证' : '未验证' }}</span>
+                                                            <span class="rounded border border-slate-200 bg-white px-1.5 py-0.5">上次验证：{{ item.binding_contract.last_login_verified_at || '无记录' }}</span>
                                                         </div>
                                                     </div>
                                                     <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-xs', platformProfileStatusBadgeClass(item.status_code)]">{{ platformProfileStatusLabel(item) }}</span>
@@ -17604,17 +17586,17 @@ Authorization: Bearer xxx"></textarea>
                                     <div class="mb-6 rounded-xl border border-gray-200 bg-white overflow-hidden">
                                         <div class="px-5 py-4 border-b bg-white">
                                             <h4 class="font-semibold text-gray-900 text-lg">
-                                                <i class="fas fa-key mr-2 text-slate-600"></i>平台账号登录管理
+                                                <i class="fas fa-bolt mr-2 text-slate-600"></i>Cookie/API 补采
                                             </h4>
                                         </div>
                                         <div class="p-5">
                                             <div class="space-y-4">
                                                 <p class="text-sm text-gray-600">
-                                                    美团“立即采集”直接使用当前门店已保存的 Cookie/API 配置，不要求先绑定 Profile；定时自动采集才复用账号使用者本机 Profile。任一路径失败都会保留真实原因，不写空数据。
+                                                    本页仅用已保存 Cookie/API 补采；Profile 采集请到“昨日经营闭环”。
                                                 </p>
                                                 <div class="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
                                                     <i class="fas fa-info-circle mr-2"></i>
-                                                    携程/美团授权必须在账号使用者自己的电脑完成。这里会在当前浏览器打开平台后台，并引导导入浏览器辅助采集 JSON；宿析不会在服务器或管理员电脑弹出平台登录窗口。
+                                                    “本机授权”只登录 Profile，不开始采集。
                                                 </div>
 
                                                 <div class="max-w-xl">
@@ -17625,6 +17607,7 @@ Authorization: Bearer xxx"></textarea>
                                                     </select>
                                                 </div>
 
+                                                <div class="text-xs font-semibold text-slate-600">Profile 登录（仅准备）</div>
                                                  <div class="flex flex-wrap gap-3">
                                                      <button type="button" @click="triggerPlatformProfileLogin('meituan')" :disabled="meituanBrowserCaptureRunning" class="px-3 py-2 rounded-md border border-blue-600 text-blue-700 bg-white hover:bg-blue-50 disabled:border-gray-200 disabled:text-gray-400 disabled:bg-gray-50 text-sm">
                                                         <i class="fas fa-globe mr-2"></i>本机授权美团
@@ -17635,13 +17618,13 @@ Authorization: Bearer xxx"></textarea>
                                                     <button type="button" @click="loadPlatformProfileStatus" :disabled="platformProfileStatusLoading" class="px-3 py-2 rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 disabled:text-gray-400 disabled:bg-gray-50 text-sm">
                                                         <i :class="platformProfileStatusLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>刷新状态
                                                     </button>
-                                                    <button type="button" @click="triggerAutoFetch" :disabled="fetchingData || !canTriggerAutoFetchByHotelId(autoFetchHotelId)" class="px-3 py-2 rounded-md border border-gray-900 bg-gray-900 text-white hover:bg-black disabled:border-gray-200 disabled:bg-gray-200 text-sm">
-                                                          <i :class="fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>{{ fetchingData ? ('采集中 ' + formatAutoFetchElapsed(autoFetchRunElapsedSeconds)) : '立即采集' }}
+                                                    <button data-testid="cookie-api-temporary-fetch" type="button" @click="triggerAutoFetch" :disabled="fetchingData || !canTriggerAutoFetchByHotelId(autoFetchHotelId)" class="px-3 py-2 rounded-md border border-gray-900 bg-gray-900 text-white hover:bg-black disabled:border-gray-200 disabled:bg-gray-200 text-sm">
+                                                          <i :class="fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>{{ fetchingData ? ((getHotelNameById(autoFetchHotelId) || '当前门店') + ' · 补采中 ' + formatAutoFetchElapsed(autoFetchRunElapsedSeconds)) : 'Cookie/API 补采' }}
                                                       </button>
                                                   </div>
 
                                                 <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
-                                                    <span class="font-semibold">采集方式：</span>立即采集＝已保存 Cookie/API 直连；定时计划＝已绑定 Profile。定时任务未绑定或登录失效时会明确阻塞，不回退到旧数据。
+                                                    失败不回退旧数据。
                                                 </div>
 
                                                 <platform-auto-settings-panels v-if="platformAutoSettingsPanelsReady" :ctx="$root">
@@ -19341,7 +19324,7 @@ Authorization: Bearer xxx"></textarea>
                             <option v-for="option in field.options" :key="typeof option === 'object' ? option.value : option" :value="typeof option === 'object' ? option.value : option">{{ typeof option === 'object' ? option.label : option }}</option>
                         </select>
                         <textarea v-else-if="field.type === 'textarea'" v-model="workflowFormDialog.values[field.name]" rows="3" :placeholder="field.placeholder || ''" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20"></textarea>
-                        <input v-else v-model="workflowFormDialog.values[field.name]" :type="field.type === 'number' ? 'text' : field.type" :inputmode="field.type === 'number' ? 'decimal' : undefined" :placeholder="field.placeholder || ''" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20">
+                        <input v-else v-model="workflowFormDialog.values[field.name]" :type="field.type === 'number' ? 'text' : field.type" :inputmode="field.type === 'number' ? 'decimal' : undefined" :placeholder="field.placeholder || ''" :min="field.min || undefined" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20">
                         <span v-if="workflowFormDialog.errors[field.name]" class="mt-1 block text-xs text-red-600">{{ workflowFormDialog.errors[field.name] }}</span>
                     </label>
                 </div>

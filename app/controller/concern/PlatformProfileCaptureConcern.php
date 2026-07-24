@@ -451,25 +451,6 @@ trait PlatformProfileCaptureConcern
         return $this->createPlatformCookieFileFromProfile('ctrip', $profileDir, $projectRoot, $profileId, 'ctrip_profile_' . $safeProfileId);
     }
 
-    private function createMeituanCookieFileFromProfile(array $requestData, string $projectRoot, int $systemHotelId): array
-    {
-        $storeId = $this->meituanProfileStoreIdFromConfig($requestData);
-        if ($storeId === '') {
-            throw new \InvalidArgumentException('missing Meituan Cookie and browser Profile Store ID');
-        }
-        $source = $this->loadProfileSessionSource('meituan', $systemHotelId, $storeId);
-        $this->assertProfileCookieSourceLoginVerified($source, 'Meituan');
-        $this->assertOtaProfileBindingForHotel('meituan', $systemHotelId, $storeId);
-
-        $safeStoreId = BrowserProfileCaptureRequestService::safeFilePart($storeId);
-        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $safeStoreId;
-        if (!is_dir($profileDir)) {
-            throw new \InvalidArgumentException("missing Meituan Cookie and storage/meituan_profile_{$safeStoreId}");
-        }
-
-        return $this->createPlatformCookieFileFromProfile('meituan', $profileDir, $projectRoot, $storeId, 'meituan_profile_' . $safeStoreId);
-    }
-
     private function assertOtaProfileBindingForHotel(string $platform, int $systemHotelId, string $profileKey): void
     {
         (new OtaProfileBindingService())->assertBound($systemHotelId, $platform, $profileKey);

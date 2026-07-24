@@ -8,15 +8,17 @@
     const PUBLIC_LOCALE_KEY = 'suxios_locale';
     const PUBLIC_LOCALES = Object.freeze(['zh-CN', 'en-US']);
     const LOGIN_AUTOFILL_SYNC_DELAYS = Object.freeze([0, 100, 300, 800, 1600, 3000, 5000, 8000, 12000]);
-    const LOGIN_CONNECTION_WARMUP_INTERVAL_MS = 30000;
     const LOGIN_CONNECTION_WARMUP_TIMEOUT_MS = 12000;
     const LOGIN_CONNECTION_WARMUP_MIN_GAP_MS = 15000;
     const LOGIN_PASSWORD_SAVE_TIMEOUT_MS = 1500;
     const LOGIN_HANDOFF_EVENT = 'suxi:login-handoff-metric';
     const ASSET_PHASE_STARTUP = 'startup';
     const ASSET_PHASE_AFTER_FIRST_PAINT = 'after-first-paint';
+    const ASSET_TYPE_SCRIPT = 'script';
+    const ASSET_TYPE_STYLE = 'style';
     let authenticatedAppPromise = null;
     let deferredAuthenticatedAssetsPromise = null;
+    const authenticatedStartupPreloadLinks = new Map();
     let loginHandoffStartedAt = null;
     let loginHandoffMetrics = null;
 
@@ -91,16 +93,62 @@
         return assets.map((item) => ({
             src: String(typeof item === 'string' ? item : item?.src || '').trim(),
             phase: String(typeof item === 'string' ? ASSET_PHASE_STARTUP : item?.phase || ASSET_PHASE_STARTUP).trim(),
+            type: String(typeof item === 'string' ? ASSET_TYPE_SCRIPT : item?.type || ASSET_TYPE_SCRIPT).trim(),
         })).map((item) => {
             if (!item.src) throw new Error('完整应用资源清单包含空资源地址');
             if (![ASSET_PHASE_STARTUP, ASSET_PHASE_AFTER_FIRST_PAINT].includes(item.phase)) {
                 throw new Error(`完整应用资源清单包含未知加载阶段：${item.phase}`);
+            }
+            if (![ASSET_TYPE_SCRIPT, ASSET_TYPE_STYLE].includes(item.type)) {
+                throw new Error(`完整应用资源清单包含未知资源类型：${item.type}`);
             }
             return item;
         });
     };
 
     const assetBaseName = (src = '') => String(src || '').split(/[?#]/, 1)[0];
+    const preloadAuthenticatedAsset = (asset, priority = '') => {
+        const assetName = assetBaseName(asset?.src);
+        if (!assetName || authenticatedStartupPreloadLinks.has(assetName)) return false;
+        const alreadyLoaded = asset.type === ASSET_TYPE_STYLE
+            ? [...document.querySelectorAll('link[rel="stylesheet"]')]
+                .some((link) => assetBaseName(link.getAttribute('href')) === assetName)
+            : [...document.scripts]
+                .some((script) => assetBaseName(script.getAttribute('src')) === assetName);
+        if (alreadyLoaded) return false;
+
+        const link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = asset.type === ASSET_TYPE_STYLE ? 'style' : 'script';
+        link.href = asset.src;
+        link.dataset.suxiAuthenticatedStartupPreload = assetName;
+        if (priority) link.setAttribute('fetchpriority', priority);
+        link.addEventListener('load', () => {
+            link.dataset.suxiAssetLoaded = '1';
+        }, { once: true });
+        link.addEventListener('error', () => {
+            link.remove();
+            authenticatedStartupPreloadLinks.delete(assetName);
+        }, { once: true });
+        authenticatedStartupPreloadLinks.set(assetName, link);
+        document.head.appendChild(link);
+        return true;
+    };
+    const authenticatedStartupAssets = () => (
+        authenticatedAssets().filter((asset) => asset.phase === ASSET_PHASE_STARTUP)
+    );
+    const preloadAuthenticatedEntry = () => {
+        if (authenticatedAppPromise) return false;
+        try {
+            const entry = authenticatedStartupAssets().find(
+                (asset) => asset.type === ASSET_TYPE_SCRIPT
+                    && assetBaseName(asset.src) === 'app-main.min.js',
+            );
+            return entry ? preloadAuthenticatedAsset(entry, 'high') : false;
+        } catch (error) {
+            return false;
+        }
+    };
     const loadScript = (src) => new Promise((resolve, reject) => {
         const assetName = assetBaseName(src);
         const existing = [...document.scripts].find((script) => assetBaseName(script.getAttribute('src')) === assetName);
@@ -125,6 +173,36 @@
         script.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
         document.body.appendChild(script);
     });
+
+    const loadStylesheet = (src) => new Promise((resolve, reject) => {
+        const assetName = assetBaseName(src);
+        const existing = [...document.querySelectorAll('link[rel="stylesheet"]')]
+            .find((link) => assetBaseName(link.getAttribute('href')) === assetName);
+        if (existing) {
+            if (existing.dataset.suxiAssetLoaded === '1' || existing.sheet) {
+                resolve();
+                return;
+            }
+            existing.addEventListener('load', resolve, { once: true });
+            existing.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
+            return;
+        }
+
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = src;
+        link.dataset.suxiAuthenticatedAsset = assetName;
+        link.addEventListener('load', () => {
+            link.dataset.suxiAssetLoaded = '1';
+            resolve();
+        }, { once: true });
+        link.addEventListener('error', () => reject(new Error(`${assetName} 加载失败`)), { once: true });
+        document.head.appendChild(link);
+    });
+
+    const loadAuthenticatedAsset = (asset) => (
+        asset.type === ASSET_TYPE_STYLE ? loadStylesheet(asset.src) : loadScript(asset.src)
+    );
 
     const waitForFirstAuthenticatedPaint = () => new Promise((resolve) => {
         if (typeof window.requestAnimationFrame !== 'function') {
@@ -214,7 +292,7 @@
             if (!assets.length) return [];
             await waitForFirstAuthenticatedPaint();
             try {
-                await Promise.all(assets.map((asset) => loadScript(asset.src)));
+                await Promise.all(assets.map((asset) => loadAuthenticatedAsset(asset)));
                 window.dispatchEvent(new CustomEvent('suxi:full-render-ready', {
                     detail: { assets: assets.map((asset) => assetBaseName(asset.src)) },
                 }));
@@ -231,21 +309,28 @@
         return deferredAuthenticatedAssetsPromise;
     };
 
+    const loadDeferredAuthenticatedAssetManifest = () => {
+        const deferredAssets = authenticatedAssets()
+            .filter((asset) => asset.phase === ASSET_PHASE_AFTER_FIRST_PAINT);
+        return loadDeferredAuthenticatedAssets(deferredAssets);
+    };
+
     const loadAuthenticatedApp = () => {
         if (authenticatedAppPromise) return authenticatedAppPromise;
         authenticatedAppPromise = (async () => {
             const assets = authenticatedAssets();
             const startupAssets = assets.filter((asset) => asset.phase === ASSET_PHASE_STARTUP);
-            const deferredAssets = assets.filter((asset) => asset.phase === ASSET_PHASE_AFTER_FIRST_PAINT);
-            const runtimeIndex = startupAssets.findIndex((asset) => assetBaseName(asset.src) === 'vue.runtime.global.prod.js');
-            const entryIndex = startupAssets.findIndex((asset) => assetBaseName(asset.src) === 'app-main.min.js');
+            const startupScripts = startupAssets.filter((asset) => asset.type === ASSET_TYPE_SCRIPT);
+            const startupStyles = startupAssets.filter((asset) => asset.type === ASSET_TYPE_STYLE);
+            const runtimeIndex = startupScripts.findIndex((asset) => assetBaseName(asset.src) === 'vue.runtime.global.prod.js');
+            const entryIndex = startupScripts.findIndex((asset) => assetBaseName(asset.src) === 'app-main.min.js');
             if (runtimeIndex < 0 || entryIndex < 0) {
                 throw new Error('完整应用资源清单缺少 Vue 运行时或应用入口');
             }
 
-            const runtime = startupAssets[runtimeIndex].src;
-            const entry = startupAssets[entryIndex].src;
-            const prerequisites = startupAssets
+            const runtime = startupScripts[runtimeIndex].src;
+            const entry = startupScripts[entryIndex].src;
+            const prerequisites = startupScripts
                 .filter((_, index) => index !== runtimeIndex && index !== entryIndex)
                 .map((asset) => asset.src);
             try {
@@ -254,10 +339,12 @@
                 // the final barrier and therefore never observes half-loaded
                 // globals. Dynamic scripts keep manifest execution order while
                 // their network fetches run in parallel.
-                await loadScript(runtime);
+                await Promise.all([
+                    loadScript(runtime),
+                    ...startupStyles.map((asset) => loadStylesheet(asset.src)),
+                ]);
                 await Promise.all(prerequisites.map((src) => loadScript(src)));
                 await loadScript(entry);
-                void loadDeferredAuthenticatedAssets(deferredAssets);
             } catch (error) {
                 const failedAsset = String(error?.message || '').split(' ')[0] || 'authenticated asset';
                 window.SUXI_RENDER_ASSET_LOAD_ERROR?.(failedAsset);
@@ -471,12 +558,10 @@
         nowImpl = Date.now,
         setTimeoutImpl = window.setTimeout.bind(window),
         clearTimeoutImpl = window.clearTimeout.bind(window),
-        setIntervalImpl = window.setInterval.bind(window),
-        clearIntervalImpl = window.clearInterval.bind(window),
         isVisible = () => document.visibilityState !== 'hidden',
     } = {}) => {
         let stopped = false;
-        let intervalId = null;
+        let started = false;
         let timeoutId = null;
         let controller = null;
         let inFlight = null;
@@ -512,18 +597,14 @@
         };
 
         const start = () => {
-            if (stopped || intervalId !== null) return;
+            if (stopped || started) return;
+            started = true;
             void warm({ force: true });
-            intervalId = setIntervalImpl(() => {
-                void warm({ force: true });
-            }, LOGIN_CONNECTION_WARMUP_INTERVAL_MS);
         };
 
         const stop = () => {
             if (stopped) return;
             stopped = true;
-            if (intervalId !== null) clearIntervalImpl(intervalId);
-            intervalId = null;
             if (timeoutId !== null) clearTimeoutImpl(timeoutId);
             timeoutId = null;
             controller?.abort();
@@ -603,6 +684,7 @@
         const handleInput = () => {
             setError('');
             updateSubmit();
+            preloadAuthenticatedEntry();
         };
         let autofillSyncTimers = [];
         const scheduleLoginAutofillSync = () => {
@@ -625,6 +707,7 @@
         });
         form.addEventListener('focusin', scheduleLoginAutofillSync);
         form.addEventListener('focusin', warmLoginConnection);
+        form.addEventListener('focusin', preloadAuthenticatedEntry);
         window.addEventListener('pageshow', scheduleLoginAutofillSync);
         window.addEventListener('pageshow', warmLoginConnection);
         window.addEventListener('focus', scheduleLoginAutofillSync);
@@ -696,6 +779,7 @@
                 password.focus();
                 return;
             }
+            preloadAuthenticatedEntry();
             loading = true;
             updateSubmit();
             setError('');
@@ -772,7 +856,7 @@
     };
 
     window.SUXI_LOAD_AUTHENTICATED_APP = loadAuthenticatedApp;
-    window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = () => deferredAuthenticatedAssetsPromise;
+    window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = loadDeferredAuthenticatedAssetManifest;
     window.SUXI_MARK_LOGIN_AUTH_SUCCESS = markLoginAuthSuccess;
     window.SUXI_MARK_LOGIN_INTERACTIVE = markLoginInteractive;
     window.SUXI_MARK_LOGIN_INTERACTIVE_AFTER_PAINT = markLoginInteractiveAfterPaint;

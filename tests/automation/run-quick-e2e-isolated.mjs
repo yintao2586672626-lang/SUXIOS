@@ -5,6 +5,7 @@ import path from 'node:path';
 const root = process.cwd();
 const php = process.env.SUXI_PHP || 'C:\\xampp\\php\\php.exe';
 const helper = path.join(root, 'tests', 'automation', 'e2e-isolation-helper.php');
+const performanceOnly = process.argv.includes('--performance-only');
 
 function loopbackBaseURL(value) {
   const parsed = new URL(value);
@@ -19,7 +20,7 @@ function loopbackBaseURL(value) {
 const configuredDedicatedDatabase = String(process.env.SUXI_E2E_DB_NAME || '').trim();
 const dedicatedDatabaseName = configuredDedicatedDatabase !== ''
   ? configuredDedicatedDatabase
-  : 'hotelx_e2e';
+  : performanceOnly ? 'hotelx_performance_e2e' : 'hotelx_e2e';
 if (!/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/i.test(dedicatedDatabaseName)) {
   throw new Error('Isolated E2E requires a dedicated *_test/*_testing/*_e2e database name');
 }
@@ -65,13 +66,36 @@ const fullClick = process.argv.includes('--full-click') || process.argv.includes
 const fullClickBounded = process.argv.includes('--full-click-bounded');
 const codexProfileArg = process.argv.find((arg) => arg.startsWith('--codex-profile='));
 const codexIterationsArg = process.argv.find((arg) => arg.startsWith('--codex-iterations='));
+const performanceIterationsArg = process.argv.find((arg) => arg.startsWith('--performance-iterations='));
+const performanceNetworkArg = process.argv.find((arg) => arg.startsWith('--performance-network='));
+const performanceLabelArg = process.argv.find((arg) => arg.startsWith('--performance-label='));
 const codexProfile = codexProfileArg ? codexProfileArg.slice('--codex-profile='.length).trim() : '';
 const codexIterations = codexIterationsArg ? codexIterationsArg.slice('--codex-iterations='.length).trim() : '';
+const performanceIterations = performanceIterationsArg
+  ? performanceIterationsArg.slice('--performance-iterations='.length).trim()
+  : '5';
+const performanceNetwork = performanceNetworkArg
+  ? performanceNetworkArg.slice('--performance-network='.length).trim()
+  : 'none';
+const performanceLabel = performanceLabelArg
+  ? performanceLabelArg.slice('--performance-label='.length).trim()
+  : 'isolated-authenticated-baseline';
 if (codexProfile && !['quick', 'extreme'].includes(codexProfile)) {
   throw new Error('--codex-profile must be quick or extreme');
 }
 if (codexIterations && (!/^\d+$/.test(codexIterations) || Number(codexIterations) < 1)) {
   throw new Error('--codex-iterations must be a positive integer');
+}
+if (!/^\d+$/.test(performanceIterations)
+  || Number(performanceIterations) < 1
+  || Number(performanceIterations) > 30) {
+  throw new Error('--performance-iterations must be an integer between 1 and 30');
+}
+if (!['none', 'slow-4g'].includes(performanceNetwork)) {
+  throw new Error('--performance-network must be none or slow-4g');
+}
+if (!/^[a-zA-Z0-9._-]+$/.test(performanceLabel)) {
+  throw new Error('--performance-label must contain only letters, numbers, dot, underscore, or hyphen');
 }
 const specs = fullClick
   ? ['tests/automation/full-click-coverage.spec.js']
@@ -97,6 +121,7 @@ const specs = fullClick
       ];
 let seededHotelId = 0;
 let seededUserId = 0;
+let seededTenantId = 0;
 
 function parseHelperOutput(action, result) {
   if (result.error) {
@@ -123,6 +148,9 @@ function runHelper(action) {
   }
   if (seededUserId > 0) {
     env.SUXI_E2E_USER_ID = String(seededUserId);
+  }
+  if (seededTenantId > 0) {
+    env.SUXI_E2E_TENANT_ID = String(seededTenantId);
   }
   if (action === 'seed') {
     env.SUXI_E2E_PASSWORD = password;
@@ -245,10 +273,10 @@ async function verifyIsolatedIdentity(seed) {
     permitted_hotel_count: permitted.length === 1,
     permitted_hotel_id: Number(onlyHotel?.id || 0) === Number(seed.hotel_id),
     permitted_hotel_name: String(onlyHotel?.name || '') === seed.hotel_name,
-    permitted_hotel_tenant: Number(onlyHotel?.tenant_id || 0) === Number(seed.hotel_id),
+    permitted_hotel_tenant: Number(onlyHotel?.tenant_id || 0) === Number(seed.tenant_id),
     hotel_scope: hotelScopeIds.length === 1 && hotelScopeIds[0] === Number(seed.hotel_id),
     context_hotel_id: Number(info?.context?.hotelId || 0) === Number(seed.hotel_id),
-    context_tenant_id: Number(info?.context?.tenantId || 0) === Number(seed.hotel_id),
+    context_tenant_id: Number(info?.context?.tenantId || 0) === Number(seed.tenant_id),
     permission_status: info?.context?.permissionStatus === 'allowed',
     all_capabilities: capabilities.includes('all'),
   };
@@ -263,7 +291,7 @@ async function verifyIsolatedIdentity(seed) {
     headers: { Authorization: token },
   });
   await responseJson(protectedResponse, 'Isolated E2E protected-capability preflight');
-  console.log(`[e2e-isolation] preflight role_id=${seed.role_id} is_super_admin=false permissions=all permitted_hotels=1 tenant_id=${seed.hotel_id}`);
+  console.log(`[e2e-isolation] preflight role_id=${seed.role_id} is_super_admin=false permissions=all permitted_hotels=1 tenant_id=${seed.tenant_id}`);
 }
 
 function runPlaywright(seed) {
@@ -283,6 +311,23 @@ function runPlaywright(seed) {
       'scripts/codex_automation_runner.mjs',
       `--profile=${codexProfile}`,
       `--iterations=${codexIterations || (codexProfile === 'quick' ? '1' : '10')}`,
+    ], {
+      cwd: root,
+      stdio: 'inherit',
+      windowsHide: true,
+      env: isolatedEnv,
+    });
+  }
+  if (performanceOnly) {
+    return spawnSync(process.execPath, [
+      'scripts/measure_frontend_performance.mjs',
+      `--url=${baseURL}`,
+      `--label=${performanceLabel}`,
+      '--authenticated=1',
+      `--iterations=${performanceIterations}`,
+      `--network=${performanceNetwork}`,
+      '--require-verified=1',
+      '--enforce-budget=1',
     ], {
       cwd: root,
       stdio: 'inherit',
@@ -337,7 +382,8 @@ try {
   const seed = runHelper('seed');
   seededHotelId = Number(seed.hotel_id || 0);
   seededUserId = Number(seed.user_id || 0);
-  console.log(`[e2e-isolation] seeded prefix=${objectPrefix} user_id=${seed.user_id} hotel_id=${seed.hotel_id}`);
+  seededTenantId = Number(seed.tenant_id || 0);
+  console.log(`[e2e-isolation] seeded prefix=${objectPrefix} tenant_id=${seed.tenant_id} user_id=${seed.user_id} hotel_id=${seed.hotel_id}`);
   await verifyIsolatedIdentity(seed);
   if (preflightOnly) {
     exitCode = 0;

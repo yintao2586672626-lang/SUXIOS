@@ -1,10 +1,16 @@
 export const AUTHENTICATED_ASSET_MANIFEST_ID = 'suxi-authenticated-assets';
 export const AUTHENTICATED_ASSET_PHASE_STARTUP = 'startup';
 export const AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT = 'after-first-paint';
+export const AUTHENTICATED_ASSET_TYPE_SCRIPT = 'script';
+export const AUTHENTICATED_ASSET_TYPE_STYLE = 'style';
 
 const AUTHENTICATED_ASSET_PHASES = new Set([
   AUTHENTICATED_ASSET_PHASE_STARTUP,
   AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
+]);
+const AUTHENTICATED_ASSET_TYPES = new Set([
+  AUTHENTICATED_ASSET_TYPE_SCRIPT,
+  AUTHENTICATED_ASSET_TYPE_STYLE,
 ]);
 
 const authenticatedAssetManifestPattern = () => new RegExp(
@@ -42,7 +48,10 @@ export function extractAuthenticatedAssetEntries(html = '') {
     const phase = String(
       typeof item === 'string' ? AUTHENTICATED_ASSET_PHASE_STARTUP : item?.phase || AUTHENTICATED_ASSET_PHASE_STARTUP,
     ).trim();
-    return { src, phase };
+    const type = String(
+      typeof item === 'string' ? AUTHENTICATED_ASSET_TYPE_SCRIPT : item?.type || AUTHENTICATED_ASSET_TYPE_SCRIPT,
+    ).trim();
+    return { src, phase, type };
   });
   if (entries.some((entry) => !entry.src)) {
     throw new Error('Authenticated frontend asset manifest contains an empty asset reference.');
@@ -50,6 +59,10 @@ export function extractAuthenticatedAssetEntries(html = '') {
   const invalidPhase = entries.find((entry) => !AUTHENTICATED_ASSET_PHASES.has(entry.phase));
   if (invalidPhase) {
     throw new Error(`Authenticated frontend asset manifest contains an invalid phase: ${invalidPhase.phase}.`);
+  }
+  const invalidType = entries.find((entry) => !AUTHENTICATED_ASSET_TYPES.has(entry.type));
+  if (invalidType) {
+    throw new Error(`Authenticated frontend asset manifest contains an invalid type: ${invalidType.type}.`);
   }
   return entries;
 }
@@ -71,7 +84,9 @@ export function extractAuthenticatedDeferredAssetReferences(html = '') {
 }
 
 export function resolveFrontendRuntimeAssetReferences(html = '') {
-  const authenticated = extractAuthenticatedAssetReferences(html);
+  const authenticated = extractAuthenticatedAssetEntries(html)
+    .filter((entry) => entry.type === AUTHENTICATED_ASSET_TYPE_SCRIPT)
+    .map((entry) => entry.src);
   if (authenticated.length) return authenticated;
   return [...String(html || '').matchAll(/<script\b[^>]*\bdefer\b[^>]*><\/script>/gi)]
     .map((match) => match[0].match(/\bsrc=(["'])([^"']+)\1/i)?.[2] || '')

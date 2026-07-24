@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\controller\SystemNotificationController;
 use app\model\SystemNotification;
 use app\model\SystemNotificationUserState;
 use PHPUnit\Framework\TestCase;
@@ -171,6 +172,45 @@ final class SystemNotificationTest extends TestCase
         $userOneStates = SystemNotificationUserState::statesByNotificationId([(int)$notification->id], 1001);
         self::assertSame(0, (int)$storedNotification->is_cleared);
         self::assertSame(1, (int)$userOneStates[(int)$notification->id]['is_cleared']);
+    }
+
+    public function testNotificationCountSummaryReturnsTotalAndUnreadInOneAggregate(): void
+    {
+        $userId = 2001;
+        $first = SystemNotification::recordEvent([
+            'hotel_id' => 7,
+            'user_id' => 1,
+            'category' => 'capture_failed',
+            'title' => 'First notification',
+            'source_key' => 'unit_test_notification:count:first',
+        ]);
+        SystemNotification::recordEvent([
+            'hotel_id' => 7,
+            'user_id' => 1,
+            'category' => 'capture_failed',
+            'title' => 'Second notification',
+            'source_key' => 'unit_test_notification:count:second',
+        ]);
+        SystemNotificationUserState::markReadForUser([(int)$first->id], $userId);
+
+        $query = SystemNotification::alias('notification')
+            ->field('notification.*')
+            ->leftJoin(
+                'system_notification_user_states notification_state',
+                'notification_state.notification_id = notification.id'
+                    . ' AND notification_state.user_id = ' . $userId
+            )
+            ->whereLike('notification.source_key', 'unit_test_notification:count:%')
+            ->where('notification.is_cleared', 0)
+            ->whereRaw('(notification_state.is_cleared IS NULL OR notification_state.is_cleared <> 1)');
+
+        $reflection = new ReflectionClass(SystemNotificationController::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('notificationCountSummary');
+        $method->setAccessible(true);
+        $summary = $method->invoke($controller, $query);
+
+        self::assertSame(['total' => 2, 'unread_count' => 1], $summary);
     }
 
     /**

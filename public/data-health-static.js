@@ -2730,7 +2730,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const code = String(item?.action_code || '').trim();
         if (code.startsWith('ota_authorization_')) return '登录/Cookie 状态、账号/Profile 绑定、重跑同步日志';
         if (code.startsWith('ota_collection_')) return '采集日志、平台响应状态、validation_flags、source_trace_id 或 raw_data';
-        if (code === 'ota_same_period_source_rows_missing') return 'online_daily_data 同日期源数据行、data_source_id/sync_task_id、source_trace_id 或 raw_data';
+        if (code === 'ota_same_period_source_rows_missing') return '同日期 OTA 入库行及来源凭证';
         if (code.startsWith('ota_field_quality_')) return '缺失字段列表、raw_data.field_facts、source_path、metric_key、storage_field、source_trace_id、validation_flags';
         const evidence = Array.isArray(item?.evidence_needed) ? item.evidence_needed : [];
         return evidence.map(value => String(value || '').trim()).filter(Boolean).slice(0, 4).join('、');
@@ -3311,7 +3311,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             { key: 'auth', label: '当前授权', value: authState.value, sub: authSubText, className: authState.className },
             { key: 'date', label: '数据日期', value: dataDate || latestRow.data_date || '-', sub: '当前展示口径', className: 'text-gray-900' },
             { key: 'latest', label: '最近采集', value: capturedAt || latestRow.updated_at || '暂无有效采集', sub: latest.freshness?.label || '-', className: 'text-gray-900' },
-            { key: 'rows', label: '本轮入库', value: identityBlocked ? `安全 ${safePersistedCount} 条` : (rowCount > 0 ? `${rowCount} 条` : '未形成入库快照'), sub: identityBlocked ? `已过滤 ${identityReport.filtered_count || 0} 条错店风险数据` : 'online_daily_data', className: identityBlocked ? 'text-red-700' : (rowCount > 0 ? 'text-emerald-700' : 'text-amber-700') },
+            { key: 'rows', label: '本轮入库', value: identityBlocked ? `安全 ${safePersistedCount} 条` : (rowCount > 0 ? `${rowCount} 条` : '未形成入库快照'), sub: identityBlocked ? `已过滤 ${identityReport.filtered_count || 0} 条错店风险数据` : 'OTA 入库记录', className: identityBlocked ? 'text-red-700' : (rowCount > 0 ? 'text-emerald-700' : 'text-amber-700') },
             { key: 'modules', label: '可抓模块', value: '经营 / 流量 / 竞争 / PSI / 广告', sub: `${moduleCount || 5} 个模块`, className: 'text-gray-900' },
             { key: 'status', label: '采集状态', value: statusText, sub: identityBlocked ? '已阻止错店数据展示' : `缺失 ${latest.missing_field_count || 0} 项`, className: statusClass },
         ];
@@ -4584,7 +4584,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             ],
             status_check: [
                 '用于只读核对目标日入库、最近可用日期和失败原因',
-                '只读取现有采集可靠性和 online_daily_data 状态',
+                '只读取现有采集可靠性和 OTA 入库状态',
                 '不写 OTA 数据，不改变字段映射',
             ],
         }[rawMode] || [
@@ -5376,7 +5376,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         missing_real_ota_diagnosis_response: '缺少真实 OTA 诊断响应',
         read_existing_ota_gap_evidence_only: '只读 OTA 缺口证据',
         read_existing_collection_reliability_only: '只读采集可靠性状态',
-        read_existing_online_daily_data_only: '只读 online_daily_data 入库状态',
+        read_existing_online_daily_data_only: '只读 OTA 入库状态',
         read_existing_ota_standard_revenue_metrics_only: '只读 OTA 标准收益指标',
         read_existing_operation_execution_state_only: '只读运营执行状态',
         local_ui_derived_from_employee_questions: '前端根据员工六问派生',
@@ -5457,7 +5457,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             operation_execution_evidence_incomplete: '运营执行证据不完整',
             evidence_scope_date_mismatch: '证据日期范围不一致',
             latest_available_reference_only: '只有历史或其他日期参考数据',
-            online_daily_data_target_date_rows_missing: 'online_daily_data 目标日入库行缺失',
+            online_daily_data_target_date_rows_missing: 'OTA 目标日入库行缺失',
             read_existing_ota_gap_evidence_only: '只读现有 OTA 缺口证据',
         }[raw] || '未识别证据缺口');
     };
@@ -6073,8 +6073,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                     latestText,
                     nextActionText,
                     proofText: isReady
-                        ? '证明口径：online_daily_data 目标日源数据行数大于 0。'
-                        : '完成判定：online_daily_data 目标日源数据行数大于 0，并保留 data_source_id/sync_task_id/source_trace/raw_data 证据。',
+                        ? '证明口径：目标日 OTA 入库行大于 0。'
+                        : '完成判定：目标日 OTA 入库行大于 0，并保留来源凭证。',
                     boundaryText: row.boundaryText || '只按 OTA 渠道目标日证据判断；不改变携程/美团采集逻辑。',
                     entryText,
                     entryRawText,
@@ -6657,6 +6657,20 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         legacy: '历史来源（未验证）',
     }[String(method || '').trim().toLowerCase()] || String(method || '').trim() || '未记录');
 
+    const onlineTruthSourceTableText = (table = '') => {
+        const value = String(table || '').trim();
+        const normalized = value.toLowerCase();
+        const label = ({
+            online_daily_data: 'OTA入库数据',
+            ota_ctrip_metric_facts: '携程字段凭证',
+            platform_data_sync_tasks: '平台采集任务',
+            platform_data_sources: '平台数据源',
+        })[normalized];
+        if (label) return label;
+        if (/^[a-z_][a-z0-9_.-]*$/i.test(value)) return '系统入库数据';
+        return value;
+    };
+
     const onlineTruthHotelText = (subject = {}) => {
         const truth = onlineTruthEnvelope(subject);
         const hotels = Array.isArray(truth.hotels)
@@ -6693,7 +6707,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             ? truth.source_methods
             : (Array.isArray(truth.source?.methods) ? truth.source.methods : [truth.source?.method]);
         const labels = methods.filter(Boolean).map(onlineTruthSourceMethodText);
-        const table = String(truth.source?.table || '').trim();
+        const table = onlineTruthSourceTableText(truth.source?.table);
         return [...new Set([table, ...labels].filter(Boolean))].join('、') || '未记录';
     };
 
@@ -6739,9 +6753,61 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return `${storedText}，${readbackText}${storedAt ? `，入库时间 ${storedAt}` : ''}`;
     };
 
+    const onlineTruthFailureCodeText = (reason = '') => {
+        const value = String(reason || '').trim();
+        const normalized = value.toLowerCase();
+        const direct = ({
+            source_rows_missing: '目标日没有可用数据',
+            target_date_source_rows_missing: '目标日没有可用数据',
+            source_update_time_missing: '采集时间未记录',
+            collected_at_missing: '采集时间未记录',
+            hotel_missing: '门店、平台或日期信息不完整',
+            platform_missing: '门店、平台或日期信息不完整',
+            data_date_missing: '门店、平台或日期信息不完整',
+            source_method_or_trace_missing: '来源凭证不完整',
+            source_trace_missing: '来源凭证不完整',
+            readback_unverified: '入库回读尚未验证',
+            binding_missing: '门店绑定不完整',
+            hotel_binding_missing: '门店绑定不完整',
+            current_session_unverified: '当天登录状态未验证',
+            login_required: '需要先验证平台登录',
+            collection_failed: '采集失败',
+            adr_denominator_zero: '缺少间夜，无法计算平均房价',
+            available_room_nights_missing: '缺少可售房量，无法计算 RevPAR',
+        })[normalized];
+        if (direct) return direct;
+        if (/target_date.*rows_missing|no_rows_for_target_date/.test(normalized)) return '目标日没有可用数据';
+        if (/hotel.*missing|platform.*missing|data_date.*missing/.test(normalized)) return '门店、平台或日期信息不完整';
+        if (/source.*(?:trace|method).*missing/.test(normalized)) return '来源凭证不完整';
+        if (/login|session|unauthorized|forbidden/.test(normalized)) return '平台登录状态未就绪';
+        if (/^[a-z0-9_.:-]+$/i.test(value) || (!/[\u4e00-\u9fff]/.test(value) && /[a-z]/i.test(value))) {
+            return '采集或入库信息不完整';
+        }
+        return value;
+    };
+
     const onlineTruthFailureText = (subject = {}) => {
         const reason = String(onlineTruthEnvelope(subject).failure_reason || '').trim();
-        return reason || '无';
+        if (!reason) return '无';
+        const priority = {
+            '目标日没有可用数据': 10,
+            '门店、平台或日期信息不完整': 20,
+            '门店绑定不完整': 25,
+            '平台登录状态未就绪': 30,
+            '需要先验证平台登录': 30,
+            '来源凭证不完整': 40,
+            '入库回读尚未验证': 50,
+            '采集时间未记录': 60,
+            '采集或入库信息不完整': 90,
+        };
+        const labels = [...new Set(reason
+            .split(/[;,；，]+/)
+            .map(onlineTruthFailureCodeText)
+            .filter(Boolean))]
+            .sort((left, right) => (priority[left] || 70) - (priority[right] || 70));
+        if (!labels.length) return '无';
+        const visible = labels.slice(0, 2);
+        return `${visible.join('；')}${labels.length > visible.length ? `；另有 ${labels.length - visible.length} 项信息待补` : ''}`;
     };
 
     const onlineTruthMetaRows = (subject = {}) => [
@@ -6757,9 +6823,51 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         { key: 'scope', label: '口径', value: String(onlineTruthEnvelope(subject).scope_label || 'OTA渠道数据，不代表全酒店经营') },
     ];
 
-    const onlineTruthDetailText = (subject = {}) => onlineTruthMetaRows(subject)
-        .map(row => `${row.label}：${row.value}`)
-        .join('；');
+    const onlineTruthDetailText = (subject = {}) => {
+        const status = onlineTruthStatusText(subject);
+        const hotel = onlineTruthHotelText(subject);
+        const date = onlineTruthDateText(subject);
+        const source = onlineTruthSourceText(subject);
+        const persistence = onlineTruthPersistenceText(subject);
+        const failure = onlineTruthFailureText(subject);
+        const parts = [status];
+        if (!['未绑定', '未记录', '未提供'].includes(hotel)) parts.push(hotel);
+        if (!['未记录', '未提供'].includes(date)) parts.push(date);
+        if (!['未记录', '未提供'].includes(source)) parts.push(source);
+        if (status === '已验证' && /回读已验证|回读 \d+\/\d+/.test(persistence)) parts.push('入库已验证');
+        if (failure !== '无') parts.push(`原因：${failure}`);
+        return [...new Set(parts)].join('；');
+    };
+
+    const onlineTruthSummaryText = (subject = {}) => {
+        const status = String(onlineTruthEnvelope(subject).status || 'unverified').trim().toLowerCase();
+        const statusText = onlineTruthStatusText(subject);
+        if (status === 'verified') return '已验证，可用于当前指标';
+        const failure = onlineTruthFailureText(subject);
+        const primaryReason = failure === '无'
+            ? '缺少可信凭证'
+            : String(failure).split('；').find(part => part && !part.startsWith('另有 ')) || failure;
+        if (status === 'partial') return `部分可用：${primaryReason}`;
+        if (status === 'collection_failed') return `采集失败：${primaryReason}`;
+        return `${statusText}：${primaryReason}`;
+    };
+
+    const onlineTruthNextActionText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const status = String(truth.status || 'unverified').trim().toLowerCase();
+        if (status === 'verified') return '';
+        const reason = String(truth.failure_reason || '').trim().toLowerCase();
+        if (/current_session|login|session|unauthorized|forbidden/.test(reason)) return '先完成平台登录验证';
+        if (/binding_missing|hotel_missing|platform_missing|data_date_missing/.test(reason)) return '补齐门店、平台和目标日期';
+        if (/target_date.*rows_missing|source_rows_missing|no_rows_for_target_date/.test(reason)) return '重新采集目标日期数据';
+        if (/available_room_nights_missing/.test(reason)) return '补齐可售房量后重新计算';
+        if (/adr_denominator_zero|room_nights_missing/.test(reason)) return '补齐间夜后重新计算';
+        if (/readback_unverified/.test(reason)) return '完成入库回读验证';
+        if (/source.*(?:trace|method).*missing/.test(reason)) return '补齐来源和采集凭证';
+        if (/source_update_time_missing|collected_at_missing/.test(reason)) return '补齐采集时间';
+        if (status === 'collection_failed') return '查看采集记录并重试';
+        return '补齐缺失信息后重新验证';
+    };
 
     const onlineAnalysisMetricText = (value, formatNumber = metric => String(metric ?? ''), prefix = '') => {
         if (value === null || value === undefined || value === '') return '-';
@@ -6828,7 +6936,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             key: 'records',
             label: '入库事实行',
             value: onlineAnalysisMetricText(summary.total_record_count, formatNumber),
-            sub: 'online_daily_data',
+            sub: 'OTA 入库记录',
             className: 'text-slate-900',
             truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_record_count, '入库事实行数缺失'),
         },
@@ -6846,7 +6954,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         {
             key: 'ota_revenue',
             label: 'OTA销售额',
-            formula: '来自 online_daily_data.amount 汇总，仅表示已入库 OTA 渠道销售额。',
+            formula: '来自 OTA 入库销售额汇总，仅表示 OTA 渠道。',
             source: '来源：携程/美团已授权采集结果；不等同于全酒店总营收。',
             status: hasSamples ? '有样本' : '待样本',
             className: hasSamples ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
@@ -7323,6 +7431,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineTruthFailureText,
         onlineTruthMetaRows,
         onlineTruthDetailText,
+        onlineTruthSummaryText,
+        onlineTruthNextActionText,
         onlineAnalysisMetricText,
         onlineMetricTruthContext,
         buildOnlineAnalysisRowMetricCells,

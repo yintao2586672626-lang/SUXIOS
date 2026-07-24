@@ -212,8 +212,7 @@
                                             <span class="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-700">{{ metric.scopeText }}</span>
                                             <span v-if="metric.resultTypeCode === 'derived'" class="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">派生指标</span>
                                         </div>
-                                        <div class="mt-2 break-all text-[11px] text-gray-400">来源引用：{{ metric.sourceRefsText }}</div>
-                                        <div :data-testid="`ai-daily-report-metric-${metric.key}-truth-detail`" class="mt-2 text-[11px] leading-5 text-gray-500">{{ metric.truthDetailText }}</div>
+                                        <online-truth-summary :truth="metric.truth" :testid="`ai-daily-report-metric-${metric.key}-truth-detail`"></online-truth-summary>
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">

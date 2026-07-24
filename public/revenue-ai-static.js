@@ -581,6 +581,7 @@
                 reasonText: truth?.failure_reason || metric.display_reason || revenueAiReasonText(reason),
                 scopeLabel: revenueAiScopeLabel(metric.scope || overview?.scope || 'ota'),
                 dateBasisLabel: revenueAiDateBasisLabel(metric.date_basis || overview?.date_basis || 'data_date'),
+                truth,
                 truthStatus,
                 truthLines: revenueAiMetricTruthLines(truth),
                 truthSummary: revenueAiMetricTruthSummary(truth),
@@ -807,10 +808,48 @@
             const allowedEndpoints = actionEntry.allowed_endpoints && typeof actionEntry.allowed_endpoints === 'object'
                 ? actionEntry.allowed_endpoints
                 : {};
-            const canApprove = item.can_review === true && manualActions.includes('approve') && !!allowedEndpoints.review;
-            const canApproveWithChanges = item.can_review === true && manualActions.includes('approve_with_changes') && !!allowedEndpoints.review;
+            const trustedDecision = item.trusted_decision && typeof item.trusted_decision === 'object'
+                ? item.trusted_decision
+                : {};
+            const trustedStore = trustedDecision.store && typeof trustedDecision.store === 'object' ? trustedDecision.store : {};
+            const trustedPlatform = trustedDecision.platform && typeof trustedDecision.platform === 'object' ? trustedDecision.platform : {};
+            const trustedDate = trustedDecision.date && typeof trustedDecision.date === 'object' ? trustedDecision.date : {};
+            const trustedSources = trustedDecision.sources && typeof trustedDecision.sources === 'object' ? trustedDecision.sources : {};
+            const trustedFormula = trustedDecision.metric_formula && typeof trustedDecision.metric_formula === 'object'
+                ? trustedDecision.metric_formula
+                : {};
+            const trustedQuality = trustedDecision.data_quality && typeof trustedDecision.data_quality === 'object'
+                ? trustedDecision.data_quality
+                : {};
+            const trustedConfidence = trustedDecision.confidence && typeof trustedDecision.confidence === 'object'
+                ? trustedDecision.confidence
+                : {};
+            const trustedAction = trustedDecision.recommended_action && typeof trustedDecision.recommended_action === 'object'
+                ? trustedDecision.recommended_action
+                : {};
+            const trustedExpectedEffect = trustedDecision.expected_effect && typeof trustedDecision.expected_effect === 'object'
+                ? trustedDecision.expected_effect
+                : {};
+            const trustedConfirmation = trustedDecision.human_confirmation && typeof trustedDecision.human_confirmation === 'object'
+                ? trustedDecision.human_confirmation
+                : {};
+            const trustedContractValid = trustedDecision.contract_version === 'revenue_ai_trusted_decision.v1';
+            const canConfirmTrusted = trustedContractValid && trustedConfirmation.can_confirm === true && item.can_confirm === true;
+            const canTransferTrusted = trustedContractValid
+                && trustedConfirmation.can_transfer_to_operation_task === true
+                && item.can_transfer_to_operation_task === true;
+            const canApprove = item.can_review === true && canConfirmTrusted && manualActions.includes('approve') && !!allowedEndpoints.review;
+            const canApproveWithChanges = item.can_review === true && canConfirmTrusted && manualActions.includes('approve_with_changes') && !!allowedEndpoints.review;
             const canReject = item.can_review === true && manualActions.includes('reject') && !!allowedEndpoints.review;
-            const canCreateExecutionIntent = manualActions.includes('create_execution_intent') && !!allowedEndpoints.execution_intent;
+            const canCreateExecutionIntent = canTransferTrusted
+                && manualActions.includes('create_execution_intent')
+                && !!allowedEndpoints.execution_intent;
+            const actionButtons = [
+                canApprove ? { key: 'approve', label: '批准' } : null,
+                canApproveWithChanges ? { key: 'approve_with_changes', label: '改价批准' } : null,
+                canReject ? { key: 'reject', label: '拒绝' } : null,
+                canCreateExecutionIntent ? { key: 'execution_intent', label: '转运营任务' } : null,
+            ].filter(Boolean);
             const currentPrice = numericPrice(item.current_price);
             const suggestedPrice = numericPrice(item.suggested_price);
             const minPrice = numericPrice(item.min_price);
@@ -835,6 +874,40 @@
             const reason = item.reason && item.reason !== '--'
                 ? item.reason
                 : (item.missing_reason ? '关键价格字段不完整，需补齐后再审核。' : '建议原因待补充。');
+            const sourceItems = Array.isArray(trustedSources.items) ? trustedSources.items : [];
+            const sourceRefs = sourceItems.map(source => {
+                if (typeof source === 'string') return source;
+                if (!source || typeof source !== 'object') return '';
+                return String(source.ref || source.source_ref || source.key || source.source || '').trim();
+            }).filter(Boolean);
+            const sourceText = sourceRefs.length
+                ? sourceRefs.join(' / ')
+                : (trustedSources.summary || '未提供已验证来源');
+            const formulaDisplay = trustedFormula.status === 'calculable'
+                ? (trustedFormula.display || '--')
+                : '不可计算';
+            const formulaText = trustedFormula.expression
+                ? `${trustedFormula.expression} = ${formulaDisplay}`
+                : formulaDisplay;
+            const gapRows = Array.isArray(trustedDecision.gaps) ? trustedDecision.gaps : [];
+            const gapText = gapRows.length
+                ? gapRows.map(gap => typeof gap === 'string' ? gap : (gap?.message || gap?.code || '')).filter(Boolean).join('；')
+                : '无输入缺口';
+            const expectedEffectText = trustedExpectedEffect.display
+                || trustedExpectedEffect.summary
+                || '待执行后按同口径回读验证';
+            const trustedDecisionRows = [
+                { key: 'store', label: '门店', value: trustedStore.display || (item.hotel_id ? `门店 #${item.hotel_id}` : '门店未绑定') },
+                { key: 'platform', label: '平台', value: trustedPlatform.label || trustedPlatform.key || '未绑定' },
+                { key: 'date', label: '日期', value: trustedDate.value || item.suggestion_date || '未提供' },
+                { key: 'source', label: '来源', value: sourceText },
+                { key: 'formula', label: '指标公式', value: formulaText, status: trustedFormula.status || 'not_calculable' },
+                { key: 'quality', label: '数据质量', value: [trustedQuality.label || trustedQuality.status || '未验证', trustedQuality.note || ''].filter(Boolean).join(' · ') },
+                { key: 'confidence', label: '置信度', value: trustedConfidence.display || '不可计算' },
+                { key: 'gaps', label: '缺口', value: gapText },
+                { key: 'action', label: '建议动作', value: trustedAction.summary || reason },
+                { key: 'effect', label: '预期效果', value: expectedEffectText },
+            ];
             return {
                 key: item.id || `${status}_${index}`,
                 id: item.id || 0,
@@ -855,6 +928,10 @@
                 revparImpactReason,
                 factorLine: item.factors_summary || '--',
                 reasonText: reason,
+                trustedDecision,
+                trustedDecisionRows,
+                trustedContractValid,
+                trustedInputReady: canConfirmTrusted || canTransferTrusted,
                 manualReviewRequired: item.manual_review_required !== false,
                 autoWriteOta: item.auto_write_ota === true,
                 canReview: item.can_review === true,
@@ -862,9 +939,14 @@
                 canApproveWithChanges,
                 canReject,
                 canCreateExecutionIntent,
+                actionButtons,
                 actionEntry,
-                actionLabel: canCreateExecutionIntent ? '转执行' : (canApprove || canApproveWithChanges || canReject ? '审核' : (actionEntry.label || '')),
-                actionHelpText: canCreateExecutionIntent ? '转为运营执行意图，仍需人工执行和复盘' : (canApprove || canApproveWithChanges || canReject ? '首页人工审核，可修改后批准；不写 OTA' : '查看建议状态'),
+                actionLabel: canCreateExecutionIntent ? '转运营任务' : (canApprove || canApproveWithChanges || canReject ? '审核' : (actionEntry.label || '')),
+                actionHelpText: canCreateExecutionIntent
+                    ? '生成本地待执行运营任务；仍需人工执行、留证和复盘'
+                    : (canApprove || canApproveWithChanges || canReject
+                        ? '仅在可信输入通过后人工审核；不写 OTA'
+                        : (trustedContractValid ? '当前可信输入仍有阻塞，先处理缺口' : '可信建议契约缺失，禁止批准')),
                 requiresSuperAdmin: actionEntry.requires_super_admin === true,
                 requiresHotelPermission: actionEntry.requires_hotel_permission === true,
                 allowedEndpoint: actionEntry.allowed_endpoint || '',
@@ -1907,7 +1989,7 @@
         approve: '批准该调价建议',
         approve_with_changes: '修改后批准该调价建议',
         reject: '拒绝该调价建议',
-        execution_intent: '转为运营执行意图',
+        execution_intent: '转为运营任务',
     }[String(action || '').trim()] || '');
 
     const revenueAiReviewEndpoint = (item = {}, action = '') => {
@@ -1997,7 +2079,7 @@
     const buildRevenueAiReviewConfirmText = ({ action = '', actionText = '', approvedPrice = null } = {}) => {
         const normalizedAction = String(action || '').trim();
         if (normalizedAction === 'execution_intent') {
-            return '确认转为运营执行意图？该动作不会写入携程/美团价格，仍需人工执行和复盘。';
+            return '确认转为本地待执行运营任务？该动作不会写入携程/美团价格，仍需人工执行、留证和复盘。';
         }
         if (normalizedAction === 'approve_with_changes') {
             return `确认以 ${approvedPrice} 元修改后批准？该动作只更新本地审核状态，不写入携程/美团价格。`;
@@ -2008,7 +2090,7 @@
     const buildRevenueAiReviewRequestBody = ({ action = '', item = {}, approvedPrice = null, reviewRemark = '' } = {}) => {
         const normalizedAction = String(action || '').trim();
         if (normalizedAction === 'execution_intent') {
-            return { source: 'revenue_ai_homepage', expected_metric: 'orders' };
+            return { source: 'revenue_ai_homepage', expected_metric: 'orders', approve_to_task: true };
         }
         if (normalizedAction === 'approve_with_changes') {
             return {
@@ -2392,17 +2474,24 @@
     const buildRevenueAiExecutionIntentOpenRow = ({ payload = {}, item = {} } = {}) => {
         const data = payload && typeof payload === 'object' ? payload : {};
         const intent = data.execution_intent && typeof data.execution_intent === 'object' ? data.execution_intent : {};
-        const intentId = Number(data.target_id || intent.id || 0);
+        const task = data.operation_task && typeof data.operation_task === 'object' ? data.operation_task : {};
+        const intentId = Number(intent.id || 0);
+        const taskId = Number(task.id || 0);
+        const targetKind = data.target_kind || (taskId > 0 ? 'task' : 'intent');
+        const targetId = Number(data.target_id || (targetKind === 'task' ? taskId : intentId) || 0);
         return {
-            canOpenExecution: intentId > 0,
+            canOpenExecution: targetId > 0,
             targetPage: data.target_page || 'ops-track',
-            targetAction: data.target_action || 'approve_intent',
-            targetId: intentId,
-            targetKind: data.target_kind || 'intent',
+            targetAction: data.target_action || (taskId > 0 ? 'record_execution' : 'approve_intent'),
+            targetId,
+            targetKind,
             intentId,
+            taskId,
             hotelId: Number(data.hotel_id || intent.hotel_id || item.hotelId || item.hotel_id || 0),
-            actionLabel: data.execution_intent_existing ? '查看执行意图' : '审批执行意图',
-            nextActionKey: data.target_action || 'approve_intent',
+            actionLabel: taskId > 0
+                ? '查看待执行运营任务'
+                : (data.execution_intent_existing ? '查看执行意图' : '审批执行意图'),
+            nextActionKey: data.target_action || (taskId > 0 ? 'record_execution' : 'approve_intent'),
         };
     };
 

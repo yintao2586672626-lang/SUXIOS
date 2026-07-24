@@ -1623,25 +1623,6 @@ class ExpansionService
         }, self::TASKS);
     }
 
-    private function defaultTaskStatus(int $taskIndex, int $stageIndex): string
-    {
-        return '待确认';
-    }
-
-    private function stageIndex(string $stage): int
-    {
-        if (str_contains($stage, '上线')) {
-            return 5;
-        }
-        if (str_contains($stage, '筹建') || str_contains($stage, '装修')) {
-            return 3;
-        }
-        if (str_contains($stage, '签约') || str_contains($stage, '合同')) {
-            return 2;
-        }
-        return 0;
-    }
-
     private function nextTask(array $tasks): ?array
     {
         foreach ($tasks as $task) {

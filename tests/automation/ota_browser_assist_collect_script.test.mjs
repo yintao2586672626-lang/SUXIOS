@@ -6,7 +6,7 @@ import vm from 'node:vm';
 
 const sourceBuffer = readFileSync('public/ota-browser-assist-static.js');
 const source = sourceBuffer.toString('utf8');
-const index = readFileSync('public/index.html', 'utf8');
+const appMain = readFileSync('public/app-main.js', 'utf8');
 
 const context = {
   window: {},
@@ -18,6 +18,58 @@ vm.runInContext(source, context);
 
 const helper = context.window.SUXI_OTA_BROWSER_ASSIST_STATIC;
 
+function createActionLoaderHarness(outcomes = ['load']) {
+  const appended = [];
+  const document = {
+    scripts: [],
+    createElement() {
+      const listeners = new Map();
+      return {
+        dataset: {},
+        src: '',
+        async: false,
+        getAttribute(name) {
+          return name === 'src' ? this.src : null;
+        },
+        addEventListener(name, callback) {
+          listeners.set(name, callback);
+        },
+        remove() {
+          const index = document.scripts.indexOf(this);
+          if (index >= 0) document.scripts.splice(index, 1);
+        },
+        dispatch(name) {
+          listeners.get(name)?.();
+        },
+      };
+    },
+    body: {
+      appendChild(script) {
+        document.scripts.push(script);
+        appended.push(script);
+        const outcome = outcomes.shift() || 'load';
+        queueMicrotask(() => {
+          if (outcome === 'load') {
+            sandbox.window.SUXI_OTA_BROWSER_ASSIST_STATIC = helper;
+          }
+          script.dispatch(outcome);
+        });
+      },
+    },
+  };
+  const sandbox = { window: {}, document, console, queueMicrotask };
+  sandbox.globalThis = sandbox;
+  const loaderStart = appMain.indexOf('const OTA_BROWSER_ASSIST_STATIC_ASSET =');
+  const loaderEnd = appMain.indexOf('\n            const defaultMeituanAdsUrl', loaderStart);
+  assert(loaderStart >= 0 && loaderEnd > loaderStart, 'action-gated OTA helper loader must exist');
+  vm.createContext(sandbox);
+  vm.runInContext(
+    `${appMain.slice(loaderStart, loaderEnd)}\nglobalThis.loadOtaBrowserAssistStatic = loadOtaBrowserAssistStatic;`,
+    sandbox,
+  );
+  return { appended, load: sandbox.loadOtaBrowserAssistStatic };
+}
+
 test('OTA browser assist static helper exposes the collector script generator', () => {
   assert.equal(typeof helper, 'object');
   assert.equal(helper.CONTRACT_VERSION, 'ota_browser_assist_collection_contract.v1');
@@ -25,11 +77,23 @@ test('OTA browser assist static helper exposes the collector script generator', 
   assert.equal(typeof helper.buildOtaBrowserAssistCollectorScript, 'function');
 });
 
-test('OTA browser assist authenticated asset reference follows the current helper hash', () => {
+test('OTA browser assist action loader reference follows the current helper hash', () => {
   const contentHash = crypto.createHash('sha256').update(sourceBuffer).digest('hex').slice(0, 10);
-  const reference = index.match(/ota-browser-assist-static\.js\?v=[^"']+/)?.[0] || '';
+  const reference = appMain.match(/ota-browser-assist-static\.js\?v=[^"']+/)?.[0] || '';
 
   assert.match(reference, new RegExp(`(?:^|[-_])h${contentHash}(?:[-_]|$)`));
+});
+
+test('OTA browser assist action loader reuses success and retries a failed download', async () => {
+  const successHarness = createActionLoaderHarness(['load']);
+  assert.equal(await successHarness.load(), helper);
+  assert.equal(await successHarness.load(), helper);
+  assert.equal(successHarness.appended.length, 1);
+
+  const retryHarness = createActionLoaderHarness(['error', 'load']);
+  await assert.rejects(retryHarness.load(), /加载失败/);
+  assert.equal(await retryHarness.load(), helper);
+  assert.equal(retryHarness.appended.length, 2);
 });
 
 test('generated collector script produces supplemental OTA contract JSON without credential access', () => {

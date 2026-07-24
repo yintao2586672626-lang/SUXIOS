@@ -185,7 +185,6 @@
                                 <div v-if="user?.is_super_admin" class="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
                                     <button v-if="String(u?.status) !== '1'" @click="activateUser(u)" class="rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700">启用账号</button>
                                     <button v-if="String(u?.status) === '1' &amp;&amp; u.id !== user?.id" @click="deactivateUser(u)" class="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">停用账号</button>
-                                    <button v-if="isExternalIssueUser(u)" @click="copyUserBasicLoginInfo(u)" class="rounded-lg bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700">复制账号</button>
                                     <button v-if="isExternalIssueUser(u)" @click="openUserLoginInfoModal(u)" class="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700">重置密码</button>
                                     <button @click="openUserModal(u)" class="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">编辑</button>
                                     <button v-if="u.id !== user?.id" @click="deleteUser(u)" class="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">删除</button>
@@ -214,7 +213,12 @@
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">角色</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">门店范围</th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
-                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">上次登录</th>
+                                            <th :aria-sort="userLastLoginSortDirection === 'desc' ? 'descending' : 'ascending'" class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                                <button type="button" data-testid="employee-last-login-sort" @click="toggleUserLastLoginSort" :aria-label="userLastLoginSortDirection === 'desc' ? '上次登录，当前降序，点击切换为升序' : '上次登录，当前升序，点击切换为降序'" class="inline-flex items-center gap-1 rounded-md hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                                    <span>上次登录</span>
+                                                    <i :class="userLastLoginSortDirection === 'desc' ? 'fas fa-arrow-down' : 'fas fa-arrow-up'" aria-hidden="true"></i>
+                                                </button>
+                                            </th>
                                             <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
                                         </tr>
                                     </thead>
@@ -253,10 +257,6 @@
                                                     <button v-if="u &amp;&amp; String(u?.status) === '1' &amp;&amp; u.id !== user?.id &amp;&amp; (user?.is_super_admin)" @click="deactivateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium" title="停用账号">
                                                         <i class="fas fa-ban text-xs"></i>
                                                         <span>停用账号</span>
-                                                    </button>
-                                                    <button v-if="u &amp;&amp; isExternalIssueUser(u) &amp;&amp; (user?.is_super_admin)" @click="copyUserBasicLoginInfo(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors text-xs font-medium" title="复制登录地址和用户名，不修改密码">
-                                                        <i class="fas fa-copy text-xs"></i>
-                                                        <span>复制账号</span>
                                                     </button>
                                                     <button v-if="u &amp;&amp; isExternalIssueUser(u) &amp;&amp; (user?.is_super_admin)" @click="openUserLoginInfoModal(u)" :title="existingUserIssueGuideBlocker(u) || '重置密码并复制登录地址、用户名和密码'" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-xs font-medium">
                                                         <i class="fas fa-key text-xs"></i>

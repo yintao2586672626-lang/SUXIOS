@@ -844,59 +844,6 @@ class Hotel extends Base
         $this->currentUser->resetAuthorizationContext();
     }
 
-    private function ensureHotelCanBeDeleted(int $hotelId, bool $ignoreCurrentUserHotelPermission = false): array
-    {
-        $checks = [
-            ['users', 'hotel_id', '用户'],
-            ['user_hotel_permissions', 'hotel_id', '用户酒店权限'],
-            ['daily_reports', 'hotel_id', '日报'],
-            ['monthly_tasks', 'hotel_id', '月任务'],
-            ['online_daily_data', 'system_hotel_id', '线上数据'],
-            ['operation_logs', 'hotel_id', '操作日志'],
-            ['field_mappings', 'hotel_id', '字段映射'],
-            ['hotel_field_templates', 'hotel_id', '字段模板'],
-            ['room_types', 'hotel_id', '房型'],
-            ['devices', 'hotel_id', '设备'],
-            ['device_maintenance', 'hotel_id', '设备维护'],
-            ['energy_consumption', 'hotel_id', '能耗记录'],
-            ['energy_benchmarks', 'hotel_id', '能耗基准'],
-            ['energy_saving_suggestions', 'hotel_id', '节能建议'],
-            ['maintenance_plans', 'hotel_id', '维护计划'],
-            ['price_suggestions', 'hotel_id', '价格建议'],
-            ['demand_forecasts', 'hotel_id', '需求预测'],
-            ['knowledge_categories', 'hotel_id', '知识分类'],
-            ['knowledge_base', 'hotel_id', '知识库'],
-            ['transfer_records', 'hotel_id', '转让记录'],
-            ['operation_strategy_actions', 'hotel_id', '运营策略动作'],
-        ];
-
-        $references = [];
-        foreach ($checks as [$table, $column, $label]) {
-            $count = $ignoreCurrentUserHotelPermission && $table === 'user_hotel_permissions'
-                ? $this->countHotelPermissionRowsExcludingCurrentUser($hotelId)
-                : $this->countReferenceRows($table, $column, $hotelId);
-            if ($count > 0) {
-                $references[] = ['table' => $table, 'label' => $label, 'count' => $count];
-            }
-        }
-
-        return $references;
-    }
-
-    private function countHotelPermissionRowsExcludingCurrentUser(int $hotelId): int
-    {
-        if (!$this->tableColumnExists('user_hotel_permissions', 'hotel_id')) {
-            return 0;
-        }
-
-        $query = Db::name('user_hotel_permissions')->where('hotel_id', $hotelId);
-        if ($this->currentUser) {
-            $query->where('user_id', '<>', (int)$this->currentUser->id);
-        }
-
-        return (int)$query->count();
-    }
-
     protected function shouldBlockHotelDelete(array $references, bool $forceDelete): bool
     {
         return !empty($references) && !$forceDelete;

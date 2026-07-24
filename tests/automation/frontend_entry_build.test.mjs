@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { buildFrontendEntry } from '../../scripts/lib/frontend_entry_build.mjs';
 import {
-  extractAuthenticatedAssetReferences,
+  resolveFrontendRuntimeAssetReferences,
   stripFrontendAssetQuery,
 } from '../../scripts/lib/frontend_authenticated_assets.mjs';
 
@@ -31,7 +31,7 @@ test('authenticated asset manifest loads only the hashed minified entry at the e
   const html = fs.readFileSync(indexPath, 'utf8');
   const artifact = fs.readFileSync(artifactPath, 'utf8');
   const hash = crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10);
-  const authenticatedReferences = extractAuthenticatedAssetReferences(html);
+  const authenticatedReferences = resolveFrontendRuntimeAssetReferences(html);
   const authenticatedAssets = authenticatedReferences.map(stripFrontendAssetQuery);
   const entryReference = authenticatedReferences.find(
     (reference) => stripFrontendAssetQuery(reference) === 'app-main.min.js',

@@ -697,35 +697,6 @@ function issueTable(title, issues) {
   return `## ${title}\n\n| 级别 | 行/对象 | 指标/字段 | 问题 |\n|---|---:|---|---|\n${rows.join('\n')}${suffix}`;
 }
 
-function legacyFormatValidationReport(result, options = {}) {
-  const title = options.title ?? 'OTA data validation';
-  const lines = [
-    `# ${title}`,
-    '',
-    `- checked_rows: ${result.checkedRows ?? 0}`,
-    `- errors: ${result.errors?.length ?? 0}`,
-    `- warnings: ${result.warnings?.length ?? 0}`,
-  ];
-
-  if (result.details?.metric_summary?.metric_counts) {
-    const counts = result.details.metric_summary.metric_counts;
-    lines.push(`- metric_checks: ADR=${counts.ADR ?? 0}, ARI=${counts.ARI ?? 0}, SCI=${counts.SCI ?? 0}, MPI=${counts.MPI ?? 0}`);
-  }
-
-  lines.push('', issueTable('Errors', result.errors ?? []));
-  lines.push('', issueTable('Warnings', result.warnings ?? []));
-
-  if (result.details?.parser_contracts) {
-    lines.push('', '## Source Parser Contracts', '');
-    const controllerMissing = result.details.parser_contracts.controller?.missing_tokens ?? [];
-    const commandMissing = result.details.parser_contracts.command?.missing_tokens ?? [];
-    lines.push(`- OTA handler sources missing_tokens: ${controllerMissing.length ? controllerMissing.join(', ') : '无'}`);
-    lines.push(`- AutoFetchOnlineData.php missing_tokens: ${commandMissing.length ? commandMissing.join(', ') : '无'}`);
-  }
-
-  return lines.join('\n');
-}
-
 function validationIssueTable(title, issues, emptyText = '无') {
   if (issues.length === 0) {
     return `## ${title}\n\n${emptyText}`;

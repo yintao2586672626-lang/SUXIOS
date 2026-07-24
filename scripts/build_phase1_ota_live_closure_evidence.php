@@ -936,11 +936,6 @@ function evidence_scope_details(array $data, array $options): array
     ];
 }
 
-function evidence_scope_date_aligned(array $payload): bool
-{
-    return (string)($payload['scope_date_status'] ?? '') === 'matched';
-}
-
 function evidence_scope_aligned(array $payload): bool
 {
     return (string)($payload['scope_identity_status'] ?? '') === 'matched';
@@ -1510,11 +1505,6 @@ function diagnosis_evidence_status(array $diagnosis): string
         return 'warning';
     }
     return 'missing';
-}
-
-function has_operation_evidence(array $operation): bool
-{
-    return operation_evidence_status($operation) === 'proved';
 }
 
 function operation_flow(array $operation): array

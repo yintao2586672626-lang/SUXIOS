@@ -95,6 +95,25 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertSame(hash_file('sha256', $this->root . '/database/base.sql'), $baselineRows[0]['checksum']);
     }
 
+    public function testFreshInitializationBaselineAdoptsHistoricalOwnerIdentityGuard(): void
+    {
+        $migration = '20260723_validate_owner_tenant_bootstrap_targets.sql';
+        file_put_contents(
+            $this->root . '/database/migrations/' . $migration,
+            "THIS HISTORICAL DATA GUARD MUST NOT RUN ON A FRESH DATABASE;\n"
+        );
+
+        $result = $this->service->initializeFreshFromInitFull();
+
+        self::assertTrue($result['status']['ready']);
+        self::assertNotContains($migration, $result['executed']);
+        $statement = $this->pdo->prepare(
+            'SELECT execution_kind FROM schema_versions WHERE migration = ?'
+        );
+        $statement->execute([$migration]);
+        self::assertSame('baseline_adopted', $statement->fetchColumn());
+    }
+
     public function testNewMigrationIsDiscoveredWithoutChangingInitFull(): void
     {
         $this->service->initializeFreshFromInitFull();

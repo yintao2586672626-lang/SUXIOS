@@ -185,7 +185,12 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             self::assertSame(0, $diagnostics['target_date_traffic_rows'] ?? null, $message);
             self::assertContains('target_date_traffic_rows', $diagnostics['missing_inputs'] ?? [], $message);
         } else {
-            self::assertSame('success', $result['status'], $message);
+            self::assertSame(
+                'success',
+                $result['status'],
+                $message
+                    . ' diagnostics=' . json_encode($diagnostics, JSON_UNESCAPED_SLASHES)
+            );
             self::assertSame('ready', $diagnostics['p0_status'] ?? null, $message);
             self::assertSame(1, $diagnostics['target_date_traffic_rows'] ?? null, $message);
         }
@@ -328,9 +333,14 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
         $baseRow = $adapter->response['payload']['rows'][0];
         $adapter->response['payload']['rows'] = [];
         for ($index = 1; $index <= 64; $index++) {
+            $traceId = sprintf('dx-1162-traffic-row-%03d', $index);
             $adapter->response['payload']['rows'][] = array_merge($baseRow, [
                 'dimension' => sprintf('room-type-%03d', $index),
-                'source_trace_id' => sprintf('dx-1162-traffic-row-%03d', $index),
+                'source_trace_id' => $traceId,
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => hash('sha256', 'https://example.invalid/ctrip/traffic/dx-1162'),
+                ],
             ]);
         }
 
@@ -342,7 +352,11 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             'trigger_type' => 'manual',
         ]);
 
-        self::assertSame('success', $result['status']);
+        self::assertSame(
+            'success',
+            $result['status'],
+            json_encode($result['sync_diagnostics'] ?? [], JSON_UNESCAPED_SLASHES)
+        );
         self::assertSame(64, (int)$result['saved_count']);
         self::assertTrue($result['run_readback']['readback_verified'] ?? false);
         self::assertSame(64, (int)($result['run_readback']['readback_count'] ?? 0));
@@ -437,12 +451,18 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
      */
     private function adapterFor(string $caseId, array $factors): object
     {
+        $traceId = strtolower($caseId) . '-traffic-row';
         $row = [
             'hotel_id' => 'CTRIP-TC145-101',
             'hotel_name' => 'TC-145 Hotel',
             'data_date' => $factors['freshness'] === 'stale' ? self::STALE_DATA_DATE : self::TARGET_DATE,
             'data_type' => 'traffic',
-            'source_trace_id' => strtolower($caseId) . '-traffic-row',
+            'source_trace_id' => $traceId,
+            '_source_path' => '$.traffic.rows[0]',
+            'capture_evidence' => [
+                'source_trace_id' => $traceId,
+                'source_url_hash' => hash('sha256', 'https://example.invalid/ctrip/traffic/' . strtolower($caseId)),
+            ],
         ];
         if ($factors['data_completeness'] === 'complete') {
             $row = array_merge($row, [

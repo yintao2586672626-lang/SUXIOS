@@ -14,6 +14,9 @@ final class SchemaVersionService
     private const FAILURE_TABLE = 'schema_migration_failures';
     private const MIGRATION_PATTERN = '/^\d{8}_[a-z0-9_]+\.sql$/D';
     private const MYSQL_LOCK_PREFIX = 'suxios_schema_versions_';
+    private const FRESH_INIT_BASELINE_ADOPTED_MIGRATIONS = [
+        '20260723_validate_owner_tenant_bootstrap_targets.sql',
+    ];
 
     private PDO $pdo;
     private string $root;
@@ -615,6 +618,23 @@ final class SchemaVersionService
                 $catalog[$migration]['version'],
                 $catalog[$migration]['checksum'],
                 'executed'
+            )) {
+                $baselineRegistered++;
+            }
+        }
+
+        // This forward guard validates a fixed set of historical production
+        // identities. A fresh database has no such history, so record the
+        // guard as baseline-adopted while keeping normal migrations fail-closed.
+        foreach (self::FRESH_INIT_BASELINE_ADOPTED_MIGRATIONS as $migration) {
+            if (!isset($catalog[$migration])) {
+                continue;
+            }
+            if ($this->registerMigration(
+                $migration,
+                $catalog[$migration]['version'],
+                $catalog[$migration]['checksum'],
+                'baseline_adopted'
             )) {
                 $baselineRegistered++;
             }

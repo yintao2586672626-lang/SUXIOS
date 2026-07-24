@@ -9,8 +9,8 @@ import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs'
 import {
   AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
   AUTHENTICATED_ASSET_PHASE_STARTUP,
+  AUTHENTICATED_ASSET_TYPE_SCRIPT,
   extractAuthenticatedAssetEntries,
-  extractAuthenticatedAssetReferences,
   stripFrontendAssetQuery,
 } from './lib/frontend_authenticated_assets.mjs';
 
@@ -102,7 +102,9 @@ if (!fs.existsSync(indexPath)) {
   let authenticatedAssetEntries = [];
   try {
     authenticatedAssetEntries = extractAuthenticatedAssetEntries(htmlContent);
-    authenticatedAssetReferences = extractAuthenticatedAssetReferences(htmlContent);
+    authenticatedAssetReferences = authenticatedAssetEntries
+      .filter((entry) => entry.type === AUTHENTICATED_ASSET_TYPE_SCRIPT)
+      .map((entry) => entry.src);
   } catch (error) {
     failures.push(error.message);
   }
@@ -237,10 +239,17 @@ if (!fs.existsSync(indexPath)) {
   const otaBrowserAssistStaticHash = otaBrowserAssistStaticContent.length > 0
     ? crypto.createHash('sha256').update(otaBrowserAssistStaticContent).digest('hex').slice(0, 10)
     : '';
-  const otaBrowserAssistStaticReference = runtimeAssetReference('ota-browser-assist-static.js');
+  const otaBrowserAssistStaticReference = appMainContent.match(
+    /ota-browser-assist-static\.js\?v=[^"'`]+/,
+  )?.[0] || '';
   if (!otaBrowserAssistStaticHash
     || !otaBrowserAssistStaticReference.includes(`h${otaBrowserAssistStaticHash}`)) {
-    failures.push('public/index.html must use the current public/ota-browser-assist-static.js content hash in its immutable cache version.');
+    failures.push('public/app-main.js must use the current public/ota-browser-assist-static.js content hash in its action-gated loader.');
+  }
+  if (runtimeAssetPaths.includes('ota-browser-assist-static.js')
+    || !appMainContent.includes('const loadOtaBrowserAssistStatic = () => {')
+    || !appMainContent.includes('await loadOtaBrowserAssistStatic()')) {
+    failures.push('OTA browser assist must stay out of the authenticated manifest and load only after its copy action.');
   }
   const loginSubmitBindingOffset = appBootstrapContent.indexOf("form.addEventListener('submit'");
   const loginReadyOffset = appBootstrapContent.indexOf("form.dataset.suxiLoginReady = '1';");
@@ -457,11 +466,10 @@ if (!runtimeAssetPaths.includes('system-static.js')
     failures.push('public/index.html references Vite hashed assets; do not build Vite into HOTEL/public.');
   }
 
-  const tailwindMatch = htmlContent.match(/<link\s+href=["']tailwind\.min\.css\?v=[^"']+["']\s+rel=["']stylesheet["']>/);
-  const tailwindOffset = tailwindMatch ? tailwindMatch.index : -1;
+  const loginCriticalOffset = htmlContent.indexOf('login-critical.css?v=');
   const vueScriptOffset = vueRuntimeReference ? htmlContent.indexOf(vueRuntimeReference) : -1;
-  if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
-    failures.push('public/index.html must discover core stylesheets before the authenticated Vue/static asset chain.');
+  if (loginCriticalOffset < 0 || vueScriptOffset < 0 || loginCriticalOffset > vueScriptOffset) {
+    failures.push('public/index.html must discover the login-critical stylesheet before the authenticated Vue/static asset chain.');
   }
   const loginBgPreloadOffset = content.indexOf("const loginBackgroundPreload = 'images/login-hotel-lobby-bg.avif';");
   if (/<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']\s+as=["']image["']\s+type=["']image\/avif["']\s+fetchpriority=["']high["']/.test(content)) {
@@ -477,8 +485,8 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || !content.includes('preloadLoginBackground();')) {
     failures.push('public/index.html must conditionally preload the optimized AVIF login background only when the login shell can be shown.');
   }
-  if (loginBgPreloadOffset < 0 || tailwindOffset < 0 || loginBgPreloadOffset > tailwindOffset) {
-    failures.push('public/index.html must evaluate login background preload before core stylesheets.');
+  if (loginBgPreloadOffset < 0 || loginCriticalOffset < 0 || loginBgPreloadOffset > loginCriticalOffset) {
+    failures.push('public/index.html must evaluate login background preload before the login-critical stylesheet.');
   }
   if (!content.includes("requireAppSystemStatic('loadCachedAuthUser')")
     || !content.includes("requireAppSystemStatic('saveCachedAuthUser')")
@@ -539,7 +547,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
   }
   if (/<script[^>]+src=["']revenue-ai-static\.js(?:\?[^"']*)?["']/.test(htmlContent)
     || !content.includes("const revenueAiStaticScript = 'revenue-ai-static.js';")
-    || !content.includes(`const revenueAiStaticVersion = '20260715-truthful-not-loaded-h${revenueAiStaticHash}';`)
+    || !content.includes(`const revenueAiStaticVersion = '20260724-trusted-decision-h${revenueAiStaticHash}';`)
     || !content.includes('const loadRevenueAiStatic = () => {')
     || !content.includes('if (revenueAiStaticLoadPromise) {')
     || !content.includes('revenueAiStaticLoadPromise = null;')
@@ -629,7 +637,9 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || !revenueAiStaticContent.includes('const actionEntry = item.action_entry && typeof item.action_entry ===')
     || !revenueAiStaticContent.includes('const canApprove = item.can_review === true')
     || !revenueAiStaticContent.includes('const canApproveWithChanges = item.can_review === true')
-    || !revenueAiStaticContent.includes('const canCreateExecutionIntent = manualActions.includes')
+    || !revenueAiStaticContent.includes('const canCreateExecutionIntent = canTransferTrusted')
+    || !revenueAiStaticContent.includes("trustedDecision.contract_version === 'revenue_ai_trusted_decision.v1'")
+    || !revenueAiStaticContent.includes('trustedDecisionRows,')
     || !revenueAiStaticContent.includes('allowedEndpoints,')
     || !revenueAiStaticContent.includes('nextAction: gate.next_action ||')
     || !revenueAiStaticContent.includes('autoWriteOta: summary.auto_write_ota === true')
@@ -685,19 +695,17 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || content.includes('const revenueAiChannelStatus = (channel) =>')
     || !content.includes('data-testid="revenue-ai-gap-closure"')
     || !content.includes('data-testid="revenue-ai-pricing-gates"')
-    || !content.includes('data-testid="revenue-ai-review-queue"')
     || !content.includes('data-testid="revenue-ai-decision-basis"')
-    || !content.includes('data-testid="revenue-ai-decision-basis-hidden"')
     || !content.includes('data-testid="revenue-ai-evidence-workbench"')
     || !content.includes('@click="openRevenueAiDecisionBasis(basis)"')
     || !content.includes('data-testid="revenue-ai-review-queue-items"')
     || !content.includes('data-testid="revenue-ai-execution-pending"')
-    || !content.includes('{{ item.impactLine }}')
+    || !content.includes('data-testid="revenue-ai-trusted-decision"')
+    || !content.includes('item.trustedDecisionRows')
     || !content.includes('data-testid="revenue-ai-agent-activity"')
     || !content.includes('data-testid="revenue-ai-execution-summary"')
     || !content.includes('data-testid="revenue-ai-effect-review-inputs"')
     || !content.includes('const revenueAiEffectReviewRows = computed(() => revenueAiBuildEffectReviewRows({')
-    || !content.includes('v-if="action.nextActions?.length"')
     || !content.includes('v-if="gate.nextAction"')
     || !content.includes('const openRevenueAiGap = (row = {}) => {')
     || !content.includes('const openRevenueAiDecisionBasis = async (basis = {}) => {')
@@ -765,15 +773,14 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || !content.includes("@click=\"openRevenueAiMetric(card)\"")
     || !content.includes('@click="openRevenueAiExecutionItem(row)"')
     || !content.includes('operationExecutionRowClass')
-    || !content.includes('@click="submitRevenueAiReviewAction(item, \'approve\')"')
-    || !content.includes('@click="submitRevenueAiReviewAction(item, \'approve_with_changes\')"')
-    || !content.includes('@click="submitRevenueAiReviewAction(item, \'reject\')"')
-    || !content.includes('@click="submitRevenueAiReviewAction(item, \'execution_intent\')"')
+    || !content.includes('v-if="item.actionButtons?.length"')
+    || !content.includes('@click="submitRevenueAiReviewAction(item, button.key)"')
     || !revenueAiStaticContent.includes("approve_with_changes: '修改后批准该调价建议'")
     || !revenueAiStaticContent.includes('approved_price: approvedPrice')
     || !content.includes("if (normalizedAction === 'execution_intent') {")
     || !content.includes('await openRevenueAiExecutionItem(revenueAiBuildExecutionIntentOpenRow({')
-    || !revenueAiStaticContent.includes("targetAction: data.target_action || 'approve_intent'")
+    || !revenueAiStaticContent.includes("targetAction: data.target_action || (taskId > 0 ? 'record_execution' : 'approve_intent')")
+    || !revenueAiStaticContent.includes('approve_to_task: true')
     || !revenueAiStaticContent.includes("const resolveRevenueAiReviewNavigation = ({ item = {}, isSuperAdmin = false } = {}) => {")
     || !revenueAiStaticContent.includes('const buildRevenueAiReviewNavigationState = (navigation = {}) => {')
     || !content.includes('const navigationState = revenueAiBuildReviewNavigationState(navigation);')
@@ -2608,7 +2615,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
     failures.push('public/index.html data-health panel must not duplicate collection-reliability authorization work by also calling cookie-status.');
   }
 
-  if (!content.includes("if (!options.backendOnly) {\n                        scheduleDataHealthPanelRefresh('light');\n                    }\n                    await loadBackendGlobalNotifications();")
+  if (!content.includes("if (!options.backendOnly) {\n                        scheduleDataHealthPanelRefresh('light');\n                    }\n                    await loadBackendGlobalNotifications({\n                        startupDedupe: options.startupDedupe === true,\n                    });")
     || content.includes("const jobs = [loadBackendGlobalNotifications()];\n                    if (!options.backendOnly) {\n                        jobs.push(loadDataHealthPanel('light'));\n                    }")) {
     failures.push('public/index.html global notification refresh must not block on data-health light status; it should schedule the visible-tab refresh instead.');
   }
@@ -3471,8 +3478,10 @@ if (!fs.existsSync(publicRouterPath)) {
     || !routerSource.includes("'gif', 'avif', 'webp'")) {
     failures.push('public/router.php must serve the AVIF login background with image/avif and the immutable static cache policy.');
   }
-  if (!routerSource.includes("Cloudflare-CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30")) {
-    failures.push('public/router.php must keep browser revalidation separate from the short Cloudflare edge cache policy for index.html.');
+  if (!routerSource.includes("Cache-Control: public, max-age=60, s-maxage=60, stale-while-revalidate=30")
+    || !routerSource.includes("CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30")
+    || !routerSource.includes("Cloudflare-CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30")) {
+    failures.push('public/router.php must keep the public index on the bounded browser and CDN cache policy.');
   }
   if (!routerSource.includes("'runtime' . DIRECTORY_SEPARATOR . 'static-gzip'")) {
     failures.push('public/router.php must cache gzip output under runtime/static-gzip to avoid repeated CPU compression on large local assets.');

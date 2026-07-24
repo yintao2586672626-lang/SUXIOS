@@ -131,7 +131,7 @@ test('login, logout, and account switches reset hotel-scoped browser state', () 
 
 test('notification refreshes and no-hotel OTA entry cannot reuse another authentication session', () => {
   const notificationLoad = sliceBetween(
-    'const loadBackendGlobalNotifications = async () => {',
+    'const loadBackendGlobalNotifications = async (options = {}) => {',
     'const globalNotifications = computed',
   );
   const dataHealthLoad = sliceBetween(

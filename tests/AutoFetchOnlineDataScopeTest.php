@@ -134,6 +134,7 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             'platform' => $platform,
             'run_readback' => [
                 'readback_verified' => true,
+                'p0_status' => 'ready',
                 'data_source_id' => $sourceId,
                 'sync_task_id' => $taskId,
                 'system_hotel_id' => 80,

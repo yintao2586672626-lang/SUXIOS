@@ -76,6 +76,7 @@ function e2eHasColumn(string $table, string $column): bool
 function e2eAssertSchemaReady(): array
 {
     $requiredColumns = [
+        'tenants' => ['id', 'name', 'status'],
         'roles' => ['id', 'name'],
         'users' => ['id', 'username', 'role_id', 'hotel_id', 'tenant_id'],
         'hotels' => ['id', 'name', 'tenant_id'],
@@ -129,9 +130,9 @@ function e2ePrefix(): string
     return $prefix;
 }
 
-function e2eSetProtectedModules(int $hotelId, bool $enabled): void
+function e2eSetProtectedModules(int $tenantId, bool $enabled): void
 {
-    if ($hotelId <= 0) {
+    if ($tenantId <= 0) {
         return;
     }
 
@@ -141,7 +142,7 @@ function e2eSetProtectedModules(int $hotelId, bool $enabled): void
         $policy = [];
     }
     $tenantModules = is_array($policy['tenant_modules'] ?? null) ? $policy['tenant_modules'] : [];
-    $tenantKey = (string)$hotelId;
+    $tenantKey = (string)$tenantId;
     if ($enabled) {
         $tenantModules[$tenantKey] = ['ai_decision', 'operation_decision', 'investment'];
     } else {
@@ -158,12 +159,13 @@ function e2eSetProtectedModules(int $hotelId, bool $enabled): void
     }
 }
 
-/** @return array{username: string, role_name: string, hotel_name: string, hotel_code: string} */
+/** @return array{username: string, role_name: string, tenant_name: string, hotel_name: string, hotel_code: string} */
 function e2eNames(string $prefix): array
 {
     return [
         'username' => $prefix . '_user',
         'role_name' => $prefix . '_role',
+        'tenant_name' => $prefix . '_tenant',
         'hotel_name' => $prefix . '_hotel',
         'hotel_code' => $prefix . '_hotel',
     ];
@@ -174,6 +176,7 @@ function e2eCount(string $prefix): array
 {
     $names = e2eNames($prefix);
     $targets = [
+        'tenants' => ['tenants', 'name'],
         'roles' => ['roles', 'name'],
         'users' => ['users', 'username'],
         'hotels' => ['hotels', 'name'],
@@ -198,6 +201,13 @@ function e2eCount(string $prefix): array
     $userId = (int)getenv('SUXI_E2E_USER_ID');
     if ($userId <= 0) {
         $userId = (int)(Db::name('users')->where('username', $names['username'])->value('id') ?? 0);
+    }
+    $tenantId = (int)getenv('SUXI_E2E_TENANT_ID');
+    if ($tenantId <= 0 && $hotelId > 0) {
+        $tenantId = (int)(Db::name('hotels')->where('id', $hotelId)->value('tenant_id') ?? 0);
+    }
+    if ($tenantId <= 0) {
+        $tenantId = (int)(Db::name('tenants')->where('name', $names['tenant_name'])->value('id') ?? 0);
     }
     foreach ([
         'online_daily_data' => ['online_daily_data', 'system_hotel_id'],
@@ -235,7 +245,7 @@ function e2eCount(string $prefix): array
     $rawPolicy = SystemConfig::getValue(SystemConfig::KEY_PROTECTED_CAPABILITY_POLICY, '');
     $policy = is_string($rawPolicy) ? json_decode($rawPolicy, true) : [];
     $tenantModules = is_array($policy['tenant_modules'] ?? null) ? $policy['tenant_modules'] : [];
-    $counts['module_entitlement'] = $hotelId > 0 && array_key_exists((string)$hotelId, $tenantModules) ? 1 : 0;
+    $counts['module_entitlement'] = $tenantId > 0 && array_key_exists((string)$tenantId, $tenantModules) ? 1 : 0;
 
     return ['counts' => $counts, 'total' => array_sum($counts)];
 }
@@ -273,8 +283,18 @@ function e2eSeed(string $prefix): array
             throw new RuntimeException('Failed to create isolated E2E role');
         }
 
+        $tenantId = (int)Db::name('tenants')->insertGetId(e2eFilterPayload('tenants', [
+            'name' => $names['tenant_name'],
+            'status' => 1,
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]));
+        if ($tenantId <= 0) {
+            throw new RuntimeException('Failed to create isolated E2E tenant');
+        }
+
         $userId = (int)Db::name('users')->insertGetId(e2eFilterPayload('users', [
-            'tenant_id' => null,
+            'tenant_id' => $tenantId,
             'username' => $names['username'],
             'password' => $passwordHash,
             'realname' => $names['username'],
@@ -293,7 +313,7 @@ function e2eSeed(string $prefix): array
         }
 
         $hotelId = (int)Db::name('hotels')->insertGetId(e2eFilterPayload('hotels', [
-            'tenant_id' => 0,
+            'tenant_id' => $tenantId,
             'name' => $names['hotel_name'],
             'code' => $names['hotel_code'],
             'address' => 'isolated E2E only',
@@ -311,18 +331,13 @@ function e2eSeed(string $prefix): array
             throw new RuntimeException('Failed to create isolated E2E hotel');
         }
 
-        Db::name('hotels')->where('id', $hotelId)->update(e2eFilterPayload('hotels', [
-            'tenant_id' => $hotelId,
-            'update_time' => date('Y-m-d H:i:s'),
-        ]));
         Db::name('users')->where('id', $userId)->update(e2eFilterPayload('users', [
-            'tenant_id' => $hotelId,
             'hotel_id' => $hotelId,
             'update_time' => date('Y-m-d H:i:s'),
         ]));
 
         $permission = e2eFilterPayload('user_hotel_permissions', [
-            'tenant_id' => $hotelId,
+            'tenant_id' => $tenantId,
             'user_id' => $userId,
             'hotel_id' => $hotelId,
             'scope_type' => 'owner',
@@ -356,6 +371,7 @@ function e2eSeed(string $prefix): array
         }
 
         return [
+            'tenant_id' => $tenantId,
             'user_id' => $userId,
             'username' => $names['username'],
             'role_id' => $roleId,
@@ -363,7 +379,7 @@ function e2eSeed(string $prefix): array
             'hotel_name' => $names['hotel_name'],
         ];
     });
-    e2eSetProtectedModules((int)$seed['hotel_id'], true);
+    e2eSetProtectedModules((int)$seed['tenant_id'], true);
     return $seed;
 }
 
@@ -561,14 +577,14 @@ function e2eCleanup(string $prefix): array
 {
     $names = e2eNames($prefix);
     $deleted = e2eDeletePrefixedRows($prefix);
-    $hotelRows = Db::name('hotels')->where('name', $names['hotel_name'])->field('id,name')->select()->toArray();
+    $hotelRows = Db::name('hotels')->where('name', $names['hotel_name'])->field('id,name,tenant_id')->select()->toArray();
     if (count($hotelRows) > 1) {
         throw new RuntimeException('Refusing cleanup: isolated E2E hotel name is not unique');
     }
     if ($hotelRows !== []) {
         $hotelId = (int)$hotelRows[0]['id'];
         $deleted = array_merge($deleted, e2eDeleteAiReportArtifacts($hotelId));
-        e2eSetProtectedModules($hotelId, false);
+        e2eSetProtectedModules((int)($hotelRows[0]['tenant_id'] ?? 0), false);
         $result = (new HotelCascadeDeletionService())->delete($hotelId);
         $deleted['hotel_cascade_rows'] = (int)($result['deleted_rows'] ?? 0) + 1;
     }
@@ -618,6 +634,17 @@ function e2eCleanup(string $prefix): array
         $deleted['roles'] = (int)Db::name('roles')
             ->where('id', (int)$roleRows[0]['id'])
             ->where('name', $names['role_name'])
+            ->delete();
+    }
+
+    $tenantRows = Db::name('tenants')->where('name', $names['tenant_name'])->field('id,name')->select()->toArray();
+    if (count($tenantRows) > 1) {
+        throw new RuntimeException('Refusing cleanup: isolated E2E tenant name is not unique');
+    }
+    if ($tenantRows !== []) {
+        $deleted['tenants'] = (int)Db::name('tenants')
+            ->where('id', (int)$tenantRows[0]['id'])
+            ->where('name', $names['tenant_name'])
             ->delete();
     }
 

@@ -23,7 +23,8 @@ if (!function_exists('suxi_root_index_response')) {
             'ETag' => $etag,
             'Last-Modified' => $lastModified,
             'Vary' => 'Accept-Encoding',
-            'Cache-Control' => 'no-cache',
+            'Cache-Control' => 'public, max-age=60, s-maxage=60, stale-while-revalidate=30',
+            'CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
             'Cloudflare-CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
         ];
 
@@ -686,6 +687,7 @@ Route::group('api/agent', function () {
     Route::post('/price-suggestions/:id/apply', 'Agent/applyPrice');
     Route::post('/price-suggestions/:id/execution-intent', 'Agent/createPriceSuggestionExecutionIntent');
     Route::get('/price-suggestions/:id/review', 'Agent/priceSuggestionReview');
+    Route::get('/revenue-bundle', 'Agent/revenueBundle');
     Route::get('/revenue-analysis', 'Agent/revenueAnalysis');
     Route::get('/cookie-warnings', 'Agent/cookieWarnings');
     Route::get('/room-types', 'Agent/roomTypes');

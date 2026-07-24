@@ -210,13 +210,13 @@ test('employee sequence starts at zero only for administrators', () => {
   assert.doesNotMatch(usersPage, /\{\{ index \+ 1 \}\}/);
 });
 
-test('existing user login actions separate non-destructive copy from password reset', () => {
+test('existing user login actions omit redundant copy action while retaining password reset', () => {
   const usersPage = sliceFrom('<!-- 用户管理 -->', '<!-- 角色管理 -->');
   const loginInfoFlow = sliceFrom('const openUserLoginInfoModal = (u = {}) => {', '\n\n            const copyLastUserIssueGuide');
   const editablePasswordInput = html.match(/<input[^>]*data-testid="user-login-info-password"[^>]*>/)?.[0] || '';
   const loginAddressReferences = html.match(/`登录地址：\$\{accountHandoffLoginUrl\}`/g) || [];
 
-  assert.match(usersPage, />复制账号<\/span>/);
+  assert.doesNotMatch(usersPage, />复制账号<\/(?:span|button)>/);
   assert.match(usersPage, />重置密码<\/span>/);
   assert.match(html, /const accountHandoffLoginUrl = 'https:\/\/www\.glslsuxi\.cn\/';/);
   assert.equal(loginAddressReferences.length, 3);

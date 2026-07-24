@@ -205,9 +205,12 @@ if ($publicRoot !== false
             ? 'Cache-Control: public, max-age=2592000, immutable'
             : 'Cache-Control: public, max-age=300, must-revalidate');
     } else {
-        header('Cache-Control: no-cache');
         if ($extension === 'html' && basename($staticFile) === 'index.html') {
+            header('Cache-Control: public, max-age=60, s-maxage=60, stale-while-revalidate=30');
+            header('CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30');
             header('Cloudflare-CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30');
+        } else {
+            header('Cache-Control: no-cache');
         }
     }
 

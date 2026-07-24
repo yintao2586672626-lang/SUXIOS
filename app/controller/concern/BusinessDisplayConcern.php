@@ -1888,60 +1888,6 @@ trait BusinessDisplayConcern
         return isset($values[$field]) && is_numeric($values[$field]) ? (float)$values[$field] : null;
     }
 
-    private function applyMeituanPercentScaleDerivedMetrics(array $hotelMap): array
-    {
-        foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'exposure', 'views'] as $field) {
-            $scale = $this->inferMeituanMinimalPercentScale($hotelMap, $field);
-            if ($scale === null) {
-                continue;
-            }
-
-            foreach ($hotelMap as &$row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-                $rowPercent = $this->meituanMetricRankPercent($row, $field);
-                if ($rowPercent === null || $rowPercent < 0) {
-                    continue;
-                }
-
-                $status = (string)($row['metricSourceStatus'][$field] ?? '');
-                if ((float)($row[$field] ?? 0) > 0 && $this->isMeituanMetricSourceUsable($status)) {
-                    continue;
-                }
-
-                $derivedValue = $this->roundMeituanDerivedMetric($field, $scale * $rowPercent / 100);
-                if ($this->isMeituanIntegerScaleMetric($field)) {
-                    $derivedValue = (float)max(0, (int)round($derivedValue));
-                }
-
-                $row[$field] = $derivedValue;
-                $row['metricSourceStatus'][$field] = '按美团百分比最小整数比例尺估算';
-                $row['metricDerived'][$field] = [
-                    'method' => 'percent_min_integer_scale',
-                    'scale_value' => $scale,
-                    'row_percent' => $rowPercent,
-                    'percent_precision' => 2,
-                    'source_scope' => 'meituan_rank_percent_only',
-                ];
-
-                if (is_array($row['rankHistory'] ?? null)) {
-                    foreach ($row['rankHistory'] as &$history) {
-                        if (is_array($history) && ($history['metric'] ?? '') === $field) {
-                            $history['value'] = $derivedValue;
-                            $history['sourceLabel'] = '按美团百分比最小整数比例尺估算';
-                            $history['derived'] = $row['metricDerived'][$field];
-                        }
-                    }
-                    unset($history);
-                }
-            }
-            unset($row);
-        }
-
-        return $hotelMap;
-    }
-
     private function isMeituanMetricSourceUsable(string $status): bool
     {
         return in_array($status, [

@@ -1,7 +1,8 @@
 param(
   [switch]$Apply,
   [switch]$IncludeDependencies,
-  [switch]$IncludeSensitiveBackups
+  [switch]$IncludeSensitiveBackups,
+  [switch]$IncludeCaptureAssets
 )
 
 $ErrorActionPreference = "Stop"
@@ -177,8 +178,12 @@ if (Test-Path -LiteralPath "storage") {
 }
 
 if (Test-Path -LiteralPath "reports") {
-  foreach ($assetDir in @("reports/ctrip_capture_assets", "reports/meituan_capture_assets")) {
-    $candidatePaths += $assetDir
+  # Screenshot assets may still be referenced by retained evidence JSON. Keep
+  # them by default and require an explicit opt-in for irreversible removal.
+  if ($IncludeCaptureAssets) {
+    foreach ($assetDir in @("reports/ctrip_capture_assets", "reports/meituan_capture_assets")) {
+      $candidatePaths += $assetDir
+    }
   }
 
   foreach ($pattern in @(

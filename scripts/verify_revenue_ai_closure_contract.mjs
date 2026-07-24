@@ -1927,6 +1927,7 @@ includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual rev
   'buildRevenueAiReviewQueueItems',
   'canApproveWithChanges',
   'canCreateExecutionIntent',
+  'actionButtons',
   'actionEntry',
   'autoWriteOta',
   'buildRevenueAiResolutionPlanSummary',
@@ -1952,10 +1953,8 @@ includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual rev
 ]);
 
 includesAll('public/index.html', 'Revenue AI homepage can execute the manual closure path only through local evidence routes', [
-  '@click="submitRevenueAiReviewAction(item, \'approve\')"',
-  '@click="submitRevenueAiReviewAction(item, \'approve_with_changes\')"',
-  '@click="submitRevenueAiReviewAction(item, \'reject\')"',
-  '@click="submitRevenueAiReviewAction(item, \'execution_intent\')"',
+  'item.actionButtons',
+  '@click="submitRevenueAiReviewAction(item, button.key)"',
   "if (normalizedAction === 'execution_intent') {",
   "const revenueAiResolveReviewActionDraft = requireRevenueAiStatic('resolveRevenueAiReviewActionDraft');",
   'const draft = revenueAiResolveReviewActionDraft({ item, action });',
@@ -1976,7 +1975,9 @@ includesAll('public/index.html', 'Revenue AI homepage can execute the manual clo
   "evidence_type: 'manual_roi_evidence'",
   "evidence_boundary: 'local_manual_evidence_no_ota_write'",
   "evidence_boundary: 'local_manual_roi_evidence_no_ota_write'",
-  '{{ item.impactLine }}',
+  'data-testid="revenue-ai-trusted-decision"',
+  'item.trustedDecisionRows',
+  '转运营任务',
   'data-testid="revenue-ai-investment-precheck"',
   'data-testid="revenue-ai-resolution-plan"',
   'data-testid="revenue-ai-pricing-generation-preflight"',
@@ -2029,12 +2030,9 @@ includesAll('public/index.html', 'Revenue AI homepage can execute the manual clo
   'Agent 定价建议工作台人工',
   "request(`/revenue-ai/price-suggestions/${id}/execution-intent`",
   "source: 'agent_pricing_suggestions'",
-  'action.reviewQueueCanOpenTarget',
   'action.pricingGenerationPreflightVisible',
-  'openRevenueAiDecisionBasis(action.reviewQueueTarget)',
   'action.investmentPrecheckVisible',
   'action.resolutionPlanVisible',
-  'action.investmentPrecheckSummary?.targetEntry',
   '只读',
 ]);
 
@@ -2106,6 +2104,48 @@ try {
     filename: 'public/revenue-ai-static.js',
   });
   const helpers = context.window.SUXI_REVENUE_AI_STATIC || {};
+  const trustedDecision = ({ canConfirm = false, canTransfer = false } = {}) => ({
+    contract_version: 'revenue_ai_trusted_decision.v1',
+    scope: 'ota_channel',
+    store: { hotel_id: 7, hotel_name: 'Test Hotel', display: 'Test Hotel (#7)' },
+    platform: { key: 'ctrip', label: 'Ctrip', scope: 'ota_channel' },
+    date: { value: '2026-06-25', basis: 'suggestion_date', status: 'available' },
+    sources: {
+      status: 'verified',
+      summary: 'Verified database readback',
+      items: [{ ref: 'online_daily_data#pricing_history:7:2026-06-01:2026-06-25' }],
+      ref_count: 1,
+    },
+    metric_formula: {
+      metric: 'price_change_rate',
+      expression: '(suggested_price - current_price) / current_price * 100%',
+      status: 'calculable',
+      display: '+13.57%',
+    },
+    data_quality: {
+      status: 'verified',
+      label: 'verified',
+      decision_eligible: true,
+      note: 'Database readback verified',
+    },
+    confidence: { score: 0.82, display: '82%', status: 'available' },
+    gaps: [],
+    recommended_action: {
+      summary: 'Adjust target price after human review; never write OTA automatically.',
+      auto_write_ota: false,
+    },
+    expected_effect: {
+      status: 'verification_target',
+      display: 'Read back channel revenue, orders, and ADR after execution',
+    },
+    human_confirmation: {
+      required: true,
+      confirmed: canTransfer,
+      can_confirm: canConfirm,
+      can_transfer_to_operation_task: canTransfer,
+      auto_write_ota: false,
+    },
+  });
   const actionRows = helpers.buildRevenueAiActionRows({
     overview: {
       actions: [{
@@ -2133,6 +2173,9 @@ try {
             manual_review_required: true,
             auto_write_ota: false,
             can_review: true,
+            can_confirm: true,
+            can_transfer_to_operation_task: false,
+            trusted_decision: trustedDecision({ canConfirm: true }),
             action_entry: {
               allowed_endpoints: {
                 review: '/api/revenue-ai/price-suggestions/11/review',
@@ -2153,6 +2196,9 @@ try {
             min_price_display: '220元',
             manual_review_required: true,
             auto_write_ota: false,
+            can_confirm: false,
+            can_transfer_to_operation_task: true,
+            trusted_decision: trustedDecision({ canTransfer: true }),
             action_entry: {
               allowed_endpoint: '/api/revenue-ai/price-suggestions/12/execution-intent',
               allowed_endpoints: {
@@ -2170,21 +2216,23 @@ try {
   const approved = actionRows[0]?.reviewQueueItems?.[1] || {};
   check(
     'public/revenue-ai-static.js',
-    'runtime helper exposes approve/approve_with_changes/reject but no OTA write',
+    'runtime helper exposes trusted approve/approve_with_changes/reject but no OTA write',
     pending.canApprove === true
       && pending.canApproveWithChanges === true
       && pending.canReject === true
       && pending.autoWriteOta === false
       && pending.allowedEndpoints.review === '/api/revenue-ai/price-suggestions/11/review'
-      && pending.impactLine === '预计RevPAR影响 +12.5元',
+      && pending.trustedContractValid === true
+      && pending.trustedDecisionRows.length === 10,
     JSON.stringify(pending)
   );
   check(
     'public/revenue-ai-static.js',
-    'runtime helper exposes approved suggestion only as execution intent',
+    'runtime helper exposes approved trusted suggestion as operation task handoff',
     approved.canCreateExecutionIntent === true
       && approved.canApprove === false
-      && approved.allowedEndpoint === '/api/revenue-ai/price-suggestions/12/execution-intent',
+      && approved.allowedEndpoint === '/api/revenue-ai/price-suggestions/12/execution-intent'
+      && approved.actionLabel === '转运营任务',
     JSON.stringify(approved)
   );
 

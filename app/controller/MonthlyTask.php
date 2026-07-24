@@ -244,19 +244,4 @@ class MonthlyTask extends Base
         $this->requireHotel();
     }
 
-    private function monthlyTasksHasColumn(string $column): bool
-    {
-        static $columns = null;
-        if ($columns === null) {
-            try {
-                $rows = Db::query('SHOW COLUMNS FROM monthly_tasks');
-                $columns = array_fill_keys(array_column($rows, 'Field'), true);
-            } catch (\Throwable $e) {
-                $columns = [];
-            }
-        }
-
-        return isset($columns[$column]);
-    }
-
 }

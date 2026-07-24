@@ -48,12 +48,24 @@ test('public-page task bridge has a dedicated authenticated browser entrypoint',
 
 test('isolated runner always selects a dedicated database and self-hosted loopback server', () => {
   assert.match(isolatedRunner, /const dedicatedDatabaseName = configuredDedicatedDatabase !== ''/);
-  assert.match(isolatedRunner, /: 'hotelx_e2e';/);
+  assert.match(isolatedRunner, /performanceOnly \? 'hotelx_performance_e2e' : 'hotelx_e2e';/);
   assert.match(isolatedRunner, /requires a dedicated \*_test\/\*_testing\/\*_e2e database name/);
   assert.match(isolatedRunner, /const selfHosted = true;/);
   assert.match(isolatedRunner, /SUXI_E2E_DB_OVERRIDE: '1'/);
   assert.match(isolatedRunner, /SUXI_E2E_ISOLATED_RUNNER: '1'/);
   assert.doesNotMatch(isolatedRunner, /SUXI_E2E_ALLOW_SHARED_DB/);
+});
+
+test('authenticated performance measurement uses the isolated runner and fails closed', () => {
+  assert.match(
+    String(packageJson.scripts?.['measure:performance:isolated'] || ''),
+    /run-quick-e2e-isolated\.mjs --performance-only/,
+  );
+  assert.match(isolatedRunner, /scripts\/measure_frontend_performance\.mjs/);
+  assert.match(isolatedRunner, /--authenticated=1/);
+  assert.match(isolatedRunner, /--require-verified=1/);
+  assert.match(isolatedRunner, /--enforce-budget=1/);
+  assert.match(isolatedRunner, /--performance-iterations must be an integer between 1 and 30/);
 });
 
 test('direct Playwright and Codex runners fail closed without isolation proof', () => {

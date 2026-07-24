@@ -10,6 +10,51 @@
     };
     const suxiActiveRender = shallowRef(requireSuxiAppRender());
     const suxiRenderCaches = new WeakMap();
+    const suxiStartupRequestCache = new Map();
+    const runSuxiStartupRequestOnce = (cacheKey, task, ttlMs = 5000) => {
+        const normalizedKey = String(cacheKey || '').trim();
+        if (!normalizedKey || typeof task !== 'function') {
+            return Promise.resolve().then(task);
+        }
+
+        const now = Date.now();
+        for (const [key, entry] of suxiStartupRequestCache.entries()) {
+            if (!entry?.promise && now - Number(entry?.completedAt || 0) > ttlMs) {
+                suxiStartupRequestCache.delete(key);
+            }
+        }
+
+        const current = suxiStartupRequestCache.get(normalizedKey);
+        if (current?.promise) return current.promise;
+        if (current?.value && now - Number(current.completedAt || 0) <= ttlMs) {
+            return Promise.resolve(current.value);
+        }
+
+        const promise = Promise.resolve()
+            .then(task)
+            .then((value) => {
+                if (value?.code === 200) {
+                    suxiStartupRequestCache.set(normalizedKey, {
+                        promise: null,
+                        value,
+                        completedAt: Date.now(),
+                    });
+                } else {
+                    suxiStartupRequestCache.delete(normalizedKey);
+                }
+                return value;
+            })
+            .catch((error) => {
+                suxiStartupRequestCache.delete(normalizedKey);
+                throw error;
+            });
+        suxiStartupRequestCache.set(normalizedKey, {
+            promise,
+            value: null,
+            completedAt: 0,
+        });
+        return promise;
+    };
     const appSystemStatic = window.SUXI_SYSTEM_STATIC;
     if (!appSystemStatic || typeof appSystemStatic !== 'object') {
         throw new Error('缺少系统前端静态配置：system-static.js 未加载');
@@ -203,6 +248,50 @@
                 Vue.h('div', null, [Vue.h('span', { class: 'font-medium text-gray-700' }, '数据依据：'), basisText, basisMeta ? Vue.h('small', { class: 'ml-1 text-gray-400' }, `（${basisMeta}）`) : null]),
                 Vue.h('div', null, [Vue.h('span', { class: 'font-medium text-gray-700' }, '预期效果：'), effectText, effectMeta ? Vue.h('small', { class: 'ml-1 text-gray-400' }, `（${effectMeta}）`) : null]),
                 Vue.h('div', { class: 'text-amber-700' }, [Vue.h('span', { class: 'font-medium' }, `风险（${riskLevel}）：`), riskText]),
+            ]);
+        },
+    };
+    const OnlineTruthSummary = {
+        name: 'OnlineTruthSummary',
+        props: {
+            truth: { type: Object, default: () => ({}) },
+            testid: { type: String, default: '' },
+        },
+        render() {
+            const helpers = window.SUXI_DATA_HEALTH_STATIC || {};
+            const summary = typeof helpers.onlineTruthSummaryText === 'function'
+                ? helpers.onlineTruthSummaryText(this.truth)
+                : '未验证：缺少可信凭证';
+            const nextAction = typeof helpers.onlineTruthNextActionText === 'function'
+                ? helpers.onlineTruthNextActionText(this.truth)
+                : '';
+            const rows = typeof helpers.onlineTruthMetaRows === 'function'
+                ? helpers.onlineTruthMetaRows(this.truth)
+                : [];
+            const testid = String(this.testid || '').trim();
+            return h('div', {
+                class: 'mt-2 text-[11px] leading-5 text-slate-500',
+                'data-testid': testid || undefined,
+            }, [
+                h('div', { class: 'font-medium text-slate-600' }, summary),
+                nextAction
+                    ? h('div', { class: 'mt-0.5 text-amber-700' }, `下一步：${nextAction}`)
+                    : null,
+                h('details', {
+                    class: 'mt-1.5',
+                    'data-testid': testid ? `${testid}-details` : undefined,
+                }, [
+                    h('summary', {
+                        class: 'cursor-pointer select-none text-slate-400 hover:text-slate-600',
+                    }, '查看详情'),
+                    h('dl', { class: 'mt-1.5 space-y-1 border-t border-slate-100 pt-1.5' }, rows.map(row => h('div', {
+                        key: row.key,
+                        class: 'grid grid-cols-[52px_minmax(0,1fr)] gap-1',
+                    }, [
+                        h('dt', { class: 'text-slate-400' }, row.label),
+                        h('dd', { class: 'break-words text-slate-600' }, row.value),
+                    ]))),
+                ]),
             ]);
         },
     };
@@ -605,6 +694,7 @@
             ActionButtons,
             DataTable,
             AiDecisionQualityDetails,
+            OnlineTruthSummary,
             PlatformAutoSettingsPanels,
             PlatformAutoSecondaryPanels,
             SessionProofNotice,
@@ -1209,7 +1299,6 @@
             const initialPageOverride = /^[a-z0-9-]+$/.test(requestedInitialPage) ? requestedInitialPage : '';
             const currentPage = ref(initialPageOverride || 'online-data');
             const SUPER_ADMIN_ONLY_PAGES = new Set([
-                'agent-center',
                 'users',
                 'roles',
                 'operation-logs',
@@ -1220,6 +1309,16 @@
             ]);
             const guardSuperAdminPageAccess = (page, options = {}) => {
                 const targetPage = String(page || '').trim();
+                if (targetPage === 'agent-center') {
+                    const canUseRevenueAgent = user.value?.is_super_admin === true
+                        || userHasPermission('can_use_ai_decision')
+                        || userHasCapability('ai.view')
+                        || userHasCapability('ai.execute');
+                    if (canUseRevenueAgent) return true;
+                    if (currentPage.value === targetPage) currentPage.value = 'compass';
+                    if (options.notify !== false) showToast('当前账号没有 Revenue AI 使用权限', 'warning');
+                    return false;
+                }
                 if (!SUPER_ADMIN_ONLY_PAGES.has(targetPage) || user.value?.is_super_admin === true) return true;
                 if (currentPage.value === targetPage) currentPage.value = 'compass';
                 if (options.notify !== false) showToast('该页面仅超级管理员可访问', 'warning');
@@ -2685,15 +2784,66 @@
                 }
                 return value;
             };
-            const requireOtaBrowserAssistStatic = (key) => (...args) => {
+            const OTA_BROWSER_ASSIST_STATIC_ASSET = 'ota-browser-assist-static.js?v=20260723-browser-assist-safety-h82e9900cd3';
+            let otaBrowserAssistStaticLoadPromise = null;
+            const resolveOtaBrowserAssistStatic = () => {
                 const otaBrowserAssistStatic = window.SUXI_OTA_BROWSER_ASSIST_STATIC;
-                const helper = otaBrowserAssistStatic?.[key];
-                if (typeof helper !== 'function') {
-                    throw new Error(`缺少OTA浏览器辅助静态工具项：${key}`);
+                if (typeof otaBrowserAssistStatic?.buildOtaBrowserAssistCollectorScript !== 'function') {
+                    throw new Error('OTA浏览器辅助静态工具未就绪');
                 }
-                return helper.apply(otaBrowserAssistStatic, args);
+                return otaBrowserAssistStatic;
             };
-            const buildOtaBrowserAssistCollectorScript = requireOtaBrowserAssistStatic('buildOtaBrowserAssistCollectorScript');
+            const loadOtaBrowserAssistStatic = () => {
+                try {
+                    return Promise.resolve(resolveOtaBrowserAssistStatic());
+                } catch (error) {
+                    if (otaBrowserAssistStaticLoadPromise) return otaBrowserAssistStaticLoadPromise;
+                }
+
+                otaBrowserAssistStaticLoadPromise = new Promise((resolve, reject) => {
+                    const assetName = 'ota-browser-assist-static.js';
+                    const assetBaseName = (src = '') => String(src || '').split(/[?#]/, 1)[0].split('/').pop();
+                    const existing = [...document.scripts].find(
+                        (script) => assetBaseName(script.getAttribute('src')) === assetName,
+                    );
+                    const complete = () => {
+                        try {
+                            resolve(resolveOtaBrowserAssistStatic());
+                        } catch (error) {
+                            reject(error);
+                        }
+                    };
+                    const fail = (script) => {
+                        if (script?.dataset?.suxiActionAsset === assetName) script.remove();
+                        reject(new Error('OTA浏览器辅助静态工具加载失败'));
+                    };
+
+                    if (existing) {
+                        if (existing.dataset.suxiAssetLoaded === '1') {
+                            complete();
+                            return;
+                        }
+                        existing.addEventListener('load', complete, { once: true });
+                        existing.addEventListener('error', () => fail(existing), { once: true });
+                        return;
+                    }
+
+                    const script = document.createElement('script');
+                    script.src = OTA_BROWSER_ASSIST_STATIC_ASSET;
+                    script.async = true;
+                    script.dataset.suxiActionAsset = assetName;
+                    script.addEventListener('load', () => {
+                        script.dataset.suxiAssetLoaded = '1';
+                        complete();
+                    }, { once: true });
+                    script.addEventListener('error', () => fail(script), { once: true });
+                    document.body.appendChild(script);
+                }).catch((error) => {
+                    otaBrowserAssistStaticLoadPromise = null;
+                    throw error;
+                });
+                return otaBrowserAssistStaticLoadPromise;
+            };
             const defaultMeituanAdsUrl = requireMeituanStatic('defaultMeituanAdsUrl')();
             const createMeituanRankingForm = requireMeituanStatic('createMeituanRankingForm');
             const createMeituanTrafficForm = requireMeituanStatic('createMeituanTrafficForm');
@@ -3674,6 +3824,60 @@
             const collectionHealthLogs = computed(() => Array.isArray(collectionReliability.value?.collection_logs) ? collectionReliability.value.collection_logs : []);
             const collectionHealthLatestLog = computed(() => collectionHealthLogs.value[0] || null);
             const collectionHealthQuality = computed(() => collectionReliability.value?.data_quality || {});
+            const dualOtaContinuousTrust = computed(() => {
+                const value = collectionReliability.value?.dual_ota_continuous_trust;
+                return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+            });
+            const dualOtaContinuousDays = computed(() => Array.isArray(dualOtaContinuousTrust.value?.days)
+                ? dualOtaContinuousTrust.value.days
+                : []);
+            const dualOtaContinuousStatusText = (status) => {
+                const normalized = String(status || '').trim().toLowerCase();
+                return ['verified', 'partial', 'collection_failed'].includes(normalized) ? normalized : 'partial';
+            };
+            const dualOtaContinuousStatusClass = (status) => {
+                const normalized = dualOtaContinuousStatusText(status);
+                if (normalized === 'verified') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+                if (normalized === 'collection_failed') return 'border-red-200 bg-red-50 text-red-700';
+                return 'border-amber-200 bg-amber-50 text-amber-800';
+            };
+            const dualOtaContinuousPlatformLabel = (platform) => String(platform || '').trim().toLowerCase() === 'meituan'
+                ? '美团'
+                : '携程';
+            const dualOtaContinuousStepLabels = Object.freeze({
+                source: '来源',
+                hotel: '门店',
+                date: '日期',
+                field_facts: '字段事实',
+                save: '保存',
+                readback: '数据库回读',
+                page_status: '页面状态',
+                p0: 'P0验证',
+            });
+            const dualOtaContinuousStepRows = (platform = {}) => {
+                const steps = platform?.steps && typeof platform.steps === 'object' ? platform.steps : {};
+                const requiredSteps = Array.isArray(dualOtaContinuousTrust.value?.required_steps)
+                    ? dualOtaContinuousTrust.value.required_steps
+                    : Object.keys(dualOtaContinuousStepLabels);
+                return requiredSteps.map(key => ({
+                    key,
+                    label: dualOtaContinuousStepLabels[key] || key,
+                    ready: steps[key] === true,
+                }));
+            };
+            const dualOtaContinuousSummaryText = computed(() => {
+                const trust = dualOtaContinuousTrust.value;
+                const consecutive = Number.isInteger(trust?.consecutive_verified_days)
+                    ? String(trust.consecutive_verified_days)
+                    : '未返回';
+                const evaluated = Number.isInteger(trust?.evaluated_days)
+                    ? String(trust.evaluated_days)
+                    : '未返回';
+                const verified = Number.isInteger(trust?.verified_days)
+                    ? String(trust.verified_days)
+                    : '未返回';
+                return `连续可信 ${consecutive} 天 · 已验证 ${verified}/${evaluated} 天`;
+            });
             const collectionHealthHistoryReplay = computed(() => Array.isArray(collectionReliability.value?.history_replay) ? collectionReliability.value.history_replay : []);
             const collectionHealthPendingActions = computed(() => Array.isArray(collectionReliability.value?.pending_actions) ? collectionReliability.value.pending_actions : []);
             const collectionHealthPendingActionRows = computed(() => buildCollectionHealthPendingActionRows(collectionHealthPendingActions.value));
@@ -3974,10 +4178,16 @@
                     stopStrongOtaReminderAutoDismissTimer(true);
                 }
             };
-            const loadBackendGlobalNotifications = async () => {
+            const loadBackendGlobalNotifications = async (options = {}) => {
                 const notificationSession = captureAuthSession();
                 await ensureNotificationStaticReady();
-                const res = await request('/notifications?page=1&page_size=20');
+                const requestNotifications = () => request('/notifications?page=1&page_size=20');
+                const res = options.startupDedupe === true
+                    ? await runSuxiStartupRequestOnce(
+                        `notifications:${notificationSession.token}`,
+                        requestNotifications,
+                    )
+                    : await requestNotifications();
                 if (!isAuthSessionCurrent(notificationSession)) return;
                 if (res.code !== 200) {
                     throw new Error(res.message || '通知列表加载失败');
@@ -4170,7 +4380,9 @@
                     if (!options.backendOnly) {
                         scheduleDataHealthPanelRefresh('light');
                     }
-                    await loadBackendGlobalNotifications();
+                    await loadBackendGlobalNotifications({
+                        startupDedupe: options.startupDedupe === true,
+                    });
                     globalNotificationLastLoadedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
                 } catch (error) {
                     if (!options.silent) {
@@ -6872,7 +7084,7 @@
             const revenueAiExecutionFocus = ref(null);
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260715-truthful-not-loaded-h18eaf4e6ed';
+            const revenueAiStaticVersion = '20260724-trusted-decision-ha49b5f1ccd';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -8093,10 +8305,25 @@
                         const intentId = Number(responseIntent.id || 0);
                         if (!Number.isInteger(intentId) || intentId <= 0) throw new Error('执行意图创建结果缺少有效ID');
                         const persistedIntent = await readOperationExecutionIntent(intentId);
-                        if (persistedIntent.status !== 'pending_approval'
+                        const responseTask = res.data?.operation_task || {};
+                        const taskCreated = res.data?.operation_task_created === true;
+                        const expectedIntentStatus = taskCreated ? 'approved' : 'pending_approval';
+                        if (persistedIntent.status !== expectedIntentStatus
                             || String(persistedIntent.blocked_reason || '').trim() !== ''
                         ) {
                             throw new Error('执行意图严格回读未通过');
+                        }
+                        if (taskCreated) {
+                            const taskId = Number(responseTask.id || 0);
+                            const persistedTask = (Array.isArray(persistedIntent.tasks) ? persistedIntent.tasks : [])
+                                .find(task => Number(task?.id || 0) === taskId);
+                            if (!Number.isInteger(taskId)
+                                || taskId <= 0
+                                || !persistedTask
+                                || persistedTask.status !== 'pending_execute'
+                            ) {
+                                throw new Error('运营任务严格回读未通过');
+                            }
                         }
                         await openRevenueAiExecutionItem(revenueAiBuildExecutionIntentOpenRow({
                             payload: res.data || {},
@@ -8714,6 +8941,7 @@
             });
             const buildManualAutoFetchModePayload = () => ({
                 ...buildAutoFetchModePayload(),
+                ctrip_auto_fetch_mode: 'cookie_config',
                 meituan_auto_fetch_mode: 'cookie_config',
             });
             const buildScheduledAutoFetchModePayload = () => ({
@@ -10498,7 +10726,7 @@
             const scheduleInitialBackendNotificationRefresh = (delayMs = 800) => {
                 setTimeout(() => {
                     if (!token.value) return;
-                    refreshGlobalNotifications({ silent: true, backendOnly: true });
+                    refreshGlobalNotifications({ silent: true, backendOnly: true, startupDedupe: true });
                 }, Math.max(0, Number(delayMs) || 0));
             };
             const scheduleCtripProfileFieldReview = () => schedulePostFetchRefresh('ctrip-profile-field-review', () => openCtripProfileFieldsForReview(), 520);
@@ -11333,6 +11561,7 @@
                         params.append('hotel_id', hotelId);
                     }
                     params.append('days', '30');
+                    params.append('end_date', String(coreOperationsTargetDate.value || coreOperationsMaxDate));
                     params.append('mode', mode === 'full' ? 'full' : 'light');
                     const query = params.toString();
                     const res = await request(`/online-data/collection-reliability${query ? '?' + query : ''}`);
@@ -12260,12 +12489,16 @@
             ));
             const coreOperationsSourceFetchActionText = computed(() => {
                 const status = String(coreOperationsSourceFetchVisibleState.value.status || '');
-                if (coreOperationsProfileSessionBlockedRows.value.length > 0) return '先验证平台登录';
-                if (status === 'checking_session') return '检查会话中';
-                if (status === 'submitting') return '正在提交';
-                if (status === 'running' || fetchingData.value) return '后台采集中';
-                if (status === 'verifying') return '回读核验中';
-                return '补采双平台昨日数据';
+                const hotelName = String(getHotelNameById(coreOperationsHotelId.value) || '当前门店').trim();
+                const profileCount = coreOperationsProfileSessionRows.value.filter(row => row.hasProfile).length;
+                const modeText = profileCount === 2 ? '双平台 Profile' : (profileCount === 1 ? 'Profile/辅助来源' : '辅助来源');
+                if (coreOperationsProfileSessionBlockedRows.value.length > 0) return `${hotelName} · 先验证 Profile`;
+                if (status === 'checking_session') return `${hotelName} · 检查 Profile`;
+                if (status === 'submitting') return `${hotelName} · 提交${modeText}补采`;
+                if (status === 'running') return `${hotelName} · ${modeText}采集中`;
+                if (status === 'verifying') return `${hotelName} · 核对入库结果`;
+                if (fetchingData.value) return '其他采集任务运行中';
+                return `${hotelName} · ${modeText}补采`;
             });
             const coreOperationsSourceFetchStatusClass = computed(() => {
                 const status = String(coreOperationsSourceFetchVisibleState.value.status || '');
@@ -14019,6 +14252,8 @@
                         errors[field.name] = `${field.label || field.name}不能为空`;
                     } else if (field.type === 'number' && value && !Number.isFinite(Number(value.replace(/[,，]/g, '')))) {
                         errors[field.name] = `${field.label || field.name}必须是数字`;
+                    } else if (field.type === 'date' && value && field.min && value < String(field.min)) {
+                        errors[field.name] = `${field.label || field.name}不能早于${field.min}`;
                     }
                 }
                 state.errors = errors;
@@ -14162,6 +14397,7 @@
             const filterUserRoleId = ref('');
             const filterUserStatus = ref('');
             const filterUserHotelId = ref('');
+            const userLastLoginSortDirection = ref('desc');
             const compassHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
             const dualOtaHotelOrderStorageKey = () => `suxios_dual_ota_hotel_order_${user.value?.id || 'guest'}_v1`;
             const normalizeDualOtaHotelOrderIds = (orderIds = [], options = []) => {
@@ -14862,6 +15098,29 @@
                 return usernameCompare || Number(a?.id || 0) - Number(b?.id || 0);
             };
 
+            const userLastLoginTimestamp = (u = {}) => {
+                const value = String(u?.last_login_time || u?.last_login_at || '').trim();
+                if (!value) return null;
+                const parsed = Date.parse(value.replace(' ', 'T'));
+                return Number.isFinite(parsed) ? parsed : null;
+            };
+
+            const compareUsersByLastLogin = (a = {}, b = {}) => {
+                const timestampA = userLastLoginTimestamp(a);
+                const timestampB = userLastLoginTimestamp(b);
+                if (timestampA === null || timestampB === null) {
+                    if (timestampA === timestampB) return compareUserDisplayOrder(a, b);
+                    return timestampA === null ? 1 : -1;
+                }
+                const direction = userLastLoginSortDirection.value === 'asc' ? 1 : -1;
+                if (timestampA !== timestampB) return (timestampA - timestampB) * direction;
+                return compareUserDisplayOrder(a, b);
+            };
+
+            const toggleUserLastLoginSort = () => {
+                userLastLoginSortDirection.value = userLastLoginSortDirection.value === 'desc' ? 'asc' : 'desc';
+            };
+
             const userSummary = computed(() => {
                 if (!usersSnapshotReady.value) {
                     return { total: '—', active: '—', beta: '—', normal: '—', disabled: '—', unassigned: '—' };
@@ -15473,7 +15732,7 @@
                             ? hotelIds.length === 0
                             : hotelIds.includes(String(filterUserHotelId.value)));
                     return matchSearch && matchRole && matchStatus && matchHotel;
-                }).sort(compareUserDisplayOrder);
+                }).sort(compareUsersByLastLogin);
             });
 
             const buildOtaDiagnosisOption = (source, hotel, index) => {
@@ -17522,8 +17781,14 @@
                 browserAssistImportResult.value = null;
             };
 
-            const copyBrowserAssistCollectorScript = () => {
-                copyToClipboard(buildOtaBrowserAssistCollectorScript());
+            const copyBrowserAssistCollectorScript = async () => {
+                try {
+                    const otaBrowserAssistStatic = await loadOtaBrowserAssistStatic();
+                    await copyToClipboard(otaBrowserAssistStatic.buildOtaBrowserAssistCollectorScript());
+                } catch (error) {
+                    console.error('[ota-browser-assist-static] action load failed', error);
+                    showToast('浏览器辅助采集脚本加载失败，请重试', 'error');
+                }
             };
 
             const importBrowserAssistCaptureFromText = async () => {
@@ -19382,7 +19647,7 @@
                     scopeCode: scope.code,
                     scopeText: scope.text,
                     resultTypeCode: String(metric.result_layer || '').trim() === 'derived_metric' ? 'derived' : 'source_fact',
-                    truthDetailText: `门店：${hotelText}；平台：${platformText}；日期：${dateText}；来源：${sourceText}；采集时间：${collectedAtText}；入库回读：${persistenceText}；失败原因：${failureReason}；口径：${scope.label}`,
+                    truthDetailText: onlineTruthDetailText(truth),
                 };
             };
             const aiDailyReportMetricCalculation = (metric = {}) => {
@@ -20519,6 +20784,9 @@
                     return '';
                 };
                 const defaultPlatform = firstText(['platform', 'channel', 'source_channel']).toLowerCase();
+                const today = formatDate(new Date());
+                const configuredExecutionDate = firstText(['execution_date', 'date_start']);
+                const defaultExecutionDate = configuredExecutionDate >= today ? configuredExecutionDate : today;
                 const formValues = await openWorkflowFormDialog({
                     title: '创建 OTA 调价执行意图',
                     description: '这里只创建待审批执行单，不会直接向 OTA 写入价格。',
@@ -20535,6 +20803,14 @@
                                 { value: 'meituan', label: '美团' },
                             ],
                         },
+                        {
+                            name: 'execution_date',
+                            label: '计划执行日期',
+                            type: 'date',
+                            required: true,
+                            value: defaultExecutionDate,
+                            min: today,
+                        },
                         { name: 'room_type_key', label: 'OTA 房型标识 room_type_key', required: true, value: firstText(['room_type_key', 'roomTypeKey']) },
                         { name: 'rate_plan_key', label: 'OTA 价型标识 rate_plan_key', required: true, value: firstText(['rate_plan_key', 'ratePlanKey']) },
                     ],
@@ -20542,12 +20818,17 @@
                 if (formValues === null) return null;
                 const fields = {
                     platform: String(formValues.platform || '').trim().toLowerCase(),
+                    execution_date: String(formValues.execution_date || '').trim(),
                     room_type_key: String(formValues.room_type_key || '').trim(),
                     rate_plan_key: String(formValues.rate_plan_key || '').trim(),
                 };
                 const missing = Object.entries(fields).find(([, value]) => !value);
                 if (missing) {
                     showToast(`${missing[0]} 必填，未创建执行意图`, 'error');
+                    return null;
+                }
+                if (fields.execution_date < today) {
+                    showToast('计划执行日期不能早于今天，未创建执行意图', 'error');
                     return null;
                 }
                 return fields;
@@ -22904,7 +23185,8 @@
             };
 
             const hotelVerifiedOtaState = (hotel = {}) => buildHotelVerifiedOtaState(hotelApplicablePlatformBindingRows(hotel));
-            const hotelOtaStatusBadges = (hotel = {}) => buildHotelOtaStatusBadges(hotelApplicablePlatformBindingRows(hotel));
+            const hotelOtaStatusBadges = (hotel = {}) => buildHotelOtaStatusBadges(hotelApplicablePlatformBindingRows(hotel))
+                .filter(badge => !['dual', 'pending'].includes(badge?.key));
 
             const hotelOwnerText = (hotel = {}) => firstNonEmptyText(
                 hotel.contact_person,
@@ -23369,8 +23651,9 @@
                             || hotelPlatformFetchConfigReady(hotel, account)
                         );
                         const readinessCode = platformAccountReadinessCode(hotel, account);
+                        const recentCollectionFailed = account.captureStatusText === '最近采集失败';
                         const actionTarget = ['auto_ready', 'renewal_warning'].includes(readinessCode)
-                            ? (account.captureStatusText === '最近采集失败' ? 'sync-logs' : 'platform-auto')
+                            ? (usesProfile ? 'profile-capture' : 'platform-auto')
                             : (readinessCode === 'manual_ready' ? 'platform-manual'
                             : (account.nextActionTarget || (readinessCode === 'waiting_login' || readinessCode === 'login_expired' ? 'profile-login' : 'hotel-ota')));
                         return {
@@ -23399,9 +23682,12 @@
                             storedRowsText: storedRowCount === null ? '入库未加载' : `入库 ${storedRowCount} 条`,
                             targetDateText: collectionRow?.targetDate || platformCollectionStatus.value?.targetDate || '未加载',
                             actionTarget,
+                            showFailureLog: recentCollectionFailed,
                             actionText: ['auto_ready', 'renewal_warning'].includes(readinessCode)
-                                ? (actionTarget === 'sync-logs' ? '查看失败日志' : '查看自动采集')
-                                : (readinessCode === 'manual_ready' ? '去手动补采'
+                                ? (usesProfile
+                                    ? (recentCollectionFailed ? 'Profile 再次采集' : '使用 Profile 采集')
+                                    : (recentCollectionFailed ? 'Cookie/API 再次补采' : 'Cookie/API 临时补采'))
+                                : (readinessCode === 'manual_ready' ? 'Cookie/API 临时补采'
                                     : (readinessCode === 'waiting_login' ? '验证 Profile 登录'
                                         : (readinessCode === 'login_expired' ? '重新登录' : (account.nextActionText || '处理账号')))),
                         };
@@ -23487,6 +23773,7 @@
             const openPlatformAccountCenterAction = async (row = {}) => {
                 if (!row.hotel || !row.account) return;
                 if (row.actionTarget === 'profile-login') return openHotelPlatformAccountAction(row.hotel, row.account);
+                if (row.actionTarget === 'profile-capture') return openHotelProfileCapture(row.hotel, row.platform);
                 if (row.actionTarget === 'sync-logs') return openHotelSyncLogs(row.hotel, row.platform);
                 if (row.actionTarget === 'platform-auto') return openHotelPlatformConsole(row.hotel, row.platform);
                 if (row.actionTarget === 'platform-manual') return openHotelManualFetch(row.hotel, row.platform);
@@ -23790,6 +24077,19 @@
                         applySelectedConfig: false,
                     }));
                 }
+            };
+
+            const openHotelProfileCapture = async (hotel, platform = '') => {
+                const hotelId = await prepareHotelPlatformAccountContext(hotel, platform);
+                if (!hotelId) return;
+                const targetDate = coreOperationsMaxDate;
+                coreOperationsHotelId.value = hotelId;
+                coreOperationsTargetDate.value = targetDate;
+                currentPage.value = 'online-data';
+                await nextTick();
+                await openOnlineDataTab('data-health', { force: true, delayMs: 0 });
+                await refreshCoreOperationsLoop({ hotelId, targetDate, resetScope: true });
+                showToast(`已打开${hotel?.name || '当前门店'}的 Profile 采集入口`, 'success');
             };
 
             const openHotelManualFetchConfig = async (hotel, platform = 'ctrip') => {
@@ -26454,7 +26754,12 @@
                 recent_logs: []
             });
             const agentOverview = ref(createEmptyAgentOverview());
-            const agentTabs = requireSystemStatic('agentTabs');
+            const allAgentTabs = requireSystemStatic('agentTabs');
+            const agentTabs = computed(() => (
+                user.value?.is_super_admin === true
+                    ? allAgentTabs
+                    : allAgentTabs.filter(tab => tab.key === 'revenue')
+            ));
             const toLocalIsoDate = (date = new Date()) => {
                 const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
                 return localDate.toISOString().split('T')[0];
@@ -26789,7 +27094,7 @@
                         label: '目标日源数据',
                         value: `${summary.target_date_source_rows || 0}`,
                         rawValue: String(summary.target_date_source_rows || 0),
-                        detail: 'online_daily_data 行数',
+                        detail: 'OTA 入库行数',
                         className: 'text-gray-900',
                     },
                 ];
@@ -27333,6 +27638,15 @@
                 medium: '中风险信号',
                 not_loaded: '未加载',
             }[String(status || '').trim().toLowerCase()] || '状态待确认');
+            const coreOperationsSourceEvidenceStatusText = (status) => ({
+                target_date_present: '目标日有数据',
+                target_date_partial: '目标日部分数据',
+                reference_only: '仅供参考',
+                stale_before_target: '仅有较早数据',
+                target_date_missing: '目标日无数据',
+                no_rows: '没有可用数据',
+                unknown: '证据待确认',
+            }[String(status || '').trim().toLowerCase()] || '证据待确认');
             const coreOperationsEvidenceStatusClass = (status) => {
                 const normalized = String(status || '').trim().toLowerCase();
                 if (['ready', 'success', 'available', 'proved', 'complete', 'no_action'].includes(normalized)) {
@@ -27501,6 +27815,7 @@
                         sourceRows,
                         sourceRowsText: sourceRows === null ? '未验证/未知' : `${sourceRows} 行`,
                         evidenceStatus: String(platformEvidence?.evidence_status || 'unknown'),
+                        evidenceStatusText: coreOperationsSourceEvidenceStatusText(platformEvidence?.evidence_status),
                         message: String(result.message || ''),
                         metrics,
                         truthStatus,
@@ -27534,7 +27849,10 @@
                 const ctripStoredRows = ctripBusinessRows !== null && ctripTrafficRows !== null
                     ? ctripBusinessRows + ctripTrafficRows
                     : null;
-                const ctripSourceEvidence = `online_daily_data · 门店 #${ctripContext.system_hotel_id || coreOperationsHotelId.value || '-'} · 绑定 ${ctripContext.binding_status || '未返回'} · 入库 ${coreOperationsEvidenceCountText(ctripStoredRows, '行')}/决策可用 ${coreOperationsEvidenceCountText(ctripCoverage.decision_eligible_row_count, '行')} · 更新 ${ctripContext.latest_fetched_at || '未返回'}`;
+                const ctripBindingText = ['bound', 'ready', 'verified'].includes(String(ctripContext.binding_status || '').toLowerCase())
+                    ? '门店已绑定'
+                    : '门店绑定待确认';
+                const ctripSourceEvidence = `OTA入库数据 · 门店 #${ctripContext.system_hotel_id || coreOperationsHotelId.value || '-'} · ${ctripBindingText} · 入库 ${coreOperationsEvidenceCountText(ctripStoredRows, '行')}/可用 ${coreOperationsEvidenceCountText(ctripCoverage.decision_eligible_row_count, '行')} · 更新 ${ctripContext.latest_fetched_at || '未返回'}`;
                 const ctripDefinitions = [
                     { key: 'amount', label: '成交金额', currency: true, decimals: 2 },
                     { key: 'room_nights', label: '间夜', decimals: 2 },
@@ -27568,7 +27886,7 @@
                 const meituanStatus = meituanDate && meituanDate !== targetDate
                     ? 'stale'
                     : String(competitorSummary.value?.readiness?.status || competitorSummary.value?.data_status || competitorSummary.value?.status || 'data_missing');
-                const meituanSourceEvidence = `online_daily_data · 门店 #${competitorSummary.value?.system_hotel_id || coreOperationsHotelId.value || '-'} · POI ${competitorSummary.value?.target_poi_id ? '已绑定' : '未返回'} · 入库 ${coreOperationsEvidenceCountText(competitorSummary.value?.record_count, '行')}/展示 ${coreOperationsEvidenceCountText(competitorSummary.value?.display_hotel_count, '店')} · 更新 ${competitorSummary.value?.latest_fetched_at || '未返回'}`;
+                const meituanSourceEvidence = `OTA入库数据 · 门店 #${competitorSummary.value?.system_hotel_id || coreOperationsHotelId.value || '-'} · 平台门店${competitorSummary.value?.target_poi_id ? '已绑定' : '待确认'} · 入库 ${coreOperationsEvidenceCountText(competitorSummary.value?.record_count, '行')}/展示 ${coreOperationsEvidenceCountText(competitorSummary.value?.display_hotel_count, '店')} · 更新 ${competitorSummary.value?.latest_fetched_at || '未返回'}`;
                 const meituanDefinitions = [
                     { key: 'avgRoomPrice', label: '平均房价', currency: true, decimals: 2 },
                     { key: 'avgSalesPrice', label: '销售客单', currency: true, decimals: 2 },
@@ -28797,7 +29115,7 @@
                         actionRawText: item.nextActionText || '',
                         entryText: item.entryText || '',
                         entryRawText: item.entryRawText || '',
-                        verificationText: item.proofText || '完成判定：目标日 online_daily_data 有源数据行。',
+                        verificationText: item.proofText || '完成判定：目标日有 OTA 入库数据。',
                         boundaryText: item.boundaryText || '只按 OTA 渠道目标日证据判断。',
                         actionType: needsAction ? (canManualFetch ? 'manual_fetch_platform' : 'config') : '',
                         actionPlatform: platform,
@@ -30171,41 +30489,7 @@
             };
 
             const loadPriceSuggestionWorkbench = async () => {
-                const requestContext = captureAgentRevenueRequestContext();
-                priceSuggestions.value = [];
-                priceSuggestionReview.value = null;
-                roomTypeConfigList.value = [];
-                roomTypeConfigMeta.value = {};
-                demandForecasts.value = [];
-                forecastAccuracy.value = {};
-                highDemandDates.value = [];
-                revenueAiOverview.value = null;
-                revenueAiOverviewError.value = '';
-                resetCompetitorAnalysisView();
-                revenueLoadState.value = createRevenueLoadState();
-                setRevenueLoadState('bundle', 'loading');
-                try {
-                    await ensureRevenueAiStaticReady();
-                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
-                    const results = await Promise.allSettled([
-                        loadRoomTypes(),
-                        loadDemandForecasts(),
-                        loadCompetitorAnalysis(),
-                        loadPriceSuggestions(),
-                        loadRevenueAiOverview(),
-                    ]);
-                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
-                    const rejected = results.find(result => result.status === 'rejected');
-                    if (rejected) throw rejected.reason;
-                    const failed = Object.values(revenueLoadState.value).find(state => state?.status === 'failed');
-                    setRevenueLoadState('bundle', failed ? 'failed' : 'ready', failed?.error || '');
-                    return revenueLoadState.value;
-                } catch (e) {
-                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
-                    setRevenueLoadState('bundle', 'failed', e.message || '收益工作台读取失败');
-                    showToast('收益工作台读取失败: ' + (e.message || '未知错误'), 'error');
-                    return null;
-                }
+                return loadRevenueAnalysisBundle();
             };
 
             // 加载定价建议
@@ -30483,8 +30767,13 @@
                     if (!isCurrentRequest()) return;
                     const priceParams = new URLSearchParams({ hotel_id: hotelId, date });
                     const meituanParams = new URLSearchParams({ hotel_id: hotelId, target_date: date, range: 'yesterday' });
+                    const priceRequest = options.priceResponsePromise
+                        ? Promise.resolve(options.priceResponsePromise)
+                        : (options.priceResponse
+                            ? Promise.resolve({ code: 200, data: options.priceResponse })
+                            : request(`/agent/competitor-analysis?${priceParams}`));
                     const [priceResult, meituanResult] = await Promise.allSettled([
-                        request(`/agent/competitor-analysis?${priceParams}`),
+                        priceRequest,
                         request(`/online-data/competitor-summary?${meituanParams}`),
                     ]);
                     if (!isCurrentRequest()) return;
@@ -30645,21 +30934,115 @@
                 resetCompetitorAnalysisView();
                 revenueLoadState.value = createRevenueLoadState();
                 setRevenueLoadState('bundle', 'loading');
+                ['overview', 'analysis', 'dashboard', 'forecasts', 'competitor', 'roomTypes', 'priceSuggestions']
+                    .forEach(key => setRevenueLoadState(key, 'loading'));
+                revenueAiOverviewLoading.value = true;
                 try {
                     await ensureRevenueAiStaticReady();
                     if (!isAgentRevenueRequestCurrent(requestContext)) return null;
-                    const results = await Promise.allSettled([
-                        loadRevenueAiOverview(),
-                        loadRevenueAnalysis({ silent: true }),
-                        loadRevenueDashboard({ silent: true }),
-                        loadDemandForecasts({ silent: true }),
-                        loadCompetitorAnalysis({ silent: true }),
-                        loadRoomTypes({ silent: true }),
-                        loadPriceSuggestions({ silent: true })
-                    ]);
+                    if (!requestContext.hotelId) {
+                        await loadRevenueAiOverview();
+                        if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                        ['analysis', 'dashboard', 'forecasts', 'competitor', 'roomTypes', 'priceSuggestions']
+                            .forEach(key => setRevenueLoadState(key, 'empty'));
+                        setRevenueLoadState(
+                            'overview',
+                            revenueAiOverviewError.value ? 'failed' : (revenueAiOverview.value ? 'ready' : 'empty'),
+                            revenueAiOverviewError.value,
+                        );
+                        setRevenueLoadState(
+                            'bundle',
+                            revenueAiOverviewError.value ? 'failed' : (revenueAiOverview.value ? 'ready' : 'empty'),
+                            revenueAiOverviewError.value,
+                        );
+                        return revenueLoadState.value;
+                    }
+                    const businessDate = String(
+                        revenueAiBusinessDate.value
+                        || priceSuggestionFilter.value.date
+                        || formatDate(new Date())
+                    );
+                    const params = new URLSearchParams({
+                        hotel_id: requestContext.hotelId,
+                        start_date: String(forecastFilter.value.start_date || ''),
+                        end_date: String(forecastFilter.value.end_date || ''),
+                        business_date: businessDate,
+                        date: String(priceSuggestionFilter.value.date || businessDate),
+                        competitor_date: String(competitorFilter.value.date || businessDate),
+                        status: String(priceSuggestionFilter.value.status || 0),
+                    });
+                    const bundlePromise = request(`/agent/revenue-bundle?${params}`);
+                    const competitorPromise = loadCompetitorAnalysis({
+                        silent: true,
+                        priceResponsePromise: bundlePromise.then((response) => {
+                            if (response?.code !== 200) {
+                                throw new Error(response?.message || 'Revenue Agent 聚合数据读取失败');
+                            }
+                            return { code: 200, data: response.data?.competitor || {} };
+                        }),
+                    });
+                    const [res] = await Promise.all([bundlePromise, competitorPromise]);
                     if (!isAgentRevenueRequestCurrent(requestContext)) return null;
-                    const rejected = results.find(result => result.status === 'rejected');
-                    if (rejected) throw rejected.reason;
+                    if (res?.code !== 200) throw new Error(res?.message || 'Revenue Agent 聚合数据读取失败');
+
+                    const payload = res.data || {};
+                    const overviewResult = revenueAiResolveOverviewResponse({
+                        response: { code: 200, data: payload.overview || null },
+                    });
+                    revenueAiOverview.value = overviewResult.overview;
+                    revenueAiOverviewError.value = overviewResult.errorMessage;
+                    revenueAnalysisData.value = {
+                        ...createEmptyRevenueAnalysisData(),
+                        ...(payload.analysis || {}),
+                    };
+                    revenueDashboard.value = {
+                        ...createEmptyRevenueDashboard(),
+                        ...(payload.dashboard || {}),
+                    };
+                    demandForecasts.value = payload.forecasts?.forecasts || [];
+                    forecastAccuracy.value = payload.forecasts?.accuracy || {};
+                    highDemandDates.value = payload.forecasts?.high_demand_dates || [];
+                    roomTypeConfigList.value = payload.room_types?.list || [];
+                    roomTypeConfigMeta.value = {
+                        input_scope: payload.room_types?.input_scope || '',
+                        target_workflow: payload.room_types?.target_workflow || '',
+                        evidence_status: payload.room_types?.evidence_status || '',
+                        auto_write_ota: payload.room_types?.auto_write_ota === true,
+                        next_action: payload.room_types?.next_action || '',
+                    };
+                    priceSuggestions.value = payload.price_suggestions?.list || [];
+                    priceSuggestionReview.value = null;
+
+                    const defaultRoomTypeId = firstEnabledRoomTypeId();
+                    if (!Number(demandForecastForm.value.room_type_id || 0) && defaultRoomTypeId > 0) {
+                        demandForecastForm.value.room_type_id = defaultRoomTypeId;
+                    }
+                    if (!Number(competitorPriceForm.value.room_type_id || 0) && defaultRoomTypeId > 0) {
+                        competitorPriceForm.value.room_type_id = defaultRoomTypeId;
+                    }
+
+                    setRevenueLoadState(
+                        'overview',
+                        revenueAiOverviewError.value ? 'failed' : (revenueAiOverview.value ? 'ready' : 'empty'),
+                        revenueAiOverviewError.value,
+                    );
+                    const analysisHasData = (revenueAnalysisData.value.revpar_trend || []).length > 0
+                        || (revenueAnalysisData.value.pricing_strategies || []).length > 0
+                        || (revenueAnalysisData.value.room_types || []).length > 0
+                        || Object.keys(revenueAnalysisData.value.statistics || {}).length > 0;
+                    setRevenueLoadState('analysis', analysisHasData ? 'ready' : 'empty');
+                    const dashboardHasData = (revenueDashboard.value.today_suggestions || []).length > 0
+                        || (revenueDashboard.value.competitor_alerts || []).length > 0
+                        || Number(revenueDashboard.value.pending_count || 0) > 0
+                        || Object.keys(revenueDashboard.value.forecast_accuracy || {}).length > 0;
+                    setRevenueLoadState('dashboard', dashboardHasData ? 'ready' : 'empty');
+                    const forecastsHaveData = demandForecasts.value.length > 0
+                        || highDemandDates.value.length > 0
+                        || Object.keys(forecastAccuracy.value).length > 0;
+                    setRevenueLoadState('forecasts', forecastsHaveData ? 'ready' : 'empty');
+                    setRevenueLoadState('roomTypes', roomTypeConfigList.value.length ? 'ready' : 'empty');
+                    setRevenueLoadState('priceSuggestions', priceSuggestions.value.length ? 'ready' : 'empty');
+
                     const failed = Object.entries(revenueLoadState.value)
                         .filter(([key]) => key !== 'bundle')
                         .map(([, state]) => state)
@@ -30692,11 +31075,15 @@
                     setRevenueLoadState('bundle', 'failed', e.message || '收益数据读取失败');
                     if (!options.silent) showToast('收益数据读取失败: ' + (e.message || '未知错误'), 'error');
                     return null;
+                } finally {
+                    if (isAgentRevenueRequestCurrent(requestContext)) {
+                        revenueAiOverviewLoading.value = false;
+                    }
                 }
             };
 
             const switchAgentTab = async (tabKey) => {
-                if (!agentTabs.some(tab => tab.key === tabKey)) return;
+                if (!agentTabs.value.some(tab => tab.key === tabKey)) return;
                 agentTab.value = tabKey;
                 if (tabKey === 'overview') {
                     await loadAgentOverview();
@@ -35052,10 +35439,15 @@
                 const link = document.createElement('a');
                 link.href = url;
                 link.download = filename;
+                link.style.display = 'none';
                 document.body.appendChild(link);
                 link.click();
-                document.body.removeChild(link);
-                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                // Embedded browsers may enqueue Blob downloads after the click handler returns.
+                // Keep both the anchor and object URL alive until the browser has taken ownership.
+                window.setTimeout(() => {
+                    if (link.isConnected) link.remove();
+                    URL.revokeObjectURL(url);
+                }, 60000);
             };
 
             const ctripDownloadRows = () => {
@@ -35682,8 +36074,23 @@
                     return;
                 }
                 const issueGuideProfile = selectedUserRoleGuide.value;
-                data.hotel_ids = assignedHotelIds;
-                data.hotel_id = assignedHotelIds[0] || null;
+                const existingUser = isEdit
+                    ? users.value.find(item => Number(item?.id || 0) === Number(data.id || 0))
+                    : null;
+                const existingHotelIds = existingUser
+                    ? userHotelIdsForFilter(existingUser).map(id => Number(id)).sort((a, b) => a - b)
+                    : [];
+                const nextHotelIds = [...assignedHotelIds].sort((a, b) => a - b);
+                const hotelAssignmentUnchanged = !!existingUser
+                    && existingHotelIds.length === nextHotelIds.length
+                    && existingHotelIds.every((id, index) => id === nextHotelIds[index]);
+                if (!isEdit || !hotelAssignmentUnchanged) {
+                    data.hotel_ids = assignedHotelIds;
+                    data.hotel_id = assignedHotelIds[0] || null;
+                } else {
+                    delete data.hotel_ids;
+                    delete data.hotel_id;
+                }
                 if (!data.password) delete data.password;
                 if (!isEdit) {
                     delete data.username;
@@ -36234,7 +36641,10 @@
                 if (token.value) {
                     requestSuxiFullRenderForPage(currentPage.value);
                     const bootstrapSession = captureAuthSession();
-                    request('/auth/info').then(res => {
+                    runSuxiStartupRequestOnce(
+                        `auth-info:${bootstrapSession.token}`,
+                        () => request('/auth/info'),
+                    ).then(res => {
                         if (!isAuthSessionCurrent(bootstrapSession)) return;
                         if (res.code === 200) {
                             beginAuthSession(bootstrapSession.token);
@@ -37971,7 +38381,7 @@
                 hotelPlatformBlockingIssueText, hotelBlockingIssueRows,
                 usersLoading, usersLoadError, usersSnapshotReady, loadUsers,
                 userTenantBindingMissing, userTenantScopeMessage, userTenantScopeBlocker,
-                hotels, permittedHotels, hotelManagementLoading, hotelManagementSnapshotReady, hotelManagementLoadError, hotelManagementLastRefreshedAt, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, copyUserBasicLoginInfo, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, filteredUserAssignmentHotels, userHotelAssignmentSearch, userHotelAssignmentSelectedOnly, selectedUserIds, userBatchStatusLoading, toggleAllFilteredUsers, batchUpdateUserStatus, getHotelNameById, hotelConfigTargetText, hotelSelectOptionText, normalizeHotelOtaStrategy, hotelOtaStrategyText, hotelOtaStrategyClass, hotelOtaStrategyButtonClass, hotelOtaStrategyReview, hotelOtaApplicabilityBadgeText, hotelOtaApplicabilityBadgeClass, hotelOtaApplicabilityBadgeTitle, hotelFormChannelSelected, toggleHotelFormChannel, hotelPlatformApplicable, hotelInactivePlatformText, hotelApplicablePlatformBindingRows, hotelVerifiedOtaState, hotelOtaStatusBadges, userHotelScopeText, userHotelScopeSummary, userDisplaySequence, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, isMeituanAdsNotApplicableForHotel, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelCreatedDateText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelPlatformIssueText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelProblemQueueOverview, hotelAccountFilterPresentation, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, selectedHotelIds, hotelBatchStatusLoading, expandedHotelIds, isHotelDetailsExpanded, toggleHotelDetails, toggleAllFilteredHotels, batchUpdateHotelStatus, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelManagementLoading, hotelManagementSnapshotReady, hotelManagementLoadError, hotelManagementLastRefreshedAt, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, copyUserBasicLoginInfo, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, filteredUserAssignmentHotels, userHotelAssignmentSearch, userHotelAssignmentSelectedOnly, selectedUserIds, userBatchStatusLoading, toggleAllFilteredUsers, batchUpdateUserStatus, getHotelNameById, hotelConfigTargetText, hotelSelectOptionText, normalizeHotelOtaStrategy, hotelOtaStrategyText, hotelOtaStrategyClass, hotelOtaStrategyButtonClass, hotelOtaStrategyReview, hotelOtaApplicabilityBadgeText, hotelOtaApplicabilityBadgeClass, hotelOtaApplicabilityBadgeTitle, hotelFormChannelSelected, toggleHotelFormChannel, hotelPlatformApplicable, hotelInactivePlatformText, hotelApplicablePlatformBindingRows, hotelVerifiedOtaState, hotelOtaStatusBadges, userHotelScopeText, userHotelScopeSummary, userDisplaySequence, userLastLoginText, userLastLoginSortDirection, toggleUserLastLoginSort, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, isMeituanAdsNotApplicableForHotel, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelCreatedDateText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelPlatformIssueText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelProblemQueueOverview, hotelAccountFilterPresentation, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, selectedHotelIds, hotelBatchStatusLoading, expandedHotelIds, isHotelDetailsExpanded, toggleHotelDetails, toggleAllFilteredHotels, batchUpdateHotelStatus, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
@@ -38044,6 +38454,8 @@
                 loadOnlineDataCorrectionLedger, toggleOnlineDataCorrectionLedger, changeOnlineDataCorrectionLedgerPage, restoreOnlineDataCorrectionLedger,
                 onlineDataCorrectionLedgerOperationText, onlineDataCorrectionLedgerChangedFieldsText, onlineDataCorrectionLedgerStatusText, onlineDataCorrectionLedgerStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
+                dualOtaContinuousTrust, dualOtaContinuousDays, dualOtaContinuousStatusText, dualOtaContinuousStatusClass,
+                dualOtaContinuousPlatformLabel, dualOtaContinuousStepRows, dualOtaContinuousSummaryText,
                 coreOperationsProfileSessionRows, coreOperationsProfileSessionBlockedRows, prepareCoreOperationsProfileSession, coreOperationsCanExecute, coreOperationsCanGenerateDiagnosis, coreOperationsCanCollect, coreOperationsDiagnosisGenerating, coreOperationsDiagnosisGenerationMessage, generateCoreOperationsDiagnoses,
                 otaConfigOverviewPageSize, otaConfigOverviewPages, otaConfigOverviewRefreshing, otaConfigOverviewProbeState, otaConfigOverviewSelectedCount, otaConfigOverviewHiddenSelectedCount, otaConfigOverviewPageCount, otaConfigOverviewPageNumber, otaConfigOverviewPageSummary, changeOtaConfigOverviewPage, isOtaConfigOverviewRowSelected, toggleOtaConfigOverviewRow, isOtaConfigOverviewPageSelected, toggleSelectOtaConfigOverviewPage, clearOtaConfigOverviewSelection, refreshOtaConfigOverviewStatus, probeOtaConfigOverviewRow, probeSelectedOtaConfigOverviewRows, runOtaConfigOverviewRowCollection, runSelectedOtaConfigOverviewCollection, deleteOtaConfigOverviewRow,
                 dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsDiagnoses, coreOperationsDiagnosisIntentLoading, coreOperationsSourceFetchVisibleState, coreOperationsSourceFetchRunning, coreOperationsSourceFetchActionText, coreOperationsSourceFetchStatusClass, coreOperationsSourceFetchModeText, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsCompetitorError, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, runCoreOperationsYesterdayFetch, createCoreOperationsDiagnosisIntent, openCoreOperationsHotelOnboarding, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
@@ -38262,6 +38674,12 @@
             return false;
         }
         pendingFullRenderPage = normalizedPage;
+        if (typeof window.SUXI_APP_RENDER !== 'function'
+            && typeof window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS === 'function') {
+            void Promise.resolve()
+                .then(() => window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS())
+                .catch(() => {});
+        }
         if (typeof window.SUXI_APP_RENDER === 'function' && !fullRenderPromotionScheduled) {
             fullRenderPromotionScheduled = true;
             Promise.resolve().then(promoteSuxiFullRender);

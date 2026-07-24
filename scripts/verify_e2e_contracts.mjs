@@ -874,7 +874,7 @@ requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="ov
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady && homeTrendCards.length"', 'home trend cards are not mounted during the immediate OTA navigation window');
 requireText('public/index.html', 'homeSecondaryPanelsReady, homeClosedLoopStages', 'home lower-panel readiness flag is returned for template gating');
 requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = 800) => {', 'startup backend notification refresh loads promptly so direct OTA auth failures can strongly remind the submitter');
-requireText('public/index.html', 'if (!token.value) return;\n                    refreshGlobalNotifications({ silent: true, backendOnly: true });', 'startup strong-reminder refresh runs on every authenticated page');
+requireText('public/index.html', 'if (!token.value) return;\n                    refreshGlobalNotifications({ silent: true, backendOnly: true, startupDedupe: true });', 'startup strong-reminder refresh runs once per authenticated startup session');
 requireText('public/index.html', 'if (isLoggedIn.value && token.value && !isCoreOtaPageVisible()) {', 'notification polling is paused while core OTA pages are visible');
 requireText('public/index.html', 'const loadHotelsRequestPromises = new Map();', 'hotel-list requests are deduplicated while a matching request is in flight');
 requireText('public/index.html', 'if (loadHotelsRequestPromises.has(requestKey))', 'hotel-list loader reuses in-flight requests');
@@ -1109,7 +1109,7 @@ requireText('public/index.html', "if (normalizedMode === 'light' && !force && ca
 requireText('public/index.html', 'const jobs = buildDataHealthPanelRefreshJobs({', 'data-health panel loader uses extracted job composition');
 requireNoText('public/index.html', 'scheduleDataHealthLightDiagnostics();', 'light data-health first paint must not auto-run non-core diagnostics');
 requireNoText('public/index.html', 'loadCookieStatus(),\n                    loadCollectionReliability(normalizedMode)', 'data-health panel must not call cookie-status and collection-reliability in the same first-paint group');
-requireText('public/index.html', "if (!options.backendOnly) {\n                        scheduleDataHealthPanelRefresh('light');\n                    }\n                    await loadBackendGlobalNotifications();", 'global notification refresh schedules data-health status without waiting on it');
+requireText('public/index.html', "if (!options.backendOnly) {\n                        scheduleDataHealthPanelRefresh('light');\n                    }\n                    await loadBackendGlobalNotifications({\n                        startupDedupe: options.startupDedupe === true,\n                    });", 'global notification refresh schedules data-health status without waiting on it and only dedupes startup reads');
 requireNoText('public/index.html', "const jobs = [loadBackendGlobalNotifications()];\n                    if (!options.backendOnly) {\n                        jobs.push(loadDataHealthPanel('light'));\n                    }", 'global notification refresh must not block on data-health light status');
 requireText('public/index.html', 'const ensureManualOnlineFetchConfigReady = async', 'entry prewarms saved platform configs for manual online-data fetch');
 requireText('public/index.html', 'const MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS = 15000;', 'manual Ctrip/Meituan tab switching reuses recently loaded config lists');

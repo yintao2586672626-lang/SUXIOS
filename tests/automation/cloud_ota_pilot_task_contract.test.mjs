@@ -37,6 +37,9 @@ test('pilot runner exports only verified bundles and blocks credential-shaped fi
   assert.match(runner, /exportable_snapshot_complete/);
   assert.match(runner, /snapshot_exportable/);
   assert.match(runner, /collection_status/);
+  assert.match(runner, /p0_status -ne 'ready'/);
+  assert.match(runner, /required_platforms/);
+  assert.match(runner, /Compare-Object -ReferenceObject @\('ctrip', 'meituan'\)/);
   assert.match(runner, /--sync-task-ids=\$syncTaskIds/);
   assert.match(runner, /cloud-data-bridge-binding\.pilot-h80\.json/);
   assert.match(runner, /suxios\.cloud_ota_bundle\.v1/);

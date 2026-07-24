@@ -646,33 +646,6 @@ trait OnlineDataHistoryConcern
         return $query->order('id', $direction);
     }
 
-    /**
-     * Scan only grouping/status metadata first so history pagination never loads
-     * every matching raw_data payload before applying the requested page.
-     */
-    private function selectOnlineHistoryLightweightFields($query, array $columns)
-    {
-        $wantedFields = [
-            'id',
-            'data_date',
-            'source',
-            'platform',
-            'data_type',
-            'system_hotel_id',
-            'dimension',
-            'compare_type',
-            'create_time',
-            'update_time',
-        ];
-        $fields = array_values(array_filter(
-            $wantedFields,
-            static fn (string $field): bool => isset($columns[$field])
-        ));
-        $query->field($fields);
-        $query->fieldRaw($this->onlineHistoryLightweightStatusExpression($columns) . ' AS history_row_status');
-        return $query;
-    }
-
     private function onlineHistoryLightweightStatusExpression(array $columns): string
     {
         if (isset($columns['history_status'])) {
@@ -2077,31 +2050,4 @@ trait OnlineDataHistoryConcern
     }
 
 
-    private function buildOnlineHistorySummary(array $historyList): array
-    {
-        $latestFetchTime = '';
-        $today = date('Y-m-d');
-        $todayRecords = 0;
-        $failedRecords = 0;
-
-        foreach ($historyList as $item) {
-            $fetchTime = (string)($item['fetch_time'] ?? '');
-            if ($fetchTime !== '' && ($latestFetchTime === '' || strcmp($fetchTime, $latestFetchTime) > 0)) {
-                $latestFetchTime = $fetchTime;
-            }
-            if ($fetchTime !== '' && substr($fetchTime, 0, 10) === $today) {
-                $todayRecords++;
-            }
-            if (($item['status'] ?? '') === 'failed') {
-                $failedRecords++;
-            }
-        }
-
-        return [
-            'total_records' => count($historyList),
-            'latest_fetch_time' => $latestFetchTime,
-            'today_records' => $todayRecords,
-            'failed_records' => $failedRecords,
-        ];
-    }
 }

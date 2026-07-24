@@ -5,6 +5,8 @@ namespace app\service;
 
 final class ScheduledAutoFetchPolicy
 {
+    private const REQUIRED_DAILY_PLATFORMS = ['ctrip', 'meituan'];
+
     /**
      * Explicit source scope is an operator contract, so every selected source
      * must run even when multiple degraded sources belong to one platform.
@@ -133,9 +135,6 @@ final class ScheduledAutoFetchPolicy
                 'label' => 'historical',
                 'executed_message' => '历史固定数据今天已执行',
             ];
-            if (!empty($runsBySlot[$run['slot_id']]['target_platforms'])) {
-                $run['target_platforms'] = $runsBySlot[$run['slot_id']]['target_platforms'];
-            }
             $runsBySlot[$run['slot_id']] = $run;
         }
         if ($realtimeEnabled
@@ -151,9 +150,6 @@ final class ScheduledAutoFetchPolicy
                 'label' => 'realtime',
                 'executed_message' => "实时快照本 {$realtimeIntervalHours} 小时窗口已执行",
             ];
-            if (!empty($runsBySlot[$run['slot_id']]['target_platforms'])) {
-                $run['target_platforms'] = $runsBySlot[$run['slot_id']]['target_platforms'];
-            }
             $runsBySlot[$run['slot_id']] = $run;
         }
 
@@ -161,15 +157,23 @@ final class ScheduledAutoFetchPolicy
     }
 
     /**
-     * @return array{complete: bool, status: string, saved_count: int, failed_platforms: array<int, string>, successful_platforms: array<int, string>}
+     * @return array{complete: bool, status: string, saved_count: int, required_platforms: array<int, string>, failed_platforms: array<int, string>, successful_platforms: array<int, string>}
      */
     public function classifyOutcome(array $result): array
     {
         $savedCount = max(0, (int)($result['saved_count'] ?? 0));
+        $requiredPlatforms = $this->platformList(
+            $result['required_platforms']
+            ?? $result['target_platforms']
+            ?? self::REQUIRED_DAILY_PLATFORMS
+        );
+        if ($requiredPlatforms === []) {
+            $requiredPlatforms = self::REQUIRED_DAILY_PLATFORMS;
+        }
         $failedPlatforms = $this->platformList($result['failed_platforms'] ?? []);
         $successfulPlatforms = $this->platformList($result['successful_platforms'] ?? []);
         foreach ((array)($result['platform_results'] ?? []) as $platformResult) {
-            if (!is_array($platformResult) || !empty($platformResult['skipped'])) {
+            if (!is_array($platformResult)) {
                 continue;
             }
             $platform = strtolower(trim((string)($platformResult['platform'] ?? '')));
@@ -182,17 +186,26 @@ final class ScheduledAutoFetchPolicy
                 $failedPlatforms[] = $platform;
             }
         }
+        foreach ($requiredPlatforms as $requiredPlatform) {
+            if (!in_array($requiredPlatform, $successfulPlatforms, true)) {
+                $failedPlatforms[] = $requiredPlatform;
+            }
+        }
         $failedPlatforms = array_values(array_unique($failedPlatforms));
         $successfulPlatforms = array_values(array_unique($successfulPlatforms));
         $successfulPlatforms = array_values(array_diff($successfulPlatforms, $failedPlatforms));
         $producerSucceeded = !empty($result['success']);
-        $complete = $producerSucceeded && $savedCount > 0 && $failedPlatforms === [];
+        $complete = $producerSucceeded
+            && $savedCount > 0
+            && $failedPlatforms === []
+            && array_diff($requiredPlatforms, $successfulPlatforms) === [];
         $partial = !$complete && ($savedCount > 0 || $successfulPlatforms !== []);
 
         return [
             'complete' => $complete,
             'status' => $complete ? 'success' : ($partial ? 'partial_success' : 'failed'),
             'saved_count' => $savedCount,
+            'required_platforms' => $requiredPlatforms,
             'failed_platforms' => $failedPlatforms,
             'successful_platforms' => $successfulPlatforms,
         ];
@@ -212,6 +225,131 @@ final class ScheduledAutoFetchPolicy
     public function normalizePlatforms(mixed $platforms): array
     {
         return $this->platformList($platforms);
+    }
+
+    /**
+     * @param array<int, int> $sourceIds
+     * @param array<string, mixed> $outcome
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    public function buildDailyTrustReceipt(
+        int $hotelId,
+        string $targetDate,
+        array $sourceIds,
+        array $outcome,
+        array $result
+    ): array {
+        $sourceIds = array_values(array_unique(array_filter(
+            array_map('intval', $sourceIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($sourceIds, SORT_NUMERIC);
+        $sourceTasks = [];
+        foreach ((array)($result['platform_results'] ?? []) as $platformResult) {
+            if (!is_array($platformResult)) {
+                continue;
+            }
+            $readback = is_array($platformResult['run_readback'] ?? null) ? $platformResult['run_readback'] : [];
+            $dataSourceId = (int)($readback['data_source_id'] ?? $platformResult['data_source_id'] ?? 0);
+            $syncTaskId = (int)($readback['sync_task_id'] ?? 0);
+            $receiptHotelId = (int)($readback['system_hotel_id'] ?? 0);
+            $receiptDate = substr(trim((string)($readback['target_date'] ?? '')), 0, 10);
+            $platform = strtolower(trim((string)($readback['platform'] ?? $platformResult['platform'] ?? '')));
+            $rowIds = array_values(array_unique(array_filter(array_map(
+                'intval',
+                is_array($readback['row_ids'] ?? null) ? $readback['row_ids'] : []
+            ), static fn(int $id): bool => $id > 0)));
+            if (($readback['readback_verified'] ?? false) !== true
+                || strtolower(trim((string)($readback['p0_status'] ?? ''))) !== 'ready'
+                || $dataSourceId <= 0
+                || $syncTaskId <= 0
+                || $receiptHotelId !== $hotelId
+                || $receiptDate !== $targetDate
+                || !in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)
+                || $rowIds === []
+            ) {
+                continue;
+            }
+            $sourceTasks[$dataSourceId] = [
+                'data_source_id' => $dataSourceId,
+                'sync_task_id' => $syncTaskId,
+                'platform' => $platform,
+                'collection_status' => !empty($platformResult['success']) ? 'success' : 'partial',
+                'p0_status' => 'ready',
+                'row_ids' => $rowIds,
+            ];
+        }
+        ksort($sourceTasks, SORT_NUMERIC);
+        $receiptSourceIds = array_map('intval', array_keys($sourceTasks));
+        $expectedSourceIds = $sourceIds === [] ? $receiptSourceIds : $sourceIds;
+        $requiredPlatforms = $this->platformList(
+            $outcome['required_platforms'] ?? self::REQUIRED_DAILY_PLATFORMS
+        );
+        if ($requiredPlatforms === []) {
+            $requiredPlatforms = self::REQUIRED_DAILY_PLATFORMS;
+        }
+        $receiptPlatforms = array_values(array_unique(array_column($sourceTasks, 'platform')));
+        $exportableSnapshotComplete = $expectedSourceIds !== []
+            && $receiptSourceIds === $expectedSourceIds
+            && array_diff($requiredPlatforms, $receiptPlatforms) === [];
+        $collectionComplete = !empty($outcome['complete']) && $exportableSnapshotComplete;
+
+        return [
+            'schema_version' => 2,
+            'hotel_id' => $hotelId,
+            'target_date' => $targetDate,
+            'source_ids' => $expectedSourceIds,
+            'required_platforms' => $requiredPlatforms,
+            'status' => (string)($outcome['status'] ?? ''),
+            'collection_complete' => $collectionComplete,
+            'exportable_snapshot_complete' => $exportableSnapshotComplete,
+            'dual_ota_p0_complete' => $collectionComplete,
+            'source_tasks' => array_values($sourceTasks),
+        ];
+    }
+
+    /** @param array<string, mixed> $receipt */
+    public function dailyTrustReceiptReady(
+        array $receipt,
+        ?string $expectedDate = null,
+        ?int $expectedHotelId = null
+    ): bool {
+        if (($receipt['collection_complete'] ?? false) !== true
+            || ($receipt['exportable_snapshot_complete'] ?? false) !== true
+            || ($expectedDate !== null
+                && substr(trim((string)($receipt['target_date'] ?? '')), 0, 10) !== $expectedDate)
+            || ($expectedHotelId !== null && (int)($receipt['hotel_id'] ?? 0) !== $expectedHotelId)
+        ) {
+            return false;
+        }
+        $requiredPlatforms = $this->platformList($receipt['required_platforms'] ?? []);
+        sort($requiredPlatforms, SORT_STRING);
+        if ($requiredPlatforms !== self::REQUIRED_DAILY_PLATFORMS) {
+            return false;
+        }
+        $readyPlatforms = [];
+        foreach (is_array($receipt['source_tasks'] ?? null) ? $receipt['source_tasks'] : [] as $task) {
+            if (!is_array($task)
+                || strtolower(trim((string)($task['collection_status'] ?? ''))) !== 'success'
+                || strtolower(trim((string)($task['p0_status'] ?? ''))) !== 'ready'
+                || (int)($task['data_source_id'] ?? 0) <= 0
+                || (int)($task['sync_task_id'] ?? 0) <= 0
+                || array_values(array_filter(
+                    is_array($task['row_ids'] ?? null) ? $task['row_ids'] : [],
+                    static fn($value): bool => (int)$value > 0
+                )) === []
+            ) {
+                continue;
+            }
+            $platform = strtolower(trim((string)($task['platform'] ?? '')));
+            if (in_array($platform, self::REQUIRED_DAILY_PLATFORMS, true)) {
+                $readyPlatforms[$platform] = true;
+            }
+        }
+        $readyPlatforms = array_keys($readyPlatforms);
+        sort($readyPlatforms, SORT_STRING);
+        return $readyPlatforms === self::REQUIRED_DAILY_PLATFORMS;
     }
 
     public function retryDue(array $state, int $maxAttempts, \DateTimeImmutable $now): bool
@@ -302,7 +440,7 @@ final class ScheduledAutoFetchPolicy
         }
         $slotId = trim((string)($record['slot_id'] ?? ''));
         $dataDate = trim((string)($record['data_date'] ?? ''));
-        $targetPlatforms = $this->platformList($record['failed_platforms'] ?? []);
+        $targetPlatforms = self::REQUIRED_DAILY_PLATFORMS;
         if (preg_match('/^historical:(\d{4}-\d{2}-\d{2})$/D', $slotId, $matches) === 1
             && $matches[1] === $dataDate
         ) {
@@ -324,9 +462,7 @@ final class ScheduledAutoFetchPolicy
                 'label' => 'historical-retry',
                 'executed_message' => '历史补跑窗口已执行',
             ];
-            if ($targetPlatforms !== []) {
-                $run['target_platforms'] = $targetPlatforms;
-            }
+            $run['target_platforms'] = $targetPlatforms;
             return $run;
         }
         if (preg_match('/^realtime:(\d{4}-\d{2}-\d{2}):(\d{1,2})$/D', $slotId, $matches) === 1
@@ -353,9 +489,7 @@ final class ScheduledAutoFetchPolicy
                 'label' => 'realtime-retry',
                 'executed_message' => '实时快照补跑窗口已执行',
             ];
-            if ($targetPlatforms !== []) {
-                $run['target_platforms'] = $targetPlatforms;
-            }
+            $run['target_platforms'] = $targetPlatforms;
             return $run;
         }
         return null;

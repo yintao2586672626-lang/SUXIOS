@@ -51,7 +51,7 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertCount(2, $withRetry);
         self::assertSame('realtime-retry', $withRetry[0]['label']);
         self::assertSame('realtime:2026-07-16:10', $withRetry[0]['slot_id']);
-        self::assertSame([], $withRetry[0]['target_platforms'] ?? []);
+        self::assertSame(['ctrip', 'meituan'], $withRetry[0]['target_platforms'] ?? []);
 
         $status['failed_records'][0]['failed_platforms'] = ['meituan'];
         $targetedRetry = $this->policy->dueRuns(58, $status, $this->time('2026-07-16 10:37:00'));
@@ -60,12 +60,12 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
             static fn(array $run): bool => $run['slot_id'] === 'realtime:2026-07-16:10'
         ));
         self::assertCount(1, $targetedRealtime);
-        self::assertSame(['meituan'], $targetedRealtime[0]['target_platforms'] ?? []);
+        self::assertSame([], $targetedRealtime[0]['target_platforms'] ?? []);
     }
 
     public function testOutcomeRequiresRowsAndNoFailedConfiguredPlatform(): void
     {
-        $complete = $this->policy->classifyOutcome([
+        $skippedPlatform = $this->policy->classifyOutcome([
             'success' => true,
             'saved_count' => 3,
             'platform_results' => [
@@ -73,8 +73,21 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
                 ['platform' => 'meituan', 'success' => false, 'skipped' => true, 'saved_count' => 0],
             ],
         ]);
+        self::assertFalse($skippedPlatform['complete']);
+        self::assertSame('partial_success', $skippedPlatform['status']);
+        self::assertSame(['meituan'], $skippedPlatform['failed_platforms']);
+
+        $complete = $this->policy->classifyOutcome([
+            'success' => true,
+            'saved_count' => 6,
+            'platform_results' => [
+                ['platform' => 'ctrip', 'success' => true, 'saved_count' => 3],
+                ['platform' => 'meituan', 'success' => true, 'saved_count' => 3],
+            ],
+        ]);
         self::assertTrue($complete['complete']);
         self::assertSame('success', $complete['status']);
+        self::assertSame(['ctrip', 'meituan'], $complete['required_platforms']);
 
         $partial = $this->policy->classifyOutcome([
             'success' => true,
@@ -111,9 +124,10 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
                 ['platform' => 'meituan', 'success' => true, 'saved_count' => 2],
             ],
         ]);
-        self::assertTrue($failedPlatformRetry['complete']);
+        self::assertFalse($failedPlatformRetry['complete']);
+        self::assertSame('partial_success', $failedPlatformRetry['status']);
         self::assertSame(['meituan'], $failedPlatformRetry['successful_platforms']);
-        self::assertSame([], $failedPlatformRetry['failed_platforms']);
+        self::assertSame(['ctrip'], $failedPlatformRetry['failed_platforms']);
     }
 
     public function testCliReceiptKeepsExportablePartialRunsOutOfExecutedState(): void
@@ -143,6 +157,14 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertTrue($completeOutcome['complete']);
         self::assertTrue($completeReceipt['exportable_snapshot_complete']);
         self::assertTrue($completeReceipt['collection_complete']);
+        self::assertTrue($this->machineReceiptDailyTrustReady($completeReceipt));
+        self::assertTrue($this->policy->dailyTrustReceiptReady($completeReceipt, '2026-07-16', 58));
+        self::assertFalse($this->policy->dailyTrustReceiptReady($completeReceipt, '2026-07-15', 58));
+        self::assertFalse($this->policy->dailyTrustReceiptReady($completeReceipt, '2026-07-16', 59));
+
+        $legacyReceipt = $completeReceipt;
+        unset($legacyReceipt['source_tasks'][1]['p0_status']);
+        self::assertFalse($this->machineReceiptDailyTrustReady($legacyReceipt));
 
         $unverifiedResult = $completeResult;
         $unverifiedResult['platform_results'][1]['run_readback']['readback_verified'] = false;
@@ -221,13 +243,19 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
     {
         $command = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
         $controller = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $policy = (string)file_get_contents(dirname(__DIR__) . '/app/service/ScheduledAutoFetchPolicy.php');
 
         self::assertStringContainsString('ScheduledAutoFetchPolicy', $command);
         self::assertStringContainsString('ScheduledAutoFetchPolicy', $controller);
         self::assertSame(1, substr_count($command, "Cache::set(\$run['executed_key']"));
-        self::assertSame(1, substr_count($controller, "cache(\$run['executed_key'], true"));
+        self::assertSame(1, substr_count($controller, "cache(\$run['executed_key'], \$executionReceipt"));
         self::assertStringContainsString("if (\$outcome['complete'] && !empty(\$receipt['collection_complete']))", $command);
         self::assertStringContainsString("if (\$outcome['complete'])", $controller);
+        self::assertStringContainsString('autoFetchExecutedReceiptReady', $controller);
+        self::assertStringContainsString('buildDailyTrustReceipt', $controller);
+        self::assertStringContainsString('dailyTrustReceiptReady', $controller);
+        self::assertStringContainsString("'dual_ota_p0_complete' => \$collectionComplete", $policy);
+        self::assertStringContainsString("\\think\\facade\\Cache::delete(\$run['executed_key'])", $controller);
         self::assertStringContainsString('return $hasIncompleteDueRun ? 1 : 0;', $command);
         self::assertStringContainsString('$responseCode = $hasIncompleteDueRun ? 503 : 200;', $controller);
         self::assertStringNotContainsString('$ranLockedTask', $command);
@@ -258,6 +286,7 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
                 'system_hotel_id' => 58,
                 'target_date' => '2026-07-16',
                 'platform' => $platform,
+                'p0_status' => 'ready',
                 'row_ids' => [$syncTaskId + 1000],
             ],
         ];
@@ -274,6 +303,16 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         /** @var array<string, mixed> $receipt */
         $receipt = $method->invoke($command, 58, '2026-07-16', [25, 68], $outcome, $result);
         return $receipt;
+    }
+
+    /** @param array<string, mixed> $receipt */
+    private function machineReceiptDailyTrustReady(array $receipt): bool
+    {
+        $reflection = new \ReflectionClass(AutoFetchOnlineData::class);
+        $command = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('machineReceiptDailyTrustReady');
+        $method->setAccessible(true);
+        return (bool)$method->invoke($command, $receipt);
     }
 
     private function time(string $value): \DateTimeImmutable

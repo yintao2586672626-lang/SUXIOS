@@ -208,25 +208,56 @@ class CompetitorAnalysis extends Model
      */
     public static function getPriceTrend(int $hotelId, int $competitorId, int $roomTypeId = 0, ?string $endDate = null)
     {
+        $trends = self::getPriceTrends($hotelId, [$competitorId], $roomTypeId, $endDate);
+        return $trends[$competitorId] ?? [];
+    }
+
+    /**
+     * Batch-load recent price trends and group them by competitor hotel.
+     *
+     * @param array<int, mixed> $competitorIds
+     * @return array<int, array<int, array<string, mixed>>>
+     */
+    public static function getPriceTrends(int $hotelId, array $competitorIds = [], int $roomTypeId = 0, ?string $endDate = null): array
+    {
         $endTimestamp = $endDate !== null ? strtotime($endDate) : false;
         if ($endTimestamp === false) {
             $endTimestamp = time();
         }
         $endDate = date('Y-m-d', $endTimestamp);
         $startDate = date('Y-m-d', strtotime('-6 days', $endTimestamp));
+        $competitorIds = array_values(array_unique(array_filter(
+            array_map('intval', $competitorIds),
+            static fn(int $id): bool => $id > 0
+        )));
         
         $query = self::where('hotel_id', $hotelId)
-            ->where('competitor_hotel_id', $competitorId)
             ->whereBetween('analysis_date', [$startDate, $endDate]);
+        if ($competitorIds !== []) {
+            $query->whereIn('competitor_hotel_id', $competitorIds);
+        }
         
         if ($roomTypeId > 0) {
             $query->where('room_type_id', $roomTypeId);
         }
         
-        return $query->with(['roomType', 'competitorHotel'])
+        $rows = $query->with(['roomType', 'competitorHotel'])
+            ->order('competitor_hotel_id', 'asc')
             ->order('analysis_date', 'asc')
             ->order('id', 'asc')
-            ->select();
+            ->select()
+            ->toArray();
+
+        $trends = [];
+        foreach ($rows as $row) {
+            $competitorId = (int)($row['competitor_hotel_id'] ?? 0);
+            if ($competitorId <= 0) {
+                continue;
+            }
+            $trends[$competitorId] ??= [];
+            $trends[$competitorId][] = $row;
+        }
+        return $trends;
     }
 
     /**

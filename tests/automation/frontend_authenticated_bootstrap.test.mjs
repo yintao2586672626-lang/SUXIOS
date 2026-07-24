@@ -17,14 +17,22 @@ test('public login shell defers the authenticated application asset chain', () =
   const references = extractAuthenticatedAssetReferences(index);
   const entries = extractAuthenticatedAssetEntries(index);
   const assets = references.map(stripFrontendAssetQuery);
-  assert.equal(assets[0], 'vue.runtime.global.prod.js');
-  assert.equal(assets.at(-3), 'app-startup-render.min.js');
-  assert.equal(assets.at(-2), 'app-render.min.js');
-  assert.equal(assets.at(-1), 'app-main.min.js');
+  const scriptAssets = entries
+    .filter((entry) => entry.type === 'script')
+    .map((entry) => stripFrontendAssetQuery(entry.src));
+  const styleAssets = entries
+    .filter((entry) => entry.type === 'style')
+    .map((entry) => stripFrontendAssetQuery(entry.src));
+  assert.deepEqual(styleAssets, ['tailwind.min.css', 'style.css', 'ai-custom.css']);
+  assert.match(index, /<link rel="stylesheet" href="login-critical\.css\?v=[^"]+"/);
+  assert.doesNotMatch(index, /<link[^>]+href="(?:tailwind\.min|style|ai-custom)\.css/);
+  assert.equal(scriptAssets[0], 'vue.runtime.global.prod.js');
+  assert.equal(scriptAssets.at(-3), 'app-startup-render.min.js');
+  assert.equal(scriptAssets.at(-2), 'app-render.min.js');
+  assert.equal(scriptAssets.at(-1), 'app-main.min.js');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
   for (const deferredAsset of [
     'ctrip-search-opportunity-static.js',
-    'ota-browser-assist-static.js',
     'user-admin-static.js',
   ]) {
     assert.equal(
@@ -33,6 +41,7 @@ test('public login shell defers the authenticated application asset chain', () =
       `${deferredAsset} must stay off the authenticated first paint`,
     );
   }
+  assert(!assets.includes('ota-browser-assist-static.js'), 'OTA browser assist must load only after its copy action');
   assert(assets.includes('ctrip-static.js'));
   assert(assets.includes('meituan-static.js'));
   assert(assets.includes('data-health-static.js'));
@@ -104,13 +113,34 @@ test('authenticated startup paints the home render before loading the full rende
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'app-main\.min\.js'/);
   assert.match(bootstrap, /asset\.phase === ASSET_PHASE_STARTUP/);
   assert.match(bootstrap, /asset\.phase === ASSET_PHASE_AFTER_FIRST_PAINT/);
-  assert.match(bootstrap, /await loadScript\(runtime\);/);
+  assert.match(bootstrap, /await Promise\.all\(\[\s*loadScript\(runtime\),/);
   assert.match(bootstrap, /await Promise\.all\(prerequisites\.map\(\(src\) => loadScript\(src\)\)\);/);
   assert.match(bootstrap, /await loadScript\(entry\);/);
   assert.match(bootstrap, /await waitForFirstAuthenticatedPaint\(\);/);
   assert.match(bootstrap, /suxi:full-render-ready/);
-  assert.match(bootstrap, /void loadDeferredAuthenticatedAssets\(deferredAssets\);/);
+  assert.match(bootstrap, /const loadDeferredAuthenticatedAssetManifest = \(\) => \{/);
+  assert.match(bootstrap, /window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = loadDeferredAuthenticatedAssetManifest;/);
+  assert.doesNotMatch(bootstrap, /void loadDeferredAuthenticatedAssets\(deferredAssets\);/);
+  assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
+});
+
+test('login intent preloads only the authenticated entry before the sequential startup barrier', () => {
+  assert.match(bootstrap, /const authenticatedStartupAssets = \(\) => \([\s\S]*asset\.phase === ASSET_PHASE_STARTUP/);
+  assert.match(bootstrap, /const preloadAuthenticatedEntry = \(\) => \{/);
+  assert.doesNotMatch(bootstrap, /preloadAuthenticatedStartupDependencies/);
+  assert.match(bootstrap, /link\.rel = 'preload'/);
+  assert.match(bootstrap, /link\.as = asset\.type === ASSET_TYPE_STYLE \? 'style' : 'script'/);
+  assert.match(bootstrap, /link\.dataset\.suxiAuthenticatedStartupPreload = assetName/);
+  assert.match(bootstrap, /preloadAuthenticatedAsset\(entry, 'high'\)/);
+  assert.match(bootstrap, /authenticatedStartupPreloadLinks\.delete\(assetName\)/);
+  assert.match(bootstrap, /form\.addEventListener\('focusin', preloadAuthenticatedEntry\)/);
+  assert.match(bootstrap, /const handleInput = \(\) => \{[\s\S]*?preloadAuthenticatedEntry\(\)/);
+
+  const submitStart = bootstrap.indexOf("form.addEventListener('submit'");
+  const entryPreloadOffset = bootstrap.indexOf('preloadAuthenticatedEntry();', submitStart);
+  const loginRequestOffset = bootstrap.indexOf("fetchJson('/api/auth/login'", submitStart);
+  assert(submitStart >= 0 && entryPreloadOffset > submitStart && loginRequestOffset > entryPreloadOffset);
 });
 
 test('authenticated login lands on the one-page operating loop through one entry helper', () => {
@@ -148,13 +178,15 @@ test('authenticated login lands on the one-page operating loop through one entry
   assert.match(appMain, /if \(options\.skipOtaBackground !== true\) \{[\s\S]*?loadLatestCtripData[\s\S]*?loadCompetitorSummary/);
 });
 
-test('deferred OTA and admin helpers resolve from their bundles only when invoked', () => {
+test('deferred and action-gated helpers resolve from their bundles only when invoked', () => {
   assert.match(appMain, /const requireUserAdminStatic = \(key\) => \{/);
   assert.match(appMain, /const requireCtripSearchOpportunityStatic = \(key\) => \(\.\.\.args\) => \{/);
-  assert.match(appMain, /const requireOtaBrowserAssistStatic = \(key\) => \(\.\.\.args\) => \{/);
+  assert.match(appMain, /const loadOtaBrowserAssistStatic = \(\) => \{/);
+  assert.match(appMain, /script\.dataset\.suxiActionAsset = assetName/);
+  assert.match(appMain, /otaBrowserAssistStaticLoadPromise = null/);
+  assert.match(appMain, /const otaBrowserAssistStatic = await loadOtaBrowserAssistStatic\(\)/);
   assert.doesNotMatch(appMain, /const userAdminStatic = window\.SUXI_USER_ADMIN_STATIC;\s+if \(/);
   assert.doesNotMatch(appMain, /const ctripSearchOpportunityStatic = window\.SUXI_CTRIP_SEARCH_OPPORTUNITY_STATIC;\s+if \(/);
-  assert.doesNotMatch(appMain, /const otaBrowserAssistStatic = window\.SUXI_OTA_BROWSER_ASSIST_STATIC;\s+if \(/);
 });
 
 test('public login feedback, support dialog, and hidden states remain accessible', () => {
@@ -183,8 +215,8 @@ test('public login reconciles browser autofill before deciding the submit state'
 });
 
 test('public login keeps the same-origin transport warm without delaying submit', () => {
-  assert.match(bootstrap, /LOGIN_CONNECTION_WARMUP_INTERVAL_MS = 30000/);
   assert.match(bootstrap, /LOGIN_CONNECTION_WARMUP_TIMEOUT_MS = 12000/);
+  assert.match(bootstrap, /LOGIN_CONNECTION_WARMUP_MIN_GAP_MS = 15000/);
   assert.match(bootstrap, /fetchImpl\('\/api\/health', \{/);
   assert.match(bootstrap, /credentials: 'omit'/);
   assert.match(bootstrap, /cache: 'no-store'/);
@@ -193,6 +225,7 @@ test('public login keeps the same-origin transport warm without delaying submit'
   assert.match(bootstrap, /form\.addEventListener\('focusin', warmLoginConnection\)/);
   assert.match(bootstrap, /window\.addEventListener\('focus', warmLoginConnection\)/);
   assert.match(bootstrap, /loginConnectionWarmup\.stop\(\);[\s\S]*?await loadAuthenticatedApp\(\)/);
+  assert.doesNotMatch(bootstrap, /LOGIN_CONNECTION_WARMUP_INTERVAL_MS|setIntervalImpl|clearIntervalImpl/);
 
   const submitStart = bootstrap.indexOf("form.addEventListener('submit'");
   const loginRequest = bootstrap.indexOf("fetchJson('/api/auth/login'", submitStart);

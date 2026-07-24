@@ -699,6 +699,17 @@ test('Ctrip business download canvas is owned by ctrip static helper', () => {
   assert.ok(calls.some(call => call[0] === 'scale' && call[1] === 2));
 });
 
+test('Ctrip image download keeps the Blob URL alive for delayed browser handoff', () => {
+  const downloadBlob = sliceBetween(html, 'const downloadBlob =', 'const ctripDownloadRows =');
+
+  assert.match(downloadBlob, /link\.style\.display = 'none'/);
+  assert.match(downloadBlob, /window\.setTimeout\(\(\) => \{/);
+  assert.match(downloadBlob, /if \(link\.isConnected\) link\.remove\(\)/);
+  assert.match(downloadBlob, /URL\.revokeObjectURL\(url\)/);
+  assert.match(downloadBlob, /\}, 60000\)/);
+  assert.doesNotMatch(downloadBlob, /document\.body\.removeChild\(link\)/);
+});
+
 test('Ctrip authorization maintenance opens metadata-only replacement state with zero plaintext', () => {
   const editorFill = sliceBetween(html, 'const fillCtripCookieEditorForm =', 'const openCtripCookieEditorFromHealth =');
   const editorOpen = sliceBetween(html, 'const openCtripCookieEditorFromHealth =', 'const editCtripCookieFromHealth =');

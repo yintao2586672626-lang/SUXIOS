@@ -107,6 +107,44 @@ final class OtaStandardModuleTest extends TestCase
         self::assertContains('cancellation_fields_partial', array_column($partialCancel['data_gaps'], 'code'));
     }
 
+    public function testAdrUsesAllStandardRevenueAndRoomNightFactsAtTheSameScope(): void
+    {
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset([
+            'fact_ota_daily' => [
+                [
+                    'platform_key' => 'ctrip',
+                    'hotel_key' => 'system:80',
+                    'data_type' => 'business',
+                    'dimension' => 'overview',
+                    'revenue' => 22981.02,
+                    'room_revenue' => 22981.02,
+                    'room_nights' => 22.0,
+                    'source_trace' => $this->trace(9201, 'ctrip', 'business', '2026-07-23'),
+                ],
+                [
+                    'platform_key' => 'ctrip',
+                    'hotel_key' => 'system:80',
+                    'data_type' => 'order',
+                    'dimension' => 'room_nights_adjustment',
+                    'revenue' => null,
+                    'room_revenue' => null,
+                    'room_nights' => 2.0,
+                    'source_trace' => $this->trace(9202, 'ctrip', 'order', '2026-07-23'),
+                ],
+            ],
+            'fact_ota_traffic' => [],
+            'fact_ota_advertising' => [],
+            'fact_ota_quality' => [],
+            'fact_ota_comment' => [],
+        ]);
+
+        self::assertSame(22981.02, $metrics['totals']['room_revenue']);
+        self::assertSame(24.0, $metrics['totals']['room_nights']);
+        self::assertSame(957.54, $metrics['totals']['adr']);
+        self::assertSame(957.54, $metrics['by_platform'][0]['adr']);
+        self::assertSame([9201, 9202], $metrics['metric_trust']['totals.adr']['source']['row_ids']);
+    }
+
     public function testP1RevenueClosureUsesVerifiedOtaMetricsOnly(): void
     {
         $metrics = (new OtaRevenueMetricService())->summarizeDataset([
