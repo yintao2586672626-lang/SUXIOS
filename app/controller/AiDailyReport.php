@@ -5,6 +5,7 @@ namespace app\controller;
 
 use app\service\AiDailyReportService;
 use app\service\AiReportGenerationTaskService;
+use app\service\OtaCompetitionAnalysisBundleService;
 use think\Response;
 use Throwable;
 
@@ -65,12 +66,20 @@ class AiDailyReport extends Base
                 $date = date('Y-m-d', strtotime('-1 day'));
             }
             $userId = (int)($this->currentUser->id ?? 0);
+            $edition = OtaCompetitionAnalysisBundleService::normalizeEdition($input['edition'] ?? 'lite');
+            $isAdmin = (bool)$this->currentUser->isSuperAdmin();
+            OtaCompetitionAnalysisBundleService::assertGenerationAllowed($edition, $isAdmin);
             $options = [
                 'model_key' => (string)($input['model_key'] ?? ''),
                 'use_llm' => array_key_exists('use_llm', $input) ? $input['use_llm'] : true,
+                'edition' => $edition,
+                'actor_is_admin' => $isAdmin,
             ];
             $background = array_key_exists('background', $input)
                 && filter_var($input['background'], FILTER_VALIDATE_BOOL);
+            if (OtaCompetitionAnalysisBundleService::editionRequiresAdmin($edition)) {
+                $background = false;
+            }
             if ($background) {
                 return $this->success($this->taskService->enqueue(
                     $hotelIds,
@@ -172,6 +181,9 @@ class AiDailyReport extends Base
             return 401;
         }
         if (str_contains($message, 'permitted') || str_contains($message, 'no permitted hotel')) {
+            return 403;
+        }
+        if (str_contains($message, 'flagship_generation_requires_admin')) {
             return 403;
         }
         if (str_contains($message, 'not found')) {

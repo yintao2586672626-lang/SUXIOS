@@ -52,6 +52,10 @@ final class CtripCompetitiveOperationsService
                 trim((string)($row['update_time'] ?? $row['create_time'] ?? ''))
             );
         }
+        $sourceEvidence = $this->sourceEvidenceSummary(
+            array_merge($businessRows, $trafficRows),
+            $systemHotelId
+        );
 
         return $this->analyzeRows(
             $businessRows,
@@ -64,6 +68,9 @@ final class CtripCompetitiveOperationsService
                 'end_date' => $endDate,
                 'binding_status' => (string)($binding['status'] ?? 'binding_missing'),
                 'latest_fetched_at' => $latestFetchedAt,
+                'platform_hotel_identifier_present' => trim((string)($binding['ota_hotel_id'] ?? '')) !== '',
+                'platform_hotel_identifier_source' => 'hotel_id_family',
+                'source_evidence' => $sourceEvidence,
             ]
         );
     }
@@ -776,6 +783,166 @@ final class CtripCompetitiveOperationsService
     private function isUsableQualityStatus(string $status): bool
     {
         return in_array($status, ['normal', 'available', 'ok', 'valid', 'verified'], true);
+    }
+
+    /**
+     * Summarize only rows that the existing comparison logic can use, then
+     * require each of those rows to remain traceable to an exact persisted
+     * source. Raw URLs, credentials and platform account payloads are excluded.
+     *
+     * @param array<int, array<string,mixed>> $rows
+     * @return array<string,mixed>
+     */
+    private function sourceEvidenceSummary(array $rows, int $systemHotelId): array
+    {
+        $candidateRows = array_values(array_filter(
+            $rows,
+            fn(array $row): bool => $this->isUsableQualityStatus($this->effectiveQualityStatus($row))
+        ));
+        $completeRowCount = 0;
+        $rowIds = [];
+        $traceIds = [];
+        $sourceMethods = [];
+        $missingFields = [];
+        $latestCollectedAt = '';
+        $latestCollectedTimestamp = 0;
+
+        foreach ($candidateRows as $row) {
+            $raw = $this->decodeRaw($row);
+            $capture = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+            $meta = is_array($raw['meta'] ?? null) ? $raw['meta'] : [];
+            $rowId = (int)($row['id'] ?? 0);
+            $traceId = $this->firstEvidenceText([
+                $row['source_trace_id'] ?? null,
+                $raw['source_trace_id'] ?? null,
+                $capture['source_trace_id'] ?? null,
+                $meta['source_trace_id'] ?? null,
+            ]);
+            $sourceMethod = strtolower($this->firstEvidenceText([
+                $row['ingestion_method'] ?? null,
+                $row['source_method'] ?? null,
+                $raw['ingestion_method'] ?? null,
+                $raw['_ingestion_method'] ?? null,
+                $raw['source_method'] ?? null,
+            ]));
+            [$collectedAt, $collectedTimestamp] = $this->evidenceCollectionTime($row, $raw);
+            $rowMissing = [];
+            if ($rowId <= 0) {
+                $rowMissing[] = 'source_row_id';
+            }
+            if ((int)($row['system_hotel_id'] ?? 0) !== $systemHotelId) {
+                $rowMissing[] = 'system_hotel_id';
+            }
+            if ((int)($row['data_source_id'] ?? 0) <= 0) {
+                $rowMissing[] = 'data_source_id';
+            }
+            if ($traceId === '') {
+                $rowMissing[] = 'source_trace_id';
+            }
+            if (!$this->trustedEvidenceMethod($sourceMethod)) {
+                $rowMissing[] = 'source_method';
+            }
+            if ($collectedTimestamp <= 0) {
+                $rowMissing[] = 'collected_at';
+            }
+
+            if ($rowMissing === []) {
+                $completeRowCount++;
+            } else {
+                $missingFields = array_merge($missingFields, $rowMissing);
+            }
+            if ($rowId > 0) {
+                $rowIds[] = $rowId;
+            }
+            if ($traceId !== '') {
+                $traceIds[] = $traceId;
+            }
+            if ($sourceMethod !== '') {
+                $sourceMethods[] = $sourceMethod;
+            }
+            if ($collectedTimestamp > $latestCollectedTimestamp) {
+                $latestCollectedTimestamp = $collectedTimestamp;
+                $latestCollectedAt = $collectedAt;
+            }
+        }
+
+        $rowCount = count($candidateRows);
+        return [
+            'status' => $rowCount > 0 && $completeRowCount === $rowCount ? 'verified' : 'unverified',
+            'row_count' => $rowCount,
+            'complete_row_count' => $completeRowCount,
+            'source_row_ids' => array_values(array_unique($rowIds)),
+            'source_trace_ids' => array_values(array_unique($traceIds)),
+            'source_methods' => array_values(array_unique($sourceMethods)),
+            'latest_collected_at' => $latestCollectedAt,
+            'missing_fields' => array_values(array_unique($missingFields)),
+        ];
+    }
+
+    /** @param array<int, mixed> $values */
+    private function firstEvidenceText(array $values): string
+    {
+        foreach ($values as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+        return '';
+    }
+
+    /** @return array{0:string,1:int} */
+    private function evidenceCollectionTime(array $row, array $raw): array
+    {
+        $capture = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+        $meta = is_array($raw['meta'] ?? null) ? $raw['meta'] : [];
+        foreach ([
+            $row['collected_at'] ?? null,
+            $row['snapshot_time'] ?? null,
+            $row['received_at'] ?? null,
+            $raw['collected_at'] ?? null,
+            $raw['collectedAt'] ?? null,
+            $raw['captured_at'] ?? null,
+            $raw['capturedAt'] ?? null,
+            $raw['fetched_at'] ?? null,
+            $meta['collected_at'] ?? null,
+            $meta['captured_at'] ?? null,
+            $capture['collected_at'] ?? null,
+            $capture['captured_at'] ?? null,
+        ] as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if (preg_match(
+                '/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/D',
+                $text
+            ) !== 1) {
+                continue;
+            }
+            $timestamp = strtotime($text);
+            if ($timestamp !== false && $timestamp > 0) {
+                return [$text, $timestamp];
+            }
+        }
+        return ['', 0];
+    }
+
+    private function trustedEvidenceMethod(string $method): bool
+    {
+        return $method !== '' && !in_array($method, [
+            'legacy',
+            'manual',
+            'manual_import',
+            'manual_override',
+            'user_provided',
+            'user_provided_unverified',
+            'import_csv',
+            'import_json',
+        ], true);
     }
 
     /** @param array<string,mixed> $row */

@@ -31,16 +31,19 @@ class AiDailyReportService
     private OperationManagementService $operationService;
     private LlmClient $llmClient;
     private AiDecisionQualityService $decisionQualityService;
+    private OtaCompetitionAnalysisBundleService $competitionBundleService;
 
     public function __construct(
         ?OperationManagementService $operationService = null,
         ?LlmClient $llmClient = null,
-        ?AiDecisionQualityService $decisionQualityService = null
+        ?AiDecisionQualityService $decisionQualityService = null,
+        ?OtaCompetitionAnalysisBundleService $competitionBundleService = null
     )
     {
         $this->operationService = $operationService ?? new OperationManagementService();
         $this->llmClient = $llmClient ?? new LlmClient();
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
+        $this->competitionBundleService = $competitionBundleService ?? new OtaCompetitionAnalysisBundleService();
     }
 
     public static function promptVersion(): string
@@ -149,6 +152,9 @@ class AiDailyReportService
         $selectedHotelId = $this->resolveSingleHotelId($hotelIds, $hotelId);
         $reportDate = $this->normalizeDate($reportDate);
         $snapshot = $this->buildSnapshot($hotelIds, $selectedHotelId, $reportDate);
+        $edition = OtaCompetitionAnalysisBundleService::normalizeEdition($options['edition'] ?? 'lite');
+        $actorIsAdmin = ($options['actor_is_admin'] ?? false) === true;
+        OtaCompetitionAnalysisBundleService::assertGenerationAllowed($edition, $actorIsAdmin);
         $modelKey = trim((string)($options['model_key'] ?? ''));
         if ($modelKey === '') {
             $modelKey = self::DEFAULT_MODEL_KEY;
@@ -182,6 +188,16 @@ class AiDailyReportService
             'overall_verified' => empty($nonOtaSourceRefs) ? $inputTrust['verified'] : null,
             'note' => 'OTA来源执行精确回读；其他经营报告来源未在本步骤统一标记为已验证。',
         ];
+        $snapshot['competition_circle_bundle'] = $this->competitionBundleService->build(
+            $selectedHotelId,
+            $reportDate,
+            $snapshot,
+            [
+                'edition' => $edition,
+                'actor_is_admin' => $actorIsAdmin,
+                'dataset_kind' => 'live',
+            ]
+        );
         $ruleReport = $this->buildRuleReport($snapshot, $reportDate, $selectedHotelId);
         if ($inputTrust['gaps'] !== []) {
             $ruleReport['data_gaps'] = $this->uniqueByCodeAndMessage(array_merge(
@@ -2037,6 +2053,7 @@ class AiDailyReportService
             'model_key' => $modelKey,
             'use_llm' => $useLlm,
             'trusted_rows' => $trustedRows,
+            'competition_circle_bundle' => $snapshot['competition_circle_bundle'] ?? [],
             'trusted_llm_payload' => $this->buildTrustedLlmPayload($ruleReport, $snapshot),
         ]);
     }
@@ -2278,15 +2295,31 @@ class AiDailyReportService
             is_array($inputTrust['data_gaps'] ?? null) ? $inputTrust['data_gaps'] : [],
             'is_array'
         ));
+        $competitionBundle = is_array($snapshot['competition_circle_bundle'] ?? null)
+            ? $snapshot['competition_circle_bundle']
+            : [];
+        $competitionGaps = array_values(array_filter(
+            is_array($competitionBundle['quality']['data_gaps'] ?? null)
+                ? $competitionBundle['quality']['data_gaps']
+                : [],
+            'is_array'
+        ));
         $dataGaps = $this->uniqueByCodeAndMessage(array_merge(
             $this->collectDataGaps($operation, $rootCause, $executionFlow),
-            $inputTrustGaps
+            $inputTrustGaps,
+            $competitionGaps
         ));
         $workflowGaps = $this->collectWorkflowGaps($executionFlow);
         $abnormalMetrics = $this->collectAbnormalMetrics($operation, $rootCause);
         $competitorChanges = $this->collectCompetitorChanges($competitors);
         $yesterdayResult = $this->collectYesterdayResult($summary, $ota, $reportDate);
-        $actions = $this->buildRecommendedActions($operation, $rootCause, $executionFlow, $dataGaps);
+        $actions = $this->buildRecommendedActions(
+            $operation,
+            $rootCause,
+            $executionFlow,
+            $dataGaps,
+            $competitionBundle
+        );
         if (!self::isTrustedSnapshotForExecution($snapshot)) {
             $actions = $this->blockActionsForUntrustedInput($actions);
         }
@@ -2300,6 +2333,7 @@ class AiDailyReportService
             'workflow_gaps' => $workflowGaps,
             'recommended_actions' => array_slice($actions, 0, 3),
             'source_refs' => $sourceRefs,
+            'competition_circle_bundle' => $competitionBundle,
             'report_scope' => [
                 'hotel_id' => $hotelId,
                 'report_date' => $reportDate,
@@ -2896,7 +2930,13 @@ class AiDailyReportService
         };
     }
 
-    private function buildRecommendedActions(array $operation, array $rootCause, array $executionFlow, array $dataGaps): array
+    private function buildRecommendedActions(
+        array $operation,
+        array $rootCause,
+        array $executionFlow,
+        array $dataGaps,
+        array $competitionBundle = []
+    ): array
     {
         $actions = [];
         $rootCauses = is_array($rootCause['root_causes'] ?? null) ? $rootCause['root_causes'] : [];
@@ -2968,6 +3008,14 @@ class AiDailyReportService
         $meituanAction = $this->buildMeituanCompetitorRecommendedAction($meituanSummary);
         if ($meituanAction !== null) {
             $actions[] = $meituanAction;
+        }
+        $competitionItems = is_array($competitionBundle['recommendations']['items'] ?? null)
+            ? $competitionBundle['recommendations']['items']
+            : [];
+        foreach ($competitionItems as $competitionItem) {
+            if (is_array($competitionItem)) {
+                $actions[] = $competitionItem;
+            }
         }
 
         if (!empty($dataGaps)) {
@@ -3795,6 +3843,13 @@ class AiDailyReportService
         $row['recommendation_quality'] = $this->decisionQualityService->summarize(
             $row['recommended_actions'],
             $decisionQualityContext
+        );
+        $row['competition_circle_bundle'] = is_array($row['snapshot']['competition_circle_bundle'] ?? null)
+            ? $row['snapshot']['competition_circle_bundle']
+            : [];
+        $row['report_edition'] = (string)(
+            $row['competition_circle_bundle']['render_contract']['requested_edition']
+            ?? OtaCompetitionAnalysisBundleService::DEFAULT_EDITION
         );
         $row['owner_communication_brief'] = is_array($row['snapshot']['owner_communication_brief'] ?? null)
             ? $row['snapshot']['owner_communication_brief']

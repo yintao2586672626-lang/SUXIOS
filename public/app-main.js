@@ -19038,6 +19038,7 @@
             const aiDailyReportForm = ref({
                 hotel_id: '',
                 report_date: operationYesterday,
+                edition: 'lite',
                 use_llm: true,
             });
             const aiDailyReportJudgmentForm = ref({
@@ -19685,6 +19686,85 @@
             const aiDailyReportDataGaps = computed(() => aiDailyReportObjectList(aiDailyReport.value?.data_gaps));
             const aiDailyReportAbnormalMetrics = computed(() => aiDailyReportObjectList(aiDailyReport.value?.abnormal_metrics, 'evidence'));
             const aiDailyReportCompetitorChanges = computed(() => aiDailyReportObjectList(aiDailyReport.value?.competitor_changes, 'label'));
+            const aiDailyReportCompetitionBundle = computed(() => (
+                aiDailyReport.value?.competition_circle_bundle
+                || aiDailyReport.value?.snapshot?.competition_circle_bundle
+                || {}
+            ));
+            const aiDailyReportCompetitionPlatforms = computed(() => {
+                const bundle = aiDailyReportCompetitionBundle.value || {};
+                const labels = { ctrip: '携程', meituan: '美团' };
+                return ['ctrip', 'meituan'].map(platform => {
+                    const facts = bundle.facts?.[platform] || {};
+                    const analysis = bundle.analysis?.[platform] || {};
+                    const platformGaps = aiDailyReportObjectList(bundle.quality?.data_gaps)
+                        .filter(gap => String(gap.code || '').startsWith(`${platform}_`));
+                    const factText = platform === 'ctrip'
+                        ? `本店ADR ${facts.self?.adr ?? '—'} / 竞品均值 ${facts.competitor_average?.adr ?? '—'} / 竞品 ${facts.competitor_count ?? '—'} 家`
+                        : `本店 ${facts.self_position_text || '未返回'} / TOP1 ${facts.top_hotel_name || '未返回'} / ${facts.top1_gap_text || '差距未返回'}`;
+                    return {
+                        platform,
+                        label: labels[platform],
+                        facts,
+                        analysis,
+                        factText,
+                        decisionEligible: analysis.status === 'available',
+                        gapText: platformGaps.map(gap => gap.message || gap.code).join('；'),
+                    };
+                });
+            });
+            const aiDailyReportCompetitionGroups = computed(() => {
+                const bundle = aiDailyReportCompetitionBundle.value || {};
+                const groupLabels = {
+                    direct: '直接竞品',
+                    attack_benchmark: '进攻标杆',
+                    traffic_benchmark: '流量标杆',
+                    conversion_benchmark: '转化标杆',
+                };
+                const platformLabels = { ctrip: '携程', meituan: '美团' };
+                const rows = [];
+                Object.entries(bundle.candidate_competitors || {}).forEach(([platform, groups]) => {
+                    Object.entries(groups || {}).forEach(([key, items]) => {
+                        const normalizedItems = aiDailyReportObjectList(items);
+                        if (!normalizedItems.length) return;
+                        rows.push({
+                            key: `${platform}-${key}`,
+                            label: `${platformLabels[platform] || platform} · ${groupLabels[key] || key}`,
+                            items: normalizedItems,
+                            namesText: normalizedItems.slice(0, 3)
+                                .map(item => item.hotel_name || item.ota_hotel_id || '未命名酒店')
+                                .join('、'),
+                        });
+                    });
+                });
+                return rows;
+            });
+            const aiDailyReportCompetitionEditionText = computed(() => ({
+                lite: '简版',
+                flagship: '旗舰版',
+                both: '双版',
+            }[String(aiDailyReportCompetitionBundle.value?.render_contract?.requested_edition || 'lite')] || '简版'));
+            const aiDailyReportCompetitionQualityText = computed(() => ({
+                available: '可进入人工确认',
+                partial: '部分可用',
+                blocked: '已阻断',
+                synthetic: '模拟测试',
+            }[String(aiDailyReportCompetitionBundle.value?.quality?.status || '')] || '待生成'));
+            const aiDailyReportCompetitionSummaryText = computed(() => {
+                const bundle = aiDailyReportCompetitionBundle.value || {};
+                if (!bundle.schema_version) return '';
+                const lines = [`竞对变化 · ${aiDailyReportCompetitionEditionText.value} · ${aiDailyReportCompetitionQualityText.value}`];
+                if (bundle.source?.dataset_kind === 'synthetic') {
+                    lines.push('synthetic 模拟测试：仅核对页面、权限和契约，不输出角色、矛盾、实验或执行建议。');
+                }
+                aiDailyReportCompetitionPlatforms.value.forEach(platform => {
+                    lines.push(`${platform.label}｜${platform.factText}｜角色：${platform.analysis.channel_role || '不输出'}｜矛盾：${platform.analysis.first_conflict || '不输出'}`);
+                    if (platform.gapText) lines.push(`${platform.label}缺口｜${platform.gapText}`);
+                });
+                aiDailyReportCompetitionGroups.value.forEach(group => lines.push(`${group.label}｜${group.namesText}`));
+                lines.push(`行动门槛｜${bundle.quality?.decision_eligible ? '通过，仍需人工确认' : '未通过，不生成执行建议'}｜最多3项｜auto_write_ota=false`);
+                return lines.join('\n');
+            });
             const aiDailyReportSourceCount = computed(() => aiDailyReportList(aiDailyReport.value?.source_refs).length);
             const aiDailyReportTransferableCount = computed(() => aiDailyReportActions.value.filter(action => action && !action.execution_intent_id && revenueAiDailyReportActionExecutionReady(action)).length);
             const aiDailyReportResultReadiness = computed(() => aiDailyReport.value?.result_readiness || aiDailyReport.value?.result_status || null);
@@ -20636,6 +20716,7 @@
                         body: JSON.stringify({
                             hotel_id: hotelId,
                             report_date: reportDate,
+                            edition: aiDailyReportForm.value.edition || 'lite',
                             use_llm: aiDailyReportForm.value.use_llm,
                             background: true,
                         }),
@@ -38328,7 +38409,7 @@
                 operationSourceBrief, operationDecisionCards,
                 operationUnreadCount, operationCanMarkAlertsRead, filteredOperationAlerts, operationAlertTaskLoadingIds, isOperationAlertTaskLoading, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
                 markOperationAlertsRead, createOperationAlertTask, openOperationAlertTask, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
-                aiDailyReport, aiDailyReportForm, aiDailyFactGate, aiDailyFactGateLoading, loadAiDailyFactGate, aiDailyReportAiExplanation, aiDailyReportAiInterpretation, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportResultReadiness, aiDailyReportWorkflowReadiness, aiDailyReportReadiness, aiDailyReportResultContract, aiDailyReportResultLayers, aiDailyReportHumanJudgments, aiDailyReportConfidenceText, aiDailyReportLayerCards, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportBlockingSummary, aiDailyReportEvidenceRows,
+                aiDailyReport, aiDailyReportForm, aiDailyFactGate, aiDailyFactGateLoading, loadAiDailyFactGate, aiDailyReportAiExplanation, aiDailyReportAiInterpretation, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportCompetitionBundle, aiDailyReportCompetitionPlatforms, aiDailyReportCompetitionGroups, aiDailyReportCompetitionEditionText, aiDailyReportCompetitionQualityText, aiDailyReportCompetitionSummaryText, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportResultReadiness, aiDailyReportWorkflowReadiness, aiDailyReportReadiness, aiDailyReportResultContract, aiDailyReportResultLayers, aiDailyReportHumanJudgments, aiDailyReportConfidenceText, aiDailyReportLayerCards, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportBlockingSummary, aiDailyReportEvidenceRows,
                 aiDailyReportGenerationTask, aiDailyReportGenerationTaskPolling, aiDailyReportGenerationOutcome, aiDailyReportGenerationProgress, aiDailyReportGenerationRunning, aiDailyReportGenerationStageText, aiDailyReportGenerationStatusClass, aiDailyReportGenerationDetailText,
                 aiDailyReportModelText, aiDailyReportModelClass, aiDailyReportMetricValue, aiDailyReportActionSources, aiDailyReportActionIsInvestigationOnly, aiDailyReportActionStatusText, aiDailyReportActionStatusClass, aiDailyReportActionBlockedText, aiDailyReportActionButtonText,
                 aiDailyReportReadinessClass, aiDailyReportReferenceText, aiDailyReportJudgmentTargetText, aiDailyReportJudgmentDecisionText, aiDailyReportGapActionText, goAiDailyReportDataGap, openAiDailyReportEvidenceTarget,

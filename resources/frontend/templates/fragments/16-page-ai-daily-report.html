@@ -89,12 +89,19 @@
                                     <h3 class="font-bold text-gray-900">今日概览</h3>
                                     <p class="text-sm text-gray-500 mt-1">日报只使用已授权OTA与运营数据，缺失项会显式展示，不触碰订单手机号、房态或房源映射。</p>
                                 </div>
-                                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 xl:w-[680px]">
+                                <div class="grid grid-cols-1 sm:grid-cols-5 gap-2 xl:w-[820px]">
                                     <select v-model="aiDailyReportForm.hotel_id" @change="loadAiDailyFactGate()" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" class="px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-50 disabled:text-gray-400">
                                         <option value="">自动选择可见酒店</option>
                                         <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
                                     </select>
                                     <input v-model="aiDailyReportForm.report_date" @change="loadAiDailyFactGate()" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm disabled:bg-gray-50 disabled:text-gray-400">
+                                    <select v-model="aiDailyReportForm.edition">
+                                        <option value="lite">简版</option>
+                                        <optgroup v-if="user?.is_super_admin">
+                                            <option value="flagship">旗舰版</option>
+                                            <option value="both">双版</option>
+                                        </optgroup>
+                                    </select>
                                     <label class="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">
                                         <input v-model="aiDailyReportForm.use_llm" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" type="checkbox" class="rounded border-gray-300 disabled:opacity-50">
                                         <span>调用AI</span>
@@ -230,7 +237,7 @@
                                         </div>
                                     </div>
                                     <div class="rounded-lg border border-gray-100 p-4">
-                                        <div class="text-sm font-semibold text-gray-900 mb-3">竞对变化</div>
+                                        <pre v-if="aiDailyReportCompetitionSummaryText" class="whitespace-pre-wrap">{{ aiDailyReportCompetitionSummaryText }}</pre>
                                         <div v-if="!aiDailyReportCompetitorChanges.length" class="text-sm text-gray-400">暂无竞对变化样本</div>
                                         <div v-for="(item, index) in aiDailyReportCompetitorChanges" :key="(item.label || 'competitor') + index" class="mb-3 last:mb-0">
                                             <div class="text-sm text-gray-900">{{ item.label || '竞对信号' }}</div>

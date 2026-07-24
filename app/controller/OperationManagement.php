@@ -259,12 +259,18 @@ class OperationManagement extends Base
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
             $service = new BusinessClosureOverviewService();
+            $platforms = preg_split(
+                '/[,|]/',
+                (string)$this->request->param('platform', $this->request->param('channel', ''))
+            ) ?: [];
 
             return $this->success($service->overview(
                 $hotelIds,
                 $hotelId,
                 (int)($this->currentUser->id ?? 0),
-                $this->currentUser ? $this->currentUser->isSuperAdmin() : false
+                $this->currentUser ? $this->currentUser->isSuperAdmin() : false,
+                (string)$this->request->param('business_date', ''),
+                $platforms
             ));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'business closure overview query failed'), $this->operationThrowableStatus($e));

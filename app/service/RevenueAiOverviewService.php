@@ -13,6 +13,12 @@ class RevenueAiOverviewService
 
     /** @var array<int, int> */
     private array $overviewScopeHotelIds = [];
+    private P0OtaDownstreamGateService $p0GateService;
+
+    public function __construct(?P0OtaDownstreamGateService $p0GateService = null)
+    {
+        $this->p0GateService = $p0GateService ?? new P0OtaDownstreamGateService();
+    }
 
     /**
      * @param array<string, mixed> $filters
@@ -65,6 +71,13 @@ class RevenueAiOverviewService
         ];
         if (is_array($filters['p0_downstream_gate'] ?? null)) {
             $context['p0_downstream_gate'] = $filters['p0_downstream_gate'];
+        } elseif ($hotelId !== null) {
+            $context['p0_downstream_gate'] = $this->p0GateService->resolveRuntime(
+                $businessDate,
+                $hotelId,
+                $dataset,
+                $channels
+            );
         }
 
         return $this->buildOverviewFromDataset(
@@ -171,7 +184,7 @@ class RevenueAiOverviewService
         $businessDate = $this->businessDate($context['business_date'] ?? null);
         $hotelId = $this->hotelId($context['hotel_id'] ?? null);
         $enabledChannels = $this->enabledChannels($context['enabled_channels'] ?? null);
-        $p0GateService = new P0OtaDownstreamGateService();
+        $p0GateService = $this->p0GateService;
         if (is_array($context['p0_downstream_gate'] ?? null)) {
             $dataset['p0_downstream_gate'] = $p0GateService->normalize(
                 $context['p0_downstream_gate'],

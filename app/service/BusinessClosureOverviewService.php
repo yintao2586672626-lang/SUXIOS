@@ -53,8 +53,25 @@ class BusinessClosureOverviewService
         'operation_execution',
     ];
 
-    public function overview(array $hotelIds, ?int $hotelId, int $userId = 0, bool $isSuperAdmin = false): array
+    private P0OtaDownstreamGateService $p0GateService;
+
+    public function __construct(?P0OtaDownstreamGateService $p0GateService = null)
     {
+        $this->p0GateService = $p0GateService ?? new P0OtaDownstreamGateService();
+    }
+
+    public function overview(
+        array $hotelIds,
+        ?int $hotelId,
+        int $userId = 0,
+        bool $isSuperAdmin = false,
+        string $businessDate = '',
+        array $platforms = []
+    ): array
+    {
+        $businessDate = trim($businessDate) !== ''
+            ? trim($businessDate)
+            : date('Y-m-d', strtotime('-1 day'));
         $operationService = new OperationManagementService();
         $executionFlow = $operationService->executionFlow($hotelIds, $hotelId, []);
         $executionStats = $this->executionStatsBySource($executionFlow['list'] ?? []);
@@ -67,11 +84,12 @@ class BusinessClosureOverviewService
             $this->operationExecutionSignal($executionSummary, $executionFlow),
         ];
 
-        $p0DownstreamGate = (new P0OtaDownstreamGateService())->normalize([
-            'status' => 'blocked_by_p0_ota_gate',
-            'current_upstream_status' => 'not_verified',
-            'blocking_missing_inputs' => ['p0_field_loop_verifier_ready'],
-        ], '', $hotelId);
+        $p0DownstreamGate = $this->p0GateService->resolveRuntime(
+            $businessDate,
+            $hotelId,
+            null,
+            $platforms
+        );
 
         return $this->buildOverviewFromSignals($modules, $executionSummary, $dataGaps, $p0DownstreamGate);
     }
@@ -174,7 +192,7 @@ class BusinessClosureOverviewService
             return [];
         }
 
-        return (new P0OtaDownstreamGateService())->normalize($gate);
+        return $this->p0GateService->normalize($gate);
     }
 
     private function applyP0GateToModules(array $modules, array $p0Gate): array

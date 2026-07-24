@@ -6167,6 +6167,7 @@ class OperationManagementService
             $batchRows = $latestDateRows;
         }
 
+        $base['source_evidence'] = $this->summarizeMeituanRankSourceEvidence($batchRows);
         $targetPoiId = $this->resolveMeituanTargetPoiId($hotelIds);
         $hotels = $this->buildMeituanRankHotels($batchRows, $targetPoiId);
 
@@ -6306,6 +6307,15 @@ class OperationManagementService
             'returned_empty_count' => 0,
             'not_returned_count' => 0,
             'target_poi_bound' => false,
+            'source_evidence' => [
+                'status' => 'missing',
+                'row_count' => 0,
+                'complete_row_count' => 0,
+                'source_row_ids' => [],
+                'source_trace_ids' => [],
+                'source_methods' => [],
+                'missing_fields' => ['source_rows'],
+            ],
             'change_monitor_status' => 'missing',
             'change_missing_reason' => 'No comparable previous Meituan ranking batch found.',
             'change_alerts' => [],
@@ -6578,6 +6588,90 @@ class OperationManagementService
         $platform = strtolower((string)($row['platform'] ?? ''));
         $dataType = strtolower((string)($row['data_type'] ?? ''));
         return ($source === 'meituan' || $platform === 'meituan') && ($dataType === '' || $dataType === 'business');
+    }
+
+    /** @return array<string, mixed> */
+    private function summarizeMeituanRankSourceEvidence(array $rows): array
+    {
+        $completeRowCount = 0;
+        $rowIds = [];
+        $traceIds = [];
+        $sourceMethods = [];
+        $missingFields = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rawValue = $row['raw_data'] ?? [];
+            $raw = is_array($rawValue) ? $rawValue : $this->decodeJson((string)$rawValue);
+            $capture = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+            $meta = is_array($raw['meta'] ?? null) ? $raw['meta'] : [];
+            $traceId = '';
+            foreach ([
+                $row['source_trace_id'] ?? null,
+                $raw['source_trace_id'] ?? null,
+                $capture['source_trace_id'] ?? null,
+                $meta['source_trace_id'] ?? null,
+            ] as $value) {
+                if (is_scalar($value) && trim((string)$value) !== '') {
+                    $traceId = trim((string)$value);
+                    break;
+                }
+            }
+            $sourceMethod = '';
+            foreach ([
+                $row['ingestion_method'] ?? null,
+                $row['source_method'] ?? null,
+                $raw['ingestion_method'] ?? null,
+                $raw['_ingestion_method'] ?? null,
+                $raw['source_method'] ?? null,
+            ] as $value) {
+                if (is_scalar($value) && trim((string)$value) !== '') {
+                    $sourceMethod = strtolower(trim((string)$value));
+                    break;
+                }
+            }
+
+            $rowMissing = [];
+            $rowId = (int)($row['id'] ?? 0);
+            if ($rowId <= 0) {
+                $rowMissing[] = 'source_row_id';
+            }
+            if ($traceId === '') {
+                $rowMissing[] = 'source_trace_id';
+            }
+            if ($sourceMethod === '') {
+                $rowMissing[] = 'source_method';
+            }
+            if ($this->trustedOnlineCollectionTimestamp($row) <= 0) {
+                $rowMissing[] = 'collected_at';
+            }
+            if ($rowMissing === []) {
+                $completeRowCount++;
+            } else {
+                $missingFields = array_merge($missingFields, $rowMissing);
+            }
+            if ($rowId > 0) {
+                $rowIds[] = $rowId;
+            }
+            if ($traceId !== '') {
+                $traceIds[] = $traceId;
+            }
+            if ($sourceMethod !== '') {
+                $sourceMethods[] = $sourceMethod;
+            }
+        }
+
+        $rowCount = count($rows);
+        return [
+            'status' => $rowCount > 0 && $completeRowCount === $rowCount ? 'verified' : 'unverified',
+            'row_count' => $rowCount,
+            'complete_row_count' => $completeRowCount,
+            'source_row_ids' => array_values(array_unique($rowIds)),
+            'source_trace_ids' => array_values(array_unique($traceIds)),
+            'source_methods' => array_values(array_unique($sourceMethods)),
+            'missing_fields' => array_values(array_unique($missingFields)),
+        ];
     }
 
     private function resolveMeituanTargetPoiId(array $hotelIds): string
