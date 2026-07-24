@@ -176,8 +176,11 @@ final class DualOtaContinuousTrustService
                 'page_status',
                 'p0',
             ],
+            'step_semantics' => [
+                'page_status' => 'field_fact_projection_contract',
+            ],
             'days' => $days,
-            'boundary' => 'Only exact-date, tenant/hotel-bound, Profile-sourced, saved and database-read-back Ctrip and Meituan facts can become verified. Old rows and numeric zero never replace missing evidence.',
+            'boundary' => 'Only exact-date, tenant/hotel-bound, Profile-sourced, saved and database-read-back Ctrip and Meituan facts can become verified. page_status confirms the stored field-fact projection contract only; it does not claim that a live browser render was observed. Old rows and numeric zero never replace missing evidence.',
         ];
     }
 
@@ -283,7 +286,7 @@ final class DualOtaContinuousTrustService
             $trafficRows,
             static fn(array $row): bool => (int)($row['readback_verified'] ?? 0) === 1
         )) === count($trafficRows);
-        $pageStatusReady = $fieldFactsReady && (bool)($facts['ui_status_ready'] ?? false) && $readbackReady;
+        $pageProjectionReady = $fieldFactsReady && (bool)($facts['ui_status_ready'] ?? false) && $readbackReady;
         $p0Ready = $p0TaskReady
             && $fieldFactsReady
             && $readbackReady
@@ -297,7 +300,7 @@ final class DualOtaContinuousTrustService
             'field_facts' => $fieldFactsReady,
             'save' => $saveReady,
             'readback' => $readbackReady,
-            'page_status' => $pageStatusReady,
+            'page_status' => $pageProjectionReady,
             'p0' => $p0Ready,
         ];
         $missingSteps = array_keys(array_filter($steps, static fn(bool $ready): bool => !$ready));
@@ -322,6 +325,14 @@ final class DualOtaContinuousTrustService
             'required_metric_keys' => self::REQUIRED_TRAFFIC_METRICS[$platform],
             'complete_metric_keys' => $facts['complete_metric_keys'],
             'missing_metric_keys' => $facts['missing_metric_keys'],
+            'page_status_evidence' => [
+                'contract' => 'field_fact_projection_contract',
+                'status' => $pageProjectionReady ? 'ready' : 'partial',
+                'live_page_verification_status' => 'not_evaluated',
+                'message' => $pageProjectionReady
+                    ? 'Stored field facts satisfy the page projection contract; no live browser render is asserted.'
+                    : 'Stored field facts do not yet satisfy the page projection contract; no live browser render is asserted.',
+            ],
             'p0_status' => $p0Ready ? 'ready' : 'blocked',
             'failure_reason' => $collectionFailed
                 ? (trim((string)($task['message'] ?? '')) ?: 'target_date_collection_failed')
@@ -619,9 +630,12 @@ final class DualOtaContinuousTrustService
             'required_steps' => [
                 'source', 'hotel', 'date', 'field_facts', 'save', 'readback', 'page_status', 'p0',
             ],
+            'step_semantics' => [
+                'page_status' => 'field_fact_projection_contract',
+            ],
             'days' => [],
             'reason' => $reason,
-            'boundary' => 'No hotel-scoped evidence was evaluated, so the result remains partial.',
+            'boundary' => 'No hotel-scoped evidence was evaluated, so the result remains partial. page_status represents a field-fact projection contract, not a live browser render check.',
         ];
     }
 

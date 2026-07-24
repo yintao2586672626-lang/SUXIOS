@@ -19,6 +19,9 @@ test('continuous trust contract requires the exact eight-step dual-OTA loop', ()
   }
   assert.match(service, /private const PLATFORMS = \['ctrip', 'meituan'\]/);
   assert.match(service, /\$readbackReady = \$hasReadbackColumn/);
+  assert.match(service, /'page_status' => 'field_fact_projection_contract'/);
+  assert.match(service, /'live_page_verification_status' => 'not_evaluated'/);
+  assert.match(service, /it does not claim that a live browser render was observed/);
   assert.match(service, /'collection_failed'/);
   assert.match(service, /consecutive_verified_days/);
   assert.match(controller, /'dual_ota_continuous_trust' => \$this->buildDualOtaContinuousTrust/);
@@ -37,6 +40,7 @@ test('page targets the selected date and exposes raw partial or collection_faile
   assert.match(app, /params\.append\('end_date', String\(coreOperationsTargetDate\.value \|\| coreOperationsMaxDate\)\)/);
   assert.match(app, /dualOtaContinuousStatusText/);
   assert.match(app, /\['verified', 'partial', 'collection_failed'\]/);
+  assert.match(app, /page_status: '页面字段就绪'/);
   assert.match(template, /data-testid="dual-ota-continuous-trust"/);
   assert.match(template, /旧数据、空值或数值 0 不替代缺失证据/);
 

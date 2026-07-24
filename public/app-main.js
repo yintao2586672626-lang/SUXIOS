@@ -3853,7 +3853,7 @@
                 field_facts: '字段事实',
                 save: '保存',
                 readback: '数据库回读',
-                page_status: '页面状态',
+                page_status: '页面字段就绪',
                 p0: 'P0验证',
             });
             const dualOtaContinuousStepRows = (platform = {}) => {

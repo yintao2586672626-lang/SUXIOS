@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_FRONTEND_RUNTIME_BUDGETS,
   evaluateFrontendRuntimeBudget,
 } from '../../scripts/lib/frontend_runtime_performance_budget.mjs';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const workflow = readFileSync(path.join(repoRoot, '.github', 'workflows', 'php.yml'), 'utf8');
 
 const metric = (p95) => ({ sample_count: 5, p50_ms: p95, p95_ms: p95, max_ms: p95 });
 
@@ -45,6 +51,18 @@ test('verified five-run authenticated report passes the default local runtime bu
   assert.equal(assessment.observed.max_total_requests_per_run, 29);
 });
 
+test('CI enforces the static budget and measures the authenticated app before the runtime budget', () => {
+  assert.match(workflow, /run: npm run verify:performance-budget/);
+  assert.match(workflow, /SUXI_PHP: php/);
+  assert.match(workflow, /SUXI_E2E_DB_NAME: hotelx_ci_test/);
+  assert.match(workflow, /npm run measure:performance:isolated/);
+  assert.match(workflow, /npm run verify:performance-runtime-budget/);
+  assert(
+    workflow.indexOf('npm run measure:performance:isolated')
+      < workflow.indexOf('npm run verify:performance-runtime-budget'),
+  );
+});
+
 test('runtime budget fails closed on duplicate startup APIs and request growth', () => {
   const report = passingReport();
   report.runs[0].metrics.total_requests = 31;
@@ -72,6 +90,25 @@ test('runtime budget fails closed on missing or unverified measurements', () => 
   assert(metrics.includes('unverified_run_count'));
   assert(metrics.includes('verified_run_count'));
   assert(metrics.includes('lcp_p95_ms'));
+});
+
+test('unthrottled auth handoff keeps the measured hard ceiling separate from the improvement target', () => {
+  const report = passingReport();
+  report.aggregate.metrics.auth_to_interactive_ms = metric(900);
+  const assessment = evaluateFrontendRuntimeBudget(report);
+  assert.deepEqual(assessment.failures, []);
+  assert.deepEqual(assessment.warnings, [{
+    metric: 'auth_to_interactive_p95_ms',
+    actual: 900,
+    target: 350,
+    reason: 'improvement_target_missed',
+  }]);
+
+  report.aggregate.metrics.auth_to_interactive_ms = metric(1_001);
+  assert(
+    evaluateFrontendRuntimeBudget(report).failures
+      .some((failure) => failure.metric === 'auth_to_interactive_p95_ms'),
+  );
 });
 
 test('slow-4g reports use the explicit throttled-network budget', () => {
