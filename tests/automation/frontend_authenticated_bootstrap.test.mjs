@@ -116,6 +116,25 @@ test('login handoff exposes auth-success to interactive timing after a usable ap
   assert.match(appMain, /suxi:authenticated-interactive-ready/);
 });
 
+test('authenticated interactive readiness is reset and republished for every login session', () => {
+  assert.match(
+    bootstrap,
+    /const markLoginAuthSuccess = \(\{ source = 'public-login' \} = \{\}\) => \{\s*resetAuthenticatedInteractiveState\(\);/,
+  );
+  assert.match(
+    bootstrap,
+    /window\.SUXI_RESET_AUTHENTICATED_INTERACTIVE_STATE = resetAuthenticatedInteractiveState/,
+  );
+  assert.match(
+    appMain,
+    /const clearAuthSessionWithStatus = \(tokenStatus = 'missing'\) => \{\s*authSessionEpoch \+= 1;\s*window\.SUXI_RESET_AUTHENTICATED_INTERACTIVE_STATE\?\.\(\);/,
+  );
+  assert.match(
+    appMain,
+    /scheduleInitialBackendNotificationRefresh\(\);\s*await nextTick\(\);\s*publishSuxiAuthenticatedInteractiveReady\(\);/,
+  );
+});
+
 test('authenticated startup paints the home render before loading the full render', () => {
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'vue\.runtime\.global\.prod\.js'/);
   assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'app-main\.min\.js'/);
