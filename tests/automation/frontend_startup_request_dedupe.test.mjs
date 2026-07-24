@@ -19,6 +19,11 @@ test('deferred render remount shares only authenticated startup reads', () => {
     appMain,
     /startupDedupe: options\.startupDedupe === true/,
   );
+  assert.match(
+    appMain,
+    /onUnmounted\(\(\) => \{\s*authSessionEpoch \+= 1;/,
+    'unmounting the startup render must invalidate callbacks from its auth session',
+  );
 });
 
 test('manual notification refresh and write readback stay uncached', () => {

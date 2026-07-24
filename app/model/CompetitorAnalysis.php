@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
 /**
  * 竞对分析模型
  * 用于收益管理Agent的竞争对手价格监控和分析
  */
-class CompetitorAnalysis extends Model
+class CompetitorAnalysis extends BaseTenantModel
 {
     protected $name = 'competitor_analysis';
     
@@ -20,6 +20,7 @@ class CompetitorAnalysis extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'competitor_hotel_id' => 'integer',
         'room_type_id' => 'integer',

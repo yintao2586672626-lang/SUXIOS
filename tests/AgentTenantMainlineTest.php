@@ -8,6 +8,7 @@ use app\model\AgentConfig;
 use app\model\PriceSuggestion;
 use PHPUnit\Framework\TestCase;
 use think\App;
+use think\exception\HttpException;
 use think\facade\Config;
 use think\facade\Db;
 use think\Request;
@@ -50,7 +51,7 @@ final class AgentTenantMainlineTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['agent_logs', 'price_suggestions', 'demand_forecasts', 'agent_configs', 'room_types', 'user_hotel_permissions', 'users', 'hotels', 'roles'] as $table) {
+        foreach (['agent_logs', 'price_suggestions', 'demand_forecasts', 'competitor_analysis', 'agent_configs', 'room_types', 'user_hotel_permissions', 'users', 'hotels', 'roles'] as $table) {
             Db::name($table)->delete(true);
         }
         $this->seedFixture();
@@ -139,9 +140,62 @@ final class AgentTenantMainlineTest extends TestCase
         ], [], 2)->priceSuggestions());
         self::assertSame(1, (int)$suggestions['pagination']['total']);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionCode(403);
-        $this->controller(['hotel_id' => 30], [], 2)->roomTypes();
+        $this->assertHttpStatus(403, fn() => $this->controller(['hotel_id' => 30], [], 2)->roomTypes());
+    }
+
+    public function testScopedAiUserWritesTenantAndCannotUseAnotherHotelsRoomType(): void
+    {
+        $roomType = $this->responseData($this->controller([], [
+            'hotel_id' => 20,
+            'name' => 'Tenant-safe room',
+            'base_price' => 320,
+            'min_price' => 260,
+            'max_price' => 480,
+            'room_count' => 8,
+        ], 2)->saveRoomType());
+        $roomTypeId = (int)$roomType['room_type']['id'];
+        $storedRoomType = Db::name('room_types')->where('id', $roomTypeId)->find();
+        self::assertSame(10, (int)$storedRoomType['tenant_id']);
+        self::assertSame(20, (int)$storedRoomType['hotel_id']);
+
+        $analysis = $this->responseData($this->controller([], [
+            'hotel_id' => 20,
+            'analysis_date' => date('Y-m-d'),
+            'room_type_id' => 100,
+            'competitor_hotel_id' => 0,
+            'competitor_name' => 'Operator comparison hotel',
+            'our_price' => 320,
+            'competitor_price' => 300,
+            'ota_platform' => 1,
+        ], 2)->recordCompetitorPrice());
+        $storedAnalysis = Db::name('competitor_analysis')->where('id', (int)$analysis['id'])->find();
+        self::assertSame(10, (int)$storedAnalysis['tenant_id']);
+        self::assertSame(20, (int)$storedAnalysis['hotel_id']);
+
+        $forecastCount = (int)Db::name('demand_forecasts')->count();
+        $this->assertHttpStatus(422, fn() => $this->controller([], [
+            'hotel_id' => 20,
+            'forecast_date' => date('Y-m-d', strtotime('+2 days')),
+            'room_type_id' => 200,
+            'forecast_method' => 3,
+            'predicted_occupancy' => 75,
+            'predicted_demand' => 7,
+            'confidence_score' => 0.7,
+        ], 2)->createForecast());
+        self::assertSame($forecastCount, (int)Db::name('demand_forecasts')->count());
+
+        $analysisCount = (int)Db::name('competitor_analysis')->count();
+        $this->assertHttpStatus(422, fn() => $this->controller([], [
+            'hotel_id' => 20,
+            'analysis_date' => date('Y-m-d'),
+            'room_type_id' => 200,
+            'competitor_hotel_id' => 0,
+            'competitor_name' => 'Cross-hotel attempt',
+            'our_price' => 320,
+            'competitor_price' => 300,
+            'ota_platform' => 1,
+        ], 2)->recordCompetitorPrice());
+        self::assertSame($analysisCount, (int)Db::name('competitor_analysis')->count());
     }
 
     private function controller(array $get = [], array $post = [], int $userId = 1): Agent
@@ -173,6 +227,16 @@ final class AgentTenantMainlineTest extends TestCase
         return is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
     }
 
+    private function assertHttpStatus(int $expectedStatus, callable $callback): void
+    {
+        try {
+            $callback();
+            self::fail('Expected an HTTP exception with status ' . $expectedStatus);
+        } catch (HttpException $exception) {
+            self::assertSame($expectedStatus, $exception->getStatusCode());
+        }
+    }
+
     private function seedFixture(): void
     {
         Db::name('roles')->insertAll([
@@ -196,7 +260,10 @@ final class AgentTenantMainlineTest extends TestCase
             'can_view' => 1,
             'can_ai' => 1,
         ]);
-        Db::name('room_types')->insert(['id' => 100, 'hotel_id' => 20, 'name' => 'Deluxe', 'base_price' => 300, 'min_price' => 250, 'max_price' => 450, 'room_count' => 10, 'sort_order' => 1, 'is_enabled' => 1, 'facilities' => '[]']);
+        Db::name('room_types')->insertAll([
+            ['id' => 100, 'tenant_id' => 10, 'hotel_id' => 20, 'name' => 'Deluxe', 'base_price' => 300, 'min_price' => 250, 'max_price' => 450, 'room_count' => 10, 'sort_order' => 1, 'is_enabled' => 1, 'facilities' => '[]'],
+            ['id' => 200, 'tenant_id' => 99, 'hotel_id' => 30, 'name' => 'Other tenant room', 'base_price' => 500, 'min_price' => 450, 'max_price' => 650, 'room_count' => 6, 'sort_order' => 1, 'is_enabled' => 1, 'facilities' => '[]'],
+        ]);
         Db::name('agent_configs')->insertAll([
             ['id' => 1, 'tenant_id' => 10, 'hotel_id' => 20, 'agent_type' => 2, 'is_enabled' => 0, 'config_data' => '{"marker":"existing"}'],
             ['id' => 2, 'tenant_id' => 99, 'hotel_id' => 30, 'agent_type' => 2, 'is_enabled' => 1, 'config_data' => '{"marker":"other-tenant"}'],
@@ -235,10 +302,11 @@ final class AgentTenantMainlineTest extends TestCase
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT, status INTEGER)');
         Db::execute('CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER, hotel_id INTEGER, username TEXT, password TEXT, role_id INTEGER, status INTEGER)');
         Db::execute('CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, status TEXT, can_view INTEGER, can_ai INTEGER)');
-        Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY, hotel_id INTEGER, name TEXT, base_price REAL, min_price REAL, max_price REAL, room_count INTEGER, sort_order INTEGER, is_enabled INTEGER, facilities TEXT, create_time TEXT, update_time TEXT)');
+        Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, hotel_id INTEGER, name TEXT, base_price REAL, min_price REAL, max_price REAL, room_count INTEGER, sort_order INTEGER, is_enabled INTEGER, facilities TEXT, create_time TEXT, update_time TEXT)');
         Db::execute('CREATE TABLE agent_configs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, agent_type INTEGER NOT NULL, is_enabled INTEGER, config_data TEXT, create_time TEXT, update_time TEXT)');
         Db::execute('CREATE TABLE agent_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, agent_type INTEGER, action TEXT, message TEXT, log_level INTEGER, context_data TEXT, user_id INTEGER, create_time TEXT)');
         Db::execute('CREATE TABLE demand_forecasts (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, forecast_date TEXT, forecast_method INTEGER, predicted_occupancy REAL, predicted_demand INTEGER, confidence_score REAL, actual_occupancy REAL, is_event_driven INTEGER, event_factors TEXT, historical_data TEXT, remark TEXT, create_time TEXT, update_time TEXT)');
+        Db::execute('CREATE TABLE competitor_analysis (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, competitor_hotel_id INTEGER, analysis_date TEXT, room_type_id INTEGER, competitor_room_type_id INTEGER, our_price REAL, competitor_price REAL, price_difference REAL, price_index REAL, ota_platform INTEGER, competitor_data TEXT, create_time TEXT, update_time TEXT)');
         Db::execute('CREATE TABLE price_suggestions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, room_type_id INTEGER, demand_forecast_id INTEGER, suggestion_date TEXT, suggestion_type INTEGER, current_price REAL, suggested_price REAL, min_price REAL, max_price REAL, confidence_score REAL, competitor_data TEXT, factors TEXT, status INTEGER, applied_by INTEGER, applied_time TEXT, remark TEXT, create_time TEXT, update_time TEXT)');
     }
 }

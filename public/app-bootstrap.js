@@ -212,6 +212,42 @@
         window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
     });
 
+    const waitForAuthenticatedInteractiveReady = () => new Promise((resolve, reject) => {
+        const root = document.documentElement;
+        if (root.dataset.suxiAuthenticatedInteractiveReady === '1') {
+            resolve();
+            return;
+        }
+        if (root.dataset.suxiAuthenticatedInteractiveError) {
+            reject(new Error(root.dataset.suxiAuthenticatedInteractiveError));
+            return;
+        }
+
+        const cleanup = () => {
+            window.clearTimeout(timeoutId);
+            window.removeEventListener('suxi:authenticated-interactive-ready', handleReady);
+            window.removeEventListener('suxi:full-render-error', handleError);
+        };
+        const handleReady = () => {
+            cleanup();
+            resolve();
+        };
+        const handleError = (event) => {
+            cleanup();
+            reject(new Error(String(
+                event?.detail?.message
+                || root.dataset.suxiAuthenticatedInteractiveError
+                || '完整页面资源加载失败',
+            )));
+        };
+        const timeoutId = window.setTimeout(() => {
+            cleanup();
+            reject(new Error('经营系统可交互页面加载超时'));
+        }, 30000);
+        window.addEventListener('suxi:authenticated-interactive-ready', handleReady);
+        window.addEventListener('suxi:full-render-error', handleError);
+    });
+
     const browserPerformance = typeof performance !== 'undefined' ? performance : null;
     const monotonicNow = () => (
         typeof browserPerformance?.now === 'function' ? browserPerformance.now() : Date.now()
@@ -282,6 +318,7 @@
     };
 
     const markLoginInteractiveAfterPaint = async (metadata = {}) => {
+        await waitForAuthenticatedInteractiveReady();
         await waitForFirstAuthenticatedPaint();
         return markLoginInteractive(metadata);
     };
