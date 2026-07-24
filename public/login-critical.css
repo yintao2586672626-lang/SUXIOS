@@ -25,6 +25,7 @@
     --sx-shadow: 0 10px 28px rgba(15, 42, 76, 0.06);
     --sx-shadow-sm: 0 4px 14px rgba(15, 42, 76, 0.05);
 }
+
 .locale-switch {
     display: inline-flex;
     align-items: center;

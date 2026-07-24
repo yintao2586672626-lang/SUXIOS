@@ -53,8 +53,7 @@ export async function buildLoginCriticalCss(repoRoot) {
     localeRule.trim(),
     localeSelectRule.trim(),
     style.slice(loginStart, loginEnd).trim(),
-    '',
-  ].join('\n\n');
+  ].join('\n\n') + '\n';
 }
 
 export async function inspectLoginCriticalCss(repoRoot) {
@@ -73,6 +72,9 @@ export async function inspectLoginCriticalCss(repoRoot) {
     failures.push(error.message);
   }
   if (artifact !== expected) failures.push('public/login-critical.css is stale or missing.');
+  if (artifact && (!artifact.endsWith('\n') || artifact.endsWith('\n\n'))) {
+    failures.push('public/login-critical.css must end with exactly one newline.');
+  }
   const hash = buildFrontendAssetHash(artifact);
   if (!version || version.hash !== hash) failures.push('public/index.html must reference the current login-critical.css hash.');
   if (artifact && Buffer.byteLength(artifact) >= Buffer.byteLength(fs.readFileSync(stylePath)) * 0.2) {
