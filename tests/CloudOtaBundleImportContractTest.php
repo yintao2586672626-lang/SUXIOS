@@ -61,6 +61,8 @@ final class CloudOtaBundleImportContractTest extends TestCase
         self::assertStringContainsString("'source_sync_task_id' => \$syncTaskId", $exportSource);
         self::assertStringContainsString("'snapshot_complete' => count(\$rows) === \$targetRowCount", $exportSource);
         self::assertStringContainsString('cloud_bundle_sync_task_row_identity_mismatch:', $exportSource);
+        self::assertStringContainsString("->whereIn('id', \$receiptRowIds)", $exportSource);
+        self::assertStringContainsString('count($rows) === $targetRowCount', $exportSource);
         self::assertStringContainsString('($package[\'snapshot_complete\'] ?? false) === true', $importSource);
         self::assertStringContainsString('(int)($package[\'source_row_count\'] ?? -1) === count($rows)', $importSource);
     }
@@ -76,6 +78,18 @@ final class CloudOtaBundleImportContractTest extends TestCase
         self::assertStringContainsString("in_array((string)\$item['platform'], \$requiredPlatforms, true)", $source);
         self::assertStringContainsString('foreach ($selectedBindings as $item)', $source);
         self::assertStringContainsString('loadVerifiedSyncTask(', $source);
+    }
+
+    public function testPartialCollectionUsesExplicitPartialReceiptInsteadOfSuccessReceipt(): void
+    {
+        $source = (string)file_get_contents((new ReflectionMethod(
+            CloudOtaBundleImportService::class,
+            'processInboxFile'
+        ))->getFileName());
+
+        self::assertStringContainsString("!== 'success'", $source);
+        self::assertStringContainsString("'.partial.json'", $source);
+        self::assertStringContainsString("'status' => \$resultStatus === 'succeeded' ? 'success' : 'partial'", $source);
     }
 
     public function testExportCommandParsesExactSourceToSyncTaskBindings(): void

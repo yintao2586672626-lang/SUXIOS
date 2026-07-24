@@ -4237,15 +4237,6 @@ function isCtripGenericSelfHotelName(value) {
     || normalized === '\u672c\u9152\u5e97';
 }
 
-function ctripHotelNameMatches(candidate, target) {
-  const left = normalizeCtripHotelName(candidate);
-  const right = normalizeCtripHotelName(target);
-  if (!left || !right) {
-    return false;
-  }
-  return left === right || (left.length >= 3 && right.includes(left)) || (right.length >= 3 && left.includes(right));
-}
-
 function compareTypeForFacts(facts, context = {}) {
   const endpointId = String(facts[0]?.endpoint_id || '');
   const hotelId = ctripFactHotelId(facts);

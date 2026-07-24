@@ -45,3 +45,9 @@ test('generic cleanup never targets durable or unknown runtime state', () => {
   assert.doesNotMatch(cleaner, /\$candidatePaths\s*\+=\s*["']runtime["']/);
   assert.doesNotMatch(audit, /candidates\.push\(["']runtime["']\)/);
 });
+
+test('capture screenshots require an explicit destructive cleanup opt-in', () => {
+  assert.match(cleaner, /\[switch\]\$IncludeCaptureAssets/);
+  assert.match(cleaner, /if \(\$IncludeCaptureAssets\)/);
+  assert.doesNotMatch(audit, /candidates\.push\(path\.join\('reports', '(?:ctrip|meituan)_capture_assets'\)\)/);
+});

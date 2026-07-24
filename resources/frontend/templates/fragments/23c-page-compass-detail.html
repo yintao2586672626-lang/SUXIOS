@@ -25,27 +25,23 @@
                                         </div>
                                     </div>
                                     <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5" data-testid="revenue-ai-metric-cards">
-                                        <button type="button" v-for="card in revenueAiMetricCards" :key="card.key" @click="openRevenueAiMetric(card)" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
-                                            <div class="flex items-start justify-between gap-3">
-                                                <div class="min-w-0">
-                                                    <div class="truncate text-xs font-semibold text-slate-500" :title="card.label">{{ card.label }}</div>
-                                                    <div class="mt-2 truncate text-xl font-bold text-slate-900" :title="card.display">{{ card.display }}</div>
+                                        <div v-for="card in revenueAiMetricCards" :key="card.key" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+                                            <button type="button" @click="openRevenueAiMetric(card)" class="w-full text-left">
+                                                <div class="flex items-start justify-between gap-3">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-xs font-semibold text-slate-500" :title="card.label">{{ card.label }}</div>
+                                                        <div class="mt-2 truncate text-xl font-bold text-slate-900" :title="card.display">{{ card.display }}</div>
+                                                    </div>
+                                                    <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.className]">{{ card.statusLabel }}</span>
                                                 </div>
-                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.className]">{{ card.statusLabel }}</span>
-                                            </div>
-                                            <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.scopeLabel }}</span>
-                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.dateBasisLabel }}</span>
-                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">计算：{{ card.metricStatusLabel }}</span>
-                                            </div>
-                                            <div class="mt-2 text-xs leading-5 text-slate-500" :title="card.reasonText">{{ card.reasonText }}</div>
-                                            <dl class="mt-2 space-y-1 border-t border-slate-100 pt-2 text-[11px] leading-4 text-slate-500" data-testid="revenue-ai-metric-truth">
-                                                <div v-for="line in card.truthLines" :key="`${card.key}-${line.key}`" class="grid grid-cols-[52px_minmax(0,1fr)] gap-1">
-                                                    <dt class="font-medium text-slate-400">{{ line.label }}</dt>
-                                                    <dd class="break-words text-slate-600">{{ line.value }}</dd>
+                                                <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                                                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.scopeLabel }}</span>
+                                                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.dateBasisLabel }}</span>
+                                                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5">计算：{{ card.metricStatusLabel }}</span>
                                                 </div>
-                                            </dl>
-                                        </button>
+                                            </button>
+                                            <online-truth-summary :truth="card.truth" :testid="`revenue-ai-metric-truth-${card.key}`"></online-truth-summary>
+                                        </div>
                                     </div>
                                 </details>
                                 <details class="suxi-evidence-fold suxi-work-fold" data-testid="revenue-ai-business-closure-fold">
@@ -218,36 +214,23 @@
                                         </div>
                                     </div>
                                     <div class="xl:col-span-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                                        <div class="mb-3 flex items-center justify-between gap-3">
-                                            <div>
-                                                <div class="text-sm font-semibold text-slate-900">今日调价建议</div>
-                                                <div class="mt-1 text-xs text-slate-500">人工审核，不自动写 OTA。</div>
-                                            </div>
-                                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">人工审核</span>
-                                        </div>
+                                        <div class="mb-3 text-sm font-semibold text-slate-900">今日调价建议 · 人工审核</div>
                                         <div class="space-y-2">
-                                            <div v-for="action in revenueAiActionRows" :key="action.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                            <div v-for="action in revenueAiActionRows" :key="action.key" :title="action.reasonText" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                                                 <div class="flex items-center justify-between gap-3">
                                                     <span class="text-sm font-semibold text-slate-900">{{ action.title }}</span>
                                                     <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', action.className]">{{ action.statusLabel }}</span>
                                                 </div>
-                                                <div class="mt-1 line-clamp-3 text-xs leading-5 text-slate-500" :title="action.reasonText">{{ action.reasonText }}</div>
                                                 <div v-if="action.decisionBasisDisplay" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-decision-basis">
                                                     <div class="flex items-center justify-between gap-2">
                                                         <span class="truncate text-[11px] font-semibold text-slate-600" :title="action.decisionBasisDisplay">{{ action.decisionBasisDisplay }}</span>
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.decisionBasisClassName]">{{ action.decisionBasisStatusLabel || '依据状态' }}</span>
                                                     </div>
                                                     <div v-if="action.decisionBasisItems?.length" class="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
-                                                        <button type="button" v-for="basis in action.decisionBasisItems" :key="basis.key" @click="openRevenueAiDecisionBasis(basis)" class="min-w-0 rounded-md bg-slate-50 px-2 py-1 text-left transition hover:bg-slate-100">
-                                                            <div class="flex items-center justify-between gap-2">
-                                                                <span class="truncate text-[11px] text-slate-600" :title="basis.label">{{ basis.label }}</span>
-                                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', basis.className]">{{ basis.statusLabel }}</span>
-                                                            </div>
-                                                            <div class="mt-0.5 truncate text-[10px] text-slate-400" :title="basis.reasonText">{{ basis.reasonText }}</div>
+                                                        <button type="button" v-for="basis in action.decisionBasisItems" :key="basis.key" @click="openRevenueAiDecisionBasis(basis)" :title="basis.reasonText" class="flex min-w-0 items-center justify-between gap-2 rounded-md bg-slate-50 px-2 py-1 text-left hover:bg-slate-100">
+                                                            <span class="truncate text-[11px] text-slate-600">{{ basis.label }}</span>
+                                                            <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px]', basis.className]">{{ basis.statusLabel }}</span>
                                                         </button>
-                                                    </div>
-                                                    <div v-if="action.decisionBasisHiddenDisplay" class="mt-1 text-[10px] leading-4 text-amber-600" data-testid="revenue-ai-decision-basis-hidden">
-                                                        {{ action.decisionBasisHiddenDisplay }}
                                                     </div>
                                                 </div>
                                                 <div v-if="action.resolutionPlanVisible" class="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1.5" data-testid="revenue-ai-resolution-plan">
@@ -256,16 +239,10 @@
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.resolutionPlanSummary?.className]">{{ action.resolutionPlanSummary?.statusLabel || '补证状态' }}</span>
                                                     </div>
                                                     <div v-if="action.resolutionPlanItems?.length" class="mt-1 space-y-1">
-                                                        <button type="button" v-for="item in action.resolutionPlanItems" :key="item.key" @click="openRevenueAiDecisionBasis(item)" class="w-full min-w-0 rounded-md bg-white px-2 py-1 text-left transition hover:bg-amber-100">
-                                                            <div class="flex items-center justify-between gap-2">
-                                                                <span class="truncate text-[11px] text-amber-900" :title="item.resolutionAction">{{ item.order }}. {{ item.resolutionAction }}</span>
-                                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', item.severityClass]">{{ item.severityLabel }}</span>
-                                                            </div>
-                                                            <div class="mt-0.5 line-clamp-2 text-[10px] leading-4 text-amber-700" :title="item.acceptanceCheck">{{ item.acceptanceCheck }}</div>
+                                                        <button type="button" v-for="item in action.resolutionPlanItems" :key="item.key" @click="openRevenueAiDecisionBasis(item)" :title="item.acceptanceCheck" class="flex w-full min-w-0 items-center justify-between gap-2 rounded-md bg-white px-2 py-1 text-left hover:bg-amber-100">
+                                                            <span class="truncate text-[11px] text-amber-900">{{ item.order }}. {{ item.resolutionAction }}</span>
+                                                            <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px]', item.severityClass]">{{ item.severityLabel }}</span>
                                                         </button>
-                                                    </div>
-                                                    <div v-if="action.resolutionPlanSummary?.hiddenCount" class="mt-1 text-[10px] leading-4 text-amber-700">
-                                                        另有 {{ action.resolutionPlanSummary.hiddenCount }} 项补证未展示
                                                     </div>
                                                 </div>
                                                 <button type="button" v-if="action.pricingGenerationPreflightVisible" @click="openRevenueAiDecisionBasis(action.pricingGenerationPreflightSummary?.target)" :disabled="!action.pricingGenerationPreflightSummary?.canOpenTarget" class="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-white" data-testid="revenue-ai-pricing-generation-preflight">
@@ -274,22 +251,12 @@
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.pricingGenerationPreflightSummary?.className]">{{ action.pricingGenerationPreflightSummary?.statusLabel || '预检状态' }}</span>
                                                     </div>
                                                     <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="action.pricingGenerationPreflightSummary?.detailText">{{ action.pricingGenerationPreflightSummary?.detailText }}</div>
-                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="action.pricingGenerationPreflightSummary?.reasonText">{{ action.pricingGenerationPreflightSummary?.reasonText }}</div>
-                                                    <div v-if="action.pricingGenerationPreflightSummary?.requiredInputs?.length" class="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-500">
-                                                        <span v-for="item in action.pricingGenerationPreflightSummary.requiredInputs" :key="item.code" class="rounded-md bg-slate-50 px-1.5 py-0.5" :title="item.nextAction">{{ item.code }}</span>
-                                                        <span v-if="action.pricingGenerationPreflightSummary.hiddenRequiredInputCount" class="rounded-md bg-slate-50 px-1.5 py-0.5">+{{ action.pricingGenerationPreflightSummary.hiddenRequiredInputCount }}</span>
-                                                    </div>
                                                 </button>
-                                                <button type="button" v-if="action.reviewQueueSummary" @click="openRevenueAiDecisionBasis(action.reviewQueueTarget)" :disabled="!action.reviewQueueCanOpenTarget" class="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-white" data-testid="revenue-ai-review-queue">
-                                                    <span class="truncate text-[11px] text-slate-600" :title="action.reviewQueueSummary">{{ action.reviewQueueSummary }}</span>
-                                                    <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.reviewQueueClassName]">{{ action.reviewQueueStatusLabel || '队列状态' }}</span>
-                                                </button>
-                                                <div v-if="action.executionPendingDisplay" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5" data-testid="revenue-ai-execution-pending">
+                                                <div v-if="action.executionPendingDisplay" :title="action.executionPendingReasonText" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5" data-testid="revenue-ai-execution-pending">
                                                     <div class="flex items-center justify-between gap-2">
                                                         <span class="truncate text-[11px] font-semibold text-blue-700" :title="action.executionPendingDisplay">{{ action.executionPendingDisplay }}</span>
                                                         <span class="shrink-0 rounded-full border border-blue-200 bg-white px-1.5 py-0.5 text-[11px] text-blue-700 whitespace-nowrap">待执行交接</span>
                                                     </div>
-                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-blue-600" :title="action.executionPendingReasonText">{{ action.executionPendingReasonText }}</div>
                                                 </div>
                                                 <div v-if="action.investmentPrecheckVisible" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-investment-precheck">
                                                     <div class="flex items-center justify-between gap-2">
@@ -297,50 +264,19 @@
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.investmentPrecheckSummary?.className]">{{ action.investmentPrecheckSummary?.statusLabel || '预检状态' }}</span>
                                                     </div>
                                                     <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="action.investmentPrecheckSummary?.detailText">{{ action.investmentPrecheckSummary?.detailText || '等待运营 ROI 与投决记录证据。' }}</div>
-                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="action.investmentPrecheckSummary?.reasonText">{{ action.investmentPrecheckSummary?.reasonText }}</div>
-                                                    <div class="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
-                                                        <span v-if="action.investmentPrecheckSummary?.requiredGate" class="rounded-md bg-slate-50 px-1.5 py-0.5">门禁 {{ action.investmentPrecheckSummary.requiredGate }}</span>
-                                                        <span v-if="action.investmentPrecheckSummary?.targetEntry" class="rounded-md bg-slate-50 px-1.5 py-0.5">{{ action.investmentPrecheckSummary.targetEntry }}</span>
-                                                        <span class="rounded-md bg-slate-50 px-1.5 py-0.5">只读</span>
-                                                    </div>
                                                 </div>
                                                 <div v-if="action.reviewQueueItems?.length" class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white" data-testid="revenue-ai-review-queue-items">
                                                     <div v-for="item in action.reviewQueueItems" :key="item.key" class="border-b border-slate-100 px-2 py-2 last:border-b-0">
                                                         <div class="flex items-start justify-between gap-2">
-                                                            <div class="min-w-0">
-                                                                <div class="truncate text-xs font-semibold text-slate-700" :title="item.title">{{ item.title }}</div>
-                                                                <div class="mt-0.5 text-[11px] text-slate-400">{{ item.suggestionDate }}</div>
-                                                            </div>
+                                                            <b class="min-w-0 truncate text-xs text-slate-700" :title="item.title">{{ item.title }}</b>
                                                             <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', item.className]">{{ item.statusLabel }}</span>
                                                         </div>
-                                                        <div class="mt-1 truncate text-[11px] leading-4 text-slate-600" :title="item.priceLine">{{ item.priceLine }}</div>
-                                                        <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.evidenceLine">{{ item.evidenceLine }}</div>
-                                                        <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.impactLine">{{ item.impactLine }}</div>
-                                                        <div v-if="item.factorLine &amp;&amp; item.factorLine !== '--'" class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.factorLine">{{ item.factorLine }}</div>
-                                                        <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="item.reasonText">{{ item.reasonText }}</div>
-                                                        <div v-if="item.canApprove || item.canApproveWithChanges || item.canReject || item.canCreateExecutionIntent" class="mt-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-                                                            <span class="text-[10px] text-slate-400">{{ item.actionHelpText }}</span>
-                                                            <div class="flex flex-wrap items-center gap-1">
-                                                                <button v-if="item.canApprove" type="button" @click="submitRevenueAiReviewAction(item, 'approve')" :disabled="isRevenueAiReviewActionLoading(item, 'approve')" class="shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:border-emerald-200 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">
-                                                                    {{ isRevenueAiReviewActionLoading(item, 'approve') ? '处理中' : '批准' }}
-                                                                </button>
-                                                                <button v-if="item.canApproveWithChanges" type="button" @click="submitRevenueAiReviewAction(item, 'approve_with_changes')" :disabled="isRevenueAiReviewActionLoading(item, 'approve_with_changes')" class="shrink-0 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:border-amber-200 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60">
-                                                                    {{ isRevenueAiReviewActionLoading(item, 'approve_with_changes') ? '处理中' : '改价批准' }}
-                                                                </button>
-                                                                <button v-if="item.canReject" type="button" @click="submitRevenueAiReviewAction(item, 'reject')" :disabled="isRevenueAiReviewActionLoading(item, 'reject')" class="shrink-0 rounded-lg border border-rose-100 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:border-rose-200 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60">
-                                                                    {{ isRevenueAiReviewActionLoading(item, 'reject') ? '处理中' : '拒绝' }}
-                                                                </button>
-                                                                <button v-if="item.canCreateExecutionIntent" type="button" @click="submitRevenueAiReviewAction(item, 'execution_intent')" :disabled="isRevenueAiReviewActionLoading(item, 'execution_intent')" class="shrink-0 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:border-blue-200 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
-                                                                    {{ isRevenueAiReviewActionLoading(item, 'execution_intent') ? '处理中' : '转执行' }}
-                                                                </button>
-                                                            </div>
+                                                        <div class="mt-2 grid gap-1 sm:grid-cols-2" data-testid="revenue-ai-trusted-decision">
+                                                            <p v-for="field in item.trustedDecisionRows" :key="field.key" :data-field="field.key" :class="field.status === 'not_calculable' ? 'text-amber-700' : 'text-slate-600'" class="break-words rounded bg-slate-50 p-1.5 text-[11px]"><b class="text-[10px] text-slate-400">{{ field.label }}：</b>{{ field.value }}</p>
                                                         </div>
-                                                    </div>
-                                                </div>
-                                                <div v-if="action.nextActions?.length" class="mt-2 space-y-1">
-                                                    <div v-for="nextAction in action.nextActions" :key="nextAction" class="flex items-start gap-1.5 text-[11px] leading-4 text-slate-600">
-                                                        <span class="mt-1 h-1 w-1 shrink-0 rounded-full bg-slate-400"></span>
-                                                        <span>{{ nextAction }}</span>
+                                                        <div v-if="item.actionButtons?.length" :title="item.actionHelpText" class="mt-1.5 flex flex-wrap justify-end gap-1">
+                                                            <button v-for="button in item.actionButtons" :key="button.key" type="button" @click="submitRevenueAiReviewAction(item, button.key)" :disabled="isRevenueAiReviewActionLoading(item, button.key)" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">{{ isRevenueAiReviewActionLoading(item, button.key) ? '处理中' : button.label }}</button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>

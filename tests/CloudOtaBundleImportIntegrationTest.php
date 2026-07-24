@@ -144,6 +144,26 @@ final class CloudOtaBundleImportIntegrationTest extends TestCase
             self::assertSame(999.5, (float)Db::name('online_daily_data')
                 ->where('id', (int)$ctripRows[0]['id'])
                 ->value('amount'));
+
+            $partialCtrip = $this->package('ctrip', 7001, $ctripSourceId, 'ctrip:bridge-integration');
+            $partialCtrip['collection']['status'] = 'partial';
+            $partialCtrip['collection']['message'] = 'target_date_field_facts_partial';
+            $partialCtrip['collection']['last_sync_time'] = '2026-07-22 10:30:00';
+            $partialMeituan = $this->package('meituan', 7002, $meituanSourceId, 'meituan:bridge-integration');
+            $partialMeituan['collection']['last_sync_time'] = '2026-07-22 10:30:00';
+            $partialBundle = CloudOtaBundleCodec::build([
+                'source_system_hotel_id' => 987654,
+                'destination_system_hotel_id' => (int)$hotel['id'],
+                'target_date' => '2026-07-21',
+                'required_platforms' => ['ctrip', 'meituan'],
+            ], [$partialCtrip, $partialMeituan], '2026-07-22 11:30:00');
+
+            $partial = $service->importBundle($partialBundle, (int)$actor->id, false);
+            self::assertSame('partial', $partial['status']);
+            self::assertSame(
+                ['partial', 'success'],
+                array_column($partial['packages'], 'collection_status')
+            );
         } finally {
             Db::rollback();
         }

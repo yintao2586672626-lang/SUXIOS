@@ -97,10 +97,6 @@ function requireTextInFiles(files, needle, label) {
   add(files.join(' + '), label, readFiles(files).includes(needle), needle);
 }
 
-function requireRegexInFiles(files, regex, label) {
-  add(files.join(' + '), label, regex.test(readFiles(files)), regex.toString());
-}
-
 const concernDir = resolvePath('app/controller/concern');
 const concernFiles = fs.existsSync(concernDir)
   ? fs.readdirSync(concernDir)

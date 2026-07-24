@@ -469,10 +469,50 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertStringContainsString("isset(\$columns['data_period'])", $verifier);
         self::assertStringContainsString("->whereOr('data_period', 'not in', ['next_7_days', 'next_30_days', 'forecast', 'future_forecast'])", $verifier);
         self::assertStringContainsString("(int)\$base['ui_status_incomplete_rows'] === 0", $verifier);
+        self::assertStringContainsString("'auxiliary_traffic_row_count' => 0", $verifier);
+        self::assertStringContainsString('every authoritative target-date traffic snapshot row', $verifier);
         self::assertStringContainsString("'hotel_scoped_field_fact_closures' => []", $verifier);
         self::assertStringContainsString("'hotel_scoped_closure_status'", $verifier);
         self::assertStringContainsString("p0_traffic_field_fact_closure(\$platform, \$targetDate, \$hotelId)", $verifier);
         self::assertStringContainsString("\$base['status'] = 'hotel_scoped_incomplete';", $verifier);
+    }
+
+    public function testCtripTrafficClosureSeparatesCanonicalSnapshotsFromAuxiliaryEndpoints(): void
+    {
+        $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
+        foreach (['p0_traffic_row_endpoint_id', 'p0_traffic_row_scope'] as $functionName) {
+            if (function_exists(__NAMESPACE__ . '\\' . $functionName) || function_exists($functionName)) {
+                continue;
+            }
+            $definition = $this->extractFunctionDefinition($verifier, $functionName);
+            self::assertNotSame('', $definition, 'Missing pure verifier helper: ' . $functionName);
+            eval($definition);
+        }
+
+        $canonical = p0_traffic_row_scope([
+            'dimension' => 'catalog:business_overview:business_flow_transform:list_exposure+detail_exposure:0',
+        ], 'ctrip');
+        self::assertTrue($canonical['authoritative']);
+        self::assertSame('business_flow_transform', $canonical['endpoint_id']);
+
+        $futureSearch = p0_traffic_row_scope([
+            'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-07-25',
+        ], 'ctrip');
+        self::assertFalse($futureSearch['authoritative']);
+        self::assertSame('traffic_search_details', $futureSearch['endpoint_id']);
+
+        $weekly = p0_traffic_row_scope([
+            'raw_data' => json_encode(['endpoint_id' => 'weekly_report'], JSON_UNESCAPED_SLASHES),
+        ], 'ctrip');
+        self::assertFalse($weekly['authoritative']);
+        self::assertSame('weekly_report', $weekly['endpoint_id']);
+
+        $legacy = p0_traffic_row_scope(['dimension' => ''], 'ctrip');
+        self::assertTrue($legacy['authoritative']);
+        self::assertSame('legacy_dimensionless_core_snapshot', $legacy['reason']);
+
+        $meituan = p0_traffic_row_scope(['dimension' => 'flow_conversion'], 'meituan');
+        self::assertTrue($meituan['authoritative']);
     }
 
     public function testStoredTrafficIdentifierMatchesTheAuthoritativeProfileSourceWithoutRawOutput(): void

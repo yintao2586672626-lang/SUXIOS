@@ -106,6 +106,60 @@ final class HotelTenantCreationTest extends TestCase
         self::assertSame(101, (int)$audit['tenant_id']);
     }
 
+    public function testOwnerCanCreateFirstHotelInsidePreProvisionedTenant(): void
+    {
+        $this->createSchema(true);
+        $this->createPermissionTable();
+        $user = $this->tenantManager(9002, 101);
+
+        $payload = $this->json($this->createHotel('Owner first hotel', $user));
+        $hotelId = (int)$payload['data']['id'];
+
+        self::assertSame(200, $payload['code']);
+        $hotel = Db::name('hotels')->where('id', $hotelId)->find();
+        self::assertIsArray($hotel);
+        self::assertSame(101, (int)$hotel['tenant_id']);
+        self::assertSame(9002, (int)$hotel['owner_user_id']);
+        self::assertSame(9002, (int)$hotel['created_by']);
+
+        $permission = Db::name('user_hotel_permissions')->where('hotel_id', $hotelId)->find();
+        self::assertIsArray($permission);
+        self::assertSame(101, (int)$permission['tenant_id']);
+        self::assertSame(9002, (int)$permission['user_id']);
+        self::assertSame('owner', $permission['scope_type']);
+    }
+
+    public function testCreateGeneratesCodeAndForcesEnabledStatus(): void
+    {
+        $this->createSchema(true);
+        $this->createPermissionTable();
+        Db::name('hotels')->insert([
+            'id' => 1,
+            'tenant_id' => 202,
+            'name' => 'Existing hotel',
+            'code' => '0001',
+            'status' => 1,
+            'owner_user_id' => 9003,
+            'created_by' => 9003,
+        ]);
+        $user = $this->tenantManager(9002, 101);
+
+        $payload = $this->json($this->createHotel('System numbered hotel', $user, [
+            'code' => 'USER-SUPPLIED',
+            'status' => 0,
+        ]));
+        $hotelId = (int)$payload['data']['id'];
+        $hotel = Db::name('hotels')->where('id', $hotelId)->find();
+
+        self::assertSame(200, $payload['code']);
+        self::assertIsArray($hotel);
+        self::assertSame('0002', $hotel['code']);
+        self::assertSame('0002', $payload['data']['code']);
+        self::assertSame(1, (int)$hotel['status']);
+        self::assertSame(1, (int)$payload['data']['status']);
+        self::assertNotSame('USER-SUPPLIED', $hotel['code']);
+    }
+
     public function testCreateFailsClosedWithoutTenantColumnAndRollsBackAllWrites(): void
     {
         $this->createSchema(false);
@@ -287,7 +341,7 @@ final class HotelTenantCreationTest extends TestCase
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             {$tenantColumn}
             name VARCHAR(100) NOT NULL,
-            code VARCHAR(50),
+            code VARCHAR(50) UNIQUE,
             address VARCHAR(255),
             contact_person VARCHAR(50),
             contact_phone VARCHAR(20),

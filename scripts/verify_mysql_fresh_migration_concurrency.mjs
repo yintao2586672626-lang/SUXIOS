@@ -20,6 +20,9 @@ const workerCompletionTimeoutMs = 60000;
 const workerOutputLimitBytes = 1024 * 1024;
 const dedicatedDatabasePattern = /(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/i;
 const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const freshInitBaselineAdoptedMigrationFiles = new Set([
+  '20260723_validate_owner_tenant_bootstrap_targets.sql',
+]);
 if (process.env.SUXI_CI_MYSQL_VERIFY !== '1') {
   throw new Error('SUXI_CI_MYSQL_VERIFY=1 is required for this destructive dedicated-database verifier');
 }
@@ -262,6 +265,9 @@ function assertSchemaVersionCatalog(label) {
       checksum: createHash('sha256')
         .update(readFileSync(join(migrationDirectory, migration)))
         .digest('hex'),
+      executionKind: freshInitBaselineAdoptedMigrationFiles.has(migration)
+        ? 'baseline_adopted'
+        : 'executed',
     }]),
   );
   const missing = [...expected.keys()].filter(migration => !registered.has(migration));
@@ -271,7 +277,7 @@ function assertSchemaVersionCatalog(label) {
       const stored = registered.get(migration);
       return stored && (stored.version !== evidence.version
         || stored.checksum !== evidence.checksum
-        || stored.executionKind !== 'executed');
+        || stored.executionKind !== evidence.executionKind);
     })
     .map(([migration]) => migration);
   const executionTimeCount = queryScalar(

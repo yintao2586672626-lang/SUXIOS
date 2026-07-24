@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
 import {
-  extractAuthenticatedAssetReferences,
+  extractAuthenticatedAssetEntries,
   stripFrontendAssetQuery,
 } from '../../scripts/lib/frontend_authenticated_assets.mjs';
 
@@ -21,7 +21,9 @@ test('main Vue bootstrap is external, authenticated, ordered, and content-versio
   assert.match(appMain, /const mountSuxiApp = \(\) =>/);
   assert.match(appMain, /configureSuxiApp\(createApp\(suxiRootComponent\)\)/);
 
-  const authenticatedSources = extractAuthenticatedAssetReferences(html);
+  const authenticatedSources = extractAuthenticatedAssetEntries(html)
+    .filter((entry) => entry.type === 'script')
+    .map((entry) => entry.src);
   const authenticatedAssets = authenticatedSources.map(stripFrontendAssetQuery);
   assert.equal(authenticatedAssets[0], 'vue.runtime.global.prod.js');
   assert.equal(authenticatedAssets.at(-3), 'app-startup-render.min.js');

@@ -7,6 +7,7 @@ use app\model\AgentLog;
 use app\model\PriceSuggestion;
 use app\service\OperationManagementService;
 use app\service\RevenueAiOverviewService;
+use app\service\RevenuePricingRecommendationService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\facade\Db;
@@ -47,6 +48,16 @@ class RevenueAi extends Base
                     409,
                     $id,
                     $suggestion->toArray()
+                );
+            }
+
+            if ($action !== 'reject') {
+                $enrichedRows = (new RevenuePricingRecommendationService())->enrichSuggestionRows([$suggestion->toArray()]);
+                $enrichedSuggestion = is_array($enrichedRows[0] ?? null) ? $enrichedRows[0] : [];
+                $this->assertTrustedDecisionCanBeConfirmed(
+                    is_array($enrichedSuggestion['trusted_decision'] ?? null)
+                        ? $enrichedSuggestion['trusted_decision']
+                        : []
                 );
             }
 
@@ -116,12 +127,19 @@ class RevenueAi extends Base
             }
 
             $input = $this->requestData();
+            $approveToTask = $this->booleanInput(
+                $input['approve_to_task'] ?? $this->request->param('approve_to_task', false)
+            );
             $service = new OperationManagementService();
             $existing = $this->existingPriceSuggestionExecutionIntent($id, $hotelIds, $service);
             if ($existing !== null) {
+                $intent = $service->readExecutionIntent((int)($existing['id'] ?? 0), $hotelIds);
+                if ($approveToTask) {
+                    $intent = $this->ensureExecutionIntentOperationTask($service, $intent, $hotelIds);
+                }
                 return $this->success(
-                    $this->priceSuggestionExecutionIntentPayload($suggestion->toArray(), $existing, true),
-                    '执行意图已存在'
+                    $this->priceSuggestionExecutionIntentPayload($suggestion->toArray(), $intent, true),
+                    $approveToTask ? '运营任务已存在或已创建' : '执行意图已存在'
                 );
             }
 
@@ -129,6 +147,7 @@ class RevenueAi extends Base
                 'platform' => (string)($input['platform'] ?? $input['channel'] ?? $this->request->param('platform', $this->request->param('channel', ''))),
                 'room_type_key' => (string)($input['room_type_key'] ?? $this->request->param('room_type_key', '')),
                 'rate_plan_key' => (string)($input['rate_plan_key'] ?? $this->request->param('rate_plan_key', '')),
+                'execution_date' => (string)($input['execution_date'] ?? $this->request->param('execution_date', '')),
                 'expected_metric' => (string)($input['expected_metric'] ?? $this->request->param('expected_metric', 'orders')),
                 'expected_delta' => (float)($input['expected_delta'] ?? $this->request->param('expected_delta', 0)),
                 'risk_level' => (string)($input['risk_level'] ?? $this->request->param('risk_level', 'medium')),
@@ -142,6 +161,9 @@ class RevenueAi extends Base
                 null,
                 true
             );
+            if ($approveToTask) {
+                $intent = $this->ensureExecutionIntentOperationTask($service, $intent, $hotelIds);
+            }
             $payload = $this->priceSuggestionExecutionIntentPayload($suggestion->toArray(), $intent, false);
 
             $this->recordRevenueAiPriceLog(
@@ -151,13 +173,15 @@ class RevenueAi extends Base
                 [
                     'suggestion_id' => $id,
                     'execution_intent_id' => (int)($intent['id'] ?? 0),
+                    'operation_task_id' => (int)($payload['operation_task']['id'] ?? 0),
+                    'approve_to_task' => $approveToTask,
                     'platform' => (string)($intentInput['platform'] ?? ''),
                     'auto_write_ota' => false,
                     'local_price_updated' => false,
                 ]
             );
 
-            return $this->success($payload, '执行意图已创建');
+            return $this->success($payload, $approveToTask ? '已转为待执行运营任务' : '执行意图已创建');
         } catch (RuntimeException $e) {
             return $this->error($e->getMessage(), $this->httpCode($e));
         } catch (InvalidArgumentException $e) {
@@ -382,6 +406,12 @@ class RevenueAi extends Base
      */
     private function priceSuggestionExecutionIntentPayload(array $suggestion, array $intent, bool $existing): array
     {
+        $operationTask = $this->latestOperationTask(
+            is_array($intent['tasks'] ?? null) ? $intent['tasks'] : []
+        );
+        $operationTaskReady = (int)($operationTask['id'] ?? 0) > 0
+            && (string)($intent['status'] ?? '') === 'approved';
+
         return [
             'suggestion_id' => (int)($suggestion['id'] ?? 0),
             'hotel_id' => (int)($suggestion['hotel_id'] ?? 0),
@@ -389,19 +419,124 @@ class RevenueAi extends Base
             'status' => $this->priceSuggestionStatusKey((int)($suggestion['status'] ?? 0)),
             'execution_intent' => $intent,
             'execution_intent_existing' => $existing,
+            'operation_task' => $operationTask,
+            'operation_task_created' => $operationTaskReady,
             'source_module' => 'price_suggestion',
             'target_page' => 'ops-track',
-            'target_action' => 'approve_intent',
-            'target_id' => (int)($intent['id'] ?? 0),
-            'target_kind' => 'intent',
+            'target_action' => $operationTaskReady ? 'record_execution' : 'approve_intent',
+            'target_id' => $operationTaskReady ? (int)$operationTask['id'] : (int)($intent['id'] ?? 0),
+            'target_kind' => $operationTaskReady ? 'task' : 'intent',
             'manual_review_required' => true,
             'advisory_only' => true,
             'auto_write_ota' => false,
             'local_price_updated' => false,
             'ota_write' => false,
-            'next_action' => 'operation_execution_manual_evidence',
+            'next_action' => $operationTaskReady
+                ? 'operation_task_manual_execution_evidence'
+                : 'operation_execution_manual_evidence',
             'forbidden_actions' => ['apply_price', 'ota_write', 'update_room_type_base_price'],
         ];
+    }
+
+    /** @param array<string, mixed> $trustedDecision */
+    private function assertTrustedDecisionCanBeConfirmed(array $trustedDecision): void
+    {
+        $source = is_array($trustedDecision['sources'] ?? null) ? $trustedDecision['sources'] : [];
+        $formula = is_array($trustedDecision['metric_formula'] ?? null) ? $trustedDecision['metric_formula'] : [];
+        $quality = is_array($trustedDecision['data_quality'] ?? null) ? $trustedDecision['data_quality'] : [];
+        $confidence = is_array($trustedDecision['confidence'] ?? null) ? $trustedDecision['confidence'] : [];
+        $confirmation = is_array($trustedDecision['human_confirmation'] ?? null)
+            ? $trustedDecision['human_confirmation']
+            : [];
+        $blocking = [];
+        if (($trustedDecision['contract_version'] ?? '') !== RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION) {
+            $blocking[] = 'contract_version';
+        }
+        if (($source['status'] ?? '') !== 'verified' || (int)($source['ref_count'] ?? 0) <= 0) {
+            $blocking[] = 'source_readback_verification';
+        }
+        if (($quality['decision_eligible'] ?? false) !== true || ($quality['status'] ?? '') !== 'verified') {
+            $blocking[] = 'data_quality';
+        }
+        if (($formula['status'] ?? '') !== 'calculable'
+            || !is_numeric($formula['denominator'] ?? null)
+            || (float)$formula['denominator'] <= 0
+        ) {
+            $blocking[] = 'metric_denominator';
+        }
+        if (($confidence['status'] ?? '') !== 'available' || !is_numeric($confidence['score'] ?? null)) {
+            $blocking[] = 'confidence';
+        }
+        if (($confirmation['can_confirm'] ?? false) !== true) {
+            $blocking[] = 'human_confirmation_gate';
+        }
+        if ($blocking !== []) {
+            throw new RuntimeException(
+                'price_suggestion_trusted_input_blocked:' . implode(',', array_values(array_unique($blocking))),
+                422
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $intent
+     * @param array<int, int> $hotelIds
+     * @return array<string, mixed>
+     */
+    private function ensureExecutionIntentOperationTask(
+        OperationManagementService $service,
+        array $intent,
+        array $hotelIds
+    ): array {
+        $intentId = (int)($intent['id'] ?? 0);
+        $status = strtolower(trim((string)($intent['status'] ?? '')));
+        if ($intentId <= 0) {
+            throw new RuntimeException('price_suggestion_execution_intent_id_missing', 500);
+        }
+        if ($status === 'pending_approval') {
+            $intent = $service->approveExecutionIntent(
+                $intentId,
+                true,
+                'Revenue AI 可信建议经人工确认后转运营任务；不自动写 OTA。',
+                (int)($this->currentUser->id ?? 0),
+                $hotelIds
+            );
+        } elseif ($status !== 'approved') {
+            throw new RuntimeException('price_suggestion_execution_intent_not_transferable:' . $status, 409);
+        }
+
+        $task = $this->latestOperationTask(is_array($intent['tasks'] ?? null) ? $intent['tasks'] : []);
+        if ((int)($task['id'] ?? 0) <= 0 || (string)($task['status'] ?? '') !== 'pending_execute') {
+            throw new RuntimeException('price_suggestion_operation_task_readback_failed', 500);
+        }
+
+        return $intent;
+    }
+
+    /** @param array<int, array<string, mixed>> $tasks */
+    private function latestOperationTask(array $tasks): ?array
+    {
+        $tasks = array_values(array_filter($tasks, static fn(mixed $task): bool => is_array($task)));
+        usort($tasks, static fn(array $left, array $right): int => (int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0));
+        return is_array($tasks[0] ?? null) ? $tasks[0] : null;
+    }
+
+    private function booleanInput(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (int)$value === 1;
+        }
+        $normalized = strtolower(trim((string)$value));
+        if ($normalized === '' || in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+            return false;
+        }
+        if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+            return true;
+        }
+        throw new InvalidArgumentException('price_suggestion_boolean_input_invalid');
     }
 
     /**

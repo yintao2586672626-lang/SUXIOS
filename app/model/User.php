@@ -200,37 +200,6 @@ class User extends Model
         }
     }
 
-    private function legacyHasHotelPermission(int $hotelId, string $permission): bool
-    {
-        if ($hotelId <= 0) {
-            return false;
-        }
-
-        if ($this->isSuperAdmin()) {
-            // 超级管理员也需要检查酒店是否启用
-            return $this->isHotelActive($hotelId);
-        }
-        
-        // 非超级管理员必须关联酒店
-        // 检查角色是否拥有该权限
-        $role = $this->role;
-        if (!$role || (int)$role->status !== Role::STATUS_ENABLED || !$role->hasPermission($permission)) {
-            return false;
-        }
-        
-        // 检查是否是有权限的酒店（包含启用状态检查）
-        if (!$this->isHotelActive($hotelId)) {
-            return false;
-        }
-
-        $permissionRecord = $this->hotelPermissionRecord($hotelId);
-        if ($permissionRecord !== null) {
-            return $this->permissionRecordAllows($permissionRecord, $permission);
-        }
-
-        return !empty($this->hotel_id) && (int)$this->hotel_id === $hotelId;
-    }
-    
     /**
      * 检查是否可以管理用户（店长及以上）
      */
@@ -284,43 +253,6 @@ class User extends Model
         return $this->permissionServiceInstance ??= new PermissionService($this->hotelScopeService());
     }
 
-    private function legacyGetPermittedHotelIds(): array
-    {
-        if ($this->isSuperAdmin()) {
-            // 超级管理员只返回启用的酒店
-            return Hotel::where('status', Hotel::STATUS_ENABLED)->column('id');
-        }
-
-        // 非超级管理员只有自己关联的酒店
-        $hotelIds = [];
-        if (!empty($this->hotel_id)) {
-            $hotelIds[] = (int)$this->hotel_id;
-        }
-
-        if (!empty($this->id)) {
-            $permissionHotelIds = UserHotelPermission::where('user_id', (int)$this->id)->column('hotel_id');
-            foreach ($permissionHotelIds as $permissionHotelId) {
-                if ((int)$permissionHotelId > 0) {
-                    $hotelIds[] = (int)$permissionHotelId;
-                }
-            }
-        }
-
-        $hotelIds = array_values(array_unique(array_filter($hotelIds, static fn(int $id): bool => $id > 0)));
-        if (empty($hotelIds)) {
-            return [];
-        }
-        
-        // 检查关联的酒店是否启用
-        return array_values(array_map('intval', Hotel::where('status', Hotel::STATUS_ENABLED)->whereIn('id', $hotelIds)->column('id')));
-    }
-
-    private function isHotelActive(int $hotelId): bool
-    {
-        $hotel = Hotel::find($hotelId);
-        return $hotel && (int)$hotel->status === Hotel::STATUS_ENABLED;
-    }
-
     private function hotelPermissionRecord(int $hotelId): ?array
     {
         if (empty($this->id)) {
@@ -334,12 +266,4 @@ class User extends Model
         return $record ? $record->toArray() : null;
     }
 
-    private function permissionRecordAllows(array $record, string $permission): bool
-    {
-        if (!array_key_exists($permission, $record)) {
-            return false;
-        }
-
-        return (int)$record[$permission] === 1;
-    }
 }

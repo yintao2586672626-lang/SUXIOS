@@ -264,7 +264,7 @@ test('transfer source metrics keep whole-hotel reports separate from per-metric 
   assert.match(transferContextPage, /v-for="row in transferSourceMetricRows"/);
   assert.match(transferContextPage, /transfer-source-metric-\$\{row\.key\}-calculation-status/);
   assert.match(transferContextPage, /onlineTruthStatusText\(row\.truth\)/);
-  assert.match(transferContextPage, /onlineTruthDetailText\(row\.truth\)/);
+  assert.match(transferContextPage, /<online-truth-summary :truth="row\.truth"/);
   assert.match(transferContextPage, /全酒店经营日报与 OTA 渠道指标分开呈现/);
   assert.doesNotMatch(transferContextPage, /transferSourceSnapshot\.current\?\.(?:revenue|adr|occupancy_rate)/);
 });

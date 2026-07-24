@@ -46,35 +46,36 @@ class RoleController extends Base
         $data = $this->requestData();
 
         $this->validate($data, [
-            'name' => 'require|max:50',
+            'name' => 'max:50',
             'display_name' => 'require|max:50',
             'level' => 'require|integer',
         ], [
-            'name.require' => '角色标识不能为空',
             'display_name.require' => '角色名称不能为空',
             'level.require' => '角色等级不能为空',
         ]);
 
-        // 检查标识唯一性
-        $exists = Role::where('name', $data['name'])->find();
-        if ($exists) {
+        $roleName = trim((string)($data['name'] ?? ''));
+        if ($roleName !== '' && Role::where('name', $roleName)->find()) {
             return $this->error('角色标识已存在');
+        }
+        if ($roleName === '') {
+            $roleName = $this->nextGeneratedRoleName();
         }
 
         $permissions = $this->normalizePermissionPayload($data['permissions'] ?? []);
         $nextLevel = (int)$data['level'];
-        $boundaryResponse = $this->validateRolePermissionBoundary((string)$data['name'], $permissions, null, $nextLevel);
+        $boundaryResponse = $this->validateRolePermissionBoundary($roleName, $permissions, null, $nextLevel);
         if ($boundaryResponse) {
             return $boundaryResponse;
         }
 
         $role = new Role();
-        $role->name = $data['name'];
+        $role->name = $roleName;
         $role->display_name = $data['display_name'];
         $role->description = $data['description'] ?? '';
         $role->level = $data['level'];
         $role->permissions = json_encode($permissions);
-        $role->status = $data['status'] ?? Role::STATUS_ENABLED;
+        $role->status = Role::STATUS_ENABLED;
         $role->save();
 
         OperationLog::record('role', 'create', '创建角色: ' . $role->display_name, $this->currentUser->id, null, null, [
@@ -259,6 +260,18 @@ class RoleController extends Base
     private function normalizePermissionPayload($permissions): array
     {
         return Role::normalizePermissions($permissions);
+    }
+
+    private function nextGeneratedRoleName(): string
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $candidate = 'role_' . bin2hex(random_bytes(8));
+            if (!Role::where('name', $candidate)->find()) {
+                return $candidate;
+            }
+        }
+
+        throw new \RuntimeException('无法生成唯一角色标识');
     }
 
     /**

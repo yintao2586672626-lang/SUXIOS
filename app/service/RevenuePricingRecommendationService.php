@@ -9,6 +9,8 @@ use think\facade\Db;
 
 class RevenuePricingRecommendationService
 {
+    public const TRUSTED_DECISION_CONTRACT_VERSION = 'revenue_ai_trusted_decision.v1';
+
     private const MODEL_VERSION = 'advisory_revenue_pricing_v1';
     private const MAX_CHANGE_RATE = 0.20;
     private const MIN_MATERIAL_CHANGE = 1.0;
@@ -23,6 +25,9 @@ class RevenuePricingRecommendationService
 
     /** @var array<string, array<string, mixed>> */
     private array $hotelSignalCache = [];
+
+    /** @var array<int, string> */
+    private array $hotelNameCache = [];
 
     public function __construct(
         ?TrustedOtaFactRepository $trustedOtaFacts = null,
@@ -486,17 +491,258 @@ class RevenuePricingRecommendationService
                     : '调价驱动尚未全部绑定到同酒店、同携程渠道的数据库回读证据；当前仅允许展示和人工复核。'),
         ]], $context);
 
-        $row['decision_recommendation'] = $recommendations[0] ?? [];
+        $decisionRecommendation = is_array($recommendations[0] ?? null) ? $recommendations[0] : [];
+        $trustedDecision = $this->buildTrustedDecisionEnvelope(
+            $row,
+            $decisionRecommendation,
+            $factors,
+            $authoritativeSignals,
+            $unsupportedDrivers,
+            $serverEvidenceReady
+        );
+        $decisionRecommendation['trusted_decision'] = $trustedDecision;
+        $decisionRecommendation['can_human_confirm'] = ($trustedDecision['human_confirmation']['can_confirm'] ?? false) === true;
+        $row['decision_recommendation'] = $decisionRecommendation;
+        $row['trusted_decision'] = $trustedDecision;
         $row['recommendation_quality'] = $this->decisionQualityService->summarize($recommendations, $context);
         return $row;
     }
 
-    /** @return string */
-    private function pricingSignalSummary(string $key, array $signal): string
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $recommendation
+     * @param array<string, mixed> $factors
+     * @param array<string, mixed> $authoritativeSignals
+     * @param array<int, string> $unsupportedDrivers
+     * @return array<string, mixed>
+     */
+    private function buildTrustedDecisionEnvelope(
+        array $row,
+        array $recommendation,
+        array $factors,
+        array $authoritativeSignals,
+        array $unsupportedDrivers,
+        bool $serverEvidenceReady
+    ): array {
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        $hotelName = trim((string)($row['hotel_name'] ?? $row['store_name'] ?? ''));
+        if ($hotelName === '' && $hotelId > 0) {
+            $hotelName = $this->trustedDecisionHotelName($hotelId);
+        }
+        $targetDate = trim((string)($row['suggestion_date'] ?? ''));
+        $statusCode = (int)($row['status'] ?? 0);
+        $dataBasis = is_array($recommendation['data_basis'] ?? null) ? $recommendation['data_basis'] : [];
+        $decisionQuality = is_array($recommendation['decision_quality'] ?? null) ? $recommendation['decision_quality'] : [];
+        $expectedEffect = is_array($recommendation['expected_effect'] ?? null) ? $recommendation['expected_effect'] : [];
+        $signals = is_array($factors['signals'] ?? null) ? $factors['signals'] : [];
+        $currentPrice = $this->toNullableFloat($row['current_price'] ?? null);
+        $suggestedPrice = $this->toNullableFloat($row['suggested_price'] ?? null);
+        $manualReview = is_array($factors['manual_review'] ?? null) ? $factors['manual_review'] : [];
+        if (in_array((string)($manualReview['action'] ?? ''), ['approve', 'approve_with_changes'], true)) {
+            $approvedPrice = $this->toNullableFloat($manualReview['approved_price'] ?? null);
+            if ($approvedPrice !== null && $approvedPrice > 0) {
+                $suggestedPrice = $approvedPrice;
+            }
+        }
+        $metricFormula = $this->trustedPriceChangeFormula($currentPrice, $suggestedPrice);
+        $confidence = $this->toNullableFloat($factors['confidence_score'] ?? $row['confidence_score'] ?? null);
+        if ($confidence !== null && $confidence > 1 && $confidence <= 100) {
+            $confidence /= 100;
+        }
+        if ($confidence !== null && ($confidence < 0 || $confidence > 1)) {
+            $confidence = null;
+        }
+
+        $gapCodes = array_values(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            (array)($signals['data_gaps'] ?? $authoritativeSignals['data_gaps'] ?? [])
+        )));
+        foreach ($unsupportedDrivers as $driver) {
+            $gapCodes[] = 'driver_unverified:' . $driver;
+        }
+        foreach ((array)($decisionQuality['missing_fields'] ?? []) as $field) {
+            $field = trim((string)$field);
+            if ($field !== '') {
+                $gapCodes[] = $field;
+            }
+        }
+        if (($dataBasis['status'] ?? 'missing') !== 'verified') {
+            $gapCodes[] = 'data_basis_' . trim((string)($dataBasis['status'] ?? 'missing'));
+        }
+        if (($metricFormula['status'] ?? '') !== 'calculable') {
+            $gapCodes[] = (string)($metricFormula['reason'] ?? 'metric_denominator_missing');
+        }
+        if ($confidence === null) {
+            $gapCodes[] = 'confidence_missing';
+        }
+        $gapCodes = $this->uniqueStrings($gapCodes);
+        $gaps = array_map(fn(string $code): array => [
+            'code' => $code,
+            'message' => $this->trustedDecisionGapMessage($code),
+            'blocking' => true,
+        ], $gapCodes);
+
+        $qualityStatus = trim((string)($dataBasis['status'] ?? 'missing'));
+        $inputReady = $serverEvidenceReady
+            && $qualityStatus === 'verified'
+            && ($decisionQuality['complete'] ?? false) === true
+            && ($metricFormula['status'] ?? '') === 'calculable'
+            && $confidence !== null;
+        $canConfirm = $statusCode === \app\model\PriceSuggestion::STATUS_PENDING && $inputReady;
+        $canTransferToTask = $statusCode === \app\model\PriceSuggestion::STATUS_APPROVED
+            && ($recommendation['can_create_execution_intent'] ?? false) === true
+            && ($decisionQuality['execution_ready'] ?? false) === true;
+        $confirmed = in_array($statusCode, [
+            \app\model\PriceSuggestion::STATUS_APPROVED,
+            \app\model\PriceSuggestion::STATUS_APPLIED,
+        ], true);
+        $refs = is_array($dataBasis['refs'] ?? null) ? array_values($dataBasis['refs']) : [];
+        $storeDisplay = $hotelName !== ''
+            ? $hotelName . ($hotelId > 0 ? ' (#' . $hotelId . ')' : '')
+            : ($hotelId > 0 ? '门店 #' . $hotelId : '门店未绑定');
+
+        return [
+            'contract_version' => self::TRUSTED_DECISION_CONTRACT_VERSION,
+            'scope' => 'ota_channel',
+            'store' => [
+                'hotel_id' => $hotelId,
+                'hotel_name' => $hotelName !== '' ? $hotelName : null,
+                'display' => $storeDisplay,
+            ],
+            'platform' => [
+                'key' => 'ctrip',
+                'label' => '携程',
+                'scope' => 'ota_channel',
+            ],
+            'date' => [
+                'value' => $targetDate !== '' ? $targetDate : null,
+                'basis' => 'suggestion_date',
+                'status' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) === 1 ? 'available' : 'missing',
+            ],
+            'sources' => [
+                'status' => $qualityStatus,
+                'summary' => trim((string)($dataBasis['summary'] ?? '')),
+                'items' => $refs,
+                'ref_count' => count($refs),
+            ],
+            'metric_formula' => $metricFormula,
+            'data_quality' => [
+                'status' => $qualityStatus,
+                'label' => $this->trustedDecisionQualityLabel($qualityStatus),
+                'decision_eligible' => $serverEvidenceReady && $qualityStatus === 'verified',
+                'note' => trim((string)($dataBasis['quality_note'] ?? '')),
+            ],
+            'confidence' => [
+                'score' => $confidence !== null ? round($confidence, 4) : null,
+                'percentage' => $confidence !== null ? round($confidence * 100, 2) : null,
+                'display' => $confidence !== null
+                    ? rtrim(rtrim(number_format($confidence * 100, 2, '.', ''), '0'), '.') . '%'
+                    : '不可计算',
+                'level' => $confidence === null ? 'unknown' : ($confidence >= 0.8 ? 'high' : ($confidence >= 0.6 ? 'medium' : 'low')),
+                'status' => $confidence !== null ? 'available' : 'missing',
+                'basis' => 'model_signal_confidence',
+            ],
+            'gaps' => $gaps,
+            'recommended_action' => [
+                'summary' => trim((string)($recommendation['action'] ?? '')),
+                'action_type' => trim((string)($recommendation['action_type'] ?? 'price_adjustment')),
+                'current_price' => $currentPrice,
+                'target_price' => $suggestedPrice,
+                'manual_only' => true,
+                'auto_write_ota' => false,
+            ],
+            'expected_effect' => array_merge($expectedEffect, [
+                'display' => trim((string)($expectedEffect['summary'] ?? '')) ?: '待执行后按同口径回读验证',
+            ]),
+            'human_confirmation' => [
+                'required' => true,
+                'confirmed' => $confirmed,
+                'can_confirm' => $canConfirm,
+                'can_transfer_to_operation_task' => $canTransferToTask,
+                'status' => $confirmed ? 'confirmed' : ($canConfirm ? 'ready' : 'blocked'),
+                'operation_task_status_after_transfer' => 'pending_execute',
+                'auto_write_ota' => false,
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function trustedPriceChangeFormula(?float $currentPrice, ?float $suggestedPrice): array
     {
-        $status = trim((string)($signal['data_status'] ?? 'unverified'));
-        $source = trim((string)($signal['source'] ?? $key));
-        return $source . '（' . $status . '）';
+        $calculable = $currentPrice !== null && $currentPrice > 0 && $suggestedPrice !== null && $suggestedPrice > 0;
+        $value = $calculable ? round((($suggestedPrice - $currentPrice) / $currentPrice) * 100, 2) : null;
+        $reason = '';
+        if ($currentPrice === null || $currentPrice <= 0) {
+            $reason = 'current_price_denominator_missing';
+        } elseif ($suggestedPrice === null || $suggestedPrice <= 0) {
+            $reason = 'suggested_price_numerator_missing';
+        }
+
+        return [
+            'metric' => 'price_change_rate',
+            'label' => '价格调整率',
+            'expression' => '(建议价 - 当前价) ÷ 当前价 × 100%',
+            'numerator' => $suggestedPrice !== null && $currentPrice !== null ? round($suggestedPrice - $currentPrice, 2) : null,
+            'denominator' => $currentPrice,
+            'denominator_required' => true,
+            'value' => $value,
+            'unit' => '%',
+            'status' => $calculable ? 'calculable' : 'not_calculable',
+            'display' => $calculable
+                ? (($value ?? 0) > 0 ? '+' : '') . rtrim(rtrim(number_format((float)$value, 2, '.', ''), '0'), '.') . '%'
+                : '不可计算',
+            'reason' => $reason,
+        ];
+    }
+
+    private function trustedDecisionHotelName(int $hotelId): string
+    {
+        if ($hotelId <= 0) {
+            return '';
+        }
+        if (array_key_exists($hotelId, $this->hotelNameCache)) {
+            return $this->hotelNameCache[$hotelId];
+        }
+        try {
+            $name = trim((string)(Db::name('hotels')->where('id', $hotelId)->value('name') ?? ''));
+        } catch (\Throwable) {
+            $name = '';
+        }
+
+        return $this->hotelNameCache[$hotelId] = $name;
+    }
+
+    private function trustedDecisionQualityLabel(string $status): string
+    {
+        return match ($status) {
+            'verified', 'readback_verified', 'decision_eligible' => '已验证',
+            'partial' => '部分可用',
+            'stale' => '已过期',
+            'binding_missing' => '绑定缺失',
+            'unverified' => '未验证',
+            default => '缺失',
+        };
+    }
+
+    private function trustedDecisionGapMessage(string $code): string
+    {
+        if (str_starts_with($code, 'driver_unverified:')) {
+            return '建议驱动未绑定到同门店、同平台、同日期范围的数据库回读证据：' . substr($code, strlen('driver_unverified:'));
+        }
+
+        return match ($code) {
+            'current_price_denominator_missing' => '当前价分母缺失，价格调整率不可计算',
+            'suggested_price_numerator_missing' => '建议价分子缺失，价格调整率不可计算',
+            'confidence_missing' => '模型置信度缺失',
+            'data_basis_verification', 'data_basis_unverified' => '来源尚未通过数据库回读验证',
+            'data_basis_missing' => '来源证据缺失',
+            'data_basis_partial' => '来源证据仅部分可用',
+            'data_basis_stale' => '来源证据已过期',
+            'data_basis_binding_missing' => '来源与门店、平台或日期绑定缺失',
+            'expected_effect_evidence' => '预期效果仍需执行后按同口径回读验证',
+            'risk_controls' => '风险控制项不完整',
+            default => $code,
+        };
     }
 
     public function buildEffectReviewReadiness(array $suggestion, array $before, array $after, ?string $today = null): array

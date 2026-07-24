@@ -2183,6 +2183,20 @@ final class PlatformDataSyncService
             'target_date_traffic_rows' => max(0, (int)($diagnostics['target_date_traffic_rows'] ?? 0)),
             'target_date_traffic_field_fact_ready_count' => max(0, (int)($diagnostics['target_date_traffic_field_fact_ready_count'] ?? 0)),
             'target_date_traffic_field_fact_missing_count' => max(0, (int)($diagnostics['target_date_traffic_field_fact_missing_count'] ?? 0)),
+            'required_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys($diagnostics['required_traffic_metric_keys'] ?? []),
+            'complete_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys($diagnostics['complete_traffic_metric_keys'] ?? []),
+            'missing_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys($diagnostics['missing_traffic_metric_keys'] ?? []),
+            'nonzero_required_metric_rows' => max(0, (int)($diagnostics['nonzero_required_metric_rows'] ?? 0)),
+            'platform_hotel_identifier_status' => in_array(
+                strtolower(trim((string)($diagnostics['platform_hotel_identifier_status'] ?? ''))),
+                ['ready', 'unverified'],
+                true
+            ) ? strtolower(trim((string)$diagnostics['platform_hotel_identifier_status'])) : 'unverified',
+            'page_field_fact_status' => in_array(
+                strtolower(trim((string)($diagnostics['page_field_fact_status'] ?? ''))),
+                ['ready', 'partial'],
+                true
+            ) ? strtolower(trim((string)$diagnostics['page_field_fact_status'])) : 'partial',
             'field_fact_status' => $fieldFactStatus,
             'p0_status' => $p0Status,
             'capability_states' => $this->sanitizeSyncTaskCapabilityStates($diagnostics['capability_states'] ?? null),
@@ -2192,6 +2206,25 @@ final class PlatformDataSyncService
             'adapter_status' => $adapterStatus,
             'confirmed_empty' => $confirmedEmpty,
         ];
+    }
+
+    /** @return array<int, string> */
+    private function sanitizeSyncDiagnosticMetricKeys(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $allowed = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        return array_values(array_unique(array_filter(array_map(
+            static fn($item): string => strtolower(trim((string)$item)),
+            $value
+        ), static fn(string $item): bool => in_array($item, $allowed, true))));
     }
 
     /**
@@ -3974,6 +4007,7 @@ final class PlatformDataSyncService
         $targetDate = $this->normalizeDate($payload['data_date'] ?? $payload['dataDate'] ?? null) ?? '';
         $dataPeriod = $this->normalizeDataPeriod($payload['data_period'] ?? $payload['dataPeriod'] ?? '');
         $startedAt = $this->normalizeDateTime($task['started_at'] ?? '') ?? '';
+        $diagnostics = is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [];
         $receipt = [
             'readback_verified' => false,
             'sync_task_id' => max(0, $taskId),
@@ -3986,6 +4020,16 @@ final class PlatformDataSyncService
             'row_ids' => [],
             'source_trace_ids' => [],
             'verified_metric_keys' => [],
+            'p0_status' => strtolower(trim((string)($diagnostics['p0_status'] ?? ''))) === 'ready'
+                ? 'ready'
+                : 'blocked',
+            'field_fact_status' => strtolower(trim((string)($diagnostics['field_fact_status'] ?? ''))),
+            'required_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys($diagnostics['required_traffic_metric_keys'] ?? []),
+            'complete_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys($diagnostics['complete_traffic_metric_keys'] ?? []),
+            'missing_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys($diagnostics['missing_traffic_metric_keys'] ?? []),
+            'nonzero_required_metric_rows' => max(0, (int)($diagnostics['nonzero_required_metric_rows'] ?? 0)),
+            'platform_hotel_identifier_status' => strtolower(trim((string)($diagnostics['platform_hotel_identifier_status'] ?? 'unverified'))),
+            'page_field_fact_status' => strtolower(trim((string)($diagnostics['page_field_fact_status'] ?? 'partial'))),
             'readback_count' => 0,
             'failure_reason' => '',
         ];
@@ -4405,6 +4449,10 @@ final class PlatformDataSyncService
             'last_login_verified_at',
             'target_date_traffic_rows',
             'traffic_field_facts',
+            'required_traffic_metric_keys',
+            'target_date_required_traffic_metrics_zero_unverified',
+            'platform_hotel_identifier',
+            'page_field_fact_status',
         ];
         $flags = [];
         foreach ($value as $item) {
@@ -4481,6 +4529,16 @@ final class PlatformDataSyncService
         }
 
         $requiresTraffic = $this->syncRequiresTargetDateTrafficEvidence($source, $options, $payload);
+        $trafficP0 = $this->targetTrafficP0Closure(
+            $rows,
+            strtolower(trim((string)($source['platform'] ?? ''))),
+            $targetDate
+        );
+        if ($requiresTraffic) {
+            $targetTrafficRows = (int)($trafficP0['traffic_row_count'] ?? 0);
+            $targetTrafficFieldFactReady = (int)($trafficP0['field_fact_ready_count'] ?? 0);
+            $targetTrafficFieldFactMissing = (int)($trafficP0['field_fact_missing_count'] ?? 0);
+        }
         $confirmedEmpty = $this->isAuthoritativeEmptySyncPayload($payload);
         $captureSectionStatuses = $this->syncCaptureSectionStatuses($options, $payload);
         $fieldFactStatus = $targetTrafficRows <= 0
@@ -4492,6 +4550,18 @@ final class PlatformDataSyncService
         }
         if ($requiresTraffic && $targetTrafficRows > 0 && $targetTrafficFieldFactReady <= 0) {
             $missingInputs[] = 'traffic_field_facts';
+        }
+        if ($requiresTraffic && (array)($trafficP0['missing_metric_keys'] ?? []) !== []) {
+            $missingInputs[] = 'required_traffic_metric_keys';
+        }
+        if ($requiresTraffic && empty($trafficP0['nonzero_required_metric_ready'])) {
+            $missingInputs[] = 'target_date_required_traffic_metrics_zero_unverified';
+        }
+        if ($requiresTraffic && empty($trafficP0['platform_hotel_identifier_ready'])) {
+            $missingInputs[] = 'platform_hotel_identifier';
+        }
+        if ($requiresTraffic && empty($trafficP0['ui_status_ready'])) {
+            $missingInputs[] = 'page_field_fact_status';
         }
         foreach ($this->browserProfileCurrentSessionProofMissingRequirements($source) as $missingLoginRequirement) {
             if (!in_array($missingLoginRequirement, $missingInputs, true)) {
@@ -4513,6 +4583,14 @@ final class PlatformDataSyncService
             $operatorMessage = 'profile_reused_no_target_date_traffic_rows';
         } elseif (in_array('traffic_field_facts', $missingInputs, true)) {
             $operatorMessage = 'traffic_field_facts_missing';
+        } elseif (in_array('required_traffic_metric_keys', $missingInputs, true)) {
+            $operatorMessage = 'required_traffic_metric_keys_missing';
+        } elseif (in_array('target_date_required_traffic_metrics_zero_unverified', $missingInputs, true)) {
+            $operatorMessage = 'target_date_required_traffic_metrics_zero_unverified';
+        } elseif (in_array('platform_hotel_identifier', $missingInputs, true)) {
+            $operatorMessage = 'platform_hotel_identifier_unverified';
+        } elseif (in_array('page_field_fact_status', $missingInputs, true)) {
+            $operatorMessage = 'page_field_fact_status_not_ready';
         } elseif ($adapterStatus !== 'success') {
             $operatorMessage = $this->safeSyncTaskMessage($adapterStatus, $adapterMessage);
         }
@@ -4525,6 +4603,12 @@ final class PlatformDataSyncService
             'target_date_data_types' => array_keys($dataTypes),
             'target_date_traffic_field_fact_ready_count' => $targetTrafficFieldFactReady,
             'target_date_traffic_field_fact_missing_count' => $targetTrafficFieldFactMissing,
+            'required_traffic_metric_keys' => $trafficP0['required_metric_keys'] ?? [],
+            'complete_traffic_metric_keys' => $trafficP0['complete_metric_keys'] ?? [],
+            'missing_traffic_metric_keys' => $trafficP0['missing_metric_keys'] ?? [],
+            'nonzero_required_metric_rows' => (int)($trafficP0['nonzero_required_metric_rows'] ?? 0),
+            'platform_hotel_identifier_status' => !empty($trafficP0['platform_hotel_identifier_ready']) ? 'ready' : 'unverified',
+            'page_field_fact_status' => !empty($trafficP0['ui_status_ready']) ? 'ready' : 'partial',
             'field_fact_status' => $fieldFactStatus,
             'p0_status' => $p0Status,
             'capability_states' => $capabilityStates,
@@ -4681,7 +4765,7 @@ final class PlatformDataSyncService
         }
 
         $trigger = strtolower(trim((string)($options['trigger_type'] ?? $options['triggerType'] ?? '')));
-        if (in_array($trigger, ['daily_profile_reuse', 'profile_login_after_login', 'profile_login_after_sync', 'profile_login_verified_sync'], true)) {
+        if (in_array($trigger, ['cron', 'auto_fetch', 'daily_profile_reuse', 'profile_login_after_login', 'profile_login_after_sync', 'profile_login_verified_sync'], true)) {
             return true;
         }
         $dataType = $this->normalizeDataType((string)($source['data_type'] ?? $options['data_type'] ?? $options['dataType'] ?? ''));
@@ -4724,6 +4808,139 @@ final class PlatformDataSyncService
             }
         }
         return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function targetTrafficP0Closure(array $rows, string $platform, string $targetDate): array
+    {
+        $requiredMetricKeys = [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
+        if ($platform === 'meituan') {
+            $requiredMetricKeys = array_slice($requiredMetricKeys, 0, 3);
+        }
+        $expectedStorageFields = [];
+        foreach ($requiredMetricKeys as $metricKey) {
+            $expectedStorageFields[$metricKey] = 'online_daily_data.' . $metricKey;
+        }
+
+        $trafficRows = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)
+                || $this->normalizeDate($row['data_date'] ?? $row['dataDate'] ?? null) !== $targetDate
+                || $this->normalizeDataType((string)($row['data_type'] ?? $row['dataType'] ?? '')) !== 'traffic'
+                || !OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
+            ) {
+                continue;
+            }
+            $trafficRows[] = $row;
+        }
+
+        $completeMetricKeys = [];
+        $fieldFactReadyCount = 0;
+        $fieldFactMissingCount = 0;
+        $nonzeroRequiredMetricRows = 0;
+        $allIdentifiersReady = $trafficRows !== [];
+        $allUiRowsReady = $trafficRows !== [];
+        foreach ($trafficRows as $row) {
+            $raw = $this->decodeConfig($row['raw_data'] ?? []);
+            $rowEvidence = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+            $rowTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
+            $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? $raw['source_url_hash'] ?? ''));
+            $rowCompleteMetricKeys = [];
+
+            foreach (is_array($raw['field_facts'] ?? null) ? $raw['field_facts'] : [] as $fact) {
+                if (!is_array($fact)) {
+                    continue;
+                }
+                $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
+                if (!isset($expectedStorageFields[$metricKey])) {
+                    continue;
+                }
+                $sourcePath = trim((string)($fact['source_path'] ?? ''));
+                $storageField = trim((string)($fact['storage_field'] ?? ''));
+                $factEvidence = is_array($fact['capture_evidence'] ?? null) ? $fact['capture_evidence'] : [];
+                $factTraceId = trim((string)($factEvidence['source_trace_id'] ?? $factEvidence['_source_trace_id'] ?? ''));
+                $factSourceUrlHash = trim((string)($factEvidence['source_url_hash'] ?? $factEvidence['_source_url_hash'] ?? ''));
+                $sourcePathStructured = $sourcePath !== ''
+                    && (str_contains($sourcePath, '.') || str_contains($sourcePath, '[') || str_contains($sourcePath, '/'));
+                $factReady = $sourcePathStructured
+                    && $storageField === $expectedStorageFields[$metricKey]
+                    && ($fact['stored_value_present'] ?? null) === true
+                    && $rowTraceId !== ''
+                    && $rowSourceUrlHash !== ''
+                    && hash_equals($rowTraceId, $factTraceId)
+                    && hash_equals($rowSourceUrlHash, $factSourceUrlHash);
+                if ($factReady) {
+                    $completeMetricKeys[$metricKey] = true;
+                    $rowCompleteMetricKeys[$metricKey] = true;
+                }
+            }
+
+            // The page/P0 status is scoped to this platform's required metrics.
+            // Optional cross-platform aliases in raw_data.field_facts must not
+            // turn a complete Ctrip row into a false Meituan-field failure.
+            $rowUiReady = array_diff($requiredMetricKeys, array_keys($rowCompleteMetricKeys)) === [];
+            if ($rowUiReady) {
+                $fieldFactReadyCount++;
+            } else {
+                $fieldFactMissingCount++;
+                $allUiRowsReady = false;
+            }
+
+            $identifierReady = ($raw['platform_hotel_identifier_present'] ?? null) === true
+                && trim((string)($raw['platform_hotel_identifier_source'] ?? '')) !== ''
+                && !in_array(
+                    strtolower(trim((string)($raw['platform_hotel_identifier_proof'] ?? ''))),
+                    ['', 'missing', 'unverified'],
+                    true
+                );
+            $bindingStatus = strtolower(trim((string)($raw['platform_hotel_binding_status'] ?? '')));
+            if ($bindingStatus !== '') {
+                $identifierReady = $identifierReady
+                    && $bindingStatus === 'matched'
+                    && !in_array(
+                        strtolower(trim((string)($raw['platform_hotel_binding_proof'] ?? ''))),
+                        ['', 'missing', 'unverified'],
+                        true
+                    );
+            }
+            if (!$identifierReady) {
+                $allIdentifiersReady = false;
+            }
+
+            foreach ($requiredMetricKeys as $metricKey) {
+                if (!array_key_exists($metricKey, $row) || !is_numeric($row[$metricKey])) {
+                    continue;
+                }
+                if (abs((float)$row[$metricKey]) > 0.000001) {
+                    $nonzeroRequiredMetricRows++;
+                    break;
+                }
+            }
+        }
+
+        $completeMetricKeys = array_values(array_intersect($requiredMetricKeys, array_keys($completeMetricKeys)));
+        $missingMetricKeys = array_values(array_diff($requiredMetricKeys, $completeMetricKeys));
+        return [
+            'required_metric_keys' => $requiredMetricKeys,
+            'traffic_row_count' => count($trafficRows),
+            'field_fact_ready_count' => $fieldFactReadyCount,
+            'field_fact_missing_count' => $fieldFactMissingCount,
+            'complete_metric_keys' => $completeMetricKeys,
+            'missing_metric_keys' => $missingMetricKeys,
+            'nonzero_required_metric_rows' => $nonzeroRequiredMetricRows,
+            'nonzero_required_metric_ready' => $nonzeroRequiredMetricRows > 0,
+            'platform_hotel_identifier_ready' => $allIdentifiersReady,
+            'ui_status_ready' => $allUiRowsReady && $missingMetricKeys === [],
+        ];
     }
 
     private function storeRawRecord(array $source, int $taskId, array $payload, ?int $httpStatus): void
@@ -6504,15 +6721,6 @@ final class PlatformDataSyncService
         }
 
         return false;
-    }
-
-    private function maskSecret(string $value): string
-    {
-        $value = trim($value);
-        if ($value === '') {
-            return '';
-        }
-        return '[configured]';
     }
 
     private function tableColumns(string $table): array

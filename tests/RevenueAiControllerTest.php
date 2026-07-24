@@ -7,6 +7,7 @@ use app\controller\Base;
 use app\controller\RevenueAi;
 use app\model\PriceSuggestion;
 use app\model\User;
+use app\service\RevenuePricingRecommendationService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionProperty;
@@ -181,6 +182,66 @@ final class RevenueAiControllerTest extends TestCase
         self::assertFalse($payload['local_price_updated']);
         self::assertFalse($payload['ota_write']);
         self::assertSame('operation_execution_manual_evidence', $payload['next_action']);
+    }
+
+    public function testExecutionIntentPayloadTargetsCreatedOperationTask(): void
+    {
+        $payload = $this->invokeNonPublic($this->controller(), 'priceSuggestionExecutionIntentPayload', [[
+            'id' => 88,
+            'hotel_id' => 7,
+            'status' => PriceSuggestion::STATUS_APPROVED,
+        ], [
+            'id' => 99,
+            'hotel_id' => 7,
+            'status' => 'approved',
+            'tasks' => [
+                ['id' => 101, 'status' => 'pending_execute'],
+                ['id' => 102, 'status' => 'pending_execute'],
+            ],
+        ], false]);
+
+        self::assertTrue($payload['operation_task_created']);
+        self::assertSame(102, $payload['operation_task']['id']);
+        self::assertSame('record_execution', $payload['target_action']);
+        self::assertSame(102, $payload['target_id']);
+        self::assertSame('task', $payload['target_kind']);
+        self::assertSame('operation_task_manual_execution_evidence', $payload['next_action']);
+        self::assertFalse($payload['auto_write_ota']);
+    }
+
+    public function testTrustedDecisionConfirmationGateRequiresVerifiedSourceAndDenominator(): void
+    {
+        $trusted = [
+            'contract_version' => RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION,
+            'sources' => ['status' => 'verified', 'ref_count' => 1],
+            'metric_formula' => ['status' => 'calculable', 'denominator' => 280],
+            'data_quality' => ['status' => 'verified', 'decision_eligible' => true],
+            'confidence' => ['status' => 'available', 'score' => 0.82],
+            'human_confirmation' => ['can_confirm' => true],
+        ];
+
+        $this->invokeNonPublic($this->controller(), 'assertTrustedDecisionCanBeConfirmed', [$trusted]);
+        self::assertTrue(true);
+
+        $trusted['metric_formula'] = [
+            'status' => 'not_calculable',
+            'denominator' => null,
+            'display' => '不可计算',
+        ];
+        try {
+            $this->invokeNonPublic($this->controller(), 'assertTrustedDecisionCanBeConfirmed', [$trusted]);
+            self::fail('Missing denominator unexpectedly passed the trusted decision gate.');
+        } catch (RuntimeException $e) {
+            self::assertSame(422, $e->getCode());
+            self::assertStringContainsString('metric_denominator', $e->getMessage());
+        }
+    }
+
+    public function testApproveToTaskBooleanInputIsExplicit(): void
+    {
+        self::assertTrue($this->invokeNonPublic($this->controller(), 'booleanInput', [true]));
+        self::assertTrue($this->invokeNonPublic($this->controller(), 'booleanInput', ['1']));
+        self::assertFalse($this->invokeNonPublic($this->controller(), 'booleanInput', ['false']));
     }
 
     public function testBasicHotelMemberCannotReviewOrCreateExecutionIntent(): void

@@ -272,16 +272,11 @@ class Hotel extends Base
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         }
-        $code = $this->normalizeHotelCode($data['code'] ?? null);
-        $data['code'] = $code ?? '';
-
         $this->validate($data, [
             'name' => 'require|max:100',
-            'code' => 'max:50',
         ], [
             'name.require' => '酒店名称不能为空',
             'name.max' => '酒店名称最多100个字符',
-            'code.max' => '酒店编码最多50个字符',
         ]);
 
         $data['name'] = trim((string)$data['name']);
@@ -299,22 +294,14 @@ class Hotel extends Base
             return $this->duplicateHotelNameResponse($duplicateHotel);
         }
 
-        // 检查编码唯一性
-        if ($code !== null) {
-            $exists = $this->hotelQuery()->where('code', $code)->find();
-            if ($exists) {
-                return $this->error('酒店编码已存在');
-            }
-        }
-
         $hotel = new HotelModel();
         $hotel->name = $data['name'];
-        $hotel->code = $code;
+        $hotel->code = null;
         $hotel->address = $data['address'] ?? '';
         $hotel->contact_person = $data['contact_person'] ?? '';
         $hotel->contact_phone = $data['contact_phone'] ?? '';
         $hotel->description = $data['description'] ?? '';
-        $hotel->status = $data['status'] ?? HotelModel::STATUS_ENABLED;
+        $hotel->status = HotelModel::STATUS_ENABLED;
         if ($this->tableColumnExists('hotels', 'ota_channel_strategy')) {
             $hotel->ota_channel_strategy = $otaChannelStrategy;
         }
@@ -329,6 +316,7 @@ class Hotel extends Base
         }
         Db::transaction(function () use ($hotel, $tenantId): void {
             $hotel->save();
+            $this->assignGeneratedHotelCode($hotel);
             if (!$this->currentUser->isSuperAdmin()) {
                 $this->grantCurrentUserHotelPermission($hotel, $tenantId);
             }
@@ -346,6 +334,48 @@ class Hotel extends Base
         });
 
         return $this->success($hotel, '创建成功');
+    }
+
+    /**
+     * 新增门店编号只由系统生成。先使用全局自增主键对应的四位编号；
+     * 若历史人工编号占用了该值，则在数据库唯一约束保护下生成新的数字编号。
+     */
+    private function assignGeneratedHotelCode(HotelModel $hotel): void
+    {
+        $hotelId = (int)$hotel->id;
+        if ($hotelId <= 0) {
+            throw new RuntimeException('门店编号生成失败，请重试');
+        }
+
+        for ($attempt = 0; $attempt < 8; $attempt++) {
+            $candidate = $attempt === 0
+                ? str_pad((string)$hotelId, 4, '0', STR_PAD_LEFT)
+                : (string)$hotelId . str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+            try {
+                $updated = Db::name('hotels')->where('id', $hotelId)->update(['code' => $candidate]);
+                if ($updated !== 1) {
+                    throw new RuntimeException('门店编号生成失败，请重试');
+                }
+                $hotel->code = $candidate;
+                return;
+            } catch (\Throwable $e) {
+                if (!$this->isHotelCodeCollision($e)) {
+                    throw $e;
+                }
+            }
+        }
+
+        throw new RuntimeException('门店编号生成失败，请重试');
+    }
+
+    private function isHotelCodeCollision(\Throwable $e): bool
+    {
+        $message = strtolower($e->getMessage());
+        return str_contains($message, 'uk_code')
+            || str_contains($message, 'hotels.code')
+            || str_contains($message, 'duplicate entry')
+            || str_contains($message, 'unique constraint');
     }
 
     /**
@@ -812,59 +842,6 @@ class Hotel extends Base
         $payload['create_time'] = date('Y-m-d H:i:s');
         UserHotelPermission::create($payload);
         $this->currentUser->resetAuthorizationContext();
-    }
-
-    private function ensureHotelCanBeDeleted(int $hotelId, bool $ignoreCurrentUserHotelPermission = false): array
-    {
-        $checks = [
-            ['users', 'hotel_id', '用户'],
-            ['user_hotel_permissions', 'hotel_id', '用户酒店权限'],
-            ['daily_reports', 'hotel_id', '日报'],
-            ['monthly_tasks', 'hotel_id', '月任务'],
-            ['online_daily_data', 'system_hotel_id', '线上数据'],
-            ['operation_logs', 'hotel_id', '操作日志'],
-            ['field_mappings', 'hotel_id', '字段映射'],
-            ['hotel_field_templates', 'hotel_id', '字段模板'],
-            ['room_types', 'hotel_id', '房型'],
-            ['devices', 'hotel_id', '设备'],
-            ['device_maintenance', 'hotel_id', '设备维护'],
-            ['energy_consumption', 'hotel_id', '能耗记录'],
-            ['energy_benchmarks', 'hotel_id', '能耗基准'],
-            ['energy_saving_suggestions', 'hotel_id', '节能建议'],
-            ['maintenance_plans', 'hotel_id', '维护计划'],
-            ['price_suggestions', 'hotel_id', '价格建议'],
-            ['demand_forecasts', 'hotel_id', '需求预测'],
-            ['knowledge_categories', 'hotel_id', '知识分类'],
-            ['knowledge_base', 'hotel_id', '知识库'],
-            ['transfer_records', 'hotel_id', '转让记录'],
-            ['operation_strategy_actions', 'hotel_id', '运营策略动作'],
-        ];
-
-        $references = [];
-        foreach ($checks as [$table, $column, $label]) {
-            $count = $ignoreCurrentUserHotelPermission && $table === 'user_hotel_permissions'
-                ? $this->countHotelPermissionRowsExcludingCurrentUser($hotelId)
-                : $this->countReferenceRows($table, $column, $hotelId);
-            if ($count > 0) {
-                $references[] = ['table' => $table, 'label' => $label, 'count' => $count];
-            }
-        }
-
-        return $references;
-    }
-
-    private function countHotelPermissionRowsExcludingCurrentUser(int $hotelId): int
-    {
-        if (!$this->tableColumnExists('user_hotel_permissions', 'hotel_id')) {
-            return 0;
-        }
-
-        $query = Db::name('user_hotel_permissions')->where('hotel_id', $hotelId);
-        if ($this->currentUser) {
-            $query->where('user_id', '<>', (int)$this->currentUser->id);
-        }
-
-        return (int)$query->count();
     }
 
     protected function shouldBlockHotelDelete(array $references, bool $forceDelete): bool

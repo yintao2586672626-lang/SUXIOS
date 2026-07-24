@@ -12,9 +12,12 @@ final class CloudDataHealthService
     ];
 
     /** @return array<int, array<string, mixed>> */
-    public function enabledHotels(int $limit = 30): array
+    public function enabledHotels(int $limit = 30, ?int $hotelId = null): array
     {
         $limit = max(1, min(100, $limit));
+        if ($hotelId !== null && $hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id must be a positive integer.');
+        }
         if (!$this->tableExists('hotels')) {
             return [];
         }
@@ -24,6 +27,9 @@ final class CloudDataHealthService
             return [];
         }
         $query = Db::name('hotels')->order('id', 'asc')->limit($limit);
+        if ($hotelId !== null) {
+            $query->where('id', $hotelId);
+        }
         if (in_array('status', $columns, true)) {
             $query->where('status', 1);
         }

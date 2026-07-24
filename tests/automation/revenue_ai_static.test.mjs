@@ -8,8 +8,12 @@ const context = { window: {}, URLSearchParams };
 vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context, {
   filename: 'public/revenue-ai-static.js',
 });
+vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
+  filename: 'public/data-health-static.js',
+});
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
+const dataHealthHelpers = context.window.SUXI_DATA_HEALTH_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
@@ -143,6 +147,11 @@ test('Revenue AI entry lazy-loads the versioned helper outside the startup chain
   assert.match(appMain, /if \(newPage === 'ai-daily-report'\) \{[\s\S]*await ensureRevenueAiStaticReady\(\);[\s\S]*return loadAiDailyReport\(\);/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
   assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
+  assert.match(html, /data-testid="revenue-ai-trusted-decision"/);
+  assert.match(html, /item\.trustedDecisionRows/);
+  assert.match(html, /转运营任务/);
+  assert.match(appMain, /operation_task_created/);
+  assert.match(appMain, /persistedTask\.status !== 'pending_execute'/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-gaps"/);
   assert.match(html, /data-testid="agent-pricing-generation-hotel-checks"/);
@@ -201,9 +210,8 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
   for (const scope of ['ota_channel', 'whole_hotel', 'mixed', 'user_input', 'derived']) {
     assert.match(truthBlock, new RegExp(scope));
   }
-  for (const field of ['门店：', '平台：', '日期：', '来源：', '采集时间：', '入库回读：', '失败原因：', '口径：']) {
-    assert.match(truthBlock, new RegExp(field));
-  }
+  assert.match(appMain, /const onlineTruthDetailText = requireDataHealthStatic\('onlineTruthDetailText'\);/);
+  assert.match(truthBlock, /truthDetailText: onlineTruthDetailText\(truth\)/);
   assert.match(appMain, /const aiDailyReportMetricValue = \(metric\) => \{[\s\S]*?return '—';/);
   assert.doesNotMatch(truthBlock, /\|\|\s*0/);
 
@@ -212,7 +220,9 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
   assert.match(aiDailyReportFragment, /metric\.calculationStatusText/);
   assert.match(aiDailyReportFragment, /metric\.scopeText/);
   assert.match(aiDailyReportFragment, /metric\.resultTypeCode === 'derived'/);
-  assert.match(aiDailyReportFragment, /metric\.truthDetailText/);
+  assert.match(aiDailyReportFragment, /<online-truth-summary/);
+  assert.match(aiDailyReportFragment, /:truth="metric\.truth"/);
+  assert.doesNotMatch(aiDailyReportFragment, /metric\.sourceRefsText|metric\.truthDetailText/);
 
   const metricHelpers = vm.runInNewContext(`(() => {
     const aiDailyReport = { value: null };
@@ -224,7 +234,9 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
       .filter(item => item && typeof item === 'object' && !Array.isArray(item));
     ${truthBlock}
     return { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
-  })()`, {}, { filename: 'ai-daily-report-metric-truth.js' });
+  })()`, {
+    onlineTruthDetailText: dataHealthHelpers.onlineTruthDetailText,
+  }, { filename: 'ai-daily-report-metric-truth.js' });
   metricHelpers.aiDailyReport.value = {
     hotel_id: 7,
     report_date: '2026-07-18',
@@ -298,7 +310,8 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
   });
   assert.equal(userInput.truth.status, 'unverified');
   assert.equal(userInput.scopeCode, 'user_input');
-  assert.match(userInput.truthDetailText, /已入库 1\/1；回读 0\/1/);
+  assert.match(userInput.truthDetailText, /未验证/);
+  assert.match(userInput.truthDetailText, /入库回读证据/);
 
   const failed = metricHelpers.aiDailyReportMetricTruth({
     key: 'visitors',
@@ -591,9 +604,8 @@ test('Agent pricing suggestion workbench exposes manual room type pricing guard 
   assert.match(html, /\/agent\/room-types\?\$\{params\}/);
   assert.match(html, /request\('\/agent\/room-types'/);
   assert.match(html, /const loadPriceSuggestionWorkbench = async \(\) => \{/);
-  assert.match(html, /loadDemandForecasts\(\)/);
-  assert.match(html, /loadCompetitorAnalysis\(\)/);
-  assert.match(html, /Promise\.allSettled\(\[\s*loadRoomTypes\(\),\s*loadDemandForecasts\(\),\s*loadCompetitorAnalysis\(\),\s*loadPriceSuggestions\(\),\s*loadRevenueAiOverview\(\),\s*\]\)/s);
+  assert.match(html, /const loadPriceSuggestionWorkbench = async \(\) => \{\s*return loadRevenueAnalysisBundle\(\);\s*\}/s);
+  assert.match(html, /request\(`\/agent\/revenue-bundle\?\$\{params\}`\)/);
   assert.match(html, /人工配置项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。/);
 });
 
@@ -1267,6 +1279,37 @@ test('Revenue AI evidence workbench keeps OTA to operation gates explicit', () =
 });
 
 test('Revenue AI action rows expose readonly price suggestion review queue', () => {
+  const trustedDecision = ({ canConfirm = false, canTransfer = false } = {}) => ({
+    contract_version: 'revenue_ai_trusted_decision.v1',
+    scope: 'ota_channel',
+    store: { hotel_id: 7, hotel_name: '测试酒店', display: '测试酒店 (#7)' },
+    platform: { key: 'ctrip', label: '携程', scope: 'ota_channel' },
+    date: { value: '2026-06-25', basis: 'suggestion_date', status: 'available' },
+    sources: {
+      status: 'verified',
+      summary: '携程历史经营事实已通过数据库回读',
+      items: [{ ref: 'online_daily_data#pricing_history:7:2026-06-01:2026-06-25' }],
+      ref_count: 1,
+    },
+    metric_formula: {
+      metric: 'price_change_rate',
+      expression: '(建议价 - 当前价) ÷ 当前价 × 100%',
+      status: 'calculable',
+      display: '+13.57%',
+    },
+    data_quality: { status: 'verified', label: '已验证', decision_eligible: true, note: '数据库回读已验证' },
+    confidence: { score: 0.82, display: '82%', status: 'available' },
+    gaps: [],
+    recommended_action: { summary: '人工复核后调整携程目标价；不自动写 OTA。', auto_write_ota: false },
+    expected_effect: { status: 'verification_target', display: '执行后按同口径回读渠道收入、订单与 ADR' },
+    human_confirmation: {
+      required: true,
+      confirmed: canTransfer,
+      can_confirm: canConfirm,
+      can_transfer_to_operation_task: canTransfer,
+      auto_write_ota: false,
+    },
+  });
   const rows = helpers.buildRevenueAiActionRows({
     overview: {
       review_queue: {
@@ -1297,6 +1340,9 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
           manual_review_required: true,
           auto_write_ota: false,
           can_review: true,
+          can_confirm: true,
+          can_transfer_to_operation_task: false,
+          trusted_decision: trustedDecision({ canConfirm: true }),
           action_entry: {
             label: '去审核',
             target_page: 'compass',
@@ -1331,6 +1377,9 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
           manual_review_required: true,
           auto_write_ota: false,
           can_review: false,
+          can_confirm: false,
+          can_transfer_to_operation_task: true,
+          trusted_decision: trustedDecision({ canTransfer: true }),
           action_entry: {
             label: '去转单',
             target_page: 'compass',
@@ -1388,6 +1437,9 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
             manual_review_required: true,
             auto_write_ota: false,
             can_review: true,
+            can_confirm: true,
+            can_transfer_to_operation_task: false,
+            trusted_decision: trustedDecision({ canConfirm: true }),
             action_entry: {
               label: '去审核',
               target_page: 'compass',
@@ -1422,6 +1474,9 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
             manual_review_required: true,
             auto_write_ota: false,
             can_review: false,
+            can_confirm: false,
+            can_transfer_to_operation_task: true,
+            trusted_decision: trustedDecision({ canTransfer: true }),
             action_entry: {
               label: '去转单',
               target_page: 'compass',
@@ -1489,7 +1544,17 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
   assert.equal(rows[0].reviewQueueItems[0].canApproveWithChanges, true);
   assert.equal(rows[0].reviewQueueItems[0].canReject, true);
   assert.equal(rows[0].reviewQueueItems[0].canCreateExecutionIntent, false);
-  assert.equal(rows[0].reviewQueueItems[0].actionHelpText, '首页人工审核，可修改后批准；不写 OTA');
+  assert.equal(rows[0].reviewQueueItems[0].actionButtons.map(button => button.key).join('|'), 'approve|approve_with_changes|reject');
+  assert.equal(rows[0].reviewQueueItems[0].actionHelpText, '仅在可信输入通过后人工审核；不写 OTA');
+  assert.equal(rows[0].reviewQueueItems[0].trustedContractValid, true);
+  assert.equal(rows[0].reviewQueueItems[0].trustedDecisionRows.length, 10);
+  assert.equal(
+    rows[0].reviewQueueItems[0].trustedDecisionRows.map(field => field.label).join('|'),
+    '门店|平台|日期|来源|指标公式|数据质量|置信度|缺口|建议动作|预期效果',
+  );
+  assert.equal(rows[0].reviewQueueItems[0].trustedDecisionRows[0].value, '测试酒店 (#7)');
+  assert.equal(rows[0].reviewQueueItems[0].trustedDecisionRows[4].value, '(建议价 - 当前价) ÷ 当前价 × 100% = +13.57%');
+  assert.equal(rows[0].reviewQueueItems[0].trustedDecisionRows[7].value, '无输入缺口');
   assert.equal(rows[0].reviewQueueItems[0].suggestedPrice, 318);
   assert.equal(rows[0].reviewQueueItems[0].minPrice, 220);
   assert.equal(rows[0].reviewQueueItems[0].requiresSuperAdmin, false);
@@ -1498,13 +1563,60 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
   assert.equal(rows[0].reviewQueueItems[0].allowedEndpoints.execution_intent, '/api/revenue-ai/price-suggestions/11/execution-intent');
   assert.deepEqual(rows[0].reviewQueueItems[0].actionEntry.forbidden_actions, ['apply_price', 'ota_write']);
   assert.equal(rows[0].reviewQueueItems[1].title, '房型 #4 · 动态定价');
-  assert.equal(rows[0].reviewQueueItems[1].actionLabel, '转执行');
+  assert.equal(rows[0].reviewQueueItems[1].actionLabel, '转运营任务');
   assert.equal(rows[0].reviewQueueItems[1].canApprove, false);
   assert.equal(rows[0].reviewQueueItems[1].canReject, false);
   assert.equal(rows[0].reviewQueueItems[1].canCreateExecutionIntent, true);
+  assert.equal(rows[0].reviewQueueItems[1].actionButtons.map(button => button.key).join('|'), 'execution_intent');
+  assert.match(rows[0].reviewQueueItems[1].actionHelpText, /待执行运营任务/);
   assert.equal(rows[0].reviewQueueItems[1].allowedEndpoint, '/api/revenue-ai/price-suggestions/12/execution-intent');
   assert.match(rows[0].reviewQueueItems[1].impactLine, /暂缺可信预计 RevPAR 影响数据/);
   assert.equal(rows[0].autoWriteOta, false);
+});
+
+test('Revenue AI trusted decision displays not calculable and blocks approval when denominator is missing', () => {
+  const items = helpers.buildRevenueAiReviewQueueItems({
+    pending_items: [{
+      id: 31,
+      hotel_id: 7,
+      status: 'pending_review',
+      suggestion_date: '2026-06-25',
+      suggested_price: 318,
+      can_review: true,
+      can_confirm: false,
+      auto_write_ota: false,
+      action_entry: {
+        allowed_endpoints: { review: '/api/revenue-ai/price-suggestions/31/review' },
+        manual_actions: ['reject'],
+      },
+      trusted_decision: {
+        contract_version: 'revenue_ai_trusted_decision.v1',
+        store: { display: '测试酒店 (#7)' },
+        platform: { label: '携程' },
+        date: { value: '2026-06-25' },
+        sources: { status: 'verified', items: [{ ref: 'online_daily_data#31' }], ref_count: 1 },
+        metric_formula: {
+          expression: '(建议价 - 当前价) ÷ 当前价 × 100%',
+          status: 'not_calculable',
+          display: '不可计算',
+          reason: 'current_price_denominator_missing',
+        },
+        data_quality: { status: 'verified', label: '已验证', decision_eligible: true },
+        confidence: { status: 'available', score: 0.82, display: '82%' },
+        gaps: [{ code: 'current_price_denominator_missing', message: '当前价分母缺失，价格调整率不可计算' }],
+        recommended_action: { summary: '先补齐当前价分母' },
+        expected_effect: { display: '不可计算' },
+        human_confirmation: { can_confirm: false, can_transfer_to_operation_task: false },
+      },
+    }],
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].canApprove, false);
+  assert.equal(items[0].canApproveWithChanges, false);
+  assert.equal(items[0].canReject, true);
+  assert.equal(items[0].trustedDecisionRows.find(field => field.key === 'formula').value, '(建议价 - 当前价) ÷ 当前价 × 100% = 不可计算');
+  assert.match(items[0].trustedDecisionRows.find(field => field.key === 'gaps').value, /分母缺失/);
 });
 
 test('Revenue AI action rows expose pricing generation preflight without OTA write', () => {
@@ -2180,7 +2292,7 @@ test('Revenue AI manual review helpers build local-only review requests', () => 
   assert.equal(helpers.revenueAiReviewActionText('approve'), '批准该调价建议');
   assert.equal(helpers.revenueAiReviewActionText('approve_with_changes'), '修改后批准该调价建议');
   assert.equal(helpers.revenueAiReviewActionText('reject'), '拒绝该调价建议');
-  assert.equal(helpers.revenueAiReviewActionText('execution_intent'), '转为运营执行意图');
+  assert.equal(helpers.revenueAiReviewActionText('execution_intent'), '转为运营任务');
   assert.equal(helpers.revenueAiReviewActionText('apply_price'), '');
   assert.equal(helpers.revenueAiReviewEndpoint(item, 'approve'), '/revenue-ai/price-suggestions/11/review');
   assert.equal(helpers.revenueAiReviewEndpoint(item, 'execution_intent'), '/revenue-ai/price-suggestions/11/execution-intent');
@@ -2204,7 +2316,7 @@ test('Revenue AI manual review helpers build local-only review requests', () => 
 
   assert.equal(
     helpers.buildRevenueAiReviewConfirmText({ action: 'execution_intent' }),
-    '确认转为运营执行意图？该动作不会写入携程/美团价格，仍需人工执行和复盘。',
+    '确认转为本地待执行运营任务？该动作不会写入携程/美团价格，仍需人工执行、留证和复盘。',
   );
   assert.equal(
     helpers.buildRevenueAiReviewConfirmText({ action: 'approve_with_changes', approvedPrice: 318.13 }),
@@ -2227,6 +2339,7 @@ test('Revenue AI manual review helpers build local-only review requests', () => 
   const intentBody = helpers.buildRevenueAiReviewRequestBody({ action: 'execution_intent', item });
   assert.equal(intentBody.source, 'revenue_ai_homepage');
   assert.equal(intentBody.expected_metric, 'orders');
+  assert.equal(intentBody.approve_to_task, true);
 });
 
 test('Revenue AI execution intent open row helper keeps execution navigation local', () => {
@@ -2264,6 +2377,25 @@ test('Revenue AI execution intent open row helper keeps execution navigation loc
   assert.equal(existingRow.targetId, 73);
   assert.equal(existingRow.hotelId, 9);
   assert.equal(existingRow.actionLabel, '查看执行意图');
+
+  const taskRow = helpers.buildRevenueAiExecutionIntentOpenRow({
+    payload: {
+      target_id: 91,
+      target_page: 'ops-track',
+      target_action: 'record_execution',
+      target_kind: 'task',
+      execution_intent: { id: 73, hotel_id: 7, status: 'approved' },
+      operation_task: { id: 91, status: 'pending_execute' },
+      operation_task_created: true,
+    },
+  });
+  assert.equal(taskRow.canOpenExecution, true);
+  assert.equal(taskRow.targetAction, 'record_execution');
+  assert.equal(taskRow.targetId, 91);
+  assert.equal(taskRow.targetKind, 'task');
+  assert.equal(taskRow.intentId, 73);
+  assert.equal(taskRow.taskId, 91);
+  assert.equal(taskRow.actionLabel, '查看待执行运营任务');
 });
 
 test('Revenue AI review navigation helper keeps target parsing outside the entry file', () => {

@@ -136,18 +136,38 @@ final class AuthLoginTenantIsolationTest extends TestCase
         self::assertSame($payload['token'], cache('user_token_1'));
     }
 
-    public function testMissingTenantFailsBeforeAnyTokenStateIsPublished(): void
+    public function testMissingTenantReturnsExplicitRejectionBeforeAnyLoginStateIsUpdated(): void
     {
-        try {
-            $this->login('missing_tenant');
-            self::fail('A normal user without an authenticated tenant must fail closed.');
-        } catch (\think\exception\HttpException $exception) {
-            self::assertSame(403, $exception->getStatusCode());
-        }
+        $response = $this->login('missing_tenant');
+        self::assertSame(403, $response->getCode());
+        $payload = json_decode((string)$response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(403, $payload['code']);
+        self::assertSame('tenant_context_missing', $payload['data']['reason'] ?? null);
+        self::assertSame('账号门店租户绑定异常，请联系管理员重新分配门店', $payload['message']);
 
         self::assertNull(cache('user_token_504'));
         self::assertSame(0, Db::name('operation_logs')->where('user_id', 504)->count());
         self::assertSame(0, Db::name('login_logs')->where('user_id', 504)->where('status', 'success')->count());
+        self::assertSame(
+            '账号缺少有效租户绑定',
+            Db::name('login_logs')->where('user_id', 504)->where('status', 'failed')->value('message')
+        );
+        self::assertNull(Db::name('users')->where('id', 504)->value('last_login_time'));
+        self::assertSame(0, (int)Db::name('users')->where('id', 504)->value('login_count'));
+    }
+
+    public function testOwnerWithDedicatedTenantCanLoginBeforeCreatingFirstHotel(): void
+    {
+        $payload = $this->successPayload($this->login('owner_without_hotel'));
+
+        self::assertSame([], $payload['user']['permitted_hotels']);
+        self::assertNull($payload['user']['hotel_id']);
+        self::assertNull($payload['context']['hotelId']);
+        self::assertNull($payload['context']['tenantId']);
+        self::assertTrue($payload['user']['permissions']['can_manage_own_hotels']);
+        self::assertSame($payload['token'], cache('user_token_505'));
+        self::assertSame(303, (int)Db::name('operation_logs')->where('user_id', 505)->value('tenant_id'));
+        self::assertSame(1, (int)Db::name('users')->where('id', 505)->value('login_count'));
     }
 
     public function testLoginCachePublicationIsAtomicAndNeverAuditsPartialSessions(): void
@@ -241,6 +261,7 @@ final class AuthLoginTenantIsolationTest extends TestCase
         Db::name('roles')->insertAll([
             ['id' => 1, 'name' => 'admin', 'display_name' => 'Super admin', 'level' => 1, 'permissions' => '["all"]', 'status' => 1],
             ['id' => 3, 'name' => 'normal_user', 'display_name' => 'Normal user', 'level' => 3, 'permissions' => '["dashboard.view","hotel.view"]', 'status' => 1],
+            ['id' => 8, 'name' => 'VIPUser', 'display_name' => 'Owner beta user', 'level' => 2, 'permissions' => '["hotel.create","hotel.view"]', 'status' => 1],
         ]);
         Db::name('hotels')->insertAll([
             ['id' => 10, 'tenant_id' => 101, 'name' => 'Tenant A primary', 'status' => 1],
@@ -254,6 +275,7 @@ final class AuthLoginTenantIsolationTest extends TestCase
             $this->userRow(502, 101, 'wrong_tenant_hotel', 3, 20),
             $this->userRow(503, 101, 'disabled_hotel', 3, 12),
             $this->userRow(504, 0, 'missing_tenant', 3, 10),
+            $this->userRow(505, 303, 'owner_without_hotel', 8, null),
         ]);
         Db::name('user_hotel_permissions')->insertAll([
             ['tenant_id' => 101, 'user_id' => 501, 'hotel_id' => 11, 'can_view' => 1, 'status' => 'active'],

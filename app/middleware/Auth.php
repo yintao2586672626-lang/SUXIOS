@@ -628,13 +628,8 @@ class Auth
             // Security audit failure must not mask the actual 403 boundary.
         }
 
-        $this->recordSecurityNotification('protected_access_denied', $user, $hotelId ?: null, $requestId, [
-            'path' => (string)($capability['path'] ?? ''),
-            'capability' => (string)($capability['key'] ?? ''),
-            'reason' => (string)($authorization['reason'] ?? ''),
-            'tenant_id' => (int)($authorization['tenant_id'] ?? 0),
-            'hotel_id' => $hotelId ?: null,
-        ]);
+        // Permission denials remain in OperationLog for administrators. They are not
+        // actionable end-user notifications and can be triggered repeatedly by a stale UI scope.
     }
 
     /**
@@ -642,17 +637,32 @@ class Auth
      */
     private function recordSecurityNotification(string $category, User $user, ?int $hotelId, string $requestId, array $payload): void
     {
+        $copy = match ($category) {
+            'rate_limited' => [
+                'title' => '请求过于频繁',
+                'message' => '系统已暂时限制高频访问，请稍后重试。',
+                'action_label' => '我知道了',
+            ],
+            default => [
+                'title' => '账号安全提醒',
+                'message' => '系统拦截了一次异常访问，请按页面提示处理。',
+                'action_label' => '查看说明',
+            ],
+        };
         try {
             SystemNotification::recordEvent([
                 'hotel_id' => $hotelId,
                 'user_id' => (int)$user->id,
+                'recipient_user_id' => (int)$user->id,
                 'platform' => 'system',
                 'category' => 'security',
                 'severity' => 'warning',
-                'title' => 'SUXIOS security guard',
-                'message' => $category . ' reference=' . $requestId,
+                'title' => $copy['title'],
+                'message' => $copy['message'],
                 'action_type' => 'security_review',
-                'action_payload' => $payload,
+                'action_payload' => array_merge($payload, [
+                    'action_label' => $copy['action_label'],
+                ]),
                 'source_module' => 'security',
                 'source_key' => 'security:' . $category . ':' . $requestId,
             ]);

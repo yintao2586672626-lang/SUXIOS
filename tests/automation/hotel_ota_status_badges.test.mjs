@@ -37,5 +37,10 @@ assert.deepEqual(texts([
 
 assert.deepEqual(texts([]), []);
 assert.equal((indexHtml.match(/v-for="badge in hotelOtaStatusBadges\(hotel\)"/g) || []).length, 2);
+assert.match(
+  indexHtml,
+  /const hotelOtaStatusBadges = \(hotel = \{\}\) => buildHotelOtaStatusBadges\(hotelApplicablePlatformBindingRows\(hotel\)\)[\s\S]*?\.filter\(badge => !\['dual', 'pending'\]\.includes\(badge\?\.key\)\);/,
+  'hotel management must hide redundant dual-platform and pending-login header badges while retaining actionable platform-column states'
+);
 
 console.log('hotel OTA status badge checks passed');

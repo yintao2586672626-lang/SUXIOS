@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\model\SystemConfig;
+use app\service\DualOtaContinuousTrustService;
 use app\service\OtaFailureNotificationService;
 use app\service\OtaOperatingScope;
 use think\Response;
@@ -1523,6 +1524,35 @@ trait CollectionReliabilityConcern
             'message' => 'Light mode does not load online_daily_data quality rows. Use mode=full for field quality evidence.',
         ];
     }
+
+    /** @return array<string, mixed> */
+    private function buildDualOtaContinuousTrust(?int $hotelId, string $startDate, string $endDate): array
+    {
+        $boundedStartDate = max(
+            $startDate,
+            date('Y-m-d', strtotime($endDate . ' -29 days'))
+        );
+        if ($hotelId === null || $hotelId <= 0) {
+            return DualOtaContinuousTrustService::unscoped($boundedStartDate, $endDate);
+        }
+
+        try {
+            return (new DualOtaContinuousTrustService())->inspectHotel(
+                $hotelId,
+                $boundedStartDate,
+                $endDate
+            );
+        } catch (\Throwable) {
+            return array_merge(
+                DualOtaContinuousTrustService::unscoped($boundedStartDate, $endDate),
+                [
+                    'hotel_id' => $hotelId,
+                    'reason' => 'continuous_trust_evaluation_failed',
+                ]
+            );
+        }
+    }
+
     private function buildCollectionReliabilityLightPayload(?int $hotelId, string $startDate, string $endDate): array
     {
         $periodDays = (int)floor((strtotime($endDate) - strtotime($startDate)) / 86400) + 1;
@@ -1549,6 +1579,7 @@ trait CollectionReliabilityConcern
             'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
             'pending_actions' => $this->buildCollectionPendingActions($authorizationRows, $alerts, $collectionLogs, []),
             'source_date_evidence' => $this->buildCollectionSourceDateEvidence($hotelId, $endDate),
+            'dual_ota_continuous_trust' => $this->buildDualOtaContinuousTrust($hotelId, $startDate, $endDate),
             'data_quality' => $this->unloadedCollectionQualitySnapshot(),
             'field_asset_summary' => [
                 'status' => 'not_loaded',
@@ -1599,6 +1630,7 @@ trait CollectionReliabilityConcern
             'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
             'history_replay' => $this->buildCollectionHistoryReplayRows($hotelId, $startDate, $endDate, 30),
             'source_date_evidence' => $this->buildCollectionSourceDateEvidence($hotelId, $endDate),
+            'dual_ota_continuous_trust' => $this->buildDualOtaContinuousTrust($hotelId, $startDate, $endDate),
             'data_quality' => $this->buildCollectionQualitySnapshot($qualityRows),
             'pending_actions' => $this->buildCollectionPendingActions($authorizationRows, $alerts, $collectionLogs, $qualityRows),
         ];

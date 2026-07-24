@@ -95,6 +95,25 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertSame(hash_file('sha256', $this->root . '/database/base.sql'), $baselineRows[0]['checksum']);
     }
 
+    public function testFreshInitializationBaselineAdoptsHistoricalOwnerIdentityGuard(): void
+    {
+        $migration = '20260723_validate_owner_tenant_bootstrap_targets.sql';
+        file_put_contents(
+            $this->root . '/database/migrations/' . $migration,
+            "THIS HISTORICAL DATA GUARD MUST NOT RUN ON A FRESH DATABASE;\n"
+        );
+
+        $result = $this->service->initializeFreshFromInitFull();
+
+        self::assertTrue($result['status']['ready']);
+        self::assertNotContains($migration, $result['executed']);
+        $statement = $this->pdo->prepare(
+            'SELECT execution_kind FROM schema_versions WHERE migration = ?'
+        );
+        $statement->execute([$migration]);
+        self::assertSame('baseline_adopted', $statement->fetchColumn());
+    }
+
     public function testNewMigrationIsDiscoveredWithoutChangingInitFull(): void
     {
         $this->service->initializeFreshFromInitFull();
@@ -149,6 +168,40 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertNotFalse($this->pdo->query(
             "SELECT resolved_at FROM schema_migration_failures WHERE migration = '20260703_broken.sql'"
         )->fetchColumn());
+    }
+
+    public function testFailedMigrationRollsBackOpenTransactionBeforeRecordingFailure(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        file_put_contents(
+            $this->root . '/database/migrations/20260703_transactional_failure.sql',
+            "BEGIN TRANSACTION;\n"
+            . "CREATE TABLE rollback_probe (id INTEGER PRIMARY KEY);\n"
+            . "INSERT INTO rollback_probe (id) VALUES (1);\n"
+            . "THIS IS NOT VALID SQL;\n"
+        );
+
+        try {
+            $this->service->migrate();
+            self::fail('Transactional migration failure must be surfaced.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('20260703_transactional_failure.sql', $exception->getMessage());
+        }
+
+        self::assertFalse($this->pdo->inTransaction());
+        self::assertSame(
+            0,
+            (int)$this->pdo->query(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'rollback_probe'"
+            )->fetchColumn()
+        );
+        self::assertSame(
+            1,
+            (int)$this->pdo->query(
+                "SELECT COUNT(*) FROM schema_migration_failures "
+                . "WHERE migration = '20260703_transactional_failure.sql' AND resolved_at IS NULL"
+            )->fetchColumn()
+        );
     }
 
     public function testRegisteredMigrationFailureResolutionIsRetriedAfterCleanupFailure(): void

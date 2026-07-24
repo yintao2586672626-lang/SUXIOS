@@ -75,6 +75,21 @@ sudo systemctl start suxios-cloud-data-bridge.service
 
 服务按一个全局文件锁串行运行，限制为 `MemoryMax=512M`、`CPUQuota=80%`、`TasksMax=32`，适配 2 核 2GB 云服务器。
 
+按门店灰度时，使用 `suxios-cloud-hotel-daily@<hotel_id>.timer` 和
+`suxios-cloud-hotel-health@<hotel_id>.timer`。全局与按门店调度只能启用一种；
+切换前先停用旧的全局 timer，再启用明确的门店实例：
+
+```bash
+sudo systemctl disable --now suxios-cloud-daily.timer suxios-cloud-health.timer
+sudo systemctl enable --now suxios-cloud-hotel-daily@123.timer
+sudo systemctl enable --now suxios-cloud-hotel-health@123.timer
+```
+
+门店实例仍共享全局串行锁。服务最多等待 1500 秒，锁仍被占用时以临时失败码退出，
+由 systemd 每 2 分钟重试；不能把锁冲突当作成功。模板 timer 同时声明与旧全局
+timer 冲突，防止两套计划并行启用。恢复全局调度时先停用所有门店实例，再启用
+`suxios-cloud-daily.timer` 和 `suxios-cloud-health.timer`。
+
 ## 首次启用检查
 
 1. 云端至少存在一条启用酒店记录，并有正确的租户/门店范围。

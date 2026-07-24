@@ -34,17 +34,25 @@ final class CloudAutomationStateStore
     }
 
     /** @return resource|null */
-    public function acquireLock()
+    public function acquireLock(int $waitSeconds = 0)
     {
+        $waitSeconds = max(0, min(1800, $waitSeconds));
         $handle = @fopen($this->baseDir . DIRECTORY_SEPARATOR . 'automation.lock', 'c+');
         if (!is_resource($handle)) {
             throw new \RuntimeException('Cloud automation lock file cannot be opened.');
         }
-        if (!flock($handle, LOCK_EX | LOCK_NB)) {
-            fclose($handle);
-            return null;
-        }
-        return $handle;
+
+        $deadline = microtime(true) + $waitSeconds;
+        do {
+            if (flock($handle, LOCK_EX | LOCK_NB)) {
+                return $handle;
+            }
+            if ($waitSeconds === 0 || microtime(true) >= $deadline) {
+                fclose($handle);
+                return null;
+            }
+            usleep(250000);
+        } while (true);
     }
 
     /** @param resource|null $handle */

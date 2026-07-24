@@ -726,13 +726,6 @@ function trustedMetricTrustKeys(metricTrust) {
     .map(([key]) => String(key));
 }
 
-function expectedTrafficActionEntry(action) {
-  const actionCode = String(action?.action_code ?? '');
-  if (actionCode.includes('meituan')) return '/api/online-data/capture-meituan-browser';
-  if (actionCode.includes('ctrip')) return '/api/online-data/capture-ctrip-browser';
-  return '';
-}
-
 function expectedTrafficActionEntries(action) {
   const actionCode = String(action?.action_code ?? '');
   if (actionCode.includes('meituan')) {

@@ -1446,7 +1446,19 @@ window.SUXI_SYSTEM_STATIC = (() => {
             if (item.requireSuper) return false;
             if (item.requireManager && currentUser.role_id !== 2 && !currentUser.is_hotel_manager) return false;
             if (item.permissions && item.permissions.length > 0) {
-                const perms = currentUser.permissions || {};
+                const basePermissions = currentUser.permissions || {};
+                const hasVerifiedEmptyHotelScope = Array.isArray(currentUser.permitted_hotels)
+                    && currentUser.permitted_hotels.length === 0;
+                const grantsOnlineDataOverview = item.permissions.includes('can_view_online_data')
+                    && item.path === 'online-data'
+                    && item.tab === 'data-health'
+                    && currentUser.modules?.online_data === true
+                    && hasVerifiedEmptyHotelScope;
+                const perms = grantsOnlineDataOverview
+                    ? (Array.isArray(basePermissions)
+                        ? [...basePermissions, 'can_view_online_data']
+                        : { ...basePermissions, can_view_online_data: true })
+                    : basePermissions;
                 return item.permissions.some(p => hasPermission(perms, p));
             }
             return true;

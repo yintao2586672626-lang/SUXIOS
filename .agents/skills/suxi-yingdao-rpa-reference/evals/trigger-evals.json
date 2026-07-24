@@ -1,0 +1,27 @@
+{
+  "skill_name": "suxi-yingdao-rpa-reference",
+  "evals": [
+    {"id":"T-001","query":"影刀里网页翻页抓取是怎么做的？结合宿析实现。","should_trigger":true},
+    {"id":"T-002","query":"查一下影刀RPA有没有处理级联下拉框的指令。","should_trigger":true},
+    {"id":"T-003","query":"用影刀指令文档的方法设计这个Excel自动化。","should_trigger":true},
+    {"id":"T-004","query":"魔法指令里非结构化数据抓取怎么映射到宿析？","should_trigger":true},
+    {"id":"T-005","query":"影刀的循环、等待和元素判断怎么组合？","should_trigger":true},
+    {"id":"T-006","query":"按影刀手机自动化文档直接帮我执行。","should_trigger":true},
+    {"id":"T-007","query":"抓取这个公开网页的标题。","should_trigger":false},
+    {"id":"T-008","query":"帮我在Chrome里点一下登录。","should_trigger":false},
+    {"id":"T-009","query":"把这个Excel的A列求和。","should_trigger":false},
+    {"id":"T-010","query":"分析宿析现有OTA采集为什么失败。","should_trigger":false},
+    {"id":"T-011","query":"写一个普通的while循环示例。","should_trigger":false},
+    {"id":"T-012","query":"做一个手机端响应式页面。","should_trigger":false},
+    {"id":"T-013","query":"影刀快速入门里网页自动化流程怎么搭？","should_trigger":true},
+    {"id":"T-014","query":"查影刀开放API的启动任务接口。","should_trigger":true},
+    {"id":"T-015","query":"影刀常见问题里未找到元素怎么排查？","should_trigger":true},
+    {"id":"T-016","query":"参考影刀管理文档设计任务调度入口。","should_trigger":true},
+    {"id":"T-017","query":"给这个普通REST API写一个客户端。","should_trigger":false},
+    {"id":"T-018","query":"管理一下宿析OS现有用户权限。","should_trigger":false},
+    {"id":"T-019","query":"查一下PHP官方文档。","should_trigger":false},
+    {"id":"T-020","query":"网页报错了，帮我诊断。","should_trigger":false},
+    {"id":"T-021","query":"影刀这个网页其他栏目你也都学了吗？","should_trigger":true},
+    {"id":"T-022","query":"这个网页其他栏目也看一下。","should_trigger":false}
+  ]
+}

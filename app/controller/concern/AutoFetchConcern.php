@@ -4174,9 +4174,13 @@ trait AutoFetchConcern
 
             $lockKey = "online_data_profile_lock_{$hotelId}";
             foreach ($dueRuns as $run) {
-                if (cache($run['executed_key'])) {
-                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'slot_id' => $run['slot_id'], 'status' => 'skipped', 'message' => $run['executed_message']];
-                    continue;
+                $executedReceipt = cache($run['executed_key']);
+                if ($executedReceipt) {
+                    if ($this->autoFetchExecutedReceiptReady($executedReceipt, $run, $hotelId)) {
+                        $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'slot_id' => $run['slot_id'], 'status' => 'skipped', 'message' => $run['executed_message']];
+                        continue;
+                    }
+                    \think\facade\Cache::delete($run['executed_key']);
                 }
                 $retryState = cache($run['retry_key']) ?: [];
                 $retryState = is_array($retryState) ? $retryState : [];
@@ -4223,6 +4227,37 @@ trait AutoFetchConcern
                         ];
                     }
                     $outcome = $schedulePolicy->classifyOutcome($result);
+                    $executionReceipt = $schedulePolicy->buildDailyTrustReceipt(
+                        $hotelId,
+                        (string)$run['data_date'],
+                        [],
+                        $outcome,
+                        $result
+                    );
+                    if ($outcome['complete'] && !$schedulePolicy->dailyTrustReceiptReady(
+                        $executionReceipt,
+                        (string)$run['data_date'],
+                        $hotelId
+                    )) {
+                        $receiptReadyPlatforms = array_values(array_unique(array_filter(array_map(
+                            static fn($task): string => is_array($task)
+                                && strtolower(trim((string)($task['collection_status'] ?? ''))) === 'success'
+                                ? strtolower(trim((string)($task['platform'] ?? '')))
+                                : '',
+                            is_array($executionReceipt['source_tasks'] ?? null) ? $executionReceipt['source_tasks'] : []
+                        ))));
+                        $outcome['complete'] = false;
+                        $outcome['status'] = 'partial_success';
+                        $outcome['successful_platforms'] = array_values(array_intersect(
+                            $outcome['required_platforms'],
+                            $receiptReadyPlatforms
+                        ));
+                        $outcome['failed_platforms'] = array_values(array_diff(
+                            $outcome['required_platforms'],
+                            $receiptReadyPlatforms
+                        ));
+                        $result['message'] = trim((string)($result['message'] ?? '') . '; dual_ota_p0_receipt_incomplete', '; ');
+                    }
                     $retryDetails = $outcome['complete']
                         ? [
                             'attempts' => (int)($retryState['attempts'] ?? 0) + 1,
@@ -4269,7 +4304,7 @@ trait AutoFetchConcern
                         'data_period' => $run['period'],
                     ], 'scheduled_auto_fetch');
                     if ($outcome['complete']) {
-                        cache($run['executed_key'], true, 86400);
+                        cache($run['executed_key'], $executionReceipt, 86400);
                         \think\facade\Cache::delete($run['retry_key']);
                     } else {
                         cache($run['retry_key'], $retryDetails, 86400 * 2);
@@ -4295,6 +4330,18 @@ trait AutoFetchConcern
     /**
      * 执行自动获取
      */
+    /** @param array<string, mixed> $run */
+    private function autoFetchExecutedReceiptReady(mixed $receipt, array $run, int $hotelId): bool
+    {
+        return is_array($receipt)
+            && (new ScheduledAutoFetchPolicy())->dailyTrustReceiptReady(
+                $receipt,
+                (string)($run['data_date'] ?? ''),
+                $hotelId
+            );
+    }
+
+    /** Execute automatic OTA fetch. */
     private function executeAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
         $options['data_period'] = $this->normalizeOnlineDailyDataPeriod($options['data_period'] ?? $options['dataPeriod'] ?? '') ?: 'historical_daily';
@@ -4738,19 +4785,6 @@ trait AutoFetchConcern
         return $result;
     }
 
-    private function isAutoFetchDataConfigUsable(array $config, int $hotelId): bool
-    {
-        if (empty($config)) {
-            return false;
-        }
-        $enabled = $config['enabled'] ?? true;
-        if ($enabled === false || $enabled === 0 || strtolower(trim((string)$enabled)) === 'false') {
-            return false;
-        }
-        $configHotelId = trim((string)$this->firstAutoFetchConfigValue($config, ['system_hotel_id', 'hotelId', 'hotel_id'], ''));
-        return $configHotelId === '' || $configHotelId === (string)$hotelId;
-    }
-
     private function compactAutoFetchTaskBody(array $body): array
     {
         $compacted = [];
@@ -4864,6 +4898,7 @@ trait AutoFetchConcern
                 'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
                 'snapshot_time' => $periodOptions['snapshot_time'] ?? date('Y-m-d H:i:s'),
                 'ctrip_section_concurrency' => $periodOptions['ctrip_section_concurrency'] ?? 3,
+                'capture_sections' => 'business_overview,traffic_report',
             ]);
             $savedCount += (int)($result['saved_count'] ?? 0);
             $timing = $this->sumAutoFetchTiming($timing, is_array($result['timing'] ?? null) ? $result['timing'] : []);
@@ -4922,6 +4957,7 @@ trait AutoFetchConcern
                 'interactive_browser' => $interactiveBrowser,
                 'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
                 'snapshot_time' => $periodOptions['snapshot_time'] ?? date('Y-m-d H:i:s'),
+                'capture_sections' => 'traffic,orders',
             ]);
             $savedCount += (int)($result['saved_count'] ?? 0);
             $timing = $this->sumAutoFetchTiming($timing, is_array($result['timing'] ?? null) ? $result['timing'] : []);
@@ -4969,6 +5005,7 @@ trait AutoFetchConcern
             is_array($receipt['verified_metric_keys'] ?? null) ? $receipt['verified_metric_keys'] : []
         )));
         return ($receipt['readback_verified'] ?? false) === true
+            && strtolower(trim((string)($receipt['p0_status'] ?? ''))) === 'ready'
             && (int)($receipt['sync_task_id'] ?? 0) > 0
             && (int)($receipt['data_source_id'] ?? 0) > 0
             && trim((string)($receipt['started_at'] ?? '')) !== ''

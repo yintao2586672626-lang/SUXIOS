@@ -50,7 +50,7 @@ final class AgentTenantMainlineTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['agent_logs', 'price_suggestions', 'demand_forecasts', 'agent_configs', 'room_types', 'users', 'hotels', 'roles'] as $table) {
+        foreach (['agent_logs', 'price_suggestions', 'demand_forecasts', 'agent_configs', 'room_types', 'user_hotel_permissions', 'users', 'hotels', 'roles'] as $table) {
             Db::name($table)->delete(true);
         }
         $this->seedFixture();
@@ -128,7 +128,23 @@ final class AgentTenantMainlineTest extends TestCase
         ))));
     }
 
-    private function controller(array $get = [], array $post = []): Agent
+    public function testScopedAiUserCanReadRevenueWorkbenchButCannotCrossHotelScope(): void
+    {
+        $roomTypes = $this->responseData($this->controller(['hotel_id' => 20], [], 2)->roomTypes());
+        self::assertSame(100, (int)$roomTypes['list'][0]['id']);
+
+        $suggestions = $this->responseData($this->controller([
+            'hotel_id' => 20,
+            'date' => date('Y-m-d'),
+        ], [], 2)->priceSuggestions());
+        self::assertSame(1, (int)$suggestions['pagination']['total']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(403);
+        $this->controller(['hotel_id' => 30], [], 2)->roomTypes();
+    }
+
+    private function controller(array $get = [], array $post = [], int $userId = 1): Agent
     {
         $request = new class extends Request {
             public function isCli(): bool
@@ -143,7 +159,7 @@ final class AgentTenantMainlineTest extends TestCase
             ->withGet($get)
             ->withPost($post)
             ->withHeader(['Accept' => 'application/json']);
-        $request->user = \app\model\User::find(1);
+        $request->user = \app\model\User::find($userId);
         self::$app->instance('request', $request);
         return new Agent(self::$app);
     }
@@ -159,12 +175,27 @@ final class AgentTenantMainlineTest extends TestCase
 
     private function seedFixture(): void
     {
-        Db::name('roles')->insert(['id' => 1, 'name' => 'admin', 'display_name' => 'Super admin', 'level' => 1, 'permissions' => '["all"]', 'status' => 1]);
+        Db::name('roles')->insertAll([
+            ['id' => 1, 'name' => 'admin', 'display_name' => 'Super admin', 'level' => 1, 'permissions' => '["all"]', 'status' => 1],
+            ['id' => 2, 'name' => 'beta_user', 'display_name' => 'Revenue operator', 'level' => 2, 'permissions' => '["can_use_ai_decision"]', 'status' => 1],
+        ]);
         Db::name('hotels')->insertAll([
             ['id' => 20, 'tenant_id' => 10, 'name' => 'Tenant 10 hotel', 'status' => 1],
             ['id' => 30, 'tenant_id' => 99, 'name' => 'Tenant 99 hotel', 'status' => 1],
         ]);
-        Db::name('users')->insert(['id' => 1, 'tenant_id' => 0, 'username' => 'root', 'password' => 'fixture', 'role_id' => 1, 'status' => 1]);
+        Db::name('users')->insertAll([
+            ['id' => 1, 'tenant_id' => 0, 'hotel_id' => null, 'username' => 'root', 'password' => 'fixture', 'role_id' => 1, 'status' => 1],
+            ['id' => 2, 'tenant_id' => 10, 'hotel_id' => 20, 'username' => 'revenue_operator', 'password' => 'fixture', 'role_id' => 2, 'status' => 1],
+        ]);
+        Db::name('user_hotel_permissions')->insert([
+            'id' => 1,
+            'tenant_id' => 10,
+            'user_id' => 2,
+            'hotel_id' => 20,
+            'status' => 'active',
+            'can_view' => 1,
+            'can_ai' => 1,
+        ]);
         Db::name('room_types')->insert(['id' => 100, 'hotel_id' => 20, 'name' => 'Deluxe', 'base_price' => 300, 'min_price' => 250, 'max_price' => 450, 'room_count' => 10, 'sort_order' => 1, 'is_enabled' => 1, 'facilities' => '[]']);
         Db::name('agent_configs')->insertAll([
             ['id' => 1, 'tenant_id' => 10, 'hotel_id' => 20, 'agent_type' => 2, 'is_enabled' => 0, 'config_data' => '{"marker":"existing"}'],
@@ -202,7 +233,8 @@ final class AgentTenantMainlineTest extends TestCase
     {
         Db::execute('CREATE TABLE roles (id INTEGER PRIMARY KEY, name TEXT, display_name TEXT, level INTEGER, permissions TEXT, status INTEGER)');
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT, status INTEGER)');
-        Db::execute('CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER, username TEXT, password TEXT, role_id INTEGER, status INTEGER)');
+        Db::execute('CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER, hotel_id INTEGER, username TEXT, password TEXT, role_id INTEGER, status INTEGER)');
+        Db::execute('CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, status TEXT, can_view INTEGER, can_ai INTEGER)');
         Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY, hotel_id INTEGER, name TEXT, base_price REAL, min_price REAL, max_price REAL, room_count INTEGER, sort_order INTEGER, is_enabled INTEGER, facilities TEXT, create_time TEXT, update_time TEXT)');
         Db::execute('CREATE TABLE agent_configs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, agent_type INTEGER NOT NULL, is_enabled INTEGER, config_data TEXT, create_time TEXT, update_time TEXT)');
         Db::execute('CREATE TABLE agent_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, agent_type INTEGER, action TEXT, message TEXT, log_level INTEGER, context_data TEXT, user_id INTEGER, create_time TEXT)');

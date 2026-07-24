@@ -92,6 +92,17 @@ jobs:
           MYSQL_BINARY: mariadb
         run: node scripts/verify_tenant_history_migration_mariadb.mjs
 
+      - name: Verify owner tenant bootstrap on isolated MariaDB
+        timeout-minutes: 5
+        env:
+          SUXIOS_TEST_DB_ALLOW_CREATE: '1'
+          SUXIOS_TEST_DB_HOST: 127.0.0.1
+          SUXIOS_TEST_DB_PORT: '3306'
+          SUXIOS_TEST_DB_USER: root
+          SUXIOS_TEST_DB_PASS: suxi-ci-root
+          PHP_BINARY: php
+        run: npm run verify:owner-tenant-bootstrap-mariadb
+
       - name: Initialize backend test database
         env:
           DB_HOST: 127.0.0.1

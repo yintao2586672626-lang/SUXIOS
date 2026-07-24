@@ -121,11 +121,17 @@ class AutoFetchOnlineData extends Command
             foreach ($dueRuns as $run) {
                 $executedReceipt = Cache::get($run['executed_key']);
                 if ($executedReceipt && !$forceRerun) {
-                    $output->writeln("Hotel {$hotelName} {$run['label']} already executed, skipped.");
-                    if (is_array($executedReceipt)) {
+                    if (is_array($executedReceipt) && $this->machineReceiptDailyTrustReady(
+                        $executedReceipt,
+                        (string)$run['data_date'],
+                        $hotelId
+                    )) {
+                        $output->writeln("Hotel {$hotelName} {$run['label']} already executed with dual-OTA P0 proof, skipped.");
                         $this->writeMachineReceipt($output, $executedReceipt);
+                        continue;
                     }
-                    continue;
+                    Cache::delete($run['executed_key']);
+                    $output->writeln("Hotel {$hotelName} {$run['label']} cached receipt is incomplete, recollection remains due.");
                 }
                 $retryState = $forceRerun ? [] : Cache::get($run['retry_key'], []);
                 $retryState = is_array($retryState) ? $retryState : [];
@@ -218,22 +224,20 @@ class AutoFetchOnlineData extends Command
                     ]);
                     $output->writeln("Hotel {$hotelName} {$run['label']} {$outcome['status']}: " . (string)($result['message'] ?? '-'));
 
-                    if ($outcome['complete']) {
-                        $receipt = $this->buildMachineReceipt($hotelId, $run['data_date'], $sourceIds, $outcome, $result);
-                        $this->writeMachineReceipt($output, $receipt);
-                        if (!empty($receipt['collection_complete'])) {
-                            Cache::set($run['executed_key'], $receipt, 86400);
-                            Cache::delete($run['retry_key']);
-                        } else {
-                            Cache::set($run['retry_key'], [
+                    $receipt = $this->buildMachineReceipt($hotelId, $run['data_date'], $sourceIds, $outcome, $result);
+                    $this->writeMachineReceipt($output, $receipt);
+                    if ($outcome['complete'] && !empty($receipt['collection_complete'])) {
+                        Cache::set($run['executed_key'], $receipt, 86400);
+                        Cache::delete($run['retry_key']);
+                    } else {
+                        $retryReceiptDetails = $outcome['complete']
+                            ? [
                                 ...$retryDetails,
                                 'last_status' => 'receipt_invalid',
                                 'last_message' => 'collection completed without a verifiable source-task receipt',
-                            ], 86400 * 2);
-                            $hasIncompleteDueRun = true;
-                        }
-                    } else {
-                        Cache::set($run['retry_key'], $retryDetails, 86400 * 2);
+                            ]
+                            : $retryDetails;
+                        Cache::set($run['retry_key'], $retryReceiptDetails, 86400 * 2);
                         $hasIncompleteDueRun = true;
                     }
                 } finally {
@@ -321,6 +325,9 @@ class AutoFetchOnlineData extends Command
         $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
         $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($ctripSectionConcurrency);
         $targetPlatforms = (new ScheduledAutoFetchPolicy())->normalizePlatforms($targetPlatforms);
+        if ($targetPlatforms === []) {
+            $targetPlatforms = ['ctrip', 'meituan'];
+        }
         $profileResult = $this->syncBrowserProfileSources($hotelId, $dataDate, $browserHeadless, $dataPeriod, $snapshotTime, $ctripSectionConcurrency, $targetPlatforms, $sourceIds);
         if ($profileResult['attempted']) {
             return [
@@ -333,6 +340,7 @@ class AutoFetchOnlineData extends Command
                 'platform_results' => is_array($profileResult['platform_results'] ?? null) ? $profileResult['platform_results'] : [],
                 'failed_platforms' => $profileResult['failed_platforms'] ?? [],
                 'successful_platforms' => $profileResult['successful_platforms'] ?? [],
+                'required_platforms' => $targetPlatforms,
             ];
         }
 
@@ -345,7 +353,8 @@ class AutoFetchOnlineData extends Command
             'data_period' => $dataPeriod,
             'timing' => $this->ensureTotalTiming([], $startedAt),
             'platform_results' => [],
-            'failed_platforms' => $targetPlatforms ?: ['ctrip', 'meituan'],
+            'failed_platforms' => $targetPlatforms,
+            'required_platforms' => $targetPlatforms,
         ];
     }
 
@@ -354,6 +363,11 @@ class AutoFetchOnlineData extends Command
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
         $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
         $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($ctripSectionConcurrency);
+        $policy = new ScheduledAutoFetchPolicy();
+        $targetPlatforms = $policy->normalizePlatforms($targetPlatforms);
+        if ($targetPlatforms === []) {
+            $targetPlatforms = ['ctrip', 'meituan'];
+        }
         try {
             $sourceIds = array_values(array_unique(array_filter(array_map('intval', $sourceIds), static fn(int $id): bool => $id > 0)));
             $sourceQuery = Db::name('platform_data_sources')
@@ -389,15 +403,11 @@ class AutoFetchOnlineData extends Command
                     ];
                 }
             }
-            $policy = new ScheduledAutoFetchPolicy();
             $sources = $policy->profileSourcesForRun($sources, $sourceIds);
-            $targetPlatforms = $policy->normalizePlatforms($targetPlatforms);
-            if ($targetPlatforms !== []) {
-                $sources = array_values(array_filter(
-                    $sources,
-                    static fn(array $source): bool => in_array(strtolower(trim((string)($source['platform'] ?? ''))), $targetPlatforms, true)
-                ));
-            }
+            $sources = array_values(array_filter(
+                $sources,
+                static fn(array $source): bool => in_array(strtolower(trim((string)($source['platform'] ?? ''))), $targetPlatforms, true)
+            ));
         } catch (\Throwable $e) {
             Log::warning('Read browser Profile data-source metadata failed', [
                 'hotel_id' => $hotelId,
@@ -406,8 +416,29 @@ class AutoFetchOnlineData extends Command
             return ['attempted' => false, 'success' => false, 'message' => '', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => []];
         }
 
+        $presentPlatforms = array_values(array_unique(array_filter(array_map(
+            static fn(array $source): string => strtolower(trim((string)($source['platform'] ?? ''))),
+            $sources
+        ), static fn(string $platform): bool => in_array($platform, ['ctrip', 'meituan'], true))));
+        $missingPlatforms = array_values(array_diff($targetPlatforms, $presentPlatforms));
         if (empty($sources)) {
-            return ['attempted' => false, 'success' => false, 'message' => '', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => []];
+            return [
+                'attempted' => true,
+                'success' => false,
+                'message' => 'scheduled_dual_ota_profile_sources_missing:' . implode(',', $missingPlatforms ?: $targetPlatforms),
+                'saved_count' => 0,
+                'data_period' => $dataPeriod,
+                'timing' => [],
+                'platform_results' => array_map(static fn(string $platform): array => [
+                    'platform' => $platform,
+                    'success' => false,
+                    'saved_count' => 0,
+                    'message' => 'scheduled_profile_source_missing',
+                ], $missingPlatforms ?: $targetPlatforms),
+                'failed_platforms' => $missingPlatforms ?: $targetPlatforms,
+                'successful_platforms' => [],
+                'required_platforms' => $targetPlatforms,
+            ];
         }
 
         $systemUser = new class {
@@ -422,21 +453,29 @@ class AutoFetchOnlineData extends Command
         $messages = [];
         $savedCount = 0;
         $savedByPlatform = [];
-        $failedCount = 0;
-        $failedPlatforms = [];
-        $platformResults = [];
+        $failedCount = count($missingPlatforms);
+        $failedPlatforms = array_fill_keys($missingPlatforms, true);
+        $platformResults = array_map(static fn(string $platform): array => [
+            'platform' => $platform,
+            'success' => false,
+            'saved_count' => 0,
+            'message' => 'scheduled_profile_source_missing',
+        ], $missingPlatforms);
         $timing = [];
         foreach ($sources as $source) {
             $platform = strtolower((string)($source['platform'] ?? 'source'));
             try {
                 $result = $service->syncDataSource($systemUser, (int)$source['id'], [
-                    'trigger_type' => 'cron',
+                    'trigger_type' => 'daily_profile_reuse',
                     'data_date' => $dataDate,
                     'data_period' => $dataPeriod,
                     'snapshot_time' => $snapshotTime,
                     'interactive_browser' => !$browserHeadless,
                     'browser_headless' => $browserHeadless,
                     'ctrip_section_concurrency' => $ctripSectionConcurrency,
+                    'capture_sections' => $platform === 'meituan'
+                        ? 'traffic,orders'
+                        : 'business_overview,traffic_report',
                 ]);
             } catch (\Throwable $e) {
                 $failedCount++;
@@ -487,6 +526,7 @@ class AutoFetchOnlineData extends Command
                     static fn(int $count, string $platform): bool => $count > 0 && !isset($failedPlatforms[$platform]),
                     ARRAY_FILTER_USE_BOTH
                 )),
+                'required_platforms' => $targetPlatforms,
             ];
         }
 
@@ -500,6 +540,7 @@ class AutoFetchOnlineData extends Command
             'platform_results' => $platformResults,
             'failed_platforms' => array_keys($failedPlatforms),
             'successful_platforms' => [],
+            'required_platforms' => $targetPlatforms,
         ];
     }
 
@@ -511,59 +552,27 @@ class AutoFetchOnlineData extends Command
      */
     private function buildMachineReceipt(int $hotelId, string $targetDate, array $sourceIds, array $outcome, array $result): array
     {
-        $sourceIds = array_values(array_unique(array_filter(
-            array_map('intval', $sourceIds),
-            static fn(int $id): bool => $id > 0
-        )));
-        sort($sourceIds, SORT_NUMERIC);
-        $sourceTasks = [];
-        foreach ((array)($result['platform_results'] ?? []) as $platformResult) {
-            if (!is_array($platformResult) || empty($platformResult['success'])) {
-                continue;
-            }
-            $readback = is_array($platformResult['run_readback'] ?? null) ? $platformResult['run_readback'] : [];
-            $dataSourceId = (int)($readback['data_source_id'] ?? $platformResult['data_source_id'] ?? 0);
-            $syncTaskId = (int)($readback['sync_task_id'] ?? 0);
-            $receiptHotelId = (int)($readback['system_hotel_id'] ?? 0);
-            $receiptDate = substr(trim((string)($readback['target_date'] ?? '')), 0, 10);
-            $platform = strtolower(trim((string)($readback['platform'] ?? $platformResult['platform'] ?? '')));
-            $rowIds = array_values(array_unique(array_filter(array_map(
-                'intval',
-                is_array($readback['row_ids'] ?? null) ? $readback['row_ids'] : []
-            ), static fn(int $id): bool => $id > 0)));
-            if (($readback['readback_verified'] ?? false) !== true
-                || $dataSourceId <= 0
-                || $syncTaskId <= 0
-                || $receiptHotelId !== $hotelId
-                || $receiptDate !== $targetDate
-                || !in_array($platform, ['ctrip', 'meituan'], true)
-                || $rowIds === []
-            ) {
-                continue;
-            }
-            $sourceTasks[$dataSourceId] = [
-                'data_source_id' => $dataSourceId,
-                'sync_task_id' => $syncTaskId,
-                'platform' => $platform,
-                'row_ids' => $rowIds,
-            ];
-        }
-        ksort($sourceTasks, SORT_NUMERIC);
-        $receiptSourceIds = array_map('intval', array_keys($sourceTasks));
-        $expectedSourceIds = $sourceIds === [] ? $receiptSourceIds : $sourceIds;
-        $collectionComplete = !empty($outcome['complete'])
-            && $expectedSourceIds !== []
-            && $receiptSourceIds === $expectedSourceIds;
+        return (new ScheduledAutoFetchPolicy())->buildDailyTrustReceipt(
+            $hotelId,
+            $targetDate,
+            $sourceIds,
+            $outcome,
+            $result
+        );
+    }
 
-        return [
-            'schema_version' => 1,
-            'hotel_id' => $hotelId,
-            'target_date' => $targetDate,
-            'source_ids' => $expectedSourceIds,
-            'status' => (string)($outcome['status'] ?? ''),
-            'collection_complete' => $collectionComplete,
-            'source_tasks' => array_values($sourceTasks),
-        ];
+    /** @param array<string, mixed> $receipt */
+    private function machineReceiptDailyTrustReady(
+        array $receipt,
+        ?string $expectedDate = null,
+        ?int $expectedHotelId = null
+    ): bool
+    {
+        return (new ScheduledAutoFetchPolicy())->dailyTrustReceiptReady(
+            $receipt,
+            $expectedDate,
+            $expectedHotelId
+        );
     }
 
     /** @param array<string, mixed> $receipt */
@@ -582,6 +591,7 @@ class AutoFetchOnlineData extends Command
             is_array($receipt['verified_metric_keys'] ?? null) ? $receipt['verified_metric_keys'] : []
         )));
         return ($receipt['readback_verified'] ?? false) === true
+            && strtolower(trim((string)($receipt['p0_status'] ?? ''))) === 'ready'
             && (int)($receipt['sync_task_id'] ?? 0) > 0
             && (int)($receipt['data_source_id'] ?? 0) > 0
             && trim((string)($receipt['started_at'] ?? '')) !== ''

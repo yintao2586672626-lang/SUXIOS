@@ -70,23 +70,6 @@ function ctrip_review_match_closure_finish(array $payload, int $exitCode): void
 }
 
 /**
- * @return mixed
- */
-function ctrip_review_match_closure_decode_json(string $json)
-{
-    $json = trim($json);
-    if ($json === '') {
-        return null;
-    }
-
-    try {
-        return json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-    } catch (JsonException $e) {
-        return null;
-    }
-}
-
-/**
  * @param array<string, mixed> $data
  * @param array<int, string> $keys
  */
@@ -165,24 +148,6 @@ function ctrip_review_match_closure_valid_member(array $member): bool
     $hasAvatar = ctrip_review_match_closure_first_text($member, ['pic', 'avatar', 'avatarUrl', 'avatar_url']) !== '';
 
     return $hasUid || ($hasName && ($hasRole || $hasAvatar));
-}
-
-/**
- * @param mixed $members
- */
-function ctrip_review_match_closure_valid_member_list($members): bool
-{
-    if (!is_array($members) || $members === []) {
-        return false;
-    }
-
-    foreach ($members as $member) {
-        if (is_array($member) && ctrip_review_match_closure_valid_member($member)) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 function ctrip_review_match_closure_valid_im_session_count(int $systemHotelId): int

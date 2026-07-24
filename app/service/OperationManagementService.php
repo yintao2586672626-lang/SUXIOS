@@ -998,7 +998,14 @@ class OperationManagementService
                 : 'price suggestion has not passed the AI decision quality v2 gate');
         }
 
-        $date = $this->normalizeExecutionDate((string)($suggestion['suggestion_date'] ?? date('Y-m-d')));
+        $sourceBusinessDate = $this->normalizeExecutionDate((string)($suggestion['suggestion_date'] ?? date('Y-m-d')));
+        $requestedExecutionDate = trim((string)($overrides['execution_date'] ?? ''));
+        $executionDate = $this->normalizeExecutionDate(
+            $requestedExecutionDate !== '' ? $requestedExecutionDate : date('Y-m-d')
+        );
+        if ($executionDate < date('Y-m-d')) {
+            throw new \InvalidArgumentException('计划执行日期不能早于今天');
+        }
         $factors = $this->arrayValue($suggestion['factors'] ?? []);
         $manualReview = $this->latestManualReviewFromFactors($factors);
         $originalSuggestedPrice = (float)($suggestion['suggested_price'] ?? 0);
@@ -1015,8 +1022,8 @@ class OperationManagementService
             'platform' => 'ctrip',
             'object_type' => 'price',
             'action_type' => 'price_adjust',
-            'date_start' => $date,
-            'date_end' => $date,
+            'date_start' => $executionDate,
+            'date_end' => $executionDate,
             'current_value' => [
                 'current_price' => (float)($suggestion['current_price'] ?? 0),
                 'room_type_id' => (int)($suggestion['room_type_id'] ?? 0),
@@ -1038,6 +1045,8 @@ class OperationManagementService
                 'manual_review' => $manualReview === [] ? null : $manualReview,
                 'manual_review_storage' => $manualReview === [] ? null : 'price_suggestions.factors.manual_review_versions',
                 'decision_recommendation' => $decisionRecommendation,
+                'source_business_date' => $sourceBusinessDate,
+                'execution_date' => $executionDate,
                 'auto_write_ota' => false,
             ],
             'expected_metric' => trim((string)($overrides['expected_metric'] ?? 'orders')),
@@ -1201,6 +1210,7 @@ class OperationManagementService
             'expected_effect',
             'risk',
             'decision_quality',
+            'trusted_decision',
             'can_create_execution_intent',
         ] as $field) {
             if (array_key_exists($field, $recommendation)) {
@@ -4468,7 +4478,7 @@ class OperationManagementService
     {
         $timestamp = strtotime($date);
         if ($timestamp === false) {
-            throw new \InvalidArgumentException('execution date is invalid');
+            throw new \InvalidArgumentException('计划执行日期格式无效');
         }
 
         return date('Y-m-d', $timestamp);
@@ -6943,48 +6953,6 @@ class OperationManagementService
             $serviceQuality['avg_psi_score'] ?? null,
             $serviceQuality['avg_service_score'] ?? null,
         ]);
-    }
-
-    private function buildReviews(array $hotelIds, string $date): array
-    {
-        $base = [
-            'score' => 0,
-            'review_count' => 0,
-            'negative_keywords' => [],
-            'data_status' => self::DATA_PENDING,
-        ];
-
-        $rows = $this->onlineRows($hotelIds, $date, $date);
-        if (empty($rows)) {
-            return $base;
-        }
-
-        $scores = [];
-        $keywords = [];
-        foreach ($rows as $row) {
-            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
-            foreach ([(float)($row['comment_score'] ?? 0), (float)($row['qunar_comment_score'] ?? 0)] as $score) {
-                if ($score > 0) {
-                    $scores[] = $score;
-                }
-            }
-            $base['review_count'] += (int)($raw['reviewCount'] ?? $raw['commentCount'] ?? 0);
-            foreach (['negativeKeywords', 'negative_keywords', 'bad_keywords'] as $key) {
-                if (!empty($raw[$key]) && is_array($raw[$key])) {
-                    $keywords = array_merge($keywords, $raw[$key]);
-                }
-            }
-        }
-
-        if (empty($scores) && $base['review_count'] <= 0) {
-            return $base;
-        }
-
-        $base['score'] = $this->avg($scores);
-        $base['negative_keywords'] = array_values(array_unique(array_slice(array_map('strval', $keywords), 0, 10)));
-        $base['data_status'] = self::DATA_OK;
-
-        return $base;
     }
 
     private function buildHoliday(string $date): array

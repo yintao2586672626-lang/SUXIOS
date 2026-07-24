@@ -229,11 +229,16 @@ final class PlatformDataSyncServiceTest extends TestCase
         ];
         $rows = $service->normalizeRowsFromPayload([
             'rows' => [[
+                'hotel_id' => '24588',
                 'data_date' => '2026-06-29',
                 'data_type' => 'traffic',
                 'list_exposure' => 100,
                 'detail_exposure' => 20,
                 'flow_rate' => 0.2,
+                'order_filling_num' => 8,
+                'order_submit_num' => 4,
+                'source_trace_id' => 'ctrip:traffic-ready-20260629',
+                'source_url_hash' => str_repeat('a', 64),
             ]],
         ], $source, 88);
         $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
@@ -479,7 +484,14 @@ final class PlatformDataSyncServiceTest extends TestCase
 
         self::assertSame('blocked', $diagnostics['p0_status']);
         self::assertSame('current_session_not_verified', $diagnostics['operator_message']);
-        self::assertSame(['target_date_traffic_rows', 'current_session_verified'], $diagnostics['missing_inputs']);
+        self::assertSame([
+            'target_date_traffic_rows',
+            'required_traffic_metric_keys',
+            'target_date_required_traffic_metrics_zero_unverified',
+            'platform_hotel_identifier',
+            'page_field_fact_status',
+            'current_session_verified',
+        ], $diagnostics['missing_inputs']);
     }
 
     public function testSyncDiagnosticsDoNotRetainAdapterErrorText(): void

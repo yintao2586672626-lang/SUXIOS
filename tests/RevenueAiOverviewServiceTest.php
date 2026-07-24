@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\RevenueAiOverviewService;
+use app\service\RevenuePricingRecommendationService;
 use PHPUnit\Framework\TestCase;
 
 final class RevenueAiOverviewServiceTest extends TestCase
@@ -737,7 +738,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertTrue($queue['pending_items'][0]['can_review']);
         self::assertTrue($queue['pending_items'][0]['manual_review_required']);
         self::assertFalse($queue['pending_items'][0]['auto_write_ota']);
-        self::assertSame('去审核', $queue['pending_items'][0]['action_entry']['label']);
+        self::assertSame('补证后审核', $queue['pending_items'][0]['action_entry']['label']);
         self::assertSame('compass', $queue['pending_items'][0]['action_entry']['target_page']);
         self::assertSame('', $queue['pending_items'][0]['action_entry']['target_agent_tab']);
         self::assertSame('', $queue['pending_items'][0]['action_entry']['target_revenue_tab']);
@@ -747,12 +748,28 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('/api/revenue-ai/price-suggestions/11/review', $queue['pending_items'][0]['action_entry']['allowed_endpoint']);
         self::assertSame('/api/revenue-ai/price-suggestions/11/review', $queue['pending_items'][0]['action_entry']['allowed_endpoints']['review']);
         self::assertSame('/api/revenue-ai/price-suggestions/11/execution-intent', $queue['pending_items'][0]['action_entry']['allowed_endpoints']['execution_intent']);
-        self::assertSame(['approve', 'approve_with_changes', 'reject'], $queue['pending_items'][0]['action_entry']['manual_actions']);
+        self::assertSame(['reject'], $queue['pending_items'][0]['action_entry']['manual_actions']);
         self::assertContains('apply_price', $queue['pending_items'][0]['action_entry']['forbidden_actions']);
         self::assertContains('ota_write', $queue['pending_items'][0]['action_entry']['forbidden_actions']);
+        self::assertSame(
+            RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION,
+            $queue['pending_items'][0]['trusted_decision']['contract_version']
+        );
+        self::assertSame('门店 #7', $queue['pending_items'][0]['trusted_decision']['store']['display']);
+        self::assertSame('ctrip', $queue['pending_items'][0]['trusted_decision']['platform']['key']);
+        self::assertSame('2026-06-25', $queue['pending_items'][0]['trusted_decision']['date']['value']);
+        self::assertSame('unverified', $queue['pending_items'][0]['trusted_decision']['sources']['status']);
+        self::assertSame('calculable', $queue['pending_items'][0]['trusted_decision']['metric_formula']['status']);
+        self::assertSame('+13.57%', $queue['pending_items'][0]['trusted_decision']['metric_formula']['display']);
+        self::assertSame('未验证', $queue['pending_items'][0]['trusted_decision']['data_quality']['label']);
+        self::assertSame('82%', $queue['pending_items'][0]['trusted_decision']['confidence']['display']);
+        self::assertNotEmpty($queue['pending_items'][0]['trusted_decision']['gaps']);
+        self::assertFalse($queue['pending_items'][0]['can_confirm']);
         self::assertSame('--', $queue['recent_items'][1]['current_price_display']);
         self::assertSame('price_suggestion_required_values_missing', $queue['recent_items'][1]['missing_reason']);
         self::assertContains('current_price', $queue['recent_items'][1]['missing_fields']);
+        self::assertSame('not_calculable', $queue['recent_items'][1]['trusted_decision']['metric_formula']['status']);
+        self::assertSame('不可计算', $queue['recent_items'][1]['trusted_decision']['metric_formula']['display']);
     }
 
     public function testPriceSuggestionReviewQueueExposesExplicitExpectedRevparImpactOnly(): void

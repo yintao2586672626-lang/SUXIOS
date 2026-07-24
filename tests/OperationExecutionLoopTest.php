@@ -207,6 +207,7 @@ final class OperationExecutionLoopTest extends TestCase
     public function testPriceSuggestionBuildsExecutionIntentInput(): void
     {
         $service = $this->priceIntentService();
+        $today = date('Y-m-d');
 
         $input = $service->buildPriceSuggestionExecutionIntentInput([
             'id' => 77,
@@ -239,6 +240,69 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('BAR', $input['target_value']['rate_plan_key']);
         self::assertSame(8.0, $input['expected_delta']);
         self::assertSame('competitor price higher', $input['evidence']['reason']);
+        self::assertSame($today, $input['date_start']);
+        self::assertSame($today, $input['date_end']);
+        self::assertSame('2026-06-01', $input['evidence']['source_business_date']);
+        self::assertSame($today, $input['evidence']['execution_date']);
+    }
+
+    public function testPriceSuggestionExecutionIntentUsesChosenExecutionDate(): void
+    {
+        $service = $this->priceIntentService();
+        $executionDate = date('Y-m-d', strtotime('+1 day'));
+
+        $input = $service->buildPriceSuggestionExecutionIntentInput([
+            'id' => 78,
+            'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
+            'hotel_id' => 7,
+            'room_type_id' => 3,
+            'suggestion_date' => '2026-06-01',
+            'current_price' => 280,
+            'suggested_price' => 318,
+            'min_price' => 220,
+            'max_price' => 380,
+            'reason' => 'competitor price higher',
+            'factors' => ['high forecast occupancy'],
+            'competitor_data' => ['avg_price' => 330],
+        ], [
+            'platform' => 'ctrip',
+            'room_type_key' => 'RT-1001',
+            'rate_plan_key' => 'BAR',
+            'execution_date' => $executionDate,
+        ]);
+
+        self::assertSame($executionDate, $input['date_start']);
+        self::assertSame($executionDate, $input['date_end']);
+        self::assertSame('2026-06-01', $input['evidence']['source_business_date']);
+        self::assertSame($executionDate, $input['evidence']['execution_date']);
+    }
+
+    public function testPriceSuggestionExecutionIntentRejectsPastExecutionDate(): void
+    {
+        $service = $this->priceIntentService();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('计划执行日期不能早于今天');
+
+        $service->buildPriceSuggestionExecutionIntentInput([
+            'id' => 79,
+            'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
+            'hotel_id' => 7,
+            'room_type_id' => 3,
+            'suggestion_date' => date('Y-m-d', strtotime('-2 days')),
+            'current_price' => 280,
+            'suggested_price' => 318,
+            'min_price' => 220,
+            'max_price' => 380,
+            'reason' => 'competitor price higher',
+            'factors' => ['high forecast occupancy'],
+            'competitor_data' => ['avg_price' => 330],
+        ], [
+            'platform' => 'ctrip',
+            'room_type_key' => 'RT-1001',
+            'rate_plan_key' => 'BAR',
+            'execution_date' => date('Y-m-d', strtotime('-1 day')),
+        ]);
     }
 
     public function testPriceSuggestionExecutionIntentUsesManualApprovedPrice(): void

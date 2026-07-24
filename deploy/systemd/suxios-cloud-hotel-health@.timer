@@ -1,0 +1,12 @@
+[Unit]
+Description=Run one SUXIOS hotel's OTA data health patrol three times daily
+Conflicts=suxios-cloud-health.timer
+
+[Timer]
+OnCalendar=*-*-* 09:10:00 Asia/Shanghai
+OnCalendar=*-*-* 14:10:00 Asia/Shanghai
+OnCalendar=*-*-* 20:10:00 Asia/Shanghai
+RandomizedDelaySec=3min
+
+[Install]
+WantedBy=timers.target

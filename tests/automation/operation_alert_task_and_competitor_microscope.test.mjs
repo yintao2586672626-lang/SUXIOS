@@ -535,8 +535,10 @@ test('competitor microscope UI and backend trend use the selected analysis date'
   assert.match(appMain, /competitorAnalysisRequestSeq/);
   assert.match(appMain, /responseHotelId !== hotelId \|\| responseDate !== date/);
   assert.match(competitorModel, /getPriceTrend\(int \$hotelId, int \$competitorId, int \$roomTypeId = 0, \?string \$endDate = null\)/);
+  assert.match(competitorModel, /getPriceTrends\(int \$hotelId, array \$competitorIds = \[\], int \$roomTypeId = 0, \?string \$endDate = null\): array/);
   assert.match(competitorModel, /getAlertCompetitors\(int \$hotelId, float \$threshold = 20, \?string \$date = null\)/);
-  assert.match(agentController, /getPriceTrend\(\$hotelId, \$competitorId, 0, \$date\)/);
+  assert.match(agentController, /getPriceTrends\(\$hotelId, \[\], 0, \$date\)/);
+  assert.doesNotMatch(agentController, /foreach \(\$competitors as \$competitorId\)[\s\S]*getPriceTrend/);
   assert.match(agentController, /'metric_scope' => 'ota_channel'/);
   assert.match(appMain, /\/online-data\/competitor-summary/);
   assert.match(appMain, /target_date/);

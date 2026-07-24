@@ -16,6 +16,7 @@ use think\facade\Db;
 class User extends Base
 {
     private const TOKEN_TTL_SECONDS = 259200;
+    private const USER_WRITE_CONFLICT = '__USER_WRITE_CONFLICT__';
 
     private array $tableColumnCache = [];
     private array $tenantColumnCache = [];
@@ -239,15 +240,29 @@ class User extends Base
             if ($issueBoundaryResponse) {
                 return $issueBoundaryResponse;
             }
+            $tenantBoundaryResponse = $this->validateUnassignedRoleTenantBoundary(
+                $targetRole,
+                $nextHotelIds,
+                (int)($targetUser->tenant_id ?? 0)
+            );
+            if ($tenantBoundaryResponse) {
+                return $tenantBoundaryResponse;
+            }
 
             $tenantContext = $this->resolveHotelTenantContext($nextHotelIds);
             $tenantContextError = $this->validateResolvedHotelTenantContext($tenantContext, $userId);
             if ($tenantContextError !== null) {
                 return $tenantContextError;
             }
+            $bootstrapOwnerTenant = empty($nextHotelIds)
+                && $this->strictTenantColumnExists('users')
+                && (int)($targetUser->tenant_id ?? 0) <= 0
+                && $this->roleCanBootstrapOwnTenant($targetRole);
             if (
                 empty($nextHotelIds)
                 && $this->strictTenantColumnExists('users')
+                && (int)($targetUser->tenant_id ?? 0) <= 0
+                && !$bootstrapOwnerTenant
                 && !$this->strictTenantColumnNullable('users')
             ) {
                 return $this->error('用户租户字段不允许为空，无法移除主酒店', 422, ['user_id' => $userId]);
@@ -256,11 +271,20 @@ class User extends Base
             $plans[] = [
                 'user' => $targetUser,
                 'role' => $targetRole,
+                'role_id' => (int)$targetUser->role_id,
+                'status' => (int)$targetUser->status,
                 'previous_hotel_ids' => $currentHotelIds,
                 'hotel_ids' => $nextHotelIds,
                 'tenant_ids' => $tenantContext['tenant_ids'],
+                'bootstrap_owner_tenant' => $bootstrapOwnerTenant,
             ];
         }
+
+        usort(
+            $plans,
+            static fn(array $left, array $right): int =>
+                (int)$left['user']->id <=> (int)$right['user']->id
+        );
 
         try {
             Db::transaction(function () use ($plans): void {
@@ -268,8 +292,15 @@ class User extends Base
                 $assignmentAudit = [];
                 $targetHotelIds = [];
                 foreach ($plans as $plan) {
-                    /** @var UserModel $targetUser */
-                    $targetUser = $plan['user'];
+                    /** @var UserModel $plannedUser */
+                    $plannedUser = $plan['user'];
+                    $targetUser = $this->lockUserForTenantWrite((int)$plannedUser->id);
+                    if (
+                        (int)$targetUser->role_id !== (int)$plan['role_id']
+                        || (int)$targetUser->status !== (int)$plan['status']
+                    ) {
+                        throw new \RuntimeException(self::USER_WRITE_CONFLICT);
+                    }
                     /** @var Role $targetRole */
                     $targetRole = $plan['role'];
                     $hotelIds = $plan['hotel_ids'];
@@ -278,7 +309,14 @@ class User extends Base
 
                     $targetUser->hotel_id = $primaryHotelId > 0 ? $primaryHotelId : null;
                     if ($this->strictTenantColumnExists('users')) {
-                        $targetUser->tenant_id = $primaryHotelId > 0 ? ($tenantIds[$primaryHotelId] ?? null) : null;
+                        if ($primaryHotelId > 0) {
+                            $targetUser->tenant_id = $tenantIds[$primaryHotelId] ?? null;
+                        } elseif (
+                            !empty($plan['bootstrap_owner_tenant'])
+                            && (int)($targetUser->tenant_id ?? 0) <= 0
+                        ) {
+                            $targetUser->tenant_id = $this->provisionOwnerTenant($targetUser);
+                        }
                     }
                     $targetUser->save();
                     $this->syncUserHotelPermissions($targetUser, $hotelIds, $targetRole, $tenantIds);
@@ -309,6 +347,9 @@ class User extends Base
                 );
             });
         } catch (\Throwable $error) {
+            if ($error->getMessage() === self::USER_WRITE_CONFLICT) {
+                return $this->error('用户角色或状态已被其他请求修改，请刷新后重试', 409);
+            }
             return $this->error('门店用户分配保存失败，已回滚且未修改任何用户', 500);
         }
 
@@ -365,11 +406,14 @@ class User extends Base
         $data = $this->requestData();
 
         $username = trim((string)($data['username'] ?? ''));
-        $usernameError = $this->validateUsernamePolicy($username);
-        if ($usernameError) {
-            return $this->error($usernameError);
+        $autoGenerateUsername = $username === '';
+        if (!$autoGenerateUsername) {
+            $usernameError = $this->validateUsernamePolicy($username);
+            if ($usernameError) {
+                return $this->error($usernameError);
+            }
+            $data['username'] = $username;
         }
-        $data['username'] = $username;
 
         $this->validate($data, [
             'password' => 'require',
@@ -384,9 +428,11 @@ class User extends Base
             return $this->error($passwordError);
         }
 
-        // 检查用户名唯一性
-        $exists = UserModel::where('username', $data['username'])->find();
-        if ($exists) {
+        // 显式传入用户名时保留兼容能力；普通新增入口不再要求用户猜测全局编号。
+        $exists = !$autoGenerateUsername
+            ? Db::name('users')->where('username', $username)->find()
+            : null;
+        if ($exists !== null) {
             return $this->error('用户名已存在');
         }
         
@@ -408,6 +454,10 @@ class User extends Base
             $issueBoundaryResponse = $this->validateExternalUserIssueBoundary($targetRole, $hotelIds);
             if ($issueBoundaryResponse) {
                 return $issueBoundaryResponse;
+            }
+            $tenantBoundaryResponse = $this->validateUnassignedRoleTenantBoundary($targetRole, $hotelIds);
+            if ($tenantBoundaryResponse) {
+                return $tenantBoundaryResponse;
             }
             $hotelId = $hotelIds[0] ?? null;
         } else {
@@ -438,9 +488,10 @@ class User extends Base
         }
         $this->assertTenantAssignmentSchemaReady();
         $hotelTenantIds = $tenantContext['tenant_ids'];
+        $bootstrapOwnerTenant = empty($hotelIds) && $this->roleCanBootstrapOwnTenant($targetRole);
 
         $user = new UserModel();
-        $user->username = $data['username'];
+        $user->username = $username;
         $user->password = $data['password'];
         $user->realname = $data['realname'] ?? '';
         $user->email = $data['email'] ?? '';
@@ -450,15 +501,66 @@ class User extends Base
         if ($this->strictTenantColumnExists('users')) {
             $user->tenant_id = $hotelId !== null ? ($hotelTenantIds[(int)$hotelId] ?? null) : null;
         }
-        $user->status = $data['status'] ?? UserModel::STATUS_ENABLED;
-        Db::transaction(function () use ($user, $hotelIds, $targetRole, $hotelTenantIds): void {
+        $user->status = UserModel::STATUS_ENABLED;
+        Db::transaction(function () use ($user, $hotelIds, $targetRole, $hotelTenantIds, $bootstrapOwnerTenant, $autoGenerateUsername): void {
+            if ($autoGenerateUsername) {
+                $user->username = $this->nextGeneratedUsername();
+            }
+            if ($bootstrapOwnerTenant) {
+                $user->tenant_id = $this->provisionOwnerTenant($user);
+            }
             $user->save();
             $this->syncUserHotelPermissions($user, $hotelIds, $targetRole, $hotelTenantIds);
-            OperationLog::record('user', 'create', '创建用户: ' . $user->username, $this->currentUser->id);
+            OperationLog::record(
+                'user',
+                'create',
+                '创建用户: ' . $user->username,
+                (int)$this->currentUser->id,
+                null,
+                null,
+                [
+                    'tenant_id' => (int)($user->tenant_id ?? 0),
+                    'target_user_id' => (int)$user->id,
+                ]
+            );
         });
 
         $savedUser = UserModel::with(['role', 'hotel'])->find((int)$user->id);
         return $this->success($this->appendUserHotelScope($savedUser ?: $user), '创建成功');
+    }
+
+    /**
+     * 新账号名称由服务端基于全局账号表生成。查询与写入处于同一事务，
+     * 数据库唯一约束继续作为并发场景下的最终保护。
+     */
+    private function nextGeneratedUsername(): string
+    {
+        $rows = Db::name('users')
+            ->whereLike('username', 'VIP%')
+            ->field('username')
+            ->lock(true)
+            ->select()
+            ->toArray();
+        $maxSequence = 0;
+        foreach ($rows as $row) {
+            $candidate = trim((string)($row['username'] ?? ''));
+            if (preg_match('/^VIP(\d+)$/i', $candidate, $matches) === 1) {
+                $maxSequence = max($maxSequence, (int)$matches[1]);
+            }
+        }
+
+        for ($sequence = $maxSequence + 1; $sequence <= $maxSequence + 100; $sequence++) {
+            $candidate = 'VIP' . str_pad((string)$sequence, 3, '0', STR_PAD_LEFT);
+            $exists = Db::name('users')
+                ->where('username', $candidate)
+                ->lock(true)
+                ->find();
+            if ($exists === null) {
+                return $candidate;
+            }
+        }
+
+        throw new \RuntimeException('账号编号生成失败，请重试');
     }
 
     /**
@@ -483,6 +585,11 @@ class User extends Base
         }
 
         $data = $this->requestData();
+        $plannedRoleId = (int)$user->role_id;
+        $plannedStatus = (int)$user->status;
+        $roleInputExplicit = $this->currentUser->isSuperAdmin() && isset($data['role_id']);
+        $statusInputExplicit = $this->currentUser->isSuperAdmin() && isset($data['status']);
+        $hotelInputExplicit = $this->currentUser->isSuperAdmin() && $this->hasHotelAssignmentInput($data);
 
         // 用户名唯一性检查
         if (array_key_exists('username', $data)) {
@@ -516,7 +623,7 @@ class User extends Base
             }
             $passwordError = $this->validatePasswordPolicy($data['password'], '密码');
             if ($passwordError) {
-                return $this->error($passwordError);
+                return $this->error($passwordError, 422);
             }
             $user->password = $data['password'];
             $passwordReset = true;
@@ -526,12 +633,13 @@ class User extends Base
         $user->email = $data['email'] ?? $user->email;
         $user->phone = $data['phone'] ?? $user->phone;
         $roleChanged = false;
+        $statusChanged = false;
         $syncHotelIds = null;
         $targetRole = Role::where('id', (int)$user->role_id)->where('status', Role::STATUS_ENABLED)->find();
 
         // 只有超级管理员可以修改角色和酒店
         if ($this->currentUser->isSuperAdmin()) {
-            if (isset($data['role_id'])) {
+            if ($roleInputExplicit) {
                 $nextRoleId = (int)$data['role_id'];
                 $nextRole = Role::where('id', $nextRoleId)->where('status', Role::STATUS_ENABLED)->find();
                 if (!$nextRole) {
@@ -541,7 +649,7 @@ class User extends Base
                 $user->role_id = $nextRoleId;
                 $targetRole = $nextRole;
             }
-            if ($this->hasHotelAssignmentInput($data)) {
+            if ($hotelInputExplicit) {
                 $syncHotelIds = $this->normalizeAssignedHotelIds($data);
                 $invalidHotelResponse = $this->validateAssignableHotelIds($syncHotelIds);
                 if ($invalidHotelResponse) {
@@ -549,7 +657,8 @@ class User extends Base
                 }
                 $user->hotel_id = $syncHotelIds[0] ?? null;
             }
-            if (isset($data['status'])) {
+            if ($statusInputExplicit) {
+                $statusChanged = (int)$data['status'] !== $plannedStatus;
                 $user->status = $data['status'];
             }
         }
@@ -564,10 +673,20 @@ class User extends Base
             if ($issueBoundaryResponse) {
                 return $issueBoundaryResponse;
             }
+            $tenantBoundaryResponse = $this->validateUnassignedRoleTenantBoundary(
+                $targetRole,
+                $candidateHotelIds,
+                (int)($user->tenant_id ?? 0)
+            );
+            if ($tenantBoundaryResponse) {
+                return $tenantBoundaryResponse;
+            }
         }
 
         $hotelTenantIds = [];
+        $bootstrapOwnerTenant = false;
         if ($syncHotelIds !== null) {
+            $this->assertTenantAssignmentSchemaReady();
             $tenantContext = $this->resolveHotelTenantContext($syncHotelIds);
             $tenantContextError = $this->validateResolvedHotelTenantContext($tenantContext);
             if ($tenantContextError !== null) {
@@ -579,52 +698,122 @@ class User extends Base
                 $primaryHotelId = (int)($user->hotel_id ?? 0);
                 if ($primaryHotelId > 0) {
                     $user->tenant_id = $hotelTenantIds[$primaryHotelId] ?? null;
-                } elseif ($this->strictTenantColumnNullable('users')) {
+                } elseif (
+                    $targetRole instanceof Role
+                    && $this->isGlobalAdminRole($targetRole)
+                ) {
+                    if (!$this->strictTenantColumnNullable('users')) {
+                        return $this->error('用户租户字段不允许为空，无法提升为全局管理员', 422);
+                    }
                     $user->tenant_id = null;
-                } else {
+                } elseif (
+                    (int)($user->tenant_id ?? 0) <= 0
+                    && $targetRole instanceof Role
+                    && $this->roleCanBootstrapOwnTenant($targetRole)
+                ) {
+                    $bootstrapOwnerTenant = true;
+                } elseif ((int)($user->tenant_id ?? 0) <= 0) {
                     return $this->error('用户租户字段不允许为空，无法移除主酒店', 422);
                 }
             }
         }
 
-        Db::transaction(function () use ($user, $syncHotelIds, $targetRole, $hotelTenantIds, $passwordReset): void {
-            $user->save();
-            if ($syncHotelIds !== null && $targetRole instanceof Role) {
-                $this->syncUserHotelPermissions($user, $syncHotelIds, $targetRole, $hotelTenantIds);
+        $pendingUserChanges = $user->getChangedData();
+        if ($hotelInputExplicit) {
+            $pendingUserChanges['hotel_id'] = $syncHotelIds[0] ?? null;
+        }
+        if ($syncHotelIds !== null && $this->strictTenantColumnExists('users')) {
+            $primaryHotelId = (int)($syncHotelIds[0] ?? 0);
+            if ($primaryHotelId > 0) {
+                $pendingUserChanges['tenant_id'] = $hotelTenantIds[$primaryHotelId] ?? null;
+            } elseif ($targetRole instanceof Role && $this->isGlobalAdminRole($targetRole)) {
+                $pendingUserChanges['tenant_id'] = null;
             }
-            if ($passwordReset) {
+        }
+
+        try {
+            Db::transaction(function () use (
+                &$user,
+                $pendingUserChanges,
+                $syncHotelIds,
+                $targetRole,
+                $hotelTenantIds,
+                $passwordReset,
+                $bootstrapOwnerTenant,
+                $plannedRoleId,
+                $plannedStatus,
+                $roleInputExplicit,
+                $statusInputExplicit,
+                $hotelInputExplicit,
+                $roleChanged,
+                $statusChanged
+            ): void {
+                $lockedUser = $this->lockUserForTenantWrite((int)$user->id);
+                $roleIntentOverridesLock = $roleInputExplicit && $roleChanged;
+                $statusIntentOverridesLock = $statusInputExplicit && $statusChanged;
+                if (
+                    (!$roleIntentOverridesLock && (int)$lockedUser->role_id !== $plannedRoleId)
+                    || (!$statusIntentOverridesLock && (int)$lockedUser->status !== $plannedStatus)
+                ) {
+                    throw new \RuntimeException(self::USER_WRITE_CONFLICT);
+                }
+                if ($syncHotelIds !== null && !$hotelInputExplicit) {
+                    $lockedHotelIds = $this->existingAssignedHotelIds(
+                        (int)$lockedUser->id,
+                        (int)($lockedUser->hotel_id ?? 0)
+                    );
+                    if ($lockedHotelIds !== $syncHotelIds) {
+                        throw new \RuntimeException(self::USER_WRITE_CONFLICT);
+                    }
+                }
+
+                $lockedUser->setAttrs($pendingUserChanges);
+                if ($bootstrapOwnerTenant && (int)($lockedUser->tenant_id ?? 0) <= 0) {
+                    $lockedUser->tenant_id = $this->provisionOwnerTenant($lockedUser);
+                }
+                $lockedUser->save();
+                $user = $lockedUser;
+                if ($syncHotelIds !== null && $targetRole instanceof Role) {
+                    $this->syncUserHotelPermissions($user, $syncHotelIds, $targetRole, $hotelTenantIds);
+                }
+                if ($passwordReset) {
+                    OperationLog::record(
+                        'auth',
+                        'reset_password',
+                        '管理员重置用户密码: ' . $user->username,
+                        (int)$this->currentUser->id,
+                        (int)($user->hotel_id ?? 0) ?: null,
+                        null,
+                        [
+                            'operator_user_id' => (int)$this->currentUser->id,
+                            'target_user_id' => (int)$user->id,
+                        ]
+                    );
+                }
                 OperationLog::record(
-                    'auth',
-                    'reset_password',
-                    '管理员重置用户密码: ' . $user->username,
-                    (int)$this->currentUser->id,
+                    'user',
+                    'update',
+                    '更新用户: ' . $user->username,
+                    $this->currentUser->id,
                     (int)($user->hotel_id ?? 0) ?: null,
                     null,
                     [
-                        'operator_user_id' => (int)$this->currentUser->id,
                         'target_user_id' => (int)$user->id,
+                        'password_reset' => $passwordReset,
                     ]
                 );
+            });
+        } catch (\Throwable $error) {
+            if ($error->getMessage() === self::USER_WRITE_CONFLICT) {
+                return $this->error('用户角色、状态或门店范围已被其他请求修改，请刷新后重试', 409);
             }
-        });
+            throw $error;
+        }
 
         if ($passwordReset) {
             cache('auth_revoked_after_' . $user->id, time(), self::TOKEN_TTL_SECONDS);
             $this->clearUserTokenCache((int)$user->id);
         }
-
-        OperationLog::record(
-            'user',
-            'update',
-            '更新用户: ' . $user->username,
-            $this->currentUser->id,
-            (int)($user->hotel_id ?? 0) ?: null,
-            null,
-            [
-                'target_user_id' => (int)$user->id,
-                'password_reset' => $passwordReset,
-            ]
-        );
 
         $savedUser = UserModel::with(['role', 'hotel'])->find((int)$user->id);
         return $this->success($this->appendUserHotelScope($savedUser ?: $user), '更新成功');
@@ -747,6 +936,17 @@ class User extends Base
         $data['hotel_scope_text'] = $this->userDataIsSuperAdmin($data)
             ? '全部门店'
             : $this->hotelScopeText($data['hotel_ids']);
+        $tenantId = (int)($data['tenant_id'] ?? 0);
+        if ($this->userDataIsSuperAdmin($data)) {
+            $data['tenant_scope_status'] = 'global';
+            $data['tenant_scope_message'] = '全局管理员';
+        } elseif ($tenantId > 0) {
+            $data['tenant_scope_status'] = 'bound';
+            $data['tenant_scope_message'] = '租户已绑定';
+        } else {
+            $data['tenant_scope_status'] = 'binding_missing';
+            $data['tenant_scope_message'] = '租户未绑定，账号登录与交付受阻';
+        }
         $data['operation_execute_hotel_ids'] = [];
         if ($userModel !== null && (int)($data['status'] ?? UserModel::STATUS_DISABLED) === UserModel::STATUS_ENABLED) {
             foreach (array_values(array_unique(array_map('intval', $userModel->getPermittedHotelIds()))) as $hotelId) {
@@ -903,6 +1103,86 @@ class User extends Base
         }
 
         return null;
+    }
+
+    private function validateUnassignedRoleTenantBoundary(
+        Role $role,
+        array $hotelIds,
+        int $existingTenantId = 0
+    ): ?Response {
+        if (
+            !empty($hotelIds)
+            || $existingTenantId > 0
+            || $this->isGlobalAdminRole($role)
+            || $this->roleCanBootstrapOwnTenant($role)
+        ) {
+            return null;
+        }
+
+        return $this->error('该角色必须先分配门店，避免生成无法登录的账号', 422);
+    }
+
+    private function roleCanBootstrapOwnTenant(Role $role): bool
+    {
+        return (int)$role->getAttr('level') === Role::HOTEL_MANAGER
+            && Role::permissionListAllows($role->getPermissionList(), 'hotel.create');
+    }
+
+    private function isGlobalAdminRole(Role $role): bool
+    {
+        $roleId = (int)$role->getAttr('id');
+        $roleName = (string)$role->getAttr('name');
+        $roleLevel = (int)$role->getAttr('level');
+
+        if (in_array($roleId, [Role::BETA_USER, Role::NORMAL_USER], true)) {
+            return false;
+        }
+
+        return Role::permissionListAllows($role->getPermissionList(), 'all')
+            && ($roleId === Role::SUPER_ADMIN || $roleName === 'admin' || $roleLevel === 1);
+    }
+
+    protected function lockUserForTenantWrite(int $userId): UserModel
+    {
+        $user = UserModel::where('id', $userId)->lock(true)->find();
+        if (!$user instanceof UserModel) {
+            throw new \RuntimeException('用户不存在或已被删除');
+        }
+
+        return $user;
+    }
+
+    private function provisionOwnerTenant(UserModel $user): int
+    {
+        foreach (['id', 'name', 'status'] as $column) {
+            if (!$this->tableColumnExists('tenants', $column)) {
+                throw new \RuntimeException("Required tenant foundation column is missing: tenants.{$column}");
+            }
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $payload = $this->filterExistingColumns('tenants', [
+            'name' => $this->ownerTenantName($user),
+            'status' => 1,
+            'plan_id' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $tenantId = (int)Db::name('tenants')->insertGetId($payload);
+        if ($tenantId <= 0) {
+            throw new \RuntimeException('业主专属租户创建失败');
+        }
+
+        return $tenantId;
+    }
+
+    private function ownerTenantName(UserModel $user): string
+    {
+        $username = trim((string)$user->username);
+        $realname = trim((string)$user->realname);
+        $identity = $realname !== '' ? "{$realname}（{$username}）" : $username;
+
+        return mb_substr($identity . '专属酒店空间', 0, 120);
     }
 
     private function isNormalExternalRole(Role $role): bool

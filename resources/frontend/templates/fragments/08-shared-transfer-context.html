@@ -38,9 +38,7 @@
                                     <div class="mt-2">
                                         <span :data-testid="`transfer-source-metric-${row.key}-truth-status`" :class="onlineTruthStatusClass(row.truth)">{{ onlineTruthStatusText(row.truth) }}</span>
                                     </div>
-                                    <div :data-testid="`transfer-source-metric-${row.key}-truth-detail`" class="mt-2 text-[11px] leading-5 text-gray-500 break-words">
-                                        {{ onlineTruthDetailText(row.truth) }}
-                                    </div>
+                                    <online-truth-summary :truth="row.truth" :testid="`transfer-source-metric-${row.key}-truth-detail`"></online-truth-summary>
                                 </div>
                             </div>
                         </div>

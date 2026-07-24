@@ -21,7 +21,7 @@
                             <option v-for="option in field.options" :key="typeof option === 'object' ? option.value : option" :value="typeof option === 'object' ? option.value : option">{{ typeof option === 'object' ? option.label : option }}</option>
                         </select>
                         <textarea v-else-if="field.type === 'textarea'" v-model="workflowFormDialog.values[field.name]" rows="3" :placeholder="field.placeholder || ''" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20"></textarea>
-                        <input v-else v-model="workflowFormDialog.values[field.name]" :type="field.type === 'number' ? 'text' : field.type" :inputmode="field.type === 'number' ? 'decimal' : undefined" :placeholder="field.placeholder || ''" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20">
+                        <input v-else v-model="workflowFormDialog.values[field.name]" :type="field.type === 'number' ? 'text' : field.type" :inputmode="field.type === 'number' ? 'decimal' : undefined" :placeholder="field.placeholder || ''" :min="field.min || undefined" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20">
                         <span v-if="workflowFormDialog.errors[field.name]" class="mt-1 block text-xs text-red-600">{{ workflowFormDialog.errors[field.name] }}</span>
                     </label>
                 </div>

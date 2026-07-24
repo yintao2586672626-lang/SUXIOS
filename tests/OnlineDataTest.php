@@ -7553,6 +7553,7 @@ final class OnlineDataTest extends TestCase
         $controller = $this->controller();
         $valid = [
             'readback_verified' => true,
+            'p0_status' => 'ready',
             'sync_task_id' => 901,
             'data_source_id' => 101,
             'started_at' => '2026-07-20 08:00:00',

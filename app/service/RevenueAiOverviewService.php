@@ -1408,6 +1408,26 @@ class RevenueAiOverviewService
         $reason = $this->safeLogText($row['reason'] ?? ($row['remark'] ?? ''), 120);
         $riskLevel = $this->safeLogText($row['risk_level'] ?? '', 40);
         $expectedRevparImpact = $this->priceSuggestionExpectedRevparImpact($row['factors'] ?? null);
+        $decisionRecommendation = is_array($row['decision_recommendation'] ?? null)
+            ? $row['decision_recommendation']
+            : [];
+        $trustedDecision = is_array($row['trusted_decision'] ?? null)
+            ? $row['trusted_decision']
+            : (is_array($decisionRecommendation['trusted_decision'] ?? null)
+                ? $decisionRecommendation['trusted_decision']
+                : $this->fallbackTrustedDecision(
+                    $row,
+                    $currentPrice,
+                    $suggestedPrice,
+                    $confidence,
+                    $reason,
+                    $expectedRevparImpact
+                ));
+        $humanConfirmation = is_array($trustedDecision['human_confirmation'] ?? null)
+            ? $trustedDecision['human_confirmation']
+            : [];
+        $canConfirm = ($humanConfirmation['can_confirm'] ?? false) === true;
+        $canTransferToOperationTask = ($humanConfirmation['can_transfer_to_operation_task'] ?? false) === true;
         $missingFields = [];
         foreach ([
             'current_price' => $currentPrice,
@@ -1458,33 +1478,46 @@ class RevenueAiOverviewService
             'missing_fields' => $missingFields,
             'missing_reason' => $missingFields === [] ? '' : 'price_suggestion_required_values_missing',
             'last_success_at' => $this->nullableText($row['update_time'] ?? ($row['create_time'] ?? ($row['applied_time'] ?? null))),
+            'decision_recommendation' => $decisionRecommendation,
+            'trusted_decision' => $trustedDecision,
             'action_entry' => $this->priceSuggestionActionEntry(
                 $statusCode,
                 (int)($row['id'] ?? 0),
                 (int)($row['hotel_id'] ?? 0),
-                $this->nullableText($row['suggestion_date'] ?? null)
+                $this->nullableText($row['suggestion_date'] ?? null),
+                $canConfirm,
+                $canTransferToOperationTask
             ),
             'manual_review_required' => true,
             'auto_write_ota' => false,
             'read_only' => true,
             'can_review' => $statusCode === 1,
+            'can_confirm' => $canConfirm,
+            'can_transfer_to_operation_task' => $canTransferToOperationTask,
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function priceSuggestionActionEntry(int $status, int $id, int $hotelId, ?string $date): array
+    private function priceSuggestionActionEntry(
+        int $status,
+        int $id,
+        int $hotelId,
+        ?string $date,
+        bool $canConfirm,
+        bool $canTransferToOperationTask
+    ): array
     {
         $label = match ($status) {
-            1 => '去审核',
-            2 => '去转单',
+            1 => $canConfirm ? '去审核' : '补证后审核',
+            2 => $canTransferToOperationTask ? '转运营任务' : '查看阻塞',
             4 => '去复盘',
             default => '查看建议',
         };
         $manualActions = match ($status) {
-            1 => ['approve', 'approve_with_changes', 'reject'],
-            2 => ['create_execution_intent'],
+            1 => $canConfirm ? ['approve', 'approve_with_changes', 'reject'] : ['reject'],
+            2 => $canTransferToOperationTask ? ['create_execution_intent'] : [],
             4 => ['effect_review'],
             default => [],
         };
@@ -1503,7 +1536,7 @@ class RevenueAiOverviewService
             'requires_super_admin' => false,
             'requires_hotel_permission' => true,
             'homepage_read_only' => true,
-            'allowed_endpoint' => $status === 2
+            'allowed_endpoint' => $status === 2 && $canTransferToOperationTask
                 ? '/api/revenue-ai/price-suggestions/' . $id . '/execution-intent'
                 : ($status === 1 ? '/api/revenue-ai/price-suggestions/' . $id . '/review' : ''),
             'allowed_endpoints' => [
@@ -1513,6 +1546,127 @@ class RevenueAiOverviewService
             'manual_actions' => $manualActions,
             'forbidden_actions' => ['apply_price', 'ota_write'],
             'note' => 'Revenue AI 可在酒店权限范围内人工审核和转执行，但不应用价格或写 OTA。',
+        ];
+    }
+
+    /**
+     * Legacy/raw rows are displayable but cannot be approved until the server builds
+     * the trusted contract from readback-verified evidence.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $expectedRevparImpact
+     * @return array<string, mixed>
+     */
+    private function fallbackTrustedDecision(
+        array $row,
+        ?float $currentPrice,
+        ?float $suggestedPrice,
+        ?float $confidence,
+        string $reason,
+        array $expectedRevparImpact
+    ): array {
+        $calculable = $currentPrice !== null && $currentPrice > 0 && $suggestedPrice !== null && $suggestedPrice > 0;
+        $rate = $calculable ? round((($suggestedPrice - $currentPrice) / $currentPrice) * 100, 2) : null;
+        $formulaReason = $currentPrice === null || $currentPrice <= 0
+            ? 'current_price_denominator_missing'
+            : (!$calculable ? 'suggested_price_numerator_missing' : '');
+        $gapCodes = ['trusted_decision_contract_missing'];
+        if ($formulaReason !== '') {
+            $gapCodes[] = $formulaReason;
+        }
+        if ($confidence === null) {
+            $gapCodes[] = 'confidence_missing';
+        }
+
+        return [
+            'contract_version' => RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION,
+            'scope' => 'ota_channel',
+            'store' => [
+                'hotel_id' => (int)($row['hotel_id'] ?? 0),
+                'hotel_name' => null,
+                'display' => (int)($row['hotel_id'] ?? 0) > 0
+                    ? '门店 #' . (int)$row['hotel_id']
+                    : '门店未绑定',
+            ],
+            'platform' => ['key' => 'ctrip', 'label' => '携程', 'scope' => 'ota_channel'],
+            'date' => [
+                'value' => $this->nullableText($row['suggestion_date'] ?? null),
+                'basis' => 'suggestion_date',
+                'status' => $this->nullableText($row['suggestion_date'] ?? null) !== null ? 'available' : 'missing',
+            ],
+            'sources' => [
+                'status' => 'unverified',
+                'summary' => $reason,
+                'items' => [],
+                'ref_count' => 0,
+            ],
+            'metric_formula' => [
+                'metric' => 'price_change_rate',
+                'label' => '价格调整率',
+                'expression' => '(建议价 - 当前价) ÷ 当前价 × 100%',
+                'numerator' => $currentPrice !== null && $suggestedPrice !== null
+                    ? round($suggestedPrice - $currentPrice, 2)
+                    : null,
+                'denominator' => $currentPrice,
+                'denominator_required' => true,
+                'value' => $rate,
+                'unit' => '%',
+                'status' => $calculable ? 'calculable' : 'not_calculable',
+                'display' => $calculable
+                    ? (($rate ?? 0) > 0 ? '+' : '') . rtrim(rtrim(number_format((float)$rate, 2, '.', ''), '0'), '.') . '%'
+                    : '不可计算',
+                'reason' => $formulaReason,
+            ],
+            'data_quality' => [
+                'status' => 'unverified',
+                'label' => '未验证',
+                'decision_eligible' => false,
+                'note' => '尚未通过服务端同门店、同平台、同日期范围的数据库回读门禁',
+            ],
+            'confidence' => [
+                'score' => $confidence !== null ? round($confidence, 4) : null,
+                'percentage' => $confidence !== null ? round($confidence * 100, 2) : null,
+                'display' => $confidence !== null
+                    ? rtrim(rtrim(number_format($confidence * 100, 2, '.', ''), '0'), '.') . '%'
+                    : '不可计算',
+                'level' => $confidence === null ? 'unknown' : ($confidence >= 0.8 ? 'high' : ($confidence >= 0.6 ? 'medium' : 'low')),
+                'status' => $confidence !== null ? 'available' : 'missing',
+                'basis' => 'model_signal_confidence',
+            ],
+            'gaps' => array_map(static fn(string $code): array => [
+                'code' => $code,
+                'message' => match ($code) {
+                    'current_price_denominator_missing' => '当前价分母缺失，价格调整率不可计算',
+                    'suggested_price_numerator_missing' => '建议价分子缺失，价格调整率不可计算',
+                    'confidence_missing' => '模型置信度缺失',
+                    default => '可信建议契约尚未由服务端验证数据生成',
+                },
+                'blocking' => true,
+            ], $gapCodes),
+            'recommended_action' => [
+                'summary' => $reason,
+                'action_type' => 'price_adjustment',
+                'current_price' => $currentPrice,
+                'target_price' => $suggestedPrice,
+                'manual_only' => true,
+                'auto_write_ota' => false,
+            ],
+            'expected_effect' => [
+                'status' => (string)($expectedRevparImpact['status'] ?? 'not_calculable'),
+                'metric' => 'revpar',
+                'value' => $expectedRevparImpact['value'] ?? null,
+                'display' => (string)($expectedRevparImpact['display'] ?? '不可计算'),
+                'reason' => (string)($expectedRevparImpact['reason'] ?? 'expected_revpar_impact_missing'),
+            ],
+            'human_confirmation' => [
+                'required' => true,
+                'confirmed' => false,
+                'can_confirm' => false,
+                'can_transfer_to_operation_task' => false,
+                'status' => 'blocked',
+                'operation_task_status_after_transfer' => 'pending_execute',
+                'auto_write_ota' => false,
+            ],
         ];
     }
 
@@ -1850,6 +2004,18 @@ class RevenueAiOverviewService
             $rows = $query->limit(1000)->select()->toArray();
         } catch (\Throwable) {
             return $this->priceSuggestionReviewQueueUnavailable($businessDate, $hotelId, 'failed', 'price_suggestions_read_failed');
+        }
+
+        try {
+            $rows = (new RevenuePricingRecommendationService())->enrichSuggestionRows($rows);
+        } catch (\Throwable) {
+            return $this->priceSuggestionReviewQueueUnavailable(
+                $businessDate,
+                $hotelId,
+                'failed',
+                'price_suggestions_trusted_decision_failed',
+                'Trusted decision contract could not be built from server-side readback evidence.'
+            );
         }
 
         return $this->buildPriceSuggestionReviewQueue($rows, $businessDate, $hotelId);

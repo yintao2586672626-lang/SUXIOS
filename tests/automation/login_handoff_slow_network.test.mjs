@@ -28,6 +28,12 @@ test('slow authenticated assets remain interactive while browser password storag
       <script src="/app-bootstrap.js"></script>
     </body></html>`;
 
+  const requestEvidence = {
+    appMainCount: 0,
+    appMainStartedAt: 0,
+    vueCount: 0,
+    loginStartedAt: 0,
+  };
   const server = http.createServer(async (request, response) => {
     const pathname = new URL(request.url || '/', 'http://127.0.0.1').pathname;
     if (pathname === '/') {
@@ -46,6 +52,7 @@ test('slow authenticated assets remain interactive while browser password storag
       return;
     }
     if (pathname === '/api/auth/login') {
+      requestEvidence.loginStartedAt ||= Date.now();
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({
         code: 200,
@@ -57,12 +64,15 @@ test('slow authenticated assets remain interactive while browser password storag
       return;
     }
     if (pathname === '/vue.runtime.global.prod.js') {
+      requestEvidence.vueCount += 1;
       await delay(120);
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
       response.end('window.Vue = {};');
       return;
     }
     if (pathname === '/app-main.min.js') {
+      requestEvidence.appMainCount += 1;
+      requestEvidence.appMainStartedAt ||= Date.now();
       await delay(180);
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
       response.end("document.getElementById('app').innerHTML = '<main data-testid=\"mock-home\"><button type=\"button\">首页可操作</button></main>'; ");
@@ -96,7 +106,14 @@ test('slow authenticated assets remain interactive while browser password storag
     });
 
     await page.goto(`http://127.0.0.1:${address.port}/`);
+    await delay(50);
+    assert.equal(requestEvidence.appMainCount, 0, 'entry preload must wait for login intent');
     await page.locator('#login-username').fill('VIP013');
+    for (let attempt = 0; attempt < 20 && requestEvidence.appMainCount === 0; attempt += 1) {
+      await delay(5);
+    }
+    assert.equal(requestEvidence.appMainCount, 1, 'login intent must preload the authenticated entry once');
+    assert.equal(requestEvidence.vueCount, 0, 'secondary startup assets must wait until login dispatch');
     await page.locator('#login-password').fill('test-password');
     await page.locator('#public-login-remember').check();
     await page.locator('#public-login-submit').click();
@@ -114,8 +131,11 @@ test('slow authenticated assets remain interactive while browser password storag
     assert.equal(result.credentialStoreCalls, 1);
     assert.equal(result.metrics?.status, 'interactive');
     assert.equal(result.metrics?.source, 'public-login');
-    assert(result.metrics?.auth_to_interactive_ms >= 220, 'metric must include throttled authenticated assets');
-    assert(result.metrics?.auth_to_interactive_ms < 1200, 'hung password storage must not hold the 1.5s login handoff');
+    assert(requestEvidence.appMainStartedAt <= requestEvidence.loginStartedAt, 'entry preload must start no later than login');
+    assert.equal(requestEvidence.appMainCount, 1, 'script execution must reuse the preloaded entry response');
+    assert.equal(requestEvidence.vueCount, 1, 'script execution must reuse the preloaded runtime response');
+    assert(result.metrics?.auth_to_interactive_ms >= 0);
+    assert(result.metrics?.auth_to_interactive_ms < 600, 'startup preload and hung password storage must not hold the login handoff');
   } finally {
     try {
       if (browser) {

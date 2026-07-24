@@ -2759,67 +2759,6 @@ trait OtaConfigConcern
         return $rows;
     }
 
-    private function normalizeOtaConfigMatchText(string $value): string
-    {
-        $value = trim($value);
-        if ($value === '') {
-            return '';
-        }
-
-        $value = preg_replace('/(携程|美团|ebooking|e-booking|ebk|数据源|配置|主账号|账号|cookie|cookies)/iu', '', $value) ?? $value;
-        $value = preg_replace('/[^\p{Han}a-z0-9]+/iu', '', $value) ?? $value;
-
-        return mb_strtolower($value, 'UTF-8');
-    }
-
-    private function findOtaConfigHotelMatch(array $config, array $hotels): ?array
-    {
-        $currentHotelId = trim((string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? ''));
-        if ($currentHotelId !== '') {
-            foreach ($hotels as $hotel) {
-                if ((string)($hotel['id'] ?? '') === $currentHotelId) {
-                    return $hotel;
-                }
-            }
-        }
-
-        $sourceParts = [
-            $config['hotel_name'] ?? '',
-            $config['name'] ?? '',
-            $config['config_name'] ?? '',
-            $config['remark'] ?? '',
-        ];
-        $source = trim(implode(' ', array_filter(array_map(static fn($part): string => trim((string)$part), $sourceParts))));
-        if ($source === '') {
-            return null;
-        }
-
-        foreach ($hotels as $hotel) {
-            $hotelName = trim((string)($hotel['name'] ?? ''));
-            if ($hotelName !== '' && mb_strpos($source, $hotelName, 0, 'UTF-8') !== false) {
-                return $hotel;
-            }
-        }
-
-        $normalizedSource = $this->normalizeOtaConfigMatchText($source);
-        if ($normalizedSource === '') {
-            return null;
-        }
-
-        foreach ($hotels as $hotel) {
-            $hotelName = $this->normalizeOtaConfigMatchText((string)($hotel['name'] ?? ''));
-            $hotelCode = $this->normalizeOtaConfigMatchText((string)($hotel['code'] ?? ''));
-            if ($hotelName !== '' && mb_strpos($normalizedSource, $hotelName, 0, 'UTF-8') !== false) {
-                return $hotel;
-            }
-            if ($hotelCode !== '' && mb_strpos($normalizedSource, $hotelCode, 0, 'UTF-8') !== false) {
-                return $hotel;
-            }
-        }
-
-        return null;
-    }
-
     private function normalizeOtaConfigHotelBinding(array $config, string $platform, ?array $hotels = null): array
     {
         if ($this->otaConfigHasHotelBindingConflict($config)) {

@@ -437,8 +437,6 @@ function measureCleanupTargets() {
   }
   const reportsPath = path.join(repoRoot, 'reports');
   if (safeStat(reportsPath)?.isDirectory()) {
-    candidates.push(path.join('reports', 'ctrip_capture_assets'));
-    candidates.push(path.join('reports', 'meituan_capture_assets'));
     for (const entry of fs.readdirSync(reportsPath, { withFileTypes: true })) {
       if (!entry.isFile()) {
         continue;

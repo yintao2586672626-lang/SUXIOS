@@ -637,6 +637,39 @@ final class AgentTest extends TestCase
         self::assertSame('metric_missing:advertising_spend', $closure['data_evidence_input']['optional_data_gaps'][0]['code']);
     }
 
+    public function testOtaDiagnosisReadyActionCanProceedWhileSiblingActionRemainsBlocked(): void
+    {
+        $controller = $this->controller();
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [[
+            'action_items' => [
+                [
+                    'id' => 'ready-action',
+                    'status' => 'pending_manual_review',
+                    'execution_ready' => true,
+                ],
+                [
+                    'id' => 'blocked-sibling',
+                    'status' => 'blocked_by_insufficient_evidence',
+                    'execution_ready' => false,
+                    'blocked_reason' => 'missing optional advertising evidence',
+                ],
+            ],
+            'data_gaps' => ['metric_missing:advertising_spend'],
+            'main_problems' => ['booking conversion requires review'],
+            'data_summary' => ['source_counts' => ['online_rows' => 3]],
+        ]]);
+
+        self::assertSame('action_required', $closure['status']);
+        self::assertTrue($closure['data_evidence_input']['enough_for_decision']);
+        self::assertTrue($closure['data_evidence_input']['enough_for_executable_actions']);
+        self::assertSame(1, $closure['suggested_actions']['ready_count']);
+        self::assertSame(1, $closure['suggested_actions']['blocked_count']);
+        self::assertFalse($closure['blocked_state']['is_blocked']);
+        self::assertCount(1, $closure['blocked_state']['blocked_items']);
+        self::assertTrue($closure['human_confirmation']['required']);
+        self::assertSame(['ready-action'], $closure['human_confirmation']['ready_action_ids']);
+    }
+
     public function testOtaDiagnosisCoreGapCanNeverBecomeNoAction(): void
     {
         $controller = $this->controller();

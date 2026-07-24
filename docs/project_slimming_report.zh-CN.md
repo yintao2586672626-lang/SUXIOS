@@ -35,21 +35,22 @@
 | `npm run slim:local` | 清理默认本地运行产物。 |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean_project_local_artifacts.ps1 -Apply -IncludeDependencies` | 额外清理 `node_modules/` 和 `vendor/`，需要后续重新安装依赖。 |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean_project_local_artifacts.ps1 -Apply -IncludeSensitiveBackups` | 额外清理 `database/backups/`；仅在完成凭据轮换/备份处置授权后使用。 |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean_project_local_artifacts.ps1 -Apply -IncludeCaptureAssets` | 额外清理 OTA 截图资产；执行前必须确认保留的证据 JSON 不再引用这些文件。 |
 
 ## 默认清理清单
 
 - `output/`
-- `runtime/`
+- `runtime/cache/`、`runtime/static-gzip/`、`runtime/static-html/`、`runtime/log/` 等明确白名单缓存
 - `test-results/`
 - `.pytest_cache/`
 - `.gstack/`
-- `storage/ctrip_profile_*`
-- `storage/meituan_profile_*`
+- `storage/ctrip_profile_*` 内的 Cache、Code Cache、GPU/Shader、Service Worker CacheStorage 等可再生缓存
+- `storage/meituan_profile_*` 内的同类可再生缓存
 - `storage/*.log`
 
 ## 默认不清理但持续观察
 
-- `reports/`：包含采集目录、审计结果和证据文件。只清理明确可再生成的大型 raw capture 或 assets。
+- `reports/`：包含采集目录、审计结果和证据文件；被证据 JSON 引用的截图资产默认保留，只有显式使用 `-IncludeCaptureAssets` 才会删除。
 - `.git/`：属于版本历史，不纳入普通瘦身。
 - `.agents/`：项目本地 Skill 和工具资产，不纳入普通瘦身。
 - `node_modules/`、`vendor/`：可再安装，但默认保留以保证本地验证效率。

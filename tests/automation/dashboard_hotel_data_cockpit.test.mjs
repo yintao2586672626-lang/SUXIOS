@@ -105,6 +105,10 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.match(dataHealthPage, /data-testid="core-loop-profile-session-gate"/);
   assert.match(dataHealthPage, /prepareCoreOperationsProfileSession\(row\)/);
   assert.match(dataHealthPage, /runCoreOperationsYesterdayFetch\(\)/);
+  assert.match(dataHealthPage, /platform\.evidenceStatusText/);
+  assert.match(appMain, /其他采集任务运行中/);
+  assert.match(appMain, /双平台 Profile/);
+  assert.match(appMain, /target_date_present:\s*'目标日有数据'/);
   assert.match(dataHealthPage, /data-testid="core-loop-competitor-comparison"/);
   assert.match(dataHealthPage, /data-testid="core-loop-anomaly-judgment"/);
   assert.match(dataHealthPage, /data-testid="core-loop-ai-actions"/);
@@ -269,7 +273,7 @@ test('core loop reads exact target-day OTA evidence without zero fallbacks', () 
   assert.match(onlineDataFragment, /core-operations-metric-truth-detail-/);
   assert.match(onlineDataFragment, /onlineTruthStatusText\(metric\.truth\)/);
   assert.match(onlineDataFragment, /onlineTruthStatusClass\(metric\.truth\)/);
-  assert.match(onlineDataFragment, /onlineTruthDetailText\(metric\.truth\)/);
+  assert.match(onlineDataFragment, /<online-truth-summary :truth="metric\.truth"/);
   assert.match(onlineDataFragment, /计算：/);
   assert.match(onlineDataFragment, /真值：/);
   assert.match(html, /String\(recommendation\.date_start \|\| ''\) === targetDate/);

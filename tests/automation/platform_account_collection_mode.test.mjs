@@ -131,7 +131,12 @@ test('platform account UI names manual and automatic paths and routes them separ
   assert.match(html, /renewal_warning:\s*'自动可采集·建议续登'/);
   assert.match(html, /manual_ready:\s*'手动可采集'/);
   assert.match(html, /channelCount\('auto_ready', 'renewal_warning'\)/);
-  assert.match(html, /不要求当天登录证明/);
+  assert.match(html, /Profile 采集统一从“昨日经营闭环”进入/);
+  assert.match(html, /actionTarget === 'profile-capture'/);
+  assert.match(html, /openHotelProfileCapture/);
+  assert.match(html, /Profile 再次采集/);
+  assert.match(html, /showFailureLog/);
+  assert.match(html, />失败详情<\/button>/);
   assert.match(html, /actionTarget === 'platform-manual'/);
   assert.match(html, /openHotelManualFetch/);
   assert.match(html, /readinessCode === 'waiting_login' \? '验证 Profile 登录'/);

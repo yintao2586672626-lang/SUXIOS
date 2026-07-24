@@ -68,6 +68,9 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /assertBaselineSourceCatalog\('Fresh initialization'\)/);
   assert.match(verifier, /assertBaselineSourceCatalog\('Repeated migrations'\)/);
   assert.match(verifier, /execution_kind FROM schema_versions/);
+  assert.match(verifier, /freshInitBaselineAdoptedMigrationFiles/);
+  assert.match(verifier, /20260723_validate_owner_tenant_bootstrap_targets\.sql/);
+  assert.match(verifier, /stored\.executionKind !== evidence\.executionKind/);
   assert.match(verifier, /schema_baseline_sources/);
   assert.match(verifier, /unresolved migration failures/);
   assert.match(verifier, /assertGovernedCompatibilityColumns\('Fresh initialization'\)/);

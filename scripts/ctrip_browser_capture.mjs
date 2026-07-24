@@ -1296,10 +1296,6 @@ function sanitizeObservedPageUrl(value) {
   return sanitizeOtaObservedUrl(value);
 }
 
-function classifyByUrl(url, state = defaultCaptureState) {
-  return findCtripEndpointByUrl(url, { preferredSection: state.activeCaptureSection || '' })?.section || '';
-}
-
 function isLegacyCtripBusinessMetricUrl(url) {
   const text = String(url || '').toLowerCase();
   return [
@@ -1894,16 +1890,6 @@ function allowedCookieDomains(platform) {
 
 function isCtripCaptureUrl(url) {
   return isTrustedOtaPlatformUrl('ctrip', url);
-}
-
-function firstKnownPageUrl() {
-  for (const section of ['business_overview', ...requestedSections]) {
-    const first = PAGE_URLS[section]?.[0]?.url;
-    if (first) {
-      return first;
-    }
-  }
-  return 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
 }
 
 function ctripLoginEntryUrl() {

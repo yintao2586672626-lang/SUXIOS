@@ -40,17 +40,19 @@
         <div v-if="showUserModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
             <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden flex flex-col" style="max-height: 90vh;">
                 <div class="p-4 border-b flex shrink-0 justify-between items-center bg-white">
-                    <h3 class="text-lg font-semibold">{{ userForm.id ? '编辑用户' : '添加用户' }}</h3>
+                    <div>
+                        <h3 class="text-lg font-semibold">{{ userForm.id ? '编辑用户' : '新增用户' }}</h3>
+                        <p class="mt-1 text-xs text-gray-500">{{ userForm.id ? '修改账号资料和门店权限' : '用户名自动生成，创建后默认正常' }}</p>
+                    </div>
                     <button @click="showUserModal = false" class="text-gray-500 hover:text-gray-700">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
                 <form @submit.prevent="saveUser" autocomplete="off" class="flex min-h-0 flex-1 flex-col">
                     <div class="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
-                    <div>
+                    <div v-if="userForm.id">
                         <label class="block text-sm font-medium text-gray-700 mb-1">用户名 *</label>
                         <input v-model="userForm.username" data-testid="new-user-username" type="text" name="account_username" autocomplete="username" required="" :readonly="!canEditUserUsername" :class="!canEditUserUsername ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <p v-if="!userForm.id" class="mt-1 text-xs text-gray-500">已按现有 VIP 账号自动顺延，可直接修改。</p>
                     </div>
                     <div v-if="!userForm.id">
                         <div class="mb-1 flex items-center justify-between gap-3">
@@ -118,12 +120,12 @@
                                     {{ userIssueBlockingReasons.length ? '需处理' : '可发放' }}
                                 </span>
                             </div>
-                            <button type="button" @click="copyUserIssueGuide" :disabled="userIssueBlockingReasons.length &gt; 0" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
+                            <button v-if="userForm.id" type="button" @click="copyUserIssueGuide" :disabled="userIssueBlockingReasons.length &gt; 0" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
                                 <i class="fas fa-copy mr-1"></i>复制说明
                             </button>
                         </div>
                     </div>
-                    <div>
+                    <div v-if="userForm.id">
                         <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
                         <select v-model="userForm.status" class="w-full px-4 py-2 border rounded-lg">
                             <option :value="1">正常</option>
@@ -155,26 +157,26 @@
                 </div>
                 <div class="space-y-4 px-5 py-4">
                     <div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
-                        当前密码无法查看。确认后会生成新的随机临时密码，并复制完整登录信息。
+                        当前密码无法查看。确认后重置并复制登录信息。
                     </div>
                     <div>
                         <div class="mb-1.5 flex items-center justify-between gap-3">
                             <label class="text-sm font-medium text-gray-700">密码</label>
                         </div>
                         <div class="flex gap-2">
-                            <input v-model="userLoginInfoPassword" :type="userLoginInfoShowPassword ? 'text' : 'password'" autocomplete="new-password" readonly="" class="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                            <input data-testid="user-login-info-password" v-model="userLoginInfoPassword" :type="userLoginInfoShowPassword ? 'text' : 'password'" autocomplete="new-password" minlength="12" class="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
                             <button type="button" @click="userLoginInfoShowPassword = !userLoginInfoShowPassword" class="w-10 shrink-0 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50" :title="userLoginInfoShowPassword ? '隐藏密码' : '显示密码'">
                                 <i :class="userLoginInfoShowPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
                             </button>
                         </div>
-                        <p class="mt-1 text-xs text-gray-500">确认后自动复制登录地址、用户名和密码。</p>
+                        <p class="mt-1 text-xs text-gray-500">需符合系统密码策略：至少12位，含大小写字母、数字和特殊字符。</p>
                     </div>
                     <div v-if="userLoginInfoError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ userLoginInfoError }}</div>
                 </div>
                 <div class="flex flex-col-reverse gap-2 border-t border-gray-100 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end">
                     <button type="button" @click="closeUserLoginInfoModal" :disabled="userLoginInfoSaving" class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">取消</button>
                     <button type="button" @click="confirmUserLoginInfoReset" :disabled="userLoginInfoSaving" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
-                        <i :class="userLoginInfoSaving ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-copy mr-1'"></i>{{ userLoginInfoSaving ? '处理中' : '生成临时密码并复制登录信息' }}
+                        <i :class="userLoginInfoSaving ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-copy mr-1'"></i>{{ userLoginInfoSaving ? '处理中' : '重置密码并复制登录信息' }}
                     </button>
                 </div>
             </div>
@@ -280,14 +282,13 @@
                         <input v-model="roleForm.display_name" type="text" required="" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">角色标识 *</label>
-                        <input v-model="roleForm.name" type="text" required="" :disabled="roleForm.id === 1" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
-                        <p class="text-xs text-gray-500 mt-1">用于程序识别，只能包含字母、数字和下划线</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">角色等级 *</label>
-                        <input v-model.number="roleForm.level" type="number" required="" min="1" :disabled="roleForm.id === 1" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
-                        <p class="text-xs text-gray-500 mt-1">数字越小权限越大</p>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">适用账号 *</label>
+                        <select v-if="!roleForm.id" v-model.number="roleForm.level" required="" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option :value="3">门店使用人员</option>
+                            <option :value="2">内部运营人员</option>
+                        </select>
+                        <input v-else :value="Number(roleForm.level) === 1 ? '系统管理员' : (Number(roleForm.level) === 2 ? '内部运营人员' : '门店使用人员')" type="text" readonly="" class="w-full px-4 py-2 border rounded-lg bg-gray-100 text-gray-600">
+                        <p class="text-xs text-gray-500 mt-1">门店使用人员不能获得 OTA 采集等高风险权限</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
@@ -302,7 +303,7 @@
                             </label>
                         </div>
                     </div>
-                    <div>
+                    <div v-if="roleForm.id">
                         <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
                         <select v-model="roleForm.status" class="w-full px-4 py-2 border rounded-lg">
                             <option :value="1">正常</option>

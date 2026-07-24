@@ -256,6 +256,49 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertSame(AiDecisionQualityService::CONTRACT_VERSION, $recommendation['decision_quality']['contract_version']);
         self::assertTrue($recommendation['decision_quality']['execution_ready']);
         self::assertTrue($recommendation['can_create_execution_intent']);
+
+        $trusted = $enriched[0]['trusted_decision'];
+        self::assertSame(RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION, $trusted['contract_version']);
+        self::assertSame(7, $trusted['store']['hotel_id']);
+        self::assertSame('ctrip', $trusted['platform']['key']);
+        self::assertSame('2026-06-30', $trusted['date']['value']);
+        self::assertSame('verified', $trusted['sources']['status']);
+        self::assertGreaterThan(0, $trusted['sources']['ref_count']);
+        self::assertSame('(建议价 - 当前价) ÷ 当前价 × 100%', $trusted['metric_formula']['expression']);
+        self::assertSame('calculable', $trusted['metric_formula']['status']);
+        self::assertSame(10.77, $trusted['metric_formula']['value']);
+        self::assertSame('verified', $trusted['data_quality']['status']);
+        self::assertTrue($trusted['data_quality']['decision_eligible']);
+        self::assertSame('82%', $trusted['confidence']['display']);
+        self::assertSame([], $trusted['gaps']);
+        self::assertNotSame('', $trusted['recommended_action']['summary']);
+        self::assertSame('server_policy_verification_target', $trusted['expected_effect']['origin']);
+        self::assertFalse($trusted['human_confirmation']['can_confirm']);
+        self::assertTrue($trusted['human_confirmation']['can_transfer_to_operation_task']);
+
+        $pendingInput = $enriched[0];
+        $pendingInput['id'] = 19;
+        $pendingInput['status'] = 1;
+        unset(
+            $pendingInput['pricing_readiness'],
+            $pendingInput['decision_recommendation'],
+            $pendingInput['recommendation_quality'],
+            $pendingInput['trusted_decision']
+        );
+        $pending = $service->enrichSuggestionRows([$pendingInput])[0];
+        self::assertTrue($pending['trusted_decision']['human_confirmation']['can_confirm']);
+        self::assertFalse($pending['trusted_decision']['human_confirmation']['can_transfer_to_operation_task']);
+        self::assertTrue($pending['decision_recommendation']['can_human_confirm']);
+
+        $missingDenominatorInput = $pendingInput;
+        $missingDenominatorInput['id'] = 20;
+        $missingDenominatorInput['current_price'] = null;
+        $missingDenominator = $service->enrichSuggestionRows([$missingDenominatorInput])[0]['trusted_decision'];
+        self::assertSame('not_calculable', $missingDenominator['metric_formula']['status']);
+        self::assertSame('不可计算', $missingDenominator['metric_formula']['display']);
+        self::assertSame('current_price_denominator_missing', $missingDenominator['metric_formula']['reason']);
+        self::assertFalse($missingDenominator['human_confirmation']['can_confirm']);
+        self::assertContains('current_price_denominator_missing', array_column($missingDenominator['gaps'], 'code'));
     }
 
     public function testElasticityEstimateReturnsBacktestHitRate(): void

@@ -84,6 +84,8 @@ test('OTA platform status page exposes the P0 Profile login flow without credent
 
 test('browser assist import panel posts supplemental captures through the contract endpoint', () => {
   assert.match(html, /ota-browser-assist-static\.js/);
+  assert.match(html, /const loadOtaBrowserAssistStatic = \(\) => \{/);
+  assert.match(html, /await loadOtaBrowserAssistStatic\(\)/);
   assert.match(html, /data-testid="browser-assist-import-panel"/);
   assert.match(html, /browserAssistImportForm/);
   assert.match(html, /browserAssistImportResult/);
@@ -179,8 +181,8 @@ test('OTA platform Profile flow uses login-state and target-date evidence as the
   assert.match(flowBuilder, /const loginVerified = currentSessionVerified && statusCode === 'logged_in';/);
   assert.doesNotMatch(flowBuilder, /manual_login_state_verified\|logged_in/);
   assert.doesNotMatch(flowBuilder, /manual_login_state_verified\/i\.test\(currentStatus\)/);
-  assert.match(html, /current_session_verified=/);
-  assert.match(html, /historical_manual_login_state_verified=/);
+  assert.match(html, /当天会话：\{\{ item\.binding_contract\.current_session_verified \? '已验证' : '未验证' \}\}/);
+  assert.match(html, /历史登录：\{\{ item\.binding_contract\.manual_login_state_verified \? '已验证' : '未验证' \}\}/);
   assert.match(html, /item\.binding_checks \|\| item\.checks/);
   assert.match(flowBuilder, /const collectionDone = collectionStatus === 'collected'/);
   assert.match(flowBuilder, /targetTrafficRows > 0/);

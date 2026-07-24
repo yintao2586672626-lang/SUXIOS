@@ -31,11 +31,6 @@ class OtaRevenueMetricService
         $roomRevenue = $this->sumWithFallback($roomRevenueRows, 'room_revenue', 'revenue');
         $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
         $roomNights = $this->sum($roomNightRows, 'room_nights');
-        $adrRows = array_values(array_filter($daily, fn(array $row): bool =>
-            $this->hasNumericValue($row, 'room_revenue') && $this->hasNumericValue($row, 'room_nights')
-        ));
-        $adrRoomRevenue = $this->sum($adrRows, 'room_revenue');
-        $adrRoomNights = $this->sum($adrRows, 'room_nights');
         $availableRows = $this->rowsWithPositive($daily, 'available_room_nights');
         $availableRoomNights = $this->sum($availableRows, 'available_room_nights');
         $revparRows = array_values(array_filter($availableRows, fn(array $row): bool =>
@@ -219,7 +214,9 @@ class OtaRevenueMetricService
                 'available_room_nights' => $availableRows ? round($availableRoomNights, 2) : null,
                 'occupied_room_nights' => $occupancyRows ? round($occupiedRoomNights, 2) : null,
                 'order_count' => $orderCount,
-                'adr' => $adrRows && $adrRoomNights > 0 ? round($adrRoomRevenue / $adrRoomNights, 2) : null,
+                'adr' => $roomRevenueRows && $roomNightRows && $roomNights > 0
+                    ? round($roomRevenue / $roomNights, 2)
+                    : null,
                 'occ' => $occupancyRows && $occupancyAvailableRoomNights > 0 ? round($occupiedRoomNights / $occupancyAvailableRoomNights * 100, 2) : null,
                 'revpar' => $revparRows && $revparAvailableRoomNights > 0 ? round($revparRoomRevenue / $revparAvailableRoomNights, 2) : null,
                 'net_revpar' => $netRevparRows && $netRevparAvailableRoomNights > 0 ? round($netRevparNetRevenue / $netRevparAvailableRoomNights, 2) : null,
@@ -1079,7 +1076,9 @@ class OtaRevenueMetricService
         $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
         $orderCountRows = $this->rowsWithNumeric($daily, 'order_count');
         $adrRows = array_values(array_filter($daily, fn(array $row): bool =>
-            $this->hasNumericValue($row, 'room_revenue') && $this->hasNumericValue($row, 'room_nights')
+            $this->hasNumericValue($row, 'room_revenue')
+                || $this->hasNumericValue($row, 'revenue')
+                || $this->hasNumericValue($row, 'room_nights')
         ));
         $revparRows = array_values(array_filter($availableRows, fn(array $row): bool =>
             $this->hasNumericValue($row, 'room_revenue') || $this->hasNumericValue($row, 'revenue')
@@ -1166,7 +1165,9 @@ class OtaRevenueMetricService
         $roomNightRows = $this->rowsWithNumeric($rows, 'room_nights');
         $orderCountRows = $this->rowsWithNumeric($rows, 'order_count');
         $adrRows = array_values(array_filter($rows, fn(array $row): bool =>
-            $this->hasNumericValue($row, 'room_revenue') && $this->hasNumericValue($row, 'room_nights')
+            $this->hasNumericValue($row, 'room_revenue')
+                || $this->hasNumericValue($row, 'revenue')
+                || $this->hasNumericValue($row, 'room_nights')
         ));
         $availableRows = $this->rowsWithPositive($rows, 'available_room_nights');
         $occupancyRows = array_values(array_filter($rows, function (array $row): bool {

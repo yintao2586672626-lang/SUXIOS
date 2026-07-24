@@ -12,23 +12,26 @@ final class CloudAutomationService
     private CloudDataHealthService $healthService;
     private WechatRobotDeliveryService $deliveryService;
     private AiDailyReportService $reportService;
+    private DualOtaContinuousTrustService $continuousTrustService;
 
     public function __construct(
         ?CloudAutomationStateStore $stateStore = null,
         ?CloudDataHealthService $healthService = null,
         ?WechatRobotDeliveryService $deliveryService = null,
-        ?AiDailyReportService $reportService = null
+        ?AiDailyReportService $reportService = null,
+        ?DualOtaContinuousTrustService $continuousTrustService = null
     ) {
         $this->stateStore = $stateStore ?? new CloudAutomationStateStore();
         $this->healthService = $healthService ?? new CloudDataHealthService();
         $this->deliveryService = $deliveryService ?? new WechatRobotDeliveryService();
         $this->reportService = $reportService ?? new AiDailyReportService();
+        $this->continuousTrustService = $continuousTrustService ?? new DualOtaContinuousTrustService();
     }
 
     /** @return resource|null */
-    public function acquireLock()
+    public function acquireLock(int $waitSeconds = 0)
     {
-        return $this->stateStore->acquireLock();
+        return $this->stateStore->acquireLock($waitSeconds);
     }
 
     /** @param resource|null $handle */
@@ -45,6 +48,10 @@ final class CloudAutomationService
     {
         date_default_timezone_set('Asia/Shanghai');
         $mode = strtolower(trim($mode));
+        $requestedHotelId = $this->requestedHotelId($options);
+        if ($mode === 'retry' && $requestedHotelId !== null) {
+            throw new \InvalidArgumentException('hotel_id is not supported for retry mode.');
+        }
         return match ($mode) {
             'daily' => $this->runDaily($targetDate, $options),
             'health' => $this->runHealth($targetDate, $options),
@@ -131,8 +138,9 @@ final class CloudAutomationService
         $useLlm = !empty($options['use_llm']);
         $limit = max(1, min(100, (int)($options['limit'] ?? 30)));
         $maxAttempts = max(1, min(50, (int)($options['max_attempts'] ?? 10)));
-        $patrol = $this->triggerPatrol($targetDate, $limit);
-        $hotels = $this->healthService->enabledHotels($limit);
+        $requestedHotelId = $this->requestedHotelId($options);
+        $patrol = $this->triggerPatrol($targetDate, $limit, $requestedHotelId);
+        $hotels = $this->healthService->enabledHotels($limit, $requestedHotelId);
 
         $hotelResults = [];
         $generated = 0;
@@ -144,6 +152,7 @@ final class CloudAutomationService
             $hotelName = trim((string)($hotel['name'] ?? '')) ?: ('酒店 #' . $hotelId);
             try {
                 $health = $this->healthService->inspectHotel($hotel, $targetDate, $this->requiredPlatforms());
+                $health = $this->applyContinuousTrustGate($health, $hotelId, $targetDate);
                 if (!empty($health['issues'])) {
                     $healthProblemHotels++;
                     $healthDelivery = $this->deliverHealthAlert(
@@ -266,6 +275,7 @@ final class CloudAutomationService
         $summary = [
             'push_enabled' => $push,
             'use_llm' => $useLlm,
+            'requested_hotel_id' => $requestedHotelId,
             'patrol' => $patrol,
             'hotel_count' => count($hotels),
             'reports_generated' => $generated,
@@ -293,8 +303,9 @@ final class CloudAutomationService
         $push = !empty($options['push']);
         $limit = max(1, min(100, (int)($options['limit'] ?? 30)));
         $maxAttempts = max(1, min(50, (int)($options['max_attempts'] ?? 10)));
-        $patrol = $this->triggerPatrol($targetDate, $limit);
-        $hotels = $this->healthService->enabledHotels($limit);
+        $requestedHotelId = $this->requestedHotelId($options);
+        $patrol = $this->triggerPatrol($targetDate, $limit, $requestedHotelId);
+        $hotels = $this->healthService->enabledHotels($limit, $requestedHotelId);
         $results = [];
         $problemHotels = 0;
         $deliveryProblems = 0;
@@ -303,6 +314,7 @@ final class CloudAutomationService
             $hotelName = trim((string)($hotel['name'] ?? '')) ?: ('酒店 #' . $hotelId);
             try {
                 $health = $this->healthService->inspectHotel($hotel, $targetDate, $this->requiredPlatforms());
+                $health = $this->applyContinuousTrustGate($health, $hotelId, $targetDate);
                 $delivery = ['status' => 'not_required'];
                 if (!empty($health['issues'])) {
                     $problemHotels++;
@@ -339,6 +351,7 @@ final class CloudAutomationService
             : ($deliveryProblems > 0 || ($patrol['success'] ?? false) !== true ? 'partial' : 'succeeded');
         $summary = [
             'push_enabled' => $push,
+            'requested_hotel_id' => $requestedHotelId,
             'patrol' => $patrol,
             'hotel_count' => count($hotels),
             'problem_hotel_count' => $problemHotels,
@@ -366,7 +379,8 @@ final class CloudAutomationService
         $limit = max(1, min(100, (int)($options['limit'] ?? 30)));
         $maxAttempts = max(1, min(50, (int)($options['max_attempts'] ?? 10)));
         $startDate = (new \DateTimeImmutable($targetDate))->modify('-6 days')->format('Y-m-d');
-        $hotels = $this->healthService->enabledHotels($limit);
+        $requestedHotelId = $this->requestedHotelId($options);
+        $hotels = $this->healthService->enabledHotels($limit, $requestedHotelId);
         $results = [];
         $deliveryProblems = 0;
         foreach ($hotels as $hotel) {
@@ -411,6 +425,7 @@ final class CloudAutomationService
         $status = count($hotels) === 0 ? 'blocked' : ($deliveryProblems > 0 ? 'partial' : 'succeeded');
         $summary = [
             'push_enabled' => $push,
+            'requested_hotel_id' => $requestedHotelId,
             'week_start' => $startDate,
             'week_end' => $targetDate,
             'hotel_count' => count($hotels),
@@ -601,7 +616,7 @@ final class CloudAutomationService
     }
 
     /** @return array<string, mixed> */
-    private function triggerPatrol(string $targetDate, int $limit): array
+    private function triggerPatrol(string $targetDate, int $limit, ?int $hotelId = null): array
     {
         $token = trim($this->environmentValue('CRON_TOKEN', ''));
         if ($token === '') {
@@ -614,10 +629,14 @@ final class CloudAutomationService
         if ($baseUrl === '') {
             $baseUrl = 'https://127.0.0.1';
         }
-        $url = $baseUrl . '/api/online-data/daily-workbench-patrol-cron?' . http_build_query([
+        $query = [
             'target_date' => $targetDate,
             'limit' => max(1, min(30, $limit)),
-        ]);
+        ];
+        if ($hotelId !== null) {
+            $query['hotel_id'] = $hotelId;
+        }
+        $url = $baseUrl . '/api/online-data/daily-workbench-patrol-cron?' . http_build_query($query);
         $parts = parse_url($url);
         $loopback = is_array($parts) && in_array(strtolower((string)($parts['host'] ?? '')), ['127.0.0.1', 'localhost', '::1'], true);
         $https = is_array($parts) && strtolower((string)($parts['scheme'] ?? '')) === 'https';
@@ -716,7 +735,76 @@ final class CloudAutomationService
                 array_values(array_filter((array)($health['issues'] ?? []), 'is_array'))
             ))),
             'readback' => is_array($health['readback'] ?? null) ? $health['readback'] : [],
+            'continuous_trust' => is_array($health['continuous_trust'] ?? null)
+                ? $health['continuous_trust']
+                : [],
         ];
+    }
+
+    /**
+     * The legacy cloud-health gate remains useful for broad data-quality
+     * diagnostics, but report generation now also requires the exact-date
+     * dual-OTA Profile/P0 loop.
+     *
+     * @param array<string, mixed> $health
+     * @return array<string, mixed>
+     */
+    private function applyContinuousTrustGate(array $health, int $hotelId, string $targetDate): array
+    {
+        try {
+            $continuous = $this->continuousTrustService->inspectHotel($hotelId, $targetDate, $targetDate);
+        } catch (\Throwable $exception) {
+            $continuous = [
+                'schema_version' => 1,
+                'metric_scope' => 'ota_channel',
+                'hotel_id' => $hotelId,
+                'start_date' => $targetDate,
+                'end_date' => $targetDate,
+                'status' => 'partial',
+                'reason' => 'continuous_trust_evaluation_failed',
+                'days' => [],
+            ];
+        }
+        $health['continuous_trust'] = $continuous;
+        if (strtolower(trim((string)($continuous['status'] ?? ''))) === 'verified') {
+            return $health;
+        }
+
+        $latestPlatforms = [];
+        if (is_array($continuous['days'][0]['platforms'] ?? null)) {
+            $latestPlatforms = $continuous['days'][0]['platforms'];
+        }
+        $hasCollectionFailure = strtolower(trim((string)($continuous['status'] ?? ''))) === 'collection_failed'
+            || count(array_filter($latestPlatforms, static fn($platform): bool =>
+                is_array($platform)
+                && strtolower(trim((string)($platform['status'] ?? ''))) === 'collection_failed'
+            )) > 0;
+        $code = $hasCollectionFailure
+            ? 'dual_ota_collection_failed'
+            : 'dual_ota_continuous_trust_partial';
+        $issues = array_values(array_filter(
+            is_array($health['issues'] ?? null) ? $health['issues'] : [],
+            'is_array'
+        ));
+        if (!in_array($code, array_column($issues, 'code'), true)) {
+            $issues[] = [
+                'code' => $code,
+                'platform' => '',
+                'message' => $hasCollectionFailure
+                    ? 'The target-date Ctrip/Meituan collection failed or lacks a complete P0 proof.'
+                    : 'The target-date Ctrip/Meituan source, hotel, date, field facts, save, readback, page status and P0 proof are not all verified.',
+                'blocking' => true,
+                'next_action' => 'Re-run the exact-date dual-OTA Profile collection and verify database readback before report generation.',
+            ];
+        }
+        $health['issues'] = $issues;
+        $health['blocking_issue_count'] = count(array_filter(
+            $issues,
+            static fn(array $issue): bool => !empty($issue['blocking'])
+        ));
+        $health['can_generate_report'] = false;
+        $health['status'] = 'blocked';
+        return $health;
     }
 
     /** @param array<string, mixed> $patrol */
@@ -858,6 +946,19 @@ final class CloudAutomationService
         if (!$date instanceof \DateTimeImmutable || $date->format('Y-m-d') !== trim($value)) {
             throw new \InvalidArgumentException('target-date must use YYYY-MM-DD.');
         }
+    }
+
+    /** @param array<string, mixed> $options */
+    private function requestedHotelId(array $options): ?int
+    {
+        $raw = $options['hotel_id'] ?? null;
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        if ((!is_int($raw) && !(is_string($raw) && ctype_digit($raw))) || (int)$raw <= 0) {
+            throw new \InvalidArgumentException('hotel_id must be a positive integer.');
+        }
+        return (int)$raw;
     }
 
     private function safeError(\Throwable $error): string
