@@ -15,6 +15,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const sourcePath = path.join(repoRoot, 'public/app-main.js');
 const artifactPath = path.join(repoRoot, 'public/app-main.min.js');
 const indexPath = path.join(repoRoot, 'public/index.html');
+const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
 
 test('browser entry is the deterministic minified form of the canonical source', async () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
@@ -43,4 +44,8 @@ test('authenticated asset manifest loads only the hashed minified entry at the e
   assert.equal(authenticatedAssets.at(-3), 'app-startup-render.min.js');
   assert.equal(authenticatedAssets.at(-2), 'app-render.min.js');
   assert.equal(authenticatedAssets.at(-1), 'app-main.min.js');
+});
+
+test('P0 guards reject stale login-critical CSS and asset hashes', () => {
+  assert.match(packageJson.scripts['verify:p0-guards'], /npm run verify:login-critical-css/);
 });
