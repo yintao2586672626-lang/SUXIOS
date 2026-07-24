@@ -24,7 +24,7 @@ import {
 } from '../../scripts/lib/frontend_template_lock.mjs';
 import {
   extractAuthenticatedAssetEntries,
-  extractAuthenticatedAssetReferences,
+  resolveFrontendRuntimeAssetReferences,
   stripFrontendAssetQuery,
 } from '../../scripts/lib/frontend_authenticated_assets.mjs';
 
@@ -254,7 +254,7 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   const artifact = fs.readFileSync(renderPath, 'utf8');
   const appMain = fs.readFileSync(appMainPath, 'utf8');
   const hash = crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10);
-  const authenticatedReferences = extractAuthenticatedAssetReferences(html);
+  const authenticatedReferences = resolveFrontendRuntimeAssetReferences(html);
   const authenticatedEntries = extractAuthenticatedAssetEntries(html);
   const authenticatedAssets = authenticatedReferences.map(stripFrontendAssetQuery);
   const renderReference = authenticatedReferences.find(
