@@ -10,6 +10,7 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const workflow = readFileSync(path.join(repoRoot, '.github', 'workflows', 'php.yml'), 'utf8');
+const measurement = readFileSync(path.join(repoRoot, 'scripts', 'measure_frontend_performance.mjs'), 'utf8');
 
 const metric = (p95) => ({ sample_count: 5, p50_ms: p95, p95_ms: p95, max_ms: p95 });
 
@@ -17,6 +18,7 @@ function passingReport(networkProfile = 'none') {
   const runs = Array.from({ length: 5 }, (_, index) => ({
     run: index + 1,
     verification_status: 'verified',
+    attempt_count: 1,
     metrics: { total_requests: 29 },
     api: { sample_count: 3, repeated_routes: [] },
   }));
@@ -54,7 +56,7 @@ test('verified five-run authenticated report passes the default local runtime bu
 test('CI enforces the static budget and measures the authenticated app before the runtime budget', () => {
   assert.match(workflow, /run: npm run verify:performance-budget/);
   assert.match(workflow, /SUXI_PHP: php/);
-  assert.match(workflow, /PHP_CLI_SERVER_WORKERS: '4'/);
+  assert.doesNotMatch(workflow, /PHP_CLI_SERVER_WORKERS/);
   assert.match(workflow, /SUXI_E2E_DB_NAME: hotelx_ci_test/);
   assert.match(workflow, /npm run measure:performance:isolated/);
   assert.match(workflow, /npm run verify:performance-runtime-budget/);
@@ -62,6 +64,11 @@ test('CI enforces the static budget and measures the authenticated app before th
     workflow.indexOf('npm run measure:performance:isolated')
       < workflow.indexOf('npm run verify:performance-runtime-budget'),
   );
+  assert.match(measurement, /const maxMeasurementAttempts = 2/);
+  assert.match(measurement, /browser = await chromium\.launch/);
+  assert.match(measurement, /attempt_failures: attemptFailures/);
+  assert.match(measurement, /retryableNavigationTimeout[\s\S]*startsWith\('page\.goto:'\)/);
+  assert.match(measurement, /await measureRunWithRetry\(runIndex\)/);
 });
 
 test('runtime budget fails closed on duplicate startup APIs and request growth', () => {
@@ -110,6 +117,19 @@ test('unthrottled auth handoff keeps the measured hard ceiling separate from the
     evaluateFrontendRuntimeBudget(report).failures
       .some((failure) => failure.metric === 'auth_to_interactive_p95_ms'),
   );
+});
+
+test('a bounded measurement retry is retained as a warning instead of disappearing', () => {
+  const report = passingReport();
+  report.runs[2].attempt_count = 2;
+  const assessment = evaluateFrontendRuntimeBudget(report);
+  assert.deepEqual(assessment.failures, []);
+  assert.deepEqual(assessment.warnings, [{
+    metric: 'measurement_retry_count',
+    actual: 1,
+    target: 0,
+    reason: 'transient_measurement_retry',
+  }]);
 });
 
 test('slow-4g reports use the explicit throttled-network budget', () => {

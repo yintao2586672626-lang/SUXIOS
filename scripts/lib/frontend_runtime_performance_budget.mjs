@@ -83,6 +83,10 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
     max_total_requests_per_run: maxFinite(runs.map((run) => run?.metrics?.total_requests)),
     max_api_samples_per_run: maxFinite(runs.map((run) => run?.api?.sample_count)),
     max_repeated_api_requests_per_run: maxFinite(runs.map(repeatedApiRequestCount)),
+    measurement_retry_count: runs.reduce(
+      (total, run) => total + Math.max(0, Number(run?.attempt_count || 1) - 1),
+      0,
+    ),
   };
   const failures = [];
   const warnings = [];
@@ -147,6 +151,14 @@ export function evaluateFrontendRuntimeBudget(report = {}, budgetOverride = null
         reason: 'improvement_target_missed',
       });
     }
+  }
+  if (observed.measurement_retry_count > 0) {
+    warnings.push({
+      metric: 'measurement_retry_count',
+      actual: observed.measurement_retry_count,
+      target: 0,
+      reason: 'transient_measurement_retry',
+    });
   }
 
   return {

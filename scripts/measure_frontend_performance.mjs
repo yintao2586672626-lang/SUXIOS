@@ -28,6 +28,7 @@ const settleMs = Math.max(
 );
 const requireVerified = options['require-verified'] === '1';
 const enforceBudget = options['enforce-budget'] === '1';
+const maxMeasurementAttempts = 2;
 const outputDir = path.resolve('output', 'performance');
 const credentialUsername = String(process.env.E2E_USERNAME || '').trim();
 const credentialPassword = String(process.env.E2E_PASSWORD || '');
@@ -171,15 +172,41 @@ async function measureRun(browser, runIndex) {
   }
 }
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+async function measureRunWithRetry(runIndex) {
+  const attemptFailures = [];
+  for (let attempt = 1; attempt <= maxMeasurementAttempts; attempt += 1) {
+    let browser = null;
+    try {
+      browser = await chromium.launch({ channel: 'chrome', headless: true });
+      const run = await measureRun(browser, runIndex);
+      return {
+        ...run,
+        attempt_count: attempt,
+        attempt_failures: attemptFailures,
+      };
+    } catch (error) {
+      const failureName = String(error?.name || 'Error').replace(/[^a-zA-Z0-9_.-]+/g, '').slice(0, 80) || 'Error';
+      attemptFailures.push({ attempt, name: failureName });
+      const retryableNavigationTimeout = failureName === 'TimeoutError'
+        && String(error?.message || '').startsWith('page.goto:');
+      if (!retryableNavigationTimeout || attempt >= maxMeasurementAttempts) throw error;
+      console.warn(`[frontend-performance] run=${runIndex} attempt=${attempt} failed=${failureName}; retrying`);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } finally {
+      if (browser) await browser.close().catch(() => {});
+    }
+  }
+  throw new Error(`Frontend performance run ${runIndex} exhausted its bounded attempts`);
+}
+
 const startedAt = new Date().toISOString();
 const runs = [];
-try {
-  for (let runIndex = 1; runIndex <= iterations; runIndex += 1) {
-    runs.push(await measureRun(browser, runIndex));
-  }
-} finally {
-  await browser.close();
+for (let runIndex = 1; runIndex <= iterations; runIndex += 1) {
+  const run = await measureRunWithRetry(runIndex);
+  runs.push(run);
+  console.log(
+    `[frontend-performance] run=${runIndex} attempts=${run.attempt_count} verification=${run.verification_status}`,
+  );
 }
 
 const aggregate = summarizeFrontendPerformanceRuns(runs);
