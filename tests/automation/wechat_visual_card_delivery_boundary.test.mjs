@@ -13,11 +13,14 @@ test('hourly visual card uses a stable hotel-scoped delivery boundary', async ()
   assert.match(source, /\$scope = \$testOnly \? 'test_only' : 'operating_group'/);
   assert.match(source, /--robot-id 2/);
   assert.match(source, /beginDeliveryAttempt/);
-  assert.match(source, /\['sent', 'sending', 'delivery_outcome_unknown'\]/);
-  assert.match(source, /Reserve the external-side-effect boundary before spending CPU on a PNG/);
+  assert.match(source, /A render error must not leave a/);
+  assert.match(source, /in_array\(\$existingStatus, \['sending', 'delivery_outcome_unknown'\], true\)/);
   assert.match(source, /\$record = \$state->recordDeliveryAttempt/);
-  assert.match(source, /exit\(\$guardStatus === 'sent' \? 0 : 2\)/);
   assert.match(source, /\(string\)\(\$delivery\['delivery_status'\] \?\? ''\) === 'sent' \? 0 : 2/);
+  assert.ok(
+    source.indexOf("if (proc_close($process) !== 0)") < source.indexOf('$record = $state->queueDelivery'),
+    'render must finish before a visual-card delivery record is queued',
+  );
 });
 
 test('cloud hourly monitor can send the matching visual card to its explicitly bound robot', async () => {

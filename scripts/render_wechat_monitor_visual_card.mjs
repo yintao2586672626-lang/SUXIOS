@@ -1,7 +1,9 @@
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { chromium } from '@playwright/test';
+// This renderer runs in the deployed hourly monitor. playwright-core is a
+// production dependency; @playwright/test is intentionally development-only.
+import { chromium } from 'playwright-core';
 
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 

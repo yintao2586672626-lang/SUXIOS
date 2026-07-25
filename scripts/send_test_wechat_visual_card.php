@@ -44,25 +44,9 @@ try {
     $identity = ['robot_id' => $robotId, 'hour' => $hourKey, 'scope' => $scope];
     $context = ['test_only' => $testOnly, 'robot_name' => (string)$robot['name'], 'hour' => $hourKey];
     $state = new CloudAutomationStateStore();
-    // Reserve the external-side-effect boundary before spending CPU on a PNG.
-    $guard = $state->queueDelivery(
-        'hourly_monitor_visual_card',
-        $hotelId,
-        $identity,
-        ['msgtype' => 'image', 'test_only' => $testOnly],
-        $context,
-        $idempotencyKey
-    );
-    $guardStatus = (string)($guard['status'] ?? 'queued');
-    if (in_array($guardStatus, ['sent', 'sending', 'delivery_outcome_unknown'], true)) {
-        $deliveryStatus = $guardStatus === 'sent' ? 'sent' : $guardStatus;
-        fwrite(STDOUT, json_encode([
-            'build' => null,
-            'delivery' => ['delivery_status' => $deliveryStatus, 'reused' => true],
-            'delivery_record' => $guard,
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
-        exit($guardStatus === 'sent' ? 0 : 2);
-    }
+
+    // Build before a delivery record exists. A render error must not leave a
+    // placeholder image payload queued for the generic retry worker.
     $stamp = date('Ymd-His');
     $output = $root . '/runtime/wechat_visual_cards/hourly-' . $hotelId . '-' . $stamp . '.png';
     $command = [PHP_BINARY, $root . '/scripts/build_wechat_monitor_visual_card.php', '--hotel-id=' . $hotelId, '--output=' . $output];
@@ -84,8 +68,8 @@ try {
     $existingStatus = (string)($record['status'] ?? 'queued');
     if ($existingStatus === 'sent') {
         $delivery = ['delivery_status' => 'sent', 'sent_count' => 0, 'failed_count' => 0, 'reused' => true];
-    } elseif ($existingStatus === 'sending') {
-        $delivery = ['delivery_status' => 'in_progress', 'sent_count' => 0, 'failed_count' => 0];
+    } elseif (in_array($existingStatus, ['sending', 'delivery_outcome_unknown'], true)) {
+        $delivery = ['delivery_status' => $existingStatus, 'sent_count' => 0, 'failed_count' => 0, 'reused' => true];
     } else {
         $attempt = $state->beginDeliveryAttempt($record);
         $delivery = (new WechatRobotDeliveryService())->deliverToHotel($hotelId, $payload, [$robotId]);
