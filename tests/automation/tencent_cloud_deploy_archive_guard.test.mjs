@@ -95,3 +95,12 @@ test('stage mode stops before backup and every database command', () => {
   assert.match(installer, /rollback_and_verify/);
   assert.match(installer, /previous release restored and health verified/);
 });
+
+test('opt-in cloud OTA runtime is reproducible and refuses an unsupported Node version', () => {
+  const installer = readFileSync('deploy/cloud/install_release.sh', 'utf8');
+  assert.match(installer, /SUXIOS_CLOUD_NODE_RUNTIME/);
+  assert.match(installer, /node_major/);
+  assert.match(installer, /node_major < 20/);
+  assert.match(installer, /npm ci --omit=dev --ignore-scripts --no-audit --no-fund/);
+  assert.match(installer, /await import\('playwright-core'\); await import\('cloakbrowser'\)/);
+});

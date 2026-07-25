@@ -80,6 +80,22 @@ COMPOSER_ALLOW_SUPERUSER=1 composer install \
   --no-interaction \
   --optimize-autoloader
 
+# OTA browser capture is opt-in on cloud.  Keep normal PHP-only releases lean,
+# but make an enabled cloud collector reproducible across release switches
+# instead of relying on an untracked node_modules directory.
+CLOUD_NODE_RUNTIME_ENABLED="$(sed -n -E 's/^SUXIOS_CLOUD_NODE_RUNTIME=(0|1)$/\1/p' "$ENV_FILE" | tail -n 1)"
+if [[ "$CLOUD_NODE_RUNTIME_ENABLED" == "1" ]]; then
+  command -v node >/dev/null
+  command -v npm >/dev/null
+  node_major="$(node -p 'process.versions.node.split(".")[0]')"
+  if [[ ! "$node_major" =~ ^[0-9]+$ ]] || (( node_major < 20 )); then
+    echo "Cloud OTA runtime requires Node.js 20 or newer." >&2
+    exit 76
+  fi
+  npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+  node --input-type=module -e "await import('playwright-core'); await import('cloakbrowser')"
+fi
+
 chown -R root:www-data "$RELEASE_DIR"
 find "$RELEASE_DIR" -type d -exec chmod 0750 {} +
 find "$RELEASE_DIR" -type f -exec chmod 0640 {} +
