@@ -585,6 +585,20 @@ class OtaDataCredibilityGateService
             return [];
         }
 
+        $verificationSource = strtolower(trim((string)($value['verification_source'] ?? '')));
+        if ($verificationSource !== 'external_p0_verifier') {
+            $verificationSource = '';
+        }
+        $targetDate = substr(trim((string)($value['target_date'] ?? '')), 0, 10);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $targetDate) !== 1) {
+            $targetDate = '';
+        }
+        $hotelId = (int)($value['hotel_id'] ?? 0);
+        $reportHash = strtolower(trim((string)($value['verifier_report_hash'] ?? '')));
+        if (preg_match('/^[a-f0-9]{64}$/D', $reportHash) !== 1) {
+            $reportHash = '';
+        }
+
         return [
             'status' => trim((string)($value['status'] ?? '')),
             'current_upstream_status' => trim((string)($value['current_upstream_status'] ?? '')),
@@ -594,6 +608,19 @@ class OtaDataCredibilityGateService
             'blocking_missing_inputs' => $this->stringList($value['blocking_missing_inputs'] ?? []),
             'blocked_stage_keys' => $this->stringList($value['blocked_stage_keys'] ?? []),
             'allowed_claims' => $this->stringList($value['allowed_claims'] ?? []),
+            'verification_source' => $verificationSource,
+            'target_date' => $targetDate,
+            'hotel_id' => $hotelId > 0 ? $hotelId : null,
+            'verified_platforms' => array_values(array_filter(
+                $this->stringList($value['verified_platforms'] ?? []),
+                static fn(string $platform): bool => in_array($platform, ['ctrip', 'meituan'], true)
+            )),
+            'source_scope' => strtolower(trim((string)($value['source_scope'] ?? ''))) === 'ota_channel'
+                ? 'ota_channel'
+                : '',
+            'verifier_report_hash' => $reportHash,
+            'verifier_checked_at' => trim((string)($value['verifier_checked_at'] ?? '')),
+            'sensitive_values_exposed' => false,
         ];
     }
 }

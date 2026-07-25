@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\CloudAutomationStateStore;
 use app\service\CloudAutomationService;
+use app\service\P0OtaDownstreamGateService;
 use PHPUnit\Framework\TestCase;
 
 final class CloudAutomationStateStoreTest extends TestCase
@@ -86,6 +87,35 @@ final class CloudAutomationStateStoreTest extends TestCase
         self::assertFalse((bool)($updated['context']['report_generation_triggered'] ?? true));
     }
 
+    public function testStableIdempotencyKeySuppressesChangedPayloadInsideOneBusinessWindow(): void
+    {
+        $store = new CloudAutomationStateStore($this->stateDir);
+        $identity = ['monitor_hour' => '2026-07-25-01', 'test_robot_id' => 1];
+        $first = $store->queueDelivery(
+            'hourly_hotel_monitor',
+            80,
+            $identity,
+            ['msgtype' => 'markdown', 'markdown' => ['content' => 'first observation']],
+            [],
+            'hourly-monitor:80:1:2026-07-25-01'
+        );
+        $sent = $store->recordDeliveryAttempt($first, [
+            'delivery_status' => 'sent', 'robot_count' => 1, 'sent_count' => 1, 'failed_count' => 0, 'failures' => [],
+        ]);
+        $replayed = $store->queueDelivery(
+            'hourly_hotel_monitor',
+            80,
+            $identity,
+            ['msgtype' => 'markdown', 'markdown' => ['content' => 'changed observation']],
+            [],
+            'hourly-monitor:80:1:2026-07-25-01'
+        );
+
+        self::assertSame($sent['delivery_key'], $replayed['delivery_key']);
+        self::assertSame('sent', $replayed['status']);
+        self::assertSame('first observation', $replayed['payload']['markdown']['content']);
+    }
+
     public function testSendingBoundarySuppressesDuplicateRequestAndSentReplay(): void
     {
         $store = new CloudAutomationStateStore($this->stateDir);
@@ -96,7 +126,7 @@ final class CloudAutomationStateStoreTest extends TestCase
         self::assertSame('sending', $sending['status']);
         self::assertSame([], $store->dueDeliveries());
 
-        $service = new CloudAutomationService($store);
+        $service = $this->serviceWithReadyP0Gate($store);
         $ambiguous = $service->deliverSavedDailyReport(7, 12, '2026-07-21', $payload);
         self::assertSame('in_progress', $ambiguous['delivery_status']);
         self::assertSame(0, $ambiguous['sent_count']);
@@ -138,7 +168,7 @@ final class CloudAutomationStateStoreTest extends TestCase
         self::assertTrue($unknown['last_result']['outcome_ambiguous']);
         self::assertSame([], $store->dueDeliveries());
 
-        $service = new CloudAutomationService($store);
+        $service = $this->serviceWithReadyP0Gate($store);
         $repeated = $service->deliverSavedDailyReport(7, 13, '2026-07-21', $payload);
         self::assertSame('in_progress', $repeated['delivery_status']);
         self::assertSame('previous_delivery_outcome_ambiguous', $repeated['reason']);
@@ -178,5 +208,30 @@ final class CloudAutomationStateStoreTest extends TestCase
             }
         }
         rmdir($dir);
+    }
+
+    private function serviceWithReadyP0Gate(
+        CloudAutomationStateStore $store
+    ): CloudAutomationService {
+        $gate = $this->createMock(P0OtaDownstreamGateService::class);
+        $gate->method('resolveRuntime')->willReturnCallback(
+            static fn(string $reportDate, ?int $hotelId): array => [
+                'status' => 'ready',
+                'verification_source' => 'external_p0_verifier',
+                'target_date' => $reportDate,
+                'hotel_id' => $hotelId,
+                'verified_platforms' => ['ctrip', 'meituan'],
+                'sensitive_values_exposed' => false,
+            ]
+        );
+
+        return new CloudAutomationService(
+            $store,
+            null,
+            null,
+            null,
+            null,
+            $gate
+        );
     }
 }

@@ -17,7 +17,7 @@ test('normalizes OTA capture sections per platform', () => {
   assert.deepEqual(normalizeCaptureSections('meituan', 'flow,order'), ['traffic', 'orders']);
   assert.deepEqual(
     normalizeCaptureSections('meituan', 'businessData,peerRank,flowData,searchKeywords,roomTypes'),
-    ['traffic'],
+    ['traffic', 'room_types'],
   );
   assert.deepEqual(
     normalizeCaptureSections('meituan', 'flowAnalysis,trafficForecast,flowForecast,flowConversion'),
@@ -26,8 +26,8 @@ test('normalizes OTA capture sections per platform', () => {
   assert.deepEqual(normalizeCaptureSections('ctrip', 'business,traffic'), ['business', 'traffic']);
   assert.deepEqual(normalizeCaptureSections('meituan', ''), ['traffic', 'orders']);
   assert.deepEqual(normalizeCaptureSections('meituan', 'comment'), ['reviews']);
-  assert.deepEqual(normalizeCaptureSections('meituan', 'full'), ['traffic', 'orders', 'ads', 'reviews']);
-  assert.deepEqual(normalizeCaptureSections('meituan', 'all'), ['traffic', 'orders', 'ads', 'reviews']);
+  assert.deepEqual(normalizeCaptureSections('meituan', 'full'), ['traffic', 'orders', 'ads', 'reviews', 'room_types']);
+  assert.deepEqual(normalizeCaptureSections('meituan', 'all'), ['traffic', 'orders', 'ads', 'reviews', 'room_types']);
   assert.deepEqual(normalizeCaptureSections('meituan', 'realtime,advertising'), ['traffic', 'ads']);
   assert.deepEqual(normalizeCaptureSections('ctrip', 'review'), ['reviews']);
 });

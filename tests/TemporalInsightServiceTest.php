@@ -280,21 +280,25 @@ final class TemporalInsightServiceTest extends TestCase
         self::assertStringContainsString('Db::transaction(function', $source);
     }
 
-    public function testHomeTemporalAxisRendersFactsSnapshotsForecastsAndReview(): void
+    public function testHomeTemporalAxisSeparatesYesterdayFactsTodayStatusAndFutureJudgement(): void
     {
         $root = dirname(__DIR__);
         $template = (string)file_get_contents(
             $root . '/resources/frontend/templates/fragments/23a-page-compass-summary.html'
         );
         $entry = (string)file_get_contents($root . '/public/app-main.js');
+        $homeStatic = (string)file_get_contents($root . '/public/home-static.js');
 
         self::assertStringContainsString('data-testid="home-temporal-axis"', $template);
-        self::assertStringContainsString('历史数据', $template);
-        self::assertStringContainsString('今日更新', $template);
-        self::assertStringContainsString('未来趋势', $template);
-        self::assertStringContainsString('homeTemporalReview.title', $template);
+        self::assertStringContainsString('data-testid="home-yesterday-facts"', $template);
+        self::assertStringContainsString('昨天事实 / 今天状态 / 未来 AI 研判', $template);
+        self::assertStringContainsString('data-testid="home-scope-boundaries"', $template);
+        self::assertStringContainsString('data-testid="home-competitor-diagnostic-reference"', $template);
+        self::assertStringContainsString("requireHomeStatic('buildHomeBusinessTimeModel')", $entry);
         self::assertStringContainsString("request(`/temporal-insights/overview?", $entry);
         self::assertStringContainsString("request('/temporal-insights/forecasts'", $entry);
-        self::assertStringContainsString('不直接给执行价格', $entry);
+        self::assertStringContainsString('不回退旧日期', $homeStatic);
+        self::assertStringContainsString('不把进行中快照写成日终经营结果', $homeStatic);
+        self::assertStringContainsString('不自动执行', $homeStatic);
     }
 }

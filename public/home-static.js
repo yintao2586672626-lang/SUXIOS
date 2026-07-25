@@ -328,13 +328,237 @@ window.SUXI_HOME_STATIC = (() => {
             },
             {
                 key: 'competition',
-                title: competitorReady ? '查看竞对摘要' : '同步竞对榜单',
-                detail: competitorReady ? competitorNotice : '先同步美团竞对榜单，再查看本店位置、TOP1、VIP标签和榜单健康。',
-                badge: competitorReady ? '可复核' : '待同步',
+                title: competitorReady ? '竞对仅供异常复核' : '竞对诊断证据未取得',
+                detail: competitorReady
+                    ? `仅在自家门店出现异常时按同平台、同日期口径参考。${competitorNotice || ''}`
+                    : '不影响自家门店事实展示；出现异常且确需对比时再同步竞对榜单。',
+                badge: competitorReady ? '诊断参考' : '非首页主线',
                 className: competitorReady ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200',
                 entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' },
             },
         ];
+    };
+
+    const homeBusinessFactDefinitions = [
+        { key: 'ota_revenue', label: 'OTA收入', unit: '元', icon: 'fas fa-yen-sign' },
+        { key: 'ota_orders', label: 'OTA订单', unit: '单', icon: 'fas fa-receipt' },
+        { key: 'ota_room_nights', label: 'OTA间夜', unit: '间夜', icon: 'fas fa-bed' },
+        { key: 'ota_detail_exposure', label: 'OTA详情访问', unit: '次', icon: 'fas fa-eye' },
+    ];
+
+    const homeBusinessStatusClass = (status) => ({
+        '已取得': 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        '已验证': 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        '已形成': 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        '部分取得': 'border-amber-200 bg-amber-50 text-amber-700',
+        '正在读取': 'border-blue-200 bg-blue-50 text-blue-700',
+        '读取失败': 'border-red-200 bg-red-50 text-red-700',
+        '未取得': 'border-slate-200 bg-slate-100 text-slate-600',
+        '未验证': 'border-slate-200 bg-slate-100 text-slate-600',
+        '尚未形成': 'border-slate-200 bg-slate-100 text-slate-600',
+    }[status] || 'border-slate-200 bg-slate-100 text-slate-600');
+
+    const homeBusinessMetricAvailable = (value) => (
+        value !== null
+        && value !== undefined
+        && value !== ''
+        && Number.isFinite(Number(value))
+    );
+
+    const buildHomeBusinessTimeModel = ({
+        temporalData = {},
+        hotelName = '',
+        futureCard = null,
+        revenueMetricCards = [],
+        revenueOverviewScope = '',
+        loading = false,
+        error = '',
+        helpers = {},
+    } = {}) => {
+        const temporal = temporalData && typeof temporalData === 'object' ? temporalData : {};
+        const past = temporal.past && typeof temporal.past === 'object' ? temporal.past : {};
+        const present = temporal.present && typeof temporal.present === 'object' ? temporal.present : {};
+        const future = temporal.future && typeof temporal.future === 'object' ? temporal.future : {};
+        const formatNumber = typeof helpers.formatNumber === 'function'
+            ? helpers.formatNumber
+            : (value) => Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+        const loadError = String(error || '').trim();
+        const targetDate = String(past?.period?.end_date || '').trim();
+        const pastSeries = Array.isArray(past.series) ? past.series : [];
+        const yesterdayRow = targetDate
+            ? pastSeries.find(row => String(row?.date || '') === targetDate) || null
+            : null;
+        const latestHistoricalDate = String(pastSeries[pastSeries.length - 1]?.date || '').trim();
+        const platformText = Array.isArray(yesterdayRow?.platforms) && yesterdayRow.platforms.length
+            ? yesterdayRow.platforms.map(platform => ({ ctrip: '携程', meituan: '美团' }[platform] || platform)).join('、')
+            : '平台未返回';
+
+        const facts = homeBusinessFactDefinitions.map((definition) => {
+            const rawValue = yesterdayRow?.[definition.key];
+            const ready = !!yesterdayRow && homeBusinessMetricAvailable(rawValue);
+            const status = loading ? '正在读取' : (loadError ? '读取失败' : (ready ? '已取得' : '未取得'));
+            let value = '未取得';
+            if (loading) value = '读取中';
+            else if (loadError) value = '读取失败';
+            else if (ready) {
+                const numeric = Number(rawValue);
+                value = definition.key === 'ota_revenue'
+                    ? `¥${formatNumber(Math.round(numeric))}`
+                    : `${formatNumber(Math.round(numeric))}${definition.unit}`;
+            }
+            return {
+                ...definition,
+                ready,
+                status,
+                statusClass: homeBusinessStatusClass(status),
+                value,
+                detail: ready
+                    ? `${targetDate} · ${platformText} · 已定稿 OTA 渠道事实`
+                    : `${targetDate || '目标日待确认'}未取得该项事实；不回退旧日期，也不按 0 补齐。`,
+            };
+        });
+
+        const readyFactCount = facts.filter(fact => fact.ready).length;
+        let yesterdayStatus = readyFactCount === facts.length ? '已取得' : (readyFactCount > 0 ? '部分取得' : '未取得');
+        if (loading) yesterdayStatus = '正在读取';
+        if (loadError) yesterdayStatus = '读取失败';
+        const yesterdaySummary = loadError
+            ? `昨日事实读取失败：${loadError}`
+            : (loading
+                ? '正在读取目标日已定稿事实。'
+                : (readyFactCount > 0
+                    ? `${targetDate}已取得 ${readyFactCount}/${facts.length} 项 OTA 渠道事实；缺失项保持“未取得”。`
+                    : `${targetDate || '目标日'}未取得已定稿 OTA 事实${latestHistoricalDate && latestHistoricalDate !== targetDate ? `；最近历史日 ${latestHistoricalDate} 不用于替代` : ''}。`));
+
+        const presentRowCount = Number.isFinite(Number(present.snapshot_row_count))
+            ? Number(present.snapshot_row_count)
+            : 0;
+        let todayStatus = presentRowCount > 0
+            ? (String(present.status || '') === 'ready' ? '已取得' : '部分取得')
+            : '未取得';
+        if (loading) todayStatus = '正在读取';
+        if (loadError) todayStatus = '读取失败';
+        const todaySummary = loadError
+            ? `今日状态读取失败：${loadError}`
+            : (loading
+                ? '正在确认今天已经取得的快照状态。'
+                : (presentRowCount > 0
+                    ? `今天已取得 ${presentRowCount} 条 OTA 实时快照${present.as_of_time ? `，最近更新 ${present.as_of_time}` : ''}。`
+                    : '今天尚未取得有效 OTA 实时快照；当前只显示采集状态。'));
+
+        const safeFutureCard = futureCard && typeof futureCard === 'object' ? futureCard : {};
+        let futureStatus = String(future.status || '') === 'ready' ? '已形成' : '尚未形成';
+        if (loading) futureStatus = '正在读取';
+        if (loadError) futureStatus = '读取失败';
+        const futureValue = loadError
+            ? '读取失败'
+            : (loading ? '读取中' : (futureStatus === '已形成' ? (safeFutureCard.value || '已形成预测版本') : '尚未形成'));
+        const futureDetail = loadError
+            ? loadError
+            : (futureStatus === '已形成'
+                ? (safeFutureCard.detail || '已形成未来趋势研判，需结合事实复核。')
+                : (future.message || '历史事实足够后才形成预测版本；不直接给出执行价格。'));
+
+        const metricCards = Array.isArray(revenueMetricCards) ? revenueMetricCards : [];
+        const verifiedWholeHotelCards = metricCards.filter((card) => {
+            const truthStatus = String(card?.truthStatus || card?.truth?.status || '').toLowerCase();
+            return truthStatus === 'verified' && /全酒店/.test(String(card?.scopeLabel || card?.truth?.scope_label || ''));
+        });
+        const verifiedSourceMethods = verifiedWholeHotelCards.flatMap((card) => {
+            const methods = card?.truth?.source?.methods;
+            return Array.isArray(methods) ? methods.map(method => String(method || '').toLowerCase()) : [];
+        });
+        const hasPmsSource = verifiedSourceMethods.some(method => /(pms|crs|property_management)/.test(method));
+        const hasImportSource = verifiedSourceMethods.some(method => /(import|manual|excel|daily_report|file)/.test(method));
+        const hasUnclassifiedWholeHotel = verifiedWholeHotelCards.length > 0
+            || String(revenueOverviewScope || '').toLowerCase() === 'hotel';
+        const scopeRows = [
+            {
+                key: 'ota',
+                label: 'OTA渠道',
+                status: yesterdayStatus,
+                statusClass: homeBusinessStatusClass(yesterdayStatus),
+                detail: temporal.scope_note || '只代表已授权携程/美团渠道，不等于全酒店经营结果。',
+            },
+            {
+                key: 'pms',
+                label: '全酒店（PMS / CRS）',
+                status: hasPmsSource ? '已验证' : '未验证',
+                statusClass: homeBusinessStatusClass(hasPmsSource ? '已验证' : '未验证'),
+                detail: hasPmsSource
+                    ? '已识别经验证的全酒店 PMS / CRS 来源；按其经营日期与分母口径使用。'
+                    : (hasUnclassifiedWholeHotel
+                        ? '存在全酒店口径信号，但尚未验证为 PMS / CRS 来源。'
+                        : '未取得可核验 PMS / CRS 事实；不使用 OTA 数据外推全酒店 OCC、RevPAR 或总营收。'),
+            },
+            {
+                key: 'import',
+                label: '全酒店（规范导入）',
+                status: hasImportSource ? '已验证' : '未验证',
+                statusClass: homeBusinessStatusClass(hasImportSource ? '已验证' : '未验证'),
+                detail: hasImportSource
+                    ? '已识别经验证的规范导入来源；仍按导入日期、字段和质量状态单独使用。'
+                    : '导入数据未验证时不与 OTA 渠道事实混算，也不冒充 PMS 实时数据。',
+            },
+        ];
+
+        const yesterday = {
+            date: targetDate || '目标日待确认',
+            status: yesterdayStatus,
+            statusClass: homeBusinessStatusClass(yesterdayStatus),
+            summary: yesterdaySummary,
+            facts,
+            sourceText: `${platformText} OTA · ${targetDate || '目标日待确认'}定稿事实 · 入库与回读证据见数据健康`,
+        };
+        const today = {
+            status: todayStatus,
+            statusClass: homeBusinessStatusClass(todayStatus),
+            summary: todaySummary,
+            detail: '这里只报告今天已取得到哪一步，不把进行中快照写成日终经营结果。',
+        };
+        const futureStage = {
+            status: futureStatus,
+            statusClass: homeBusinessStatusClass(futureStatus),
+            value: futureValue,
+            detail: futureDetail,
+            note: 'AI辅助研判 · OTA渠道输入 · 置信度为未校准规则指数 · 不自动执行',
+        };
+        return {
+            hotelName: hotelName && hotelName !== '全部门店' ? hotelName : '全部可见门店汇总',
+            yesterday,
+            today,
+            future: futureStage,
+            scopeRows,
+            timeline: [
+                {
+                    key: 'yesterday',
+                    testid: 'home-yesterday-stage',
+                    label: '昨天事实',
+                    value: yesterday.date,
+                    detail: '只读取目标日已定稿事实；旧日期不替代，缺失不显示为 0。',
+                    status: yesterday.status,
+                    statusClass: yesterday.statusClass,
+                },
+                {
+                    key: 'today',
+                    testid: 'home-today-acquired-status',
+                    label: '今天状态',
+                    value: today.summary,
+                    detail: today.detail,
+                    status: today.status,
+                    statusClass: today.statusClass,
+                },
+                {
+                    key: 'future',
+                    testid: 'home-future-ai-judgement',
+                    label: '未来 AI 研判',
+                    value: futureStage.value,
+                    detail: `${futureStage.detail}；${futureStage.note}`,
+                    status: futureStage.status,
+                    statusClass: futureStage.statusClass,
+                },
+            ],
+        };
     };
 
     const isHomeSignalReady = (signal) => !!signal && !['pending', 'unknown'].includes(String(signal.status || 'pending'));
@@ -379,8 +603,8 @@ window.SUXI_HOME_STATIC = (() => {
                 name: '竞对价格',
                 status: priceReady ? '已同步' : '未同步',
                 updatedAt: priceSignal?.updated_at || '--',
-                impact: '会影响价格竞争、价差和调价建议判断',
-                role: 'core',
+                impact: '仅在自家门店异常时用于同平台、同日期诊断，不参与首页事实就绪度',
+                role: 'diagnostic',
                 ready: priceReady,
                 className: priceReady ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200',
             },
@@ -408,9 +632,11 @@ window.SUXI_HOME_STATIC = (() => {
     const buildCompassDataReadiness = (sources = []) => {
         const safeSources = Array.isArray(sources) ? sources : [];
         const coreSources = safeSources.filter(source => source?.role === 'core');
-        const supportSources = safeSources.filter(source => source?.role !== 'core');
+        const supportSources = safeSources.filter(source => !['core', 'diagnostic'].includes(source?.role));
+        const diagnosticSources = safeSources.filter(source => source?.role === 'diagnostic');
         const readyCoreCount = coreSources.filter(source => source?.ready).length;
         const readySupportCount = supportSources.filter(source => source?.ready).length;
+        const readyDiagnosticCount = diagnosticSources.filter(source => source?.ready).length;
         const percent = coreSources.length ? Math.round(readyCoreCount / coreSources.length * 100) : 0;
         const missingCore = coreSources.filter(source => !source?.ready).map(source => source?.name);
         const missingSupport = supportSources.filter(source => !source?.ready).map(source => source?.name);
@@ -423,6 +649,9 @@ window.SUXI_HOME_STATIC = (() => {
                 : (missingSupport.length ? `辅助信号待补 ${missingSupport.join(' / ')}` : '核心数据与辅助信号已就绪'),
             signalDensity: readyCoreCount === coreSources.length && readySupportCount === supportSources.length ? '高' : (readyCoreCount >= Math.ceil(coreSources.length / 2) ? '中' : '低'),
             nextAction: missingCore.length ? '先补核心数据' : (missingSupport.length ? '补辅助信号' : '可分析'),
+            diagnosticText: diagnosticSources.length
+                ? `竞对诊断参考 ${readyDiagnosticCount}/${diagnosticSources.length}，不计入核心事实就绪度`
+                : '未配置竞对诊断参考',
         };
     };
 
@@ -467,10 +696,10 @@ window.SUXI_HOME_STATIC = (() => {
             },
             {
                 key: 'competitor',
-                label: '竞对可信',
+                label: '异常诊断参考',
                 value: safeCompetitorReadiness.label || '待同步',
-                note: competitorTagText || competitorSourceNotice || '不推断VIP',
-                badge: safeCompetitorReadiness.status === 'ok' ? '可复核' : '待核对',
+                note: `仅在自家门店异常时参考；${competitorTagText || competitorSourceNotice || '不推断VIP'}`,
+                badge: safeCompetitorReadiness.status === 'ok' ? '仅参考' : '未取得',
                 badgeClass: competitorReadinessClassName,
                 icon: 'fas fa-trophy',
                 iconClass: 'border-indigo-100 bg-indigo-50 text-indigo-700',
@@ -854,6 +1083,7 @@ window.SUXI_HOME_STATIC = (() => {
         buildHomeCausalChainNodes,
         buildHomeTrendChartConfig,
         buildHomeBoardActionRows,
+        buildHomeBusinessTimeModel,
         buildHomeDataSources,
         buildCompassDataReadiness,
         buildHomeDecisionSummaryRows,

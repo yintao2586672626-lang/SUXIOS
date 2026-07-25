@@ -323,6 +323,101 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
         self::assertSame('run_readback_receipt_mismatch', $missingTargetReceipt['failure_reason']);
     }
 
+    public function testExactDateProfileRequestReusesActiveTaskAndFailedTerminalCreatesNewAttempt(): void
+    {
+        $sourceId = $this->createBrowserProfileSource('DX-1163');
+        $adapter = $this->adapterFor(
+            'DX-1163',
+            self::factors('authorized', 'complete', 'fresh', 'success')
+        );
+        $service = $this->service($adapter);
+        $plan = [
+            'contract_version' => 'ota_ordered_collection.v1',
+            'mode' => 'ordered_yesterday_gap_only',
+            'scope' => 'ota_yesterday_core',
+            'platform' => 'ctrip',
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'data_source_id' => $sourceId,
+            'target_date' => self::TARGET_DATE,
+            'stage' => 'targeted_gap',
+            'reason' => 'target_date_field_gap',
+            'sections' => ['traffic_report'],
+            'interface_ids' => ['traffic_flow_transform'],
+            'required_field_keys' => self::REQUIRED_TRAFFIC_METRICS,
+            'missing_field_keys' => self::REQUIRED_TRAFFIC_METRICS,
+        ];
+        $now = date('Y-m-d H:i:s');
+        $activeTaskId = (int)Db::name('platform_data_sync_tasks')->insertGetId([
+            'tenant_id' => self::TENANT_ID,
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'trigger_type' => 'daily_profile_reuse',
+            'status' => 'running',
+            'attempt_count' => 1,
+            'max_attempts' => 3,
+            'started_at' => $now,
+            'requested_by' => 9,
+            'stats_json' => json_encode([
+                'ordered_collection' => $plan,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'create_time' => $now,
+            'update_time' => $now,
+        ]);
+        $options = [
+            'trigger_type' => 'daily_profile_reuse',
+            'interactive_browser' => true,
+            'data_date' => self::TARGET_DATE,
+            'data_period' => 'historical_daily',
+            'capture_sections' => 'traffic_report',
+            'ordered_collection' => $plan,
+        ];
+
+        $first = $service->syncDataSource($this->authorizedUser(), $sourceId, $options);
+        $legacyDirectOptions = $options;
+        unset($legacyDirectOptions['ordered_collection']);
+        $second = $service->syncDataSource(
+            $this->authorizedUser(),
+            $sourceId,
+            $legacyDirectOptions
+        );
+
+        foreach ([$first, $second] as $result) {
+            self::assertSame($activeTaskId, (int)$result['task_id']);
+            self::assertSame('in_progress', $result['status']);
+            self::assertTrue($result['reused_active_task']);
+            self::assertSame('data_source_sync_task_reused_in_progress', $result['message']);
+        }
+        self::assertSame(0, $adapter->calls);
+        self::assertSame(1, Db::name('platform_data_sync_tasks')->count());
+        self::assertSame(0, Db::name('platform_data_raw_records')->count());
+        self::assertSame(0, Db::name('online_daily_data')->count());
+
+        Db::name('platform_data_sync_tasks')->where('id', $activeTaskId)->update([
+            'status' => 'failed',
+            'finished_at' => $now,
+            'message' => 'fixture_terminal_failure',
+            'update_time' => $now,
+        ]);
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        $acquire = new \ReflectionMethod($service, 'acquireSyncTask');
+        $acquire->setAccessible(true);
+        $retry = $acquire->invoke(
+            $service,
+            $source,
+            $this->authorizedUser(),
+            'manual',
+            $options
+        );
+        self::assertTrue($retry['created']);
+        self::assertFalse($retry['reused_active_task']);
+        self::assertNotSame($activeTaskId, (int)$retry['task_id']);
+        self::assertSame(2, Db::name('platform_data_sync_tasks')->count());
+        self::assertSame('failed', Db::name('platform_data_sync_tasks')->where('id', $activeTaskId)->value('status'));
+    }
+
     public function testRunReadbackRetainsEveryIdentityBeyondLegacyFiftyRowLimit(): void
     {
         $sourceId = $this->createBrowserProfileSource('DX-1162');

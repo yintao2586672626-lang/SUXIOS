@@ -1,0 +1,23 @@
+[Unit]
+Description=SUXIOS cloud OTA current-day realtime collection
+After=network-online.target mariadb.service php8.3-fpm.service
+Wants=network-online.target
+ConditionPathExists=/var/www/suxios/current/think
+Conflicts=suxios-cloud-ota-daily.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=-/etc/suxios/ota-collector.env
+# The command owns an idempotent hotel/date/hour slot. It only reads authorised
+# cloud-side profiles and never receives sensitive material through argv.
+ExecStart=/usr/bin/php -d memory_limit=384M think online-data:auto-fetch --realtime-only --no-interaction
+Nice=10
+CPUQuota=60%
+MemoryMax=512M
+TasksMax=32
+TimeoutStartSec=25min
+UMask=0027

@@ -41,15 +41,30 @@ test('task runs only as the current interactive user with bounded execution', ()
   assert.match(source, /-LogonType Interactive/);
   assert.match(source, /-RunLevel Limited/);
   assert.match(source, /-MultipleInstances IgnoreNew/);
-  assert.match(source, /-ExecutionTimeLimit \(New-TimeSpan -Hours 2\)/);
+  assert.match(source, /New-TimeSpan -Hours 2/);
+  assert.match(source, /New-TimeSpan -Minutes 25/);
   assert.doesNotMatch(source, /\[string\]\$Password|\[securestring\]|-Password\b/i);
 });
 
 test('task arguments are fixed and credential-shaped values are rejected', () => {
   assert.match(source, /\$dispatcherCommand = 'online-data:auto-fetch'/);
-  assert.match(source, /\$actionArguments = '\"\{0\}\" \{1\}' -f \$thinkPath, \$dispatcherCommand/);
+  assert.match(source, /\$actionArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File/);
+  assert.match(source, /\$dispatcherRunnerPath/);
   assert.match(source, /cookie\|token\|password\|authorization\|spidertoken\|secret\|session\|credential/i);
-  assert.match(source, /Description = 'Authorized local-profile OTA dispatcher\./);
+  assert.match(source, /Authorized local-profile OTA (?:realtime |daily )?dispatcher/);
+  const runner = readFileSync(path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'), 'utf8');
+  assert.match(runner, /ValidateSet\('Daily', 'Realtime'\)/);
+  assert.match(runner, /\$scheduleArgument = if \(\$Mode -eq 'Realtime'\) \{ '--realtime-only' \} else \{ '--daily-only' \}/);
+});
+
+test('realtime dispatcher is an independent hourly task with the same credential boundary', () => {
+  assert.match(source, /\[switch\]\$Realtime/);
+  assert.match(source, /SUXIOS OTA Realtime Dispatcher/);
+  assert.match(source, /-Mode \{3\}/);
+  assert.match(source, /0\.\.23 \| ForEach-Object/);
+  assert.match(source, /New-ScheduledTaskTrigger -Daily -At/);
+  assert.match(source, /hourly at/);
+  assert.match(source, /-MultipleInstances IgnoreNew/);
 });
 
 test('unregistration is fixed-scope and requires explicit double confirmation', () => {
@@ -59,7 +74,8 @@ test('unregistration is fixed-scope and requires explicit double confirmation', 
   assert(confirmationGuard >= 0 && unregisterCall > confirmationGuard);
   assert.match(source, /\[Parameter\(Mandatory = \$true, ParameterSetName = 'Unregister'\)\][\s\S]*?\[switch\]\$Unregister/);
   assert.match(source, /\[switch\]\$ConfirmUnregister/);
-  assert.match(source, /\$taskName = 'SUXIOS OTA Dispatcher'/);
+  assert.match(source, /SUXIOS OTA Dispatcher/);
+  assert.match(source, /SUXIOS OTA Realtime Dispatcher/);
   assert.match(source, /ShouldProcess\("\$taskPath\$taskName", 'Unregister scheduled task'\)/);
 });
 

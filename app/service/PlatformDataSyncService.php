@@ -6,6 +6,7 @@ namespace app\service;
 use app\contract\DataSourceAdapter;
 use app\service\platform\ApiDataSourceAdapter;
 use app\service\platform\CtripBrowserProfileDataSourceAdapter;
+use app\service\platform\LocalCollectorDataSourceAdapter;
 use app\service\platform\ManualImportDataSourceAdapter;
 use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use RuntimeException;
@@ -16,7 +17,10 @@ final class PlatformDataSyncService
 {
     private const RAW_RECORD_PAYLOAD_LIMIT_BYTES = 262144;
     private const COLLECTION_RESOURCE_FRESH_HOURS = 24;
-    private const STALE_RUNNING_TASK_SECONDS = 3600;
+    // Profile captures are bounded and report no heartbeat while executing.
+    // Five minutes is long enough for the bounded section capture, but avoids
+    // leaving a vanished worker as an active task for a full hour.
+    private const STALE_RUNNING_TASK_SECONDS = 300;
     private const IMPORT_XLSX_MAX_ARCHIVE_ENTRIES = 256;
     private const IMPORT_XLSX_MAX_ENTRY_BYTES = 8388608;
     private const IMPORT_XLSX_MAX_UNCOMPRESSED_BYTES = 20971520;
@@ -148,6 +152,26 @@ final class PlatformDataSyncService
             ],
         ],
         [
+            'resource' => 'orderFlowData',
+            'data_type' => 'order_flow',
+            'priority' => 'P1',
+            'platforms' => ['meituan'],
+            'scope' => 'ota_channel_demand_flow',
+            'default_enabled' => false,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'aggregate_demand_flow_only_no_order_pii',
+            'aliases' => ['order_flow', 'orderFlow', 'loss_order', 'lossOrder', 'loss_orders', 'lossOrders', 'inflow_order', 'inflowOrder'],
+            'periods' => ['yesterday', 'last_7_days', 'last_30_days', 'custom'],
+            'fields' => [
+                ['field' => 'order_flow_direction', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.order_flow_direction', 'missing_state' => 'field_missing'],
+                ['field' => 'order_flow_period', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.order_flow_period', 'missing_state' => 'field_missing'],
+                ['field' => 'order_count', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.order_count', 'missing_state' => 'field_missing'],
+                ['field' => 'room_nights', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.room_nights', 'missing_state' => 'field_missing'],
+                ['field' => 'amount', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.amount', 'missing_state' => 'field_missing'],
+                ['field' => 'order_ratio', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
             'resource' => 'reviewData',
             'data_type' => 'review',
             'priority' => 'P2',
@@ -162,6 +186,27 @@ final class PlatformDataSyncService
                 ['field' => 'comment_score', 'storage_table' => 'online_daily_data', 'storage_field' => 'comment_score', 'missing_state' => 'field_missing'],
                 ['field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'optional_missing'],
                 ['field' => 'tags', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
+            'resource' => 'advertisingData',
+            'data_type' => 'advertising',
+            'priority' => 'P1',
+            'platforms' => ['meituan', 'ctrip'],
+            'scope' => 'ota_channel_advertising',
+            'default_enabled' => false,
+            'requires_explicit_authorization' => false,
+            'privacy_boundary' => 'aggregate_campaign_metrics_only',
+            'aliases' => ['ad', 'ads', 'advertising', 'advertisement', 'campaign', 'campaigns', 'ad_data', 'adData'],
+            'periods' => ['realtime', 'yesterday', 'last_7_days', 'last_30_days'],
+            'fields' => [
+                ['field' => 'advertising_spend', 'storage_table' => 'online_daily_data', 'storage_field' => 'amount', 'missing_state' => 'field_missing'],
+                ['field' => 'advertising_order_amount', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.order_amount', 'missing_state' => 'optional_missing'],
+                ['field' => 'advertising_order_count', 'storage_table' => 'online_daily_data', 'storage_field' => 'book_order_num', 'missing_state' => 'optional_missing'],
+                ['field' => 'advertising_impressions', 'storage_table' => 'online_daily_data', 'storage_field' => 'list_exposure', 'missing_state' => 'optional_missing'],
+                ['field' => 'advertising_clicks', 'storage_table' => 'online_daily_data', 'storage_field' => 'detail_exposure', 'missing_state' => 'optional_missing'],
+                ['field' => 'advertising_roas', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing'],
+                ['field' => 'advertising_ctr', 'storage_table' => 'online_daily_data', 'storage_field' => 'flow_rate', 'missing_state' => 'optional_missing'],
             ],
         ],
         [
@@ -386,6 +431,147 @@ final class PlatformDataSyncService
                 'source_keys' => ['mt_pay_rooms', 'pay_rooms', 'payRooms', 'payRoomNum', 'pay_room_num', 'roomNights', 'room_nights', 'quantity'],
             ],
         ],
+        'advertising' => [
+            [
+                'metric_key' => 'advertising_spend',
+                'normalized_field' => 'amount',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'amount',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['amount', 'todayCost', 'cost', 'cashCost', 'bonusCost', 'ad_cost', 'adCost', 'spend', 'consume', 'consumption'],
+            ],
+            [
+                'metric_key' => 'advertising_order_amount',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.order_amount',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['order_amount', 'orderAmount', 'saleAmount', 'salesAmount', 'revenue', 'gmv'],
+            ],
+            [
+                'metric_key' => 'advertising_order_count',
+                'normalized_field' => 'book_order_num',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'book_order_num',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['book_order_num', 'bookOrderNum', 'orderNum', 'order_count', 'orders', 'booking_count', 'bookingCount'],
+            ],
+            [
+                'metric_key' => 'advertising_impressions',
+                'normalized_field' => 'list_exposure',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'list_exposure',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'],
+            ],
+            [
+                'metric_key' => 'advertising_clicks',
+                'normalized_field' => 'detail_exposure',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'detail_exposure',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['click_count', 'clickCount', 'clickNum', 'clicks', 'click'],
+            ],
+            [
+                'metric_key' => 'advertising_roas',
+                'normalized_field' => 'data_value',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'data_value',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['roas', 'roi'],
+            ],
+            [
+                'metric_key' => 'advertising_ctr',
+                'normalized_field' => 'flow_rate',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'flow_rate',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['flow_rate', 'flowRate', 'ctr'],
+            ],
+        ],
+        'order_flow' => [
+            [
+                'metric_key' => 'order_flow_direction',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.order_flow_direction',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['order_flow_direction', 'orderFlowDirection', 'direction'],
+            ],
+            [
+                'metric_key' => 'order_flow_row_type',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.order_flow_row_type',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['order_flow_row_type', 'orderFlowRowType', 'row_type', 'rowType'],
+            ],
+            [
+                'metric_key' => 'order_flow_period',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.order_flow_period',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['order_flow_period', 'orderFlowPeriod', 'period'],
+            ],
+            [
+                'metric_key' => 'order_flow_order_count',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.order_count',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['order_count', 'orderCount', 'lossTotalCnt', 'lossOrderCount'],
+            ],
+            [
+                'metric_key' => 'order_flow_room_nights',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.room_nights',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['room_nights', 'roomNights', 'lossTotalPayRoomNight'],
+            ],
+            [
+                'metric_key' => 'order_flow_amount',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.amount',
+                'missing_state' => 'field_missing',
+                'source_keys' => ['amount', 'lossTotalPayAmount', 'lossSinglePayAmount'],
+            ],
+            [
+                'metric_key' => 'order_flow_ratio',
+                'normalized_field' => 'data_value',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'data_value',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['order_ratio', 'orderRatio', 'lossOrderRatio'],
+            ],
+        ],
+        'search_keyword' => [
+            ['metric_key' => 'search_keyword', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['keyword', 'search_keyword', 'searchKeyword', 'word']],
+            ['metric_key' => 'search_exposure', 'normalized_field' => 'list_exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'list_exposure', 'missing_state' => 'optional_missing', 'source_keys' => ['exposure', 'exposures', 'impression', 'impressions', 'listExposure']],
+            ['metric_key' => 'search_clicks', 'normalized_field' => 'detail_exposure', 'storage_table' => 'online_daily_data', 'storage_field' => 'detail_exposure', 'missing_state' => 'optional_missing', 'source_keys' => ['clicks', 'click', 'clickCount', 'detailExposure']],
+        ],
+        'traffic_forecast' => [
+            ['metric_key' => 'forecast_type', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['forecast_type', 'forecastType', 'type', 'dimension']],
+            ['metric_key' => 'forecast_current', 'normalized_field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing', 'source_keys' => ['current', 'currentValue', 'value', 'data_value', 'dataValue']],
+            ['metric_key' => 'forecast_peer_average', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.peer_average', 'missing_state' => 'optional_missing', 'source_keys' => ['peer_avg', 'peerAverage', 'competitorAverage', 'average']],
+        ],
+        'traffic_analysis' => [
+            ['metric_key' => 'analysis_type', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['analysis_type', 'analysisType', 'type', 'dimension']],
+            ['metric_key' => 'analysis_value', 'normalized_field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing', 'source_keys' => ['data_value', 'dataValue', 'value', 'currentValue']],
+            ['metric_key' => 'analysis_peer_rank', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.peer_rank', 'missing_state' => 'optional_missing', 'source_keys' => ['peer_rank', 'peerRank', 'rank', 'ranking']],
+        ],
+        'review' => [
+            ['metric_key' => 'review_score', 'normalized_field' => 'comment_score', 'storage_table' => 'online_daily_data', 'storage_field' => 'comment_score', 'missing_state' => 'field_missing', 'source_keys' => ['comment_score', 'commentScore', 'score', 'rating']],
+            ['metric_key' => 'review_count', 'normalized_field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'optional_missing', 'source_keys' => ['review_count', 'reviewCount', 'comment_count', 'commentCount', 'count', 'quantity']],
+            ['metric_key' => 'review_tags', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.tags', 'missing_state' => 'optional_missing', 'source_keys' => ['tags', 'tagList', 'labels']],
+        ],
+        'room_type' => [
+            ['metric_key' => 'room_type_name', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['room_type_name', 'roomTypeName', 'room_name', 'roomName', 'name']],
+            ['metric_key' => 'room_type_price', 'normalized_field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing', 'source_keys' => ['price', 'roomPrice', 'sellPrice', 'data_value', 'dataValue']],
+            ['metric_key' => 'room_type_status', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.product_status', 'missing_state' => 'optional_missing', 'source_keys' => ['product_status', 'productStatus', 'status', 'saleStatus']],
+        ],
         'platform_identity' => [
             [
                 'metric_key' => 'meituan_partner_id',
@@ -427,6 +613,7 @@ final class PlatformDataSyncService
     {
         $this->adapters = $adapters ?? [
             new ManualImportDataSourceAdapter(),
+            new LocalCollectorDataSourceAdapter(),
             new CtripBrowserProfileDataSourceAdapter(),
             new MeituanBrowserProfileDataSourceAdapter(),
             new ApiDataSourceAdapter(),
@@ -441,6 +628,44 @@ final class PlatformDataSyncService
     public function collectionResourceDefinitions(): array
     {
         return array_values(self::COLLECTION_RESOURCE_DEFINITIONS);
+    }
+
+    /**
+     * Read the exact persisted rows that an ordered Profile run may use as
+     * evidence for its next missing section. Keeping this query beside the
+     * persistence/sync service prevents the scheduler from becoming another
+     * online_daily_data access path.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function readStoredRowsForCollectionPlan(
+        int $hotelId,
+        int $sourceId,
+        string $platform,
+        string $dataDate
+    ): array {
+        $platform = strtolower(trim($platform));
+        $dataDate = substr(trim($dataDate), 0, 10);
+        if ($hotelId <= 0 || $sourceId <= 0
+            || !in_array($platform, ['ctrip', 'meituan'], true)
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $dataDate) !== 1
+        ) {
+            return [];
+        }
+        try {
+            return Db::name('online_daily_data')
+                ->where('system_hotel_id', $hotelId)
+                ->where('data_source_id', $sourceId)
+                ->where('data_date', $dataDate)
+                ->where(static function ($query) use ($platform): void {
+                    $query->where('platform', $platform)->whereOr('source', $platform);
+                })
+                ->limit(500)
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**
@@ -506,7 +731,7 @@ final class PlatformDataSyncService
                 'captcha_or_platform_limit' => 'manual_intervention_required',
                 'review_data' => 'disabled_by_default',
                 'privacy_scope' => 'ota_channel_aggregate_only',
-                'ota_collection_mainline' => 'browser_profile_authorization',
+                'ota_collection_mainline' => 'account_owned_local_collector_or_browser_profile',
                 'ota_password_custody' => 'not_supported',
                 'cookie_api_role' => 'p1_profile_derived_fast_path_or_backfill',
                 'profile_login_state' => 'profile_available_attempt_first',
@@ -561,7 +786,7 @@ final class PlatformDataSyncService
             $sourceIngestionMethod = (string)($source['ingestion_method'] ?? '');
             $preserveMissingMetrics = true;
             $dataType = $this->normalizeDataType(
-                in_array($sourceIngestionMethod, ['browser_profile', 'profile_browser'], true) && $rowDataType !== ''
+                in_array($sourceIngestionMethod, ['browser_profile', 'profile_browser', 'local_collector'], true) && $rowDataType !== ''
                     ? $rowDataType
                     : ($sourceDataType !== '' ? $sourceDataType : ($rowDataType !== '' ? $rowDataType : 'business'))
             );
@@ -642,12 +867,21 @@ final class PlatformDataSyncService
                 $normalizedCompareType = 'competitor_avg';
             }
 
+            $isCtripDailyBusinessOverview = $this->isCtripDailyBusinessOverviewRow($row, $platform, $dataType);
             $normalizedRow = [
                 'hotel_id' => $normalizedHotelId,
                 'hotel_name' => $this->stringValue($row, ['hotel_name', 'hotelName', 'poi_name', 'poiName', 'name']) ?: (string)($source['hotel_name'] ?? $source['name'] ?? ''),
                 'data_date' => $date,
-                'amount' => $this->amountValue($row, $dataType, $preserveMissingMetrics),
-                'quantity' => $this->quantityValue($row, $dataType, $preserveMissingMetrics),
+                // Ctrip's daily business-overview payload contains two metric
+                // families. `amount`/`quantity` are not its booking result;
+                // the explicit `book*` fields are. Do not let zeros from the
+                // former hide the target-date booking facts.
+                'amount' => $isCtripDailyBusinessOverview
+                    ? $this->nullableNumericValue($row, ['bookAmount', 'book_amount'])
+                    : $this->amountValue($row, $dataType, $preserveMissingMetrics),
+                'quantity' => $isCtripDailyBusinessOverview
+                    ? $this->nullableRoundedInteger($row, ['bookQuantity', 'book_quantity'])
+                    : $this->quantityValue($row, $dataType, $preserveMissingMetrics),
                 'book_order_num' => $this->orderCountValue($row, $dataType, $preserveMissingMetrics),
                 'comment_score' => $this->commentScoreValue($row, $dataType, $preserveMissingMetrics),
                 'qunar_comment_score' => $this->nullableNumericValue($row, ['qunar_comment_score', 'qunar_score']),
@@ -676,7 +910,13 @@ final class PlatformDataSyncService
                 'is_final' => $periodMeta['is_final'],
             ];
 
-            $fieldFacts = $this->buildNormalizedFieldFacts($row, $dataType, $normalizedRow, $traceId);
+            $fieldFacts = $this->buildNormalizedFieldFacts(
+                $row,
+                $dataType,
+                $normalizedRow,
+                $traceId,
+                $isCtripDailyBusinessOverview
+            );
             if ($fieldFacts !== []) {
                 $raw['field_facts'] = $fieldFacts;
                 $raw['field_fact_summary'] = $this->summarizeNormalizedFieldFacts($fieldFacts);
@@ -693,7 +933,9 @@ final class PlatformDataSyncService
                     }
                 }
             }
-            $isGenericOtaSource = $this->isOtaPlatform($platform) && !$this->isOtaBrowserProfileSource($source);
+            $isGenericOtaSource = $this->isOtaPlatform($platform)
+                && !$this->isOtaBrowserProfileSource($source)
+                && !$this->isOtaLocalCollectorSource($source);
             if ($isGenericOtaSource) {
                 $validationFlags[] = 'source_ingestion_method_unverified';
                 if (($bindingEvidence['status'] ?? '') !== 'matched') {
@@ -728,7 +970,7 @@ final class PlatformDataSyncService
      */
     private function reconcileCtripCatalogStructuredMetricFacts(array $row, array $source): array
     {
-        if (!$this->isOtaBrowserProfileSource($source)
+        if ((!$this->isOtaBrowserProfileSource($source) && !$this->isOtaLocalCollectorSource($source))
             || strtolower(trim((string)($source['platform'] ?? $row['platform'] ?? $row['source'] ?? ''))) !== 'ctrip'
         ) {
             return $row;
@@ -785,7 +1027,13 @@ final class PlatformDataSyncService
      * @param array<string, mixed> $normalizedRow
      * @return array<int, array<string, mixed>>
      */
-    private function buildNormalizedFieldFacts(array $row, string $dataType, array $normalizedRow, string $rowSourceTraceId = ''): array
+    private function buildNormalizedFieldFacts(
+        array $row,
+        string $dataType,
+        array $normalizedRow,
+        string $rowSourceTraceId = '',
+        bool $preferCtripBookingFields = false
+    ): array
     {
         $dataType = $this->normalizeDataType($dataType);
         $definitions = self::NORMALIZED_FIELD_FACT_DEFINITIONS[$dataType] ?? [];
@@ -796,6 +1044,14 @@ final class PlatformDataSyncService
         $facts = [];
         foreach ($definitions as $definition) {
             $sourceKeys = is_array($definition['source_keys'] ?? null) ? $definition['source_keys'] : [];
+            if ($preferCtripBookingFields) {
+                $sourceKeys = match ((string)($definition['metric_key'] ?? '')) {
+                    'order_amount' => ['bookAmount', 'book_amount', ...$sourceKeys],
+                    'room_nights' => ['bookQuantity', 'book_quantity', ...$sourceKeys],
+                    'order_count' => ['bookOrderNum', 'book_order_num', ...$sourceKeys],
+                    default => $sourceKeys,
+                };
+            }
             $sourceKey = $this->firstPresentSourceKey($row, $sourceKeys);
             $normalizedField = (string)($definition['normalized_field'] ?? '');
             $status = $sourceKey !== '' ? 'captured' : 'missing';
@@ -822,6 +1078,24 @@ final class PlatformDataSyncService
         }
 
         return $facts;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function isCtripDailyBusinessOverviewRow(array $row, string $platform, string $dataType): bool
+    {
+        if (strtolower(trim($platform)) !== 'ctrip' || $this->normalizeDataType($dataType) !== 'business') {
+            return false;
+        }
+
+        return strtolower(trim((string)($row['endpoint_id'] ?? ''))) === 'business_market_overview'
+            && strtolower(trim((string)($row['section'] ?? ''))) === 'business_overview';
+    }
+
+    /** @param array<string, mixed> $row @param array<int, string> $keys */
+    private function nullableRoundedInteger(array $row, array $keys): ?int
+    {
+        $value = $this->nullableNumericValue($row, $keys);
+        return $value === null ? null : (int)round($value);
     }
 
     /**
@@ -923,6 +1197,13 @@ final class PlatformDataSyncService
             return ['status' => 'matched', 'proof' => 'platform_identity_validation'];
         }
 
+        // A local collector row can contain request-scoped hotel identifiers.
+        // Only the collector adapter's response-derived identity proof may bind
+        // those rows to a system hotel; never treat a row echo as that proof.
+        if ($this->isOtaLocalCollectorSource($source)) {
+            throw new RuntimeException('binding_unverified', 422);
+        }
+
         $observed = [];
         foreach ($this->extractBusinessRows($payload) as $row) {
             if (!is_array($row) || $this->isCompetitorOtaIdentityRow($row, $keys)) {
@@ -948,8 +1229,8 @@ final class PlatformDataSyncService
     private function otaHotelIdentifierKeys(string $platform): array
     {
         return strtolower(trim($platform)) === 'meituan'
-            ? ['external_hotel_id', 'poi_id', 'poiId', 'store_id', 'storeId']
-            : ['external_hotel_id', 'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'hotel_id', 'hotelId', 'node_id', 'nodeId'];
+            ? ['platform_hotel_id', 'external_hotel_id', 'poi_id', 'poiId', 'store_id', 'storeId']
+            : ['platform_hotel_id', 'external_hotel_id', 'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'hotel_id', 'hotelId', 'node_id', 'nodeId'];
     }
 
     /** @param array<string, mixed> $row @param array<int, string> $identifierKeys */
@@ -1281,31 +1562,38 @@ final class PlatformDataSyncService
         $existingConfig = $existing ? $this->decodeConfig($existing['config_json'] ?? []) : [];
         $secretPayload = $this->normalizeOtaCredentialPayload($source['secret']);
         $hasSecretInput = $this->credentialPayloadHasValue($secretPayload);
+        $ingestionMethod = strtolower(trim((string)($source['ingestion_method'] ?? '')));
         $isBrowserProfile = in_array(
-            strtolower(trim((string)($source['ingestion_method'] ?? ''))),
+            $ingestionMethod,
             ['browser_profile', 'profile_browser'],
             true
         );
+        $isLocalCollector = $ingestionMethod === 'local_collector';
+        $isCredentiallessSource = $isBrowserProfile || $isLocalCollector;
         if ($existing) {
-            $existingIsBrowserProfile = in_array(
-                strtolower(trim((string)($existing['ingestion_method'] ?? ''))),
-                ['browser_profile', 'profile_browser'],
-                true
-            );
-            if ($existingIsBrowserProfile !== $isBrowserProfile) {
+            $existingMethod = strtolower(trim((string)($existing['ingestion_method'] ?? '')));
+            $existingAuthorizationModel = in_array($existingMethod, ['browser_profile', 'profile_browser'], true)
+                ? 'browser_profile'
+                : ($existingMethod === 'local_collector' ? 'local_collector' : 'credential_vault');
+            $authorizationModel = $isBrowserProfile
+                ? 'browser_profile'
+                : ($isLocalCollector ? 'local_collector' : 'credential_vault');
+            if ($existingAuthorizationModel !== $authorizationModel) {
                 throw new RuntimeException(
                     'OTA data source cannot switch authorization model in place; create a separate data source.',
                     422
                 );
             }
         }
-        if ($isBrowserProfile && $hasSecretInput) {
+        if ($isCredentiallessSource && $hasSecretInput) {
             throw new RuntimeException(
-                'Browser Profile data source must not store reusable OTA credentials; use a separate API/manual source.',
+                $isBrowserProfile
+                    ? 'Browser Profile data source must not store reusable OTA credentials; use a separate API/manual source.'
+                    : 'Local collector data source must not store reusable OTA credentials; keep the session on the account owner device.',
                 422
             );
         }
-        if (!$isBrowserProfile && !$existing && !$hasSecretInput) {
+        if (!$isCredentiallessSource && !$existing && !$hasSecretInput) {
             throw new RuntimeException('New OTA data source requires a reusable credential.', 422);
         }
         $configId = $this->resolveOtaDataSourceConfigId($source['config'], $existingConfig, $platform, $id);
@@ -1317,8 +1605,8 @@ final class PlatformDataSyncService
             $locatorMismatch = $existingConfigId === '' || $existingConfigId !== $configId;
             if ($existingPlatform !== $platform
                 || $existingHotelId !== $hotelId
-                || (!$isBrowserProfile && $locatorMismatch)
-                || ($isBrowserProfile && $existingConfigId !== '' && $existingConfigId !== $configId)
+                || (!$isCredentiallessSource && $locatorMismatch)
+                || ($isCredentiallessSource && $existingConfigId !== '' && $existingConfigId !== $configId)
             ) {
                 throw new RuntimeException('Replacing an OTA credential locator requires a new credential payload.', 422);
             }
@@ -1330,6 +1618,17 @@ final class PlatformDataSyncService
         if ($isBrowserProfile && $profileKey === '') {
             throw new RuntimeException('Browser Profile binding key is missing.', 422);
         }
+        if ($isLocalCollector) {
+            $accountId = (int)($safeConfig['local_collector_account_id'] ?? 0);
+            $profileKeyHash = strtolower(trim((string)($safeConfig['profile_key_hash'] ?? '')));
+            $deviceIdHash = strtolower(trim((string)($safeConfig['collector_device_id_hash'] ?? '')));
+            if ($accountId <= 0
+                || preg_match('/^[a-f0-9]{64}$/D', $profileKeyHash) !== 1
+                || preg_match('/^[a-f0-9]{64}$/D', $deviceIdHash) !== 1
+            ) {
+                throw new RuntimeException('Local collector account, device or Profile proof is incomplete.', 422);
+            }
+        }
         $now = date('Y-m-d H:i:s');
 
         return Db::transaction(function () use (
@@ -1339,6 +1638,7 @@ final class PlatformDataSyncService
             $secretPayload,
             $hasSecretInput,
             $isBrowserProfile,
+            $isLocalCollector,
             $safeConfig,
             $profileKey,
             $tenantId,
@@ -1398,6 +1698,16 @@ final class PlatformDataSyncService
                     'has_secret' => false,
                     'has_cookies' => false,
                     'profile_execution_policy' => 'profile_session_metadata_only_no_vault_decrypt',
+                ]);
+            } elseif ($isLocalCollector) {
+                $config = array_merge($safeConfig, [
+                    'config_id' => $configId,
+                    'credential_usage' => 'not_required_for_local_collector',
+                    'credential_status' => 'not_required',
+                    'status' => 'not_required',
+                    'has_secret' => false,
+                    'has_cookies' => false,
+                    'profile_execution_policy' => 'account_owner_device_only',
                 ]);
             } else {
                 $credential = ($hasSecretInput || !$existing)
@@ -1523,6 +1833,8 @@ final class PlatformDataSyncService
             'manual_login_state_verified', 'profile_status', 'login_status', 'last_login_verified_at',
             'lastLoginVerifiedAt', 'login_verified_at', 'loginVerifiedAt', 'last_verified_at', 'lastVerifiedAt',
             'profile_login_verified_at', 'last_profile_login_at', 'profile_daily_reuse_enabled', 'profileDailyReuseEnabled',
+            'local_collector_account_id', 'collector_device_id_hash', 'profile_key_hash', 'source_method',
+            'current_session_verified',
             'data_date', 'dataDate', 'data_period', 'dataPeriod', 'snapshot_time', 'snapshotTime',
         ];
         $safe = [];
@@ -1797,7 +2109,21 @@ final class PlatformDataSyncService
             throw new RuntimeException('Data source is disabled.', 422);
         }
 
-        $taskId = $this->createTask($source, $user, (string)($options['trigger_type'] ?? 'manual'));
+        $taskAcquisition = $this->acquireSyncTask(
+            $source,
+            $user,
+            (string)($options['trigger_type'] ?? 'manual'),
+            $options
+        );
+        $taskId = (int)$taskAcquisition['task_id'];
+        if (($taskAcquisition['reused_active_task'] ?? false) === true) {
+            return $this->reusedActiveSyncTaskResult(
+                $source,
+                is_array($taskAcquisition['task'] ?? null)
+                    ? $taskAcquisition['task']
+                    : []
+            );
+        }
         try {
             $adapter = $this->resolveAdapter($source);
             $this->assertBrowserProfileBackgroundSyncLoginVerified($source, $options);
@@ -1805,7 +2131,9 @@ final class PlatformDataSyncService
             if ($isOtaSource) {
                 $result = $this->isOtaBrowserProfileSource($source)
                     ? $this->fetchOtaBrowserProfileSource($adapter, $source, $options)
-                    : $this->fetchOtaSourceInsideVault($adapter, $source, $options);
+                    : ($this->isOtaLocalCollectorSource($source)
+                        ? $this->fetchOtaLocalCollectorSource($adapter, $source, $options)
+                        : $this->fetchOtaSourceInsideVault($adapter, $source, $options));
             } else {
                 $result = $adapter->fetch($source, $options);
             }
@@ -2055,6 +2383,17 @@ final class PlatformDataSyncService
         if (is_array($stats['run_readback'] ?? null)) {
             $safe['run_readback'] = $this->sanitizeRunReadbackReceipt($stats['run_readback']);
         }
+        if (is_array($stats['ordered_collection'] ?? null)) {
+            $ordered = $stats['ordered_collection'];
+            $safeOrdered = $this->sanitizeOrderedCollectionTaskPlan($ordered, [
+                'id' => (int)($ordered['data_source_id'] ?? 0),
+                'system_hotel_id' => (int)($ordered['system_hotel_id'] ?? 0),
+                'platform' => (string)($ordered['platform'] ?? ''),
+            ]);
+            if ($safeOrdered !== []) {
+                $safe['ordered_collection'] = $safeOrdered;
+            }
+        }
 
         $period = $this->normalizeDataPeriod($stats['data_period'] ?? '');
         if ($period !== '') {
@@ -2111,6 +2450,24 @@ final class PlatformDataSyncService
         if ($rowIdLimitExceeded) {
             $failureReason = 'run_readback_row_limit_exceeded';
         }
+        $p0Status = strtolower(trim((string)($receipt['p0_status'] ?? 'blocked')));
+        if (!in_array($p0Status, ['ready', 'blocked', 'not_required', 'not_loaded'], true)) {
+            $p0Status = 'blocked';
+        }
+        $fieldFactStatus = strtolower(trim((string)($receipt['field_fact_status'] ?? '')));
+        if (!in_array($fieldFactStatus, ['ready', 'partial', 'missing', 'not_loaded'], true)) {
+            $fieldFactStatus = 'unknown';
+        }
+        $platformHotelIdentifierStatus = strtolower(trim((string)(
+            $receipt['platform_hotel_identifier_status'] ?? 'unverified'
+        )));
+        if (!in_array($platformHotelIdentifierStatus, ['ready', 'unverified'], true)) {
+            $platformHotelIdentifierStatus = 'unverified';
+        }
+        $pageFieldFactStatus = strtolower(trim((string)($receipt['page_field_fact_status'] ?? 'partial')));
+        if (!in_array($pageFieldFactStatus, ['ready', 'partial'], true)) {
+            $pageFieldFactStatus = 'partial';
+        }
 
         return [
             'readback_verified' => ($receipt['readback_verified'] ?? false) === true
@@ -2126,6 +2483,20 @@ final class PlatformDataSyncService
             'row_ids' => $rowIds,
             'source_trace_ids' => array_slice(array_values(array_unique($traceIds)), 0, 50),
             'verified_metric_keys' => $metricKeys,
+            'p0_status' => $p0Status,
+            'field_fact_status' => $fieldFactStatus,
+            'required_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys(
+                $receipt['required_traffic_metric_keys'] ?? []
+            ),
+            'complete_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys(
+                $receipt['complete_traffic_metric_keys'] ?? []
+            ),
+            'missing_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys(
+                $receipt['missing_traffic_metric_keys'] ?? []
+            ),
+            'nonzero_required_metric_rows' => max(0, (int)($receipt['nonzero_required_metric_rows'] ?? 0)),
+            'platform_hotel_identifier_status' => $platformHotelIdentifierStatus,
+            'page_field_fact_status' => $pageFieldFactStatus,
             'readback_count' => $readbackCount,
             'failure_reason' => $failureReason,
         ];
@@ -2261,7 +2632,7 @@ final class PlatformDataSyncService
             return [];
         }
 
-        $allowedSections = ['traffic', 'order_flow', 'orders', 'ads', 'reviews'];
+        $allowedSections = ['traffic', 'order_flow', 'orders', 'ads', 'reviews', 'room_types'];
         $allowedStatuses = ['captured', 'empty_confirmed', 'not_applicable', 'not_captured'];
         $statuses = [];
         foreach ($value as $section => $status) {
@@ -2388,7 +2759,7 @@ final class PlatformDataSyncService
             $taskStatus = 'unknown';
         }
         $ingestionMethod = strtolower(trim((string)($evidence['ingestion_method'] ?? '')));
-        if (!in_array($ingestionMethod, ['browser_profile', 'profile_browser', 'manual', 'api', 'unknown'], true)) {
+        if (!in_array($ingestionMethod, ['browser_profile', 'profile_browser', 'local_collector', 'manual', 'api', 'unknown'], true)) {
             $ingestionMethod = 'unknown';
         }
         $p0Status = strtolower(trim((string)($evidence['p0_status'] ?? '')));
@@ -2940,7 +3311,7 @@ final class PlatformDataSyncService
                     : (string)$payload[$key];
             }
         }
-        foreach (['config_id', 'url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'headers_json', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
+        foreach (['config_id', 'url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'headers_json', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled', 'local_collector_account_id', 'collector_device_id_hash', 'profile_key_hash', 'source_method', 'current_session_verified'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
                 $config[$key] = $payload[$key];
             }
@@ -3190,6 +3561,32 @@ final class PlatformDataSyncService
             $adapter->fetch($executionSource, $options),
             []
         );
+    }
+
+    /**
+     * Local collector uploads are already bound to a leased device task. They
+     * bypass the central credential vault and may contain business facts only.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function fetchOtaLocalCollectorSource(
+        DataSourceAdapter $adapter,
+        array $source,
+        array $options
+    ): array {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $this->assertNoInlineOtaCredentialOptions($options, $platform);
+        $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+        $this->assertOtaExecutionConfigSafe($config, $platform);
+        if (($options['local_collector_verified'] ?? false) !== true
+            || (int)($options['local_collector_task_id'] ?? 0) <= 0
+        ) {
+            throw new RuntimeException('Local collector task proof is missing.', 403);
+        }
+
+        return $adapter->fetch($source, $options);
     }
 
     /**
@@ -3572,7 +3969,11 @@ final class PlatformDataSyncService
         }
         $triggerType = strtolower(trim((string)($options['trigger_type'] ?? '')));
         $blockingStatus = $this->profileSessionProofService->currentSessionBlockingStatus($source);
-        if ($triggerType === 'profile_login_after_login' && $blockingStatus === 'identity_unverified') {
+        // Old/missing local anchors, including a contradictory old mismatch
+        // accompanied by today's strong same-source matched page probe, may
+        // reach the real OTA response. Both Profile adapters still reject a
+        // real mismatch before raw or normalized persistence.
+        if ($this->profileSessionProofService->canAttemptResponseIdentityValidation($source)) {
             return [];
         }
         if ($blockingStatus !== '') {
@@ -3647,12 +4048,20 @@ final class PlatformDataSyncService
      */
     private function browserProfileCurrentSessionProofMissingRequirements(array $source): array
     {
-        if (!$this->isOtaBrowserProfileSource($source)) {
-            return [];
+        if ($this->isOtaBrowserProfileSource($source)) {
+            return $this->profileSessionProofService->isCurrentVerified($source)
+                ? []
+                : ['current_session_verified'];
         }
-        return $this->profileSessionProofService->isCurrentVerified($source)
-            ? []
-            : ['current_session_verified'];
+        if ($this->isOtaLocalCollectorSource($source)) {
+            $config = is_array($source['config'] ?? null)
+                ? $source['config']
+                : $this->decodeConfig($source['config_json'] ?? []);
+            return $this->truthy($config['current_session_verified'] ?? false)
+                ? []
+                : ['current_session_verified'];
+        }
+        return [];
     }
 
     /**
@@ -3664,6 +4073,18 @@ final class PlatformDataSyncService
         $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
         return in_array($platform, ['ctrip', 'meituan'], true)
             && in_array($method, ['browser_profile', 'profile_browser'], true);
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function isOtaLocalCollectorSource(array $source): bool
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+
+        return in_array($platform, ['ctrip', 'meituan'], true)
+            && $method === 'local_collector';
     }
 
     private function refreshDatabaseConnectionAfterExternalFetch(): void
@@ -3709,9 +4130,22 @@ final class PlatformDataSyncService
         return $normalized;
     }
 
-    private function createTask(array $source, $user, string $triggerType): int
+    private function createTask(array $source, $user, string $triggerType, array $options = []): int
     {
-        return Db::transaction(function () use ($source, $user, $triggerType): int {
+        $acquisition = $this->acquireSyncTask($source, $user, $triggerType, $options);
+        return (int)$acquisition['task_id'];
+    }
+
+    /**
+     * @return array{task_id:int,created:bool,reused_active_task:bool,task:array<string,mixed>}
+     */
+    private function acquireSyncTask(
+        array $source,
+        $user,
+        string $triggerType,
+        array $options = []
+    ): array {
+        return Db::transaction(function () use ($source, $user, $triggerType, $options): array {
             $now = date('Y-m-d H:i:s');
             $lockedSourceQuery = Db::name('platform_data_sources')
                 ->field('id,tenant_id,system_hotel_id');
@@ -3736,6 +4170,23 @@ final class PlatformDataSyncService
                 $predecessorStats = $this->decodeConfig($predecessor['stats_json'] ?? []);
                 $hasRecoveryContext = $this->syncTaskHasRecoveryContext($predecessorStats);
                 if (!self::isStaleRunningSyncTask($predecessor)) {
+                    $requestedPlan = $this->orderedCollectionTaskPlanFromOptions(
+                        $options,
+                        $source
+                    );
+                    if ($this->sameOrderedCollectionTaskScope(
+                        $requestedPlan,
+                        is_array($predecessorStats['ordered_collection'] ?? null)
+                            ? $predecessorStats['ordered_collection']
+                            : []
+                    )) {
+                        return [
+                            'task_id' => $predecessorId,
+                            'created' => false,
+                            'reused_active_task' => true,
+                            'task' => $predecessor,
+                        ];
+                    }
                     $message = 'data source sync task is already active';
                     if (!$hasRecoveryContext) {
                         $message .= '; recovery_context missing (checkpoint unavailable)';
@@ -3772,6 +4223,13 @@ final class PlatformDataSyncService
                     'recovery_context_status' => $recoveryContextStatus,
                 ];
             }
+            $orderedCollection = $this->orderedCollectionTaskPlanFromOptions(
+                $options,
+                $source
+            );
+            if ($orderedCollection !== []) {
+                $taskStats['ordered_collection'] = $orderedCollection;
+            }
             $data = [
                 'data_source_id' => (int)$source['id'],
                 'system_hotel_id' => $hotelId,
@@ -3794,8 +4252,130 @@ final class PlatformDataSyncService
                 $data['tenant_id'] = $tenantId;
             }
 
-            return (int)Db::name('platform_data_sync_tasks')->insertGetId($data);
+            $taskId = (int)Db::name('platform_data_sync_tasks')->insertGetId($data);
+            return [
+                'task_id' => $taskId,
+                'created' => true,
+                'reused_active_task' => false,
+                'task' => [],
+            ];
         });
+    }
+
+    /**
+     * Persist only the bounded, non-secret orchestration contract so running,
+     * failed and completed tasks all explain their hotel/date/field scope.
+     *
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function sanitizeOrderedCollectionTaskPlan(mixed $value, array $source): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $platform = strtolower(trim((string)($value['platform'] ?? $source['platform'] ?? '')));
+        $targetDate = $this->normalizeDate($value['target_date'] ?? null) ?? '';
+        if (!in_array($platform, ['ctrip', 'meituan'], true) || $targetDate === '') {
+            return [];
+        }
+        $safeToken = static function (mixed $token): string {
+            $token = strtolower(trim((string)$token));
+            return preg_match('/^[a-z0-9._:-]{1,80}$/D', $token) === 1 ? $token : '';
+        };
+        $safeList = static function (mixed $items) use ($safeToken): array {
+            if (!is_array($items)) {
+                return [];
+            }
+            return array_values(array_unique(array_filter(array_map($safeToken, $items))));
+        };
+        $reason = $safeToken($value['reason'] ?? '');
+        return [
+            'contract_version' => $safeToken($value['contract_version'] ?? ''),
+            'mode' => $safeToken($value['mode'] ?? ''),
+            'scope' => $safeToken($value['scope'] ?? ''),
+            'platform' => $platform,
+            'system_hotel_id' => max(0, (int)($source['system_hotel_id'] ?? 0)),
+            'data_source_id' => max(0, (int)($source['id'] ?? 0)),
+            'target_date' => $targetDate,
+            'stage' => $safeToken($value['stage'] ?? ''),
+            'reason' => $reason,
+            'sections' => $safeList($value['sections'] ?? []),
+            'interface_ids' => $safeList($value['interface_ids'] ?? []),
+            'required_field_keys' => $safeList($value['required_field_keys'] ?? []),
+            'captured_field_keys' => $safeList($value['captured_field_keys'] ?? []),
+            'missing_field_keys' => $safeList($value['missing_field_keys'] ?? []),
+            'excluded_example_capabilities' => $safeList($value['excluded_example_capabilities'] ?? []),
+            'source_recovery_required' => ($value['source_recovery_required'] ?? false) === true,
+            'eligible_row_count' => max(0, (int)($value['eligible_row_count'] ?? 0)),
+        ];
+    }
+
+    /**
+     * Ordered callers provide the full plan. Older direct Profile callers still
+     * get a minimal exact-date scope so a repeated request can reuse the active
+     * task instead of launching a second browser process.
+     *
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function orderedCollectionTaskPlanFromOptions(array $options, array $source): array
+    {
+        $plan = $this->sanitizeOrderedCollectionTaskPlan(
+            $options['ordered_collection'] ?? null,
+            $source
+        );
+        if ($plan !== [] || !$this->isOtaBrowserProfileSource($source)) {
+            return $plan;
+        }
+        $targetDate = $this->normalizeDate(
+            $options['data_date']
+            ?? $options['target_date']
+            ?? null
+        ) ?? '';
+        if ($targetDate === '') {
+            return [];
+        }
+        return $this->sanitizeOrderedCollectionTaskPlan([
+            'contract_version' => OtaOrderedCollectionPlanner::CONTRACT_VERSION,
+            'mode' => 'direct_profile_date_collection',
+            'scope' => 'ota_date_collection',
+            'platform' => (string)($source['platform'] ?? ''),
+            'target_date' => $targetDate,
+            'stage' => 'requested_date',
+            'reason' => 'direct_profile_date_request',
+            'sections' => [],
+            'interface_ids' => [],
+            'required_field_keys' => [],
+            'missing_field_keys' => [],
+            'excluded_example_capabilities' => [],
+        ], $source);
+    }
+
+    /**
+     * Same Profile source is already tenant/hotel/platform scoped by the
+     * locked query. Exact target date completes the active-task reuse scope.
+     *
+     * @param array<string, mixed> $requested
+     * @param array<string, mixed> $active
+     */
+    private function sameOrderedCollectionTaskScope(array $requested, array $active): bool
+    {
+        if ($requested === [] || $active === []) {
+            return false;
+        }
+        foreach ([
+            'platform',
+            'system_hotel_id',
+            'data_source_id',
+            'target_date',
+        ] as $key) {
+            if ((string)($requested[$key] ?? '') !== (string)($active[$key] ?? '')) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** @param array<string, mixed> $stats */
@@ -3808,6 +4388,51 @@ final class PlatformDataSyncService
             }
         }
         return false;
+    }
+
+    /**
+     * Return the already-running exact-scope task without invoking the browser
+     * adapter a second time.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $task
+     * @return array<string, mixed>
+     */
+    private function reusedActiveSyncTaskResult(array $source, array $task): array
+    {
+        $taskId = max(0, (int)($task['id'] ?? 0));
+        $taskStatus = strtolower(trim((string)($task['status'] ?? 'running')));
+        if (!in_array($taskStatus, self::ACTIVE_SYNC_TASK_STATUSES, true)) {
+            $taskStatus = 'running';
+        }
+        $stats = $this->sanitizeSyncTaskStats(
+            $this->decodeConfig($task['stats_json'] ?? []),
+            $taskStatus
+        );
+        return [
+            'task_id' => $taskId,
+            'data_source_id' => max(0, (int)($source['id'] ?? 0)),
+            'status' => 'in_progress',
+            'task_status' => $taskStatus,
+            'message' => 'data_source_sync_task_reused_in_progress',
+            'reused_active_task' => true,
+            'normalized_count' => (int)($stats['normalized_count'] ?? 0),
+            'saved_count' => (int)($stats['saved_count'] ?? 0),
+            'inserted_count' => (int)($stats['inserted_count'] ?? 0),
+            'updated_count' => (int)($stats['updated_count'] ?? 0),
+            'readback_count' => (int)($stats['readback_count'] ?? 0),
+            'readback_verified' => ($stats['readback_verified'] ?? false) === true,
+            'run_readback' => is_array($stats['run_readback'] ?? null)
+                ? $stats['run_readback']
+                : [],
+            'ordered_collection' => is_array($stats['ordered_collection'] ?? null)
+                ? $stats['ordered_collection']
+                : null,
+            'timing' => is_array($stats['timing'] ?? null)
+                ? $stats['timing']
+                : $this->emptySyncTiming(),
+            'next_retry_at' => null,
+        ];
     }
 
     private function finishTask(int $taskId, array $source, string $status, string $message, int $normalizedCount, int $savedCount, array $payload, array $timing = [], ?float $syncStartedAt = null): array
@@ -3832,7 +4457,7 @@ final class PlatformDataSyncService
             'saved_count' => $savedCount,
             'payload_keys' => array_slice(array_keys($payload), 0, 30),
         ];
-        foreach (['predecessor_task_id', 'recovery_context_status'] as $recoveryKey) {
+        foreach (['predecessor_task_id', 'recovery_context_status', 'ordered_collection'] as $recoveryKey) {
             if (array_key_exists($recoveryKey, $existingTaskStats)) {
                 $stats[$recoveryKey] = $existingTaskStats[$recoveryKey];
             }
@@ -4300,10 +4925,12 @@ final class PlatformDataSyncService
         $platform = strtolower(trim((string)($source['platform'] ?? '')));
         $isOtaPlatform = in_array($platform, ['ctrip', 'meituan'], true);
         $ingestionMethod = strtolower(trim((string)($source['ingestion_method'] ?? '')));
-        $safeIngestionMethod = in_array($ingestionMethod, ['browser_profile', 'profile_browser', 'manual', 'api'], true)
+        $safeIngestionMethod = in_array($ingestionMethod, ['browser_profile', 'profile_browser', 'local_collector', 'manual', 'api'], true)
             ? $ingestionMethod
             : 'unknown';
         $isBrowserProfile = in_array($ingestionMethod, ['browser_profile', 'profile_browser'], true);
+        $isLocalCollector = $ingestionMethod === 'local_collector';
+        $isSessionBoundSource = $isBrowserProfile || $isLocalCollector;
         $isManualImport = $ingestionMethod === 'manual';
         $config = $this->decodeConfig($source['config'] ?? $source['config_json'] ?? []);
         $taskStatus = strtolower(trim($status));
@@ -4331,10 +4958,10 @@ final class PlatformDataSyncService
         if ($isOtaPlatform && (int)($source['id'] ?? 0) <= 0) {
             $bindingFlags[] = 'data_source_id_missing';
         }
-        if ($isBrowserProfile && $this->syncTaskOtaStoreIdentifier($platform, $config) === '') {
+        if ($isSessionBoundSource && $this->syncTaskOtaStoreIdentifier($platform, $config) === '') {
             $bindingFlags[] = 'ota_store_id_missing';
         }
-        if ($isBrowserProfile && $this->syncTaskProfileIdentifier($config) === '') {
+        if ($isSessionBoundSource && $this->syncTaskProfileIdentifier($config) === '') {
             $bindingFlags[] = 'profile_id_missing';
         }
 
@@ -4342,7 +4969,8 @@ final class PlatformDataSyncService
         $permissionDenied = in_array($taskStatus, ['permission_denied'], true)
             || in_array($profileStatus, ['permission_denied', 'no_permission', 'unauthorized'], true);
         $profileLoginVerified = $isBrowserProfile
-            && $this->profileSessionProofService->isCurrentVerified($source);
+            ? $this->profileSessionProofService->isCurrentVerified($source)
+            : ($isLocalCollector && $this->truthy($config['current_session_verified'] ?? false));
         $taskFailed = in_array($taskStatus, ['failed', 'capture_failed'], true);
 
         $state = 'unverified';
@@ -4365,7 +4993,7 @@ final class PlatformDataSyncService
         } elseif ($isManualImport) {
             $qualityFlags[] = 'manual_import_provenance_unverified';
             $nextAction = 'verify_manual_import_provenance';
-        } elseif (!$isBrowserProfile) {
+        } elseif (!$isSessionBoundSource) {
             $qualityFlags[] = 'source_ingestion_method_unverified';
             $nextAction = 'verify_collection_method';
         } elseif (!$profileLoginVerified) {
@@ -4482,7 +5110,7 @@ final class PlatformDataSyncService
 
     private function syncTaskProfileIdentifier(array $config): string
     {
-        foreach (['profile_id', 'profileId', 'stable_profile_id', 'stableProfileId', 'profile_binding_key', 'profileBindingKey'] as $key) {
+        foreach (['profile_id', 'profileId', 'stable_profile_id', 'stableProfileId', 'profile_binding_key', 'profileBindingKey', 'profile_key_hash'] as $key) {
             $value = trim((string)($config[$key] ?? ''));
             if ($value !== '') {
                 return $value;
@@ -4644,7 +5272,7 @@ final class PlatformDataSyncService
             $sections = is_array($value) ? $value : preg_split('/[,\s]+/', trim((string)$value));
             foreach (is_array($sections) ? $sections : [] as $section) {
                 $section = strtolower(trim((string)$section));
-                if (!in_array($section, ['traffic', 'order_flow', 'orders', 'ads', 'reviews'], true)) {
+                if (!in_array($section, ['traffic', 'order_flow', 'orders', 'ads', 'reviews', 'room_types'], true)) {
                     continue;
                 }
                 if (!isset($statuses[$section]) || $statuses[$section] === 'not_captured') {
@@ -4748,7 +5376,7 @@ final class PlatformDataSyncService
 
     private function syncRequiresTargetDateTrafficEvidence(array $source, array $options, array $payload): bool
     {
-        if (!$this->isOtaBrowserProfileSource($source)) {
+        if (!$this->isOtaBrowserProfileSource($source) && !$this->isOtaLocalCollectorSource($source)) {
             return false;
         }
 
@@ -5203,6 +5831,11 @@ final class PlatformDataSyncService
                     );
                     throw new RuntimeException('normalized_rows_readback_proof_not_persisted_rolled_back');
                 }
+
+                // Ctrip's historic metric table is a derived query projection.
+                // It receives only rows which have already passed the primary
+                // save/readback proof, so it cannot become a second truth path.
+                (new CtripMetricFactProjectionService())->project($readbackRows);
 
                 return [
                     'attempted_count' => $attempted,
@@ -6142,18 +6775,28 @@ final class PlatformDataSyncService
         $config = $this->decodeConfig($row['config_json'] ?? []);
         $isOta = $this->isOtaPlatform((string)($row['platform'] ?? ''));
         $profileMethod = strtolower(trim((string)($row['ingestion_method'] ?? '')));
-        $row['current_session_verified'] = $isOta
-            && in_array($profileMethod, ['browser_profile', 'profile_browser'], true)
-            && $this->profileSessionProofService->isCurrentVerified($row);
-        $profileReuseState = $isOta && in_array($profileMethod, ['browser_profile', 'profile_browser'], true)
+        $isBrowserProfile = $isOta && in_array($profileMethod, ['browser_profile', 'profile_browser'], true);
+        $isLocalCollector = $isOta && $profileMethod === 'local_collector';
+        $row['current_session_verified'] = $isBrowserProfile
+            ? $this->profileSessionProofService->isCurrentVerified($row)
+            : ($isLocalCollector && $this->truthy($config['current_session_verified'] ?? false));
+        $profileReuseState = $isBrowserProfile
             ? $this->profileSessionProofService->profileReuseState($row)
-            : [
+            : ($isLocalCollector
+                ? [
+                    'status' => $row['current_session_verified'] ? 'current_session_verified' : 'unverified',
+                    'is_reusable' => $row['current_session_verified'],
+                    'age_days' => null,
+                    'days_until_forced_login' => null,
+                    'warning' => false,
+                ]
+                : [
                 'status' => 'unverified',
                 'is_reusable' => false,
                 'age_days' => null,
                 'days_until_forced_login' => 0,
                 'warning' => false,
-            ];
+            ]);
         $row['profile_reusable'] = (bool)($profileReuseState['is_reusable'] ?? false);
         $row['profile_reuse_status'] = (string)($profileReuseState['status'] ?? 'unverified');
         $row['profile_reuse_warning'] = (bool)($profileReuseState['warning'] ?? false);

@@ -207,6 +207,62 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertSame(0, Db::name('ota_credentials')->count());
     }
 
+    public function testLocalCollectorSourceStoresOnlyAccountDeviceAndProfileProofHashes(): void
+    {
+        $saved = $this->service()->saveDataSource($this->user(), [
+            'name' => 'Account-owned Ctrip collector',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'local_collector',
+            'config' => [
+                'local_collector_account_id' => 31,
+                'collector_device_id_hash' => str_repeat('a', 64),
+                'profile_key_hash' => str_repeat('b', 64),
+                'platform_hotel_id' => 'CTRIP-101',
+                'ctrip_hotel_id' => 'CTRIP-101',
+                'current_session_verified' => true,
+                'source_method' => 'local_account_profile',
+            ],
+        ]);
+
+        self::assertSame('local_collector', $saved['ingestion_method']);
+        self::assertFalse($saved['has_secret']);
+        self::assertFalse($saved['has_cookies']);
+        self::assertSame('not_required', $saved['credential_status']);
+        self::assertSame('not_required_for_local_collector', $saved['config']['credential_usage']);
+        self::assertSame('account_owner_device_only', $saved['config']['profile_execution_policy']);
+        self::assertSame(str_repeat('a', 64), $saved['config']['collector_device_id_hash']);
+        self::assertArrayNotHasKey('profile_key_hash', $saved['config']);
+        self::assertSame(0, Db::name('ota_credentials')->count());
+        $stored = Db::name('platform_data_sources')->where('id', $saved['id'])->find();
+        $storedConfig = json_decode((string)$stored['config_json'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(str_repeat('a', 64), $storedConfig['collector_device_id_hash']);
+        self::assertSame(str_repeat('b', 64), $storedConfig['profile_key_hash']);
+        self::assertSame('{}', (string)$stored['secret_json']);
+    }
+
+    public function testLocalCollectorSourceRejectsCookieCustody(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Local collector data source must not store reusable OTA credentials');
+
+        $this->service()->saveDataSource($this->user(), [
+            'name' => 'Forbidden local collector',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'local_collector',
+            'config' => [
+                'local_collector_account_id' => 31,
+                'collector_device_id_hash' => str_repeat('a', 64),
+                'profile_key_hash' => str_repeat('b', 64),
+                'platform_hotel_id' => 'CTRIP-101',
+            ],
+            'secret' => ['cookies' => 'must-stay-local'],
+        ]);
+    }
+
     public function testSavingSameBrowserProfileReusesExistingDataSource(): void
     {
         $service = $this->service();

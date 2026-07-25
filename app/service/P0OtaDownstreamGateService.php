@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use think\facade\Cache;
+
 class P0OtaDownstreamGateService
 {
     private const BLOCKED_STAGE_KEYS = [
@@ -21,11 +23,17 @@ class P0OtaDownstreamGateService
     private $continuousTrustResolver;
     /** @var null|callable(string, int, array<int, string>):array<string, mixed> */
     private $datasetResolver;
+    /** @var null|callable(int, string):array<string, mixed> */
+    private $authorityReceiptResolver;
 
-    public function __construct(?callable $continuousTrustResolver = null, ?callable $datasetResolver = null)
-    {
+    public function __construct(
+        ?callable $continuousTrustResolver = null,
+        ?callable $datasetResolver = null,
+        ?callable $authorityReceiptResolver = null
+    ) {
         $this->continuousTrustResolver = $continuousTrustResolver;
         $this->datasetResolver = $datasetResolver;
+        $this->authorityReceiptResolver = $authorityReceiptResolver;
     }
 
     /**
@@ -75,6 +83,9 @@ class P0OtaDownstreamGateService
             $continuousTrust = is_callable($this->continuousTrustResolver)
                 ? (array)($this->continuousTrustResolver)($hotelId, $businessDate, $businessDate)
                 : (new DualOtaContinuousTrustService())->inspectHotel($hotelId, $businessDate, $businessDate);
+            $authorityReceipt = is_callable($this->authorityReceiptResolver)
+                ? (array)($this->authorityReceiptResolver)($hotelId, $businessDate)
+                : $this->loadAuthorityReceipt($hotelId, $businessDate);
         } catch (\Throwable) {
             return $this->blocked(
                 $businessDate,
@@ -87,7 +98,14 @@ class P0OtaDownstreamGateService
             );
         }
 
-        return $this->fromContinuousTrust($businessDate, $hotelId, $dataset, $continuousTrust, $platforms);
+        return $this->fromContinuousTrust(
+            $businessDate,
+            $hotelId,
+            $dataset,
+            $continuousTrust,
+            $platforms,
+            $authorityReceipt
+        );
     }
 
     /**
@@ -96,6 +114,7 @@ class P0OtaDownstreamGateService
      * @param array<string, mixed> $dataset
      * @param array<string, mixed> $continuousTrust
      * @param array<int, mixed> $platforms
+     * @param array<string, mixed> $authorityReceipt
      * @return array<string, mixed>
      */
     public function fromContinuousTrust(
@@ -103,7 +122,8 @@ class P0OtaDownstreamGateService
         int $hotelId,
         array $dataset,
         array $continuousTrust,
-        array $platforms = []
+        array $platforms = [],
+        array $authorityReceipt = []
     ): array {
         $platforms = $this->platformList($platforms);
         if ($platforms === []) {
@@ -184,13 +204,27 @@ class P0OtaDownstreamGateService
             }
         }
 
+        $authority = $this->authorityReceiptStatus(
+            $authorityReceipt,
+            $businessDate,
+            $hotelId,
+            $platforms
+        );
+        foreach ($authority['missing_inputs'] as $missingInput) {
+            $missingInputs[] = $missingInput;
+        }
         $missingInputs = array_values(array_unique(array_filter($missingInputs)));
-        $metadata = $this->runtimeMetadata($businessDate, $hotelId, $verifiedPlatforms);
-        if ($missingInputs === [] && $verifiedPlatforms === $platforms) {
+        $metadata = $authority['metadata'] !== []
+            ? $authority['metadata']
+            : $this->runtimeMetadata($businessDate, $hotelId, $verifiedPlatforms);
+        if ($missingInputs === []
+            && $verifiedPlatforms === $platforms
+            && $authority['ready'] === true
+        ) {
             return $this->normalize([
                 'status' => 'ready',
                 'current_upstream_status' => 'ready',
-                'scope_policy' => 'ota_channel_runtime_continuous_trust_before_downstream_claims',
+                'scope_policy' => 'exact_date_external_p0_verifier_and_runtime_trust_before_downstream_claims',
                 ...$metadata,
             ], $businessDate, $hotelId, $platforms);
         }
@@ -237,6 +271,12 @@ class P0OtaDownstreamGateService
     {
         $status = trim((string)($gate['status'] ?? ''));
         if ($status === 'ready') {
+            $verification = $this->verificationMetadata(
+                $gate,
+                $businessDate,
+                $hotelId,
+                $platforms
+            );
             return array_merge([
                 'status' => 'ready',
                 'current_upstream_status' => trim((string)($gate['current_upstream_status'] ?? 'ready')),
@@ -247,7 +287,7 @@ class P0OtaDownstreamGateService
                 'blocked_stage_keys' => [],
                 'stages' => $this->stageRows('ready'),
                 'allowed_claims' => ['p0_ota_field_loop_ready_for_downstream_claims'],
-            ], $this->verificationMetadata($gate, $businessDate, $hotelId, $platforms));
+            ], $verification);
         }
 
         $missingInputs = $this->stringList($gate['blocking_missing_inputs'] ?? []);
@@ -406,6 +446,162 @@ class P0OtaDownstreamGateService
         return false;
     }
 
+    /** @return array<string, mixed> */
+    private function loadAuthorityReceipt(int $hotelId, string $businessDate): array
+    {
+        $receipt = Cache::get(
+            "online_data_historical_executed_{$hotelId}_{$businessDate}",
+            []
+        );
+        return is_array($receipt) ? $receipt : [];
+    }
+
+    /**
+     * @param array<string, mixed> $receipt
+     * @param array<int, string> $platforms
+     * @return array{ready:bool,missing_inputs:array<int,string>,metadata:array<string,mixed>}
+     */
+    private function authorityReceiptStatus(
+        array $receipt,
+        string $businessDate,
+        int $hotelId,
+        array $platforms
+    ): array {
+        if ($receipt === []) {
+            return [
+                'ready' => false,
+                'missing_inputs' => ['p0_authority_verifier_receipt_missing'],
+                'metadata' => [],
+            ];
+        }
+
+        if (!is_array($receipt['authority_verifier'] ?? null)) {
+            return [
+                'ready' => false,
+                'missing_inputs' => ['p0_authority_collection_receipt_invalid'],
+                'metadata' => [],
+            ];
+        }
+        $verifier = $receipt['authority_verifier'];
+        $missing = [];
+        if ((int)($receipt['schema_version'] ?? 0) < 3
+            || strtolower(trim((string)($receipt['data_period'] ?? ''))) !== 'historical_daily'
+            || ($receipt['collection_complete'] ?? false) !== true
+            || ($receipt['exportable_snapshot_complete'] ?? false) !== true
+            || ($receipt['dual_ota_p0_complete'] ?? false) !== true
+        ) {
+            $missing[] = 'p0_authority_collection_receipt_not_ready';
+        }
+        if (substr(trim((string)($receipt['target_date'] ?? '')), 0, 10) !== $businessDate
+            || (int)($receipt['hotel_id'] ?? 0) !== $hotelId
+            || $this->platformList($receipt['required_platforms'] ?? []) !== $platforms
+        ) {
+            $missing[] = 'p0_authority_collection_scope_mismatch';
+        }
+        if (!$this->collectionSourceTasksReady($receipt['source_tasks'] ?? [], $platforms)) {
+            $missing[] = 'p0_authority_collection_source_task_anchor_missing';
+        }
+        $collectionAnchorHash = strtolower(trim((string)(
+            $receipt['collection_anchor_hash'] ?? ''
+        )));
+        $verifierAnchorHash = strtolower(trim((string)(
+            $verifier['collection_anchor_hash'] ?? ''
+        )));
+        if (preg_match('/^[a-f0-9]{64}$/D', $collectionAnchorHash) !== 1
+            || !hash_equals($collectionAnchorHash, $verifierAnchorHash)
+        ) {
+            $missing[] = 'p0_authority_collection_anchor_mismatch';
+        }
+        if (strtolower(trim((string)($verifier['verification_source'] ?? ''))) !== 'external_p0_verifier') {
+            $missing[] = 'p0_authority_verification_source_invalid';
+        }
+        if (strtolower(trim((string)($verifier['status'] ?? ''))) !== 'passed'
+            || ($verifier['authority_ready'] ?? false) !== true
+            || (int)($verifier['exit_code'] ?? -1) !== 0
+        ) {
+            $missing[] = 'p0_authority_verifier_not_ready';
+        }
+        if (substr(trim((string)($verifier['target_date'] ?? '')), 0, 10) !== $businessDate
+            || (int)($verifier['hotel_id'] ?? 0) !== $hotelId
+        ) {
+            $missing[] = 'p0_authority_verifier_scope_mismatch';
+        }
+        $requiredPlatforms = $this->platformList($verifier['required_platforms'] ?? []);
+        $verifiedPlatforms = $this->platformList($verifier['verified_platforms'] ?? []);
+        if ($requiredPlatforms === []
+            || array_diff($platforms, $requiredPlatforms) !== []
+            || array_diff($platforms, $verifiedPlatforms) !== []
+        ) {
+            $missing[] = 'p0_authority_verified_platforms_incomplete';
+        }
+        if ((int)($verifier['p0_platforms_ready'] ?? -1) !== count($requiredPlatforms)
+            || (int)($verifier['traffic_gates_ready'] ?? -1) !== count($requiredPlatforms)
+        ) {
+            $missing[] = 'p0_authority_verifier_summary_inconsistent';
+        }
+        if (strtolower(trim((string)($verifier['continuous_trust_status'] ?? ''))) !== 'verified'
+            || $this->stringList($verifier['continuous_trust_missing_steps'] ?? []) !== []
+        ) {
+            $missing[] = 'p0_authority_persisted_trust_not_ready';
+        }
+        $reportHash = strtolower(trim((string)($verifier['verifier_report_hash'] ?? '')));
+        if (preg_match('/^[a-f0-9]{64}$/D', $reportHash) !== 1) {
+            $missing[] = 'p0_authority_evidence_anchor_missing';
+        }
+        if (($verifier['sensitive_values_exposed'] ?? true) !== false) {
+            $missing[] = 'p0_authority_receipt_sensitive';
+        }
+
+        $missing = array_values(array_unique($missing));
+        $metadata = [
+            'verification_source' => 'external_p0_verifier',
+            'target_date' => $businessDate,
+            'hotel_id' => $hotelId,
+            'verified_platforms' => array_values(array_intersect($platforms, $verifiedPlatforms)),
+            'source_scope' => 'ota_channel',
+            'verifier_report_hash' => preg_match('/^[a-f0-9]{64}$/D', $reportHash) === 1
+                ? $reportHash
+                : '',
+            'verifier_checked_at' => trim((string)($verifier['checked_at'] ?? '')),
+            'sensitive_values_exposed' => false,
+        ];
+        return [
+            'ready' => $missing === [],
+            'missing_inputs' => $missing,
+            'metadata' => $metadata,
+        ];
+    }
+
+    /**
+     * @param mixed $sourceTasks
+     * @param array<int, string> $platforms
+     */
+    private function collectionSourceTasksReady(mixed $sourceTasks, array $platforms): bool
+    {
+        if (!is_array($sourceTasks)) {
+            return false;
+        }
+        $readyPlatforms = [];
+        foreach ($sourceTasks as $task) {
+            if (!is_array($task)
+                || strtolower(trim((string)($task['collection_status'] ?? ''))) !== 'success'
+                || strtolower(trim((string)($task['p0_status'] ?? ''))) !== 'ready'
+                || (int)($task['data_source_id'] ?? 0) <= 0
+                || (int)($task['sync_task_id'] ?? 0) <= 0
+                || $this->positiveIds($task['row_ids'] ?? []) === []
+            ) {
+                continue;
+            }
+            $platform = strtolower(trim((string)($task['platform'] ?? '')));
+            if (in_array($platform, $platforms, true)) {
+                $readyPlatforms[$platform] = true;
+            }
+        }
+        $readyPlatforms = array_keys($readyPlatforms);
+        sort($readyPlatforms, SORT_STRING);
+        return $readyPlatforms === $platforms;
+    }
+
     /**
      * @param array<int, string> $verifiedPlatforms
      * @return array<string, mixed>
@@ -449,6 +645,13 @@ class P0OtaDownstreamGateService
             'hotel_id' => $metadataHotelId > 0 ? $metadataHotelId : null,
             'verified_platforms' => $verifiedPlatforms,
             'source_scope' => 'ota_channel',
+            'verifier_report_hash' => preg_match(
+                '/^[a-f0-9]{64}$/D',
+                strtolower(trim((string)($gate['verifier_report_hash'] ?? '')))
+            ) === 1
+                ? strtolower(trim((string)$gate['verifier_report_hash']))
+                : '',
+            'verifier_checked_at' => trim((string)($gate['verifier_checked_at'] ?? '')),
             'sensitive_values_exposed' => false,
         ];
     }
@@ -521,8 +724,11 @@ class P0OtaDownstreamGateService
      * @param array<int, mixed> $platforms
      * @return array<int, string>
      */
-    private function platformList(array $platforms): array
+    private function platformList(mixed $platforms): array
     {
+        if (!is_array($platforms)) {
+            return [];
+        }
         $items = [];
         foreach ($platforms as $platform) {
             $text = strtolower(trim((string)$platform));
@@ -530,7 +736,9 @@ class P0OtaDownstreamGateService
                 $items[] = $text;
             }
         }
-        return array_values(array_unique($items));
+        $items = array_values(array_unique($items));
+        sort($items, SORT_STRING);
+        return $items;
     }
 
     /**
@@ -613,5 +821,19 @@ class P0OtaDownstreamGateService
             }
         }
         return array_values(array_unique($items));
+    }
+
+    /** @return array<int, int> */
+    private function positiveIds(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $value),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($ids, SORT_NUMERIC);
+        return $ids;
     }
 }

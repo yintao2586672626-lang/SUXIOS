@@ -501,6 +501,11 @@ trait AutoFetchConcern
         if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
             $runRecord['platform_results'] = $details['platform_results'];
         }
+        foreach (['authority_verifier', 'trust_receipt', 'gap_report'] as $evidenceField) {
+            if (is_array($details[$evidenceField] ?? null)) {
+                $runRecord[$evidenceField] = $details[$evidenceField];
+            }
+        }
         if (!empty($details['timing']) && is_array($details['timing'])) {
             $runRecord['timing'] = $this->normalizeAutoFetchTiming($details['timing']);
         }
@@ -543,6 +548,11 @@ trait AutoFetchConcern
         }
         if (!empty($details['platform_results']) && is_array($details['platform_results'])) {
             $status['last_result']['platform_results'] = $details['platform_results'];
+        }
+        foreach (['authority_verifier', 'trust_receipt', 'gap_report'] as $evidenceField) {
+            if (is_array($details[$evidenceField] ?? null)) {
+                $status['last_result'][$evidenceField] = $details[$evidenceField];
+            }
         }
         if (!empty($details['timing']) && is_array($details['timing'])) {
             $status['last_result']['timing'] = $this->normalizeAutoFetchTiming($details['timing']);
@@ -754,7 +764,10 @@ trait AutoFetchConcern
 
     private function normalizeAutoFetchScheduleStatus(array $status): array
     {
-        $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '10:00')) ?? '10:00';
+        $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '08:30')) ?? '08:30';
+        if ($historicalTime > '08:30') {
+            $historicalTime = '08:30';
+        }
         $realtimeMinute = $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? 5);
         if ($realtimeMinute === null) {
             $realtimeMinute = 5;
@@ -3219,7 +3232,7 @@ trait AutoFetchConcern
                     'last_run_time' => null,
                     'next_run_time' => '-',
                     'last_result' => null,
-                    'schedule_time' => '10:00',
+                    'schedule_time' => '08:30',
                     'schedule_minute' => 5,
                     'schedule_interval_hours' => 2,
                     'realtime_schedule_interval_hours' => 2,
@@ -3249,7 +3262,7 @@ trait AutoFetchConcern
             'last_run_time' => null,
             'next_run_time' => null,
             'last_result' => null,
-            'schedule_time' => '10:00',
+            'schedule_time' => '08:30',
             'schedule_minute' => 5,
             'schedule_interval_hours' => 2,
             'realtime_schedule_interval_hours' => 2,
@@ -3272,9 +3285,9 @@ trait AutoFetchConcern
             $status['enabled'] = false;
         }
         if (!isset($status['schedule_time'])) {
-            $status['schedule_time'] = '10:00';
+            $status['schedule_time'] = '08:30';
         }
-        $status['schedule_time'] = $this->normalizeFetchScheduleTime((string)$status['schedule_time']) ?? '10:00';
+        $status['schedule_time'] = $this->normalizeFetchScheduleTime((string)$status['schedule_time']) ?? '08:30';
         $status['schedule_minute'] = $this->normalizeAutoFetchScheduleMinute($status['schedule_minute'] ?? null);
         if ($status['schedule_minute'] === null) {
             $status['schedule_minute'] = 5;
@@ -3789,7 +3802,7 @@ trait AutoFetchConcern
             $status['meituan_auto_fetch_mode'] = 'profile_browser';
         }
         if (!isset($status['schedule_time'])) {
-            $status['schedule_time'] = '10:00';
+            $status['schedule_time'] = '08:30';
         }
         if (!isset($status['schedule_minute'])) {
             $status['schedule_minute'] = 5;
@@ -3841,7 +3854,7 @@ trait AutoFetchConcern
 
         $hotelId = $this->resolveAutoFetchHotelId($this->request->post('hotel_id', null));
         $requestData = $this->requestData();
-        $scheduleTime = $this->normalizeFetchScheduleTime((string)($requestData['historical_schedule_time'] ?? $requestData['historicalScheduleTime'] ?? $this->request->post('schedule_time', '10:00')));
+        $scheduleTime = $this->normalizeFetchScheduleTime((string)($requestData['historical_schedule_time'] ?? $requestData['historicalScheduleTime'] ?? $this->request->post('schedule_time', '08:30')));
         $scheduleMinuteRaw = $requestData['realtime_schedule_minute'] ?? $requestData['realtimeScheduleMinute'] ?? $requestData['schedule_minute'] ?? $requestData['scheduleMinute'] ?? null;
         $scheduleMinute = $this->normalizeAutoFetchScheduleMinute($scheduleMinuteRaw);
         $scheduleIntervalRaw = $requestData['realtime_schedule_interval_hours'] ?? $requestData['realtimeScheduleIntervalHours'] ?? $requestData['schedule_interval_hours'] ?? $requestData['scheduleIntervalHours'] ?? null;
@@ -4196,6 +4209,52 @@ trait AutoFetchConcern
                         'message' => $retryExhausted ? '自动重试次数已用尽，需人工检查配置' : '等待下一次自动重试',
                         'next_retry_at' => $retryState['next_retry_at'] ?? null,
                     ];
+                    if ((string)($run['period'] ?? '') === 'historical_daily') {
+                        $lastReceipt = is_array($retryState['last_receipt'] ?? null)
+                            ? $retryState['last_receipt']
+                            : $schedulePolicy->buildDailyTrustReceipt(
+                                $hotelId,
+                                (string)$run['data_date'],
+                                [],
+                                [
+                                    'complete' => false,
+                                    'status' => 'failed',
+                                    'required_platforms' => ['ctrip', 'meituan'],
+                                ],
+                                ['platform_results' => []],
+                                'historical_daily'
+                            );
+                        $gapReport = $schedulePolicy->buildYesterdayGapReport(
+                            $lastReceipt,
+                            $retryState,
+                            $now
+                        );
+                        $results[count($results) - 1]['gap_report'] = $gapReport;
+                        if (($gapReport['status'] ?? '') === 'gap'
+                            && empty($retryState['gap_report_emitted'])
+                        ) {
+                            $retryState['gap_report'] = $gapReport;
+                            $retryState['gap_report_emitted'] = true;
+                            cache($run['retry_key'], $retryState, 86400 * 2);
+                            $this->updateFetchStatus(
+                                $hotelId,
+                                false,
+                                'yesterday_dual_ota_gap_at_cutoff',
+                                (string)$run['data_date'],
+                                [
+                                    'status' => 'gap',
+                                    'data_period' => 'historical_daily',
+                                    'slot_id' => (string)$run['slot_id'],
+                                    'failed_platforms' => $gapReport['recollection_platforms'] ?? [],
+                                    'gap_report' => $gapReport,
+                                    'attempts' => (int)($retryState['attempts'] ?? 0),
+                                    'max_attempts' => $retryMaxAttempts,
+                                    'next_retry_at' => $retryState['next_retry_at'] ?? null,
+                                    'retry_exhausted' => !empty($retryState['retry_exhausted']),
+                                ]
+                            );
+                        }
+                    }
                     continue;
                 }
                 if (cache($lockKey)) {
@@ -4232,13 +4291,26 @@ trait AutoFetchConcern
                         (string)$run['data_date'],
                         [],
                         $outcome,
-                        $result
+                        $result,
+                        (string)$run['period']
                     );
-                    if ($outcome['complete'] && !$schedulePolicy->dailyTrustReceiptReady(
+                    if ((string)$run['period'] === 'historical_daily') {
+                        $authorityReceipt = cache(
+                            "online_data_p0_authority_receipt_{$hotelId}_{$run['data_date']}"
+                        );
+                        if (is_array($authorityReceipt) && $authorityReceipt !== []) {
+                            $executionReceipt = $schedulePolicy->attachAuthorityVerifier(
+                                $executionReceipt,
+                                $authorityReceipt
+                            );
+                        }
+                    }
+                    $trustedReady = $schedulePolicy->dailyTrustReceiptReady(
                         $executionReceipt,
                         (string)$run['data_date'],
                         $hotelId
-                    )) {
+                    );
+                    if (!$trustedReady && $outcome['complete']) {
                         $receiptReadyPlatforms = array_values(array_unique(array_filter(array_map(
                             static fn($task): string => is_array($task)
                                 && strtolower(trim((string)($task['collection_status'] ?? ''))) === 'success'
@@ -4246,6 +4318,17 @@ trait AutoFetchConcern
                                 : '',
                             is_array($executionReceipt['source_tasks'] ?? null) ? $executionReceipt['source_tasks'] : []
                         ))));
+                        $authorityVerifier = is_array($executionReceipt['authority_verifier'] ?? null)
+                            ? $executionReceipt['authority_verifier']
+                            : [];
+                        if (($executionReceipt['authority_verifier_required'] ?? true) === true) {
+                            $receiptReadyPlatforms = array_values(array_intersect(
+                                $receiptReadyPlatforms,
+                                $schedulePolicy->normalizePlatforms(
+                                    $authorityVerifier['verified_platforms'] ?? []
+                                )
+                            ));
+                        }
                         $outcome['complete'] = false;
                         $outcome['status'] = 'partial_success';
                         $outcome['successful_platforms'] = array_values(array_intersect(
@@ -4256,6 +4339,20 @@ trait AutoFetchConcern
                             $outcome['required_platforms'],
                             $receiptReadyPlatforms
                         ));
+                        if ((string)$run['period'] === 'historical_daily') {
+                            $recollection = $schedulePolicy->buildYesterdayGapReport(
+                                $executionReceipt,
+                                $retryState,
+                                $now
+                            );
+                            $outcome['failed_platforms'] = $schedulePolicy->normalizePlatforms(
+                                $recollection['recollection_platforms'] ?? []
+                            );
+                            $outcome['successful_platforms'] = array_values(array_diff(
+                                $outcome['required_platforms'],
+                                $outcome['failed_platforms']
+                            ));
+                        }
                         $result['message'] = trim((string)($result['message'] ?? '') . '; dual_ota_p0_receipt_incomplete', '; ');
                     }
                     $retryDetails = $outcome['complete']
@@ -4295,6 +4392,8 @@ trait AutoFetchConcern
                         'successful_platforms' => $outcome['successful_platforms'],
                         'timing' => $result['timing'] ?? [],
                         'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $baseOptions['ctrip_section_concurrency'] ?? 3,
+                        'authority_verifier' => $executionReceipt['authority_verifier'] ?? [],
+                        'trust_receipt' => $executionReceipt,
                         ...$retryDetails,
                     ]);
                     $this->recordAutoFetchNotification($hotelId, $outcome['complete'], (string)$result['message'], $run['data_date'], [
@@ -4303,10 +4402,30 @@ trait AutoFetchConcern
                         'platform_results' => $result['platform_results'] ?? [],
                         'data_period' => $run['period'],
                     ], 'scheduled_auto_fetch');
-                    if ($outcome['complete']) {
+                    if ($trustedReady) {
                         cache($run['executed_key'], $executionReceipt, 86400);
+                        if ((string)$run['period'] === 'historical_daily') {
+                            cache(
+                                'online_data_historical_executed_' . $hotelId . '_' . (string)$run['data_date'],
+                                $executionReceipt,
+                                86400
+                            );
+                        }
                         \think\facade\Cache::delete($run['retry_key']);
                     } else {
+                        $retryDetails['last_receipt'] = $executionReceipt;
+                        if ((string)$run['period'] === 'historical_daily') {
+                            $gapReport = $schedulePolicy->buildYesterdayGapReport(
+                                $executionReceipt,
+                                $retryDetails,
+                                $now
+                            );
+                            $retryDetails['gap_report'] = $gapReport;
+                            if (($gapReport['status'] ?? '') === 'gap') {
+                                $retryDetails['gap_report_emitted'] = true;
+                                $results[count($results) - 1]['gap_report'] = $gapReport;
+                            }
+                        }
                         cache($run['retry_key'], $retryDetails, 86400 * 2);
                         $hasIncompleteDueRun = true;
                     }

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
     "start:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
+    "ota:local-collector": "node scripts/ota_local_collector.mjs run",
     "db:check": "C:\\xampp\\php\\php.exe scripts\\check_database_version.php",
     "verify:owner-tenant-bootstrap-mariadb": "node scripts/run_php.mjs scripts/verify_owner_tenant_bootstrap_mariadb.php",
     "db:migrate": "C:\\xampp\\php\\php.exe think db:migrate",

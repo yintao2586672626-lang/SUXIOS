@@ -1,0 +1,23 @@
+[Unit]
+Description=SUXIOS cloud OTA yesterday final collection
+After=network-online.target mariadb.service php8.3-fpm.service
+Wants=network-online.target
+ConditionPathExists=/var/www/suxios/current/think
+Conflicts=suxios-cloud-ota-realtime.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=-/etc/suxios/ota-collector.env
+# The cloud host owns its authorised browser Profile/configuration. No Cookie,
+# webhook, or account material is placed in the unit or its command line.
+ExecStart=/usr/bin/php -d memory_limit=384M think online-data:auto-fetch --daily-only --no-interaction
+Nice=10
+CPUQuota=60%
+MemoryMax=512M
+TasksMax=32
+TimeoutStartSec=30min
+UMask=0027

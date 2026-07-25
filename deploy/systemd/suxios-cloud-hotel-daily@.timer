@@ -3,7 +3,7 @@ Description=Run one SUXIOS hotel's yesterday operating loop every morning
 Conflicts=suxios-cloud-daily.timer
 
 [Timer]
-OnCalendar=*-*-* 08:10:00 Asia/Shanghai
+OnCalendar=*-*-* 09:00:00 Asia/Shanghai
 RandomizedDelaySec=3min
 
 [Install]

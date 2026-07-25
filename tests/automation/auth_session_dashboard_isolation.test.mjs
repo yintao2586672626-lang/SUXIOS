@@ -215,7 +215,7 @@ test('no-hotel accounts see a concise Chinese Ctrip and Meituan preview with a h
   assert.deepEqual(unverifiedScope, []);
   assert.deepEqual(nonEmptyScope, []);
   assert.deepEqual(visibleWithArrayPermissions[0].children.map(item => item.name), ['概览', '携程采集']);
-  assert.match(source, /sourcePath: 'online-data',[\s\S]*sourceTab: 'data-health',[\s\S]*overrides: \{ name: '携程 \/ 美团数据概览' \}/);
+  assert.match(source, /sourcePath: 'online-data',[\s\S]*sourceTab: 'data-health',[\s\S]*name: '昨日经营闭环'/);
   assert.match(onlineDataTemplate, /v-else-if="coreOperationsHasVerifiedNoHotel" data-testid="core-operations-no-hotel-onboarding"/);
   assert.match(onlineDataTemplate, /携程、美团数据已开放/);
   assert.match(onlineDataTemplate, /<b>携程：<\/b>/);
@@ -229,6 +229,113 @@ test('no-hotel accounts see a concise Chinese Ctrip and Meituan preview with a h
   assert.match(onlineDataTemplate, /@click="openCoreOperationsHotelOnboarding"/);
   assert.match(onlineDataTemplate, /<template v-if="coreOperationsHasAccessibleHotel">[\s\S]*data-testid="ota-direct-view-overview"[\s\S]*data-testid="manual-one-click-fetch"[\s\S]*<\/template>/);
   assert.match(source, /const openCoreOperationsHotelOnboarding = async \(\) => \{[\s\S]*currentPage\.value = 'hotels';/);
+});
+
+test('yesterday operations loop exposes local collection recovery and honest ordered queue state', () => {
+  const loopStart = onlineDataTemplate.indexOf('data-testid="core-operations-loop"');
+  const loopEnd = onlineDataTemplate.indexOf('<template v-if="coreOperationsHasAccessibleHotel">', loopStart);
+  assert.ok(loopStart >= 0 && loopEnd > loopStart, 'yesterday operations loop template must exist');
+  const loop = onlineDataTemplate.slice(loopStart, loopEnd);
+  const coreLoopRefresh = sliceBetween(
+    'const refreshCoreOperationsLoop = async (options = {}) => {',
+    'const loadPhase3OperationEffectLoop = async',
+  );
+  const tabFlow = sliceBetween(
+    'const openOnlineDataTab = (tab, options = {}) => {',
+    'const setOnlineDataTabFromPage = (tab) => {',
+  );
+  const orderedCollectionSource = sliceBetween(
+    'const localCollectorOrderedCollection = computed',
+    'const loadLocalCollectorStatus = async',
+  );
+  const onlineDataTab = { value: 'data-health' };
+  const scheduledTabs = [];
+  const { openPlatformSourcesTab } = Function(
+    'onlineDataTab',
+    'scheduleOnlineDataTabLoad',
+    `let suppressNextOnlineDataTabWatcherLoad = false;
+${tabFlow}
+return { openPlatformSourcesTab };`,
+  )(onlineDataTab, (tab, options) => {
+    scheduledTabs.push({ tab, options });
+    return 'scheduled';
+  });
+  const localCollectorStatus = { value: { ordered_collection: null } };
+  const localCollectorLoading = { value: false };
+  const localCollectorError = { value: '' };
+  const orderedCollection = Function(
+    'computed',
+    'localCollectorStatus',
+    'localCollectorLoading',
+    'localCollectorError',
+    'getHotelNameById',
+    'localCollectorPlatformText',
+    'localCollectorStatusText',
+    `${orderedCollectionSource}
+return {
+  localCollectorOrderedTargetDateText,
+  localCollectorOrderedQueueText,
+  localCollectorOrderedGateText,
+  localCollectorOrderedCurrentText,
+  localCollectorOrderedNextText,
+  localCollectorOrderedNextReasonText,
+  localCollectorOrderedNextActionText,
+};`,
+  )(
+    factory => ({ get value() { return factory(); } }),
+    localCollectorStatus,
+    localCollectorLoading,
+    localCollectorError,
+    hotelId => `门店 ${hotelId}`,
+    platform => ({ ctrip: '携程', meituan: '美团' }[platform] || platform),
+    status => ({ running: '采集中' }[status] || status),
+  );
+
+  assert.match(loop, /data-testid="core-loop-local-collector-recovery"[\s\S]*@click="openPlatformSourcesTab\(\)"[\s\S]*本机采集恢复/);
+  assert.match(loop, /data-testid="core-loop-local-collector-status"/);
+  assert.match(loop, /data-testid="core-loop-local-collector-current"/);
+  assert.match(loop, /data-testid="core-loop-local-collector-next"/);
+  assert.match(loop, /data-testid="core-loop-local-collector-next-reason"/);
+  assert.match(loop, /data-testid="core-loop-local-collector-next-action"/);
+  assert.match(source, /const localCollectorOrderedCollection = computed/);
+  assert.match(source, /const localCollectorOrderedCurrentText = computed/);
+  assert.match(source, /const localCollectorOrderedNextReasonText = computed/);
+  assert.match(coreLoopRefresh, /loadLocalCollectorStatus\(\{ silent: true \}\)/);
+  assert.doesNotMatch(source, /携程 \/ 美团数据概览/);
+  assert.equal(openPlatformSourcesTab(), 'scheduled');
+  assert.equal(onlineDataTab.value, 'platform-sources');
+  assert.deepEqual(scheduledTabs, [{ tab: 'platform-sources', options: {} }]);
+  assert.equal(orderedCollection.localCollectorOrderedTargetDateText.value, '目标日未返回');
+  assert.equal(orderedCollection.localCollectorOrderedCurrentText.value, '当前任务未返回');
+  assert.equal(orderedCollection.localCollectorOrderedNextReasonText.value, '下一项原因未返回');
+
+  localCollectorStatus.value.ordered_collection = {
+    target_date: '2026-07-24',
+    current: {
+      platform: 'ctrip',
+      hotel_name: '敦煌漠蓝新',
+      target_date: '2026-07-24',
+      field_label: '昨日核心事实',
+      status: 'running',
+    },
+    next: {
+      platform: 'meituan',
+      system_hotel_id: 80,
+      target_date: '2026-07-24',
+      field_label: '缺口字段',
+      reason: '缺少目标日字段',
+    },
+    queue: [{ id: 1 }, { id: 2 }],
+    gate: { ready: false },
+    next_action: '保持本机采集器在线',
+  };
+  assert.equal(orderedCollection.localCollectorOrderedTargetDateText.value, '目标日 2026-07-24');
+  assert.equal(orderedCollection.localCollectorOrderedQueueText.value, '队列 2 项');
+  assert.equal(orderedCollection.localCollectorOrderedGateText.value, '门禁：已阻断');
+  assert.equal(orderedCollection.localCollectorOrderedCurrentText.value, '携程 · 敦煌漠蓝新 · 2026-07-24 · 昨日核心事实 · 采集中');
+  assert.equal(orderedCollection.localCollectorOrderedNextText.value, '美团 · 门店 80 · 2026-07-24 · 缺口字段');
+  assert.equal(orderedCollection.localCollectorOrderedNextReasonText.value, '缺少目标日字段');
+  assert.equal(orderedCollection.localCollectorOrderedNextActionText.value, '保持本机采集器在线');
 });
 
 test('OTA hotel scope distinguishes loading, failed, and verified-empty snapshots', () => {

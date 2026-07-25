@@ -95,10 +95,16 @@
                                             <td class="px-6 py-4">
                                                 <div class="text-sm font-semibold text-gray-800">{{ unit.name }}</div>
                                                 <div class="text-xs text-gray-400 truncate max-w-xs">{{ unit.description || '-' }}</div>
-                                                <div class="mt-1 flex flex-wrap gap-1 max-w-md">
-                                                    <span v-for="tag in unit.tags" :key="tag" class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs">{{ tag }}</span>
-                                                    <span v-if="unit.system_read_only" class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs">系统只读</span>
-                                                </div>
+                                                <template v-for="groups in [knowledgeCenterTagGroups(unit.tags)]" :key="'knowledge-tags-' + unit.unit_id">
+                                                    <div v-if="groups.business.length || unit.system_read_only" class="mt-1.5 flex flex-wrap gap-1 max-w-md">
+                                                        <span v-for="tag in groups.business" :key="tag.key" :title="tag.title" :class="['px-2 py-0.5 rounded-full border text-xs', tag.className]">{{ tag.label }}</span>
+                                                        <span v-if="unit.system_read_only" class="px-2 py-0.5 rounded-full border border-blue-100 bg-blue-50 text-blue-700 text-xs">系统只读</span>
+                                                    </div>
+                                                    <div v-if="groups.boundary.length" class="mt-1.5 flex flex-wrap items-center gap-1 max-w-md">
+                                                        <span class="mr-1 text-xs font-medium text-gray-400">来源与边界</span>
+                                                        <span v-for="tag in groups.boundary" :key="tag.key" :title="tag.title" :class="['px-2 py-0.5 rounded-full border text-xs', tag.className]">{{ tag.label }}</span>
+                                                    </div>
+                                                </template>
                                             </td>
                                             <td class="px-6 py-4 text-sm">
                                                 <span v-if="Number(unit.hotel_id || 0) &gt; 0" class="text-blue-600">{{ getHotelNameById(unit.hotel_id) || ('#' + unit.hotel_id) }}</span>

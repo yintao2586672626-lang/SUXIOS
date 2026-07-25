@@ -9,6 +9,7 @@ use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\model\SystemNotificationUserState;
 use app\model\User;
+use think\facade\Cache;
 use think\facade\Db;
 use think\facade\Log;
 use Throwable;
@@ -33,6 +34,11 @@ final class OtaFailureNotificationService
 
     /** @var array<string, array<string, bool>> */
     private array $columnCache = [];
+
+    public function __construct(
+        private readonly ?WechatRobotDeliveryService $wechatDelivery = null
+    ) {
+    }
 
     /**
      * Convert an OTA collection result into one targeted, idempotent notification per failed platform.
@@ -213,9 +219,22 @@ final class OtaFailureNotificationService
         $actorUserId = $this->positiveInt($event['actor_user_id'] ?? $event['user_id'] ?? null);
         $dataDate = $this->safeDataDate($event['data_date'] ?? null);
         $recipient = $this->resolveRecipient($hotelId, $platform);
+        if ($recipient === null && $actorUserId !== null) {
+            $hotel = $this->hotelRow($hotelId);
+            if (is_array($hotel) && $this->isActiveRecipientInHotelScope($actorUserId, $hotel)) {
+                $recipient = ['user_id' => $actorUserId, 'source' => 'event.actor_user_id'];
+            }
+        }
         $authorizationSource = array_replace(
             $this->authorizationSourceFields($event),
             $this->authorizationSourceFields($failure)
+        );
+        $wecomDelivery = $this->deliverFailureToWechat(
+            $hotelId,
+            $platform,
+            $reasonCode,
+            $dataDate,
+            $event
         );
 
         if ($recipient === null) {
@@ -232,6 +251,7 @@ final class OtaFailureNotificationService
                 'hotel_id' => $hotelId,
                 'platform' => $platform,
                 'reason_code' => $reasonCode,
+                'wecom_delivery' => $wecomDelivery,
             ];
         }
 
@@ -249,6 +269,7 @@ final class OtaFailureNotificationService
                 'hotel_id' => $hotelId,
                 'platform' => $platform,
                 'reason_code' => $reasonCode,
+                'wecom_delivery' => $wecomDelivery,
             ];
         }
 
@@ -265,13 +286,20 @@ final class OtaFailureNotificationService
                 'action_type' => 'fetch',
                 'action_payload' => array_merge([
                     'target_page' => 'online-data',
-                    'target_tab' => 'data-health',
+                    'target_tab' => strtolower(trim((string)($event['ingestion_method'] ?? ''))) === 'local_collector'
+                        ? 'platform-sources'
+                        : 'data-health',
                     'action_label' => $this->actionLabel($reasonCode),
                     'data_date' => $dataDate,
                     'reason_code' => $reasonCode,
                     'requires_resolution' => $requiresResolution ? '1' : '0',
                     'reminder_level' => $requiresResolution ? 'strong' : 'normal',
                     'resolution_rule' => $requiresResolution ? 'verified_same_platform_session_or_capture' : '',
+                    'error_summary' => $this->safeFailureText(
+                        $event['error_summary'] ?? $event['message'] ?? '',
+                        300
+                    ),
+                    'next_action' => $this->safeFailureText($event['next_action'] ?? '', 300),
                 ], $authorizationSource),
                 'source_module' => 'ota_failure_notifier',
                 'source_key' => implode(':', [
@@ -305,6 +333,7 @@ final class OtaFailureNotificationService
                 'hotel_id' => $hotelId,
                 'platform' => $platform,
                 'reason_code' => $reasonCode,
+                'wecom_delivery' => $wecomDelivery,
             ];
         }
 
@@ -316,7 +345,61 @@ final class OtaFailureNotificationService
             'recipient_user_id' => (int)$recipient['user_id'],
             'recipient_source' => (string)$recipient['source'],
             'notification_id' => (int)$notification->id,
+            'wecom_delivery' => $wecomDelivery,
         ];
+    }
+
+    /** @param array<string, mixed> $event @return array<string, mixed> */
+    private function deliverFailureToWechat(
+        int $hotelId,
+        string $platform,
+        string $reasonCode,
+        string $dataDate,
+        array $event
+    ): array {
+        if (!$this->truthy($event['notify_wecom'] ?? false)) {
+            return ['delivery_status' => 'not_requested', 'hotel_id' => $hotelId];
+        }
+
+        $taskId = $this->positiveInt($event['local_collector_task_id'] ?? $event['task_id'] ?? null);
+        $dedupeKey = 'ota_failure_wecom:' . hash('sha256', implode('|', [
+            $hotelId,
+            $platform,
+            $reasonCode,
+            $dataDate,
+            $taskId ?? 0,
+        ]));
+        if (Cache::get($dedupeKey)) {
+            return ['delivery_status' => 'deduplicated', 'hotel_id' => $hotelId];
+        }
+
+        $hotel = $this->hotelRow($hotelId);
+        $hotelName = trim((string)($hotel['name'] ?? ''));
+        if ($hotelName === '') {
+            $hotelName = '门店#' . $hotelId;
+        }
+        $delivery = $this->wechatDelivery ?? new WechatRobotDeliveryService();
+        $payload = $delivery->buildOtaCollectionFailurePayload([
+            'platform' => $platform,
+            'reason_code' => $reasonCode,
+            'data_date' => $dataDate,
+            'error_summary' => $this->safeFailureText(
+                $event['error_summary'] ?? $event['message'] ?? '',
+                360
+            ),
+            'next_action' => $this->safeFailureText($event['next_action'] ?? '', 360),
+            'task_id' => $taskId,
+            'account_alias' => $this->safeFailureText(
+                $event['account_alias'] ?? $event['local_account_alias'] ?? '',
+                80
+            ),
+        ], $hotelName);
+        $result = $delivery->deliverToHotel($hotelId, $payload);
+        if (in_array((string)($result['delivery_status'] ?? ''), ['sent', 'partial'], true)) {
+            Cache::set($dedupeKey, 1, 21600);
+        }
+
+        return $result;
     }
 
     /** @return array{user_id:int,source:string}|null */
@@ -483,7 +566,7 @@ final class OtaFailureNotificationService
         }
         $columns = $this->tableColumns('hotels');
         $fields = array_values(array_filter(
-            ['id', 'tenant_id', 'created_by'],
+            ['id', 'tenant_id', 'created_by', 'name'],
             static fn(string $field): bool => isset($columns[$field])
         ));
         try {
@@ -614,7 +697,7 @@ final class OtaFailureNotificationService
             ?? ''
         )));
         $type = match ($rawType) {
-            'browser_profile', 'profile_browser', 'profile' => 'profile',
+            'browser_profile', 'profile_browser', 'profile', 'local_collector', 'local_account_profile' => 'profile',
             'manual_cookie_api', 'cookie_api', 'cookie', 'credential' => 'cookie_api',
             default => 'authorization',
         };
@@ -677,6 +760,23 @@ final class OtaFailureNotificationService
             'credential_not_ready' => 'missing_config',
             'capture_failed' => 'collection_failed',
             'failed' => 'collection_failed',
+            'login_required' => 'login_expired',
+            'session_expired' => 'login_expired',
+            'cookies_incomplete' => 'login_expired',
+            'verification_required' => 'session_unverified',
+            'captcha_required' => 'session_unverified',
+            'anti_bot' => 'session_unverified',
+            'human_verification_required' => 'session_unverified',
+            'network_error' => 'collection_failed',
+            'platform_unavailable' => 'collection_failed',
+            'upload_failed' => 'collection_failed',
+            'resource_busy' => 'collection_failed',
+            'lease_expired' => 'collection_failed',
+            'browser_start_failed' => 'collection_failed',
+            'identity_mismatch' => 'collection_failed',
+            'permission_denied' => 'collection_failed',
+            'device_revoked' => 'collection_failed',
+            'profile_corrupted' => 'collection_failed',
         ];
         if (isset($aliases[$explicit])) {
             return $aliases[$explicit];
@@ -815,6 +915,24 @@ final class OtaFailureNotificationService
             'zero_rows' => '查看原因',
             'collection_failed' => '查看原因',
         ][$reason] ?? '查看原因';
+    }
+
+    private function safeFailureText(mixed $value, int $maxLength): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+        $text = trim((string)$value);
+        $text = preg_replace(
+            '/(cookie|token|authorization|spidertoken|password|secret|api[_-]?key)\s*[:=]\s*[^;\s,]+/iu',
+            '$1=****',
+            $text
+        ) ?? '';
+        $text = preg_replace('/\bbearer\s+[A-Za-z0-9._~+\/=:-]{8,}/iu', 'Bearer ****', $text) ?? '';
+        $text = preg_replace('/(1[3-9]\d)\d{4}(\d{4})/u', '$1****$2', $text) ?? '';
+        $text = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $text) ?? '';
+
+        return mb_substr(trim($text), 0, max(1, $maxLength));
     }
 
     private function auditDeliveryGap(

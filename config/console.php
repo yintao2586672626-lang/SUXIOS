@@ -26,6 +26,7 @@ return [
         'ai-daily-report:cleanup' => 'app\command\CleanupAiReportTasks',
         'cloud-automation:run' => 'app\command\RunCloudAutomation',
         'cloud-data-bridge:run' => 'app\command\RunCloudDataBridge',
+        'hotel-monitor:wechat-broadcast' => 'app\command\BroadcastHourlyHotelMonitor',
         'video-factory:director' => 'app\command\VideoFactoryDirector',
     ],
 ];

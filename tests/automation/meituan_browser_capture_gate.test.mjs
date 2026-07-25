@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  applyMeituanYesterdaySelectionDateEvidence,
   evaluateMeituanCaptureGate,
   filterMeituanCumulativeRowsByTargetDate,
   filterMeituanEventRowsByTargetDate,
@@ -67,6 +68,9 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(decorateBlock, /section === 'traffic' \|\| section === 'ads'/);
   assert.match(source, /runMeituanOrderInteractionPlan/);
   assert.match(source, /runMeituanReviewInteractionPlan/);
+  assert.match(source, /dataPeriod === 'historical_daily'/);
+  assert.match(source, /target_date_relative_range_selected/);
+  assert.match(source, /relative_yesterday_only_not_a_substitute_for_response_date_evidence/);
   assert.match(source, /\['data', 'results'\]/);
   assert.match(source, /meituan_orders_purchase_date_query/);
   assert.match(source, /payload\.responses = payload\.responses\.filter/);
@@ -78,6 +82,10 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /meituan_orders_target_date_summary/);
   assert.match(source, /compare_type: 'self'/);
   assert.match(source, /is_self: true/);
+  assert.match(source, /data_type: 'advertising'/);
+  assert.match(source, /data_type: 'review'/);
+  assert.match(source, /data_type: 'room_type'/);
+  assert.match(source, /room_types: \[\]/);
   assert.doesNotMatch(source, /dom:orders:target_date_summary'[\s\S]{0,500}_dom_text/);
 });
 
@@ -105,6 +113,47 @@ test('drops untargeted event summaries while keeping target-date review evidence
   assert.equal(payload.reviews[0].commentCount, 5);
   assert.equal(payload.orders.length, 1);
   assert.deepEqual(payload.target_date_filter.dropped_counts, { reviews: 1 });
+});
+
+test('uses yesterday selector readback, not refresh time, for historical traffic date scope', () => {
+  const result = applyMeituanYesterdaySelectionDateEvidence({
+    section_evidence: {
+      traffic: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-07-24',
+        relative_range: '昨日',
+        evidence_source: 'page.traffic_period_selection.readback',
+        marker: 'meituan_traffic_yesterday_tab',
+      },
+    },
+    traffic: [{ dataDate: '2026-07-25', date_source: 'response.rtDataUpdateTime', listExposure: 100 }],
+    trafficForecast: [{ dataDate: '2026-07-25', date_source: 'data.data.cards.rtDataUpdateTime', detailExposure: 10 }],
+  }, '2026-07-24');
+
+  assert.equal(result.traffic[0].dataDate, '2026-07-24');
+  assert.equal(result.traffic[0].data_updated_at, '2026-07-25');
+  assert.equal(result.traffic[0].date_source, 'page.traffic_period_selection.readback');
+  assert.equal(result.trafficForecast[0].dataDate, '2026-07-24');
+  assert.equal(result.trafficForecast[0].data_updated_at, '2026-07-25');
+});
+
+test('retains yesterday-selected traffic after the target-date filter runs', () => {
+  const result = filterMeituanCumulativeRowsByTargetDate({
+    section_evidence: {
+      traffic: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-07-24',
+        relative_range: '昨日',
+        evidence_source: 'page.traffic_period_selection.readback',
+        marker: 'meituan_traffic_yesterday_tab',
+      },
+    },
+    traffic: [{ dataDate: '2026-07-25', date_source: 'data.data.cards.rtDataUpdateTime', listExposure: 100 }],
+  }, '2026-07-24');
+
+  assert.equal(result.traffic.length, 1);
+  assert.equal(result.traffic[0].dataDate, '2026-07-24');
+  assert.equal(result.traffic[0].data_updated_at, '2026-07-25');
 });
 
 test('fails when a requested Meituan section has neither rows nor an authoritative empty response', () => {

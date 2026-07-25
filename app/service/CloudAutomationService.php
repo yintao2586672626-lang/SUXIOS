@@ -13,19 +13,22 @@ final class CloudAutomationService
     private WechatRobotDeliveryService $deliveryService;
     private AiDailyReportService $reportService;
     private DualOtaContinuousTrustService $continuousTrustService;
+    private P0OtaDownstreamGateService $p0GateService;
 
     public function __construct(
         ?CloudAutomationStateStore $stateStore = null,
         ?CloudDataHealthService $healthService = null,
         ?WechatRobotDeliveryService $deliveryService = null,
         ?AiDailyReportService $reportService = null,
-        ?DualOtaContinuousTrustService $continuousTrustService = null
+        ?DualOtaContinuousTrustService $continuousTrustService = null,
+        ?P0OtaDownstreamGateService $p0GateService = null
     ) {
         $this->stateStore = $stateStore ?? new CloudAutomationStateStore();
         $this->healthService = $healthService ?? new CloudDataHealthService();
         $this->deliveryService = $deliveryService ?? new WechatRobotDeliveryService();
         $this->reportService = $reportService ?? new AiDailyReportService();
         $this->continuousTrustService = $continuousTrustService ?? new DualOtaContinuousTrustService();
+        $this->p0GateService = $p0GateService ?? new P0OtaDownstreamGateService();
     }
 
     /** @return resource|null */
@@ -89,6 +92,56 @@ final class CloudAutomationService
         array $payload,
         array $context = []
     ): array {
+        $statusOnly = ($context['status_only'] ?? false) === true;
+        $reportEdition = strtolower(trim((string)($context['report_edition'] ?? 'lite')));
+        if (!in_array($reportEdition, ['lite', 'flagship'], true)) {
+            $reportEdition = 'lite';
+        }
+        $artifactKind = strtolower(trim((string)($context['artifact_kind'] ?? 'summary_text')));
+        if (!in_array($artifactKind, ['summary_text', 'visual_card'], true)) {
+            $artifactKind = 'summary_text';
+        }
+        $deliveryMode = $statusOnly ? 'status_only' : 'formal_report';
+        try {
+            $p0Gate = $this->p0GateService->resolveRuntime(
+                $reportDate,
+                $hotelId,
+                null,
+                ['ctrip', 'meituan']
+            );
+        } catch (\Throwable) {
+            $p0Gate = [
+                'status' => 'blocked_by_p0_ota_gate',
+                'blocking_missing_inputs' => [
+                    'p0_field_loop_verifier_ready',
+                    'p0_authority_verifier_receipt_unavailable',
+                ],
+                'verification_source' => 'external_p0_verifier',
+                'target_date' => $reportDate,
+                'hotel_id' => $hotelId,
+                'verified_platforms' => [],
+                'sensitive_values_exposed' => false,
+            ];
+        }
+        if (!$statusOnly && (
+            strtolower(trim((string)($p0Gate['status'] ?? ''))) !== 'ready'
+            || strtolower(trim((string)($p0Gate['verification_source'] ?? ''))) !== 'external_p0_verifier'
+            || (string)($p0Gate['target_date'] ?? '') !== $reportDate
+            || (int)($p0Gate['hotel_id'] ?? 0) !== $hotelId
+        )) {
+            return [
+                'status' => 'blocked_by_p0_ota_gate',
+                'delivery_status' => 'blocked_by_p0_ota_gate',
+                'hotel_id' => $hotelId,
+                'robot_count' => 0,
+                'sent_count' => 0,
+                'failed_count' => 0,
+                'failures' => [],
+                'reason' => 'formal_report_requires_exact_external_p0_receipt',
+                'p0_downstream_gate' => $p0Gate,
+            ];
+        }
+
         $lock = $this->acquireLock();
         if (!is_resource($lock)) {
             return [
@@ -104,7 +157,7 @@ final class CloudAutomationService
         }
         try {
             return $this->deliverPayload(
-                'daily_report',
+                $statusOnly ? 'daily_report_status' : 'daily_report',
                 $hotelId,
                 [
                     'report_id' => $reportId,
@@ -115,6 +168,11 @@ final class CloudAutomationService
                 array_merge($context, [
                     'report_id' => $reportId,
                     'report_date' => $reportDate,
+                    'report_edition' => $reportEdition,
+                    'delivery_mode' => $deliveryMode,
+                    'artifact_kind' => $artifactKind,
+                    'status_only' => $statusOnly,
+                    'p0_gate_status' => (string)($p0Gate['status'] ?? 'unverified'),
                     'collection_triggered' => false,
                     'report_generation_triggered' => false,
                 ]),
@@ -625,9 +683,12 @@ final class CloudAutomationService
         if (!function_exists('curl_init')) {
             return ['success' => false, 'status' => 'curl_extension_missing', 'snapshot_count' => 0];
         }
-        $baseUrl = rtrim(trim($this->environmentValue('CLOUD_AUTOMATION_BASE_URL', 'https://127.0.0.1')), '/');
+        // The local SUXIOS application is served by the project runtime on
+        // 8080.  Do not fall back to HTTPS/443: that is the legacy Apache
+        // path and may be unavailable or point at a different application.
+        $baseUrl = rtrim(trim($this->environmentValue('CLOUD_AUTOMATION_BASE_URL', 'http://127.0.0.1:8080')), '/');
         if ($baseUrl === '') {
-            $baseUrl = 'https://127.0.0.1';
+            $baseUrl = 'http://127.0.0.1:8080';
         }
         $query = [
             'target_date' => $targetDate,
@@ -738,6 +799,9 @@ final class CloudAutomationService
             'continuous_trust' => is_array($health['continuous_trust'] ?? null)
                 ? $health['continuous_trust']
                 : [],
+            'p0_downstream_gate' => is_array($health['p0_downstream_gate'] ?? null)
+                ? $health['p0_downstream_gate']
+                : [],
         ];
     }
 
@@ -766,7 +830,63 @@ final class CloudAutomationService
             ];
         }
         $health['continuous_trust'] = $continuous;
-        if (strtolower(trim((string)($continuous['status'] ?? ''))) === 'verified') {
+        try {
+            $p0Gate = $this->p0GateService->resolveRuntime(
+                $targetDate,
+                $hotelId,
+                null,
+                ['ctrip', 'meituan']
+            );
+        } catch (\Throwable) {
+            $p0Gate = [
+                'status' => 'blocked_by_p0_ota_gate',
+                'blocking_missing_inputs' => [
+                    'p0_field_loop_verifier_ready',
+                    'p0_authority_verifier_receipt_unavailable',
+                ],
+                'verification_source' => 'external_p0_verifier',
+                'target_date' => $targetDate,
+                'hotel_id' => $hotelId,
+                'verified_platforms' => [],
+                'sensitive_values_exposed' => false,
+            ];
+        }
+        $health['p0_downstream_gate'] = $p0Gate;
+        $continuousReady = strtolower(trim((string)($continuous['status'] ?? ''))) === 'verified';
+        $authorityReady = strtolower(trim((string)($p0Gate['status'] ?? ''))) === 'ready'
+            && strtolower(trim((string)($p0Gate['verification_source'] ?? ''))) === 'external_p0_verifier'
+            && (string)($p0Gate['target_date'] ?? '') === $targetDate
+            && (int)($p0Gate['hotel_id'] ?? 0) === $hotelId;
+        if ($continuousReady && $authorityReady) {
+            // A field map may retain optional/auxiliary field gaps on rows that
+            // are not used by the P0 core fact chain.  Once the exact-date
+            // source/profile/readback verifier has proved both OTA platforms,
+            // those gaps remain visible to operators but must not erase the
+            // verified core facts or block their formal daily report.
+            $issues = array_values(array_filter(
+                is_array($health['issues'] ?? null) ? $health['issues'] : [],
+                'is_array'
+            ));
+            foreach ($issues as $index => $issue) {
+                $code = strtolower(trim((string)($issue['code'] ?? '')));
+                if ($code === 'latest_collection_partial'
+                    || $code === 'validation_partial'
+                    || str_starts_with($code, 'field_validation_field_missing_')) {
+                    $issues[$index]['blocking'] = false;
+                    $issues[$index]['resolved_by_exact_p0'] = true;
+                }
+            }
+            $blockingCount = count(array_filter(
+                $issues,
+                static fn(array $issue): bool => !empty($issue['blocking'])
+            ));
+            $health['issues'] = $issues;
+            $health['blocking_issue_count'] = $blockingCount;
+            $health['can_generate_report'] = $blockingCount === 0
+                && (int)($health['readback']['target_row_count'] ?? 0) > 0;
+            $health['status'] = $blockingCount > 0
+                ? 'blocked'
+                : ($issues === [] ? 'verified' : 'partial');
             return $health;
         }
 
@@ -779,9 +899,11 @@ final class CloudAutomationService
                 is_array($platform)
                 && strtolower(trim((string)($platform['status'] ?? ''))) === 'collection_failed'
             )) > 0;
-        $code = $hasCollectionFailure
-            ? 'dual_ota_collection_failed'
-            : 'dual_ota_continuous_trust_partial';
+        $code = !$authorityReady
+            ? 'dual_ota_p0_authority_not_ready'
+            : ($hasCollectionFailure
+                ? 'dual_ota_collection_failed'
+                : 'dual_ota_continuous_trust_partial');
         $issues = array_values(array_filter(
             is_array($health['issues'] ?? null) ? $health['issues'] : [],
             'is_array'
@@ -790,11 +912,13 @@ final class CloudAutomationService
             $issues[] = [
                 'code' => $code,
                 'platform' => '',
-                'message' => $hasCollectionFailure
-                    ? 'The target-date Ctrip/Meituan collection failed or lacks a complete P0 proof.'
-                    : 'The target-date Ctrip/Meituan source, hotel, date, field facts, save, readback, page status and P0 proof are not all verified.',
+                'message' => !$authorityReady
+                    ? 'The exact-date external P0 verifier receipt is missing, mismatched, or incomplete; no formal report may be generated.'
+                    : ($hasCollectionFailure
+                        ? 'The target-date Ctrip/Meituan collection failed or lacks a complete P0 proof.'
+                        : 'The target-date Ctrip/Meituan source, hotel, date, field facts, save, readback, page status and P0 proof are not all verified.'),
                 'blocking' => true,
-                'next_action' => 'Re-run the exact-date dual-OTA Profile collection and verify database readback before report generation.',
+                'next_action' => 'Re-run the exact-date dual-OTA Profile collection, persist the verifier receipt, and verify database readback before report generation.',
             ];
         }
         $health['issues'] = $issues;

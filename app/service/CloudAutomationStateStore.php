@@ -87,6 +87,8 @@ final class CloudAutomationStateStore
     /**
      * @param array<string, mixed> $run
      * @param array<string, mixed> $summary
+     * @param string|null $idempotencyKey Stable boundary key when a caller must
+     *        suppress a changed payload inside one business window.
      * @return array<string, mixed>
      */
     public function finishRun(array $run, string $status, string $stage, array $summary): array
@@ -110,7 +112,8 @@ final class CloudAutomationStateStore
         int $hotelId,
         array $identity,
         array $payload,
-        array $context = []
+        array $context = [],
+        ?string $idempotencyKey = null
     ): array {
         if ($hotelId <= 0) {
             throw new \InvalidArgumentException('Cloud delivery hotel_id must be positive.');
@@ -121,11 +124,13 @@ final class CloudAutomationStateStore
 
         $kind = $this->safeToken($kind, 'message');
         $payloadHash = hash('sha256', $this->canonicalJson($payload));
+        $idempotencyKey = $idempotencyKey === null ? '' : trim($idempotencyKey);
         $deliveryKey = hash('sha256', $this->canonicalJson([
             'kind' => $kind,
             'hotel_id' => $hotelId,
             'identity' => $identity,
-            'payload_hash' => $payloadHash,
+            'payload_hash' => $idempotencyKey === '' ? $payloadHash : null,
+            'idempotency_key' => $idempotencyKey === '' ? null : $idempotencyKey,
         ]));
         $path = $this->deliveryPath($deliveryKey);
         $existing = $this->readJson($path);
@@ -141,6 +146,7 @@ final class CloudAutomationStateStore
             'hotel_id' => $hotelId,
             'identity' => $identity,
             'payload_hash' => $payloadHash,
+            'idempotency_key' => $idempotencyKey === '' ? null : $idempotencyKey,
             'payload' => $payload,
             'context' => $context,
             'status' => (string)($existing['status'] ?? 'queued'),

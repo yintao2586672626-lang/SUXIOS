@@ -307,10 +307,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $scriptMatchedPageStateCount = max(0, (int)($scriptValidation['matched_page_state_identifier_count'] ?? 0));
         $scriptMismatchedPageStateCount = max(0, (int)($scriptValidation['mismatched_page_state_identifier_count'] ?? 0));
         $pageStateContractValid = $scriptSchemaValid
-            && $scriptEvidenceSource === 'trusted_ota_page_state'
-            && $trustedNameReference
-            && $expectedPlatformHotelName !== ''
-            && (int)($scriptValidation['expected_name_count'] ?? 0) === 1;
+            && $scriptEvidenceSource === 'trusted_ota_page_state';
         if ($pageStateContractValid
             && $scriptStatus === 'matched'
             && ($scriptValidation['source_validation'] ?? null) === true
@@ -318,11 +315,16 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             && $scriptObservedPageStateCount === 1
             && $scriptMatchedPageStateCount === 1
             && $scriptMismatchedPageStateCount === 0
-            && $scriptObservedNameCount === 1
-            && $scriptMatchedNameCount === 1
-            && $scriptMismatchedNameCount === 0
+            // The platform hotel ID from trusted page state is the binding
+            // proof. Some eBooking report pages do not render a hotel-name
+            // header, so absence of that optional display evidence must not
+            // reject an otherwise exact, single-ID match.
+            && ($scriptObservedNameCount === 0 || (
+                $scriptMatchedNameCount === 1
+                && $scriptMismatchedNameCount === 0
+            ))
             && hash_equals($expectedHotelId, $scriptIdentifier)
-            && hash_equals($expectedPlatformHotelName, $scriptName)
+            && ($scriptObservedNameCount === 0 || hash_equals($expectedPlatformHotelName, $scriptName))
         ) {
             return [
                 'schema_version' => 1,
@@ -330,9 +332,9 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'expected_identifier_present' => true,
                 'observed_identifier_count' => 0,
                 'observed_page_state_identifier_count' => 1,
-                'observed_name_count' => 1,
+                'observed_name_count' => $scriptObservedNameCount,
                 'validated_identifier' => $expectedHotelId,
-                'validated_name' => $expectedPlatformHotelName,
+                'validated_name' => $scriptObservedNameCount === 0 ? '' : $expectedPlatformHotelName,
                 'evidence_source' => 'trusted_ota_page_state',
                 'identity_reference_source' => 'trip_public_profile',
                 'sensitive_values_exposed' => false,
@@ -1094,6 +1096,12 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         ], true)) {
             return false;
         }
+        // A browser timeout already consumed the bounded capture window. Retrying every
+        // section sequentially turns one failed run into several more browser sessions.
+        // Leave the receipt failed so the scheduler can make a later, explicit retry.
+        if (str_contains(strtolower((string)($result['message'] ?? '')), 'timed out')) {
+            return false;
+        }
         return !in_array((string)($result['status'] ?? ''), ['success', 'partial_success'], true);
     }
 
@@ -1328,6 +1336,13 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
     private function resolveCaptureSections(array $options, array $config, array $fieldConfigPayload): string
     {
+        // Daily ordered collection intentionally asks for one missing section.
+        // Do not let the broader field configuration expand that bounded plan
+        // back into multiple browser pages.
+        $boundedSections = trim((string)($options['bounded_capture_sections'] ?? $options['boundedCaptureSections'] ?? ''));
+        if ($boundedSections !== '') {
+            return $this->sanitizeSections($boundedSections);
+        }
         $allowedSections = array_values(array_unique(array_filter(array_map(
             fn($item): string => $this->normalizeSectionKey((string)$item),
             is_array($fieldConfigPayload['allowed_sections'] ?? null) ? $fieldConfigPayload['allowed_sections'] : []

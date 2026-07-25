@@ -96,6 +96,13 @@ test('keeps an exact Ctrip page-header name unverified when request identifiers 
   assert.equal(pageStateMatched.evidence_source, 'trusted_ota_page_state');
   assert.equal(pageStateMatched.validated_identifier, '130079194');
 
+  const pageStateIdOnly = evaluateCtripPlatformIdentity(['130079194'], [], {
+    pageStateIdentifiers: ['130079194'],
+  });
+  assert.equal(pageStateIdOnly.status, 'matched');
+  assert.equal(pageStateIdOnly.source_validation, true);
+  assert.equal(pageStateIdOnly.evidence_source, 'trusted_ota_page_state');
+
   const ambiguousPageState = evaluateCtripPlatformIdentity(['130079194'], [], {
     expectedNames: [exactName],
     observedNames: [exactName],

@@ -253,6 +253,64 @@ final class OtaProfileSessionProofService
         ], true) ? $status : '';
     }
 
+    /**
+     * A stale local identity state may be bypassed only to reach the adapter's
+     * response-derived identity gate. This never authorizes persistence:
+     * Ctrip/Meituan adapters still reject a real mismatch before raw storage.
+     *
+     * @param array<string, mixed> $source
+     */
+    public function canAttemptResponseIdentityValidation(array $source): bool
+    {
+        $blockingStatus = $this->currentSessionBlockingStatus($source);
+        if ($blockingStatus === 'identity_unverified') {
+            return true;
+        }
+        if ($blockingStatus !== 'identity_mismatch') {
+            return false;
+        }
+
+        $config = is_array($source['config'] ?? null)
+            ? $source['config']
+            : $this->decodeConfig((string)($source['config_json'] ?? ''));
+        $today = $this->now()->format('Y-m-d');
+        $probeDate = trim((string)($config['current_session_probe_date'] ?? ''));
+        $probeAt = trim((string)($config['current_session_probe_at'] ?? ''));
+        $probeAtDate = $probeAt === '' ? '' : substr($probeAt, 0, 10);
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $probePlatform = strtolower(trim((string)($config['current_session_probe_platform'] ?? $platform)));
+        $sourceId = (int)($source['id'] ?? 0);
+        $probeSourceId = (int)($config['current_session_probe_data_source_id'] ?? 0);
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        $probeHotelId = (int)($config['current_session_probe_system_hotel_id'] ?? 0);
+        $tenantId = (int)($source['tenant_id'] ?? 0);
+        $probeTenantId = (int)($config['current_session_probe_tenant_id'] ?? 0);
+        $authStatus = is_array($config['auth_status'] ?? null)
+            ? $config['auth_status']
+            : [];
+        $loginStatuses = [
+            strtolower(trim((string)($config['profile_status'] ?? ''))),
+            strtolower(trim((string)($config['login_status'] ?? ''))),
+            strtolower(trim((string)($authStatus['status'] ?? ''))),
+        ];
+
+        return ($config['current_session_probe_performed'] ?? null) === true
+            && strtolower(trim((string)($config['current_session_probe_identity_status'] ?? ''))) === 'matched'
+            && strtolower(trim((string)($config['current_session_probe_evidence_level'] ?? ''))) === 'strong'
+            && strtolower(trim((string)($config['current_session_probe_evidence_type'] ?? '')))
+                === self::COLLECTION_PREFLIGHT_EVIDENCE_TYPE
+            && trim((string)($config['current_session_probe_scope'] ?? '')) === 'same_data_source_profile_session'
+            && $probeDate === $today
+            && $probeAtDate === $today
+            && $platform !== ''
+            && $probePlatform === $platform
+            && $hotelId > 0
+            && $probeHotelId === $hotelId
+            && ($sourceId <= 0 || $probeSourceId <= 0 || $probeSourceId === $sourceId)
+            && ($tenantId <= 0 || $probeTenantId <= 0 || $probeTenantId === $tenantId)
+            && array_intersect(['logged_in', 'authorized'], $loginStatuses) !== [];
+    }
+
     /** @param array<string, mixed> $sessionProbe */
     public function isCollectableProfileLoginSessionProbe(array $sessionProbe): bool
     {

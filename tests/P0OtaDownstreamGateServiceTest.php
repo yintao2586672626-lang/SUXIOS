@@ -30,12 +30,16 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
     {
         $gate = (new P0OtaDownstreamGateService())->normalize([
             'status' => 'ready',
-        ], '2026-06-27', 7);
+            ...$this->authorityMetadata('2026-06-27', 7, ['ctrip', 'meituan']),
+        ], '2026-06-27', 7, ['ctrip', 'meituan']);
 
         self::assertSame('ready', $gate['status']);
         self::assertSame([], $gate['blocking_missing_inputs']);
         self::assertSame([], $gate['blocked_stage_keys']);
-        self::assertSame('npm.cmd run verify:p0-ota-field-loop -- --date=2026-06-27 --system-hotel-id=7', $gate['required_gate_command']);
+        self::assertSame(
+            'npm.cmd run verify:p0-ota-field-loop -- --date=2026-06-27 --platform=ctrip,meituan --system-hotel-id=7',
+            $gate['required_gate_command']
+        );
         self::assertContains('p0_ota_field_loop_ready_for_downstream_claims', $gate['allowed_claims']);
     }
 
@@ -73,7 +77,10 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
         self::assertArrayNotHasKey('raw_payload', $quality);
         self::assertArrayNotHasKey('token', $quality);
 
-        $readyQuality = $service->collectionQuality($service->normalize(['status' => 'ready'], '2026-06-27', 7));
+        $readyQuality = $service->collectionQuality($service->normalize([
+            'status' => 'ready',
+            ...$this->authorityMetadata('2026-06-27', 7, ['ctrip', 'meituan']),
+        ], '2026-06-27', 7, ['ctrip', 'meituan']));
         self::assertSame('available', $readyQuality['primary_quality_state']);
         self::assertSame([], $readyQuality['quality_flags']);
     }
@@ -108,11 +115,12 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
                 $this->platformTrust('ctrip', 'verified', 'ready'),
                 $this->platformTrust('meituan', 'partial', 'blocked', ['readback']),
             ]),
-            ['ctrip']
+            ['ctrip'],
+            $this->authorityReceipt(['ctrip'])
         );
 
         self::assertSame('ready', $gate['status']);
-        self::assertSame('runtime_continuous_trust', $gate['verification_source']);
+        self::assertSame('external_p0_verifier', $gate['verification_source']);
         self::assertSame('2026-07-22', $gate['target_date']);
         self::assertSame(7, $gate['hotel_id']);
         self::assertSame(['ctrip'], $gate['verified_platforms']);
@@ -121,6 +129,7 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
             $gate['required_gate_command']
         );
         self::assertFalse($gate['sensitive_values_exposed']);
+        self::assertSame(str_repeat('a', 64), $gate['verifier_report_hash']);
     }
 
     public function testRuntimeGateFailsClosedWhenRequestedPlatformReadbackIsMissing(): void
@@ -190,6 +199,57 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
         self::assertSame([], $gate['verified_platforms']);
     }
 
+    public function testRuntimeTrustCannotOpenGateWithoutExactExternalVerifierReceipt(): void
+    {
+        $service = new P0OtaDownstreamGateService();
+        $continuous = $this->continuousTrust([
+            $this->platformTrust('ctrip', 'verified', 'ready'),
+        ]);
+
+        $missingReceipt = $service->fromContinuousTrust(
+            '2026-07-22',
+            7,
+            $this->dataset(['ctrip']),
+            $continuous,
+            ['ctrip']
+        );
+        self::assertSame('blocked_by_p0_ota_gate', $missingReceipt['status']);
+        self::assertContains(
+            'p0_authority_verifier_receipt_missing',
+            $missingReceipt['blocking_missing_inputs']
+        );
+
+        $wrongDate = $this->authorityReceipt(['ctrip'], '2026-07-21', 7);
+        $scopeMismatch = $service->fromContinuousTrust(
+            '2026-07-22',
+            7,
+            $this->dataset(['ctrip']),
+            $continuous,
+            ['ctrip'],
+            $wrongDate
+        );
+        self::assertSame('blocked_by_p0_ota_gate', $scopeMismatch['status']);
+        self::assertContains(
+            'p0_authority_verifier_scope_mismatch',
+            $scopeMismatch['blocking_missing_inputs']
+        );
+
+        $bareVerifier = $this->authorityReceipt(['ctrip'])['authority_verifier'];
+        $bareVerifierGate = $service->fromContinuousTrust(
+            '2026-07-22',
+            7,
+            $this->dataset(['ctrip']),
+            $continuous,
+            ['ctrip'],
+            $bareVerifier
+        );
+        self::assertSame('blocked_by_p0_ota_gate', $bareVerifierGate['status']);
+        self::assertContains(
+            'p0_authority_collection_receipt_invalid',
+            $bareVerifierGate['blocking_missing_inputs']
+        );
+    }
+
     public function testRuntimeResolverUsesPersistedTrustAndStandardFactsWithoutShellExecution(): void
     {
         $trustCalls = 0;
@@ -210,7 +270,9 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
                 self::assertSame(7, $hotelId);
                 self::assertSame(['ctrip'], $platforms);
                 return $this->dataset($platforms);
-            }
+            },
+            fn(int $hotelId, string $businessDate): array =>
+                $this->authorityReceipt(['ctrip'], $businessDate, $hotelId)
         );
 
         $gate = $service->resolveRuntime('2026-07-22', 7, null, ['ctrip']);
@@ -316,6 +378,77 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
             'target_date' => '2026-07-22',
             'p0_status' => $p0Status,
             'missing_steps' => $missingSteps,
+        ];
+    }
+
+    /**
+     * @param array<int, string> $platforms
+     * @return array<string, mixed>
+     */
+    private function authorityReceipt(
+        array $platforms,
+        string $targetDate = '2026-07-22',
+        int $hotelId = 7
+    ): array {
+        $collectionAnchorHash = str_repeat('c', 64);
+        return [
+            'schema_version' => 3,
+            'hotel_id' => $hotelId,
+            'target_date' => $targetDate,
+            'data_period' => 'historical_daily',
+            'required_platforms' => $platforms,
+            'collection_complete' => true,
+            'exportable_snapshot_complete' => true,
+            'dual_ota_p0_complete' => true,
+            'collection_anchor_hash' => $collectionAnchorHash,
+            'source_tasks' => array_map(
+                static fn(string $platform, int $index): array => [
+                    'data_source_id' => 100 + $index,
+                    'sync_task_id' => 200 + $index,
+                    'platform' => $platform,
+                    'collection_status' => 'success',
+                    'p0_status' => 'ready',
+                    'row_ids' => [300 + $index],
+                ],
+                $platforms,
+                array_keys($platforms)
+            ),
+            'authority_verifier' => [
+                'verification_source' => 'external_p0_verifier',
+                'status' => 'passed',
+                'exit_code' => 0,
+                'authority_ready' => true,
+                'target_date' => $targetDate,
+                'hotel_id' => $hotelId,
+                'required_platforms' => $platforms,
+                'verified_platforms' => $platforms,
+                'collection_anchor_hash' => $collectionAnchorHash,
+                'p0_platforms_ready' => count($platforms),
+                'traffic_gates_ready' => count($platforms),
+                'continuous_trust_status' => 'verified',
+                'continuous_trust_missing_steps' => [],
+                'issue_codes' => [],
+                'verifier_report_hash' => str_repeat('a', 64),
+                'checked_at' => $targetDate . ' 08:45:00',
+                'sensitive_values_exposed' => false,
+            ],
+        ];
+    }
+
+    /**
+     * @param array<int, string> $platforms
+     * @return array<string, mixed>
+     */
+    private function authorityMetadata(string $targetDate, int $hotelId, array $platforms): array
+    {
+        return [
+            'verification_source' => 'external_p0_verifier',
+            'target_date' => $targetDate,
+            'hotel_id' => $hotelId,
+            'verified_platforms' => $platforms,
+            'verifier_report_hash' => str_repeat('a', 64),
+            'verifier_checked_at' => $targetDate . ' 08:45:00',
+            'sensitive_values_exposed' => false,
         ];
     }
 }

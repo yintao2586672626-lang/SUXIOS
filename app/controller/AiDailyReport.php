@@ -6,6 +6,7 @@ namespace app\controller;
 use app\service\AiDailyReportService;
 use app\service\AiReportGenerationTaskService;
 use app\service\OtaCompetitionAnalysisBundleService;
+use app\service\P0OtaDownstreamGateService;
 use think\Response;
 use Throwable;
 
@@ -79,6 +80,25 @@ class AiDailyReport extends Base
                 && filter_var($input['background'], FILTER_VALIDATE_BOOL);
             if (OtaCompetitionAnalysisBundleService::editionRequiresAdmin($edition)) {
                 $background = false;
+            }
+            $p0Gate = (new P0OtaDownstreamGateService())->resolveRuntime(
+                $date,
+                $hotelId !== null ? (int)$hotelId : null,
+                null,
+                ['ctrip', 'meituan']
+            );
+            if (($p0Gate['status'] ?? '') !== 'ready') {
+                return $this->error(
+                    '昨日双 OTA 数据尚未通过真实 P0 verifier；本次不生成正式日报。',
+                    409,
+                    [
+                        'status' => 'blocked_by_p0_ota_gate',
+                        'formal_report_generated' => false,
+                        'target_date' => $date,
+                        'hotel_id' => $hotelId,
+                        'p0_downstream_gate' => $p0Gate,
+                    ]
+                );
             }
             if ($background) {
                 return $this->success($this->taskService->enqueue(

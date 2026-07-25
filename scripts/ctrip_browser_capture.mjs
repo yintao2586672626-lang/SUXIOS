@@ -73,7 +73,11 @@ const notApplicableSections = normalizeOptionalSections(
 const hotelId = stringValue(args.hotelId || '').trim();
 const platformHotelName = stringValue(args.platformHotelName || args.platform_hotel_name || '').replace(/\s+/gu, ' ').trim();
 const defaultDataDate = stringValue(args.dataDate || '').trim();
-const storageDir = resolve(args.profileDir || join('storage', `ctrip_profile_${safeName(profileId)}`));
+const accountProfileKey = stringValue(args.accountProfileKey || args.account_profile_key || '').trim();
+const defaultProfileDirectory = accountProfileKey
+  ? `ctrip_account_profile_${safeName(accountProfileKey)}`
+  : `ctrip_profile_${safeName(profileId)}`;
+const storageDir = resolve(args.profileDir || join('storage', defaultProfileDirectory));
 const reportDir = resolve(args.reportDir || 'reports');
 const assetDir = join(reportDir, 'ctrip_capture_assets');
 const outputPath = resolve(args.output || join(reportDir, `ctrip_browser_capture_${safeName(profileId)}_${timestamp()}.json`));

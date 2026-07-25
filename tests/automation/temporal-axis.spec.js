@@ -1,5 +1,6 @@
 function defineTemporalAxisPlaywrightSuite() {
 const { test, expect } = require('@playwright/test');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -89,6 +90,29 @@ async function get(request, token, pathname, params = {}) {
   return apiData(response, pathname);
 }
 
+function verifyTemporalInputFixture() {
+  if (process.env.SUXI_E2E_ISOLATED_RUNNER !== '1') {
+    throw new Error('Temporal input verification requires the isolated E2E runner');
+  }
+  const php = process.env.SUXI_PHP || 'C:\\xampp\\php\\php.exe';
+  const helper = path.join(__dirname, 'e2e-isolation-helper.php');
+  const result = spawnSync(php, [helper, 'verify-temporal-inputs'], {
+    cwd: path.resolve(__dirname, '..', '..'),
+    env: {
+      ...process.env,
+      SUXI_E2E_PREFIX: config.objectPrefix,
+      SUXI_E2E_HOTEL_ID: String(config.hotelId),
+    },
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || result.error?.message || '').trim().slice(0, 800);
+    throw new Error(`Temporal input verification failed${detail ? `: ${detail}` : ''}`);
+  }
+  return JSON.parse(String(result.stdout || '').trim());
+}
+
 test('isolated page shows past, present, future and forecast review entry', async ({ page, request }) => {
   expect(config.objectPrefix).toMatch(/^codex_e2e_[a-z0-9_]+$/);
   expect(config.hotelId).toBeGreaterThan(0);
@@ -143,6 +167,12 @@ test('isolated page shows past, present, future and forecast review entry', asyn
   });
   expect(todaySave.saved_count).toBe(1);
 
+  const inputFixture = verifyTemporalInputFixture();
+  expect(inputFixture.historical_days).toBe(14);
+  expect(inputFixture.realtime_days).toBe(1);
+  expect(inputFixture.readback_verified).toBe(true);
+  expect(inputFixture.source_scope).toBe('synthetic_isolated_e2e_ctrip_channel_fixture');
+
   const generated = await post(request, token, '/api/temporal-insights/forecasts', {
     hotel_id: config.hotelId,
     future_days: 7,
@@ -164,24 +194,36 @@ test('isolated page shows past, present, future and forecast review entry', asyn
   const pageEvents = [];
   installDiagnostics(page, { apiEvents: [], pageEvents });
   page.on('pageerror', (error) => pageErrors.push(error.message));
+  await login(page, config);
+  await expect.poll(
+    () => page.evaluate(() => document.documentElement.dataset.suxiRenderPhase || ''),
+    { timeout: 15000 },
+  ).toBe('full');
   const overviewResponse = page.waitForResponse(
     (response) => response.url().includes('/api/temporal-insights/overview'),
-    { timeout: 20000 },
+    { timeout: 30000 },
   );
-  await login(page, config);
+  const analysisGroup = page.getByTestId('nav-lean-business-loop');
+  await expect(analysisGroup).toBeVisible({ timeout: 10000 });
+  await analysisGroup.click();
+  const homeEntry = page.getByTestId('nav-compass');
+  await expect(homeEntry).toBeVisible({ timeout: 10000 });
+  await homeEntry.click();
+  await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', 'compass', { timeout: 10000 });
   expect((await overviewResponse).status()).toBe(200);
 
   const axis = page.getByTestId('home-temporal-axis');
   await expect(axis).toBeVisible({ timeout: 10000 });
   const axisToggle = axis.getByTestId('home-temporal-toggle');
   await expect(axisToggle).toBeVisible();
-  await axisToggle.click();
   await expect(axis).toHaveAttribute('open', '');
   await expect(axis.locator('article')).toHaveCount(3);
-  await expect(axis).toContainText('历史数据');
-  await expect(axis).toContainText('今日数据');
-  await expect(axis).toContainText('未来趋势');
-  await expect(axis).toContainText('历史预测');
+  await expect(axis).toContainText('昨天事实');
+  await expect(axis).toContainText('今天状态');
+  await expect(axis).toContainText('未来 AI 研判');
+  await expect(axis.getByTestId('home-today-acquired-status')).toContainText('实时快照');
+  await expect(axis.getByTestId('home-today-acquired-status')).not.toContainText('OTA收入');
+  await expect(axis.getByTestId('home-future-ai-judgement')).toContainText('不自动执行');
   await expect(axis.getByRole('button')).toBeEnabled();
   await expect(axis).not.toContainText('执行价格');
   expect(pageErrors).toEqual([]);

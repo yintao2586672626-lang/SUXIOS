@@ -130,7 +130,7 @@
                     <div class="lg:col-span-2 space-y-3 max-h-[68vh] overflow-y-auto pr-1">
                         <div v-for="chunk in knowledgeCenterVisibleChunks" :key="chunk.chunk_id" class="border border-gray-100 rounded-lg p-4">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium">{{ chunk.type || 'manual' }}</span>
+                                <span :title="chunk.type || ''" class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium">{{ knowledgeCenterDisplayLabel(chunk.type || 'manual', '其他类型') }}</span>
                                 <span class="text-xs text-gray-400">#{{ chunk.chunk_id }} · {{ chunk.created_at || '-' }}</span>
                             </div>
                             <template v-for="view in [knowledgeChunkView(chunk)]" :key="'chunk-view-' + chunk.chunk_id">

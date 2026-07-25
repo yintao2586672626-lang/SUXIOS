@@ -56,6 +56,39 @@ final class CloudAutomationContractTest extends TestCase
         self::assertStringContainsString("\$hotelQuery->where('id', \$hotelId)", $patrol);
     }
 
+    public function testFormalDailyReportRequiresExactExternalP0Receipt(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/CloudAutomationService.php'
+        );
+
+        self::assertStringContainsString('P0OtaDownstreamGateService $p0GateService', $source);
+        self::assertStringContainsString('$this->p0GateService->resolveRuntime(', $source);
+        self::assertStringContainsString("'external_p0_verifier'", $source);
+        self::assertStringContainsString("'dual_ota_p0_authority_not_ready'", $source);
+        self::assertStringContainsString('$health[\'can_generate_report\'] = false;', $source);
+        self::assertStringContainsString("'p0_downstream_gate'", $source);
+
+        $method = new ReflectionMethod(
+            \app\service\CloudAutomationService::class,
+            'deliverSavedDailyReport'
+        );
+        $lines = explode("\n", $source);
+        $body = implode("\n", array_slice(
+            $lines,
+            max(0, $method->getStartLine() - 1),
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+        self::assertStringContainsString('$this->p0GateService->resolveRuntime(', $body);
+        self::assertStringContainsString("'formal_report_requires_exact_external_p0_receipt'", $body);
+        self::assertStringContainsString("'blocked_by_p0_ota_gate'", $body);
+        self::assertStringContainsString('!$statusOnly', $body);
+        self::assertStringContainsString("'daily_report_status'", $body);
+        self::assertStringContainsString("'report_edition' => \$reportEdition", $body);
+        self::assertStringContainsString("'delivery_mode' => \$deliveryMode", $body);
+        self::assertStringContainsString("'artifact_kind' => \$artifactKind", $body);
+    }
+
     public function testHotelScopedSystemdTemplatesCannotFanOutToOtherHotels(): void
     {
         $root = dirname(__DIR__);

@@ -48,6 +48,50 @@ final class RevenueAiControllerTest extends TestCase
         ]]);
     }
 
+    public function testOverviewFiltersDiscardClientSuppliedP0GateOverride(): void
+    {
+        $controller = $this->controllerWithPermissions([]);
+        $request = new class {
+            /** @return array<string, mixed> */
+            public function post(): array
+            {
+                return [
+                    'hotel_id' => '7',
+                    'business_date' => '2026-07-23',
+                    'p0_downstream_gate' => [
+                        'status' => 'ready',
+                        'verification_source' => 'client_supplied',
+                    ],
+                ];
+            }
+
+            public function param(string $key, mixed $default = null): mixed
+            {
+                return $default;
+            }
+
+            public function method(): string
+            {
+                return 'POST';
+            }
+
+            public function getContent(): string
+            {
+                return '';
+            }
+        };
+
+        $requestProperty = new ReflectionProperty(Base::class, 'request');
+        $requestProperty->setAccessible(true);
+        $requestProperty->setValue($controller, $request);
+
+        $filters = $this->invokeNonPublic($controller, 'filters');
+
+        self::assertArrayNotHasKey('p0_downstream_gate', $filters);
+        self::assertSame('7', $filters['hotel_id']);
+        self::assertSame('2026-07-23', $filters['business_date']);
+    }
+
     public function testReviewPayloadKeepsManualExecutionBoundary(): void
     {
         $payload = $this->invokeNonPublic($this->controller(), 'priceSuggestionReviewPayload', [[

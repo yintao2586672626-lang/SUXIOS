@@ -315,6 +315,35 @@ final class CloudDataHealthServiceTest extends TestCase
         self::assertContains('hotel_tenant_scope_missing', array_column($result['issues'], 'code'));
     }
 
+    public function testPartialHistoricalFactsStayVisibleWhileFutureForecastDoesNotAffectDailyGate(): void
+    {
+        $partialFact = array_replace($this->row(1, 'ctrip', 11), [
+            'validation_status' => 'partial',
+            'data_period' => 'historical_daily',
+        ]);
+        $futureForecast = array_replace($this->row(2, 'ctrip', 11), [
+            'data_period' => 'next_30_days',
+            'data_type' => 'traffic_forecast',
+            'readback_verified' => 0,
+        ]);
+
+        $result = CloudDataHealthService::evaluate(
+            ['id' => 7, 'tenant_id' => 2, 'name' => '测试酒店'],
+            '2026-07-21',
+            ['ctrip'],
+            [$partialFact, $futureForecast],
+            [['id' => 11, 'tenant_id' => 2, 'system_hotel_id' => 7, 'platform' => 'ctrip', 'enabled' => 1]],
+            [],
+            true
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertFalse($result['can_generate_report']);
+        self::assertSame(1, $result['readback']['target_row_count']);
+        self::assertContains('validation_partial', array_column($result['issues'], 'code'));
+        self::assertNotContains('readback_unverified', array_column($result['issues'], 'code'));
+    }
+
     /** @return array<string, mixed> */
     private function row(int $id, string $platform, int $dataSourceId): array
     {

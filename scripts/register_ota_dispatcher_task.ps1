@@ -6,6 +6,8 @@ param(
     [Parameter(ParameterSetName = 'Enable')]
     [switch]$ReplaceExisting,
 
+    [switch]$Realtime,
+
     [Parameter(Mandatory = $true, ParameterSetName = 'Unregister')]
     [switch]$Unregister,
 
@@ -20,8 +22,11 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$HealthUrl = 'http://127.0.0.1:8080/api/health',
 
-    [ValidateRange(1, 60)]
-    [int]$IntervalMinutes = 1,
+    [ValidatePattern('^(?:[01]\d|2[0-3]):[0-5]\d$')]
+    [string]$DailyAt = '08:30',
+
+    [ValidateRange(0, 59)]
+    [int]$RealtimeMinute = 5,
 
     [ValidateNotNullOrEmpty()]
     [string]$RunAsUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -34,9 +39,10 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Split-Path -Parent $PSScriptRoot
 }
 
-$taskName = 'SUXIOS OTA Dispatcher'
+$taskName = if ($Realtime) { 'SUXIOS OTA Realtime Dispatcher' } else { 'SUXIOS OTA Dispatcher' }
 $taskPath = '\'
 $dispatcherCommand = 'online-data:auto-fetch'
+$dispatcherMode = if ($Realtime) { 'Realtime' } else { 'Daily' }
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 function Resolve-ExecutablePath {
@@ -129,7 +135,9 @@ $resolvedPhpPath = Resolve-ExecutablePath -Candidate $PhpPath
 $thinkPath = Join-Path $effectiveProjectRoot 'think'
 $consoleConfigPath = Join-Path $effectiveProjectRoot 'config\console.php'
 $registrationScriptPath = Join-Path $effectiveProjectRoot 'scripts\register_ota_dispatcher_task.ps1'
-$actionArguments = '"{0}" {1}' -f $thinkPath, $dispatcherCommand
+$dispatcherRunnerPath = Join-Path $effectiveProjectRoot 'scripts\run_ota_dispatcher.ps1'
+$powershellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$actionArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ProjectRoot "{1}" -PhpPath "{2}" -Mode {3}' -f $dispatcherRunnerPath, $effectiveProjectRoot, $resolvedPhpPath, $dispatcherMode
 
 $preflight = @()
 $preflight += New-PreflightCheck -Name 'project_root' -Passed ($null -ne $resolvedProjectRoot) -Detail $effectiveProjectRoot
@@ -137,6 +145,8 @@ $projectIdentityPassed = ((Test-Path -LiteralPath (Join-Path $effectiveProjectRo
 $preflight += New-PreflightCheck -Name 'project_identity' -Passed $projectIdentityPassed -Detail 'composer.json and the repository registration script must exist'
 $preflight += New-PreflightCheck -Name 'php_binary' -Passed ($null -ne $resolvedPhpPath) -Detail $(if ($null -ne $resolvedPhpPath) { $resolvedPhpPath } else { $PhpPath })
 $preflight += New-PreflightCheck -Name 'think_entry' -Passed (Test-Path -LiteralPath $thinkPath -PathType Leaf) -Detail $thinkPath
+$preflight += New-PreflightCheck -Name 'dispatcher_runner' -Passed (Test-Path -LiteralPath $dispatcherRunnerPath -PathType Leaf) -Detail $dispatcherRunnerPath
+$preflight += New-PreflightCheck -Name 'powershell_binary' -Passed (Test-Path -LiteralPath $powershellPath -PathType Leaf) -Detail $powershellPath
 
 $commandRegistered = $false
 if (Test-Path -LiteralPath $consoleConfigPath -PathType Leaf) {
@@ -171,7 +181,7 @@ $preflight += New-PreflightCheck -Name 'local_health' -Passed $healthPassed -Det
 
 $credentialFreeArguments = Test-CredentialFreeTaskArguments -Arguments $actionArguments
 $preflight += New-PreflightCheck -Name 'credential_free_arguments' -Passed $credentialFreeArguments -Detail $(
-    if ($credentialFreeArguments) { 'task arguments contain only the think entry and dispatcher command' } else { 'credential-shaped task arguments are forbidden' }
+    if ($credentialFreeArguments) { 'task arguments contain only the local runner, project root, and PHP path' } else { 'credential-shaped task arguments are forbidden' }
 )
 
 $requiredScheduledTaskCommands = @(
@@ -207,12 +217,13 @@ $plan = [ordered]@{
         path = $taskPath
         exists = $null -ne $existingTask
         state = if ($null -ne $existingTask) { [string]$existingTask.State } else { 'absent' }
-        interval_minutes = $IntervalMinutes
+        schedule = if ($Realtime) { "hourly at :$('{0:d2}' -f $RealtimeMinute) Asia/Shanghai" } else { "daily $DailyAt Asia/Shanghai" }
+        trigger_count = if ($Realtime) { 24 } else { 1 }
         multiple_instances = 'IgnoreNew'
-        execution_time_limit_minutes = 120
+        execution_time_limit_minutes = if ($Realtime) { 25 } else { 120 }
     }
     action = [ordered]@{
-        execute = if ($null -ne $resolvedPhpPath) { $resolvedPhpPath } else { $PhpPath }
+        execute = $powershellPath
         arguments = $actionArguments
         working_directory = $effectiveProjectRoot
     }
@@ -270,14 +281,17 @@ if ($null -ne $existingTask -and -not $ReplaceExisting) {
 
 if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task without starting it')) {
     $taskAction = New-ScheduledTaskAction `
-        -Execute $resolvedPhpPath `
+        -Execute $powershellPath `
         -Argument $actionArguments `
         -WorkingDirectory $effectiveProjectRoot
-    $taskTrigger = New-ScheduledTaskTrigger `
-        -Once `
-        -At (Get-Date).AddMinutes(1) `
-        -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
-        -RepetitionDuration (New-TimeSpan -Days 3650)
+    if ($Realtime) {
+        $taskTrigger = @(0..23 | ForEach-Object {
+            New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.Date.AddHours($_).AddMinutes($RealtimeMinute))
+        })
+    } else {
+        $triggerTime = [datetime]::Today.Add([timespan]::ParseExact($DailyAt, 'hh\:mm', $null))
+        $taskTrigger = New-ScheduledTaskTrigger -Daily -At $triggerTime
+    }
     $taskPrincipal = New-ScheduledTaskPrincipal `
         -UserId $RunAsUser `
         -LogonType Interactive `
@@ -285,7 +299,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
     $taskSettings = New-ScheduledTaskSettingsSet `
         -MultipleInstances IgnoreNew `
         -StartWhenAvailable `
-        -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
+        -ExecutionTimeLimit $(if ($Realtime) { New-TimeSpan -Minutes 25 } else { New-TimeSpan -Hours 2 }) `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries
 
@@ -296,7 +310,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
         Trigger = $taskTrigger
         Principal = $taskPrincipal
         Settings = $taskSettings
-        Description = 'Authorized local-profile OTA dispatcher. Task arguments contain no credentials and the task is not started by registration.'
+        Description = $(if ($Realtime) { 'Authorized local-profile OTA realtime dispatcher. Runs one idempotent current-day slot per hour; task arguments contain no credentials and registration does not start it.' } else { 'Authorized local-profile OTA daily dispatcher. Runs yesterday final collection once; task arguments contain no credentials and registration does not start it.' })
     }
     if ($null -ne $existingTask) {
         $registrationParameters['Force'] = $true

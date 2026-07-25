@@ -105,7 +105,7 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         self::assertTrue($result['is_final']);
         $buildSummary = new \ReflectionMethod($service, 'buildSummaryText');
         $buildSummary->setAccessible(true);
-        self::assertStringStartsWith('Yesterday result:', $buildSummary->invoke($service, $result, [], []));
+        self::assertStringStartsWith('历史/日终结果：', $buildSummary->invoke($service, $result, [], []));
     }
 
     public function testHistoricalRealtimeSnapshotIsExplicitlyNonFinalProcessData(): void
@@ -131,7 +131,7 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         $buildSummary = new \ReflectionMethod($service, 'buildSummaryText');
         $buildSummary->setAccessible(true);
         $summary = $buildSummary->invoke($service, $result, [], []);
-        self::assertStringStartsWith('历史过程快照（非日终）:', $summary);
+        self::assertStringStartsWith('历史过程快照（非日终）：', $summary);
         self::assertStringNotContainsString('Yesterday result', $summary);
     }
 
@@ -311,7 +311,7 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         self::assertSame('investigation', $actions[0]['recommendation_type']);
         self::assertTrue($actions[0]['is_investigation_only']);
         self::assertFalse($actions[0]['can_create_execution_intent']);
-        self::assertStringContainsString('target price', $actions[0]['blocked_reason']);
+        self::assertStringContainsString('目标价', $actions[0]['blocked_reason']);
     }
 
     public function testLlmCannotReplaceTrustedSummaryActionOrAbnormalityWithoutRuleEvidence(): void

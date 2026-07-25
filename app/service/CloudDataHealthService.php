@@ -163,6 +163,9 @@ final class CloudDataHealthService
                 if ($dataSourceId > 0 && in_array($dataSourceId, $disabledSourceIds, true)) {
                     return false;
                 }
+                if (!self::isHistoricalDailyRow($row)) {
+                    return false;
+                }
                 return $rowPlatform === $platform || ($dataSourceId > 0 && in_array($dataSourceId, $sourceIds, true));
             }));
             $retiredPlatformRows = array_values(array_filter(
@@ -292,7 +295,15 @@ final class CloudDataHealthService
                 }
 
                 $validationStatus = strtolower(trim((string)($row['validation_status'] ?? 'normal')));
-                if (!in_array($validationStatus, self::TRUSTED_VALIDATION_STATUSES, true)) {
+                if ($validationStatus === 'partial') {
+                    $issues[] = self::issue(
+                        'validation_partial',
+                        $platform,
+                        '目标日已有可回读字段，但本次采集字段仍不完整。',
+                        true,
+                        '展示已验证事实并标出缺口；补齐字段证据后才允许生成正式报告。'
+                    );
+                } elseif (!in_array($validationStatus, self::TRUSTED_VALIDATION_STATUSES, true)) {
                     $issues[] = self::issue(
                         'validation_failed',
                         $platform,
@@ -434,7 +445,7 @@ final class CloudDataHealthService
         $fields = array_values(array_intersect([
             'id', 'tenant_id', 'system_hotel_id', 'hotel_id', 'hotel_name', 'data_date', 'source', 'platform',
             'data_type', 'dimension', 'validation_status', 'validation_flags', 'data_source_id', 'sync_task_id',
-            'ingestion_method', 'source_trace_id', 'raw_data', 'readback_verified', 'readback_verified_at',
+            'ingestion_method', 'source_trace_id', 'raw_data', 'data_period', 'readback_verified', 'readback_verified_at',
         ], $columns));
         $rows = Db::name('online_daily_data')
             ->where('system_hotel_id', $hotelId)
@@ -469,6 +480,20 @@ final class CloudDataHealthService
             $byId[$key] = $row;
         }
         return array_values($byId);
+    }
+
+    /**
+     * A daily health decision must never be affected by realtime snapshots or
+     * future forecasts. Legacy saved rows without a period predate the field
+     * and remain eligible, but every explicitly-perioded row must be the
+     * historical daily fact for the target date.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function isHistoricalDailyRow(array $row): bool
+    {
+        $period = strtolower(trim((string)($row['data_period'] ?? '')));
+        return $period === '' || $period === 'historical_daily';
     }
 
     /** @param array<int, array<string, mixed>> $tasks */

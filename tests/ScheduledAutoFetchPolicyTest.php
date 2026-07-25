@@ -21,13 +21,13 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
     {
         $status = [
             'historical_enabled' => true,
-            'historical_schedule_time' => '10:00',
+            'historical_schedule_time' => '08:30',
             'realtime_enabled' => true,
             'realtime_schedule_minute' => 5,
             'realtime_schedule_interval_hours' => 2,
         ];
 
-        self::assertSame([], $this->policy->dueRuns(58, $status, $this->time('2026-07-16 09:59:00')));
+        self::assertSame([], $this->policy->dueRuns(58, $status, $this->time('2026-07-16 07:59:00')));
 
         $runs = $this->policy->dueRuns(58, $status, $this->time('2026-07-16 10:37:00'));
         self::assertCount(2, $runs);
@@ -61,6 +61,31 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         ));
         self::assertCount(1, $targetedRealtime);
         self::assertSame([], $targetedRealtime[0]['target_platforms'] ?? []);
+    }
+
+    public function testYesterdayDefaultWindowStartsAt0830AndCutsOffAt0900(): void
+    {
+        $status = [
+            'historical_enabled' => true,
+            'realtime_enabled' => false,
+        ];
+
+        self::assertSame([], $this->policy->dueRuns(
+            58,
+            $status,
+            $this->time('2026-07-24 08:29:59')
+        ));
+        $runs = $this->policy->dueRuns(58, $status, $this->time('2026-07-24 08:30:00'));
+        self::assertCount(1, $runs);
+        self::assertSame('historical:2026-07-23', $runs[0]['slot_id']);
+
+        $legacyLateDefault = $status;
+        $legacyLateDefault['historical_schedule_time'] = '10:00';
+        self::assertCount(1, $this->policy->dueRuns(
+            58,
+            $legacyLateDefault,
+            $this->time('2026-07-24 08:30:00')
+        ));
     }
 
     public function testOutcomeRequiresRowsAndNoFailedConfiguredPlatform(): void
@@ -117,6 +142,45 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertFalse($empty['complete']);
         self::assertSame('failed', $empty['status']);
 
+        $inProgress = $this->policy->classifyOutcome([
+            'success' => false,
+            'saved_count' => 0,
+            'platform_results' => [
+                [
+                    'platform' => 'ctrip',
+                    'status' => 'in_progress',
+                    'reused_active_task' => true,
+                    'success' => false,
+                    'saved_count' => 0,
+                ],
+                [
+                    'platform' => 'meituan',
+                    'status' => 'in_progress',
+                    'reused_active_task' => true,
+                    'success' => false,
+                    'saved_count' => 0,
+                ],
+            ],
+        ]);
+        self::assertFalse($inProgress['complete']);
+        self::assertSame('in_progress', $inProgress['status']);
+        self::assertSame([], $inProgress['failed_platforms']);
+        self::assertSame(['ctrip', 'meituan'], $inProgress['in_progress_platforms']);
+
+        $verifiedReuse = $this->policy->classifyOutcome([
+            'success' => true,
+            'saved_count' => 0,
+            'reused_verified_count' => 6,
+            'platform_results' => [
+                ['platform' => 'ctrip', 'success' => true, 'saved_count' => 0, 'reused_verified_count' => 3],
+                ['platform' => 'meituan', 'success' => true, 'saved_count' => 0, 'reused_verified_count' => 3],
+            ],
+        ]);
+        self::assertTrue($verifiedReuse['complete']);
+        self::assertSame(0, $verifiedReuse['saved_count']);
+        self::assertSame(6, $verifiedReuse['reused_verified_count']);
+        self::assertSame(['ctrip', 'meituan'], $verifiedReuse['successful_platforms']);
+
         $failedPlatformRetry = $this->policy->classifyOutcome([
             'success' => true,
             'saved_count' => 2,
@@ -157,6 +221,14 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertTrue($completeOutcome['complete']);
         self::assertTrue($completeReceipt['exportable_snapshot_complete']);
         self::assertTrue($completeReceipt['collection_complete']);
+        self::assertFalse($completeReceipt['dual_ota_p0_complete']);
+        self::assertFalse($this->machineReceiptDailyTrustReady($completeReceipt));
+
+        $completeReceipt = $this->policy->attachAuthorityVerifier(
+            $completeReceipt,
+            $this->mockAuthorityVerifier($completeReceipt)
+        );
+        self::assertTrue($completeReceipt['dual_ota_p0_complete']);
         self::assertTrue($this->machineReceiptDailyTrustReady($completeReceipt));
         self::assertTrue($this->policy->dailyTrustReceiptReady($completeReceipt, '2026-07-16', 58));
         self::assertFalse($this->policy->dailyTrustReceiptReady($completeReceipt, '2026-07-15', 58));
@@ -166,6 +238,19 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         unset($legacyReceipt['source_tasks'][1]['p0_status']);
         self::assertFalse($this->machineReceiptDailyTrustReady($legacyReceipt));
 
+        $targetedGapResult = $completeResult;
+        $targetedGapResult['platform_results'][1]['run_readback']['p0_status'] = 'not_required';
+        $targetedGapOutcome = $this->policy->classifyOutcome($targetedGapResult);
+        $targetedGapReceipt = $this->buildMachineReceipt($targetedGapOutcome, $targetedGapResult);
+        self::assertTrue($targetedGapReceipt['collection_complete']);
+        self::assertSame('not_required', $targetedGapReceipt['source_tasks'][1]['p0_status']);
+        self::assertFalse($this->machineReceiptDailyTrustReady($targetedGapReceipt));
+        $targetedGapReceipt = $this->policy->attachAuthorityVerifier(
+            $targetedGapReceipt,
+            $this->mockAuthorityVerifier($targetedGapReceipt)
+        );
+        self::assertTrue($this->machineReceiptDailyTrustReady($targetedGapReceipt));
+
         $unverifiedResult = $completeResult;
         $unverifiedResult['platform_results'][1]['run_readback']['readback_verified'] = false;
         $unverifiedOutcome = $this->policy->classifyOutcome($unverifiedResult);
@@ -174,6 +259,126 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertTrue($unverifiedOutcome['complete']);
         self::assertFalse($unverifiedReceipt['exportable_snapshot_complete']);
         self::assertFalse($unverifiedReceipt['collection_complete']);
+    }
+
+    public function testAuthorityVerifierMustMatchHotelDatePlatformsAndPersistedTrust(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 2,
+            'platform_results' => [
+                $this->verifiedPlatformResult('ctrip', 25, 1001, true),
+                $this->verifiedPlatformResult('meituan', 68, 1002, true),
+            ],
+        ];
+        $receipt = $this->buildMachineReceipt($this->policy->classifyOutcome($result), $result);
+
+        $wrongHotel = $this->mockAuthorityVerifier($receipt);
+        $wrongHotel['hotel_id'] = 59;
+        $wrongHotelReceipt = $this->policy->attachAuthorityVerifier($receipt, $wrongHotel);
+        self::assertFalse($this->policy->dailyTrustReceiptReady($wrongHotelReceipt, '2026-07-16', 58));
+
+        $missingRaw = $this->mockAuthorityVerifier($receipt);
+        $missingRaw['authority_ready'] = false;
+        $missingRaw['status'] = 'incomplete';
+        $missingRaw['continuous_trust_status'] = 'partial';
+        $missingRaw['continuous_trust_missing_steps'] = ['meituan_raw_save_not_ready'];
+        $missingRawReceipt = $this->policy->attachAuthorityVerifier($receipt, $missingRaw);
+        self::assertFalse($this->policy->dailyTrustReceiptReady($missingRawReceipt, '2026-07-16', 58));
+        self::assertContains(
+            'meituan_raw_save_not_ready',
+            $missingRawReceipt['authority_verifier']['continuous_trust_missing_steps']
+        );
+
+        $ready = $this->policy->attachAuthorityVerifier(
+            $receipt,
+            $this->mockAuthorityVerifier($receipt)
+        );
+        self::assertTrue($this->policy->dailyTrustReceiptReady($ready, '2026-07-16', 58));
+        self::assertSame('external_p0_verifier', $ready['authority_verifier']['verification_source']);
+    }
+
+    public function testAuthorityCanSettleStaleTaskP0OnlyWhenBothAnchoredRowsArePresent(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 2,
+            'platform_results' => [
+                $this->verifiedPlatformResult('ctrip', 25, 1001, false),
+                $this->verifiedPlatformResult('meituan', 68, 1002, false),
+            ],
+        ];
+        $result['platform_results'][0]['run_readback']['p0_status'] = 'blocked';
+        $result['platform_results'][1]['run_readback']['p0_status'] = 'partial';
+
+        $receipt = $this->buildMachineReceipt($this->policy->classifyOutcome($result), $result);
+        self::assertTrue($receipt['exportable_snapshot_complete']);
+        self::assertFalse($receipt['collection_complete']);
+        self::assertSame(['blocked', 'partial'], array_column($receipt['source_tasks'], 'p0_status'));
+
+        $ready = $this->policy->attachAuthorityVerifier($receipt, $this->mockAuthorityVerifier($receipt));
+        self::assertTrue($ready['collection_complete']);
+        self::assertTrue($ready['dual_ota_p0_complete']);
+        self::assertTrue($this->policy->dailyTrustReceiptReady($ready, '2026-07-16', 58));
+        self::assertSame(['ready', 'ready'], array_column($ready['source_tasks'], 'p0_status'));
+
+        array_pop($receipt['source_tasks']);
+        $incompleteAnchor = $this->policy->attachAuthorityVerifier(
+            $receipt,
+            $this->mockAuthorityVerifier($receipt)
+        );
+        self::assertFalse($incompleteAnchor['collection_complete']);
+        self::assertFalse($this->policy->dailyTrustReceiptReady($incompleteAnchor, '2026-07-16', 58));
+    }
+
+    public function testNineOClockGapReportListsRecollectionScopeAndBlocksFormalReport(): void
+    {
+        $partialResult = [
+            'success' => true,
+            'saved_count' => 1,
+            'platform_results' => [
+                $this->verifiedPlatformResult('ctrip', 25, 1001, true),
+                $this->verifiedPlatformResult('meituan', 68, 1002, false),
+            ],
+        ];
+        $receipt = $this->buildMachineReceipt(
+            $this->policy->classifyOutcome($partialResult),
+            $partialResult
+        );
+        $verifier = $this->mockAuthorityVerifier($receipt);
+        $verifier['authority_ready'] = false;
+        $verifier['status'] = 'incomplete';
+        $verifier['exit_code'] = 2;
+        $verifier['verified_platforms'] = ['ctrip'];
+        $verifier['platform_statuses']['meituan'] = 'binding_conflict';
+        $verifier['p0_platforms_ready'] = 1;
+        $verifier['traffic_gates_ready'] = 1;
+        $verifier['continuous_trust_status'] = 'partial';
+        $verifier['continuous_trust_missing_steps'] = ['meituan_account_binding_not_ready'];
+        $verifier['issue_codes'] = ['meituan_profile_binding_conflict'];
+        $receipt = $this->policy->attachAuthorityVerifier($receipt, $verifier);
+
+        $beforeCutoff = $this->policy->buildYesterdayGapReport(
+            $receipt,
+            ['attempts' => 2, 'max_attempts' => 3, 'retry_exhausted' => false],
+            $this->time('2026-07-16 08:59:59')
+        );
+        self::assertSame('awaiting_completeness', $beforeCutoff['status']);
+        self::assertFalse($beforeCutoff['formal_report_allowed']);
+
+        $gap = $this->policy->buildYesterdayGapReport(
+            $receipt,
+            ['attempts' => 3, 'max_attempts' => 3, 'retry_exhausted' => true],
+            $this->time('2026-07-16 09:00:00')
+        );
+        self::assertSame('gap', $gap['status']);
+        self::assertSame('explicit_gap_report', $gap['report_kind']);
+        self::assertSame(['meituan'], $gap['missing_platforms']);
+        self::assertSame(['meituan'], $gap['recollection_platforms']);
+        self::assertContains('meituan_profile_binding_conflict', $gap['gap_codes']);
+        self::assertContains('meituan_account_binding_not_ready', $gap['gap_codes']);
+        self::assertTrue($gap['retry']['retry_exhausted']);
+        self::assertFalse($gap['sensitive_values_exposed']);
     }
 
     public function testRetryStateUsesBoundedBackoffAndFailsClosedWhenExhausted(): void
@@ -249,12 +454,19 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertStringContainsString('ScheduledAutoFetchPolicy', $controller);
         self::assertSame(1, substr_count($command, "Cache::set(\$run['executed_key']"));
         self::assertSame(1, substr_count($controller, "cache(\$run['executed_key'], \$executionReceipt"));
-        self::assertStringContainsString("if (\$outcome['complete'] && !empty(\$receipt['collection_complete']))", $command);
-        self::assertStringContainsString("if (\$outcome['complete'])", $controller);
+        self::assertStringContainsString('P0OtaFieldLoopVerifierRunner', $command);
+        self::assertStringNotContainsString('new P0OtaFieldLoopVerifierRunner', $controller);
+        self::assertStringContainsString('online_data_p0_authority_receipt_', $controller);
+        self::assertStringContainsString('online_data_p0_authority_receipt_', $command);
         self::assertStringContainsString('autoFetchExecutedReceiptReady', $controller);
         self::assertStringContainsString('buildDailyTrustReceipt', $controller);
         self::assertStringContainsString('dailyTrustReceiptReady', $controller);
-        self::assertStringContainsString("'dual_ota_p0_complete' => \$collectionComplete", $policy);
+        self::assertStringContainsString('attachAuthorityVerifier', $policy);
+        self::assertStringContainsString('buildYesterdayGapReport', $policy);
+        self::assertStringContainsString(
+            "'dual_ota_p0_complete' => \$collectionComplete && !\$authorityRequired",
+            $policy
+        );
         self::assertStringContainsString("\\think\\facade\\Cache::delete(\$run['executed_key'])", $controller);
         self::assertStringContainsString('return $hasIncompleteDueRun ? 1 : 0;', $command);
         self::assertStringContainsString('$responseCode = $hasIncompleteDueRun ? 503 : 200;', $controller);
@@ -313,6 +525,31 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         $method = $reflection->getMethod('machineReceiptDailyTrustReady');
         $method->setAccessible(true);
         return (bool)$method->invoke($command, $receipt);
+    }
+
+    /** @return array<string, mixed> */
+    private function mockAuthorityVerifier(array $receipt): array
+    {
+        return [
+            'verification_source' => 'external_p0_verifier',
+            'status' => 'passed',
+            'exit_code' => 0,
+            'authority_ready' => true,
+            'target_date' => '2026-07-16',
+            'hotel_id' => 58,
+            'required_platforms' => ['ctrip', 'meituan'],
+            'verified_platforms' => ['ctrip', 'meituan'],
+            'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
+            'platform_statuses' => ['ctrip' => 'ready', 'meituan' => 'ready'],
+            'p0_platforms_ready' => 2,
+            'traffic_gates_ready' => 2,
+            'continuous_trust_status' => 'verified',
+            'continuous_trust_missing_steps' => [],
+            'issue_codes' => [],
+            'verifier_report_hash' => str_repeat('a', 64),
+            'checked_at' => '2026-07-16 08:45:00',
+            'sensitive_values_exposed' => false,
+        ];
     }
 
     private function time(string $value): \DateTimeImmutable

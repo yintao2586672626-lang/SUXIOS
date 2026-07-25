@@ -494,6 +494,125 @@ function e2eSeedAiReportInputs(string $prefix): array
     ];
 }
 
+/**
+ * Promote only the freshly saved temporal-axis synthetic rows into trusted
+ * E2E fixtures. The public save endpoint deliberately cannot invent capture
+ * provenance, so this isolated helper attaches explicit test provenance and
+ * re-establishes readback proof after that metadata write.
+ *
+ * @return array<string, mixed>
+ */
+function e2eVerifyTemporalInputs(string $prefix): array
+{
+    $names = e2eNames($prefix);
+    $hotelId = (int)getenv('SUXI_E2E_HOTEL_ID');
+    $hotel = $hotelId > 0
+        ? Db::name('hotels')->where('id', $hotelId)->field('id,name')->find()
+        : null;
+    if (!is_array($hotel)
+        || (int)($hotel['id'] ?? 0) <= 0
+        || (string)($hotel['name'] ?? '') !== $names['hotel_name']) {
+        throw new RuntimeException('Isolated E2E hotel is missing for temporal input verification');
+    }
+
+    $otaHotelId = $prefix . '_ota';
+    $today = new DateTimeImmutable('today', new DateTimeZone('Asia/Shanghai'));
+    $expectedDates = [];
+    for ($offset = -14; $offset <= 0; $offset++) {
+        $date = $today->modify(sprintf('%+d days', $offset))->format('Y-m-d');
+        $expectedDates[$date] = $offset === 0 ? 'realtime_snapshot' : 'historical_daily';
+    }
+
+    $rows = Db::name('online_daily_data')
+        ->where('system_hotel_id', $hotelId)
+        ->where('hotel_id', $otaHotelId)
+        ->where('source', 'ctrip')
+        ->where('data_type', 'business')
+        ->whereBetween('data_date', [array_key_first($expectedDates), array_key_last($expectedDates)])
+        ->order('data_date', 'asc')
+        ->select()
+        ->toArray();
+    if (count($rows) !== count($expectedDates)) {
+        throw new RuntimeException('Temporal input fixture must contain exactly 15 isolated rows');
+    }
+
+    $rowsByDate = [];
+    foreach ($rows as $row) {
+        $date = (string)($row['data_date'] ?? '');
+        if (isset($rowsByDate[$date])) {
+            throw new RuntimeException('Temporal input fixture contains a duplicate date');
+        }
+        $rowsByDate[$date] = $row;
+    }
+
+    $verifiedAt = date('Y-m-d H:i:s');
+    $rowIds = [];
+    foreach ($expectedDates as $date => $expectedPeriod) {
+        $row = $rowsByDate[$date] ?? null;
+        $expectedFinal = $expectedPeriod === 'historical_daily' ? 1 : 0;
+        if (!is_array($row)
+            || (string)($row['data_period'] ?? '') !== $expectedPeriod
+            || (int)($row['is_final'] ?? -1) !== $expectedFinal
+            || !is_numeric($row['amount'] ?? null)
+            || !is_numeric($row['quantity'] ?? null)
+            || !is_numeric($row['book_order_num'] ?? null)) {
+            throw new RuntimeException('Temporal input fixture date or metric contract failed for ' . $date);
+        }
+
+        $rowId = (int)($row['id'] ?? 0);
+        $traceId = $prefix . '_temporal_' . str_replace('-', '', $date);
+        $pending = e2eFilterPayload('online_daily_data', [
+            'source_trace_id' => $traceId,
+            'ingestion_method' => 'isolated_e2e_fixture',
+            'validation_status' => 'normal',
+            'validation_flags' => '[]',
+            'readback_verified' => 0,
+            'readback_verified_at' => null,
+            'update_time' => $verifiedAt,
+        ]);
+        if ($rowId <= 0
+            || (int)Db::name('online_daily_data')
+                ->where('id', $rowId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('hotel_id', $otaHotelId)
+                ->update($pending) !== 1) {
+            throw new RuntimeException('Temporal input provenance write failed for ' . $date);
+        }
+
+        $stored = Db::name('online_daily_data')->where('id', $rowId)->find();
+        if (!is_array($stored)
+            || (string)($stored['source_trace_id'] ?? '') !== $traceId
+            || (string)($stored['data_date'] ?? '') !== $date
+            || (string)($stored['data_period'] ?? '') !== $expectedPeriod
+            || (int)($stored['is_final'] ?? -1) !== $expectedFinal
+            || (int)($stored['readback_verified'] ?? -1) !== 0) {
+            throw new RuntimeException('Temporal input provenance readback failed for ' . $date);
+        }
+
+        if ((int)Db::name('online_daily_data')
+            ->where('id', $rowId)
+            ->where('source_trace_id', $traceId)
+            ->where('readback_verified', 0)
+            ->update([
+                'readback_verified' => 1,
+                'readback_verified_at' => $verifiedAt,
+            ]) !== 1) {
+            throw new RuntimeException('Temporal input verification writeback failed for ' . $date);
+        }
+        $rowIds[] = $rowId;
+    }
+
+    return [
+        'hotel_id' => $hotelId,
+        'ota_hotel_id' => $otaHotelId,
+        'row_ids' => $rowIds,
+        'historical_days' => count($expectedDates) - 1,
+        'realtime_days' => 1,
+        'readback_verified' => count($rowIds) === count($expectedDates),
+        'source_scope' => 'synthetic_isolated_e2e_ctrip_channel_fixture',
+    ];
+}
+
 /** @return array<string, int> */
 function e2eDeletePrefixedRows(string $prefix): array
 {
@@ -662,6 +781,7 @@ try {
             'count' => e2eCount($prefix),
             'seed' => e2eSeed($prefix),
             'seed-ai-report-inputs' => e2eSeedAiReportInputs($prefix),
+            'verify-temporal-inputs' => e2eVerifyTemporalInputs($prefix),
             'cleanup' => e2eCleanup($prefix),
             default => throw new RuntimeException('Unknown E2E isolation action'),
         };

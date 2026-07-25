@@ -189,6 +189,63 @@ final class WechatRobotDeliveryService
     }
 
     /**
+     * Build a sanitized local-collector failure summary. The payload contains
+     * no Cookie, browser Profile path, token, headers or raw OTA response.
+     *
+     * @param array<string, mixed> $failure
+     * @return array{msgtype: string, markdown: array{content: string}}
+     */
+    public function buildOtaCollectionFailurePayload(array $failure, string $hotelName): array
+    {
+        $platform = strtolower(trim((string)($failure['platform'] ?? '')));
+        $platformLabel = ['ctrip' => '携程', 'meituan' => '美团'][$platform] ?? 'OTA';
+        $reasonCode = strtolower(trim((string)($failure['reason_code'] ?? 'collection_failed')));
+        $reasonLabel = [
+            'missing_config' => '采集配置不完整',
+            'source_missing' => '采集源未建立',
+            'session_unverified' => '登录状态待人工验证',
+            'login_expired' => '登录状态已失效',
+            'zero_rows' => '目标日期未采集到有效数据',
+            'collection_failed' => '本机采集或同步失败',
+        ][$reasonCode] ?? '本机采集或同步失败';
+        $errorSummary = $this->safeText(
+            (string)($failure['error_summary'] ?? '未返回更多错误摘要。'),
+            360
+        );
+        $nextAction = $this->safeText(
+            (string)($failure['next_action'] ?? '请在宿析OS本机采集页面按提示处理；无法恢复时联系管理员。'),
+            360
+        );
+        $taskId = (int)($failure['task_id'] ?? 0);
+        $accountAlias = $this->safeText((string)($failure['account_alias'] ?? ''), 80);
+
+        $lines = [
+            '# 宿析OS 本机采集异常',
+            '> 门店：' . $this->safeText($hotelName, 80),
+            '> 平台：' . $platformLabel,
+            '> 数据日期：' . $this->safeText((string)($failure['data_date'] ?? '未返回'), 24),
+            '> 状态：' . $reasonLabel,
+        ];
+        if ($accountAlias !== '') {
+            $lines[] = '> 本机账户：' . $accountAlias;
+        }
+        if ($taskId > 0) {
+            $lines[] = '> 任务编号：#' . $taskId;
+        }
+        $lines[] = '';
+        $lines[] = '**错误摘要**';
+        $lines[] = $errorSummary;
+        $lines[] = '';
+        $lines[] = '**下一步**';
+        $lines[] = $nextAction;
+        $lines[] = '';
+        $lines[] = '> 登录态、Cookie、验证码和浏览器 Profile 均保留在账户使用者电脑；本消息只包含脱敏摘要。';
+        $lines[] = '> OTA 数据仅用于对应渠道分析，缺失或失败数据不会用 0 冒充成功。';
+
+        return $this->markdownPayload($lines);
+    }
+
+    /**
      * @param array<string, mixed> $health
      * @return array{msgtype: string, markdown: array{content: string}}
      */

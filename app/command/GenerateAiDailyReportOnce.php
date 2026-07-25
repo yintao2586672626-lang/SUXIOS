@@ -5,6 +5,7 @@ namespace app\command;
 
 use app\service\AiDailyReportService;
 use app\service\AiReportGenerationTaskService;
+use app\service\P0OtaDownstreamGateService;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
@@ -33,10 +34,27 @@ final class GenerateAiDailyReportOnce extends Command
 
         try {
             $hotelId = (int)($task['hotel_id'] ?? 0);
+            $reportDate = (string)($task['report_date'] ?? '');
+            $p0Gate = (new P0OtaDownstreamGateService())->resolveRuntime(
+                $reportDate,
+                $hotelId,
+                null,
+                ['ctrip', 'meituan']
+            );
+            if (($p0Gate['status'] ?? '') !== 'ready') {
+                $taskService->failTask(
+                    $taskId,
+                    'Exact-date dual-OTA external P0 verifier receipt is not ready.',
+                    'blocked_by_p0_ota_gate'
+                );
+                $taskService->dispatchQueuedTasks();
+                $output->writeln('AI report task blocked by exact-date dual-OTA P0 gate.');
+                return 2;
+            }
             $report = (new AiDailyReportService())->generate(
                 [$hotelId],
                 $hotelId,
-                (string)($task['report_date'] ?? ''),
+                $reportDate,
                 (int)($task['requested_by'] ?? 0),
                 [
                     'model_key' => (string)($task['model_key'] ?? ''),

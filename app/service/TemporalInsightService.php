@@ -634,7 +634,13 @@ final class TemporalInsightService
             ->whereBetween('data_date', [$startDate, $endDate])
             ->where('data_period', $period)
             ->where('is_final', $isFinal ? 1 : 0)
-            ->where('data_type', '<>', 'traffic_forecast');
+            // The temporal headline is a fact view, not a generic raw-data
+            // rollup.  `business` rows can be dashboard widgets, rankings or
+            // competitor snapshots whose overloaded amount/order columns are
+            // not a hotel daily result.  A Ctrip daily business-overview row
+            // is the explicit exception and is filtered below by endpoint,
+            // section and normal validation before it can enter this fact view.
+            ->whereIn('data_type', ['order', 'traffic', 'business']);
         if ($hotelIds !== []) {
             $query->whereIn('system_hotel_id', $hotelIds);
         }
@@ -644,6 +650,10 @@ final class TemporalInsightService
             ->limit(250000)
             ->select()
             ->toArray();
+        $rows = array_values(array_filter($rows, fn(array $row): bool =>
+            (string)($row['data_type'] ?? '') !== 'business'
+            || $this->isVerifiedCtripDailyBusinessOverview($row)
+        ));
         if ($rows === []) {
             return $this->emptyFactBundle('no_rows');
         }
@@ -708,6 +718,36 @@ final class TemporalInsightService
                 'missing_values_are_null' => true,
             ],
         ];
+    }
+
+    /** @param array<string, mixed> $row */
+    private function isVerifiedCtripDailyBusinessOverview(array $row): bool
+    {
+        if (strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))) !== 'ctrip'
+            || strtolower(trim((string)($row['validation_status'] ?? ''))) !== 'normal') {
+            return false;
+        }
+        $raw = $this->decodeArray($row['raw_data'] ?? []);
+        $detail = $this->decodeArray($raw['row'] ?? []);
+        $summary = $this->decodeArray($raw['field_fact_summary'] ?? []);
+
+        return strtolower(trim((string)($detail['endpoint_id'] ?? ''))) === 'business_market_overview'
+            && strtolower(trim((string)($detail['section'] ?? ''))) === 'business_overview'
+            && (int)($summary['missing_count'] ?? 1) === 0
+            && trim((string)($row['source_trace_id'] ?? '')) !== '';
+    }
+
+    /** @return array<string, mixed> */
+    private function decodeArray(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**

@@ -181,7 +181,12 @@ export function evaluateCtripPlatformIdentity(expectedIdentifiers, observedIdent
 
   if (pageStateObserved.length > 0) {
     let status = 'matched';
-    if (pageStateMatched.length === 0 || matchedNames.length === 0) status = 'mismatch';
+    // A trusted page-state hotel ID is the primary binding evidence.  Some
+    // eBooking pages expose that ID before their visible hotel-name header is
+    // rendered, so a missing name must not turn an exact ID match into a
+    // false mismatch.  A conflicting observed name still makes the result
+    // ambiguous below.
+    if (pageStateMatched.length === 0) status = 'mismatch';
     else if (pageStateMismatched.length > 0
       || pageStateMatched.length > 1
       || pageStateObserved.length > 1

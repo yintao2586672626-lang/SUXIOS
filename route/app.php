@@ -281,6 +281,12 @@ Route::group('api/online-data', function () {
     Route::post('/profile-binding-unbind', 'ota.ProfileController/deletePlatformProfileBinding');
     Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');
     Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');
+    Route::get('/local-collector/status', 'ota.LocalCollectorController/status');
+    Route::post('/local-collector/pair-code', 'ota.LocalCollectorController/pairCode');
+    Route::post('/local-collector/accounts', 'ota.LocalCollectorController/createAccount');
+    Route::post('/local-collector/accounts/:accountId/hotels', 'ota.LocalCollectorController/bindHotel');
+    Route::post('/local-collector/tasks', 'ota.LocalCollectorController/createTask');
+    Route::post('/local-collector/devices/:deviceId/revoke', 'ota.LocalCollectorController/revokeDevice');
     Route::get('/ctrip-collector-contract', 'ota.CtripController/ctripCollectorContract');
     Route::post('/fetch-ctrip-cookie-api', 'ota.CtripController/fetchCtripCookieApiData');
     Route::post('/validate-ctrip-endpoint-evidence', 'ota.CtripController/validateCtripEndpointEvidence');
@@ -362,6 +368,17 @@ Route::group('api/online-data', function () {
     // AI智能分析
     Route::post('/ai-analysis', 'OnlineData/aiAnalysis');
 })->middleware(\app\middleware\Auth::class);
+
+// Account-owned local collectors authenticate with a paired device token.
+// These endpoints accept normalized business facts and sanitized status only;
+// Cookie, browser Profile and session storage must remain on the user's PC.
+Route::group('api/ota-local-collector', function () {
+    Route::post('/pair', 'ota.LocalCollectorController/pair');
+    Route::post('/heartbeat', 'ota.LocalCollectorController/heartbeat');
+    Route::get('/tasks/next', 'ota.LocalCollectorController/nextTask');
+    Route::post('/tasks/:taskId/progress', 'ota.LocalCollectorController/progress');
+    Route::post('/tasks/:taskId/result', 'ota.LocalCollectorController/result');
+});
 
 // ==================== 酒店数据驾驶舱 API ====================
 Route::group('api/dashboard', function () {

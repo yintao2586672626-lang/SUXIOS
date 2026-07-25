@@ -7,6 +7,8 @@ use app\controller\Base;
 use app\model\OperationLog;
 use app\service\AiDailyReportService;
 use app\service\CloudAutomationService;
+use app\service\WechatCompetitionReportDeliveryService;
+use app\service\WechatCompetitionReportRendererService;
 use app\service\WechatRobotWebhookSecret;
 use think\Response;
 use think\facade\Db;
@@ -314,7 +316,22 @@ class CompetitorWechatRobotController extends Base
      */
     public function apiSendAiDailyReport(int $id): Response
     {
-        $this->checkSuperAdmin();
+        if (!$this->currentUser) {
+            return $this->error('请先登录后再发送企业微信汇报', 401);
+        }
+        $input = $this->requestData();
+        $requestedEdition = trim((string)($input['edition'] ?? WechatCompetitionReportRendererService::EDITION_LITE));
+        $renderer = new WechatCompetitionReportRendererService();
+        try {
+            $requestedEdition = $renderer->normalizeEdition($requestedEdition);
+        } catch (\InvalidArgumentException) {
+            return $this->error('企业微信汇报版本必须是简版或旗舰版', 422);
+        }
+        $isAdmin = (bool)$this->currentUser->isSuperAdmin();
+        if ($requestedEdition === WechatCompetitionReportRendererService::EDITION_FLAGSHIP && !$isAdmin) {
+            return $this->error('旗舰版企业微信汇报仅允许管理员生成和发送', 403);
+        }
+
         $reportId = $id;
         $hotelIds = array_values(array_unique(array_filter(
             array_map('intval', $this->currentUser->getPermittedHotelIds()),
@@ -338,19 +355,64 @@ class CompetitorWechatRobotController extends Base
         if ($hotelName === '') {
             $hotelName = '酒店 #' . $hotelId;
         }
-        $payload = $this->buildAiDailyReportPayload($report, $hotelName);
-        $delivery = (new CloudAutomationService())->deliverSavedDailyReport(
-            $hotelId,
-            $reportId,
-            (string)($report['report_date'] ?? ''),
-            $payload,
-            ['requested_by' => (int)$this->currentUser->id]
-        );
+        $competitionBundle = is_array($report['competition_circle_bundle'] ?? null)
+            ? $report['competition_circle_bundle']
+            : [];
+        if ($competitionBundle === [] && $requestedEdition === WechatCompetitionReportRendererService::EDITION_FLAGSHIP) {
+            return $this->error('该历史日报没有竞争商圈结果，不能生成旗舰版企业微信汇报', 422);
+        }
+        if ($competitionBundle !== []) {
+            $delivery = (new WechatCompetitionReportDeliveryService())->deliver(
+                $report,
+                $hotelId,
+                $hotelName,
+                $requestedEdition,
+                ['requested_by' => (int)$this->currentUser->id]
+            );
+            $rendered = [
+                'report_edition' => (string)($delivery['report_edition'] ?? $requestedEdition),
+                'status_only' => (bool)($delivery['status_only'] ?? true),
+                'source_fingerprint' => (string)($delivery['source_fingerprint'] ?? ''),
+                'bundle_id' => (string)($delivery['bundle_id'] ?? ''),
+            ];
+        } else {
+            $payload = $this->buildAiDailyReportPayload($report, $hotelName);
+            $rendered = [
+                'report_edition' => WechatCompetitionReportRendererService::EDITION_LITE,
+                'status_only' => false,
+                'source_fingerprint' => '',
+                'bundle_id' => '',
+            ];
+            $delivery = (new CloudAutomationService())->deliverSavedDailyReport(
+                $hotelId,
+                $reportId,
+                (string)($report['report_date'] ?? ''),
+                $payload,
+                [
+                    'requested_by' => (int)$this->currentUser->id,
+                    'report_edition' => (string)$rendered['report_edition'],
+                    'status_only' => (bool)$rendered['status_only'],
+                    'source_fingerprint' => (string)$rendered['source_fingerprint'],
+                    'bundle_id' => (string)$rendered['bundle_id'],
+                    'artifact_kind' => 'summary_text',
+                ]
+            );
+        }
+        $delivery = array_merge($delivery, [
+            'report_edition' => (string)$rendered['report_edition'],
+            'status_only' => (bool)$rendered['status_only'],
+            'source_fingerprint' => (string)$rendered['source_fingerprint'],
+            'bundle_id' => (string)$rendered['bundle_id'],
+            'single_calculation' => $competitionBundle !== [],
+        ]);
         $status = (string)($delivery['delivery_status'] ?? 'failed');
         $auditData = array_merge($this->deliveryAuditData($delivery), [
             'report_id' => $reportId,
             'report_date' => (string)($report['report_date'] ?? ''),
             'result_status' => (string)($report['result_readiness']['status'] ?? 'unverified'),
+            'report_edition' => (string)$rendered['report_edition'],
+            'status_only' => (bool)$rendered['status_only'],
+            'source_fingerprint' => (string)$rendered['source_fingerprint'],
         ]);
         OperationLog::record(
             'ai_daily_report',
@@ -368,11 +430,17 @@ class CompetitorWechatRobotController extends Base
         if ($status === 'in_progress') {
             return $this->error('该日报正在投递，或上次投递结果需要人工确认；本次未重复发送', 409, $delivery);
         }
+        if ($status === 'blocked_by_p0_ota_gate') {
+            return $this->error('正式企业微信汇报缺少目标日期的真实OTA校验凭证', 409, $delivery);
+        }
         if ($status === 'sent') {
-            return $this->success($delivery, 'AI经营日报已发送到企业微信群');
+            $editionLabel = (string)$rendered['report_edition'] === WechatCompetitionReportRendererService::EDITION_FLAGSHIP
+                ? '旗舰版'
+                : '简版';
+            return $this->success($delivery, $editionLabel . '企业微信文字与图卡均已发送');
         }
         if ($status === 'partial') {
-            return $this->success($delivery, '部分企业微信机器人发送成功', 207);
+            return $this->success($delivery, '企业微信文字或图卡仅部分送达，请查看分项状态', 207);
         }
 
         return $this->error('企业微信发送失败，请查看机器人配置和发送状态', 502, $delivery);

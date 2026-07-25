@@ -67,7 +67,12 @@ final class WechatAiDailyReportIntegrationTest extends TestCase
         self::assertStringContainsString('wecom-robot-management', $dataConfig);
         self::assertStringContainsString('binding_missing', $dataConfig);
         self::assertStringContainsString('ai-daily-report-send-wecom', $dailyReport);
+        self::assertStringContainsString('ai-daily-report-wecom-edition', $dailyReport);
+        self::assertStringContainsString('企业微信简版', $dailyReport);
+        self::assertStringContainsString('企业微信旗舰版', $dailyReport);
+        self::assertStringContainsString('v-if="aiDailyReport"', $dailyReport);
         self::assertStringContainsString('/send-wecom', $frontend);
+        self::assertStringContainsString('JSON.stringify({ edition: requestedEdition })', $frontend);
 
         $method = new ReflectionMethod(CompetitorWechatRobotController::class, 'apiSendAiDailyReport');
         $source = (string)file_get_contents($method->getFileName());
@@ -78,6 +83,13 @@ final class WechatAiDailyReportIntegrationTest extends TestCase
             $method->getEndLine() - $method->getStartLine() + 1
         ));
         self::assertStringContainsString('deliverSavedDailyReport', $body);
+        self::assertStringContainsString('WechatCompetitionReportDeliveryService', $body);
+        self::assertStringContainsString('企业微信文字与图卡均已发送', $body);
+        self::assertStringContainsString('getPermittedHotelIds', $body);
+        self::assertStringContainsString('旗舰版企业微信汇报仅允许管理员生成和发送', $body);
+        self::assertStringContainsString("'report_edition'", $body);
+        self::assertStringContainsString("'source_fingerprint'", $body);
+        self::assertStringNotContainsString('$this->checkSuperAdmin();', $body);
         self::assertStringNotContainsString('sendPayloadToStore', $body);
     }
 }

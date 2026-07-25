@@ -67,13 +67,15 @@ sudo systemctl start suxios-cloud-data-bridge.service
 
 | 任务 | 时间（Asia/Shanghai） | 作用 |
 |---|---:|---|
-| `suxios-cloud-daily.timer` | 每日 08:10 | 昨日经营闭环 |
+| `suxios-cloud-ota-daily.timer` | 每日 08:30 | 昨日 OTA 最终采集，仅一次 |
+| `suxios-cloud-ota-realtime.timer` | 每小时 :05 | 当日 OTA 实时快照，独立于昨日采集 |
+| `suxios-cloud-daily.timer` | 每日 09:00 | 消费昨日最终回执，生成正式日报或缺口状态 |
 | `suxios-cloud-health.timer` | 每日 09:10、14:10、20:10 | 数据健康巡检 |
 | `suxios-cloud-weekly.timer` | 每周一 09:30 | 已保存日报周度复盘 |
 | `suxios-cloud-retry.timer` | 每 15 分钟 | 仅消息投递重试 |
 | `suxios-cloud-data-bridge.timer` | 每 5 分钟 | 只处理已上传的无凭证 OTA 数据包 |
 
-服务按一个全局文件锁串行运行，限制为 `MemoryMax=512M`、`CPUQuota=80%`、`TasksMax=32`，适配 2 核 2GB 云服务器。
+采集 timer 与日报 timer 是两条链：昨天数据在 08:30 只采集一次；今天实时按小时独立采集；09:00 的日报只消费已经保存并回读的昨天最终数据。采集服务限制为 `MemoryMax=512M`、`CPUQuota=60%`、`TasksMax=32`，不会把 Cookie、Webhook 或帐号信息写入 systemd 参数。
 
 按门店灰度时，使用 `suxios-cloud-hotel-daily@<hotel_id>.timer` 和
 `suxios-cloud-hotel-health@<hotel_id>.timer`。全局与按门店调度只能启用一种；
@@ -93,10 +95,28 @@ timer 冲突，防止两套计划并行启用。恢复全局调度时先停用�
 ## 首次启用检查
 
 1. 云端至少存在一条启用酒店记录，并有正确的租户/门店范围。
-2. 携程和美团数据源分别绑定到该酒店；授权登录仍在本地浏览器完成。
+2. 携程和美团数据源分别绑定到该酒店；若启用云端采集，两个平台的授权浏览器 Profile 必须由管理员在云端受控环境单独完成登录和验证。本机 Profile、Cookie 和本机测试文件不得复制到云端，也不得写入 unit、日志或 Git。
 3. 目标日数据已上传到 `online_daily_data`，并能按平台、酒店、日期和质量状态回读。
 4. `competitor_wechat_robot` 中有该酒店启用的企业微信机器人。
 5. 先运行 `health --no-push`，再运行 `daily --no-push`，最后才去掉 `--no-push` 做一次真实发送。
+
+## 云端 OTA 采集启用前检查
+
+先在本机运行只读检查，不会读取或输出云端 Cookie、Webhook、Profile 内容：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/inspect_tencent_cloud_ota_runtime.ps1
+```
+
+只有以下条件同时满足，才允许在云端启用 `suxios-cloud-ota-daily.timer` 与 `suxios-cloud-ota-realtime.timer`：
+
+1. 云端 release 已包含 `--daily-only` 和 `--realtime-only`；
+2. 两个 OTA unit 已安装；
+3. `/etc/suxios/ota-collector.env` 中 `SUXIOS_OTA_CLOUD_PROFILE_READY=1`；
+4. 管理员已在云端受控浏览器完成携程、美团授权验证；
+5. 先用目标酒店跑一次 `--no-push` 验证保存与回读，再启用定时器。
+
+检查通过后的安装动作必须在已发布、干净的云端 release 上执行；不要从本机复制 Cookie 或未提交工作区。
 
 ## 回滚
 

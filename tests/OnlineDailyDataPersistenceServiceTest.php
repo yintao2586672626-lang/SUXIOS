@@ -261,9 +261,12 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         }
 
         $scheduled = (string)file_get_contents($root . '/app/command/AutoFetchOnlineData.php');
+        $platformSync = (string)file_get_contents($root . '/app/service/PlatformDataSyncService.php');
         self::assertStringContainsString('$service->syncDataSource(', $scheduled);
+        self::assertStringContainsString('readStoredRowsForCollectionPlan(', $scheduled);
         self::assertStringNotContainsString("Db::name('online_daily_data')", $scheduled);
         self::assertStringNotContainsString('resetReadbackVerification(', $scheduled);
         self::assertStringNotContainsString('markRowsReadbackVerified(', $scheduled);
+        self::assertStringContainsString("Db::name('online_daily_data')", $platformSync);
     }
 }

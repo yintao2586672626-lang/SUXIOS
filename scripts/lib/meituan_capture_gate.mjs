@@ -1,4 +1,7 @@
-const SECTION_NAMES = ['traffic', 'order_flow', 'orders', 'ads', 'reviews'];
+// room_types is an optional catalog capture. It is never part of the default
+// yesterday P0 gate, but an explicitly requested run must report whether it
+// was actually captured instead of silently treating it as traffic.
+const SECTION_NAMES = ['traffic', 'order_flow', 'orders', 'ads', 'reviews', 'room_types'];
 const CUMULATIVE_PAYLOAD_KEYS = [
   'traffic',
   'ads',
@@ -108,7 +111,7 @@ export function evaluateMeituanCaptureGate(data, requestedSections = [], options
 }
 
 export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
-  const next = { ...(data || {}) };
+  const next = applyMeituanYesterdaySelectionDateEvidence(data, targetDate);
   const normalizedTargetDate = normalizeDate(targetDate);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)) {
     return next;
@@ -116,8 +119,10 @@ export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
 
   const droppedCounts = {};
   for (const key of CUMULATIVE_PAYLOAD_KEYS) {
-    if (!Array.isArray(data?.[key])) continue;
-    const rows = data[key];
+    // Read the evidence-reclassified rows.  Reading from `data` here would
+    // silently overwrite the verified yesterday date assigned just above.
+    if (!Array.isArray(next?.[key])) continue;
+    const rows = next[key];
     next[key] = rows.filter(row => isVerifiedTargetDateRow(row, normalizedTargetDate));
     const dropped = rows.length - next[key].length;
     if (dropped > 0) {
@@ -128,6 +133,50 @@ export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
     target_date: normalizedTargetDate,
     dropped_counts: droppedCounts,
   };
+  return next;
+}
+
+// `rtDataUpdateTime` is a refresh timestamp, not necessarily the business day
+// selected in the merchant page.  Reclassify it only after a visible “昨日”
+// selector has been read back; rows with an explicit business date are intact.
+export function applyMeituanYesterdaySelectionDateEvidence(data, targetDate) {
+  const next = { ...(data || {}) };
+  const normalizedTargetDate = normalizeDate(targetDate);
+  const evidence = next?.section_evidence?.traffic || next?.sectionEvidence?.traffic || {};
+  const selectionVerified = /^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)
+    && String(evidence.status || '').trim() === 'target_date_relative_range_selected'
+    && normalizeDate(evidence.target_date || evidence.targetDate) === normalizedTargetDate
+    && String(evidence.relative_range || evidence.relativeRange || '').trim() === '昨日'
+    && String(evidence.evidence_source || evidence.evidenceSource || '').trim() === 'page.traffic_period_selection.readback'
+    && String(evidence.marker || '').trim() === 'meituan_traffic_yesterday_tab';
+  if (!selectionVerified) return next;
+
+  // A single merchant-page period selector governs every cumulative traffic
+  // payload emitted by this capture, including the separately normalized
+  // forecast-card array.  Keep the allow-list aligned with the target-date
+  // filter below so a verified yesterday selection cannot be dropped on a
+  // parallel payload path.
+  for (const key of [...CUMULATIVE_PAYLOAD_KEYS, 'trafficForecast', 'traffic_forecast']) {
+    if (!Array.isArray(next[key])) continue;
+    next[key] = next[key].map(row => {
+      if (!row || typeof row !== 'object') return row;
+      const source = String(row.date_source || row.dateSource || '').trim();
+      const rowDate = normalizeDate(firstValue(row, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date', 'reportDate', 'day']));
+      const refreshTimestampSource = source === 'response.rtDataUpdateTime'
+        || source === 'page.visible_update_time'
+        || /(?:^|\.)cards\.rtDataUpdateTime$/.test(source);
+      if (rowDate === '' || rowDate === normalizedTargetDate || !refreshTimestampSource) {
+        return row;
+      }
+      return {
+        ...row,
+        data_updated_at: rowDate,
+        dataDate: normalizedTargetDate,
+        date_source: 'page.traffic_period_selection.readback',
+        date_scope_evidence: 'meituan_traffic_yesterday_tab',
+      };
+    });
+  }
   return next;
 }
 

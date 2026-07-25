@@ -55,7 +55,39 @@ test('verified five-run authenticated report passes the default local runtime bu
   assert.equal(assessment.observed.max_total_requests_per_run, 29);
 });
 
-test('CI enforces the static budget and measures the authenticated app before the runtime budget', () => {
+test('CI runs critical regressions before performance gates and preserves authenticated evidence', () => {
+  const projectGuardStep = workflow.indexOf('- name: Run project guards');
+  const structuralStep = workflow.indexOf(
+    '- name: Run structural contract checks (not release approval)',
+  );
+  const staticPerformanceStep = workflow.indexOf(
+    '- name: Verify frontend static performance budget',
+  );
+  const runtimePerformanceStep = workflow.indexOf(
+    '- name: Measure and verify authenticated frontend runtime budget',
+  );
+  const preserveEvidenceStep = workflow.indexOf(
+    '- name: Preserve authenticated frontend performance evidence',
+  );
+
+  assert.ok(projectGuardStep >= 0, 'CI must run project guards');
+  assert.ok(
+    projectGuardStep < structuralStep,
+    'project guards must run before structural checks',
+  );
+  assert.ok(
+    structuralStep < staticPerformanceStep,
+    'critical regressions must finish before performance gates can fail',
+  );
+  assert.ok(
+    staticPerformanceStep < runtimePerformanceStep,
+    'static performance must be checked before authenticated runtime measurement',
+  );
+  assert.ok(
+    runtimePerformanceStep < preserveEvidenceStep,
+    'runtime measurement evidence must be preserved after the gate',
+  );
+
   assert.match(workflow, /run: npm run verify:performance-budget/);
   assert.match(workflow, /SUXI_PHP: php/);
   assert.doesNotMatch(workflow, /PHP_CLI_SERVER_WORKERS/);
@@ -81,6 +113,13 @@ test('CI enforces the static budget and measures the authenticated app before th
   assert.match(measurement, /attempt_failures: attemptFailures/);
   assert.match(measurement, /retryableNavigationTimeout[\s\S]*startsWith\('page\.goto:'\)/);
   assert.match(measurement, /await measureRunWithRetry\(runIndex\)/);
+
+  const evidenceStep = workflow.slice(preserveEvidenceStep);
+  assert.match(evidenceStep, /if:\s+always\(\)/);
+  assert.match(evidenceStep, /uses:\s+actions\/upload-artifact@v4/);
+  assert.match(evidenceStep, /output\/performance\/isolated-authenticated-baseline\.json/);
+  assert.match(evidenceStep, /output\/performance\/ci-isolated-authenticated-\*\.json/);
+  assert.match(evidenceStep, /if-no-files-found:\s+warn/);
 });
 
 test('runtime budget fails closed on duplicate startup APIs and request growth', () => {

@@ -75,6 +75,35 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertNotSame($run['executed_key'], $scoped['executed_key']);
     }
 
+    public function testExplicitRealtimeRunUsesOneIndependentCurrentHourSlot(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'explicitRealtimeRun');
+        $run = $method->invoke($command, 80, new \DateTimeImmutable('2026-07-25 14:23:00', new \DateTimeZone('Asia/Shanghai')));
+
+        self::assertSame('realtime:2026-07-25:14', $run['slot_id']);
+        self::assertSame('realtime_snapshot', $run['period']);
+        self::assertSame('2026-07-25', $run['data_date']);
+        self::assertSame('online_data_realtime_executed_80_2026-07-25_14', $run['executed_key']);
+        self::assertSame('online_data_realtime_retry_80_2026-07-25_14', $run['retry_key']);
+    }
+
+    public function testDailyAndRealtimeOnlyModesAreMutuallyExclusiveAndRealtimeRejectsHistoricalDate(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $input = new Input(['--daily-only', '--realtime-only']);
+        $input->setInteractive(false);
+        $output = new Output('buffer');
+        self::assertSame(1, $command->run($input, $output));
+        self::assertStringContainsString('daily-only and realtime-only cannot be used together.', $output->fetch());
+
+        $input = new Input(['--hotel-id=80', '--target-date=2026-07-24', '--realtime-only']);
+        $input->setInteractive(false);
+        $output = new Output('buffer');
+        self::assertSame(1, $command->run($input, $output));
+        self::assertStringContainsString('realtime-only cannot be combined with target-date.', $output->fetch());
+    }
+
     public function testExplicitSourceScopeRequiresHotelAndRejectsInvalidIdsBeforeDatabaseWork(): void
     {
         $cases = [
@@ -102,6 +131,74 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringContainsString('scheduled_profile_source_scope_missing:', $source);
         self::assertStringContainsString('profileSourcesForRun($sources, $sourceIds)', $source);
         self::assertStringContainsString('SUXIOS_AUTO_FETCH_RECEIPT=', $source);
+    }
+
+    public function testHistoricalProfileRunUsesOrderedStoredGapPlanWithoutLocalAgentRegistration(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+
+        self::assertStringContainsString('OtaOrderedCollectionPlanner::requestPlanFromStoredRows', $source);
+        self::assertStringContainsString("'ordered_collection' => \$orderedPlan", $source);
+        self::assertStringContainsString("\$plan['execution_mode'] = 'single_section_bounded'", $source);
+        self::assertStringContainsString("'capture_sections' => implode(',', (array)(\$orderedPlan['sections'] ?? []))", $source);
+        self::assertStringContainsString("\$dataPeriod === 'historical_daily' && \$platform === 'ctrip'", $source);
+        self::assertStringContainsString('? 1', $source);
+        self::assertStringContainsString('target_date_core_already_verified_no_capture', $source);
+        self::assertStringContainsString("'reused_verified_count' => \$reusedVerifiedCount", $source);
+        self::assertStringNotContainsString('ota_local_collector_accounts', $source);
+    }
+
+    public function testUnscopedScheduleDeduplicatesLegacyDataTypesWithinOneProfileAccount(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'oneSourcePerBrowserProfileAccount');
+        $sources = [
+            [
+                'id' => 68,
+                'platform' => 'meituan',
+                'data_type' => 'business',
+                'status' => 'partial_success',
+                'last_sync_time' => '2026-07-24 08:31:00',
+                'config_json' => json_encode(['store_id' => 'store-80'], JSON_THROW_ON_ERROR),
+            ],
+            [
+                'id' => 101,
+                'platform' => 'meituan',
+                'data_type' => 'traffic',
+                'status' => 'partial_success',
+                'last_sync_time' => '2026-07-24 08:32:00',
+                'config_json' => json_encode([
+                    'poi_id' => 'store-80',
+                    'source_projection_ids' => [68],
+                ], JSON_THROW_ON_ERROR),
+            ],
+            [
+                'id' => 25,
+                'platform' => 'ctrip',
+                'data_type' => 'traffic',
+                'status' => 'failed',
+                'last_sync_time' => '2026-07-24 08:30:00',
+                'config_json' => json_encode(['profile_id' => 'ctrip-80'], JSON_THROW_ON_ERROR),
+            ],
+        ];
+
+        $selected = $method->invoke($command, $sources);
+
+        self::assertSame([68, 25], array_column($selected, 'id'));
+    }
+
+    public function testStaleProfileLockDoesNotBlockBoundedRetry(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'profileLockIsStale');
+
+        self::assertFalse($method->invoke($command, [
+            'started_at' => date('Y-m-d H:i:s', time() - 299),
+        ]));
+        self::assertTrue($method->invoke($command, [
+            'started_at' => date('Y-m-d H:i:s', time() - 301),
+        ]));
+        self::assertTrue($method->invoke($command, []));
     }
 
     public function testForceRerunIsRestrictedToOneExplicitHotelDateAndSourceScope(): void

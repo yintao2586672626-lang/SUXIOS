@@ -34,6 +34,7 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(ota, /sourcePath: 'ctrip-ebooking'/);
   assert.match(ota, /sourcePath: 'meituan-ebooking'/);
   assert.match(ota, /sourceTab: 'platform-auto',[\s\S]*name: '自动采集任务'/);
+  assert.doesNotMatch(ota, /携程 \/ 美团数据概览/);
   assert.doesNotMatch(ota, /nav-platform-account-config|nav-ota-collection-records/);
   assert.doesNotMatch(ota, /tab: 'platform-sources'|tab: 'data'/);
   assert.match(onlineDataPage, /openPlatformSourcesTab\(\)[\s\S]*配置：平台账号/);

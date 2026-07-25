@@ -428,6 +428,14 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
                 'blocking_missing_inputs' => ['manual_login_state_verified', 'target_date_traffic_rows'],
                 'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure'],
                 'allowed_claims' => ['structure_ready_or_reference_only', 'no_whole_hotel_or_downstream_closure_claim'],
+                'verification_source' => 'external_p0_verifier',
+                'target_date' => '2026-07-23',
+                'hotel_id' => 7,
+                'verified_platforms' => ['ctrip'],
+                'source_scope' => 'ota_channel',
+                'verifier_report_hash' => str_repeat('b', 64),
+                'verifier_checked_at' => '2026-07-24 08:45:00',
+                'sensitive_values_exposed' => false,
             ],
             'data_quality' => [
                 'input_rows' => 1,
@@ -458,6 +466,20 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         self::assertSame('blocked_by_p0_ota_gate', $gate['decision_use']['operation_management']['status']);
         self::assertSame('blocked_by_p0_ota_gate', $gate['decision_use']['investment_decision']['status']);
         self::assertSame('blocked_by_p0_ota_gate', $gate['evidence']['p0_downstream_gate']['status']);
+        self::assertSame(
+            'external_p0_verifier',
+            $gate['evidence']['p0_downstream_gate']['verification_source']
+        );
+        self::assertSame('2026-07-23', $gate['evidence']['p0_downstream_gate']['target_date']);
+        self::assertSame(7, $gate['evidence']['p0_downstream_gate']['hotel_id']);
+        self::assertSame(['ctrip'], $gate['evidence']['p0_downstream_gate']['verified_platforms']);
+        self::assertSame(
+            str_repeat('b', 64),
+            $gate['evidence']['p0_downstream_gate']['verifier_report_hash']
+        );
+        self::assertFalse(
+            $gate['evidence']['p0_downstream_gate']['sensitive_values_exposed']
+        );
         self::assertFalse($metrics['p1_revenue_closure']['calculation_allowed']);
         self::assertSame('blocked_by_p0_ota_gate', $metrics['p1_revenue_closure']['decision_use']['status']);
     }
