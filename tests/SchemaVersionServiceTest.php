@@ -114,6 +114,53 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertSame('baseline_adopted', $statement->fetchColumn());
     }
 
+    public function testExistingDatabaseRegistersAbsentHistoricalOwnerGuardAsNotApplicable(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        $this->pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL)');
+        $migration = '20260723_validate_owner_tenant_bootstrap_targets.sql';
+        file_put_contents(
+            $this->root . '/database/migrations/' . $migration,
+            "THIS HISTORICAL DATA GUARD MUST NOT RUN WHEN ITS TARGETS DO NOT EXIST;\n"
+        );
+
+        $result = $this->service->migrate();
+
+        self::assertSame([], $result['executed']);
+        self::assertSame([$migration], $result['historical_not_applicable']);
+        self::assertTrue($result['status']['ready']);
+        $statement = $this->pdo->prepare(
+            'SELECT execution_kind FROM schema_versions WHERE migration = ?'
+        );
+        $statement->execute([$migration]);
+        self::assertSame('historical_not_applicable', $statement->fetchColumn());
+    }
+
+    public function testHistoricalOwnerGuardStillFailsWhenAnyTargetIdentityExists(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        $this->pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL)');
+        $this->pdo->exec("INSERT INTO users (id, username) VALUES (127, 'VIP003')");
+        $migration = '20260723_validate_owner_tenant_bootstrap_targets.sql';
+        file_put_contents(
+            $this->root . '/database/migrations/' . $migration,
+            "THIS HISTORICAL DATA GUARD MUST FAIL WHEN A TARGET EXISTS;\n"
+        );
+
+        try {
+            $this->service->migrate();
+            self::fail('Historical guard must not be adopted when a target identity exists.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString($migration, $exception->getMessage());
+        }
+
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM schema_versions WHERE migration = ?'
+        );
+        $statement->execute([$migration]);
+        self::assertSame(0, (int)$statement->fetchColumn());
+    }
+
     public function testNewMigrationIsDiscoveredWithoutChangingInitFull(): void
     {
         $this->service->initializeFreshFromInitFull();

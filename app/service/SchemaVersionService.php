@@ -17,6 +17,19 @@ final class SchemaVersionService
     private const FRESH_INIT_BASELINE_ADOPTED_MIGRATIONS = [
         '20260723_validate_owner_tenant_bootstrap_targets.sql',
     ];
+    private const HISTORICAL_NOT_APPLICABLE_GUARDS = [
+        '20260723_validate_owner_tenant_bootstrap_targets.sql' => [
+            [127, 'VIP003'],
+            [162, 'VIP015'],
+            [165, 'VIP018'],
+            [167, 'VIP020'],
+            [170, 'VIP023'],
+            [172, 'VIP024'],
+            [173, 'VIP025'],
+            [223, 'VIP026'],
+            [261, 'VIP027'],
+        ],
+    ];
 
     private PDO $pdo;
     private string $root;
@@ -497,7 +510,7 @@ final class SchemaVersionService
         return $registered;
     }
 
-    /** @return array{executed: list<string>, status: array<string, mixed>} */
+    /** @return array{executed: list<string>, historical_not_applicable: list<string>, status: array<string, mixed>} */
     public function migrate(): array
     {
         if ($this->applicationTableCount() === 0 && !$this->registryExists()) {
@@ -545,12 +558,23 @@ final class SchemaVersionService
 
             $pendingLookup = array_fill_keys($status['pending'], true);
             $executed = [];
+            $historicalNotApplicable = [];
             foreach (self::migrationCatalog($this->root) as $migration) {
                 if (!isset($pendingLookup[$migration['migration']])) {
                     continue;
                 }
 
                 try {
+                    if ($this->historicalGuardIsNotApplicable($migration['migration'])) {
+                        $this->registerMigration(
+                            $migration['migration'],
+                            $migration['version'],
+                            $migration['checksum'],
+                            'historical_not_applicable'
+                        );
+                        $historicalNotApplicable[] = $migration['migration'];
+                        continue;
+                    }
                     $this->executeSqlFile($migration['path']);
                     $this->registerMigration(
                         $migration['migration'],
@@ -579,7 +603,11 @@ final class SchemaVersionService
                 throw new RuntimeException('Migration run ended without reaching the required database version.');
             }
 
-            return ['executed' => $executed, 'status' => $finalStatus];
+            return [
+                'executed' => $executed,
+                'historical_not_applicable' => $historicalNotApplicable,
+                'status' => $finalStatus,
+            ];
         } finally {
             if ($locked) {
                 $this->releaseLock();
@@ -1036,6 +1064,55 @@ final class SchemaVersionService
         return (int)$statement->fetchColumn() > 0;
     }
 
+    private function historicalGuardIsNotApplicable(string $migration): bool
+    {
+        $targets = self::HISTORICAL_NOT_APPLICABLE_GUARDS[$migration] ?? null;
+        if (!is_array($targets)
+            || !$this->tableExists('users')
+            || !$this->tableColumnExists('users', 'id')
+            || !$this->tableColumnExists('users', 'username')) {
+            return false;
+        }
+
+        $clauses = [];
+        $params = [];
+        foreach ($targets as $target) {
+            $clauses[] = '(id = ? AND username = ?)';
+            $params[] = (int)$target[0];
+            $params[] = (string)$target[1];
+        }
+        if ($clauses === []) {
+            return false;
+        }
+
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM users WHERE ' . implode(' OR ', $clauses)
+        );
+        $statement->execute($params);
+        return (int)$statement->fetchColumn() === 0;
+    }
+
+    private function tableColumnExists(string $table, string $column): bool
+    {
+        if ($this->driver === 'sqlite') {
+            $rows = $this->pdo->query("PRAGMA table_info('" . str_replace("'", "''", $table) . "')")
+                ->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as $row) {
+                if ((string)($row['name'] ?? '') === $column) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS '
+            . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $statement->execute([$table, $column]);
+        return (int)$statement->fetchColumn() > 0;
+    }
+
     /** @return list<array{migration: string, version: string, checksum: ?string, execution_kind: string, executed_at: string}> */
     private function registeredRows(): array
     {
@@ -1058,7 +1135,7 @@ final class SchemaVersionService
         string $executionKind = 'executed'
     ): bool
     {
-        if (!in_array($executionKind, ['executed', 'baseline_adopted'], true)) {
+        if (!in_array($executionKind, ['executed', 'baseline_adopted', 'historical_not_applicable'], true)) {
             throw new RuntimeException("Unsupported migration execution kind: {$executionKind}");
         }
         $checksumSupported = $this->registryColumnExists('checksum');

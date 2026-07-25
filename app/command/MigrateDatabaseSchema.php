@@ -44,6 +44,9 @@ final class MigrateDatabaseSchema extends Command
             foreach ($result['executed'] as $migration) {
                 $output->writeln("Applied: {$migration}");
             }
+            foreach ($result['historical_not_applicable'] as $migration) {
+                $output->writeln("Registered historical guard as not applicable: {$migration}");
+            }
             $status = $result['status'];
             $output->writeln(sprintf(
                 'Database schema is current: %s (%d/%d registered).',
