@@ -12,6 +12,7 @@ Group=www-data
 WorkingDirectory=/var/www/suxios/current
 Environment=TZ=Asia/Shanghai
 EnvironmentFile=-/etc/suxios/ota-collector.env
+Environment=SUXIOS_OTA_CLOUD_COLLECTOR=1
 # The cloud host owns its authorised browser Profile/configuration. No Cookie,
 # webhook, or account material is placed in the unit or its command line.
 ExecStart=/usr/bin/php -d memory_limit=384M think online-data:auto-fetch --daily-only --no-interaction

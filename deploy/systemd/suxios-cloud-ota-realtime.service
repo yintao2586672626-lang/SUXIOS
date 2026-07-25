@@ -12,6 +12,7 @@ Group=www-data
 WorkingDirectory=/var/www/suxios/current
 Environment=TZ=Asia/Shanghai
 EnvironmentFile=-/etc/suxios/ota-collector.env
+Environment=SUXIOS_OTA_CLOUD_COLLECTOR=1
 # The command owns an idempotent hotel/date/hour slot. It only reads authorised
 # cloud-side profiles and never receives sensitive material through argv.
 ExecStart=/usr/bin/php -d memory_limit=384M think online-data:auto-fetch --realtime-only --no-interaction

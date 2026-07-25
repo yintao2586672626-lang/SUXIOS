@@ -104,6 +104,27 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringContainsString('realtime-only cannot be combined with target-date.', $output->fetch());
     }
 
+    public function testCloudCollectorFailsClosedBeforeAnyDatabaseOrPlatformWorkWhenProfileIsNotVerified(): void
+    {
+        $previousCollector = getenv('SUXIOS_OTA_CLOUD_COLLECTOR');
+        $previousProfile = getenv('SUXIOS_OTA_CLOUD_PROFILE_READY');
+        putenv('SUXIOS_OTA_CLOUD_COLLECTOR=1');
+        putenv('SUXIOS_OTA_CLOUD_PROFILE_READY=0');
+
+        try {
+            $command = new AutoFetchOnlineData();
+            $input = new Input(['--daily-only']);
+            $input->setInteractive(false);
+            $output = new Output('buffer');
+
+            self::assertSame(75, $command->run($input, $output));
+            self::assertStringContainsString('Cloud OTA collector blocked:', $output->fetch());
+        } finally {
+            putenv('SUXIOS_OTA_CLOUD_COLLECTOR' . ($previousCollector === false ? '' : '=' . $previousCollector));
+            putenv('SUXIOS_OTA_CLOUD_PROFILE_READY' . ($previousProfile === false ? '' : '=' . $previousProfile));
+        }
+    }
+
     public function testExplicitSourceScopeRequiresHotelAndRejectsInvalidIdsBeforeDatabaseWork(): void
     {
         $cases = [

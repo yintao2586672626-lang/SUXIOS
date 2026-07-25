@@ -89,6 +89,17 @@ class AutoFetchOnlineData extends Command
             $output->writeln('realtime-only cannot be combined with target-date.');
             return 1;
         }
+
+        // Cloud timers must never turn an unprepared server into a blind
+        // collector. The marker is deliberately separate from normal local
+        // runs: local test/manual collection keeps its existing behaviour,
+        // while a cloud unit must have completed an authorised login/profile
+        // verification before it can make a platform request.
+        if ($this->truthy(getenv('SUXIOS_OTA_CLOUD_COLLECTOR'))
+            && !$this->truthy(getenv('SUXIOS_OTA_CLOUD_PROFILE_READY'))) {
+            $output->writeln('Cloud OTA collector blocked: protected cloud Profile login/verification is not ready.');
+            return 75;
+        }
         $runMode = $dailyOnly ? 'daily' : ($realtimeOnly ? 'realtime' : '');
         return $this->executeSegmentedSchedules($output, $hotelId, $targetDate, $sourceIds, $forceRerun, $runMode);
     }
