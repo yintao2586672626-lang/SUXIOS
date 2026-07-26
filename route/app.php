@@ -194,7 +194,7 @@ Route::group('api/operating-targets', function () {
 })->middleware(\app\middleware\Auth::class);
 
 // User-authored hotel notifications. Dynamic operating-target delivery and
-// every attempt remain scoped to hotel 80's named test robot.
+// every attempt remain scoped to the current hotel's explicitly marked test robot.
 Route::group('api/manual-notifications', function () {
     Route::get('/metadata', 'ManualNotification/metadata');
     Route::get('/history', 'ManualNotification/history');

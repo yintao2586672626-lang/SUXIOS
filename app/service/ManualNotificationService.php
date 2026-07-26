@@ -9,9 +9,6 @@ use think\facade\Db;
 
 final class ManualNotificationService
 {
-    public const TEST_HOTEL_ID = 80;
-    public const TEST_ROBOT_ID = 1;
-    public const TEST_ROBOT_NAME = '漠蓝测试';
     public const DYNAMIC_REPORT_TYPE = 'operating_target_report';
 
     private const TIMEZONE = 'Asia/Shanghai';
@@ -38,13 +35,14 @@ final class ManualNotificationService
     public function __construct(
         ?callable $testDispatcher = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
-        private readonly ?ManualNotificationDispatchLedgerService $ledger = null
+        private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
+        private readonly ?ManualNotificationTestTargetService $testTargets = null
     ) {
         $this->testDispatcher = $testDispatcher;
     }
 
     /** @return array<string, mixed> */
-    public function metadata(string $businessDate = ''): array
+    public function metadata(string $businessDate = '', int $hotelId = 0): array
     {
         $date = $this->normalizeDate(
             $businessDate === '' ? $this->now()->format('Y-m-d') : $businessDate
@@ -60,8 +58,12 @@ final class ManualNotificationService
             ];
         }
 
+        $testTarget = $hotelId > 0 ? $this->testTargetResolver()->resolve($hotelId) : null;
         try {
-            $scheduler = $this->dispatchLedger()->latestScheduleRun();
+            $scheduler = $this->dispatchLedger()->latestScheduleRun(
+                $hotelId,
+                (int)($testTarget['robot_id'] ?? 0)
+            );
         } catch (\Throwable) {
             $scheduler = [
                 'status' => 'not_deployed',
@@ -83,9 +85,10 @@ final class ManualNotificationService
             ),
             'variables' => ['{酒店名称}', '{经营日期}', '{统计时间}', '{数据状态}'],
             'test_target' => [
-                'hotel_id' => self::TEST_HOTEL_ID,
-                'robot_id' => self::TEST_ROBOT_ID,
-                'robot_name' => self::TEST_ROBOT_NAME,
+                'hotel_id' => $hotelId,
+                'robot_id' => (int)($testTarget['robot_id'] ?? 0),
+                'robot_name' => (string)($testTarget['robot_name'] ?? ''),
+                'binding_status' => (string)($testTarget['binding_status'] ?? 'test_binding_missing'),
                 'formal_group_delivery_allowed' => false,
             ],
             'scheduler_status' => (string)($scheduler['status'] ?? 'not_deployed'),
@@ -239,29 +242,17 @@ final class ManualNotificationService
         string $hotelName,
         string $idempotencyKey = ''
     ): array {
-        $this->assertTestRequest(
+        $record = $this->read($tenantId, $hotelId, $notificationId);
+        if ((string)$record['send_method'] !== 'wecom_test') {
+            throw new \InvalidArgumentException('manual_notification_test_method_forbidden');
+        }
+        $robot = $this->assertTestRequest(
             $hotelId,
             $confirmed,
             $targetRobotId,
             $targetRobotName,
             $idempotencyKey
         );
-        $record = $this->read($tenantId, $hotelId, $notificationId);
-        if ((string)$record['send_method'] !== 'wecom_test') {
-            throw new \InvalidArgumentException('manual_notification_test_method_forbidden');
-        }
-        $robot = $this->testRobot();
-        if ($robot === null) {
-            return $this->persistTestResult(
-                $tenantId,
-                $hotelId,
-                $notificationId,
-                $userId,
-                null,
-                'test_target_missing',
-                '酒店80的1号漠蓝测试机器人绑定未通过校验；未读取凭证，未触发正式群。'
-            );
-        }
 
         $businessDate = (string)$record['business_date'];
         $candidate = $this->deliveryCandidate(
@@ -285,8 +276,8 @@ final class ManualNotificationService
             'test',
             (string)$record['trigger_type'],
             'immediate_test',
-            self::TEST_ROBOT_ID,
-            self::TEST_ROBOT_NAME,
+            (int)$robot['robot_id'],
+            (string)$robot['robot_name'],
             $businessDate,
             $candidate,
             $this->now(),
@@ -350,7 +341,7 @@ final class ManualNotificationService
             $delivery = call_user_func(
                 $this->testDispatcher,
                 $hotelId,
-                (int)$robot['id'],
+                (int)$robot['robot_id'],
                 $candidate['payload'],
                 [
                     'notification_id' => $notificationId,
@@ -372,7 +363,7 @@ final class ManualNotificationService
         );
         $sent = (string)$finished['status'] === 'sent';
         $message = $sent
-            ? '测试消息已送达1号漠蓝测试机器人，并保存企业微信业务成功记录。'
+            ? '测试消息已送达“' . (string)$robot['robot_name'] . '”，并保存企业微信业务成功记录。'
             : ((string)$finished['status'] === 'outcome_unknown'
                 ? '企业微信发送结果不明确，已阻止自动重试，正式群未触发。'
                 : '测试消息未送达，已保存失败记录，正式群未触发。');
@@ -389,9 +380,9 @@ final class ManualNotificationService
         $result['dispatch'] = $finished;
         $result['delivery'] = [
             'delivery_status' => (string)$finished['status'],
-            'target_hotel_id' => self::TEST_HOTEL_ID,
-            'target_robot_id' => self::TEST_ROBOT_ID,
-            'target_robot_name' => self::TEST_ROBOT_NAME,
+            'target_hotel_id' => $hotelId,
+            'target_robot_id' => (int)$robot['robot_id'],
+            'target_robot_name' => (string)$robot['robot_name'],
             'formal_group_delivery_allowed' => false,
         ];
         return $result;
@@ -408,14 +399,16 @@ final class ManualNotificationService
         if (!$confirmed) {
             throw new \InvalidArgumentException('manual_notification_retry_confirmation_required');
         }
-        if ($hotelId !== self::TEST_HOTEL_ID) {
+        $retry = $this->dispatchLedger()->dispatchForRetry($tenantId, $hotelId, $dispatchId);
+        if ((string)($retry['dispatch']['delivery_mode'] ?? '') !== 'test') {
             throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
         }
-        $retry = $this->dispatchLedger()->dispatchForRetry($tenantId, $hotelId, $dispatchId);
-        if ((int)$retry['robot_id'] !== self::TEST_ROBOT_ID
-            || (string)$retry['robot_name'] !== self::TEST_ROBOT_NAME
-            || $this->testRobot() === null
-        ) {
+        $robot = $this->testTargetResolver()->resolve(
+            $hotelId,
+            (int)$retry['robot_id'],
+            (string)$retry['robot_name']
+        );
+        if ($robot === null) {
             throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
         }
         if ($this->testDispatcher === null) {
@@ -432,7 +425,7 @@ final class ManualNotificationService
             $delivery = call_user_func(
                 $this->testDispatcher,
                 $hotelId,
-                self::TEST_ROBOT_ID,
+                (int)$robot['robot_id'],
                 $retry['payload'],
                 [
                     'notification_id' => (int)$retry['notification_id'],
@@ -457,9 +450,11 @@ final class ManualNotificationService
             $hotelId,
             (int)$retry['notification_id'],
             $userId,
-            $this->testRobot(),
+            $robot,
             $sent ? 'sent' : (string)$finished['status'],
-            $sent ? '显式重试已送达漠蓝测试机器人。' : '显式重试未确认送达，已保存真实状态。'
+            $sent
+                ? '显式重试已送达“' . (string)$robot['robot_name'] . '”。'
+                : '显式重试未确认送达，已保存真实状态。'
         );
         return [
             'delivery_status' => (string)$finished['status'],
@@ -767,10 +762,12 @@ final class ManualNotificationService
                 'last_test_message' => $this->safeText($message, 255),
                 'last_tested_at' => $now,
                 'last_tested_by' => $userId,
-                'test_robot_id' => $robot === null ? null : (int)($robot['id'] ?? 0),
+                'test_robot_id' => $robot === null
+                    ? null
+                    : (int)($robot['robot_id'] ?? $robot['id'] ?? 0),
                 'test_robot_name' => $robot === null
-                    ? self::TEST_ROBOT_NAME
-                    : (string)$robot['name'],
+                    ? null
+                    : (string)($robot['robot_name'] ?? $robot['name'] ?? ''),
                 'update_time' => $now,
             ]);
         return [
@@ -778,27 +775,30 @@ final class ManualNotificationService
             'message' => $message,
             'schedule_status' => $scheduleStatus,
             'schedule_status_label' => $this->scheduleStatusLabel($scheduleStatus),
-            'target_hotel_id' => self::TEST_HOTEL_ID,
-            'target_robot_id' => self::TEST_ROBOT_ID,
-            'target_robot_name' => self::TEST_ROBOT_NAME,
+            'target_hotel_id' => $hotelId,
+            'target_robot_id' => (int)($robot['robot_id'] ?? $robot['id'] ?? 0),
+            'target_robot_name' => (string)($robot['robot_name'] ?? $robot['name'] ?? ''),
             'formal_group_delivery_allowed' => false,
         ];
     }
 
+    /** @return array<string, mixed> */
     private function assertTestRequest(
         int $hotelId,
         bool $confirmed,
         int $targetRobotId,
         string $targetRobotName,
         string $idempotencyKey
-    ): void {
+    ): array {
         if (!$confirmed) {
             throw new \InvalidArgumentException('manual_notification_test_confirmation_required');
         }
-        if ($hotelId !== self::TEST_HOTEL_ID
-            || $targetRobotId !== self::TEST_ROBOT_ID
-            || trim($targetRobotName) !== self::TEST_ROBOT_NAME
-        ) {
+        $robot = $this->testTargetResolver()->resolve(
+            $hotelId,
+            $targetRobotId,
+            $targetRobotName
+        );
+        if ($robot === null) {
             throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
         }
         $idempotencyKey = trim($idempotencyKey);
@@ -808,19 +808,12 @@ final class ManualNotificationService
         ) {
             throw new \InvalidArgumentException('manual_notification_idempotency_key_invalid');
         }
+        return $robot;
     }
 
-    /** @return array<string, mixed>|null */
-    private function testRobot(): ?array
+    private function testTargetResolver(): ManualNotificationTestTargetService
     {
-        $robot = Db::name('competitor_wechat_robot')
-            ->where('id', self::TEST_ROBOT_ID)
-            ->where('store_id', self::TEST_HOTEL_ID)
-            ->where('name', self::TEST_ROBOT_NAME)
-            ->where('status', 1)
-            ->field('id,store_id,name,status')
-            ->find();
-        return is_array($robot) ? $robot : null;
+        return $this->testTargets ?? new ManualNotificationTestTargetService();
     }
 
     /** @param array<string, mixed> $candidate */

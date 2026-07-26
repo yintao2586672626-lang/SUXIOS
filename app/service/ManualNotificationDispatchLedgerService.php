@@ -100,12 +100,21 @@ final class ManualNotificationDispatchLedgerService
             $row = $this->findDispatch($dispatchId);
             return ['claimed' => true, 'dispatch' => $this->present($row)];
         } catch (\Throwable $exception) {
+            if (!$this->isUniqueConstraintViolation($exception)) {
+                throw $exception;
+            }
             $existing = Db::name('manual_notification_schedule_dispatches')
                 ->where('notification_id', $notificationId)
                 ->where('dispatch_window', $dispatchWindow)
                 ->where('delivery_mode', $deliveryMode)
                 ->find();
             if (is_array($existing)) {
+                if ($initialStatus === 'claimed') {
+                    $reopened = $this->reopenBlockedDispatch((int)$existing['id'], $data);
+                    if ($reopened !== null) {
+                        return ['claimed' => true, 'dispatch' => $this->present($reopened)];
+                    }
+                }
                 return ['claimed' => false, 'dispatch' => $this->present($existing)];
             }
             throw $exception;
@@ -248,6 +257,69 @@ final class ManualNotificationDispatchLedgerService
         ];
     }
 
+    public function markStaleSendingAsOutcomeUnknown(
+        int $hotelId,
+        int $robotId,
+        DateTimeImmutable $now,
+        int $staleAfterSeconds = 300
+    ): int {
+        $this->assertTables();
+        if ($hotelId <= 0 || $robotId <= 0) {
+            throw new \InvalidArgumentException('manual_notification_dispatch_scope_invalid');
+        }
+        $staleAfterSeconds = max(180, min(3600, $staleAfterSeconds));
+        $cutoff = $now->modify('-' . $staleAfterSeconds . ' seconds')->format('Y-m-d H:i:s');
+        $ids = Db::name('manual_notification_schedule_dispatches')
+            ->where('hotel_id', $hotelId)
+            ->where('robot_id', $robotId)
+            ->where('status', 'sending')
+            ->where('last_attempt_at', '<=', $cutoff)
+            ->order('id', 'asc')
+            ->column('id');
+        $marked = 0;
+        foreach ($ids as $id) {
+            $marked += Db::transaction(
+                function () use ($id, $hotelId, $robotId, $cutoff, $now): int {
+                    $row = Db::name('manual_notification_schedule_dispatches')
+                        ->where('id', (int)$id)
+                        ->where('hotel_id', $hotelId)
+                        ->where('robot_id', $robotId)
+                        ->lock(true)
+                        ->find();
+                    if (!is_array($row)
+                        || (string)($row['status'] ?? '') !== 'sending'
+                        || trim((string)($row['last_attempt_at'] ?? '')) === ''
+                        || (string)$row['last_attempt_at'] > $cutoff
+                    ) {
+                        return 0;
+                    }
+                    $timestamp = $now->format('Y-m-d H:i:s');
+                    $message = '发送进程中断且未取得企业微信业务回执；结果标记为未知，禁止自动重发。';
+                    Db::name('manual_notification_dispatch_attempts')
+                        ->where('dispatch_id', (int)$id)
+                        ->where('status', 'sending')
+                        ->update([
+                            'status' => 'outcome_unknown',
+                            'result_code' => 'delivery_process_interrupted_outcome_unknown',
+                            'result_message' => $message,
+                        ]);
+                    $updated = Db::name('manual_notification_schedule_dispatches')
+                        ->where('id', (int)$id)
+                        ->where('status', 'sending')
+                        ->update([
+                            'status' => 'outcome_unknown',
+                            'result_code' => 'delivery_process_interrupted_outcome_unknown',
+                            'result_message' => $message,
+                            'next_retry_at' => null,
+                            'update_time' => $timestamp,
+                        ]);
+                    return $updated > 0 ? 1 : 0;
+                }
+            );
+        }
+        return $marked;
+    }
+
     /** @return array<string, mixed> */
     public function history(int $tenantId, int $hotelId, int $limit = 50): array
     {
@@ -284,15 +356,25 @@ final class ManualNotificationDispatchLedgerService
     }
 
     /** @return array<string, mixed> */
-    public function latestScheduleRun(): array
+    public function latestScheduleRun(int $hotelId, int $robotId): array
     {
+        if ($hotelId <= 0 || $robotId <= 0) {
+            return [
+                'status' => 'scope_missing',
+                'message' => '缺少已验证的酒店和测试群机器人范围，未读取云端调度运行记录。',
+            ];
+        }
         if (!$this->tableExists('manual_notification_schedule_runs')) {
             return [
                 'status' => 'not_deployed',
                 'message' => '尚未取得云端调度运行记录。',
             ];
         }
-        $row = Db::name('manual_notification_schedule_runs')->order('id', 'desc')->find();
+        $row = Db::name('manual_notification_schedule_runs')
+            ->where('scope_hotel_id', $hotelId)
+            ->where('scope_robot_id', $robotId)
+            ->order('id', 'desc')
+            ->find();
         if (!is_array($row)) {
             return [
                 'status' => 'not_run',
@@ -305,13 +387,19 @@ final class ManualNotificationDispatchLedgerService
         $dispatchRequested = (int)$row['dispatch_requested'] === 1;
         $status = $runStatus === 'completed' && $ageSeconds !== null && $ageSeconds <= 300
             ? ($dispatchRequested ? 'test_scope_ready' : 'preview_only')
-            : ($runStatus === 'failed' ? 'failed' : 'stale');
+            : match ($runStatus) {
+                'failed' => 'failed',
+                'blocked' => 'blocked',
+                default => 'stale',
+            };
         return [
             'status' => $status,
             'run_status' => $runStatus,
             'run_id' => (int)$row['id'],
             'runner_mode' => (string)$row['runner_mode'],
             'dispatch_requested' => $dispatchRequested,
+            'scope_hotel_id' => (int)$row['scope_hotel_id'],
+            'scope_robot_id' => (int)$row['scope_robot_id'],
             'observed_at' => (string)$row['observed_at'],
             'age_seconds' => $ageSeconds,
             'candidate_count' => (int)$row['candidate_count'],
@@ -324,6 +412,7 @@ final class ManualNotificationDispatchLedgerService
                 'test_scope_ready' => '云端测试群调度最近5分钟内运行，实际发送仍以每条回执为准。',
                 'preview_only' => '云端最近仅运行预览调度，未请求企业微信发送。',
                 'failed' => '云端最近一次调度执行失败，请查看调度运行与发送历史。',
+                'blocked' => '云端最近一次调度被数据、身份或发送门禁阻断，未冒充成功。',
                 default => '最近一次云端调度记录已过期，当前运行状态待验证。',
             },
         ];
@@ -339,6 +428,72 @@ final class ManualNotificationDispatchLedgerService
             throw new \RuntimeException('manual_notification_dispatch_not_found');
         }
         return $row;
+    }
+
+    /**
+     * A data or identity gate can recover inside the same due window because a
+     * blocked claim has no delivery attempt. Sending or unknown outcomes are
+     * never reopened automatically.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>|null
+     */
+    private function reopenBlockedDispatch(int $dispatchId, array $data): ?array
+    {
+        return Db::transaction(function () use ($dispatchId, $data): ?array {
+            $row = Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->lock(true)
+                ->find();
+            if (!is_array($row)
+                || (string)($row['status'] ?? '') !== 'blocked'
+                || (int)($row['attempt_count'] ?? 0) !== 0
+            ) {
+                return null;
+            }
+            $allowed = [
+                'business_date',
+                'payload_fingerprint',
+                'operating_target_record_id',
+                'snapshot_revision_no',
+                'render_contract_version',
+                'payload_snapshot_json',
+                'robot_id',
+                'robot_name',
+                'status',
+                'result_code',
+                'result_message',
+                'claimed_at',
+                'update_time',
+            ];
+            $update = array_intersect_key($data, array_fill_keys($allowed, true));
+            $update['status'] = 'claimed';
+            $update['result_code'] = 'dispatch_claimed_after_gate_recovery';
+            $update['result_message'] = null;
+            Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->where('status', 'blocked')
+                ->where('attempt_count', 0)
+                ->update($update);
+            $reopened = Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->find();
+            return is_array($reopened) && (string)$reopened['status'] === 'claimed'
+                ? $reopened
+                : null;
+        });
+    }
+
+    private function isUniqueConstraintViolation(\Throwable $exception): bool
+    {
+        $code = (string)$exception->getCode();
+        if (in_array($code, ['1062', '23505'], true)) {
+            return true;
+        }
+        $message = strtolower($exception->getMessage());
+        return str_contains($message, 'duplicate entry')
+            || str_contains($message, 'unique constraint failed')
+            || str_contains($message, 'duplicate key value');
     }
 
     /**

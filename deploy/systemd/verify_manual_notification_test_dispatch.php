@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use app\service\ManualNotificationService;
+use app\service\ManualNotificationTestTargetService;
 use think\App;
 use think\facade\Db;
 
@@ -14,6 +15,14 @@ if (!is_string($releaseRoot) || $releaseRoot === '') {
 require $releaseRoot . '/vendor/autoload.php';
 $app = new App($releaseRoot);
 $app->initialize();
+$options = getopt('', ['hotel-id:', 'robot-id:', 'require-enabled']);
+$hotelId = max(0, (int)($options['hotel-id'] ?? 0));
+$robotId = max(0, (int)($options['robot-id'] ?? 0));
+$requireEnabled = array_key_exists('require-enabled', $options);
+if ($hotelId <= 0 || $robotId <= 0) {
+    fwrite(STDERR, "--hotel-id and --robot-id are required\n");
+    exit(2);
+}
 
 try {
     foreach ([
@@ -27,31 +36,40 @@ try {
     ] as $table) {
         Db::query('SELECT 1 FROM `' . $table . '` WHERE 1 = 0');
     }
+    Db::query(
+        'SELECT `request_kind`, `payload_fingerprint`, `payload_snapshot_json`,'
+        . ' `attempt_count`, `last_attempt_at`, `robot_id`'
+        . ' FROM `manual_notification_schedule_dispatches` WHERE 1 = 0'
+    );
+    Db::query(
+        'SELECT `dispatch_id`, `attempt_no`, `status`, `response_reference`'
+        . ' FROM `manual_notification_dispatch_attempts` WHERE 1 = 0'
+    );
+    Db::query(
+        'SELECT `scope_hotel_id`, `scope_robot_id`, `status`'
+        . ' FROM `manual_notification_schedule_runs` WHERE 1 = 0'
+    );
 
-    $robot = Db::name('competitor_wechat_robot')
-        ->where('id', 1)
-        ->where('store_id', 80)
-        ->where('name', ManualNotificationService::TEST_ROBOT_NAME)
-        ->where('status', 1)
-        ->field('id,store_id,name,status')
-        ->find();
-    if (!is_array($robot)) {
-        throw new RuntimeException('hotel80_test_robot1_identity_missing');
+    $robot = (new ManualNotificationTestTargetService())->resolve($hotelId, $robotId);
+    if ($robot === null) {
+        throw new RuntimeException('verified_test_robot_identity_missing');
     }
+    $robotName = (string)$robot['robot_name'];
 
     $records = Db::name('manual_notifications')
         ->where('enabled', 1)
         ->where('schedule_status', 'schedule_enabled')
         ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour'])
         ->where('send_method', 'wecom_test')
+        ->where('hotel_id', $hotelId)
         ->field('id,hotel_id,template_type,test_robot_id,test_robot_name')
         ->select()
         ->toArray();
     $outsideScope = [];
     foreach ($records as $record) {
-        if ((int)($record['hotel_id'] ?? 0) !== 80
-            || (int)($record['test_robot_id'] ?? 0) !== 1
-            || trim((string)($record['test_robot_name'] ?? '')) !== ManualNotificationService::TEST_ROBOT_NAME
+        if ((int)($record['hotel_id'] ?? 0) !== $hotelId
+            || (int)($record['test_robot_id'] ?? 0) !== $robotId
+            || trim((string)($record['test_robot_name'] ?? '')) !== $robotName
             || trim((string)($record['template_type'] ?? '')) !== ManualNotificationService::DYNAMIC_REPORT_TYPE
         ) {
             $outsideScope[] = (int)($record['id'] ?? 0);
@@ -59,10 +77,10 @@ try {
     }
     if ($outsideScope !== []) {
         throw new RuntimeException(
-            'enabled_test_schedule_outside_hotel80_robot1 ids=' . implode(',', $outsideScope)
+            'enabled_test_schedule_outside_verified_scope ids=' . implode(',', $outsideScope)
         );
     }
-    if (in_array('--require-enabled', $argv, true) && $records === []) {
+    if ($requireEnabled && $records === []) {
         throw new RuntimeException('enabled_operating_target_test_schedule_missing');
     }
 
@@ -70,8 +88,8 @@ try {
         'status' => 'ready',
         'release_root' => $releaseRoot,
         'delivery_mode' => 'test',
-        'hotel_id' => 80,
-        'robot_id' => 1,
+        'hotel_id' => $hotelId,
+        'robot_id' => $robotId,
         'eligible_saved_schedule_count' => count($records),
         'webhook_read' => false,
         'message_sent' => false,

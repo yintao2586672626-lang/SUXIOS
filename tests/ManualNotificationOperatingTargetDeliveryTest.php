@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
+use app\service\ManualNotificationTestTargetService;
 use app\service\OperatingTargetService;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -15,6 +16,11 @@ use think\facade\Db;
 
 final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
 {
+    private const TENANT_ID = 1;
+    private const HOTEL_ID = 5;
+    private const ROBOT_ID = 2;
+    private const ROBOT_NAME = '宿析OS云端日报';
+
     private static array $databaseConfig;
     private static string $databasePath;
 
@@ -162,6 +168,7 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             runner_mode VARCHAR(16) NOT NULL,
             dispatch_requested INTEGER NOT NULL,
             scope_hotel_id INTEGER NULL,
+            scope_robot_id INTEGER NULL,
             observed_at DATETIME NOT NULL,
             status VARCHAR(32) NOT NULL,
             candidate_count INTEGER NOT NULL,
@@ -178,6 +185,7 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
         Db::execute('CREATE TABLE IF NOT EXISTS competitor_wechat_robot (
             id INTEGER PRIMARY KEY,
             store_id INTEGER NOT NULL,
+            notification_scope VARCHAR(40) NULL,
             name VARCHAR(120) NOT NULL,
             status INTEGER NOT NULL
         )');
@@ -197,11 +205,12 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
         ] as $table) {
             Db::name($table)->delete(true);
         }
-        Db::name('hotels')->insert(['id' => 80, 'name' => '敦煌漠蓝新']);
+        Db::name('hotels')->insert(['id' => self::HOTEL_ID, 'name' => '敦煌漠蓝新']);
         Db::name('competitor_wechat_robot')->insert([
-            'id' => ManualNotificationService::TEST_ROBOT_ID,
-            'store_id' => ManualNotificationService::TEST_HOTEL_ID,
-            'name' => ManualNotificationService::TEST_ROBOT_NAME,
+            'id' => self::ROBOT_ID,
+            'store_id' => self::HOTEL_ID,
+            'notification_scope' => ManualNotificationTestTargetService::TEST_SCOPE,
+            'name' => self::ROBOT_NAME,
             'status' => 1,
         ]);
     }
@@ -209,7 +218,7 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
     public function testReadyAccommodationTargetFlowsThroughImmediateAndScheduledDelivery(): void
     {
         $today = $this->today();
-        $target = (new OperatingTargetService())->save(80, 80, 7, [
+        $target = (new OperatingTargetService())->save(self::TENANT_ID, self::HOTEL_ID, 7, [
             'target_date' => $today,
             'target_revenue' => 10000,
             'actual_revenue' => 10135.29,
@@ -240,18 +249,24 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
                 ];
             }
         );
-        $saved = $notifications->save(80, 80, 7, '敦煌漠蓝新', $this->notificationInput($today));
+        $saved = $notifications->save(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            7,
+            '敦煌漠蓝新',
+            $this->notificationInput($today)
+        );
         self::assertSame('awaiting_test', $saved['record']['schedule_status']);
         self::assertStringContainsString('住宿房费实际额', $saved['preview']['payload']['markdown']['content']);
 
         $test = $notifications->testPush(
-            80,
-            80,
+            self::TENANT_ID,
+            self::HOTEL_ID,
             (int)$saved['record']['id'],
             7,
             true,
-            1,
-            ManualNotificationService::TEST_ROBOT_NAME,
+            self::ROBOT_ID,
+            self::ROBOT_NAME,
             '敦煌漠蓝新',
             'dynamic-ready-immediate-001'
         );
@@ -284,7 +299,8 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             true,
             ManualNotificationScheduleService::MODE_TEST,
             100,
-            80
+            self::HOTEL_ID,
+            self::ROBOT_ID
         );
         self::assertSame(1, $run['sent_count']);
         self::assertSame(0, $run['blocked_count']);
@@ -294,7 +310,7 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             $scheduledCalls[0][2]['markdown']['content']
         );
 
-        $history = $notifications->dispatchHistory(80, 80);
+        $history = $notifications->dispatchHistory(self::TENANT_ID, self::HOTEL_ID);
         self::assertSame(2, $history['total']);
         self::assertSame(['scheduled', 'immediate_test'], array_column($history['list'], 'request_kind'));
         self::assertSame([1, 1], array_column($history['list'], 'attempt_count'));
@@ -305,7 +321,7 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
     public function testBlockedAccommodationTargetPersistsGateWithoutCallingSender(): void
     {
         $today = $this->today();
-        (new OperatingTargetService())->save(80, 80, 7, [
+        (new OperatingTargetService())->save(self::TENANT_ID, self::HOTEL_ID, 7, [
             'target_date' => $today,
             'target_revenue' => 12000,
             'actual_revenue' => 10135.29,
@@ -325,15 +341,21 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
                 return ['delivery_status' => 'sent'];
             }
         );
-        $saved = $service->save(80, 80, 7, '敦煌漠蓝新', $this->notificationInput($today));
+        $saved = $service->save(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            7,
+            '敦煌漠蓝新',
+            $this->notificationInput($today)
+        );
         $result = $service->testPush(
-            80,
-            80,
+            self::TENANT_ID,
+            self::HOTEL_ID,
             (int)$saved['record']['id'],
             7,
             true,
-            1,
-            ManualNotificationService::TEST_ROBOT_NAME,
+            self::ROBOT_ID,
+            self::ROBOT_NAME,
             '敦煌漠蓝新',
             'dynamic-blocked-immediate-001'
         );

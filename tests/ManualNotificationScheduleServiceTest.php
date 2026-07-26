@@ -4,7 +4,8 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\ManualNotificationScheduleService;
-use app\service\ManualNotificationService;
+use app\service\ManualNotificationDispatchLedgerService;
+use app\service\ManualNotificationTestTargetService;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
@@ -14,6 +15,10 @@ use think\facade\Db;
 
 final class ManualNotificationScheduleServiceTest extends TestCase
 {
+    private const HOTEL_ID = 5;
+    private const ROBOT_ID = 2;
+    private const ROBOT_NAME = '宿析OS云端日报';
+
     private static array $databaseConfig;
     private static string $databasePath;
 
@@ -117,6 +122,7 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             runner_mode VARCHAR(16) NOT NULL,
             dispatch_requested INTEGER NOT NULL,
             scope_hotel_id INTEGER NULL,
+            scope_robot_id INTEGER NULL,
             observed_at DATETIME NOT NULL,
             status VARCHAR(32) NOT NULL,
             candidate_count INTEGER NOT NULL,
@@ -133,6 +139,7 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         Db::execute('CREATE TABLE IF NOT EXISTS competitor_wechat_robot (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             store_id INTEGER NOT NULL,
+            notification_scope VARCHAR(40) NULL,
             name VARCHAR(120) NOT NULL,
             status INTEGER NOT NULL
         )');
@@ -146,11 +153,12 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         Db::name('manual_notifications')->delete(true);
         Db::name('competitor_wechat_robot')->delete(true);
         Db::name('hotels')->delete(true);
-        Db::name('hotels')->insert(['id' => 80, 'name' => '敦煌漠蓝新']);
+        Db::name('hotels')->insert(['id' => self::HOTEL_ID, 'name' => '敦煌漠蓝新']);
         Db::name('competitor_wechat_robot')->insert([
-            'id' => ManualNotificationService::TEST_ROBOT_ID,
-            'store_id' => 80,
-            'name' => ManualNotificationService::TEST_ROBOT_NAME,
+            'id' => self::ROBOT_ID,
+            'store_id' => self::HOTEL_ID,
+            'notification_scope' => ManualNotificationTestTargetService::TEST_SCOPE,
+            'name' => self::ROBOT_NAME,
             'status' => 1,
         ]);
     }
@@ -193,16 +201,78 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         );
         $now = $this->time('2026-07-26 18:02:00');
 
-        $first = $service->runDue($now, true);
-        $second = $service->runDue($now, true);
+        $first = $service->runDue(
+            $now,
+            true,
+            'test',
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+        $second = $service->runDue(
+            $now,
+            true,
+            'test',
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
 
         self::assertSame('sent', $first['results'][0]['status']);
         self::assertSame('skipped', $second['results'][0]['status']);
         self::assertSame('dispatch_window_already_claimed', $second['results'][0]['reason_code']);
         self::assertCount(1, $calls);
-        self::assertSame([80, 1], array_slice($calls[0], 0, 2));
+        self::assertSame([self::HOTEL_ID, self::ROBOT_ID], array_slice($calls[0], 0, 2));
         self::assertSame($notificationId, $calls[0][3]['notification_id']);
         self::assertSame(1, Db::name('manual_notification_schedule_dispatches')->count());
+    }
+
+    public function testDispatchLimitCapsExternalCallsWithoutStarvingLaterDueRecords(): void
+    {
+        for ($index = 0; $index < 6; $index++) {
+            $this->insertRecord();
+        }
+        $calls = [];
+        $service = new ManualNotificationScheduleService(
+            static function (int $hotelId, int $robotId) use (&$calls): array {
+                $calls[] = [$hotelId, $robotId];
+                return ['delivery_status' => 'sent'];
+            }
+        );
+        $now = $this->time('2026-07-26 18:04:00');
+
+        $first = $service->runDue(
+            $now,
+            true,
+            'test',
+            5,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+
+        self::assertSame('dispatch_blocked', $first['status']);
+        self::assertSame(6, $first['candidate_count']);
+        self::assertSame(6, $first['due_count']);
+        self::assertSame(5, $first['delivery_attempt_count']);
+        self::assertSame(1, $first['deferred_count']);
+        self::assertSame('deferred', $first['results'][5]['status']);
+        self::assertCount(5, $calls);
+
+        $second = $service->runDue(
+            $now,
+            true,
+            'test',
+            5,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+
+        self::assertSame('dispatch_checked', $second['status']);
+        self::assertSame(1, $second['delivery_attempt_count']);
+        self::assertSame(0, $second['deferred_count']);
+        self::assertSame('sent', $second['results'][5]['status']);
+        self::assertCount(6, $calls);
+        self::assertSame(6, Db::name('manual_notification_schedule_dispatches')->count());
     }
 
     public function testTestAndFormalIdentitiesCannotCrossModes(): void
@@ -216,18 +286,160 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             }
         );
 
-        $formal = $service->runDue($this->time('2026-07-26 18:01:00'), true, 'formal');
-        self::assertSame('blocked', $formal['results'][0]['status']);
-        self::assertSame('formal_delivery_not_authorized', $formal['results'][0]['reason_code']);
+        try {
+            $service->runDue(
+                $this->time('2026-07-26 18:01:00'),
+                true,
+                'formal',
+                100,
+                self::HOTEL_ID,
+                self::ROBOT_ID
+            );
+            self::fail('Formal dispatch must be rejected before any delivery ledger claim.');
+        } catch (\InvalidArgumentException $error) {
+            self::assertSame('manual_notification_dispatch_scope_required', $error->getMessage());
+        }
 
         Db::name('manual_notifications')
             ->where('id', $notificationId)
             ->update(['test_robot_name' => '正式经营群']);
-        $test = $service->runDue($this->time('2026-07-26 18:01:00'), true, 'test');
+        $test = $service->runDue(
+            $this->time('2026-07-26 18:01:00'),
+            true,
+            'test',
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
         self::assertSame('blocked', $test['results'][0]['status']);
-        self::assertSame('test_target_binding_missing', $test['results'][0]['reason_code']);
+        self::assertSame('dispatch_blocked', $test['status']);
+        self::assertSame('target_robot_identity_mismatch', $test['results'][0]['reason_code']);
         self::assertSame([], $calls);
-        self::assertSame(2, Db::name('manual_notification_schedule_dispatches')->count());
+        self::assertSame(1, Db::name('manual_notification_schedule_dispatches')->count());
+        $blockedDispatch = Db::name('manual_notification_schedule_dispatches')
+            ->where('notification_id', $notificationId)
+            ->find();
+        self::assertSame(self::ROBOT_ID, (int)$blockedDispatch['robot_id']);
+        self::assertSame('正式经营群', $blockedDispatch['robot_name']);
+
+        $stillBlocked = $service->runDue(
+            $this->time('2026-07-26 18:01:30'),
+            true,
+            'test',
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+        self::assertSame('dispatch_blocked', $stillBlocked['status']);
+        self::assertSame('blocked', $stillBlocked['results'][0]['status']);
+        self::assertSame([], $calls);
+
+        Db::name('manual_notifications')
+            ->where('id', $notificationId)
+            ->update(['test_robot_name' => self::ROBOT_NAME]);
+        $recovered = $service->runDue(
+            $this->time('2026-07-26 18:02:00'),
+            true,
+            'test',
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+        self::assertSame('dispatch_checked', $recovered['status']);
+        self::assertSame('sent', $recovered['results'][0]['status']);
+        self::assertSame([true], $calls);
+        self::assertSame(1, Db::name('manual_notification_schedule_dispatches')->count());
+        self::assertSame(
+            1,
+            (int)Db::name('manual_notification_schedule_dispatches')
+                ->where('notification_id', $notificationId)
+                ->value('attempt_count')
+        );
+    }
+
+    public function testStaleSendingBecomesOutcomeUnknownWithoutAutomaticResend(): void
+    {
+        $notificationId = $this->insertRecord(['enabled' => 0]);
+        $otherNotificationId = $this->insertRecord(['enabled' => 0]);
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $startedAt = $this->time('2026-07-26 18:00:00');
+        $payload = ['msgtype' => 'text', 'text' => ['content' => 'stale sending fixture']];
+        $claim = $ledger->claim(
+            $notificationId,
+            9,
+            self::HOTEL_ID,
+            '2026-07-26 18:00',
+            'test',
+            'daily_fixed_time',
+            'scheduled',
+            self::ROBOT_ID,
+            self::ROBOT_NAME,
+            '2026-07-26',
+            [
+                'status' => 'ready',
+                'payload' => $payload,
+                'preview_fingerprint' => hash('sha256', json_encode($payload)),
+            ],
+            $startedAt
+        );
+        $ledger->beginAttempt((int)$claim['dispatch']['id'], $startedAt);
+        $otherRobotClaim = $ledger->claim(
+            $otherNotificationId,
+            9,
+            self::HOTEL_ID,
+            '2026-07-26 18:00',
+            'test',
+            'daily_fixed_time',
+            'scheduled',
+            3,
+            '其他机器人',
+            '2026-07-26',
+            [
+                'status' => 'ready',
+                'payload' => $payload,
+                'preview_fingerprint' => hash('sha256', json_encode($payload)),
+            ],
+            $startedAt
+        );
+        $ledger->beginAttempt((int)$otherRobotClaim['dispatch']['id'], $startedAt);
+        $calls = [];
+        $service = new ManualNotificationScheduleService(
+            static function () use (&$calls): array {
+                $calls[] = true;
+                return ['delivery_status' => 'sent'];
+            }
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:06:00'),
+            true,
+            'test',
+            5,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+
+        self::assertSame('dispatch_blocked', $result['status']);
+        self::assertSame(1, $result['stale_sending_outcome_unknown_count']);
+        self::assertSame([], $calls);
+        self::assertSame(
+            'outcome_unknown',
+            Db::name('manual_notification_schedule_dispatches')
+                ->where('id', (int)$claim['dispatch']['id'])
+                ->value('status')
+        );
+        self::assertSame(
+            'outcome_unknown',
+            Db::name('manual_notification_dispatch_attempts')
+                ->where('dispatch_id', (int)$claim['dispatch']['id'])
+                ->value('status')
+        );
+        self::assertSame(
+            'sending',
+            Db::name('manual_notification_schedule_dispatches')
+                ->where('id', (int)$otherRobotClaim['dispatch']['id'])
+                ->value('status')
+        );
     }
 
     public function testFailedClaimIsNotAutomaticallyResentAndMissingFactsStayExplicit(): void
@@ -244,11 +456,28 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         );
         $now = $this->time('2026-07-26 18:04:00');
 
-        $first = $service->runDue($now, true);
-        $second = $service->runDue($now, true);
+        $first = $service->runDue(
+            $now,
+            true,
+            'test',
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+        $second = $service->runDue(
+            $now,
+            true,
+            'test',
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
 
+        self::assertSame('dispatch_failed', $first['status']);
         self::assertSame('failed', $first['results'][0]['status']);
-        self::assertSame('skipped', $second['results'][0]['status']);
+        self::assertSame('dispatch_failed', $second['status']);
+        self::assertSame('failed', $second['results'][0]['status']);
+        self::assertSame('failed', $second['results'][0]['existing_status']);
         self::assertCount(1, $calls);
         self::assertStringContainsString('房量：未取得', $calls[0]['markdown']['content']);
         self::assertStringNotContainsString('房量：0', $calls[0]['markdown']['content']);
@@ -258,12 +487,41 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         );
     }
 
+    public function testScheduledCloudScopeUsesVerifiedHotel5Robot2Pair(): void
+    {
+        $this->insertRecord([
+            'tenant_id' => 1,
+            'hotel_id' => self::HOTEL_ID,
+            'test_robot_id' => self::ROBOT_ID,
+            'test_robot_name' => self::ROBOT_NAME,
+        ]);
+        $calls = [];
+        $service = new ManualNotificationScheduleService(
+            static function (int $hotelId, int $robotId) use (&$calls): array {
+                $calls[] = [$hotelId, $robotId];
+                return ['delivery_status' => 'sent'];
+            }
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:02:00'),
+            true,
+            ManualNotificationScheduleService::MODE_TEST,
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+
+        self::assertSame('sent', $result['results'][0]['status']);
+        self::assertSame([[self::HOTEL_ID, self::ROBOT_ID]], $calls);
+    }
+
     /** @param array<string, mixed> $overrides */
     private function insertRecord(array $overrides = []): int
     {
         return (int)Db::name('manual_notifications')->insertGetId(array_replace([
             'tenant_id' => 9,
-            'hotel_id' => 80,
+            'hotel_id' => self::HOTEL_ID,
             'notification_type' => 'blank_custom',
             'template_type' => 'blank_custom',
             'business_date' => '2026-07-26',
@@ -274,8 +532,8 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             'planned_send_at' => '2026-07-26 18:00:00',
             'enabled' => 1,
             'schedule_status' => 'schedule_enabled',
-            'test_robot_id' => ManualNotificationService::TEST_ROBOT_ID,
-            'test_robot_name' => ManualNotificationService::TEST_ROBOT_NAME,
+            'test_robot_id' => self::ROBOT_ID,
+            'test_robot_name' => self::ROBOT_NAME,
             'create_time' => '2026-07-26 12:00:00',
             'update_time' => '2026-07-26 12:00:00',
         ], $overrides));

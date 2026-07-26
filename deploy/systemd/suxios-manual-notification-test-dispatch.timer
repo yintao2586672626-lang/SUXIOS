@@ -1,5 +1,5 @@
 [Unit]
-Description=Run SUXIOS hotel 80 robot 1 test notification dispatcher every minute
+Description=Run SUXIOS verified test-group notification dispatcher every minute
 
 [Timer]
 OnCalendar=*-*-* *:*:00

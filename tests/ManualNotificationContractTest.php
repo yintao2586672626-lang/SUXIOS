@@ -39,11 +39,23 @@ final class ManualNotificationContractTest extends TestCase
         $service = (string)file_get_contents(
             dirname(__DIR__) . '/app/service/ManualNotificationService.php'
         );
-        self::assertStringContainsString("->field('id,store_id,name,status')", $service);
-        self::assertStringContainsString('public const TEST_ROBOT_ID = 1;', $service);
-        self::assertStringContainsString("public const TEST_ROBOT_NAME = '漠蓝测试';", $service);
-        self::assertStringContainsString("->where('id', self::TEST_ROBOT_ID)", $service);
+        $resolver = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/ManualNotificationTestTargetService.php'
+        );
+        self::assertStringContainsString('ManualNotificationTestTargetService', $service);
+        self::assertStringContainsString(
+            "public const TEST_SCOPE = 'operating_target_test';",
+            $resolver
+        );
+        self::assertStringContainsString(
+            "->field('id,store_id,notification_scope,name,status')",
+            $resolver
+        );
+        self::assertStringNotContainsString('LEGACY_HOTEL_ID', $resolver);
+        self::assertStringNotContainsString('LEGACY_ROBOT_ID', $resolver);
+        self::assertStringNotContainsString('hotel 80', $resolver);
         self::assertStringNotContainsString("['webhook']", $service);
+        self::assertStringNotContainsString("field('webhook", $resolver);
         self::assertStringNotContainsString('WechatRobotWebhookSecret', $service);
         self::assertStringNotContainsString('Cookie', $service);
         self::assertStringNotContainsString('ota_credentials', $service);

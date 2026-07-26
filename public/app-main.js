@@ -21499,8 +21499,14 @@
                 if (!context) return;
                 const gate = operatingTargetReportGate.value || {};
                 const target = gate?.test_push_gate?.test_target || null;
-                if (!target || Number(target.hotel_id || 0) !== Number(context.hotelId)) {
-                    operatingTargetError.value = '测试推送仅允许酒店80（敦煌漠蓝新）的漠蓝测试机器人。';
+                if (!target
+                    || Number(target.hotel_id || 0) !== Number(context.hotelId)
+                    || Number(target.robot_id || 0) <= 0
+                    || !String(target.robot_name || '').trim()
+                    || !String(target.binding_status || '').startsWith('verified_')
+                    || target.formal_group_delivery_allowed !== false
+                ) {
+                    operatingTargetError.value = '测试请求仅允许当前酒店已验证并明确标记为测试群的机器人。';
                     return;
                 }
                 if (!operatingTargetTestFirstConfirmed.value) {
@@ -21511,7 +21517,7 @@
                     operatingTargetError.value = '当前页面预览缺少校验指纹，请重新读取记录后再试。';
                     return;
                 }
-                if (!window.confirm('再次确认：本轮只向酒店80的漠蓝测试机器人发起 test_only 请求，不读取Webhook、不向企业微信外发。是否继续？')) {
+                if (!window.confirm(`再次确认：本轮只向“${target.robot_name}”测试机器人发起 test_only 请求，不读取Webhook、不向企业微信外发。是否继续？`)) {
                     return;
                 }
                 operatingTargetLoading.value.testRequest = true;
@@ -21614,9 +21620,13 @@
             );
             const manualNotificationTestAllowed = (item) => (
                 Number(item?.hotel_id || manualNotificationForm.value.hotel_id || 0)
-                    === Number(manualNotificationMetadata.value?.test_target?.hotel_id || 80)
-                && Number(manualNotificationMetadata.value?.test_target?.robot_id || 0) === 1
-                && String(manualNotificationMetadata.value?.test_target?.robot_name || '') === '漠蓝测试'
+                    === Number(manualNotificationMetadata.value?.test_target?.hotel_id || 0)
+                && Number(manualNotificationMetadata.value?.test_target?.hotel_id || 0) > 0
+                && Number(manualNotificationMetadata.value?.test_target?.robot_id || 0) > 0
+                && String(manualNotificationMetadata.value?.test_target?.robot_name || '').trim() !== ''
+                && String(manualNotificationMetadata.value?.test_target?.binding_status || '')
+                    .startsWith('verified_')
+                && manualNotificationMetadata.value?.test_target?.formal_group_delivery_allowed === false
                 && String(item?.send_method || '') === 'wecom_test'
             );
             const loadManualNotificationMetadata = async () => {
@@ -21783,10 +21793,11 @@
             };
             const testManualNotification = async (item) => {
                 if (!manualNotificationTestAllowed(item)) {
-                    showToast('测试推送仅允许酒店80绑定的1号漠蓝测试机器人。', 'warning');
+                    showToast('测试推送仅允许当前酒店已验证并明确标记为测试群的机器人。', 'warning');
                     return;
                 }
-                if (!window.confirm('仅向酒店80绑定的1号“漠蓝测试”机器人发送一次测试消息，确认继续吗？')) {
+                const targetName = manualNotificationMetadata.value?.test_target?.robot_name || '已验证测试群';
+                if (!window.confirm(`仅向当前酒店绑定的“${targetName}”测试机器人发送一次消息，确认继续吗？`)) {
                     return;
                 }
                 manualNotificationLoading.value.testId = Number(item.id || 0);
@@ -21808,7 +21819,7 @@
                     if (res.code !== 200) throw new Error(res.message || '测试推送失败');
                     const status = String(res.data?.delivery_status || '');
                     showToast(
-                        status === 'sent' ? '测试消息已送达漠蓝测试机器人。' : (res.data?.message || '测试消息未送达。'),
+                        status === 'sent' ? `测试消息已送达“${targetName}”。` : (res.data?.message || '测试消息未送达。'),
                         status === 'sent' ? 'success' : 'warning'
                     );
                     await loadManualNotificationHistory();
@@ -21839,7 +21850,10 @@
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '失败发送重试未送达');
-                    showToast('失败发送已重试并送达漠蓝测试群。', 'success');
+                    showToast(
+                        `失败发送已重试并送达“${item.robot_name || '已验证测试群'}”。`,
+                        'success'
+                    );
                 } catch (error) {
                     manualNotificationError.value = operationErrorMessage(error, '显式重试失败或结果不明确。');
                 } finally {

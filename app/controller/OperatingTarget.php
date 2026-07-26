@@ -234,7 +234,7 @@ final class OperatingTarget extends Base
                         'delivery_attempted' => false,
                         'delivery_status' => OperatingTargetReportGateService::TEST_ONLY_REQUEST_STATUS,
                         'receipt_id' => 'operating-target-test-only-' . substr(hash('sha256', (string)$receiptSeed), 0, 20),
-                        'message' => '测试请求已受理：仅生成并核对酒店80的漠蓝测试负载；本轮未读取Webhook、未向企业微信外发。',
+                        'message' => '测试请求已受理：仅生成并核对已验证测试群负载；本轮未读取Webhook、未向企业微信外发。',
                     ];
                 }
             );
@@ -246,7 +246,12 @@ final class OperatingTarget extends Base
                 'actor_id' => (int)$this->currentUser->id,
                 'approval_reference' => 'operating-target-ui-double-confirm:'
                     . $hotelId . ':' . $targetDate . ':' . substr($fingerprint, 0, 16),
-                'test_destination' => '酒店80 / 1号漠蓝测试机器人 / test_only',
+                'test_destination' => sprintf(
+                    '酒店%d / 机器人%d %s / test_only',
+                    $hotelId,
+                    (int)($input['target_robot_id'] ?? 0),
+                    trim((string)($input['target_robot_name'] ?? ''))
+                ),
                 'test_only' => ($input['test_only'] ?? false) === true,
                 'target_robot_id' => (int)($input['target_robot_id'] ?? 0),
                 'target_robot_name' => (string)($input['target_robot_name'] ?? ''),

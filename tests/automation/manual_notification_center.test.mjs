@@ -6,6 +6,10 @@ import vm from 'node:vm';
 const systemStaticSource = fs.readFileSync('public/system-static.js', 'utf8');
 const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
+const testTargetResolverSource = fs.readFileSync(
+  'app/service/ManualNotificationTestTargetService.php',
+  'utf8',
+);
 const fragmentSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15ab-page-manual-notifications.html',
   'utf8',
@@ -127,11 +131,14 @@ test('dispatch history is independent and never treats missing receipts as deliv
   assert.match(appMainSource, /\/manual-notifications\/dispatch-history/);
 });
 
-test('test push remains explicit and scoped to the bound hotel 80 robot id 1', () => {
-  assert.match(appMainSource, /window\.confirm\('仅向酒店80绑定的1号“漠蓝测试”机器人发送一次测试消息/);
+test('test push remains explicit and scoped to the verified metadata binding', () => {
+  assert.match(appMainSource, /binding_status \|\| ''\)\s*\.startsWith\('verified_'\)/);
+  assert.match(appMainSource, /formal_group_delivery_allowed === false/);
+  assert.match(appMainSource, /const targetName = manualNotificationMetadata/);
   assert.match(appMainSource, /confirmed:\s*true/);
   assert.match(appMainSource, /target_robot_id:\s*Number/);
-  assert.match(serviceSource, /TEST_ROBOT_ID\s*=\s*1/);
-  assert.match(serviceSource, /TEST_ROBOT_NAME\s*=\s*'漠蓝测试'/);
+  assert.match(serviceSource, /ManualNotificationTestTargetService/);
+  assert.match(testTargetResolverSource, /TEST_SCOPE\s*=\s*'operating_target_test'/);
+  assert.doesNotMatch(testTargetResolverSource, /field\('webhook/);
   assert.match(appMainSource, /manualNotificationTestAllowed/);
 });

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\ManualNotificationScheduleService;
+use app\service\ManualNotificationTestTargetService;
 use app\service\WechatRobotDeliveryService;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -24,7 +25,13 @@ final class RunManualNotificationSchedule extends Command
             ->addOption('hotel-id', null, Option::VALUE_REQUIRED, 'Optional exact hotel scope for a test-only deployment')
             ->addOption('robot-id', null, Option::VALUE_REQUIRED, 'Optional exact robot scope for a test-only deployment')
             ->addOption('at', null, Option::VALUE_REQUIRED, 'Asia/Shanghai time, YYYY-MM-DD HH:ii:ss')
-            ->addOption('limit', null, Option::VALUE_REQUIRED, 'Maximum saved records to inspect, 1-500', '100')
+            ->addOption(
+                'limit',
+                null,
+                Option::VALUE_REQUIRED,
+                'Maximum external delivery attempts per dispatch run, 1-500',
+                '100'
+            )
             ->setDescription('Preview or explicitly dispatch due saved manual WeCom notifications.');
     }
 
@@ -53,12 +60,19 @@ final class RunManualNotificationSchedule extends Command
             $output->writeln('--hotel-id and --robot-id must be provided together.');
             return 1;
         }
+        if ($dispatch
+            && ($mode !== ManualNotificationScheduleService::MODE_TEST
+                || $scopeHotelId <= 0
+                || $scopeRobotId <= 0)
+        ) {
+            $output->writeln(
+                'Dispatch requires --mode=test with one explicit --hotel-id/--robot-id pair.'
+            );
+            return 1;
+        }
         if ($scopeHotelId > 0) {
-            if ($mode !== ManualNotificationScheduleService::MODE_TEST
-                || $scopeHotelId !== 80
-                || $scopeRobotId !== 1
-            ) {
-                $output->writeln('Scoped dispatch is restricted to --mode=test --hotel-id=80 --robot-id=1.');
+            if ($mode !== ManualNotificationScheduleService::MODE_TEST) {
+                $output->writeln('Scoped dispatch is restricted to --mode=test.');
                 return 1;
             }
             try {
@@ -95,14 +109,15 @@ final class RunManualNotificationSchedule extends Command
                 $dispatch,
                 $mode,
                 (int)$input->getOption('limit'),
-                $scopeHotelId
+                $scopeHotelId,
+                $scopeRobotId
             );
             $json = json_encode(
                 $result,
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT
             );
             $output->writeln(is_string($json) ? $json : '{"status":"serialization_failed"}');
-            if ($dispatch && (int)($result['failed_count'] ?? 0) > 0) {
+            if ($dispatch && (string)($result['status'] ?? '') !== 'dispatch_checked') {
                 return 2;
             }
             return 0;
@@ -119,22 +134,18 @@ final class RunManualNotificationSchedule extends Command
 
     private function assertTestOnlyScope(int $hotelId, int $robotId): void
     {
-        $robot = Db::name('competitor_wechat_robot')
-            ->where('id', $robotId)
-            ->where('store_id', $hotelId)
-            ->where('name', \app\service\ManualNotificationService::TEST_ROBOT_NAME)
-            ->where('status', 1)
-            ->field('id,store_id,name,status')
-            ->find();
-        if (!is_array($robot)) {
-            throw new \RuntimeException('hotel80_test_robot1_identity_missing');
+        $robot = (new ManualNotificationTestTargetService())->resolve($hotelId, $robotId);
+        if ($robot === null) {
+            throw new \RuntimeException('verified_test_robot_identity_missing');
         }
+        $robotName = (string)$robot['robot_name'];
 
         $records = Db::name('manual_notifications')
             ->where('enabled', 1)
             ->where('schedule_status', 'schedule_enabled')
             ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour'])
             ->where('send_method', 'wecom_test')
+            ->where('hotel_id', $hotelId)
             ->field('id,hotel_id,template_type,test_robot_id,test_robot_name')
             ->select()
             ->toArray();
@@ -142,12 +153,12 @@ final class RunManualNotificationSchedule extends Command
             if ((int)($record['hotel_id'] ?? 0) !== $hotelId
                 || (int)($record['test_robot_id'] ?? 0) !== $robotId
                 || trim((string)($record['test_robot_name'] ?? ''))
-                    !== \app\service\ManualNotificationService::TEST_ROBOT_NAME
+                    !== $robotName
                 || trim((string)($record['template_type'] ?? ''))
                     !== \app\service\ManualNotificationService::DYNAMIC_REPORT_TYPE
             ) {
                 throw new \RuntimeException(
-                    'enabled_test_schedule_outside_hotel80_robot1 notification_id='
+                    'enabled_test_schedule_outside_verified_scope notification_id='
                     . (int)($record['id'] ?? 0)
                 );
             }

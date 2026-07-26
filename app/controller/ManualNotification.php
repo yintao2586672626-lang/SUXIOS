@@ -13,10 +13,13 @@ final class ManualNotification extends Base
     public function metadata(): Response
     {
         $input = $this->requestData();
-        $this->authorizedScope('can_view_report', $input);
+        [$hotelId] = $this->authorizedScope('can_view_report', $input);
         try {
             return $this->success(
-                (new ManualNotificationService())->metadata((string)($input['business_date'] ?? $this->request->get('business_date', '')))
+                (new ManualNotificationService())->metadata(
+                    (string)($input['business_date'] ?? $this->request->get('business_date', '')),
+                    $hotelId
+                )
             );
         } catch (\InvalidArgumentException) {
             return $this->error('业务日期格式无效', 422);
@@ -132,7 +135,7 @@ final class ManualNotification extends Base
         }
 
         return (string)($result['delivery_status'] ?? '') === 'sent'
-            ? $this->success($result, '测试消息已发送到漠蓝测试机器人')
+            ? $this->success($result, '测试消息已发送到当前酒店已验证的测试群机器人')
             : $this->error(
                 (string)($result['message'] ?? '测试消息未送达'),
                 (string)($result['delivery_status'] ?? '') === 'blocked' ? 409 : 502,
@@ -207,7 +210,7 @@ final class ManualNotification extends Base
             'manual_notification_schedule_required' => '每日固定时间必须配置触发时间',
             'manual_notification_schedule_invalid' => '计划发送时间格式无效',
             'manual_notification_test_confirmation_required' => '请明确确认本次测试推送',
-            'manual_notification_test_target_forbidden' => '测试推送仅允许酒店80绑定的1号漠蓝测试机器人',
+            'manual_notification_test_target_forbidden' => '测试推送仅允许当前酒店已验证并明确标记为测试群的机器人',
             'manual_notification_test_method_forbidden' => '当前通知发送方式不是企业微信测试机器人',
             'manual_notification_idempotency_key_invalid' => '立即测试缺少有效幂等键，请刷新页面后重试',
             'manual_notification_retry_confirmation_required' => '请明确确认本次失败发送重试',

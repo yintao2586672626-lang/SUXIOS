@@ -1,5 +1,5 @@
 [Unit]
-Description=SUXIOS manual notification schedule preview (safe default)
+Description=SUXIOS manual notification test-scope read-only verifier
 After=mariadb.service php8.3-fpm.service
 ConditionPathExists=/var/www/suxios/current/think
 
@@ -9,8 +9,9 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/suxios/current
 Environment=TZ=Asia/Shanghai
-# Intentionally omits the explicit send flag. Enabling this unit can only preview due rows.
-ExecStart=/usr/bin/php -d memory_limit=192M think manual-notification:schedule --preview --mode=test --limit=100
+EnvironmentFile=/etc/suxios/manual-notification-test-dispatch.env
+# Standalone verifier performs SELECT-only checks and does not create a schedule-run row.
+ExecStart=/usr/bin/php deploy/systemd/verify_manual_notification_test_dispatch.php --hotel-id=${SUXIOS_MANUAL_NOTIFICATION_HOTEL_ID} --robot-id=${SUXIOS_MANUAL_NOTIFICATION_ROBOT_ID}
 Nice=10
 CPUQuota=20%
 MemoryMax=192M
