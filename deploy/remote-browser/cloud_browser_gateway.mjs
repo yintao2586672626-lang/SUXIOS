@@ -35,6 +35,13 @@ const DINGDANDAO_PLATFORM_PATTERN = /^dingdandao$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DINGDANDAO_SOURCE_URL =
   'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
+const DINGDANDAO_IDENTITY_QUERY_PATH = '/v2/ntw/web/ntw/get';
+const DINGDANDAO_BUSINESS_QUERY_PATHS = new Map([
+  ['/v2/um-b/web/pro/data/businessIndicatorsTotal', 'total'],
+  ['/v2/um-b/web/pro/data/businessIndicatorsSumDetail', 'sum_detail'],
+  ['/v2/um-b/web/pro/data/businessIndicatorsTrend', 'trend'],
+  ['/v2/um-b/web/pro/data/businessIndicatorsDailyDetail', 'daily_detail'],
+]);
 const SENSITIVE_KEY_PATTERN =
   /(cookie|password|authorization(?!_status)|(^|_)(token|secret|headers?|raw|html|har)(_|$)|profile[_-]?path|localstorage|sessionstorage)/i;
 
@@ -528,7 +535,57 @@ async function waitForBrowserPage(config, child, timeoutMs = 12000) {
   throw new Error('browser_cdp_not_ready');
 }
 
-export function isDingdandaoReadOnlyRequestAllowed({ url, method, resourceType }) {
+function shanghaiToday(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function dingdandaoReadOnlyPostBodyAllowed(path, postData, today) {
+  let body;
+  try {
+    body = JSON.parse(String(postData || ''));
+  } catch {
+    return false;
+  }
+  if (!body || Array.isArray(body) || typeof body !== 'object') return false;
+  if (body.TIMEZONEOFFSET !== -480
+    || typeof body.ntwNum !== 'string'
+    || !/^[A-Za-z0-9_-]{1,120}$/.test(body.ntwNum)
+  ) return false;
+  if (path === DINGDANDAO_IDENTITY_QUERY_PATH) {
+    return Object.keys(body).sort().join(',') === 'TIMEZONEOFFSET,ntwNum';
+  }
+  const queryKind = DINGDANDAO_BUSINESS_QUERY_PATHS.get(path);
+  if (!queryKind
+    || body.startDate !== today
+    || body.endDate !== today
+    || !DATE_PATTERN.test(body.startDate)
+  ) return false;
+  const keys = Object.keys(body).sort().join(',');
+  if (queryKind === 'total') {
+    return keys === 'TIMEZONEOFFSET,endDate,festivalType,ntwNum,startDate'
+      && body.festivalType === -1200;
+  }
+  if (keys !== 'TIMEZONEOFFSET,endDate,ntwNum,startDate,type') return false;
+  if (queryKind === 'trend') {
+    return Number.isInteger(body.type) && body.type >= 0 && body.type <= 5;
+  }
+  return body.type === 0;
+}
+
+export function isDingdandaoReadOnlyRequestAllowed({
+  url,
+  method,
+  resourceType,
+  postData = null,
+  today = shanghaiToday(),
+}) {
   let parsed;
   try {
     parsed = new URL(String(url || ''));
@@ -536,13 +593,15 @@ export function isDingdandaoReadOnlyRequestAllowed({ url, method, resourceType }
     return false;
   }
   const normalizedMethod = String(method || '').toUpperCase();
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod) || parsed.protocol !== 'https:') {
-    return false;
-  }
-  if (resourceType !== 'Document') {
-    return true;
-  }
+  if (parsed.protocol !== 'https:') return false;
   const source = new URL(DINGDANDAO_SOURCE_URL);
+  if (normalizedMethod === 'POST') {
+    return parsed.origin === source.origin
+      && ['XHR', 'Fetch'].includes(String(resourceType || ''))
+      && dingdandaoReadOnlyPostBodyAllowed(parsed.pathname, postData, today);
+  }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod)) return false;
+  if (resourceType !== 'Document') return true;
   return parsed.origin === source.origin && parsed.pathname === source.pathname;
 }
 
@@ -601,6 +660,7 @@ async function installDingdandaoReadOnlyPolicy(config, child) {
       url: paused.request?.url,
       method: paused.request?.method,
       resourceType: paused.resourceType,
+      postData: paused.request?.postData,
     });
     const command = allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest';
     const params = allowed

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildCaptureFromDingdandaoResponses,
   buildCaptureFromSnapshot,
+  DINGDANDAO_API_PATHS,
   extractNetworkCandidate,
 } from '../../scripts/dingdandao_cloud_capture.mjs';
 
@@ -84,4 +86,116 @@ test('structured same-origin response is accepted only when one object contains 
   assert.equal(complete.provider_hotel_id, 'provider-hotel-5');
   assert.equal(complete.business_date, '2026-07-27');
   assert.match(complete.field_trace.total_room_fee, /^API:\/api\/verified-read#/);
+});
+
+test('real Dingdandao response shapes preserve zero room facts and hierarchy totals', () => {
+  const targetDate = '2026-07-27';
+  const ok = (path, data) => ({
+    method: 'POST',
+    path,
+    status: 200,
+    payload: { code: '1', msg: '\u6210\u529f', data },
+  });
+  const records = [
+    ok(DINGDANDAO_API_PATHS.identity, {
+      id: 'provider-hotel-5',
+      name: hotelName,
+    }),
+    ok(DINGDANDAO_API_PATHS.total, {
+      totalRoomFee: 6450.14,
+      adr: 645.01,
+      occ: 66.67,
+      revPar: 430.01,
+      totalSalesNight: 10,
+      adn: 10,
+    }),
+    ok(DINGDANDAO_API_PATHS.sumDetail, {
+      list: [{
+        roomTypeId: 'room-type-1',
+        roomTypeName: '\u666f\u89c2\u5927\u5e8a\u623f',
+      }],
+    }),
+    ok(DINGDANDAO_API_PATHS.dailyDetail, {
+      list: [
+        {
+          roomTypeId: 'room-type-1',
+          roomId: 'room-1',
+          roomName: 'V21',
+          dailyRoomRate: [{ date: targetDate, price: 0 }],
+        },
+        {
+          roomTypeId: 'room-type-1',
+          roomId: 'room-2',
+          roomName: 'V22',
+          dailyRoomRate: [{ date: targetDate, price: 1038 }],
+        },
+        {
+          roomTypeId: 'room-type-1',
+          roomId: '0',
+          roomName: '\u672a\u6392\u623f',
+          dailyRoomRate: [{ date: targetDate, price: 0 }],
+        },
+        {
+          roomTypeId: 'room-type-1',
+          roomId: null,
+          roomName: '\u666f\u89c2\u5927\u5e8a\u623f\u5c0f\u8ba1',
+          dailyRoomRate: [{ date: targetDate, price: 1038 }],
+        },
+        {
+          roomTypeId: null,
+          roomId: null,
+          roomName: '\u5408\u8ba1',
+          dailyRoomRate: [{ date: targetDate, price: 6450.14 }],
+        },
+      ],
+    }),
+    ok(DINGDANDAO_API_PATHS.trend, {
+      list: [
+        { date: '2026-07-26', value: 10679.29 },
+        { date: targetDate, value: 6450.14 },
+        { date: '2026-07-28', value: 99999 },
+      ],
+    }),
+  ];
+
+  const capture = buildCaptureFromDingdandaoResponses(records, {
+    targetDate,
+    capturedAt: '2026-07-27T08:00:00+08:00',
+  });
+
+  assert.equal(capture.capture_method, 'network_response');
+  assert.equal(capture.source_api_path, DINGDANDAO_API_PATHS.total);
+  assert.equal(capture.business_date, targetDate);
+  assert.equal(capture.provider_hotel_name, hotelName);
+  assert.equal(capture.identity_evidence_type, 'verified_api_store_identity');
+  assert.deepEqual(capture.summary, {
+    total_room_fee: 6450.14,
+    adr: 645.01,
+    occupancy_rate_percent: 66.67,
+    revpar: 430.01,
+    sold_room_nights: 10,
+    average_daily_room_nights: 10,
+  });
+  assert.equal(capture.room_fee_details.length, 5);
+  assert.deepEqual(capture.room_fee_details.map((row) => row.row_kind), [
+    'room',
+    'room',
+    'unassigned',
+    'room_type_total',
+    'grand_total',
+  ]);
+  assert.equal(capture.room_fee_details[0].room_fee, 0);
+  assert.equal(capture.room_fee_details[0].room_type, '\u666f\u89c2\u5927\u5e8a\u623f');
+  assert.equal(capture.room_fee_details[2].room_fee, 0);
+  assert.equal(capture.room_fee_details[2].room_number, '\u672a\u6392\u623f');
+  assert.deepEqual(capture.trend.total_room_fee, [
+    { date: '2026-07-26', value: 10679.29 },
+    { date: targetDate, value: 6450.14 },
+  ]);
+  assert.match(capture.field_trace.total_room_fee, /businessIndicatorsTotal/);
+  assert.match(capture.field_trace.provider_hotel_identity, /\/v2\/ntw\/web\/ntw\/get/);
+  assert.match(capture.field_trace.room_type_names, /businessIndicatorsSumDetail/);
+  assert.match(capture.field_trace.room_fee_details, /businessIndicatorsDailyDetail/);
+  assert.match(capture.field_trace.trend, /businessIndicatorsTrend/);
+  assert.equal(capture.target_date_matches, true);
 });

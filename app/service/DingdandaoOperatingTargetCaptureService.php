@@ -554,10 +554,6 @@ final class DingdandaoOperatingTargetCaptureService
             $details,
             static fn(array $row): bool => in_array($row['row_kind'], ['room', 'unassigned'], true)
         ));
-        $soldRoomRows = array_values(array_filter(
-            $details,
-            static fn(array $row): bool => $row['row_kind'] === 'room'
-        ));
         $grandTotals = array_values(array_filter(
             $details,
             static fn(array $row): bool => $row['row_kind'] === 'grand_total'
@@ -576,11 +572,6 @@ final class DingdandaoOperatingTargetCaptureService
             }
         }
 
-        if ($summary['sold_room_nights'] !== null
-            && count($soldRoomRows) !== $summary['sold_room_nights']
-        ) {
-            $gaps[] = $this->gap('dingdandao_sold_room_nights_detail_count_mismatch');
-        }
         if ($summaryTotal !== null && $summary['sold_room_nights'] !== null
             && $summary['sold_room_nights'] > 0 && $summary['adr'] !== null
             && abs(round($summaryTotal / $summary['sold_room_nights'], 2) - $summary['adr']) > 0.02
@@ -673,7 +664,13 @@ final class DingdandaoOperatingTargetCaptureService
     private function fieldTrace(array $trace): array
     {
         $result = [];
-        foreach (self::SUMMARY_FIELDS as $field) {
+        $allowed = array_merge(self::SUMMARY_FIELDS, [
+            'provider_hotel_identity',
+            'room_type_names',
+            'room_fee_details',
+            'trend',
+        ]);
+        foreach ($allowed as $field) {
             $value = $this->textOrNull($trace[$field] ?? null, 255);
             if ($value !== null) {
                 $result[$field] = $value;
@@ -686,19 +683,35 @@ final class DingdandaoOperatingTargetCaptureService
     private function trend(array $trend, string $businessDate): array
     {
         $allowed = ['total_room_fee', 'adr', 'occupancy_rate_percent', 'revpar', 'sold_room_nights'];
+        $businessDay = DateTimeImmutable::createFromFormat('!Y-m-d', $businessDate);
+        if (!$businessDay instanceof DateTimeImmutable) {
+            return [];
+        }
+        $minimumDay = $businessDay->modify('-30 days');
         $result = [];
         foreach ($allowed as $key) {
             $points = is_array($trend[$key] ?? null) ? $trend[$key] : [];
-            $normalized = [];
-            foreach (array_slice($points, 0, 31) as $point) {
-                if (!is_array($point) || (string)($point['date'] ?? '') !== $businessDate) {
+            $byDate = [];
+            foreach (array_slice($points, 0, 100) as $point) {
+                if (!is_array($point)) {
+                    continue;
+                }
+                $date = trim((string)($point['date'] ?? ''));
+                $pointDay = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+                if (!$pointDay instanceof DateTimeImmutable
+                    || $pointDay->format('Y-m-d') !== $date
+                    || $pointDay < $minimumDay
+                    || $pointDay > $businessDay
+                ) {
                     continue;
                 }
                 $value = $this->decimalOrNull($point['value'] ?? null);
                 if ($value !== null) {
-                    $normalized[] = ['date' => $businessDate, 'value' => $value];
+                    $byDate[$date] = ['date' => $date, 'value' => $value];
                 }
             }
+            ksort($byDate);
+            $normalized = array_slice(array_values($byDate), -31);
             if ($normalized !== []) {
                 $result[$key] = $normalized;
             }
@@ -847,7 +860,6 @@ final class DingdandaoOperatingTargetCaptureService
             $code === 'dingdandao_today_only_date_mismatch' => '当前试用范围只允许读取今日数据，页面日期与当前日期不一致。',
             $code === 'dingdandao_room_fee_details_missing' => '未取得房型/房间房费明细，不能核对汇总总房费。',
             $code === 'dingdandao_room_fee_reconciliation_mismatch' => '房费明细合计与经营指标总房费不一致。',
-            $code === 'dingdandao_sold_room_nights_detail_count_mismatch' => '房间明细数量与累计售出间夜不一致。',
             $code === 'dingdandao_adr_reconciliation_mismatch' => '总房费除以售出间夜与页面 ADR 不一致。',
             $code === 'dingdandao_average_daily_room_nights_mismatch' => '今日平均每日间夜与累计售出间夜不一致。',
             $code === 'dingdandao_sellable_room_nights_not_integral' => '按已售间夜与入住率反推的可售房夜不是整数。',

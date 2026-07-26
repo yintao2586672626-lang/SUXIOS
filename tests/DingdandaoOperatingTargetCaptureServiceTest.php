@@ -110,6 +110,19 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertSame('identity_mismatch', $identity);
     }
 
+    public function testObservedDunhuangMolanDoesNotSilentlyMatchDunhuangMolanXin(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService();
+
+        $identity = $this->invoke($service, 'identityStatus', [
+            '敦煌漠蓝',
+            '敦煌漠蓝新',
+            'verified_api_store_identity',
+        ]);
+
+        self::assertSame('identity_mismatch', $identity);
+    }
+
     public function testManualUploadCannotSelfAttestAsVerified(): void
     {
         $service = new DingdandaoOperatingTargetCaptureService(
@@ -180,6 +193,75 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             self::assertSame('dingdandao_capture_not_verified', $error->getMessage());
         }
         self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
+    }
+
+    public function testTrustedCapturePreservesExtraZeroRoomFactsWithoutTreatingThemAsSoldNights(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['room_fee_details'][] = [
+            'row_kind' => 'room',
+            'room_type' => '大床房',
+            'room_number' => 'R17',
+            'room_fee' => 0,
+        ];
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame('verified', $capture['capture_status']);
+        self::assertSame('verified', $capture['quality_status']);
+        self::assertSame('readback_verified', $capture['readback_status']);
+        self::assertSame(18, (int)Db::name('dingdandao_room_fee_capture_details')->count());
+    }
+
+    public function testTrendPreservesRecentSourcePointsAndRejectsFutureOrStaleDates(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService();
+
+        $trend = $this->invoke($service, 'trend', [[
+            'total_room_fee' => [
+                ['date' => '2026-06-26', 'value' => 1],
+                ['date' => '2026-07-26', 'value' => 10679.29],
+                ['date' => '2026-07-27', 'value' => 6450.14],
+                ['date' => '2026-07-28', 'value' => 99999],
+            ],
+        ], '2026-07-27']);
+
+        self::assertSame([
+            ['date' => '2026-07-26', 'value' => 10679.29],
+            ['date' => '2026-07-27', 'value' => 6450.14],
+        ], $trend['total_room_fee']);
+    }
+
+    public function testKnownDetailAndIdentitySourceTracesArePreserved(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService();
+        $trace = [
+            'total_room_fee' => 'API:/v2/um-b/web/pro/data/businessIndicatorsTotal#data.totalRoomFee',
+            'provider_hotel_identity' => 'API:/v2/ntw/web/ntw/get#data.id+data.name',
+            'room_type_names' => 'API:/v2/um-b/web/pro/data/businessIndicatorsSumDetail#data.list[]',
+            'room_fee_details' => 'API:/v2/um-b/web/pro/data/businessIndicatorsDailyDetail#data.list[]',
+            'trend' => 'API:/v2/um-b/web/pro/data/businessIndicatorsTrend#data.list[]',
+            'unexpected' => 'must-not-be-stored',
+        ];
+
+        $normalized = $this->invoke($service, 'fieldTrace', [$trace]);
+
+        self::assertSame($trace['provider_hotel_identity'], $normalized['provider_hotel_identity']);
+        self::assertSame($trace['room_type_names'], $normalized['room_type_names']);
+        self::assertSame($trace['room_fee_details'], $normalized['room_fee_details']);
+        self::assertSame($trace['trend'], $normalized['trend']);
+        self::assertArrayNotHasKey('unexpected', $normalized);
     }
 
     /**

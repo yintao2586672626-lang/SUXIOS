@@ -5,6 +5,16 @@ import { chromium } from 'playwright-core';
 export const SOURCE_URL =
   'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
 
+export const DINGDANDAO_API_PATHS = Object.freeze({
+  identity: '/v2/ntw/web/ntw/get',
+  total: '/v2/um-b/web/pro/data/businessIndicatorsTotal',
+  sumDetail: '/v2/um-b/web/pro/data/businessIndicatorsSumDetail',
+  trend: '/v2/um-b/web/pro/data/businessIndicatorsTrend',
+  dailyDetail: '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+});
+
+const DINGDANDAO_API_PATH_SET = new Set(Object.values(DINGDANDAO_API_PATHS));
+
 const SUMMARY_DEFINITIONS = {
   total_room_fee: {
     labels: ['总房费'],
@@ -16,7 +26,7 @@ const SUMMARY_DEFINITIONS = {
   },
   occupancy_rate_percent: {
     labels: ['入住率'],
-    keys: ['occupancyrate', 'occupancyratepercent'],
+    keys: ['occupancyrate', 'occupancyratepercent', 'occ'],
   },
   revpar: {
     labels: ['RevPAR', '平均客房收益'],
@@ -24,11 +34,11 @@ const SUMMARY_DEFINITIONS = {
   },
   sold_room_nights: {
     labels: ['累计售出间夜', '售出间夜'],
-    keys: ['soldroomnights', 'cumulativesoldroomnights', 'roomsoldnights'],
+    keys: ['soldroomnights', 'cumulativesoldroomnights', 'roomsoldnights', 'totalsalesnight'],
   },
   average_daily_room_nights: {
     labels: ['平均每日间夜'],
-    keys: ['averagedailyroomnights', 'avgdailyroomnights'],
+    keys: ['averagedailyroomnights', 'avgdailyroomnights', 'adn'],
   },
 };
 
@@ -37,7 +47,7 @@ function normalizeKey(value) {
 }
 
 function normalizeText(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
 
 function normalizeHotelName(value) {
@@ -249,6 +259,146 @@ export function buildCaptureFromSnapshot(
   };
 }
 
+function successfulResponseData(records, path) {
+  const record = records.find((candidate) => (
+    candidate?.method === 'POST'
+    && candidate?.path === path
+    && candidate?.status === 200
+    && candidate?.payload
+    && typeof candidate.payload === 'object'
+    && String(candidate.payload.code) === '1'
+    && candidate.payload.data != null
+  ));
+  return record?.payload?.data ?? null;
+}
+
+function dailyRateForDate(row, targetDate) {
+  const rates = Array.isArray(row?.dailyRoomRate) ? row.dailyRoomRate : [];
+  const rate = rates.find((candidate) => normalizeText(candidate?.date) === targetDate);
+  const price = numberFromText(rate?.price);
+  return rate && price !== null
+    ? { date: targetDate, price }
+    : null;
+}
+
+function roomFeeDetailsFromResponses(sumDetail, dailyDetail, targetDate) {
+  const roomTypes = Array.isArray(sumDetail?.list) ? sumDetail.list : [];
+  const typeNameById = new Map(
+    roomTypes.map((row) => [
+      normalizeText(row?.roomTypeId),
+      normalizeText(row?.roomTypeName) || null,
+    ]),
+  );
+  const rows = Array.isArray(dailyDetail?.list) ? dailyDetail.list : [];
+  const details = [];
+  for (const row of rows.slice(0, 500)) {
+    const rate = dailyRateForDate(row, targetDate);
+    if (!rate) continue;
+    const roomTypeId = normalizeText(row?.roomTypeId);
+    const roomId = normalizeText(row?.roomId);
+    const roomName = normalizeText(row?.roomName);
+    let rowKind = 'unassigned';
+    if (roomTypeId && roomId === '0') rowKind = 'unassigned';
+    else if (roomTypeId && roomId) rowKind = 'room';
+    else if (roomTypeId) rowKind = 'room_type_total';
+    else if (!roomId && /(?:合计|总计)/.test(roomName)) rowKind = 'grand_total';
+    const detail = {
+      row_kind: rowKind,
+      room_type: typeNameById.get(roomTypeId) || null,
+      room_number: ['room', 'unassigned'].includes(rowKind) ? (roomName || null) : null,
+      room_fee: rate.price,
+    };
+    details.push(detail);
+  }
+  return details;
+}
+
+function trendFromResponse(trendData, targetDate) {
+  const points = Array.isArray(trendData?.list) ? trendData.list : [];
+  const targetTimestamp = Date.parse(`${targetDate}T00:00:00Z`);
+  if (!Number.isFinite(targetTimestamp)) return {};
+  const minimumTimestamp = targetTimestamp - (30 * 24 * 60 * 60 * 1000);
+  const byDate = new Map();
+  for (const point of points.slice(0, 100)) {
+    const date = normalizeText(point?.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const timestamp = Date.parse(`${date}T00:00:00Z`);
+    if (!Number.isFinite(timestamp)
+      || timestamp < minimumTimestamp
+      || timestamp > targetTimestamp
+    ) continue;
+    const value = numberFromText(point?.value);
+    if (value !== null) byDate.set(date, { date, value });
+  }
+  const normalized = [...byDate.values()]
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(-31);
+  return normalized.length === 0 ? {} : { total_room_fee: normalized };
+}
+
+export function buildCaptureFromDingdandaoResponses(
+  records,
+  { targetDate, capturedAt = new Date().toISOString() },
+) {
+  const identity = successfulResponseData(records, DINGDANDAO_API_PATHS.identity);
+  const total = successfulResponseData(records, DINGDANDAO_API_PATHS.total);
+  const sumDetail = successfulResponseData(records, DINGDANDAO_API_PATHS.sumDetail);
+  const dailyDetail = successfulResponseData(records, DINGDANDAO_API_PATHS.dailyDetail);
+  const trendData = successfulResponseData(records, DINGDANDAO_API_PATHS.trend);
+  const summary = {
+    total_room_fee: numberFromText(total?.totalRoomFee),
+    adr: numberFromText(total?.adr),
+    occupancy_rate_percent: numberFromText(total?.occ),
+    revpar: numberFromText(total?.revPar),
+    sold_room_nights: numberFromText(total?.totalSalesNight),
+    average_daily_room_nights: numberFromText(total?.adn),
+  };
+  const fieldTrace = {
+    provider_hotel_identity:
+      `API:${DINGDANDAO_API_PATHS.identity}#data.id+data.name`,
+    total_room_fee: `API:${DINGDANDAO_API_PATHS.total}#data.totalRoomFee`,
+    adr: `API:${DINGDANDAO_API_PATHS.total}#data.adr`,
+    occupancy_rate_percent: `API:${DINGDANDAO_API_PATHS.total}#data.occ`,
+    revpar: `API:${DINGDANDAO_API_PATHS.total}#data.revPar`,
+    sold_room_nights: `API:${DINGDANDAO_API_PATHS.total}#data.totalSalesNight`,
+    average_daily_room_nights: `API:${DINGDANDAO_API_PATHS.total}#data.adn`,
+    room_type_names:
+      `API:${DINGDANDAO_API_PATHS.sumDetail}#data.list[]`,
+    room_fee_details:
+      `API:${DINGDANDAO_API_PATHS.dailyDetail}#data.list[].dailyRoomRate[]`,
+    trend: `API:${DINGDANDAO_API_PATHS.trend}#data.list[]`,
+  };
+  const providerHotelId = normalizeText(identity?.id) || null;
+  const providerHotelName = normalizeText(identity?.name) || null;
+  const details = roomFeeDetailsFromResponses(sumDetail, dailyDetail, targetDate);
+  const observedDates = new Set();
+  for (const row of Array.isArray(dailyDetail?.list) ? dailyDetail.list : []) {
+    for (const rate of Array.isArray(row?.dailyRoomRate) ? row.dailyRoomRate : []) {
+      const date = normalizeText(rate?.date);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) observedDates.add(date);
+    }
+  }
+  const businessDate = observedDates.size === 1 ? [...observedDates][0] : null;
+  return {
+    source_url: SOURCE_URL,
+    source_api_path: DINGDANDAO_API_PATHS.total,
+    source_scope: 'today_only',
+    capture_method: 'network_response',
+    captured_at: capturedAt,
+    business_date: businessDate,
+    provider_hotel_id: providerHotelId,
+    provider_hotel_name: providerHotelName,
+    identity_evidence_type: providerHotelId && providerHotelName
+      ? 'verified_api_store_identity'
+      : 'unverified',
+    summary,
+    room_fee_details: details,
+    trend: trendFromResponse(trendData, targetDate),
+    field_trace: fieldTrace,
+    target_date_matches: businessDate === targetDate,
+  };
+}
+
 async function pageSnapshot(page) {
   return await page.evaluate(() => {
     const visible = (element) => {
@@ -350,35 +500,70 @@ async function main() {
     if (!page) throw new Error('capture_page_missing');
 
     const networkCandidates = [];
-    page.on('response', async (response) => {
+    const responseRecords = [];
+    const responseTasks = [];
+    const responseHandler = (response) => {
+      const task = (async () => {
       try {
         const request = response.request();
         const url = new URL(response.url());
-        if (request.method() !== 'GET'
-          || url.hostname !== 'www.dingdandao.com'
-          || !/json/i.test(response.headers()['content-type'] || '')
-        ) return;
+        if (url.hostname !== 'www.dingdandao.com'
+          || !/json/i.test(response.headers()['content-type'] || '')) return;
         const payload = await response.json();
+        if (request.method() === 'POST' && DINGDANDAO_API_PATH_SET.has(url.pathname)) {
+          responseRecords.push({
+            method: 'POST',
+            path: url.pathname,
+            status: response.status(),
+            payload,
+          });
+          return;
+        }
+        if (request.method() !== 'GET') return;
         const candidate = extractNetworkCandidate(payload, url.pathname);
         if (candidate) networkCandidates.push(candidate);
       } catch {
         // Missing or non-JSON responses remain missing facts; raw responses are never emitted.
       }
-    });
+      })();
+      responseTasks.push(task);
+    };
+    page.on('response', responseHandler);
 
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
     await page.reload({ waitUntil: 'domcontentloaded', timeout: options.timeoutMs });
-    await page.waitForTimeout(Math.min(5000, Math.floor(options.timeoutMs / 2)));
     const current = new URL(page.url());
     const source = new URL(SOURCE_URL);
     if (current.origin !== source.origin || current.pathname !== source.pathname) {
       throw new Error('capture_session_not_authenticated');
     }
-    const snapshot = await pageSnapshot(page);
-    const capture = buildCaptureFromSnapshot(snapshot, {
-      expectedHotelName: options.expectedHotelName,
+    const tabItems = page.locator('.qd-tabs__item');
+    const tabLabels = await tabItems.allTextContents();
+    const operatingTargetTab = tabLabels.findIndex(
+      (label) => normalizeText(label) === '\u7ecf\u8425\u6307\u6807',
+    );
+    if (operatingTargetTab >= 0) {
+      await tabItems.nth(operatingTargetTab).click();
+    }
+    await page.waitForTimeout(Math.min(7000, Math.floor(options.timeoutMs / 2)));
+    page.off('response', responseHandler);
+    await Promise.allSettled(responseTasks);
+    const networkCapture = buildCaptureFromDingdandaoResponses(responseRecords, {
       targetDate: options.targetDate,
-      networkCandidates,
     });
+    const networkComplete = Object.values(networkCapture.summary).every((value) => value !== null)
+      && networkCapture.room_fee_details.length > 0
+      && networkCapture.business_date !== null;
+    const snapshot = await pageSnapshot(page);
+    const capture = networkComplete
+      ? networkCapture
+      : buildCaptureFromSnapshot(snapshot, {
+        expectedHotelName: options.expectedHotelName,
+        targetDate: options.targetDate,
+        networkCandidates,
+      });
     process.stdout.write(`${JSON.stringify({
       status: 'captured_unverified',
       capture,

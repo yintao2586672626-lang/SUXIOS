@@ -56,9 +56,14 @@ test('gateway health starts on loopback without starting a browser', async () =>
   }
 });
 
-test('Dingdandao read-only policy permits only safe methods and the fixed main document', () => {
+test('Dingdandao read-only policy permits only the fixed page and exact same-day query POSTs', () => {
   const source =
     'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
+  const today = '2026-07-27';
+  const baseBody = {
+    TIMEZONEOFFSET: -480,
+    ntwNum: 'store_123',
+  };
   assert.equal(isDingdandaoReadOnlyRequestAllowed({
     url: source,
     method: 'GET',
@@ -73,6 +78,76 @@ test('Dingdandao read-only policy permits only safe methods and the fixed main d
     url: 'https://www.dingdandao.com/api/read',
     method: 'POST',
     resourceType: 'XHR',
+    postData: JSON.stringify(baseBody),
+    today,
+  }), false);
+  assert.equal(isDingdandaoReadOnlyRequestAllowed({
+    url: 'https://www.dingdandao.com/v2/ntw/web/ntw/get',
+    method: 'POST',
+    resourceType: 'XHR',
+    postData: JSON.stringify(baseBody),
+    today,
+  }), true);
+  assert.equal(isDingdandaoReadOnlyRequestAllowed({
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsTotal',
+    method: 'POST',
+    resourceType: 'Fetch',
+    postData: JSON.stringify({
+      ...baseBody,
+      startDate: today,
+      endDate: today,
+      festivalType: -1200,
+    }),
+    today,
+  }), true);
+  assert.equal(isDingdandaoReadOnlyRequestAllowed({
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+    method: 'POST',
+    resourceType: 'XHR',
+    postData: JSON.stringify({
+      ...baseBody,
+      startDate: today,
+      endDate: today,
+      type: 0,
+    }),
+    today,
+  }), true);
+  assert.equal(isDingdandaoReadOnlyRequestAllowed({
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+    method: 'POST',
+    resourceType: 'XHR',
+    postData: JSON.stringify({
+      ...baseBody,
+      startDate: '2026-07-26',
+      endDate: '2026-07-26',
+      type: 0,
+    }),
+    today,
+  }), false);
+  assert.equal(isDingdandaoReadOnlyRequestAllowed({
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsTotal',
+    method: 'POST',
+    resourceType: 'XHR',
+    postData: JSON.stringify({
+      ...baseBody,
+      startDate: today,
+      endDate: today,
+      festivalType: -1200,
+      unexpected: true,
+    }),
+    today,
+  }), false);
+  assert.equal(isDingdandaoReadOnlyRequestAllowed({
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsTrend',
+    method: 'POST',
+    resourceType: 'XHR',
+    postData: JSON.stringify({
+      ...baseBody,
+      startDate: today,
+      endDate: today,
+      type: 6,
+    }),
+    today,
   }), false);
   assert.equal(isDingdandaoReadOnlyRequestAllowed({
     url: 'https://static.example.com/app.js',
