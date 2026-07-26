@@ -101,17 +101,60 @@ test('Dingdandao read-only policy permits only the fixed page and exact same-day
     today,
   }), true);
   assert.equal(isDingdandaoReadOnlyRequestAllowed({
-    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsTotal/county',
     method: 'POST',
-    resourceType: 'XHR',
+    resourceType: 'Fetch',
     postData: JSON.stringify({
       ...baseBody,
       startDate: today,
       endDate: today,
-      type: 0,
+      festivalType: -1200,
     }),
     today,
-  }), true);
+  }), false);
+  assert.equal(isDingdandaoReadOnlyRequestAllowed({
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsTrend/county',
+    method: 'POST',
+    resourceType: 'Fetch',
+    postData: JSON.stringify({
+      ...baseBody,
+      startDate: today,
+      endDate: today,
+      type: 5,
+    }),
+    today,
+  }), false);
+  for (const path of [
+    'businessIndicatorsSumDetail',
+    'businessIndicatorsDailyDetail',
+  ]) {
+    for (const type of [0, 1, 2, 3]) {
+      assert.equal(isDingdandaoReadOnlyRequestAllowed({
+        url: `https://www.dingdandao.com/v2/um-b/web/pro/data/${path}`,
+        method: 'POST',
+        resourceType: 'XHR',
+        postData: JSON.stringify({
+          ...baseBody,
+          startDate: today,
+          endDate: today,
+          type,
+        }),
+        today,
+      }), true);
+    }
+    assert.equal(isDingdandaoReadOnlyRequestAllowed({
+      url: `https://www.dingdandao.com/v2/um-b/web/pro/data/${path}`,
+      method: 'POST',
+      resourceType: 'XHR',
+      postData: JSON.stringify({
+        ...baseBody,
+        startDate: today,
+        endDate: today,
+        type: 4,
+      }),
+      today,
+    }), false);
+  }
   assert.equal(isDingdandaoReadOnlyRequestAllowed({
     url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
     method: 'POST',

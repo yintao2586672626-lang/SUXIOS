@@ -42,6 +42,7 @@ const DINGDANDAO_BUSINESS_QUERY_PATHS = new Map([
   ['/v2/um-b/web/pro/data/businessIndicatorsTrend', 'trend'],
   ['/v2/um-b/web/pro/data/businessIndicatorsDailyDetail', 'daily_detail'],
 ]);
+const DINGDANDAO_DETAIL_QUERY_TYPES = new Set([0, 1, 2, 3]);
 const SENSITIVE_KEY_PATTERN =
   /(cookie|password|authorization(?!_status)|(^|_)(token|secret|headers?|raw|html|har)(_|$)|profile[_-]?path|localstorage|sessionstorage)/i;
 
@@ -576,7 +577,7 @@ function dingdandaoReadOnlyPostBodyAllowed(path, postData, today) {
   if (queryKind === 'trend') {
     return Number.isInteger(body.type) && body.type >= 0 && body.type <= 5;
   }
-  return body.type === 0;
+  return DINGDANDAO_DETAIL_QUERY_TYPES.has(body.type);
 }
 
 export function isDingdandaoReadOnlyRequestAllowed({

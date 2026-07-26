@@ -4,6 +4,8 @@ import {
   buildCaptureFromDingdandaoResponses,
   buildCaptureFromSnapshot,
   DINGDANDAO_API_PATHS,
+  DINGDANDAO_DETAIL_TYPES,
+  DINGDANDAO_TREND_TYPES,
   extractNetworkCandidate,
 } from '../../scripts/dingdandao_cloud_capture.mjs';
 
@@ -90,16 +92,25 @@ test('structured same-origin response is accepted only when one object contains 
 
 test('real Dingdandao response shapes preserve zero room facts and hierarchy totals', () => {
   const targetDate = '2026-07-27';
-  const ok = (path, data) => ({
+  const ok = (path, data, queryType = undefined) => ({
     method: 'POST',
     path,
     status: 200,
+    ...(queryType === undefined ? {} : { query_type: queryType }),
     payload: { code: '1', msg: '\u6210\u529f', data },
   });
   const records = [
     ok(DINGDANDAO_API_PATHS.identity, {
       id: 'provider-hotel-5',
       name: hotelName,
+    }),
+    ok(`${DINGDANDAO_API_PATHS.total}/county`, {
+      totalRoomFee: 4573.08,
+      adr: 411.18,
+      occ: 44.1,
+      revPar: 181.33,
+      totalSalesNight: 11.12,
+      adn: 11.12,
     }),
     ok(DINGDANDAO_API_PATHS.total, {
       totalRoomFee: 6450.14,
@@ -111,10 +122,24 @@ test('real Dingdandao response shapes preserve zero room facts and hierarchy tot
     }),
     ok(DINGDANDAO_API_PATHS.sumDetail, {
       list: [{
+        roomTypeId: 'wrong-room-type',
+        roomTypeName: '\u95f4\u591c\u660e\u7ec6',
+      }],
+    }, DINGDANDAO_DETAIL_TYPES.roomNights),
+    ok(DINGDANDAO_API_PATHS.sumDetail, {
+      list: [{
         roomTypeId: 'room-type-1',
         roomTypeName: '\u666f\u89c2\u5927\u5e8a\u623f',
       }],
-    }),
+    }, DINGDANDAO_DETAIL_TYPES.roomFee),
+    ok(DINGDANDAO_API_PATHS.dailyDetail, {
+      list: [{
+        roomTypeId: 'wrong-room-type',
+        roomId: 'wrong-room',
+        roomName: 'wrong-room',
+        dailyRoomRate: [{ date: targetDate, price: 10 }],
+      }],
+    }, DINGDANDAO_DETAIL_TYPES.roomNights),
     ok(DINGDANDAO_API_PATHS.dailyDetail, {
       list: [
         {
@@ -148,14 +173,23 @@ test('real Dingdandao response shapes preserve zero room facts and hierarchy tot
           dailyRoomRate: [{ date: targetDate, price: 6450.14 }],
         },
       ],
-    }),
+    }, DINGDANDAO_DETAIL_TYPES.roomFee),
+    ok(`${DINGDANDAO_API_PATHS.trend}/county`, {
+      list: [
+        { date: '2026-07-26', value: 5456.66 },
+        { date: targetDate, value: 4573.08 },
+      ],
+    }, DINGDANDAO_TREND_TYPES.totalRoomFee),
+    ok(DINGDANDAO_API_PATHS.trend, {
+      list: [{ date: targetDate, value: 10 }],
+    }, 0),
     ok(DINGDANDAO_API_PATHS.trend, {
       list: [
         { date: '2026-07-26', value: 10679.29 },
         { date: targetDate, value: 6450.14 },
         { date: '2026-07-28', value: 99999 },
       ],
-    }),
+    }, DINGDANDAO_TREND_TYPES.totalRoomFee),
   ];
 
   const capture = buildCaptureFromDingdandaoResponses(records, {
@@ -195,7 +229,10 @@ test('real Dingdandao response shapes preserve zero room facts and hierarchy tot
   assert.match(capture.field_trace.total_room_fee, /businessIndicatorsTotal/);
   assert.match(capture.field_trace.provider_hotel_identity, /\/v2\/ntw\/web\/ntw\/get/);
   assert.match(capture.field_trace.room_type_names, /businessIndicatorsSumDetail/);
+  assert.match(capture.field_trace.room_type_names, /type=0/);
   assert.match(capture.field_trace.room_fee_details, /businessIndicatorsDailyDetail/);
+  assert.match(capture.field_trace.room_fee_details, /type=0/);
   assert.match(capture.field_trace.trend, /businessIndicatorsTrend/);
+  assert.match(capture.field_trace.trend, /type=5/);
   assert.equal(capture.target_date_matches, true);
 });

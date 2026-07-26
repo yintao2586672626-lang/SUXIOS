@@ -13,6 +13,17 @@ export const DINGDANDAO_API_PATHS = Object.freeze({
   dailyDetail: '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
 });
 
+export const DINGDANDAO_DETAIL_TYPES = Object.freeze({
+  roomFee: 0,
+  roomNights: 1,
+  occupancyRate: 2,
+  revpar: 3,
+});
+
+export const DINGDANDAO_TREND_TYPES = Object.freeze({
+  totalRoomFee: 5,
+});
+
 const DINGDANDAO_API_PATH_SET = new Set(Object.values(DINGDANDAO_API_PATHS));
 
 const SUMMARY_DEFINITIONS = {
@@ -259,10 +270,11 @@ export function buildCaptureFromSnapshot(
   };
 }
 
-function successfulResponseData(records, path) {
+function successfulResponseData(records, path, queryType = undefined) {
   const record = records.find((candidate) => (
     candidate?.method === 'POST'
     && candidate?.path === path
+    && (queryType === undefined || candidate?.query_type === queryType)
     && candidate?.status === 200
     && candidate?.payload
     && typeof candidate.payload === 'object'
@@ -342,9 +354,21 @@ export function buildCaptureFromDingdandaoResponses(
 ) {
   const identity = successfulResponseData(records, DINGDANDAO_API_PATHS.identity);
   const total = successfulResponseData(records, DINGDANDAO_API_PATHS.total);
-  const sumDetail = successfulResponseData(records, DINGDANDAO_API_PATHS.sumDetail);
-  const dailyDetail = successfulResponseData(records, DINGDANDAO_API_PATHS.dailyDetail);
-  const trendData = successfulResponseData(records, DINGDANDAO_API_PATHS.trend);
+  const sumDetail = successfulResponseData(
+    records,
+    DINGDANDAO_API_PATHS.sumDetail,
+    DINGDANDAO_DETAIL_TYPES.roomFee,
+  );
+  const dailyDetail = successfulResponseData(
+    records,
+    DINGDANDAO_API_PATHS.dailyDetail,
+    DINGDANDAO_DETAIL_TYPES.roomFee,
+  );
+  const trendData = successfulResponseData(
+    records,
+    DINGDANDAO_API_PATHS.trend,
+    DINGDANDAO_TREND_TYPES.totalRoomFee,
+  );
   const summary = {
     total_room_fee: numberFromText(total?.totalRoomFee),
     adr: numberFromText(total?.adr),
@@ -363,10 +387,11 @@ export function buildCaptureFromDingdandaoResponses(
     sold_room_nights: `API:${DINGDANDAO_API_PATHS.total}#data.totalSalesNight`,
     average_daily_room_nights: `API:${DINGDANDAO_API_PATHS.total}#data.adn`,
     room_type_names:
-      `API:${DINGDANDAO_API_PATHS.sumDetail}#data.list[]`,
+      `API:${DINGDANDAO_API_PATHS.sumDetail}?type=${DINGDANDAO_DETAIL_TYPES.roomFee}#data.list[]`,
     room_fee_details:
-      `API:${DINGDANDAO_API_PATHS.dailyDetail}#data.list[].dailyRoomRate[]`,
-    trend: `API:${DINGDANDAO_API_PATHS.trend}#data.list[]`,
+      `API:${DINGDANDAO_API_PATHS.dailyDetail}?type=${DINGDANDAO_DETAIL_TYPES.roomFee}#data.list[].dailyRoomRate[]`,
+    trend:
+      `API:${DINGDANDAO_API_PATHS.trend}?type=${DINGDANDAO_TREND_TYPES.totalRoomFee}#data.list[]`,
   };
   const providerHotelId = normalizeText(identity?.id) || null;
   const providerHotelName = normalizeText(identity?.name) || null;
@@ -511,10 +536,18 @@ async function main() {
           || !/json/i.test(response.headers()['content-type'] || '')) return;
         const payload = await response.json();
         if (request.method() === 'POST' && DINGDANDAO_API_PATH_SET.has(url.pathname)) {
+          let queryType = null;
+          try {
+            const requestBody = JSON.parse(request.postData() || '{}');
+            if (Number.isInteger(requestBody?.type)) queryType = requestBody.type;
+          } catch {
+            // The response remains usable for endpoints without a type selector.
+          }
           responseRecords.push({
             method: 'POST',
             path: url.pathname,
             status: response.status(),
+            query_type: queryType,
             payload,
           });
           return;
@@ -546,6 +579,14 @@ async function main() {
     );
     if (operatingTargetTab >= 0) {
       await tabItems.nth(operatingTargetTab).click();
+    }
+    const roomFeeDetailTab = page.getByText('\u623f\u8d39\u660e\u7ec6', { exact: true });
+    if (await roomFeeDetailTab.count() > 0) {
+      await roomFeeDetailTab.last().click();
+    }
+    const totalRoomFeeTrendTab = page.getByText('\u603b\u623f\u8d39', { exact: true });
+    if (await totalRoomFeeTrendTab.count() > 0) {
+      await totalRoomFeeTrendTab.last().click();
     }
     await page.waitForTimeout(Math.min(7000, Math.floor(options.timeoutMs / 2)));
     page.off('response', responseHandler);
