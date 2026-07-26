@@ -667,6 +667,83 @@ export async function collectDingdandaoDirect(
   return capture;
 }
 
+export async function probeDingdandaoIdentity(
+  {
+    cdpUrl,
+    expectedHotelName,
+    timeoutMs = 12000,
+    capturedAt = new Date().toISOString(),
+  },
+  dependencies = {},
+) {
+  const now = dependencies.now instanceof Date ? dependencies.now : new Date();
+  const expectedName = normalizeText(expectedHotelName);
+  if (!expectedName || expectedName.length > 160) {
+    throw new Error('capture_expected_hotel_name_missing');
+  }
+  const readSession = dependencies.readSession || readDingdandaoSessionMaterial;
+  const postJson = dependencies.postJson
+    || ((path, body, session) => postDingdandaoJson(
+      path,
+      body,
+      session,
+      { timeoutMs },
+    ));
+  let sessionMaterial = await readSession(cdpUrl, { now });
+  try {
+    const request = dingdandaoDirectRequests(
+      sessionMaterial.ntwNum,
+      shanghaiToday(now),
+    )[0];
+    const classification = classifyDingdandaoResponseRequest({
+      path: request.path,
+      requestBody: request.body,
+      targetDate: shanghaiToday(now),
+    });
+    if (!classification.allowed || classification.fact_kind !== 'hotel_identity') {
+      throw new Error('capture_identity_request_blocked');
+    }
+    const payload = await postJson(request.path, request.body, sessionMaterial);
+    if (!payload
+      || typeof payload !== 'object'
+      || String(payload.code) !== '1'
+      || payload.errorDetail != null
+      || !payload.data
+      || typeof payload.data !== 'object'
+    ) {
+      throw new Error('capture_identity_response_unverified');
+    }
+    const providerHotelId = normalizeText(payload.data.id);
+    const providerHotelName = normalizeText(payload.data.name);
+    if (!providerHotelId
+      || providerHotelId.length > 120
+      || !/^[A-Za-z0-9_-]+$/.test(providerHotelId)
+      || !providerHotelName
+      || providerHotelName.length > 160
+      || providerHotelName !== expectedName
+    ) {
+      throw new Error('capture_identity_mismatch');
+    }
+    return {
+      provider_hotel_id: providerHotelId,
+      provider_hotel_name: providerHotelName,
+      identity_status: 'matched',
+      source_api_path: DINGDANDAO_API_PATHS.identity,
+      capture_method: 'existing_session_direct_post',
+      request_count: 1,
+      captured_at: capturedAt,
+    };
+  } finally {
+    if (sessionMaterial && typeof sessionMaterial === 'object') {
+      sessionMaterial.ntwNum = '';
+      sessionMaterial.token = '';
+      sessionMaterial.cookieHeader = '';
+      sessionMaterial.userAgent = '';
+    }
+    sessionMaterial = null;
+  }
+}
+
 function numberFromText(value) {
   const text = normalizeText(value);
   if (text === '' || /^(?:--|-|暂无|无)$/.test(text)) return null;

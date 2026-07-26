@@ -46,6 +46,21 @@
 
 该实测说明主采集路径可以采用“临时读取当前设备会话 → 精确 POST → 生成脱敏业务快照 → 立即结束”，无需长期保持业务页面打开，也无需同账号再次登录。会话失效时必须返回 `session_expired`，不得用旧数据继续。
 
+### 首次门店绑定引导
+
+生产首次接入若尚无 `dingdandao_hotel_bindings`，使用
+`scripts/run_dingdandao_binding_bootstrap.php` 解除“无绑定不能采集、未采集拿不到平台门店 ID”的循环依赖：
+
+- 默认模式只校验 Profile、租户、酒店、用户权限和精确别名，并向
+  `/v2/ntw/web/ntw/get` 发 1 次只读身份 POST；不写绑定、经营事实或审计；
+- 只有显式 `--execute` 且确认语句严格等于
+  `BIND DINGDANDAO HOTEL 5` 才写入绑定；
+- 写入、规范化回读和脱敏 `OperationLog` 在同一事务完成，提交后再独立回读；
+- 原始平台门店 ID 仅经父子进程私有 FD 3 传递，终端只显示指纹和权威店名；
+- 该命令从不采集经营指标、不启用 systemd、不调用企业微信。
+
+当前候选只完成本地实现和测试；生产执行仍需单独授权。
+
 ## 2. 明细 `type` 映射
 
 | 页面标签 | `type` | SumDetail | DailyDetail | 是否进入当前经营目标核心事实 |

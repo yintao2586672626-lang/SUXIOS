@@ -61,6 +61,7 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
             'users',
             'hotels',
             'system_configs',
+            'operation_logs',
         ] as $table) {
             Db::name($table)->delete(true);
         }
@@ -283,6 +284,282 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
             self::assertSame('dingdandao_collection_permission_denied', $error->getMessage());
         }
         self::assertSame(0, (int)Db::name('cloud_collection_tasks')->count());
+    }
+
+    public function testBindingBootstrapScopeWorksWithoutABindingAndDoesNotWrite(): void
+    {
+        Db::name('system_configs')->delete(true);
+        $scope = $this->service()->bindingBootstrapScope(
+            self::PROFILE_ID,
+            1,
+            5,
+            7
+        );
+
+        self::assertSame('ready_for_identity_probe', $scope['status']);
+        self::assertSame('敦煌漠蓝', $scope['expected_provider_hotel_name']);
+        self::assertFalse($scope['binding_persisted']);
+        self::assertSame(0, (int)Db::name('system_configs')->count());
+        self::assertSame(0, (int)Db::name('operation_logs')->count());
+        self::assertSame(
+            CloudBrowserProfileService::READY_TO_COLLECT,
+            Db::name('cloud_browser_profiles')
+                ->where('profile_public_id', self::PROFILE_ID)
+                ->value('authorization_status')
+        );
+
+        Db::name('cloud_browser_profiles')
+            ->where('profile_public_id', self::PROFILE_ID)
+            ->update(['session_expires_at' => '2026-07-27 10:03:00']);
+        try {
+            $this->service()->bindingBootstrapScope(
+                self::PROFILE_ID,
+                1,
+                5,
+                7
+            );
+            self::fail('an expired bootstrap scope must fail without mutating the profile');
+        } catch (RuntimeException $error) {
+            self::assertSame(
+                'dingdandao_collection_profile_session_expired',
+                $error->getMessage()
+            );
+        }
+        self::assertSame(
+            CloudBrowserProfileService::READY_TO_COLLECT,
+            Db::name('cloud_browser_profiles')
+                ->where('profile_public_id', self::PROFILE_ID)
+                ->value('authorization_status')
+        );
+        self::assertSame(0, (int)Db::name('system_configs')->count());
+    }
+
+    public function testVerifiedIdentityCreatesAuditsAndReusesOneBinding(): void
+    {
+        Db::name('system_configs')->delete(true);
+        $service = $this->service();
+        $first = $service->registerVerifiedBinding(
+            self::PROFILE_ID,
+            1,
+            5,
+            7,
+            $this->validBindingIdentity(),
+            'BIND DINGDANDAO HOTEL 5'
+        );
+
+        self::assertSame('bound', $first['status']);
+        self::assertTrue($first['binding_persisted']);
+        self::assertSame('readback_verified', $first['readback_status']);
+        self::assertSame('readback_verified', $first['post_commit_readback_status']);
+        self::assertGreaterThan(0, $first['audit_id']);
+        self::assertArrayNotHasKey('provider_hotel_id', $first);
+        self::assertStringNotContainsString(
+            'provider-bootstrap-hotel-5',
+            json_encode($first, JSON_UNESCAPED_SLASHES)
+        );
+
+        $stored = json_decode(
+            (string)Db::name('system_configs')
+                ->where('config_key', 'dingdandao_hotel_bindings')
+                ->value('config_value'),
+            true
+        );
+        self::assertCount(1, $stored['bindings']);
+        self::assertSame(
+            'provider-bootstrap-hotel-5',
+            $stored['bindings'][0]['provider_hotel_id']
+        );
+        self::assertSame(
+            'verified_live_identity_probe',
+            $stored['bindings'][0]['source_reference']
+        );
+        self::assertSame(
+            0,
+            (int)Db::name('dingdandao_operating_target_captures')->count()
+        );
+        $audit = Db::name('operation_logs')
+            ->where('action', 'bootstrap_dingdandao_binding')
+            ->find();
+        self::assertIsArray($audit);
+        self::assertStringNotContainsString(
+            'provider-bootstrap-hotel-5',
+            json_encode($audit, JSON_UNESCAPED_SLASHES)
+        );
+
+        $claim = $this->claim($service);
+        self::assertTrue($claim['claimed']);
+        $second = $service->registerVerifiedBinding(
+            self::PROFILE_ID,
+            1,
+            5,
+            7,
+            $this->validBindingIdentity(),
+            'BIND DINGDANDAO HOTEL 5'
+        );
+        self::assertSame('reused', $second['status']);
+        $storedAgain = json_decode(
+            (string)Db::name('system_configs')
+                ->where('config_key', 'dingdandao_hotel_bindings')
+                ->value('config_value'),
+            true
+        );
+        self::assertCount(1, $storedAgain['bindings']);
+        self::assertSame(
+            2,
+            (int)Db::name('operation_logs')
+                ->where('action', 'bootstrap_dingdandao_binding')
+                ->count()
+        );
+    }
+
+    public function testBindingBootstrapRejectsUntrustedIdentityWithoutWriting(): void
+    {
+        Db::name('system_configs')->delete(true);
+        $service = $this->service();
+
+        foreach ([
+            [
+                'identity' => $this->validBindingIdentity(),
+                'confirmation' => 'BIND DINGDANDAO HOTEL 6',
+                'reason' => 'dingdandao_binding_confirmation_required',
+            ],
+            [
+                'identity' => array_replace(
+                    $this->validBindingIdentity(),
+                    ['provider_hotel_name' => '敦煌漠蓝新']
+                ),
+                'confirmation' => 'BIND DINGDANDAO HOTEL 5',
+                'reason' => 'dingdandao_binding_identity_mismatch',
+            ],
+            [
+                'identity' => array_replace(
+                    $this->validBindingIdentity(),
+                    ['captured_at' => '2026-07-27T01:50:00.000Z']
+                ),
+                'confirmation' => 'BIND DINGDANDAO HOTEL 5',
+                'reason' => 'dingdandao_binding_identity_invalid',
+            ],
+            [
+                'identity' => $this->validBindingIdentity() + [
+                    'cookie' => 'must-not-be-accepted',
+                ],
+                'confirmation' => 'BIND DINGDANDAO HOTEL 5',
+                'reason' => 'dingdandao_capture_sensitive_material_rejected',
+            ],
+        ] as $case) {
+            try {
+                $service->registerVerifiedBinding(
+                    self::PROFILE_ID,
+                    1,
+                    5,
+                    7,
+                    $case['identity'],
+                    $case['confirmation']
+                );
+                self::fail('untrusted binding identity must be rejected');
+            } catch (RuntimeException $error) {
+                self::assertSame($case['reason'], $error->getMessage());
+            }
+            self::assertSame(0, (int)Db::name('system_configs')->count());
+            self::assertSame(0, (int)Db::name('operation_logs')->count());
+        }
+    }
+
+    public function testBindingBootstrapRejectsMalformedAndConflictingStoredBindings(): void
+    {
+        $service = $this->service();
+        $cases = [
+            [
+                'stored' => '{not-json',
+                'reason' => 'dingdandao_collection_binding_config_invalid',
+            ],
+            [
+                'stored' => json_encode([
+                    'version' => '2026-07-27',
+                    'bindings' => [
+                        [
+                            'tenant_id' => 1,
+                            'hotel_id' => 5,
+                            'provider_hotel_id' => 'different-provider-id',
+                            'provider_hotel_name' => '敦煌漠蓝',
+                            'status' => 'verified',
+                        ],
+                    ],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'reason' => 'dingdandao_collection_binding_conflict',
+            ],
+            [
+                'stored' => json_encode([
+                    'version' => '2026-07-27',
+                    'bindings' => [
+                        [
+                            'tenant_id' => 2,
+                            'hotel_id' => 99,
+                            'provider_hotel_id' => 'provider-bootstrap-hotel-5',
+                            'provider_hotel_name' => '其他酒店',
+                            'status' => 'verified',
+                        ],
+                    ],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'reason' => 'dingdandao_collection_binding_conflict',
+            ],
+        ];
+
+        foreach ($cases as $case) {
+            Db::name('system_configs')->delete(true);
+            Db::name('operation_logs')->delete(true);
+            Db::name('system_configs')->insert([
+                'config_key' => 'dingdandao_hotel_bindings',
+                'config_value' => $case['stored'],
+            ]);
+            try {
+                $service->registerVerifiedBinding(
+                    self::PROFILE_ID,
+                    1,
+                    5,
+                    7,
+                    $this->validBindingIdentity(),
+                    'BIND DINGDANDAO HOTEL 5'
+                );
+                self::fail('malformed or conflicting stored bindings must be rejected');
+            } catch (RuntimeException $error) {
+                self::assertSame($case['reason'], $error->getMessage());
+            }
+            self::assertSame(
+                $case['stored'],
+                Db::name('system_configs')
+                    ->where('config_key', 'dingdandao_hotel_bindings')
+                    ->value('config_value')
+            );
+            self::assertSame(0, (int)Db::name('operation_logs')->count());
+        }
+    }
+
+    public function testBindingWriteRollsBackWhenAuditCannotBeWritten(): void
+    {
+        Db::name('system_configs')->delete(true);
+        Db::execute(
+            "CREATE TRIGGER fail_dingdandao_binding_audit "
+            . "BEFORE INSERT ON operation_logs "
+            . "WHEN NEW.action = 'bootstrap_dingdandao_binding' "
+            . "BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END"
+        );
+        try {
+            $this->service()->registerVerifiedBinding(
+                self::PROFILE_ID,
+                1,
+                5,
+                7,
+                $this->validBindingIdentity(),
+                'BIND DINGDANDAO HOTEL 5'
+            );
+            self::fail('binding write must roll back when its audit cannot be written');
+        } catch (\Throwable) {
+            self::assertSame(0, (int)Db::name('system_configs')->count());
+            self::assertSame(0, (int)Db::name('operation_logs')->count());
+        } finally {
+            Db::execute('DROP TRIGGER IF EXISTS fail_dingdandao_binding_audit');
+        }
     }
 
     public function testHotelFiveAliasRegistryIsVersionedAuditableAndContainsNoProviderId(): void
@@ -831,6 +1108,41 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
         self::assertStringContainsString("'--experimental-websocket'", $runner);
     }
 
+    public function testBindingBootstrapRunnerIsDryRunByDefaultAndCannotSend(): void
+    {
+        $root = dirname(__DIR__);
+        $runner = (string)file_get_contents(
+            $root . '/scripts/run_dingdandao_binding_bootstrap.php'
+        );
+        $probe = (string)file_get_contents(
+            $root . '/scripts/dingdandao_binding_probe.mjs'
+        );
+
+        self::assertStringContainsString("'execute'", $runner);
+        self::assertStringContainsString(
+            "'BIND DINGDANDAO HOTEL ' . \$hotelId",
+            $runner
+        );
+        self::assertStringContainsString("'binding_persisted' => false", $runner);
+        self::assertStringContainsString("'business_data_persisted' => false", $runner);
+        self::assertStringContainsString("'message_sent' => false", $runner);
+        self::assertStringContainsString("'bypass_shell' => true", $runner);
+        self::assertStringContainsString('runIdentityProbe(', $runner);
+        self::assertStringContainsString("'--identity-fd=3'", $runner);
+        self::assertStringContainsString("3 => ['pipe', 'w']", $runner);
+        self::assertStringNotContainsString('Wechat', $runner);
+        self::assertStringNotContainsString('systemctl', $runner);
+        self::assertStringNotContainsString('completeTrustedCapture', $runner);
+        self::assertStringContainsString('probeDingdandaoIdentity', $probe);
+        self::assertStringContainsString("'identity_verified_unpersisted'", $probe);
+        self::assertStringContainsString('binding_probe_private_pipe_required', $probe);
+        self::assertStringContainsString(
+            'identity_transferred_via_private_pipe: true',
+            $probe
+        );
+        self::assertStringContainsString('user_tabs_closed: false', $probe);
+    }
+
     private function service(): DingdandaoCloudCollectionService
     {
         return new DingdandaoCloudCollectionService(
@@ -870,6 +1182,20 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
                 ]],
             ], JSON_UNESCAPED_SLASHES),
         ]);
+    }
+
+    /** @return array<string,mixed> */
+    private function validBindingIdentity(): array
+    {
+        return [
+            'capture_method' => 'existing_session_direct_post',
+            'captured_at' => '2026-07-27T02:00:00.000Z',
+            'identity_status' => 'matched',
+            'provider_hotel_id' => 'provider-bootstrap-hotel-5',
+            'provider_hotel_name' => '敦煌漠蓝',
+            'request_count' => 1,
+            'source_api_path' => '/v2/ntw/web/ntw/get',
+        ];
     }
 
     /** @return array<string,mixed> */
@@ -1014,6 +1340,12 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
         Db::execute(
             'CREATE TABLE system_configs ('
             . 'id INTEGER PRIMARY KEY AUTOINCREMENT, config_key TEXT UNIQUE, config_value TEXT)'
+        );
+        Db::execute(
+            'CREATE TABLE operation_logs ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, user_id INTEGER, '
+            . 'hotel_id INTEGER, module TEXT, action TEXT, description TEXT, error_info TEXT NULL, '
+            . 'extra_data TEXT NULL, ip TEXT, user_agent TEXT, create_time TEXT)'
         );
         Db::execute(
             'CREATE TABLE dingdandao_operating_target_captures ('

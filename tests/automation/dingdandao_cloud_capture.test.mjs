@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   classifyDingdandaoResponseRequest,
   collectDingdandaoDirect,
@@ -10,6 +12,7 @@ import {
   DINGDANDAO_DETAIL_TYPES,
   DINGDANDAO_TREND_TYPES,
   isTrustedDingdandaoCaptureComplete,
+  probeDingdandaoIdentity,
   readDingdandaoSessionMaterial,
   shanghaiToday,
 } from '../../scripts/dingdandao_cloud_capture.mjs';
@@ -491,6 +494,102 @@ test('endpoint and type classifier keeps hotel, auxiliary, and county facts sepa
     },
     targetDate,
   }).allowed, false);
+});
+
+test('binding identity probe performs exactly one verified POST and clears session material', async () => {
+  const sessionMaterial = {
+    ntwNum: 'network_123',
+    token: 'secret-token-value',
+    cookieHeader: 'sid=secret-cookie-value',
+    userAgent: 'Mozilla/5.0 test-current-browser',
+  };
+  const calls = [];
+  const identity = await probeDingdandaoIdentity({
+    cdpUrl: 'http://127.0.0.1:9223',
+    expectedHotelName: providerHotelName,
+    capturedAt: '2026-07-27T02:00:00.000Z',
+  }, {
+    now: new Date('2026-07-27T02:00:00.000Z'),
+    readSession: async () => sessionMaterial,
+    postJson: async (path, body, activeSession) => {
+      calls.push({ path, body: structuredClone(body) });
+      assert.equal(activeSession.token, 'secret-token-value');
+      return {
+        code: '1',
+        errorDetail: null,
+        data: {
+          id: providerHotelId,
+          name: providerHotelName,
+        },
+      };
+    },
+  });
+
+  assert.deepEqual(calls, [{
+    path: DINGDANDAO_API_PATHS.identity,
+    body: {
+      TIMEZONEOFFSET: -480,
+      ntwNum: 'network_123',
+    },
+  }]);
+  assert.deepEqual(identity, {
+    provider_hotel_id: providerHotelId,
+    provider_hotel_name: providerHotelName,
+    identity_status: 'matched',
+    source_api_path: DINGDANDAO_API_PATHS.identity,
+    capture_method: 'existing_session_direct_post',
+    request_count: 1,
+    captured_at: '2026-07-27T02:00:00.000Z',
+  });
+  assert.deepEqual(sessionMaterial, {
+    ntwNum: '',
+    token: '',
+    cookieHeader: '',
+    userAgent: '',
+  });
+});
+
+test('binding identity probe rejects an inexact hotel name and still clears session material', async () => {
+  const sessionMaterial = {
+    ntwNum: 'network_123',
+    token: 'secret-token-value',
+    cookieHeader: 'sid=secret-cookie-value',
+    userAgent: 'Mozilla/5.0 test-current-browser',
+  };
+  await assert.rejects(probeDingdandaoIdentity({
+    cdpUrl: 'http://127.0.0.1:9223',
+    expectedHotelName: providerHotelName,
+  }, {
+    now: new Date('2026-07-27T02:00:00.000Z'),
+    readSession: async () => sessionMaterial,
+    postJson: async () => ({
+      code: '1',
+      errorDetail: null,
+      data: {
+        id: providerHotelId,
+        name: `${providerHotelName}\u65b0`,
+      },
+    }),
+  }), /capture_identity_mismatch/);
+  assert.deepEqual(sessionMaterial, {
+    ntwNum: '',
+    token: '',
+    cookieHeader: '',
+    userAgent: '',
+  });
+});
+
+test('binding probe cannot expose identity on a terminal without its private pipe contract', () => {
+  const result = spawnSync(process.execPath, [
+    fileURLToPath(new URL('../../scripts/dingdandao_binding_probe.mjs', import.meta.url)),
+    `--expected-hotel-name=${providerHotelName}`,
+  ], {
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /binding_probe_private_pipe_required/);
+  assert.doesNotMatch(result.stderr, new RegExp(providerHotelId));
 });
 
 test('direct collector reuses one in-memory session, reconciles facts, and exposes no session material', async () => {
