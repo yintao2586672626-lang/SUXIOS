@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\service;
 
 use app\model\OperationLog;
+use app\model\Role;
 use DateTimeImmutable;
 use DateTimeZone;
 use RuntimeException;
@@ -855,8 +856,7 @@ final class DingdandaoCloudCollectionService
         }
         $user = Db::name('users')->where('id', $ownerUserId)->lock(true)->find();
         if (!is_array($user)
-            || (int)($user['tenant_id'] ?? 0) !== $tenantId
-            || (int)($user['status'] ?? 0) !== 1
+            || !$this->userCanOperateTenant($user, $tenantId)
         ) {
             throw new RuntimeException('dingdandao_collection_user_scope_invalid');
         }
@@ -933,8 +933,7 @@ final class DingdandaoCloudCollectionService
         }
         $user = Db::name('users')->where('id', $ownerUserId)->lock(true)->find();
         if (!is_array($user)
-            || (int)($user['tenant_id'] ?? 0) !== $tenantId
-            || (int)($user['status'] ?? 0) !== 1
+            || !$this->userCanOperateTenant($user, $tenantId)
         ) {
             throw new RuntimeException('dingdandao_collection_user_scope_invalid');
         }
@@ -958,7 +957,7 @@ final class DingdandaoCloudCollectionService
         $userId = (int)$user['id'];
         $ownerAllowed = (int)($hotel['owner_user_id'] ?? 0) === $userId
             || (int)($hotel['created_by'] ?? 0) === $userId;
-        $superAdminAllowed = (int)($user['role_id'] ?? 0) === 1;
+        $superAdminAllowed = (int)($user['role_id'] ?? 0) === Role::SUPER_ADMIN;
         if ($ownerAllowed || $superAdminAllowed) {
             return;
         }
@@ -996,6 +995,18 @@ final class DingdandaoCloudCollectionService
             }
         }
         throw new RuntimeException('dingdandao_collection_permission_denied');
+    }
+
+    /** @param array<string,mixed> $user */
+    private function userCanOperateTenant(array $user, int $tenantId): bool
+    {
+        if ((int)($user['status'] ?? 0) !== 1) {
+            return false;
+        }
+        if ((int)($user['role_id'] ?? 0) === Role::SUPER_ADMIN) {
+            return true;
+        }
+        return (int)($user['tenant_id'] ?? 0) === $tenantId;
     }
 
     /** @return array<string,string> */

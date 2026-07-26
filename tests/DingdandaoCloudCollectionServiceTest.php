@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace tests;
 
+use app\model\Role;
 use app\service\CloudBrowserProfileService;
 use app\service\CloudCollectionDispatchService;
 use app\service\DingdandaoCloudCollectionService;
@@ -332,6 +333,88 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
                 ->value('authorization_status')
         );
         self::assertSame(0, (int)Db::name('system_configs')->count());
+    }
+
+    public function testGlobalSuperAdminWithoutTenantCanBootstrapAndClaimExactHotel(): void
+    {
+        Db::name('users')->where('id', 7)->update([
+            'tenant_id' => null,
+            'role_id' => Role::SUPER_ADMIN,
+        ]);
+        Db::name('user_hotel_permissions')->where('user_id', 7)->delete();
+
+        $scope = $this->service()->bindingBootstrapScope(
+            self::PROFILE_ID,
+            1,
+            5,
+            7
+        );
+        $claim = $this->claim($this->service());
+
+        self::assertSame('ready_for_identity_probe', $scope['status']);
+        self::assertSame(1, $scope['tenant_id']);
+        self::assertSame(5, $scope['hotel_id']);
+        self::assertSame(7, $scope['owner_user_id']);
+        self::assertTrue($claim['claimed']);
+        self::assertSame(1, $claim['tenant_id']);
+        self::assertSame(5, $claim['hotel_id']);
+        self::assertSame(7, $claim['owner_user_id']);
+        self::assertSame(1, (int)Db::name('cloud_collection_tasks')->count());
+    }
+
+    public function testNonAdminTenantMismatchCannotBootstrapOrClaimDespiteHotelPermission(): void
+    {
+        foreach ([null, 2] as $userTenantId) {
+            Db::name('users')->where('id', 7)->update([
+                'tenant_id' => $userTenantId,
+                'role_id' => 2,
+            ]);
+            foreach ([
+                fn() => $this->service()->bindingBootstrapScope(
+                    self::PROFILE_ID,
+                    1,
+                    5,
+                    7
+                ),
+                fn() => $this->claim($this->service()),
+            ] as $operation) {
+                try {
+                    $operation();
+                    self::fail('a non-admin outside the hotel tenant must be rejected');
+                } catch (RuntimeException $error) {
+                    self::assertSame(
+                        'dingdandao_collection_user_scope_invalid',
+                        $error->getMessage()
+                    );
+                }
+            }
+        }
+        self::assertSame(0, (int)Db::name('cloud_collection_tasks')->count());
+    }
+
+    public function testDisabledGlobalSuperAdminCannotBootstrap(): void
+    {
+        Db::name('users')->where('id', 7)->update([
+            'tenant_id' => null,
+            'role_id' => Role::SUPER_ADMIN,
+            'status' => 0,
+        ]);
+
+        try {
+            $this->service()->bindingBootstrapScope(
+                self::PROFILE_ID,
+                1,
+                5,
+                7
+            );
+            self::fail('a disabled global super-admin must be rejected');
+        } catch (RuntimeException $error) {
+            self::assertSame(
+                'dingdandao_collection_user_scope_invalid',
+                $error->getMessage()
+            );
+        }
+        self::assertSame(0, (int)Db::name('cloud_collection_tasks')->count());
     }
 
     public function testVerifiedIdentityCreatesAuditsAndReusesOneBinding(): void
