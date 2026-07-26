@@ -60,7 +60,7 @@ tests/OnlineDataTest.php
 tests/OperationManagementServiceTest.php
 tests/RevenueResearchServiceTest.php
 package.json
-vault/project-state.md
+vault/project-history.md
 ```
 
 ## 6. 主控检查点
@@ -71,7 +71,7 @@ vault/project-state.md
 - [x] 读取第一轮并行任务完成/阻塞状态。
 - [x] 复核共享文件是否发生覆盖、冲突或口径回退。
 - [x] 运行与稳定改动相匹配的集中验证。
-- [x] 更新 `vault/project-state.md` 中的已验证事实。
+- [x] 更新 `vault/project-history.md` 中的已验证事实。
 - [x] 输出最终完成项、未验证项、外部阻塞与末尾确认清单。
 
 ## 7. 进度日志
@@ -308,7 +308,7 @@ vault/project-state.md
 
 - TC-387 已完成本地生产代码修复：CORS 使用明确 allowlist，允许/拒绝来源契约与高风险安全门禁通过，不再列为待决策项。
 - TC-404 已完成本地生产代码修复：LLM/外部调用超时与重试总时长已设上限，可重试超时和最终失败语义已有测试，不再列为待决策项。
-- 调度策略、修正台账、前端数据真值、AI→运营严格契约和本地启动已完成中央回归；最终基线见 `vault/project-state.md` 的 `2026-07-16 Verified: Daily Closure and Regression Baseline`。
+- 调度策略、修正台账、前端数据真值、AI→运营严格契约和本地启动已完成中央回归；历史基线见 `vault/project-history.md` 的 `2026-07-16 Verified: Daily Closure and Regression Baseline`。
 
 ### 2026-07-16 昨日修改复盘终审
 

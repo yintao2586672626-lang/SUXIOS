@@ -38,6 +38,26 @@ final class CloudAutomationContractTest extends TestCase
         self::assertStringContainsString('OnUnitActiveSec=15min', $retryTimer);
     }
 
+    public function testRecordedDataGapDoesNotTriggerRepeatedSystemdRestart(): void
+    {
+        $root = dirname(__DIR__);
+        $command = (string)file_get_contents($root . '/app/command/RunCloudAutomation.php');
+        $hotelDailyService = (string)file_get_contents(
+            $root . '/deploy/systemd/suxios-cloud-hotel-daily@.service'
+        );
+        $automation = (string)file_get_contents($root . '/app/service/CloudAutomationService.php');
+
+        self::assertStringContainsString(
+            "['succeeded', 'partial', 'blocked']",
+            $command,
+            'A recorded missing-data outcome must exit successfully instead of entering Restart=on-failure.'
+        );
+        self::assertStringContainsString("'status' => 'blocked_by_data_health'", $automation);
+        self::assertStringContainsString("'issue_codes'", $automation);
+        self::assertStringContainsString('$this->stateStore->finishRun(', $automation);
+        self::assertStringContainsString('Restart=on-failure', $hotelDailyService);
+    }
+
     public function testCanaryHotelScopeReachesCommandServiceAndPatrolEndpoint(): void
     {
         $root = dirname(__DIR__);

@@ -16,20 +16,20 @@ test('default startup budget uses the fast-iteration target, warning, and hard l
     warning: DEFAULT_FRONTEND_BUDGET.warning_startup_gzip_bytes,
     hard_limit: DEFAULT_FRONTEND_BUDGET.max_startup_gzip_bytes,
   }, {
-    target: 650_000,
-    warning: 800_000,
-    hard_limit: 850_000,
+    target: 600_000,
+    warning: 625_000,
+    hard_limit: 650_000,
   });
 });
 
 test('assessStartupGzipBudget classifies every startup budget zone', () => {
   const cases = [
-    [650_000, 'within_target'],
-    [650_001, 'above_target'],
-    [795_914, 'above_target'],
-    [800_000, 'warning'],
-    [850_000, 'warning'],
-    [850_001, 'failed'],
+    [600_000, 'within_target'],
+    [600_001, 'above_target'],
+    [624_999, 'above_target'],
+    [625_000, 'warning'],
+    [650_000, 'warning'],
+    [650_001, 'failed'],
   ];
 
   for (const [startupGzipBytes, expectedStatus] of cases) {
@@ -38,6 +38,12 @@ test('assessStartupGzipBudget classifies every startup budget zone', () => {
       expectedStatus,
     );
   }
+});
+
+test('assessStartupGzipBudget exposes target and hard-limit headroom', () => {
+  const assessment = assessStartupGzipBudget({ startup_gzip_bytes: 645_036 });
+  assert.equal(assessment.headroom_to_target_bytes, -45_036);
+  assert.equal(assessment.headroom_to_hard_limit_bytes, 4_964);
 });
 
 test('evaluateFrontendBudget reports each exceeded entry limit', () => {
@@ -63,7 +69,7 @@ test('evaluateFrontendBudget reports each exceeded entry limit', () => {
 test('evaluateFrontendBudget passes metrics within every limit', () => {
   assert.deepEqual(evaluateFrontendBudget({
     index_bytes: 1_900_000,
-    startup_gzip_bytes: 800_000,
+    startup_gzip_bytes: 640_000,
     inline_script_bytes: 10_000,
     blocking_script_count: 0,
   }), []);
@@ -108,6 +114,17 @@ test('entry metrics separate public shell, home startup, and after-paint authent
     assert(metrics.deferred_authenticated_gzip_bytes > 0);
     assert(metrics.full_authenticated_gzip_bytes > metrics.startup_gzip_bytes);
     assert(metrics.startup_gzip_bytes > metrics.public_shell_gzip_bytes);
+    assert.equal(
+      metrics.startup_asset_gzip_bytes.reduce((total, item) => total + item.gzip_bytes, 0),
+      metrics.startup_gzip_bytes,
+    );
+    assert.deepEqual(
+      metrics.startup_asset_gzip_bytes.map((item) => item.asset),
+      [...metrics.startup_asset_gzip_bytes]
+        .sort((left, right) => right.gzip_bytes - left.gzip_bytes)
+        .map((item) => item.asset),
+    );
+    assert(metrics.startup_asset_gzip_bytes.some((item) => item.asset === 'index.html'));
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
   }

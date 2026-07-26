@@ -2,24 +2,30 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
+import { extractGithubActionsJob } from './helpers/github_actions_workflow.mjs';
 
 const read = path => readFileSync(path, 'utf8');
 
 test('CI provisions the project MariaDB dialect and runs the host-client fresh database concurrency gate', () => {
   const workflow = read('.github/workflows/php.yml');
   const packageJson = JSON.parse(read('package.json'));
+  const backendJob = extractGithubActionsJob(workflow, 'backend_db');
+  const aggregateJob = extractGithubActionsJob(workflow, 'verify');
 
-  assert.match(workflow, /services:\s+mysql:/);
-  assert.match(workflow, /image:\s+mariadb:10\.11/);
-  assert.match(workflow, /sudo apt-get install -y mariadb-client/);
-  assert.match(workflow, /MYSQL_BINARY:\s*mariadb/);
+  assert.match(backendJob, /services:\s+mysql:/);
+  assert.match(backendJob, /image:\s+mariadb:10\.11/);
+  assert.match(backendJob, /sudo apt-get install -y mariadb-client/);
+  assert.match(backendJob, /MYSQL_BINARY:\s*mariadb/);
   assert.doesNotMatch(workflow, /verify-oracle-mysql:/);
   assert.doesNotMatch(workflow, /image:\s+mysql:8\.4/);
   assert.doesNotMatch(workflow, /MYSQL_DOCKER_CONTAINER_ID/);
-  assert.match(workflow, /SUXI_CI_MYSQL_VERIFY:\s*['"]1['"]/);
-  assert.match(workflow, /npm run verify:mysql-fresh-concurrency/);
-  assert.match(workflow, /verify:\s+runs-on:\s+ubuntu-latest\s+timeout-minutes:\s+45/);
-  assert.match(workflow, /Verify fresh database, repeatable migration, and 8-way concurrency\s+timeout-minutes:\s+10/);
+  assert.match(backendJob, /SUXI_CI_MYSQL_VERIFY:\s*['"]1['"]/);
+  assert.match(backendJob, /npm run verify:mysql-fresh-concurrency/);
+  assert.match(backendJob, /timeout-minutes:\s+30/);
+  assert.match(backendJob, /Verify fresh database, repeatable migration, and 8-way concurrency\s+timeout-minutes:\s+10/);
+  assert.match(aggregateJob, /if:\s+\$\{\{\s*always\(\)\s*\}\}/);
+  assert.match(aggregateJob, /needs:[\s\S]*-\s+backend_db/);
+  assert.match(aggregateJob, /BACKEND_DB_RESULT:\s+\$\{\{\s*needs\.backend_db\.result\s*\}\}/);
   assert.equal(
     packageJson.scripts['verify:mysql-fresh-concurrency'],
     'node scripts/verify_mysql_fresh_migration_concurrency.mjs',

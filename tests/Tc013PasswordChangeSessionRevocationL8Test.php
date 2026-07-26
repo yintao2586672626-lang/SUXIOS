@@ -594,7 +594,7 @@ final class Tc013PasswordChangeSessionRevocationL8Test extends TestCase
             'auth_version' => $user->authSessionVersion(),
         ];
         self::assertTrue(Cache::set('token_' . $token, $tokenData, 3600));
-        self::assertTrue(Cache::set('user_token_' . $userId, $token, 3600));
+        self::assertTrue(Cache::set('user_token_' . $userId, hash('sha256', $token), 3600));
     }
 
     private function seedLegacyToken(string $token, int $userId): void
@@ -606,7 +606,7 @@ final class Tc013PasswordChangeSessionRevocationL8Test extends TestCase
             'user_agent' => 'tc013-legacy-upgrade',
         ];
         self::assertTrue(Cache::set('token_' . $token, $tokenData, 3600));
-        self::assertTrue(Cache::set('user_token_' . $userId, $token, 3600));
+        self::assertTrue(Cache::set('user_token_' . $userId, hash('sha256', $token), 3600));
     }
 
     /** @param array<string, mixed> $post */

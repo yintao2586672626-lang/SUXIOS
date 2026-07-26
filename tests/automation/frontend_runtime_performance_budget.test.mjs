@@ -7,6 +7,7 @@ import {
   DEFAULT_FRONTEND_RUNTIME_BUDGETS,
   evaluateFrontendRuntimeBudget,
 } from '../../scripts/lib/frontend_runtime_performance_budget.mjs';
+import { extractGithubActionsJob } from './helpers/github_actions_workflow.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const workflow = readFileSync(path.join(repoRoot, '.github', 'workflows', 'php.yml'), 'utf8');
@@ -55,18 +56,21 @@ test('verified five-run authenticated report passes the default local runtime bu
   assert.equal(assessment.observed.max_total_requests_per_run, 29);
 });
 
-test('CI runs critical regressions before performance gates and preserves authenticated evidence', () => {
-  const projectGuardStep = workflow.indexOf('- name: Run project guards');
-  const structuralStep = workflow.indexOf(
+test('CI isolates static contracts from runtime performance and preserves authenticated evidence', () => {
+  const contractsJob = extractGithubActionsJob(workflow, 'contracts');
+  const performanceJob = extractGithubActionsJob(workflow, 'frontend_performance');
+  const aggregateJob = extractGithubActionsJob(workflow, 'verify');
+  const projectGuardStep = contractsJob.indexOf('- name: Run project guards');
+  const structuralStep = contractsJob.indexOf(
     '- name: Run structural contract checks (not release approval)',
   );
-  const staticPerformanceStep = workflow.indexOf(
+  const staticPerformanceStep = contractsJob.indexOf(
     '- name: Verify frontend static performance budget',
   );
-  const runtimePerformanceStep = workflow.indexOf(
+  const runtimePerformanceStep = performanceJob.indexOf(
     '- name: Measure and verify authenticated frontend runtime budget',
   );
-  const preserveEvidenceStep = workflow.indexOf(
+  const preserveEvidenceStep = performanceJob.indexOf(
     '- name: Preserve authenticated frontend performance evidence',
   );
 
@@ -80,24 +84,23 @@ test('CI runs critical regressions before performance gates and preserves authen
     'critical regressions must finish before performance gates can fail',
   );
   assert.ok(
-    staticPerformanceStep < runtimePerformanceStep,
-    'static performance must be checked before authenticated runtime measurement',
-  );
-  assert.ok(
     runtimePerformanceStep < preserveEvidenceStep,
     'runtime measurement evidence must be preserved after the gate',
   );
 
-  assert.match(workflow, /run: npm run verify:performance-budget/);
-  assert.match(workflow, /SUXI_PHP: php/);
+  assert.match(contractsJob, /run: npm run verify:performance-budget/);
+  assert.match(performanceJob, /SUXI_PHP: php/);
   assert.doesNotMatch(workflow, /PHP_CLI_SERVER_WORKERS/);
-  assert.match(workflow, /SUXI_E2E_DB_NAME: hotelx_ci_test/);
-  assert.match(workflow, /npm run measure:performance:ci/);
-  assert.match(workflow, /npm run verify:performance-runtime-budget/);
+  assert.match(performanceJob, /SUXI_E2E_DB_NAME: hotelx_ci_test/);
+  assert.match(performanceJob, /npm run measure:performance:ci/);
+  assert.match(performanceJob, /npm run verify:performance-runtime-budget/);
   assert(
-    workflow.indexOf('npm run measure:performance:ci')
-      < workflow.indexOf('npm run verify:performance-runtime-budget'),
+    performanceJob.indexOf('npm run measure:performance:ci')
+      < performanceJob.indexOf('npm run verify:performance-runtime-budget'),
   );
+  assert.doesNotMatch(performanceJob, /^\s+needs:/m);
+  assert.match(aggregateJob, /needs:[\s\S]*-\s+contracts[\s\S]*-\s+frontend_performance/);
+  assert.match(aggregateJob, /if:\s+\$\{\{\s*always\(\)\s*\}\}/);
   assert.equal(
     packageJson.scripts['measure:performance:ci'],
     'node scripts/measure_frontend_performance_ci.mjs',
@@ -114,7 +117,7 @@ test('CI runs critical regressions before performance gates and preserves authen
   assert.match(measurement, /retryableNavigationTimeout[\s\S]*startsWith\('page\.goto:'\)/);
   assert.match(measurement, /await measureRunWithRetry\(runIndex\)/);
 
-  const evidenceStep = workflow.slice(preserveEvidenceStep);
+  const evidenceStep = performanceJob.slice(preserveEvidenceStep);
   assert.match(evidenceStep, /if:\s+always\(\)/);
   assert.match(evidenceStep, /uses:\s+actions\/upload-artifact@v4/);
   assert.match(evidenceStep, /output\/performance\/isolated-authenticated-baseline\.json/);

@@ -77,20 +77,25 @@ final class DatabaseVersionGovernanceTest extends TestCase
         self::assertStringContainsString("'db:init' => 'app\\command\\InitializeDatabaseSchema'", $console);
         self::assertStringContainsString("'db:check' => 'app\\command\\CheckDatabaseSchema'", $console);
         self::assertStringContainsString("'db:migrate' => 'app\\command\\MigrateDatabaseSchema'", $console);
+        $migrateCommand = (string)file_get_contents($root . '/app/command/MigrateDatabaseSchema.php');
+        self::assertStringContainsString(
+            'Database migration refused: schema status cache could not be invalidated.',
+            $migrateCommand
+        );
 
         $middleware = (string)file_get_contents($root . '/app/middleware.php');
         self::assertStringContainsString('\\app\\middleware\\DatabaseSchemaGuard::class', $middleware);
 
         $powerShell = (string)file_get_contents($root . '/scripts/start_local_stack.ps1');
         self::assertStringContainsString('Assert-DatabaseVersion', $powerShell);
-        self::assertStringContainsString('scripts\\check_database_version.php', $powerShell);
+        self::assertStringContainsString('@("think", "db:check")', $powerShell);
         self::assertMatchesRegularExpression(
             '/Assert-DatabaseReady\s*\RAssert-DatabaseVersion\s*\RInvoke-OtaRetentionMaintenance/',
             $powerShell
         );
 
         $batch = (string)file_get_contents($root . '/start-hotel.bat');
-        self::assertStringContainsString('scripts\\check_database_version.php', $batch);
+        self::assertStringContainsString('think db:check', $batch);
         self::assertStringContainsString('数据库版本不足', $batch);
     }
 

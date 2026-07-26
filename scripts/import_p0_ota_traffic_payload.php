@@ -196,6 +196,7 @@ function p0_import_project_payload_for_import(array $payload): array
         'default_data_date',
         'auth_status',
         'capture_gate',
+        'platform_identity_validation',
         'capture_sections',
         'requested_sections',
         'traffic',
@@ -778,6 +779,100 @@ function p0_import_platform_hotel_identifier(array $row, string $platform): stri
     }
 
     return '';
+}
+
+function p0_import_payload_identity_matches_scope(array $payload, string $platform): bool
+{
+    $validation = is_array($payload['platform_identity_validation'] ?? null)
+        ? $payload['platform_identity_validation']
+        : null;
+    if ($validation === null) {
+        return false;
+    }
+
+    $expectedIdentifier = p0_import_platform_hotel_identifier($payload, $platform);
+    $validatedIdentifier = trim((string)($validation['validated_identifier'] ?? ''));
+    return strtolower(trim((string)($validation['status'] ?? ''))) === 'matched'
+        && ($validation['source_validation'] ?? false) === true
+        && ($validation['sensitive_values_exposed'] ?? false) !== true
+        && $expectedIdentifier !== ''
+        && $validatedIdentifier !== ''
+        && hash_equals($expectedIdentifier, $validatedIdentifier);
+}
+
+/**
+ * A browser Profile can expose rows for several hotels visible to the same
+ * account. Only rows whose OTA hotel identifier matches the top-level
+ * authorized capture scope may be projected into the selected system hotel.
+ *
+ * @param array<int, array<string, mixed>> $rows
+ * @return array{rows:array<int, array<string, mixed>>,metadata:array<string, mixed>}
+ */
+function p0_import_filter_rows_by_payload_hotel_scope(array $rows, array $payload, string $platform): array
+{
+    $metadata = [
+        'applied' => false,
+        'reason' => 'not_browser_capture_payload',
+        'input_row_count' => count($rows),
+        'matched_row_count' => count($rows),
+        'mismatched_row_count' => 0,
+        'missing_identifier_row_count' => 0,
+        'capture_scope_default_identifier_row_count' => 0,
+        'unverified_default_identifier_row_count' => 0,
+        'rejected_row_count' => 0,
+        'raw_identifiers_exposed' => false,
+    ];
+    if (!p0_import_payload_is_browser_capture($payload)) {
+        return ['rows' => $rows, 'metadata' => $metadata];
+    }
+
+    $expectedIdentifier = p0_import_platform_hotel_identifier($payload, $platform);
+    if ($expectedIdentifier === '') {
+        $metadata['reason'] = 'top_level_platform_hotel_identifier_missing';
+        return ['rows' => $rows, 'metadata' => $metadata];
+    }
+
+    $matchedRows = [];
+    $mismatchedRows = 0;
+    $missingIdentifierRows = 0;
+    $captureScopeDefaultRows = 0;
+    $unverifiedDefaultIdentifierRows = 0;
+    $identityMatchesScope = p0_import_payload_identity_matches_scope($payload, $platform);
+    foreach ($rows as $row) {
+        $identifierSource = strtolower(trim((string)($row['_platform_hotel_identifier_source'] ?? '')));
+        if ($identifierSource === 'capture_scope_default') {
+            $captureScopeDefaultRows++;
+            if (!$identityMatchesScope) {
+                $unverifiedDefaultIdentifierRows++;
+                continue;
+            }
+        }
+        $rowIdentifier = p0_import_platform_hotel_identifier($row, $platform);
+        if ($rowIdentifier === '') {
+            $missingIdentifierRows++;
+            continue;
+        }
+        if (!hash_equals($expectedIdentifier, $rowIdentifier)) {
+            $mismatchedRows++;
+            continue;
+        }
+        $matchedRows[] = $row;
+    }
+
+    $metadata = [
+        'applied' => true,
+        'reason' => 'browser_capture_top_level_platform_hotel_scope',
+        'input_row_count' => count($rows),
+        'matched_row_count' => count($matchedRows),
+        'mismatched_row_count' => $mismatchedRows,
+        'missing_identifier_row_count' => $missingIdentifierRows,
+        'capture_scope_default_identifier_row_count' => $captureScopeDefaultRows,
+        'unverified_default_identifier_row_count' => $unverifiedDefaultIdentifierRows,
+        'rejected_row_count' => $mismatchedRows + $missingIdentifierRows + $unverifiedDefaultIdentifierRows,
+        'raw_identifiers_exposed' => false,
+    ];
+
+    return ['rows' => $matchedRows, 'metadata' => $metadata];
 }
 
 /**
@@ -1795,12 +1890,59 @@ try {
     $payloadProjectionMetadata = (array)$payloadProjection['metadata'];
     $sensitiveHits = p0_import_sensitive_hits($payload);
     $rows = p0_import_extract_rows($payload, (string)$options['platform']);
+    $hotelScopeFilter = p0_import_filter_rows_by_payload_hotel_scope($rows, $payload, (string)$options['platform']);
+    $rows = (array)$hotelScopeFilter['rows'];
+    $hotelScopeFilterMetadata = (array)$hotelScopeFilter['metadata'];
     $summary = p0_import_summarize_rows($rows, (string)$options['platform'], (int)$options['system-hotel-id'], (string)$options['date'], $payload);
     $preparedExecute = p0_import_prepare_execute_payload($rows, (string)$options['platform'], (int)$options['system-hotel-id'], (string)$options['date'], $payload);
     $executePlan = p0_import_execute_plan($preparedExecute);
 
     $issues = p0_import_payload_scope_issues($payload, (string)$options['platform'], (int)$options['system-hotel-id']);
     $warnings = p0_import_payload_warnings($payload);
+    $platformIdentityValidation = is_array($payload['platform_identity_validation'] ?? null)
+        ? $payload['platform_identity_validation']
+        : null;
+    if (p0_import_payload_is_browser_capture($payload) && $platformIdentityValidation !== null) {
+        $identityStatus = strtolower(trim((string)($platformIdentityValidation['status'] ?? '')));
+        $validatedIdentifier = trim((string)($platformIdentityValidation['validated_identifier'] ?? ''));
+        $expectedIdentifier = p0_import_platform_hotel_identifier($payload, (string)$options['platform']);
+        $identityMatched = p0_import_payload_identity_matches_scope(
+            $payload,
+            (string)$options['platform']
+        );
+        if (!$identityMatched) {
+            $issues[] = [
+                'code' => 'browser_capture_platform_identity_not_matched',
+                'message' => 'Browser capture platform identity is not an exact verified match for the authorized OTA hotel scope.',
+                'identity_status' => $identityStatus !== '' ? $identityStatus : 'unverified',
+                'source_validation' => ($platformIdentityValidation['source_validation'] ?? false) === true,
+                'validated_identifier_present' => $validatedIdentifier !== '',
+                'sensitive_values_exposed' => false,
+                'raw_identifiers_exposed' => false,
+            ];
+        }
+    }
+    if (($hotelScopeFilterMetadata['applied'] ?? false) === true
+        && (int)($hotelScopeFilterMetadata['input_row_count'] ?? 0) > 0
+        && (int)($hotelScopeFilterMetadata['matched_row_count'] ?? 0) <= 0
+    ) {
+        $issues[] = [
+            'code' => 'browser_capture_row_hotel_scope_mismatch',
+            'message' => 'Browser capture rows do not match the top-level authorized OTA hotel identifier; no row may be projected into the selected system hotel.',
+            'input_row_count' => (int)($hotelScopeFilterMetadata['input_row_count'] ?? 0),
+            'mismatched_row_count' => (int)($hotelScopeFilterMetadata['mismatched_row_count'] ?? 0),
+            'missing_identifier_row_count' => (int)($hotelScopeFilterMetadata['missing_identifier_row_count'] ?? 0),
+            'raw_identifiers_exposed' => false,
+        ];
+    } elseif ((int)($hotelScopeFilterMetadata['rejected_row_count'] ?? 0) > 0) {
+        $warnings[] = [
+            'code' => 'browser_capture_out_of_scope_rows_rejected',
+            'message' => 'Rows outside the top-level authorized OTA hotel scope were rejected before preview or persistence.',
+            'matched_row_count' => (int)($hotelScopeFilterMetadata['matched_row_count'] ?? 0),
+            'rejected_row_count' => (int)($hotelScopeFilterMetadata['rejected_row_count'] ?? 0),
+            'raw_identifiers_exposed' => false,
+        ];
+    }
     if ($sensitiveHits !== []) {
         $issues[] = [
             'code' => 'sensitive_payload_keys_detected',
@@ -1963,6 +2105,7 @@ try {
         'target_storage_table' => 'online_daily_data',
         'target_data_type' => 'traffic',
         'payload_import_projection' => $payloadProjectionMetadata,
+        'payload_hotel_scope_filter' => $hotelScopeFilterMetadata,
         'sensitive_values_exposed' => $sensitiveHits !== [],
         'summary' => $summary,
         'execute_plan' => $executePlan,

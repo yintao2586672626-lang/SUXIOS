@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { extractGithubActionsJob } from './helpers/github_actions_workflow.mjs';
 
 const runnerPath = path.resolve('scripts/run_node_automation_tests.mjs');
 
@@ -26,32 +27,66 @@ test('Node automation runner discovers nested test files and forces serial execu
       runner.buildNodeTestArgs(['tests/automation/a.test.mjs']),
       ['--test', '--test-concurrency=1', 'tests/automation/a.test.mjs'],
     );
+    assert.deepEqual(
+      runner.buildPhpBinaryCandidates({ PHP_BINARY: 'D:\\php\\php.exe' }, 'win32'),
+      ['D:\\php\\php.exe'],
+    );
+    assert.deepEqual(
+      runner.buildPhpBinaryCandidates({}, 'win32'),
+      ['php', 'C:\\xampp\\php\\php.exe'],
+    );
+    assert.deepEqual(runner.buildPhpBinaryCandidates({}, 'linux'), ['php']);
+    assert.equal(runner.isRuntimeSkipAllowed([]), false);
+    assert.equal(runner.isRuntimeSkipAllowed(['--allow-runtime-skip']), true);
+    assert.deepEqual(
+      runner.buildNodeTestEnv({ EXISTING_VALUE: 'kept' }, 'C:\\xampp\\php\\php.exe'),
+      {
+        EXISTING_VALUE: 'kept',
+        PHP_BINARY: 'C:\\xampp\\php\\php.exe',
+        SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1',
+      },
+    );
+    assert.deepEqual(
+      runner.buildNodeTestEnv(
+        { EXISTING_VALUE: 'kept' },
+        '',
+        { allowRuntimeSkip: true },
+      ),
+      { EXISTING_VALUE: 'kept' },
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('package and CI run the complete Node automation suite between backend tests and project guards', () => {
+test('package and the isolated CI lane run the complete strict Node automation suite', () => {
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
   const workflow = readFileSync('.github/workflows/php.yml', 'utf8');
-  const dependencyStep = workflow.indexOf('- name: Install Node dependencies');
-  const playwrightStep = workflow.indexOf('- name: Install Playwright Chromium');
-  const backendStep = workflow.indexOf('- name: Run backend tests');
-  const nodeStep = workflow.indexOf('- name: Run Node automation tests');
-  const guardStep = workflow.indexOf('- name: Run project guards');
+  const nodeJob = extractGithubActionsJob(workflow, 'node_business_chain');
+  const contractsJob = extractGithubActionsJob(workflow, 'contracts');
+  const aggregateJob = extractGithubActionsJob(workflow, 'verify');
+  const dependencyStep = nodeJob.indexOf('- name: Install Node dependencies');
+  const playwrightStep = nodeJob.indexOf('- name: Install Playwright Chromium');
+  const databaseStep = nodeJob.indexOf('- name: Initialize Node test database');
+  const nodeStep = nodeJob.indexOf('- name: Run Node automation tests');
 
   assert.equal(packageJson.scripts?.['test:node'], 'node scripts/run_node_automation_tests.mjs');
+  assert.equal(
+    packageJson.scripts?.['test:node:partial'],
+    'node scripts/run_node_automation_tests.mjs --allow-runtime-skip',
+  );
   assert.ok(
-    dependencyStep >= 0 && dependencyStep < playwrightStep && playwrightStep < nodeStep,
-    'CI must install the pinned Playwright Chromium before the Node suite',
+    dependencyStep >= 0
+      && dependencyStep < playwrightStep
+      && playwrightStep < databaseStep
+      && databaseStep < nodeStep,
+    'the Node lane must install dependencies and initialize its isolated database before testing',
   );
   assert.match(
-    workflow.slice(playwrightStep, nodeStep),
+    nodeJob.slice(playwrightStep, nodeStep),
     /run:\s+npx playwright install --with-deps chromium/,
   );
-  assert.ok(backendStep >= 0 && backendStep < nodeStep, 'Node tests must run after backend tests');
-  assert.ok(nodeStep < guardStep, 'Node tests must run before project guards');
-  const nodeStepSource = workflow.slice(nodeStep, guardStep);
+  const nodeStepSource = nodeJob.slice(nodeStep);
   assert.match(nodeStepSource, /timeout-minutes:\s+10/);
   assert.match(nodeStepSource, /PHP_BINARY:\s+php/);
   assert.match(nodeStepSource, /SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME:\s+'1'/);
@@ -59,6 +94,10 @@ test('package and CI run the complete Node automation suite between backend test
   assert.match(nodeStepSource, /SUXI_E2E_DB_NAME:\s+hotelx_ci_test/);
   assert.match(nodeStepSource, /DB_NAME:\s+hotelx_ci_test/);
   assert.match(nodeStepSource, /run:\s+npm run test:node/);
+  assert.doesNotMatch(nodeJob, /test:node:partial|allow-runtime-skip/);
+  assert.doesNotMatch(nodeJob, /Run project guards/);
+  assert.match(contractsJob, /Run project guards[\s\S]*npm run verify:p0-guards/);
+  assert.match(aggregateJob, /needs:[\s\S]*-\s+node_business_chain/);
 });
 
 test('slow login handoff always closes its HTTP server when Chromium launch fails', () => {

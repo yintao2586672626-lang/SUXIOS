@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\SchemaVersionService;
+use app\service\SchemaVersionStatusCache;
 use Throwable;
 use think\console\Command;
 use think\console\Input;
@@ -27,7 +28,17 @@ final class MigrateDatabaseSchema extends Command
     protected function execute(Input $input, Output $output): int
     {
         try {
-            $service = $this->service();
+            $default = (string)config('database.default', 'mysql');
+            $config = (array)config("database.connections.{$default}", []);
+            $root = app()->getRootPath();
+            $statusCache = new SchemaVersionStatusCache($config, $root);
+            if (!$statusCache->clear()) {
+                $output->writeln(
+                    'Database migration refused: schema status cache could not be invalidated.'
+                );
+                return 1;
+            }
+            $service = SchemaVersionService::fromDatabaseConfig($config, $root);
             $baseline = (bool)$input->getOption('baseline');
             if ($service->requiresLegacyBaseline() && !$baseline) {
                 $output->writeln('Database migration history is missing.');
@@ -48,6 +59,11 @@ final class MigrateDatabaseSchema extends Command
                 $output->writeln("Registered historical guard as not applicable: {$migration}");
             }
             $status = $result['status'];
+            if (!$statusCache->put($status)) {
+                $output->writeln(
+                    'Warning: schema status cache was not primed; runtime requests will use full checks.'
+                );
+            }
             $output->writeln(sprintf(
                 'Database schema is current: %s (%d/%d registered).',
                 (string)($status['required_version'] ?? 'unknown'),
@@ -59,12 +75,5 @@ final class MigrateDatabaseSchema extends Command
             $output->writeln('Database migration failed: ' . $exception->getMessage());
             return 1;
         }
-    }
-
-    private function service(): SchemaVersionService
-    {
-        $default = (string)config('database.default', 'mysql');
-        $config = (array)config("database.connections.{$default}", []);
-        return SchemaVersionService::fromDatabaseConfig($config, app()->getRootPath());
     }
 }

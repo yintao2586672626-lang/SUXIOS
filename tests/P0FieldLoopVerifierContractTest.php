@@ -318,6 +318,9 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
 
         self::assertStringContainsString('function p0_traffic_current_session_verified', $verifier);
+        self::assertStringContainsString('function p0_traffic_current_session_status', $verifier);
+        self::assertStringContainsString("'current_session_blocked_probe'", $verifier);
+        self::assertStringContainsString("'login_required'", $verifier);
         self::assertStringContainsString("'current_session_probe_performed'", $verifier);
         self::assertStringContainsString("'current_session_verified'", $verifier);
         self::assertStringContainsString("'historical_login_metadata_present'", $verifier);

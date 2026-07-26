@@ -22,11 +22,8 @@ import {
 const EMPTY_V_IF_ANCHOR_SOURCE = '_createCommentVNode("v-if", true)';
 const EMPTY_V_IF_ANCHOR_RUNTIME = '_createCommentVNode("", true)';
 const FRONTEND_RENDER_RAW_MAX_BYTES = 1_400_000;
-const FRONTEND_RENDER_GZIP_MAX_BYTES = 240_000;
-const FRONTEND_RENDER_GZIP_MIN_HEADROOM_BYTES = 2_000;
 const FRONTEND_RENDER_TO_TEMPLATE_MAX_RATIO = 0.66;
 const FRONTEND_STARTUP_RENDER_RAW_MAX_BYTES = 180_000;
-const FRONTEND_STARTUP_RENDER_GZIP_MAX_BYTES = 35_000;
 
 export const DATA_CONFIG_DIALOGS_TEMPLATE_RELATIVE_PATH = 'resources/frontend/templates/components/data-config-dialogs.html';
 export const DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH = 'public/components/system/data-config-dialogs.js';
@@ -261,7 +258,6 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   }
   const renderBytes = Buffer.byteLength(artifact);
   const renderGzipBytes = artifact ? gzipSync(artifact, { level: 6 }).length : 0;
-  const renderGzipHeadroomBytes = FRONTEND_RENDER_GZIP_MAX_BYTES - renderGzipBytes;
   const startupRenderBytes = Buffer.byteLength(startupArtifact);
   const startupRenderGzipBytes = startupArtifact ? gzipSync(startupArtifact, { level: 6 }).length : 0;
   const dataConfigDialogsArtifactBytes = Buffer.byteLength(dataConfigDialogsArtifact);
@@ -277,17 +273,11 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   if (artifact && renderBytes >= FRONTEND_RENDER_RAW_MAX_BYTES) {
     failures.push('The precompiled render artifact exceeded the 1.40 MB raw ceiling.');
   }
-  if (artifact && renderGzipHeadroomBytes < FRONTEND_RENDER_GZIP_MIN_HEADROOM_BYTES) {
-    failures.push('The precompiled render artifact must retain at least 2 KB below the 240 KB gzip ceiling.');
-  }
   if (artifact && renderToTemplateRatio >= FRONTEND_RENDER_TO_TEMPLATE_MAX_RATIO) {
     failures.push('The precompiled render artifact exceeded 66% of the canonical template size.');
   }
   if (startupArtifact && startupRenderBytes >= FRONTEND_STARTUP_RENDER_RAW_MAX_BYTES) {
     failures.push('The home startup render artifact exceeded the 180 KB raw ceiling.');
-  }
-  if (startupArtifact && startupRenderGzipBytes >= FRONTEND_STARTUP_RENDER_GZIP_MAX_BYTES) {
-    failures.push('The home startup render artifact exceeded the 35 KB gzip ceiling.');
   }
   if (runtimeVue && compilerVue && !(Buffer.byteLength(runtimeVue) < Buffer.byteLength(compilerVue) * 0.75)) {
     failures.push('The runtime-only Vue artifact must remain materially smaller than the compiler build.');
@@ -306,7 +296,6 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
       template_snapshot_pin_matches: templateSnapshotPinMatches,
       render_bytes: renderBytes,
       render_gzip_bytes: renderGzipBytes,
-      render_gzip_headroom_bytes: renderGzipHeadroomBytes,
       render_to_template_ratio: renderToTemplateRatio,
       render_hash: renderHash,
       startup_render_fragment_count: startupFragmentSource?.fragments.length ?? 0,

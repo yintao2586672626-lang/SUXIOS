@@ -242,7 +242,7 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         $root = dirname(__DIR__);
         foreach ([
             'app/service/OnlineDailyDataPersistenceService.php',
-            'app/service/PlatformDataSyncService.php',
+            'app/service/PlatformNormalizedRowPersistenceService.php',
             'app/service/MeituanOnlineDataPersistenceService.php',
             'app/service/CtripCompetitionCirclePersistenceService.php',
             'app/controller/concern/BusinessDisplayConcern.php',
@@ -262,11 +262,15 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
 
         $scheduled = (string)file_get_contents($root . '/app/command/AutoFetchOnlineData.php');
         $platformSync = (string)file_get_contents($root . '/app/service/PlatformDataSyncService.php');
+        $normalizedPersistence = (string)file_get_contents(
+            $root . '/app/service/PlatformNormalizedRowPersistenceService.php'
+        );
         self::assertStringContainsString('$service->syncDataSource(', $scheduled);
         self::assertStringContainsString('readStoredRowsForCollectionPlan(', $scheduled);
         self::assertStringNotContainsString("Db::name('online_daily_data')", $scheduled);
         self::assertStringNotContainsString('resetReadbackVerification(', $scheduled);
         self::assertStringNotContainsString('markRowsReadbackVerified(', $scheduled);
-        self::assertStringContainsString("Db::name('online_daily_data')", $platformSync);
+        self::assertStringContainsString('normalizedRowPersistence->save(', $platformSync);
+        self::assertStringContainsString("Db::name('online_daily_data')", $normalizedPersistence);
     }
 }

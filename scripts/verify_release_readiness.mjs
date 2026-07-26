@@ -101,6 +101,41 @@ function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(resolveInputPath(filePath), 'utf8'));
 }
 
+let currentProjectStateSnapshot;
+
+function readCurrentProjectStateSnapshot() {
+  if (currentProjectStateSnapshot !== undefined) {
+    return currentProjectStateSnapshot;
+  }
+
+  const relativePath = 'vault/current-state.md';
+  if (!exists(relativePath)) {
+    currentProjectStateSnapshot = null;
+    return currentProjectStateSnapshot;
+  }
+
+  const text = readText(relativePath);
+  const updatedAt = text.match(/^Updated:\s*(.+)$/m)?.[1]?.trim() || '';
+  const updatedAtTime = Date.parse(updatedAt);
+  currentProjectStateSnapshot = Number.isFinite(updatedAtTime)
+    ? { updatedAt, updatedAtTime }
+    : null;
+  return currentProjectStateSnapshot;
+}
+
+function rejectEvidenceOlderThanCurrentSnapshot(generatedAtTime, label, rerunCommand) {
+  const snapshot = readCurrentProjectStateSnapshot();
+  if (!snapshot || generatedAtTime >= snapshot.updatedAtTime) {
+    return false;
+  }
+
+  addFailure(
+    `${label} predates the machine-generated current project snapshot (${snapshot.updatedAt}). `
+    + `Rerun ${rerunCommand}; historical Git/PR failure details were suppressed.`,
+  );
+  return true;
+}
+
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -330,6 +365,13 @@ function checkReleasePrCandidateResult() {
     addFailure(`Release PR candidate result generated_at is outside the accepted 24-hour final handoff window: ${result.generated_at}.`);
     return;
   }
+  if (rejectEvidenceOlderThanCurrentSnapshot(
+    generatedAtTime,
+    'Release PR candidate result',
+    'npm run review:release-pr-candidates',
+  )) {
+    return;
+  }
 
   const failureCount = Number(result.summary?.failures ?? 0);
   if (result.status !== 'passed' || failureCount !== 0) {
@@ -400,6 +442,13 @@ function checkReleaseStagedScopeResult() {
   }
   if (Date.now() - generatedAtTime > 24 * 60 * 60 * 1000 || generatedAtTime > Date.now() + 5 * 60 * 1000) {
     addFailure(`Release staged-scope result generated_at is outside the accepted 24-hour final handoff window: ${result.generated_at}.`);
+    return;
+  }
+  if (rejectEvidenceOlderThanCurrentSnapshot(
+    generatedAtTime,
+    'Release staged-scope result',
+    'npm run review:release-staged-scope',
+  )) {
     return;
   }
 
@@ -492,6 +541,13 @@ function checkExternalStateResult() {
   }
   if (Date.now() - generatedAtTime > 24 * 60 * 60 * 1000 || generatedAtTime > Date.now() + 5 * 60 * 1000) {
     addFailure(`Release external-state result generated_at is outside the accepted 24-hour final handoff window: ${result.generated_at}.`);
+    return;
+  }
+  if (rejectEvidenceOlderThanCurrentSnapshot(
+    generatedAtTime,
+    'Release external-state result',
+    'npm run review:release-external-state',
+  )) {
     return;
   }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\SchemaVersionService;
+use app\service\SchemaVersionStatusCache;
 use Throwable;
 use think\console\Command;
 use think\console\Input;
@@ -24,6 +25,12 @@ final class CheckDatabaseSchema extends Command
             $config = (array)config("database.connections.{$default}", []);
             $service = SchemaVersionService::fromDatabaseConfig($config, app()->getRootPath());
             $status = $service->status();
+            $cachePrimed = (new SchemaVersionStatusCache($config, app()->getRootPath()))->put($status);
+            if (!$cachePrimed) {
+                $output->writeln(
+                    'Warning: schema status cache was not primed; runtime requests will use full checks.'
+                );
+            }
 
             if ($status['ready']) {
                 $output->writeln(sprintf(

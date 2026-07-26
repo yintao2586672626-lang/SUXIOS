@@ -6,6 +6,7 @@ namespace Tests;
 use app\contract\DataSourceAdapter;
 use app\service\platform\ManualImportDataSourceAdapter;
 use app\service\PlatformDataSyncService;
+use app\service\PlatformNormalizedRowPersistenceService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -23,6 +24,7 @@ final class Tc200ImportAtomicityL8Test extends TestCase
     private const FRESH_DATA_DATE = '2026-07-15';
     private const STALE_DATA_DATE = '2026-06-15';
     private const FAILURE_TRIGGER = 'tc200_fail_mid_batch_insert';
+    private const PROJECTION_FAILURE_TRIGGER = 'tc200_fail_ctrip_projection';
 
     private static array $originalDatabaseConfig = [];
     private static string $sqlitePath = '';
@@ -70,7 +72,9 @@ final class Tc200ImportAtomicityL8Test extends TestCase
     {
         parent::setUp();
         Db::execute('DROP TRIGGER IF EXISTS ' . self::FAILURE_TRIGGER);
+        Db::execute('DROP TRIGGER IF EXISTS ' . self::PROJECTION_FAILURE_TRIGGER);
         foreach ([
+            'ota_ctrip_metric_facts',
             'online_daily_data',
             'platform_data_raw_records',
             'platform_data_sync_logs',
@@ -84,7 +88,137 @@ final class Tc200ImportAtomicityL8Test extends TestCase
     protected function tearDown(): void
     {
         Db::execute('DROP TRIGGER IF EXISTS ' . self::FAILURE_TRIGGER);
+        Db::execute('DROP TRIGGER IF EXISTS ' . self::PROJECTION_FAILURE_TRIGGER);
         parent::tearDown();
+    }
+
+    public function testNormalizedPersistenceDirectSaveIsIdempotentAndKeepsOrderEventsSeparate(): void
+    {
+        $service = new PlatformNormalizedRowPersistenceService();
+        $columns = $this->normalizedPersistenceColumns();
+        $summary = [
+            'tenant_id' => self::TENANT_ID,
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'data_source_id' => 701,
+            'source' => 'custom',
+            'platform' => 'custom',
+            'hotel_id' => 'TC200-HOTEL-200',
+            'hotel_name' => 'TC-200 Isolated Hotel',
+            'data_type' => 'traffic',
+            'data_date' => self::FRESH_DATA_DATE,
+            'data_period' => 'historical_daily',
+            'snapshot_bucket' => '',
+            'dimension' => 'summary',
+            'compare_type' => 'self',
+            'list_exposure' => 10,
+            'source_trace_id' => 'summary-attempt-1',
+            'raw_data' => '{}',
+        ];
+
+        $first = $service->save([$summary], $columns);
+        self::assertSame(1, $first['inserted_count']);
+        self::assertSame(0, $first['updated_count']);
+        self::assertTrue($first['readback_verified']);
+
+        $summary['list_exposure'] = 20;
+        $summary['source_trace_id'] = 'summary-attempt-2';
+        $retry = $service->save([$summary], $columns);
+        self::assertSame(0, $retry['inserted_count']);
+        self::assertSame(1, $retry['updated_count']);
+        self::assertTrue($retry['readback_verified']);
+        self::assertSame(1, Db::name('online_daily_data')->where('data_type', 'traffic')->count());
+        self::assertSame(
+            20,
+            (int)Db::name('online_daily_data')->where('data_type', 'traffic')->value('list_exposure')
+        );
+
+        $orders = [];
+        foreach (['order-hash-a', 'order-hash-b'] as $index => $orderHash) {
+            $orders[] = array_merge($summary, [
+                'data_type' => 'order',
+                'dimension' => 'booking',
+                'list_exposure' => null,
+                'amount' => 100 + $index,
+                'source_trace_id' => 'order-attempt-' . ($index + 1),
+                'raw_data' => json_encode([
+                    'row' => ['order_id_hash' => $orderHash],
+                ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            ]);
+        }
+
+        $orderReceipt = $service->save($orders, $columns);
+        self::assertSame(2, $orderReceipt['inserted_count']);
+        self::assertSame(0, $orderReceipt['deduplicated_count']);
+        self::assertTrue($orderReceipt['readback_verified']);
+
+        $storedOrders = Db::name('online_daily_data')
+            ->where('data_type', 'order')
+            ->order('id', 'asc')
+            ->select()
+            ->toArray();
+        self::assertCount(2, $storedOrders);
+        self::assertCount(2, array_unique(array_column($storedOrders, 'persistence_identity_hash')));
+    }
+
+    public function testNormalizedPersistenceRollsBackPrimaryRowWhenCtripProjectionFails(): void
+    {
+        Db::execute(
+            'CREATE TRIGGER ' . self::PROJECTION_FAILURE_TRIGGER
+            . ' BEFORE INSERT ON ota_ctrip_metric_facts'
+            . " BEGIN SELECT RAISE(ABORT, 'tc200_forced_projection_failure'); END"
+        );
+        $row = [
+            'tenant_id' => self::TENANT_ID,
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'data_source_id' => 702,
+            'sync_task_id' => 703,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'hotel_id' => 'TC200-HOTEL-200',
+            'hotel_name' => 'TC-200 Isolated Hotel',
+            'data_type' => 'business',
+            'data_date' => self::FRESH_DATA_DATE,
+            'data_period' => 'historical_daily',
+            'snapshot_bucket' => '',
+            'dimension' => 'summary',
+            'compare_type' => 'self',
+            'amount' => 321.5,
+            'source_trace_id' => 'projection-failure-attempt',
+            'raw_data' => json_encode([
+                'row' => [
+                    'section' => 'business',
+                    'endpoint_id' => 'test.endpoint',
+                ],
+                'field_facts' => [[
+                    'metric_key' => 'order_amount',
+                    'metric_label' => 'Order amount',
+                    'data_type' => 'business',
+                    'status' => 'captured',
+                    'stored_value_present' => true,
+                    'storage_field' => 'online_daily_data.amount',
+                    'source_key' => 'orderAmount',
+                    'source_path' => '$.data.orderAmount',
+                ]],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ];
+
+        $projectionFailure = null;
+        try {
+            (new PlatformNormalizedRowPersistenceService())->save(
+                [$row],
+                $this->normalizedPersistenceColumns()
+            );
+        } catch (\Throwable $exception) {
+            $projectionFailure = $exception;
+        }
+
+        self::assertNotNull($projectionFailure);
+        self::assertStringContainsString(
+            'tc200_forced_projection_failure',
+            $projectionFailure->getMessage()
+        );
+        self::assertSame(0, Db::name('online_daily_data')->count());
+        self::assertSame(0, Db::name('ota_ctrip_metric_facts')->count());
     }
 
     /**
@@ -289,6 +423,21 @@ final class Tc200ImportAtomicityL8Test extends TestCase
         Db::execute('CREATE TABLE platform_data_sync_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, sync_task_id INTEGER, data_source_id INTEGER, system_hotel_id INTEGER, level VARCHAR(20), event VARCHAR(80), message TEXT, context_json TEXT, create_time DATETIME)');
         Db::execute('CREATE TABLE platform_data_raw_records (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, data_source_id INTEGER, sync_task_id INTEGER, system_hotel_id INTEGER, platform VARCHAR(50), data_type VARCHAR(50), ingestion_method VARCHAR(30), payload_hash VARCHAR(64), raw_payload TEXT, http_status INTEGER, received_at DATETIME, create_time DATETIME)');
         Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id VARCHAR(50), hotel_name VARCHAR(100), system_hotel_id INTEGER, data_date DATE NOT NULL, amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, comment_score DECIMAL(3,1), qunar_comment_score DECIMAL(3,1), data_value DECIMAL(12,2), source VARCHAR(50), dimension VARCHAR(100), data_type VARCHAR(50), platform VARCHAR(50), compare_type VARCHAR(50), list_exposure INTEGER, detail_exposure INTEGER, flow_rate DECIMAL(12,4), order_filling_num INTEGER, order_submit_num INTEGER, validation_status VARCHAR(60), validation_flags TEXT, readback_verified INTEGER NOT NULL DEFAULT 0, readback_verified_at DATETIME, data_source_id INTEGER, sync_task_id INTEGER, ingestion_method VARCHAR(30), source_trace_id VARCHAR(100), persistence_identity_hash VARCHAR(64) UNIQUE, data_period VARCHAR(30), snapshot_time DATETIME, snapshot_bucket VARCHAR(20), is_final INTEGER, raw_data TEXT, create_time DATETIME, update_time DATETIME)');
+        Db::execute('CREATE TABLE ota_ctrip_metric_facts (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, tenant_id INTEGER, system_hotel_id INTEGER, ota_hotel_id VARCHAR(64), hotel_name VARCHAR(160), data_date DATE, source VARCHAR(50), capture_section VARCHAR(80), endpoint_id VARCHAR(120), metric_key VARCHAR(120), metric_label VARCHAR(160), category VARCHAR(60), data_type VARCHAR(50), metric_scope VARCHAR(50), value_type VARCHAR(30), value_decimal DECIMAL(18,4), value_text VARCHAR(1000), source_key VARCHAR(160), source_path VARCHAR(700), source_hash VARCHAR(64), raw_data TEXT, capture_status VARCHAR(80), captured_at DATETIME)');
+    }
+
+    /** @return array<string, bool> */
+    private function normalizedPersistenceColumns(): array
+    {
+        return array_fill_keys([
+            'id', 'tenant_id', 'hotel_id', 'hotel_name', 'system_hotel_id', 'data_date', 'amount', 'quantity',
+            'book_order_num', 'comment_score', 'qunar_comment_score', 'data_value', 'source', 'dimension',
+            'data_type', 'platform', 'compare_type', 'list_exposure', 'detail_exposure', 'flow_rate',
+            'order_filling_num', 'order_submit_num', 'validation_status', 'validation_flags',
+            'readback_verified', 'readback_verified_at', 'data_source_id',
+            'sync_task_id', 'ingestion_method', 'source_trace_id', 'data_period', 'snapshot_time',
+            'persistence_identity_hash', 'snapshot_bucket', 'is_final', 'raw_data', 'create_time', 'update_time',
+        ], true);
     }
 
     private function createManualSource(string $caseId, string $dataType = 'business'): int
@@ -398,15 +547,7 @@ final class Tc200ImportAtomicityL8Test extends TestCase
                 'id', 'tenant_id', 'data_source_id', 'sync_task_id', 'system_hotel_id', 'platform', 'data_type',
                 'ingestion_method', 'payload_hash', 'raw_payload', 'http_status', 'received_at', 'create_time',
             ], true),
-            'online_daily_data' => array_fill_keys([
-                'id', 'tenant_id', 'hotel_id', 'hotel_name', 'system_hotel_id', 'data_date', 'amount', 'quantity',
-                'book_order_num', 'comment_score', 'qunar_comment_score', 'data_value', 'source', 'dimension',
-                'data_type', 'platform', 'compare_type', 'list_exposure', 'detail_exposure', 'flow_rate',
-                'order_filling_num', 'order_submit_num', 'validation_status', 'validation_flags',
-                'readback_verified', 'readback_verified_at', 'data_source_id',
-                'sync_task_id', 'ingestion_method', 'source_trace_id', 'data_period', 'snapshot_time',
-                'persistence_identity_hash', 'snapshot_bucket', 'is_final', 'raw_data', 'create_time', 'update_time',
-            ], true),
+            'online_daily_data' => $this->normalizedPersistenceColumns(),
         ]);
         return $service;
     }

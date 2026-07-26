@@ -196,8 +196,11 @@ final class SchemaVersionService
         }
 
         $registryExists = $this->registryExists();
-        $rows = $registryExists ? $this->registeredRows() : [];
-        $checksumSupported = $registryExists && $this->registryColumnExists('checksum');
+        $checksumSupported = $registryExists && $this->registryColumnExists('checksum', true);
+        $executionKindSupported = $registryExists && $this->registryColumnExists('execution_kind', true);
+        $rows = $registryExists
+            ? $this->registeredRows($checksumSupported, $executionKindSupported)
+            : [];
         $registered = [];
         $mismatches = [];
         $checksumMismatches = [];
@@ -252,8 +255,6 @@ final class SchemaVersionService
         $applicationTableCount = $this->applicationTableCount();
         $baselineStatus = $this->baselineSourceStatus();
         $unresolvedFailures = $this->unresolvedMigrationFailures();
-        $executionKindSupported = $registryExists && $this->registryColumnExists('execution_kind');
-
         return [
             'ready' => $registryExists
                 && $checksumSupported
@@ -1042,9 +1043,9 @@ final class SchemaVersionService
         return (int)$statement->fetchColumn() > 0;
     }
 
-    private function registryColumnExists(string $column): bool
+    private function registryColumnExists(string $column, ?bool $registryExists = null): bool
     {
-        if (!$this->registryExists()) {
+        if (($registryExists ?? $this->registryExists()) !== true) {
             return false;
         }
         if ($this->driver === 'sqlite') {
@@ -1114,10 +1115,15 @@ final class SchemaVersionService
     }
 
     /** @return list<array{migration: string, version: string, checksum: ?string, execution_kind: string, executed_at: string}> */
-    private function registeredRows(): array
+    private function registeredRows(
+        ?bool $checksumSupported = null,
+        ?bool $executionKindSupported = null
+    ): array
     {
-        $checksumExpression = $this->registryColumnExists('checksum') ? 'checksum' : 'NULL AS checksum';
-        $executionKindExpression = $this->registryColumnExists('execution_kind')
+        $checksumExpression = ($checksumSupported ?? $this->registryColumnExists('checksum'))
+            ? 'checksum'
+            : 'NULL AS checksum';
+        $executionKindExpression = ($executionKindSupported ?? $this->registryColumnExists('execution_kind'))
             ? 'execution_kind'
             : "'executed' AS execution_kind";
         $statement = $this->pdo->query(

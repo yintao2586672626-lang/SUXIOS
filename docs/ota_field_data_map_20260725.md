@@ -119,16 +119,75 @@
 
 建议：只使用已授权、脱敏的真实响应样本补专用归一化器，严禁把别人的 Cookie、Webhook 或单店脚本直接导入。
 
-## 6. 后续实施顺序
+## 6. 可执行的有序采集计划
 
-1. 保持当前经营汇总、流量、订单、同行排名主链稳定。
-2. 决定携程唯一事实存储，消除专用表与 `online_daily_data` 双口径。
-3. 建立美团接口级字段目录，用真实响应逐项确认 `source_path`。
-4. 用已授权真实样本确认广告的专用归一化与 `source_path`，不扩抓未授权模块。
-5. 补搜索词、流量分析；点评和房型按实际使用频率后置。
-6. 每新增一组字段都执行：真实接口命中 → 字段事实 → 保存 → 数据库回读 → 页面状态 → 缺失测试。
+实际执行合同位于 [`OtaOrderedCollectionPlanner`](../app/service/OtaOrderedCollectionPlanner.php)，已接入自动采集和本机采集任务。字段地图只提供目录，执行器负责按已回读字段决定“全量核心采集”或“只补缺口”，两者不能互相替代。
 
-## 7. 验证
+### 6.1 时间与停止规则
+
+- 每天 `08:30-09:00` 优先补齐昨天 `historical_daily` 终态事实；未闭环时不生成正式日报，不进入今日实时采集成功结论。
+- 昨天事实闭环后，再采今天 `realtime_snapshot`；实时快照必须有 `snapshot_time` / `snapshot_bucket` 且 `is_final=0`，只用于当日巡检。
+- 任一核心阶段失败就记录对应缺口并停止该平台后续扩采；只补缺失字段对应的 section，不重抓已验证 section。
+- 广告、点评、搜索词、预测、房型、竞对等可选模块不进入默认日采；只有明确业务用途和已授权来源时才单独执行。
+
+### 6.2 核心顺序
+
+| 顺序 | 目标 | 现有入口 / section | 必须得到的核心字段 | 页面用途 | 通过条件 |
+|---:|---|---|---|---|---|
+| 0 | 门店与来源预检 | `platform_data_sources`、Profile 状态、采集状态；只读 | `platform`、`system_hotel_id`、平台门店 ID、`data_date`、`data_period` | 在线数据 → 来源/登录/缺口状态 | 门店、平台、日期和来源一一匹配；历史登录记录不代替当前会话 |
+| 1 | 携程昨天经营事实 | `POST /api/online-data/capture-ctrip-browser`；`business_overview` | `order_amount`、`room_nights`、`order_count` | 昨日经营闭环、收益分析输入、经营日报 | 目标日事实保存并精确回读；缺失字段有独立状态 |
+| 2 | 美团昨天订单事实 | `POST /api/online-data/capture-meituan-browser`；`orders` | `order_amount`、`room_nights`、`order_count` | 昨日经营闭环、收益分析输入、订单汇总 | 目标日查询证据、保存数量和回读数量一致 |
+| 3 | 携程昨天流量事实 | 同携程入口；`traffic_report` | `list_exposure`、`detail_exposure`、`flow_rate`、`order_filling_num`、`order_submit_num` | 流量转化诊断、经营日报 | 五项字段均为已捕获事实或明确缺失；门店身份匹配 |
+| 4 | 美团昨天流量事实 | 同美团入口；`traffic` | `list_exposure`、`detail_exposure`、`flow_rate` | 流量转化诊断、经营日报 | 三项字段均为已捕获事实或明确缺失；门店身份匹配 |
+| 5 | 昨天保存回读总门禁 | `online_daily_data` + `raw_data.field_facts` | 上述经营/订单/流量字段 | 在线数据历史、日报、收益分析、AI 诊断 | `saved_count=readback_count>0`、`readback_verified=true`、目标日期/门店/平台/周期一致 |
+| 6 | 今天实时快照 | `POST /api/online-data/auto-fetch`；沿用已闭环核心 sections，`realtime_snapshot` | 当次实际命中的经营/流量字段 | 今日状态巡检 | 独立快照桶保存回读；不得覆盖昨天终态，也不得作为正式日报事实 |
+
+默认 section 顺序是：
+
+- 携程：`business_overview → traffic_report`
+- 美团：`orders → traffic`
+
+如保存回读已经证明部分字段存在，`OtaOrderedCollectionPlanner::sectionsForMissing()` 只返回仍有缺口的 section；核心字段全部闭环时返回空采集计划并停止。
+
+### 6.3 保存回读验收
+
+每个平台、门店、日期必须同时满足：
+
+1. 原始响应先保存到 `platform_data_raw_records`，不保存明文 Cookie、Token 或完整敏感响应。
+2. 标准行写入 `online_daily_data`，包含 `system_hotel_id`、平台门店 ID、`data_date`、`data_period`、`source_trace_id`。
+3. 保存事务按同一行 ID 回读，逐字段比较实际值；不只比较行数。
+4. 回读一致后才写 `readback_verified=1`；任一字段不一致则事务回滚，返回 `readback_failed`。
+5. 携程专用事实表只在主表回读成功后投影，不能反向替代 `online_daily_data` 的主事实。
+6. 页面只显示已回读事实和明确缺口；`0` 只有在来源真实返回零时才是事实，未命中字段必须为缺失状态。
+
+### 6.4 只读执行与目标日验收
+
+本轮不登录真实账号、不发起真实采集，只执行合同和数据库只读验证：
+
+```powershell
+node scripts/verify_ota_field_data_map.mjs
+node --test --test-isolation=none tests/automation/ota_field_data_map.test.mjs
+C:\xampp\php\php.exe vendor\bin\phpunit tests\OtaOrderedCollectionPlannerTest.php tests\OnlineDailyDataPersistenceServiceTest.php tests\ManualFetchPersistenceStateTest.php
+C:\xampp\php\php.exe scripts\verify_ota_daily_save_plan.php --date=2026-07-24 --days=1 --format=json
+npm.cmd run verify:p0-ota-field-loop -- --date=2026-07-24 --format=json
+```
+
+判定规则：
+
+- 前三项通过只证明字段目录、执行顺序、缺口分流和保存回读代码合同成立。
+- `verify_ota_daily_save_plan` 必须无重复业务键、非法 JSON、未来日期和目标日覆盖缺口。
+- `verify:p0-ota-field-loop` 必须两个平台均为 `p0_traffic_gate.status=ready`，且门店身份、字段事实、保存、回读和页面状态全部通过。
+- 任一只读门禁未通过，结论保持 `partial`；不得使用旧数据、其他门店数据或默认值补绿。
+
+## 7. 后续实施顺序
+
+1. 先处理目标日核心事实的门店身份、保存回读、重复业务键和日期异常，不扩抓可选模块。
+2. 用已授权真实响应逐项确认美团 `source_path`，本轮不使用真实账号执行。
+3. 携程核心学习表剩余 9 项只在真实响应命中后升级状态。
+4. 搜索词、流量分析按明确页面用途再补；点评只保留聚合指标，房型和广告后置。
+5. 每新增一组字段都执行：真实接口命中 → 字段事实 → 保存 → 数据库回读 → 页面状态 → 缺失测试。
+
+## 8. 验证
 
 执行：
 

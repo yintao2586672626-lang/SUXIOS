@@ -54,7 +54,20 @@ test('Ctrip writes the probe result even when the preliminary auth heuristic fai
 
 test('session probes observe only response metadata and never collect response bodies', () => {
   for (const [name, source] of [['Ctrip', ctrip], ['Meituan', meituan]]) {
-    assert.match(source, /if \(authOnly\) \{\s*registerSessionProbeResponseObserver\(page\);\s*\} else \{\s*registerResponseCapture\(page, payload/);
+    assert.match(source, /if \(authOnly\) \{\s*registerSessionProbeResponseObserver\(page\);/);
+    const authObserverBranch = source.match(
+      /if \(authOnly\) \{\s*registerSessionProbeResponseObserver\(page\);[\s\S]*?\n\}/,
+    )?.[0] || '';
+    assert.doesNotMatch(
+      authObserverBranch,
+      /registerResponseCapture\(/,
+      `${name} session probe branch must not attach the business response collector`,
+    );
+    assert.match(
+      source,
+      /registerResponseCapture\((?:page|sectionPage|retryPage),/,
+      `${name} full capture mode must retain a business response collector`,
+    );
     const observer = extractFunction(source, 'registerSessionProbeResponseObserver');
     assert.match(observer, /classifyOtaSessionProbeResponse\(/, `${name} probe must use the diagnostic protected-endpoint classifier`);
     assert.match(source, /candidate_drift_response_count:\s*0/, `${name} probe must retain bounded drift counts`);

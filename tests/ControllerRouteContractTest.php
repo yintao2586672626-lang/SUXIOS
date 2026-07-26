@@ -282,7 +282,8 @@ final class ControllerRouteContractTest extends TestCase
         self::assertStringContainsString('abort(403, \'release evidence status requires super admin\');', $concern);
         self::assertStringContainsString('$this->checkActionPermission(\'can_view_online_data\');', $concern);
         self::assertStringContainsString("'does_not_close_release_readiness' => true", $concern);
-        self::assertStringContainsString("docs/release_readiness_status.json", $concern);
+        self::assertStringContainsString("docs/release_blocker_policy.json", $concern);
+        self::assertStringNotContainsString("docs/release_readiness_status.json", $concern, 'The authenticated API must not expose the dated historical snapshot as current state');
         self::assertStringContainsString("'required_file' => '../release-evidence-temp/design_handoff_manifest.json'", $concern);
         self::assertStringNotContainsString("releaseEvidenceRepoPath('../release-evidence-temp", $concern, 'Runtime evidence directory paths must not be read directly by the API');
     }

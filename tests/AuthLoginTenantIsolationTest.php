@@ -97,7 +97,7 @@ final class AuthLoginTenantIsolationTest extends TestCase
         self::assertSame(10, (int)$payload['context']['hotelId']);
         self::assertSame(101, (int)$payload['context']['tenantId']);
         self::assertSame(501, (int)(cache('token_' . $payload['token'])['user_id'] ?? 0));
-        self::assertSame($payload['token'], cache('user_token_501'));
+        self::assertSame(hash('sha256', $payload['token']), cache('user_token_501'));
 
         $audit = Db::name('operation_logs')->where('action', 'login')->find();
         self::assertSame(101, (int)$audit['tenant_id']);
@@ -116,7 +116,7 @@ final class AuthLoginTenantIsolationTest extends TestCase
             self::assertSame('', $payload['user']['hotel_name'], $case['username']);
             self::assertNull($payload['context']['hotelId'], $case['username']);
             self::assertNull($payload['context']['tenantId'], $case['username']);
-            self::assertSame($payload['token'], cache('user_token_' . $case['user_id']), $case['username']);
+            self::assertSame(hash('sha256', $payload['token']), cache('user_token_' . $case['user_id']), $case['username']);
 
             $info = $this->successPayload($this->info($case['user_id']));
             self::assertNull($info['hotel_id'], $case['username'] . ' info');
@@ -133,7 +133,7 @@ final class AuthLoginTenantIsolationTest extends TestCase
 
         self::assertSame([10, 11, 20], $hotelIds);
         self::assertTrue($payload['user']['is_super_admin']);
-        self::assertSame($payload['token'], cache('user_token_1'));
+        self::assertSame(hash('sha256', $payload['token']), cache('user_token_1'));
     }
 
     public function testMissingTenantReturnsExplicitRejectionBeforeAnyLoginStateIsUpdated(): void
@@ -165,7 +165,7 @@ final class AuthLoginTenantIsolationTest extends TestCase
         self::assertNull($payload['context']['hotelId']);
         self::assertNull($payload['context']['tenantId']);
         self::assertTrue($payload['user']['permissions']['can_manage_own_hotels']);
-        self::assertSame($payload['token'], cache('user_token_505'));
+        self::assertSame(hash('sha256', $payload['token']), cache('user_token_505'));
         self::assertSame(303, (int)Db::name('operation_logs')->where('user_id', 505)->value('tenant_id'));
         self::assertSame(1, (int)Db::name('users')->where('id', 505)->value('login_count'));
     }

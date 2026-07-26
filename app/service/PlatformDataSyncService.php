@@ -599,6 +599,8 @@ final class PlatformDataSyncService
 
     private OtaProfileSessionProofService $profileSessionProofService;
 
+    private PlatformNormalizedRowPersistenceService $normalizedRowPersistence;
+
     /** @var array<string, array<string, bool>> */
     private array $columns = [];
 
@@ -620,6 +622,7 @@ final class PlatformDataSyncService
         ];
         $this->credentialVault = $credentialVault;
         $this->profileSessionProofService = $profileSessionProofService ?? new OtaProfileSessionProofService();
+        $this->normalizedRowPersistence = new PlatformNormalizedRowPersistenceService();
     }
 
     /**
@@ -821,6 +824,10 @@ final class PlatformDataSyncService
                 'snapshot_time' => $periodMeta['snapshot_time'],
                 'snapshot_bucket' => $periodMeta['snapshot_bucket'],
             ];
+            $collectorBindingEvidence = $this->collectorBindingEvidence($source);
+            if ($collectorBindingEvidence !== []) {
+                $raw['collector_binding'] = $collectorBindingEvidence;
+            }
             $rowCaptureEvidence = $this->fieldFactCaptureEvidence($row, $traceId);
             if ($this->fieldFactHasDesensitizedCaptureEvidence($rowCaptureEvidence)) {
                 $rowSourceUrlHash = strtolower(trim((string)($rowCaptureEvidence['source_url_hash'] ?? '')));
@@ -1732,6 +1739,12 @@ final class PlatformDataSyncService
                     'has_cookies' => $hasCookies,
                 ]);
             }
+            if ($isBrowserProfile && $id > 0) {
+                $config = array_merge(
+                    $config,
+                    $this->managedCloudCollectorBindingConfig($lockedConfig)
+                );
+            }
             $data = [
                 'system_hotel_id' => $hotelId,
                 'user_id' => $actorId ?: null,
@@ -1852,6 +1865,58 @@ final class PlatformDataSyncService
             $safe[$key] = $this->sanitizeOtaMetadataNode($config[$key]);
         }
         return $safe;
+    }
+
+    /**
+     * Collector bindings are managed only by the explicit bind/unbind command.
+     * Normal data-source edits may change Profile metadata but cannot forge,
+     * rotate or silently remove an existing complete device binding.
+     *
+     * @param array<string, mixed> $config
+     * @return array<string, mixed>
+     */
+    private function managedCloudCollectorBindingConfig(array $config): array
+    {
+        $keys = [
+            'source_method',
+            'collector_binding_mode',
+            'collector_device_id',
+            'collector_device_id_hash',
+            'collector_user_id',
+            'collector_tenant_id',
+            'collector_hotel_id',
+            'collector_platform',
+            'collector_bound_at',
+        ];
+        $managed = [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $config)) {
+                $managed[$key] = $config[$key];
+            }
+        }
+        if (strtolower(trim((string)($managed['source_method'] ?? ''))) !== 'single_user_local'
+            || strtolower(trim((string)($managed['collector_binding_mode'] ?? ''))) !== 'single_user_local'
+            || preg_match(
+                '/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/D',
+                trim((string)($managed['collector_device_id'] ?? ''))
+            ) !== 1
+            || preg_match(
+                '/^[a-f0-9]{64}$/D',
+                strtolower(trim((string)($managed['collector_device_id_hash'] ?? '')))
+            ) !== 1
+            || (int)($managed['collector_user_id'] ?? 0) <= 0
+            || (int)($managed['collector_tenant_id'] ?? 0) <= 0
+            || (int)($managed['collector_hotel_id'] ?? 0) <= 0
+            || !in_array(
+                strtolower(trim((string)($managed['collector_platform'] ?? ''))),
+                ['ctrip', 'meituan'],
+                true
+            )
+            || trim((string)($managed['collector_bound_at'] ?? '')) === ''
+        ) {
+            return [];
+        }
+        return $managed;
     }
 
     private function assertOtaMetadataUrlsAreSafe(mixed $value, string $platform): void
@@ -2108,6 +2173,7 @@ final class PlatformDataSyncService
         if ((int)($source['enabled'] ?? 0) !== 1) {
             throw new RuntimeException('Data source is disabled.', 422);
         }
+        $this->assertRequiredCollectorBinding($source, $options);
 
         $taskAcquisition = $this->acquireSyncTask(
             $source,
@@ -2142,6 +2208,7 @@ final class PlatformDataSyncService
             ) {
                 $source = $this->loadSource($id, $user);
             }
+            $this->assertRequiredCurrentRunProfileSessionProbe($source, $options, $result);
             $timing['capture_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
             $this->refreshDatabaseConnectionAfterExternalFetch();
             $payload = $this->applySyncOptionPeriodMetadata($result['payload'] ?? [], $options);
@@ -2153,6 +2220,10 @@ final class PlatformDataSyncService
             $bindingEvidence = $this->assertGenericOtaPayloadBinding($source, is_array($payload) ? $payload : []);
             if ($bindingEvidence !== []) {
                 $payload['_ota_binding_evidence'] = $bindingEvidence;
+            }
+            $collectorBindingEvidence = $this->collectorBindingEvidence($source);
+            if ($collectorBindingEvidence !== []) {
+                $payload['_collector_binding_evidence'] = $collectorBindingEvidence;
             }
 
             $phaseStartedAt = microtime(true);
@@ -3953,6 +4024,136 @@ final class PlatformDataSyncService
     }
 
     /**
+     * Revalidate the collector binding from the source row loaded by this sync
+     * process. This closes the gap between the scheduler's preflight and the
+     * actual adapter/persistence transaction.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     */
+    private function assertRequiredCollectorBinding(array $source, array $options): void
+    {
+        if (!$this->truthy($options['require_current_session_probe'] ?? false)) {
+            return;
+        }
+        $required = is_array($options['required_collector_binding'] ?? null)
+            ? $options['required_collector_binding']
+            : [];
+        $evidence = $this->collectorBindingEvidence($source);
+        if ($evidence !== []
+            && (string)($required['mode'] ?? '') === 'single_user_local'
+            && (string)$evidence['mode'] === (string)$required['mode']
+            && (int)$evidence['tenant_id'] === (int)($required['tenant_id'] ?? 0)
+            && (int)$evidence['user_id'] === (int)($required['user_id'] ?? 0)
+            && hash_equals((string)$evidence['device_id'], (string)($required['device_id'] ?? ''))
+            && hash_equals(
+                (string)$evidence['device_id_hash'],
+                strtolower(trim((string)($required['device_id_hash'] ?? '')))
+            )
+            && (int)$evidence['hotel_id'] === (int)($required['hotel_id'] ?? 0)
+            && (string)$evidence['platform']
+                === strtolower(trim((string)($required['platform'] ?? '')))
+        ) {
+            return;
+        }
+
+        throw new RuntimeException(
+            'Current sync process collector binding is missing or outside its explicit user/device/hotel/platform scope.',
+            422
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function collectorBindingEvidence(array $source): array
+    {
+        $config = is_array($source['config'] ?? null)
+            ? $source['config']
+            : $this->decodeConfig($source['config_json'] ?? []);
+        $mode = strtolower(trim((string)($config['source_method'] ?? '')));
+        $bindingMode = strtolower(trim((string)($config['collector_binding_mode'] ?? '')));
+        $deviceId = trim((string)($config['collector_device_id'] ?? ''));
+        $deviceIdHash = strtolower(trim((string)($config['collector_device_id_hash'] ?? '')));
+        $tenantId = (int)($config['collector_tenant_id'] ?? 0);
+        $userId = (int)($config['collector_user_id'] ?? 0);
+        $hotelId = (int)($config['collector_hotel_id'] ?? 0);
+        $platform = strtolower(trim((string)($config['collector_platform'] ?? '')));
+        $boundAt = trim((string)($config['collector_bound_at'] ?? ''));
+        if ($mode !== 'single_user_local'
+            || $bindingMode !== 'single_user_local'
+            || preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/D', $deviceId) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $deviceIdHash) !== 1
+            || !hash_equals(hash('sha256', $deviceId), $deviceIdHash)
+            || $tenantId <= 0
+            || $tenantId !== (int)($source['tenant_id'] ?? 0)
+            || $userId <= 0
+            || $userId !== (int)($source['user_id'] ?? 0)
+            || $hotelId <= 0
+            || $hotelId !== (int)($source['system_hotel_id'] ?? 0)
+            || !in_array($platform, ['ctrip', 'meituan'], true)
+            || $platform !== strtolower(trim((string)($source['platform'] ?? '')))
+            || $boundAt === ''
+        ) {
+            return [];
+        }
+
+        return [
+            'mode' => $mode,
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'device_id' => $deviceId,
+            'device_id_hash' => $deviceIdHash,
+            'hotel_id' => $hotelId,
+            'platform' => $platform,
+            'bound_at' => $boundAt,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /**
+     * Cloud single-user Profile collection must prove the current process saw
+     * an authorised session and the expected platform hotel before anything is
+     * persisted. Historical config flags are deliberately insufficient.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $result
+     */
+    private function assertRequiredCurrentRunProfileSessionProbe(
+        array $source,
+        array $options,
+        array $result
+    ): void {
+        if (!$this->isOtaBrowserProfileSource($source)
+            || !$this->truthy($options['require_current_session_probe'] ?? false)
+        ) {
+            return;
+        }
+
+        $payload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        $authCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        $identity = is_array($payload['platform_identity_validation'] ?? null)
+            ? $payload['platform_identity_validation']
+            : [];
+        $identityStatus = strtolower(trim((string)($identity['status'] ?? '')));
+        if (($result['status'] ?? '') === 'success'
+            && ($authStatus['ok'] ?? null) === true
+            && in_array($authCode, ['logged_in', 'authorized'], true)
+            && $identityStatus === 'matched'
+        ) {
+            return;
+        }
+
+        throw new RuntimeException(
+            'Current session proof from this execution is missing or outside the bound platform hotel.',
+            422
+        );
+    }
+
+    /**
      * @param array<string, mixed> $source
      * @param array<string, mixed> $options
      * @return array<int, string>
@@ -5723,354 +5924,16 @@ final class PlatformDataSyncService
      */
     private function saveNormalizedRows(array $rows): array
     {
-        if (empty($rows)) {
-            return [
-                'attempted_count' => 0,
-                'saved_count' => 0,
-                'inserted_count' => 0,
-                'updated_count' => 0,
-                'deduplicated_count' => 0,
-                'readback_count' => 0,
-                'readback_verified' => true,
-                'row_ids' => [],
-            ];
-        }
-
-        $failureReceipt = null;
-        try {
-            return Db::transaction(function () use ($rows, &$failureReceipt): array {
-                $columns = $this->tableColumns('online_daily_data');
-                $attempted = count($rows);
-                $inserted = 0;
-                $updated = 0;
-                $readback = 0;
-                $rowIds = [];
-                $readbackRows = [];
-                $preparedRows = [];
-                foreach ($rows as $row) {
-                    $data = array_intersect_key($row, $columns);
-                    if ($data === []) {
-                        $failureReceipt = $this->normalizedRowsRollbackReceipt($attempted, 'normalized_row_has_no_persistable_columns');
-                        throw new RuntimeException('normalized_row_has_no_persistable_columns');
-                    }
-                    $data = OnlineDailyDataPersistenceService::applyTenantScope($data, $columns);
-                    $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
-                    if (isset($columns['persistence_identity_hash'])
-                        && trim((string)($data['persistence_identity_hash'] ?? '')) === ''
-                    ) {
-                        $data['persistence_identity_hash'] = $this->persistenceIdentityHash($data);
-                    }
-                    $preparedRows[$this->normalizedRowIdentityKey($data, $columns)] = $data;
-                }
-                $deduplicatedCount = max(0, $attempted - count($preparedRows));
-
-                foreach ($preparedRows as $data) {
-                    $existing = $this->findNormalizedRowByCompleteIdentity($data, $columns);
-                    if (is_array($existing)) {
-                        $rowId = (int)($existing['id'] ?? 0);
-                        if (isset($columns['update_time'])) {
-                            $data['update_time'] = date('Y-m-d H:i:s');
-                        }
-                        Db::name('online_daily_data')->where('id', $rowId)->update($data);
-                        $updated++;
-                    } else {
-                        if (isset($columns['create_time'])) {
-                            $data['create_time'] = date('Y-m-d H:i:s');
-                        }
-                        if (isset($columns['update_time'])) {
-                            $data['update_time'] = date('Y-m-d H:i:s');
-                        }
-                        try {
-                            $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
-                            if ($rowId > 0) {
-                                $inserted++;
-                            }
-                        } catch (\Throwable $insertError) {
-                            $persistenceHash = trim((string)($data['persistence_identity_hash'] ?? ''));
-                            $concurrent = $persistenceHash !== '' && isset($columns['persistence_identity_hash'])
-                                ? Db::name('online_daily_data')
-                                    ->where('persistence_identity_hash', $persistenceHash)
-                                    ->lock(true)
-                                    ->find()
-                                : null;
-                            if (!is_array($concurrent) || (int)($concurrent['id'] ?? 0) <= 0) {
-                                throw $insertError;
-                            }
-                            $rowId = (int)$concurrent['id'];
-                            unset($data['create_time']);
-                            if (isset($columns['update_time'])) {
-                                $data['update_time'] = date('Y-m-d H:i:s');
-                            }
-                            Db::name('online_daily_data')->where('id', $rowId)->update($data);
-                            $updated++;
-                        }
-                    }
-
-                    $mismatchField = null;
-                    $readbackRow = $rowId > 0
-                        ? $this->normalizedRowReadback($rowId, $data, $columns, $mismatchField)
-                        : null;
-                    if (!is_array($readbackRow)) {
-                        $failureReceipt = $this->normalizedRowsRollbackReceipt(
-                            $attempted,
-                            'normalized_rows_readback_mismatch_rolled_back',
-                            $mismatchField
-                        );
-                        throw new RuntimeException('normalized_rows_readback_mismatch_rolled_back');
-                    }
-                    $readback++;
-                    $rowIds[] = $rowId;
-                    $readbackRows[] = $readbackRow;
-                }
-
-                if (count($preparedRows) !== $readback
-                    || !OnlineDailyDataPersistenceService::markRowsReadbackVerified($readbackRows, $columns)) {
-                    $failureReceipt = $this->normalizedRowsRollbackReceipt(
-                        $attempted,
-                        'normalized_rows_readback_proof_not_persisted_rolled_back'
-                    );
-                    throw new RuntimeException('normalized_rows_readback_proof_not_persisted_rolled_back');
-                }
-
-                // Ctrip's historic metric table is a derived query projection.
-                // It receives only rows which have already passed the primary
-                // save/readback proof, so it cannot become a second truth path.
-                (new CtripMetricFactProjectionService())->project($readbackRows);
-
-                return [
-                    'attempted_count' => $attempted,
-                    'saved_count' => $readback,
-                    'inserted_count' => $inserted,
-                    'updated_count' => $updated,
-                    'deduplicated_count' => $deduplicatedCount,
-                    'readback_count' => $readback,
-                    'readback_verified' => count($preparedRows) === $readback,
-                    'rolled_back' => false,
-                    'failure_reason' => '',
-                    // This receipt is consumed immediately to select the exact
-                    // target-date subset. The persisted receipt is bounded by
-                    // CloudOtaBundleCodec::MAX_ROWS after that filtering step.
-                    'row_ids' => $rowIds,
-                ];
-            });
-        } catch (RuntimeException $e) {
-            if (is_array($failureReceipt)) {
-                return $failureReceipt;
-            }
-            throw $e;
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $row
-     * @param array<string, bool> $columns
-     * @return array<string, mixed>|null
-     */
-    private function findNormalizedRowByCompleteIdentity(array $row, array $columns): ?array
-    {
-        $identityFields = [
-            'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
-            'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
-            'dimension', 'compare_type',
-        ];
-        $applyIdentity = static function ($query) use ($row, $columns, $identityFields): void {
-            foreach ($identityFields as $field) {
-                if (!isset($columns[$field]) || !array_key_exists($field, $row)) {
-                    continue;
-                }
-                if ($row[$field] === null) {
-                    $query->whereNull($field);
-                } else {
-                    $query->where($field, $row[$field]);
-                }
-            }
-        };
-
-        $persistenceHash = trim((string)($row['persistence_identity_hash'] ?? ''));
-        if ($persistenceHash !== '' && isset($columns['persistence_identity_hash'])) {
-            $existing = Db::name('online_daily_data')
-                ->where('persistence_identity_hash', $persistenceHash)
-                ->lock(true)
-                ->find();
-            if (is_array($existing)) {
-                return $existing;
-            }
-        }
-
-        $traceId = trim((string)($row['source_trace_id'] ?? ''));
-        if ($traceId !== '' && isset($columns['source_trace_id'])) {
-            $traceQuery = Db::name('online_daily_data')->where('source_trace_id', $traceId);
-            $applyIdentity($traceQuery);
-            $existing = $traceQuery->find();
-            if (is_array($existing)) {
-                return $existing;
-            }
-        }
-
-        if ($persistenceHash !== '' && $this->normalizedRowHasStableEventIdentity($row)) {
-            return null;
-        }
-
-        $query = Db::name('online_daily_data');
-        $applyIdentity($query);
-        $existing = $query->find();
-        return is_array($existing) ? $existing : null;
-    }
-
-    /** @param array<string, mixed> $row @param array<string, bool> $columns */
-    private function normalizedRowIdentityKey(array $row, array $columns): string
-    {
-        $persistenceHash = trim((string)($row['persistence_identity_hash'] ?? ''));
-        if ($persistenceHash !== '' && isset($columns['persistence_identity_hash'])) {
-            return 'persistence:' . $persistenceHash;
-        }
-
-        $identity = [];
-        foreach ([
-            'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
-            'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
-            'dimension', 'compare_type',
-        ] as $field) {
-            if (!isset($columns[$field]) || !array_key_exists($field, $row)) {
-                continue;
-            }
-            $identity[$field] = $row[$field] === null ? null : (string)$row[$field];
-        }
-        if ($identity === []) {
-            throw new RuntimeException('normalized_row_identity_missing');
-        }
-        return json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        return $this->normalizedRowPersistence->save(
+            $rows,
+            $this->tableColumns('online_daily_data')
+        );
     }
 
     /** @param array<string, mixed> $row */
     private function persistenceIdentityHash(array $row): string
     {
-        $eventIdentity = $this->normalizedRowEventIdentityHash($row);
-        $identity = [];
-        foreach ([
-            'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
-            'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
-            'dimension', 'compare_type',
-        ] as $field) {
-            $identity[$field] = array_key_exists($field, $row) && $row[$field] !== null
-                ? (string)$row[$field]
-                : '';
-        }
-        $identity['identity_kind'] = $eventIdentity !== '' ? 'event' : 'summary';
-        $identity['event_identity_hash'] = $eventIdentity;
-        return hash('sha256', json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
-    }
-
-    /** @param array<string, mixed> $row */
-    private function normalizedRowHasStableEventIdentity(array $row): bool
-    {
-        return $this->normalizedRowEventIdentityHash($row) !== '';
-    }
-
-    /** @param array<string, mixed> $row */
-    private function normalizedRowEventIdentityHash(array $row): string
-    {
-        if ($this->normalizeDataType((string)($row['data_type'] ?? '')) !== 'order') {
-            return '';
-        }
-        $raw = $this->decodeConfig($row['raw_data'] ?? []);
-        $candidate = is_array($raw['row'] ?? null) ? $raw['row'] : $raw;
-        return $this->firstNestedTextByKey($candidate, ['order_id_hash', 'booking_id_hash']);
-    }
-
-    /** @param array<mixed> $value @param array<int, string> $keys */
-    private function firstNestedTextByKey(array $value, array $keys, int $depth = 0): string
-    {
-        if ($depth > 6) {
-            return '';
-        }
-        foreach ($keys as $key) {
-            if (array_key_exists($key, $value) && is_scalar($value[$key]) && trim((string)$value[$key]) !== '') {
-                return trim((string)$value[$key]);
-            }
-        }
-        foreach ($value as $item) {
-            if (is_array($item)) {
-                $found = $this->firstNestedTextByKey($item, $keys, $depth + 1);
-                if ($found !== '') {
-                    return $found;
-                }
-            }
-        }
-        return '';
-    }
-
-    /** @return array<string, mixed> */
-    private function normalizedRowsRollbackReceipt(int $attempted, string $reason, ?string $mismatchField = null): array
-    {
-        return [
-            'attempted_count' => max(0, $attempted),
-            'saved_count' => 0,
-            'inserted_count' => 0,
-            'updated_count' => 0,
-            'deduplicated_count' => 0,
-            'readback_count' => 0,
-            'readback_verified' => false,
-            'rolled_back' => true,
-            'failure_reason' => $reason,
-            'mismatch_field' => trim((string)$mismatchField),
-            'row_ids' => [],
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $expected
-     * @param array<string, bool> $columns
-     */
-    private function normalizedRowReadback(int $rowId, array $expected, array $columns, ?string &$mismatchField = null): ?array
-    {
-        $mismatchField = null;
-        $stored = Db::name('online_daily_data')->where('id', $rowId)->find();
-        if (!is_array($stored)) {
-            $mismatchField = '__row_missing__';
-            return null;
-        }
-        foreach ($expected as $field => $expectedValue) {
-            if (!isset($columns[$field]) || in_array($field, ['id'], true)) {
-                continue;
-            }
-            $storedValue = $stored[$field] ?? null;
-            if (!$this->normalizedStoredValueMatches($storedValue, $expectedValue, (string)$field)) {
-                $mismatchField = (string)$field;
-                return null;
-            }
-        }
-        return $stored;
-    }
-
-    private function normalizedStoredValueMatches(mixed $stored, mixed $expected, string $field = ''): bool
-    {
-        if ($expected === null) {
-            return $stored === null;
-        }
-        if (is_int($expected)) {
-            return is_numeric($stored) && (int)$stored === $expected;
-        }
-        if (is_float($expected)) {
-            if (!is_numeric($stored)) {
-                return false;
-            }
-            if (in_array($field, ['comment_score', 'qunar_comment_score'], true)) {
-                return abs((float)$stored - round($expected, 1, PHP_ROUND_HALF_UP)) <= 0.000001;
-            }
-            return abs((float)$stored - $expected) <= 0.005001;
-        }
-        if (is_bool($expected)) {
-            return (bool)$stored === $expected;
-        }
-        if (is_string($expected) && ($expected !== '') && in_array($expected[0], ['{', '['], true)) {
-            $expectedJson = json_decode($expected, true);
-            $storedJson = is_string($stored) ? json_decode($stored, true) : null;
-            if (is_array($expectedJson) && is_array($storedJson)) {
-                return $storedJson == $expectedJson;
-            }
-        }
-        return (string)$stored === (string)$expected;
+        return $this->normalizedRowPersistence->identityHash($row);
     }
 
     /**

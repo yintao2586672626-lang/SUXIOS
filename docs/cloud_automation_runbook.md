@@ -95,7 +95,7 @@ timer 冲突，防止两套计划并行启用。恢复全局调度时先停用�
 ## 首次启用检查
 
 1. 云端至少存在一条启用酒店记录，并有正确的租户/门店范围。
-2. 携程和美团数据源分别绑定到该酒店；若启用云端采集，两个平台的授权浏览器 Profile 必须由管理员在云端受控环境单独完成登录和验证。本机 Profile、Cookie 和本机测试文件不得复制到云端，也不得写入 unit、日志或 Git。
+2. 携程和美团数据源分别绑定到该酒店。云端 Profile 仅允许服务器拥有者本人的 `single_user_local` 兼容模式，不是多租户集中代采方案；本机 Profile、Cookie 和本机测试文件不得复制到云端，也不得写入 unit、日志或 Git。
 3. 目标日数据已上传到 `online_daily_data`，并能按平台、酒店、日期和质量状态回读。
 4. `competitor_wechat_robot` 中有该酒店启用的企业微信机器人。
 5. 先运行 `health --no-push`，再运行 `daily --no-push`，最后才去掉 `--no-push` 做一次真实发送。
@@ -112,9 +112,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/inspect_tencent_clou
 
 1. 云端 release 已包含 `--daily-only` 和 `--realtime-only`；
 2. 两个 OTA unit 已安装；
-3. `/etc/suxios/ota-collector.env` 中 `SUXIOS_OTA_CLOUD_PROFILE_READY=1`；
-4. 管理员已在云端受控浏览器完成携程、美团授权验证；
-5. 先用目标酒店跑一次 `--no-push` 验证保存与回读，再启用定时器。
+3. 从 `deploy/systemd/ota-collector.env.example` 创建 `/etc/suxios/ota-collector.env`（权限 `0600`），显式配置服务器拥有者用户、服务器设备、单一系统酒店、数据源 ID 白名单和平台白名单；
+4. 采集用户必须与酒店同租户；若服务器拥有者是跨租户超级管理员，则还必须存在该用户、该酒店、该酒店租户完全匹配且当前有效的 `can_fetch_online_data=1` 授权记录。超级管理员身份本身不能替代显式酒店授权；
+5. 每条白名单 `platform_data_sources` 必须同时满足：同一 `tenant_id`、`user_id`、`system_hotel_id`，`ingestion_method=browser_profile`，`config_json.source_method=single_user_local`，且 `config_json.collector_device_id_hash` 等于配置设备 ID 的 SHA-256；
+6. 同一个浏览器 Profile 账号只能选择一条数据源；旧结构中 business/traffic 投影行不得同时进入白名单，否则会造成同一会话重复采集；
+7. 首次绑定先使用 `--bind-cloud-scope` 预览；输出必须为 `status=confirmation_required` 且 `database_write_performed=false`。确认用户、设备、酒店、平台和数据源范围后，再追加 `--confirm-cloud-scope-binding` 写入绑定。更换设备必须在新设备重新登录后显式追加 `--rotate-cloud-device-binding`，不得静默继承旧设备会话；
+8. 启用 timer 前，使用同一组范围参数执行 `--validate-cloud-scope`。成功输出 `status=scope_ready_for_current_session_probe` 仅证明绑定可进入会话探测，不会访问 OTA、不写业务数据，也不代表当前登录仍有效；两个 OTA service 还会在每次正式采集前通过 `ExecStartPre` 重跑该预检；
+
+绑定操作示例（只包含非会话范围标识，不要把 Cookie、Profile 或令牌写入命令）：
+
+```bash
+set -a
+. /etc/suxios/ota-collector.env
+set +a
+COMMON_SCOPE="--collector-mode=single_user_local --collector-user-id=${SUXIOS_OTA_CLOUD_USER_ID} --collector-device-id=${SUXIOS_OTA_CLOUD_DEVICE_ID} --hotel-id=${SUXIOS_OTA_CLOUD_HOTEL_ID} --source-ids=${SUXIOS_OTA_CLOUD_SOURCE_IDS} --platforms=${SUXIOS_OTA_CLOUD_PLATFORMS}"
+SUXIOS_OTA_CLOUD_COLLECTOR=1 php think online-data:auto-fetch --bind-cloud-scope ${COMMON_SCOPE} --no-interaction
+SUXIOS_OTA_CLOUD_COLLECTOR=1 php think online-data:auto-fetch --bind-cloud-scope --confirm-cloud-scope-binding ${COMMON_SCOPE} --no-interaction
+SUXIOS_OTA_CLOUD_COLLECTOR=1 php think online-data:auto-fetch --validate-cloud-scope ${COMMON_SCOPE} --no-interaction
+```
+
+撤销时先停用 timer，再预览并确认清除绑定；清除只移除采集器范围元数据，不删除 Profile 配置或历史业务数据：
+
+```bash
+sudo systemctl disable --now suxios-cloud-ota-daily.timer suxios-cloud-ota-realtime.timer
+SUXIOS_OTA_CLOUD_COLLECTOR=1 php think online-data:auto-fetch --unbind-cloud-scope ${COMMON_SCOPE} --no-interaction
+SUXIOS_OTA_CLOUD_COLLECTOR=1 php think online-data:auto-fetch --unbind-cloud-scope --confirm-cloud-scope-unbind ${COMMON_SCOPE} --no-interaction
+```
+5. 管理员已在这台服务器的受控浏览器完成白名单平台授权；每次采集仍会用本次进程的登录状态和平台酒店身份做当前会话门禁，历史布尔标记不能代替；
+6. 先对同一组 `--hotel-id`、`--source-ids`、`--platforms` 跑一次保存与回读验证，再显式启用定时器。安装 unit 不代表允许自动启用。
+
+云端命令缺少任一范围参数、数据源归属或设备哈希不一致时，以配置错误退出，不回退为所有启用酒店扫描。需要让其他用户或其他设备采集时，使用设备侧 `OtaLocalCollectorService` 任务领取/上传链路，不复用此云端 Profile。
 
 检查通过后的安装动作必须在已发布、干净的云端 release 上执行；不要从本机复制 Cookie 或未提交工作区。
 
@@ -123,3 +150,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/inspect_tencent_clou
 应用采用 `/var/www/suxios/current` 指向 release 的原子软链接发布。回滚时把该链接切回上一个保留的 release，重新加载 PHP-FPM；投递队列位于 `/var/lib/suxios-cloud-automation`，不会因应用回滚丢失。
 
 复制新 release 后必须保持该 release 的 `runtime/` 和 `storage/` 为 `www-data:www-data` 且目录可写；切换前用 `sudo -u www-data test -w` 验证。否则普通健康接口可能仍为 200，但需要落盘的巡检端点会返回 500。
+
+登录缓存与竞对任务锁不得保存在 release 自身的 `runtime/`。生产环境必须按
+[`deployment_single_instance_state.md`](deployment_single_instance_state.md)
+配置 release 外部持久目录，并在切换 `current` 前运行
+`sudo -u www-data php scripts/verify_single_instance_state_paths.php`。

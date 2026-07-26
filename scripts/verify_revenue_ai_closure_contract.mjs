@@ -1850,11 +1850,52 @@ includesAll('app/service/OperationManagementService.php', 'operation bridge carr
   'addExecutionEvidence(',
   'reviewExecutionTask(',
   'buildExecutionRoi(',
+  'ExecutionOutcomeService',
+  '$this->executionOutcomeService->buildExecutionRoi(',
+]);
+
+includesAll('app/service/operation/ExecutionOutcomeService.php', 'execution outcome boundary preserves evidence truth and ROI semantics', [
+  'buildExecutionEvidenceTruth',
+  'assessExecutionEvidenceTruth',
+  'buildExecutionOutcomeTruth',
+  'executionPositiveOutcomeAllowsStatus',
+  'buildExecutionTruthContext',
+  'buildExecutionRoi(',
   'buildExecutionOperatorEvidenceSummary',
   'summarizeExecutionOperatorEvidence',
   'operator_execution_evidence_summary',
   'operator_roi_evidence_summary',
   'after_revenue - before_revenue',
+]);
+
+includesAll('app/service/OperationManagementService.php', 'operation facade delegates execution-flow read modeling without changing its public API', [
+  'ExecutionFlowReadService',
+  'new ExecutionFlowReadService($this->executionOutcomeService)',
+  '$this->executionFlowReadService->buildItem(',
+  '$this->executionFlowReadService->buildSummary(',
+  '$this->executionFlowReadService->buildStages(',
+  '$this->executionFlowReadService->latestTask(',
+  '$this->executionFlowReadService->reviewAvailableOn(',
+  '$this->executionFlowReadService->buildSafeEvidenceSummary(',
+]);
+
+includesAll('app/service/operation/ExecutionFlowReadService.php', 'execution-flow read boundary preserves stage, next-action, evidence receipt, and ROI rollup semantics', [
+  'final class ExecutionFlowReadService',
+  'public function buildItem(',
+  'public function buildSummary(',
+  'public function buildStages(',
+  'public function latestTask(',
+  'public function reviewAvailableOn(',
+  'public function buildSafeEvidenceSummary(',
+  'executionPositiveOutcomeAllowsStatus(',
+  'buildExecutionRoi(',
+  "'money_status' =>",
+  "'next_action' =>",
+]);
+
+excludesAll('app/service/operation/ExecutionFlowReadService.php', 'execution-flow read boundary remains persistence-free and does not depend on the facade', [
+  'Db::',
+  'OperationManagementService',
 ]);
 
 includesAll('app/service/RevenueAiOverviewService.php', 'Revenue AI overview separates process progress, review input, and ROI truth', [

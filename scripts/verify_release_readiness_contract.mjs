@@ -146,6 +146,10 @@ function writeReadinessFixture(evidenceDir, options = {}) {
   writeText(path.join(evidenceDir, 'production.env'), [
     'APP_DEBUG=false',
     'APP_TRACE=false',
+    'SUXIOS_DEPLOYMENT_MODE=single_instance',
+    'SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE=true',
+    'SUXIOS_CACHE_PATH=/var/lib/suxios/app-cache',
+    'SUXIOS_LOCAL_LOCK_PATH=/var/lib/suxios/app-locks',
     'AI_CONFIG_SECRET=12345678901234567890123456789012',
     'DB_HOST=prod-db.internal',
     'DB_NAME=hotelx_prod',

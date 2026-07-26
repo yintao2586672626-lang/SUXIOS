@@ -11,9 +11,9 @@ import {
 export const DEFAULT_FRONTEND_BUDGET = Object.freeze({
   max_index_bytes: 2_000_000,
   max_public_shell_gzip_bytes: 180_000,
-  target_startup_gzip_bytes: 650_000,
-  warning_startup_gzip_bytes: 800_000,
-  max_startup_gzip_bytes: 850_000,
+  target_startup_gzip_bytes: 600_000,
+  warning_startup_gzip_bytes: 625_000,
+  max_startup_gzip_bytes: 650_000,
   max_inline_script_bytes: 20_000,
   max_blocking_script_count: 0,
 });
@@ -52,6 +52,8 @@ export function assessStartupGzipBudget(metrics, budget = DEFAULT_FRONTEND_BUDGE
     target,
     warning,
     hard_limit: hardLimit,
+    headroom_to_target_bytes: target - actual,
+    headroom_to_hard_limit_bytes: hardLimit - actual,
   };
 }
 
@@ -92,11 +94,18 @@ export function collectFrontendEntryMetrics(repoRoot) {
     ...uniqueAuthenticatedReferences,
   ])];
   const publicShellFiles = [indexPath, ...uniquePublicShellReferences.map((reference) => path.join(publicRoot, reference))];
-  const startupFiles = [indexPath, ...uniqueStartupReferences.map((reference) => path.join(publicRoot, reference))];
   const fullAuthenticatedFiles = [indexPath, ...uniqueFullAuthenticatedReferences.map((reference) => path.join(publicRoot, reference))];
   const deferredAuthenticatedFiles = uniqueDeferredAuthenticatedReferences.map((reference) => path.join(publicRoot, reference));
   const missing = fullAuthenticatedFiles.filter((file) => !fs.existsSync(file));
   if (missing.length) throw new Error(`Missing startup assets: ${missing.join(', ')}`);
+  const gzipFileBytes = (file) => gzipSync(fs.readFileSync(file), { level: 6 }).length;
+  const startupAssetGzipBytes = [
+    { asset: 'index.html', gzip_bytes: gzipFileBytes(indexPath) },
+    ...uniqueStartupReferences.map((reference) => ({
+      asset: reference,
+      gzip_bytes: gzipFileBytes(path.join(publicRoot, reference)),
+    })),
+  ].sort((left, right) => right.gzip_bytes - left.gzip_bytes);
   const inlineScriptBytes = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
     .reduce((total, match) => total + Buffer.byteLength(match[1]), 0);
   const blockingScriptCount = [...head.matchAll(/<script\b([^>]*)\bsrc="[^"]+"[^>]*><\/script>/g)]
@@ -104,12 +113,13 @@ export function collectFrontendEntryMetrics(repoRoot) {
 
   return {
     index_bytes: index.length,
-    public_shell_gzip_bytes: publicShellFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
-    startup_gzip_bytes: startupFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
-    full_authenticated_gzip_bytes: fullAuthenticatedFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
-    deferred_authenticated_gzip_bytes: deferredAuthenticatedFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
+    public_shell_gzip_bytes: publicShellFiles.reduce((total, file) => total + gzipFileBytes(file), 0),
+    startup_gzip_bytes: startupAssetGzipBytes.reduce((total, item) => total + item.gzip_bytes, 0),
+    full_authenticated_gzip_bytes: fullAuthenticatedFiles.reduce((total, file) => total + gzipFileBytes(file), 0),
+    deferred_authenticated_gzip_bytes: deferredAuthenticatedFiles.reduce((total, file) => total + gzipFileBytes(file), 0),
     inline_script_bytes: inlineScriptBytes,
     blocking_script_count: blockingScriptCount,
+    startup_asset_gzip_bytes: startupAssetGzipBytes,
     public_shell_asset_count: uniquePublicShellReferences.length,
     public_shell_assets: uniquePublicShellReferences,
     authenticated_asset_count: uniqueAuthenticatedReferences.length,

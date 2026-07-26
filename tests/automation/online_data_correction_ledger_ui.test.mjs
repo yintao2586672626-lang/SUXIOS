@@ -6,14 +6,14 @@ import { readFileSync } from 'node:fs';
 const read = (path) => readFileSync(path, 'utf8');
 
 test('public entry references the current dual-OTA asset content hash', () => {
-  const asset = readFileSync('public/dual-ota-home-static.js');
+  const asset = readFileSync('public/app-startup-helpers.min.js');
   const hash = createHash('sha256').update(asset).digest('hex').slice(0, 10);
   const index = read('public/index.html');
 
   assert.match(
     index,
-    new RegExp(`dual-ota-home-static\\.js\\?v=[^"']*h${hash}["']`),
-    'dual-ota-home-static.js query version must include its current content hash',
+    new RegExp(`app-startup-helpers\\.min\\.js\\?v=[^"']*h${hash}["']`),
+    'app-startup-helpers.min.js query version must include its current content hash',
   );
 });
 

@@ -275,14 +275,31 @@ if (!exists(capabilityEvalPath)) {
   }
 }
 
-const vaultPath = 'vault/project-state.md';
-if (!exists(vaultPath)) {
-  failures.push(`${vaultPath} is missing`);
+const stateEntryPath = 'vault/project-state.md';
+if (!exists(stateEntryPath)) {
+  failures.push(`${stateEntryPath} is missing`);
 } else {
-  const vault = read(vaultPath);
-  requireIncludes(vaultPath, vault, 'Updated:');
-  requireIncludes(vaultPath, vault, 'codex/save-project-20260531');
-  requireIncludes(vaultPath, vault, 'Ctrip response -> field -> table closure');
+  const stateEntry = read(stateEntryPath);
+  requireIncludes(stateEntryPath, stateEntry, 'vault/current-state.md');
+  requireIncludes(stateEntryPath, stateEntry, 'npm run state:refresh');
+  requireIncludes(stateEntryPath, stateEntry, 'vault/project-history.md');
+}
+
+const gitignorePath = '.gitignore';
+if (!exists(gitignorePath)) {
+  failures.push(`${gitignorePath} is missing`);
+} else {
+  requireIncludes(gitignorePath, read(gitignorePath), '/vault/current-state.md');
+}
+
+const historyPath = 'vault/project-history.md';
+if (!exists(historyPath)) {
+  failures.push(`${historyPath} is missing`);
+} else {
+  const history = read(historyPath);
+  requireIncludes(historyPath, history, 'Updated:');
+  requireIncludes(historyPath, history, 'codex/save-project-20260531');
+  requireIncludes(historyPath, history, 'Ctrip response -> field -> table closure');
 }
 
 const rulesPath = 'rules/permissions.md';

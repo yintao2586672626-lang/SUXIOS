@@ -25,6 +25,8 @@ return [
         'ai-daily-report:generate-once' => 'app\command\GenerateAiDailyReportOnce',
         'ai-daily-report:cleanup' => 'app\command\CleanupAiReportTasks',
         'cloud-automation:run' => 'app\command\RunCloudAutomation',
+        'cloud-collection:dispatch' => 'app\command\RunCloudCollectionDispatch',
+        'cloud-wechat-push:run' => 'app\command\RunCloudWechatPushOrchestrator',
         'cloud-data-bridge:run' => 'app\command\RunCloudDataBridge',
         'hotel-monitor:wechat-broadcast' => 'app\command\BroadcastHourlyHotelMonitor',
         'video-factory:director' => 'app\command\VideoFactoryDirector',

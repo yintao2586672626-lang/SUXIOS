@@ -145,7 +145,7 @@ if not "%CORE_TABLE_COUNT%"=="5" (
 )
 
 echo [INFO] Checking database schema version...
-"%PHP_EXE%" scripts\check_database_version.php
+"%PHP_EXE%" think db:check
 set "SCHEMA_EXIT=%ERRORLEVEL%"
 if not "%SCHEMA_EXIT%"=="0" (
     echo.

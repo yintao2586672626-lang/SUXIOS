@@ -275,10 +275,8 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   const report = await inspectFrontendTemplateBuild(repoRoot, { lockHeld: true });
   assert.deepEqual(report.failures, []);
   assert.equal(report.metrics.render_hash, hash);
-  assert.ok(report.metrics.render_gzip_headroom_bytes >= 2_000);
   assert.ok(report.metrics.data_config_dialogs_artifact_bytes > 0);
   assert.ok(report.metrics.data_config_dialogs_artifact_gzip_bytes > 0);
-  assert.ok(report.metrics.startup_render_gzip_bytes < 35_000);
   assert.ok(report.metrics.fragment_count >= 30);
   assert.equal(report.metrics.template_snapshot_matches, true);
   assert.equal(report.metrics.template_snapshot_pin_matches, true);

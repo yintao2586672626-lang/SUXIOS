@@ -6,7 +6,6 @@ import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
-const meituanStaticHash = createHash('sha256').update(meituanStatic).digest('hex').slice(0, 10);
 
 const sliceFrom = (source, needle, endNeedle) => {
   const start = source.indexOf(needle);
@@ -96,8 +95,10 @@ test('Meituan production flow invalidates stale runs when the hotel changes', ()
 });
 
 test('Meituan ranking candidate flow ships with a fresh browser cache key', () => {
+  const startupHelpers = readFileSync('public/app-startup-helpers.min.js');
+  const startupHelpersHash = createHash('sha256').update(startupHelpers).digest('hex').slice(0, 10);
   assert.match(
     html,
-    new RegExp(`meituan-static\\.js\\?v=[^"']*h${meituanStaticHash}`)
+    new RegExp(`app-startup-helpers\\.min\\.js\\?v=[^"']*h${startupHelpersHash}`)
   );
 });

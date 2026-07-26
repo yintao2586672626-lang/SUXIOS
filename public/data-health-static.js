@@ -4244,7 +4244,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         trusted_fields: '哪些字段可信',
         missing_fields: '哪些字段缺失',
         revenue_traffic_conversion: '收入/流量/转化问题',
-        ai_evidence: 'AI 建议依据',
+        ai_evidence: 'AI 依据摘要',
         next_operation_action: '下一步执行动作',
     }[String(key || '').trim()] || String(key || '').trim());
 

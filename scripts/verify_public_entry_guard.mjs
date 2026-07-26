@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
+import { inspectFrontendStartupHelpers } from './lib/frontend_startup_helpers_build.mjs';
 import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
 import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs';
 import {
@@ -213,28 +214,14 @@ if (!fs.existsSync(indexPath)) {
   failures.push(...tailwindBuildInspection.failures);
   const templateBuildInspection = await inspectFrontendTemplateBuild(repoRoot);
   failures.push(...templateBuildInspection.failures);
+  const startupHelperBuildInspection = await inspectFrontendStartupHelpers(repoRoot);
+  failures.push(...startupHelperBuildInspection.failures);
   const appMainHash = appMainRuntimeContent
     ? crypto.createHash('sha256').update(appMainRuntimeContent).digest('hex').slice(0, 10)
     : '';
   const appMainReference = runtimeAssetReference('app-main.min.js');
   if (!appMainReference.includes(`h${appMainHash}`)) {
     failures.push('public/index.html must use the current public/app-main.min.js content hash in its immutable cache version.');
-  }
-  const appBootstrapHash = appBootstrapContent
-    ? crypto.createHash('sha256').update(appBootstrapContent).digest('hex').slice(0, 10)
-    : '';
-  const appBootstrapReference = deferredAssetReferences.find(
-    (reference) => stripFrontendAssetQuery(reference) === 'app-bootstrap.js',
-  ) || '';
-  if (!appBootstrapReference.includes(`h${appBootstrapHash}`)) {
-    failures.push('public/index.html must use the current public/app-bootstrap.js content hash in its immutable cache version.');
-  }
-  const systemStaticHash = systemStaticContent
-    ? crypto.createHash('sha256').update(systemStaticContent).digest('hex').slice(0, 10)
-    : '';
-  const systemStaticReference = runtimeAssetReference('system-static.js');
-  if (!systemStaticReference.includes(`h${systemStaticHash}`)) {
-    failures.push('public/index.html must use the current public/system-static.js content hash in its immutable cache version.');
   }
   const otaBrowserAssistStaticHash = otaBrowserAssistStaticContent.length > 0
     ? crypto.createHash('sha256').update(otaBrowserAssistStaticContent).digest('hex').slice(0, 10)
@@ -285,7 +272,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push('The authenticated bootstrap must remount deferred full pages through isolated render caches.');
   }
 
-if (!runtimeAssetPaths.includes('system-static.js')
+if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
     || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
@@ -315,23 +302,6 @@ if (!runtimeAssetPaths.includes('system-static.js')
     }
   }
 
-  const ctripStaticVersion = runtimeAssetReference('ctrip-static.js').split('?')[1] || '';
-  const ctripStaticHash = ctripStaticContent
-    ? crypto.createHash('sha256').update(ctripStaticContent).digest('hex').slice(0, 10)
-    : '';
-  const meituanStaticVersion = runtimeAssetReference('meituan-static.js').split('?')[1] || '';
-  const meituanStaticHash = meituanStaticContent
-    ? crypto.createHash('sha256').update(meituanStaticContent).digest('hex').slice(0, 10)
-    : '';
-  const dataHealthStaticVersion = runtimeAssetReference('data-health-static.js').split('?')[1] || '';
-  const dataHealthStaticHash = dataHealthStaticContent
-    ? crypto.createHash('sha256').update(dataHealthStaticContent).digest('hex').slice(0, 10)
-    : '';
-  if (!ctripStaticVersion.includes(`h${ctripStaticHash}`)
-    || !meituanStaticVersion.includes(`h${meituanStaticHash}`)
-    || !dataHealthStaticVersion.includes(`h${dataHealthStaticHash}`)) {
-    failures.push('public/index.html must keep static helper cache versions aligned with changed helper files.');
-  }
   try {
     const requiredMeituanStaticKeys = [...new Set(
       [...content.matchAll(/requireMeituanStatic\('([^']+)'\)/g)].map(match => match[1])
@@ -458,8 +428,9 @@ if (!runtimeAssetPaths.includes('system-static.js')
     failures.push('public/index.html operation-log user filter must render invalid or partial user rows safely.');
   }
   const vueRuntimeReference = runtimeAssetReference('vue.runtime.global.prod.js');
-  if (!vueRuntimeReference.includes('?v=') || !systemStaticReference.includes('?v=')) {
-    failures.push('public/index.html must version core Vue/system static assets so P0 entry fixes are not hidden by stale browser cache.');
+  const startupHelperReference = runtimeAssetReference('app-startup-helpers.min.js');
+  if (!vueRuntimeReference.includes('?v=') || !startupHelperReference.includes('?v=')) {
+    failures.push('public/index.html must version core Vue/startup helper assets so P0 entry fixes are not hidden by stale browser cache.');
   }
 
   if (/\/assets\/index-[A-Za-z0-9_-]+\.(?:js|css)/.test(content)) {
@@ -2687,7 +2658,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || !content.includes("const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');")
     || !content.includes("const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');")
     || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
-    || !dataHealthStaticVersion
+    || !startupHelperReference
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
     || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
     || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')

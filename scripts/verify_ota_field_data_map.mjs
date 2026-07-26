@@ -96,7 +96,7 @@ function findCtripDedicatedTableWriters(rootDir) {
 
 function ctripMetricFactsProjectionEvidence(rootDir) {
   const projectionPath = 'app/service/CtripMetricFactProjectionService.php';
-  const persistencePath = 'app/service/PlatformDataSyncService.php';
+  const persistencePath = 'app/service/PlatformNormalizedRowPersistenceService.php';
   const projection = readRequired(rootDir, projectionPath);
   const persistence = readRequired(rootDir, persistencePath);
 

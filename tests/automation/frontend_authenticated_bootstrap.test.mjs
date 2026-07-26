@@ -10,6 +10,7 @@ import {
 
 const index = fs.readFileSync('public/index.html', 'utf8');
 const bootstrap = fs.readFileSync('public/app-bootstrap.js', 'utf8');
+const bootstrapRuntime = fs.readFileSync('public/app-bootstrap.min.js', 'utf8');
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
 
@@ -42,12 +43,22 @@ test('public login shell defers the authenticated application asset chain', () =
     );
   }
   assert(!assets.includes('ota-browser-assist-static.js'), 'OTA browser assist must load only after its copy action');
-  assert(assets.includes('ctrip-static.js'));
-  assert(assets.includes('meituan-static.js'));
-  assert(assets.includes('data-health-static.js'));
-  assert.match(index, /<script defer src="app-bootstrap\.js\?v=[^"]+"[^>]*><\/script>/);
-  const versionHash = index.match(/app-bootstrap\.js\?v=[^"']*-h([a-f0-9]{10})/)?.[1];
-  const contentHash = crypto.createHash('sha256').update(bootstrap).digest('hex').slice(0, 10);
+  assert(assets.includes('app-startup-helpers.min.js'));
+  for (const sourceAsset of [
+    'shared-components.js',
+    'ctrip-static.js',
+    'meituan-static.js',
+    'data-health-static.js',
+    'system-static.js',
+    'compass-static.js',
+    'home-static.js',
+    'dual-ota-home-static.js',
+  ]) {
+    assert(!assets.includes(sourceAsset), `${sourceAsset} must stay out of the runtime manifest`);
+  }
+  assert.match(index, /<script defer src="app-bootstrap\.min\.js\?v=[^"]+"[^>]*><\/script>/);
+  const versionHash = index.match(/app-bootstrap\.min\.js\?v=[^"']*-h([a-f0-9]{10})/)?.[1];
+  const contentHash = crypto.createHash('sha256').update(bootstrapRuntime).digest('hex').slice(0, 10);
   assert.equal(versionHash, contentHash, 'public login bootstrap URL must follow its current content hash');
   assert.doesNotMatch(index, /<script defer src="(?:vue\.runtime|ctrip-static|meituan-static|data-health-static|app-render|min\.js|app-main)/);
 });

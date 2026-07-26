@@ -104,12 +104,10 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringContainsString('realtime-only cannot be combined with target-date.', $output->fetch());
     }
 
-    public function testCloudCollectorFailsClosedBeforeAnyDatabaseOrPlatformWorkWhenProfileIsNotVerified(): void
+    public function testCloudCollectorFailsClosedBeforeDatabaseOrPlatformWorkWhenExplicitScopeIsMissing(): void
     {
         $previousCollector = getenv('SUXIOS_OTA_CLOUD_COLLECTOR');
-        $previousProfile = getenv('SUXIOS_OTA_CLOUD_PROFILE_READY');
         putenv('SUXIOS_OTA_CLOUD_COLLECTOR=1');
-        putenv('SUXIOS_OTA_CLOUD_PROFILE_READY=0');
 
         try {
             $command = new AutoFetchOnlineData();
@@ -117,11 +115,112 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
             $input->setInteractive(false);
             $output = new Output('buffer');
 
-            self::assertSame(75, $command->run($input, $output));
-            self::assertStringContainsString('Cloud OTA collector blocked:', $output->fetch());
+            self::assertSame(78, $command->run($input, $output));
+            self::assertStringContainsString(
+                'explicit single_user_local mode, collector-user-id, collector-device-id, hotel-id, source-ids, and platforms are required',
+                $output->fetch()
+            );
         } finally {
             putenv('SUXIOS_OTA_CLOUD_COLLECTOR' . ($previousCollector === false ? '' : '=' . $previousCollector));
-            putenv('SUXIOS_OTA_CLOUD_PROFILE_READY' . ($previousProfile === false ? '' : '=' . $previousProfile));
+        }
+    }
+
+    public function testCloudScopeValidationReceiptIsExplicitlyNonCollectingAndNonSensitive(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $scope = [
+            'mode' => 'single_user_local',
+            'authorization_mode' => 'cross_tenant_super_admin_explicit_hotel_grant',
+            'tenant_id' => 80,
+            'user_id' => 1,
+            'device_id' => 'server-owner-device',
+            'device_id_hash' => hash('sha256', 'server-owner-device'),
+            'hotel_id' => 80,
+            'source_ids' => [25, 68],
+            'platforms' => ['ctrip', 'meituan'],
+        ];
+        $property = new \ReflectionProperty($command, 'cloudCollectorScope');
+        $property->setValue($command, $scope);
+        $method = new \ReflectionMethod($command, 'cloudCollectorScopeValidationReceipt');
+
+        $receipt = $method->invoke($command);
+
+        self::assertSame('scope_ready_for_current_session_probe', $receipt['status']);
+        self::assertSame('cross_tenant_super_admin_explicit_hotel_grant', $receipt['authorization_mode']);
+        self::assertSame('server-owner-device', $receipt['collector_device_id']);
+        self::assertSame([25, 68], $receipt['source_ids']);
+        self::assertFalse($receipt['current_session_probe_performed']);
+        self::assertFalse($receipt['collection_performed']);
+        self::assertFalse($receipt['persistence_performed']);
+        self::assertFalse($receipt['sensitive_values_exposed']);
+        self::assertArrayNotHasKey('device_id_hash', $receipt);
+    }
+
+    public function testCloudTenantAuthorizationAllowsOnlySameTenantOrControlledSuperAdminWithExplicitGrant(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'collectorTenantAuthorizationMode');
+
+        self::assertSame(
+            'same_tenant_explicit_hotel_grant',
+            $method->invoke($command, 80, false, 80, true)
+        );
+
+        self::assertSame(
+            'cross_tenant_super_admin_explicit_hotel_grant',
+            $method->invoke($command, 7, true, 80, true)
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('no active, unexpired, tenant-bound hotel fetch grant');
+        $method->invoke($command, 7, true, 80, false);
+    }
+
+    public function testCloudScopeValidationRequiresCloudCollectorModeBeforeDatabaseWork(): void
+    {
+        $previousCollector = getenv('SUXIOS_OTA_CLOUD_COLLECTOR');
+        putenv('SUXIOS_OTA_CLOUD_COLLECTOR=0');
+
+        try {
+            $command = new AutoFetchOnlineData();
+            $input = new Input(['--validate-cloud-scope']);
+            $input->setInteractive(false);
+            $output = new Output('buffer');
+
+            self::assertSame(1, $command->run($input, $output));
+            self::assertStringContainsString(
+                'Cloud scope validation, binding or unbinding requires SUXIOS_OTA_CLOUD_COLLECTOR=1.',
+                $output->fetch()
+            );
+        } finally {
+            putenv('SUXIOS_OTA_CLOUD_COLLECTOR' . ($previousCollector === false ? '' : '=' . $previousCollector));
+        }
+    }
+
+    public function testCloudBindingConfirmationAndRotationCannotRunWithoutTheirParentModes(): void
+    {
+        $cases = [
+            [
+                ['--confirm-cloud-scope-binding'],
+                'confirm-cloud-scope-binding requires bind-cloud-scope.',
+            ],
+            [
+                ['--rotate-cloud-device-binding'],
+                'rotate-cloud-device-binding requires bind-cloud-scope and confirm-cloud-scope-binding.',
+            ],
+            [
+                ['--confirm-cloud-scope-unbind'],
+                'confirm-cloud-scope-unbind requires unbind-cloud-scope.',
+            ],
+        ];
+        foreach ($cases as [$arguments, $expectedMessage]) {
+            $command = new AutoFetchOnlineData();
+            $input = new Input($arguments);
+            $input->setInteractive(false);
+            $output = new Output('buffer');
+
+            self::assertSame(1, $command->run($input, $output));
+            self::assertStringContainsString($expectedMessage, $output->fetch());
         }
     }
 
@@ -152,6 +251,173 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringContainsString('scheduled_profile_source_scope_missing:', $source);
         self::assertStringContainsString('profileSourcesForRun($sources, $sourceIds)', $source);
         self::assertStringContainsString('SUXIOS_AUTO_FETCH_RECEIPT=', $source);
+    }
+
+    public function testCloudSourceScopeRequiresExactUserTenantHotelPlatformDeviceAndMode(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'assertCloudCollectorSourceRow');
+        $scope = [
+            'mode' => 'single_user_local',
+            'tenant_id' => 9,
+            'user_id' => 17,
+            'device_id' => 'cloud-owner-device',
+            'device_id_hash' => hash('sha256', 'cloud-owner-device'),
+            'hotel_id' => 80,
+            'source_ids' => [25],
+            'platforms' => ['ctrip'],
+        ];
+        $source = [
+            'id' => 25,
+            'tenant_id' => 9,
+            'user_id' => 17,
+            'system_hotel_id' => 80,
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+            'enabled' => 1,
+            'status' => 'ready',
+            'config_json' => json_encode([
+                'source_method' => 'single_user_local',
+                'collector_binding_mode' => 'single_user_local',
+                'collector_device_id' => 'cloud-owner-device',
+                'collector_device_id_hash' => hash('sha256', 'cloud-owner-device'),
+                'collector_user_id' => 17,
+                'collector_tenant_id' => 9,
+                'collector_hotel_id' => 80,
+                'collector_platform' => 'ctrip',
+                'collector_bound_at' => '2026-07-25 22:30:00',
+            ], JSON_THROW_ON_ERROR),
+        ];
+
+        $method->invoke($command, $source, $scope);
+        self::assertTrue(true);
+
+        foreach ([
+            ['user_id', 18],
+            ['system_hotel_id', 81],
+            ['platform', 'meituan'],
+        ] as [$field, $value]) {
+            $invalid = $source;
+            $invalid[$field] = $value;
+            try {
+                $method->invoke($command, $invalid, $scope);
+                self::fail("Expected {$field} scope mismatch.");
+            } catch (\ReflectionException $e) {
+                throw $e;
+            } catch (\Throwable $e) {
+                self::assertStringContainsString('outside the collector user/tenant/hotel/platform whitelist', $e->getMessage());
+            }
+        }
+
+        $wrongDevice = $source;
+        $wrongDevice['config_json'] = json_encode([
+            'source_method' => 'single_user_local',
+            'collector_binding_mode' => 'single_user_local',
+            'collector_device_id' => 'cloud-owner-device',
+            'collector_device_id_hash' => hash('sha256', 'other-device'),
+            'collector_user_id' => 17,
+            'collector_tenant_id' => 9,
+            'collector_hotel_id' => 80,
+            'collector_platform' => 'ctrip',
+            'collector_bound_at' => '2026-07-25 22:30:00',
+        ], JSON_THROW_ON_ERROR);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('not bound to this collector device');
+        $method->invoke($command, $wrongDevice, $scope);
+    }
+
+    public function testCloudScopeBindingMetadataIsAuditableAndPreservesProfileConfiguration(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'cloudCollectorBoundSourceConfig');
+        $scope = [
+            'device_id' => 'server-owner-device',
+            'device_id_hash' => hash('sha256', 'server-owner-device'),
+            'user_id' => 1,
+            'tenant_id' => 80,
+            'hotel_id' => 80,
+        ];
+        $config = [
+            'stable_profile_id' => 'existing-profile',
+            'manual_login_state_verified' => true,
+        ];
+
+        $bound = $method->invoke(
+            $command,
+            ['id' => 25, 'platform' => 'ctrip'],
+            $config,
+            $scope,
+            '2026-07-25 22:30:00'
+        );
+
+        self::assertSame('existing-profile', $bound['stable_profile_id']);
+        self::assertTrue($bound['manual_login_state_verified']);
+        self::assertSame('single_user_local', $bound['source_method']);
+        self::assertSame('single_user_local', $bound['collector_binding_mode']);
+        self::assertSame('server-owner-device', $bound['collector_device_id']);
+        self::assertSame(hash('sha256', 'server-owner-device'), $bound['collector_device_id_hash']);
+        self::assertSame(1, $bound['collector_user_id']);
+        self::assertSame(80, $bound['collector_tenant_id']);
+        self::assertSame(80, $bound['collector_hotel_id']);
+        self::assertSame('ctrip', $bound['collector_platform']);
+        self::assertSame('2026-07-25 22:30:00', $bound['collector_bound_at']);
+    }
+
+    public function testCloudBindingReceiptNeverClaimsCollectionOrSessionProof(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $scope = [
+            'mode' => 'single_user_local',
+            'authorization_mode' => 'cross_tenant_super_admin_explicit_hotel_grant',
+            'tenant_id' => 80,
+            'user_id' => 1,
+            'device_id' => 'server-owner-device',
+            'device_id_hash' => hash('sha256', 'server-owner-device'),
+            'hotel_id' => 80,
+            'source_ids' => [25, 68],
+            'platforms' => ['ctrip', 'meituan'],
+        ];
+        (new \ReflectionProperty($command, 'cloudCollectorScope'))->setValue($command, $scope);
+        $receipt = (new \ReflectionMethod($command, 'cloudCollectorBindingReceipt'))
+            ->invoke($command, 'confirmation_required', false);
+
+        self::assertSame('confirmation_required', $receipt['status']);
+        self::assertFalse($receipt['database_write_performed']);
+        self::assertFalse($receipt['current_session_probe_performed']);
+        self::assertFalse($receipt['collection_performed']);
+        self::assertFalse($receipt['persistence_performed']);
+        self::assertFalse($receipt['sensitive_values_exposed']);
+        self::assertArrayNotHasKey('device_id_hash', $receipt);
+    }
+
+    public function testCloudSourceScopeRejectsDuplicateRowsForOneBrowserProfileAccount(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+
+        self::assertStringContainsString(
+            'count(OtaOrderedCollectionPlanner::oneSourcePerBrowserProfileAccount($sources)) !== count($sources)',
+            $source
+        );
+        self::assertStringContainsString(
+            'select one source id per platform account',
+            $source
+        );
+    }
+
+    public function testCloudCollectionRequiresCurrentRunSessionAndPlatformHotelProofBeforePersistence(): void
+    {
+        $commandSource = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+        $syncSource = (string)file_get_contents(dirname(__DIR__) . '/app/service/PlatformDataSyncService.php');
+
+        self::assertStringContainsString(
+            "'require_current_session_probe' => \$this->cloudCollectorScope !== []",
+            $commandSource
+        );
+        self::assertStringContainsString("'required_collector_binding' =>", $commandSource);
+        self::assertStringContainsString('assertRequiredCollectorBinding', $syncSource);
+        self::assertStringContainsString('assertRequiredCurrentRunProfileSessionProbe', $syncSource);
+        self::assertStringContainsString("\$identityStatus === 'matched'", $syncSource);
+        self::assertStringContainsString('Current session proof from this execution is missing', $syncSource);
     }
 
     public function testHistoricalProfileRunUsesOrderedStoredGapPlanWithoutLocalAgentRegistration(): void

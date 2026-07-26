@@ -19,6 +19,9 @@ __pycache__/
 /app/runtime/
 /storage/meituan_profile_*/
 /storage/ctrip_profile_*/
+# Local OTA collector state stays on the account holder's computer.
+# It can contain device credentials and unsent/failed result packages.
+/storage/local_collector/
 *.log
 debug.log
 
@@ -73,6 +76,7 @@ hotelx_dump.sql
 .codebuddy/
 .workbuddy/
 .snapshots/
+/vault/current-state.md
 .agents/vendor/
 worktree-quarantine/
 query/

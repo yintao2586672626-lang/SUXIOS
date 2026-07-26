@@ -6,7 +6,9 @@ import test from 'node:test';
 import {
   accountProfileDirectoryName,
   buildCaptureResultSummary,
+  createLocalConnectServer,
   extractSanitizedRows,
+  isTrustedLocalConnectOrigin,
   orderedSectionsForTask,
   pruneLocalResultFiles,
   sanitizeBusinessValue,
@@ -26,6 +28,42 @@ test('one account Profile key is stable across mapped hotels', () => {
     accountProfileDirectoryName('ctrip', key),
     accountProfileDirectoryName('ctrip', 'b'.repeat(64)),
   );
+});
+
+test('website can connect a running local collector without exposing its pairing proof', async () => {
+  assert.equal(isTrustedLocalConnectOrigin('https://www.glslsuxi.cn', 'https://www.glslsuxi.cn'), true);
+  assert.equal(isTrustedLocalConnectOrigin('https://other.example', 'https://www.glslsuxi.cn'), false);
+  let received = null;
+  const listener = createLocalConnectServer({
+    server: 'https://www.glslsuxi.cn',
+    pairDeviceFn: async input => {
+      received = input;
+      return { device_name: input.name, device_public_id: 'device_public_test' };
+    },
+  });
+  await new Promise((resolveListen, rejectListen) => {
+    listener.once('error', rejectListen);
+    listener.listen(0, '127.0.0.1', resolveListen);
+  });
+  const port = listener.address().port;
+  try {
+    const blocked = await fetch(`http://127.0.0.1:${port}/connect`, {
+      method: 'POST', headers: { Origin: 'https://other.example', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server: 'https://other.example', pair_code: 'nope' }),
+    });
+    assert.equal(blocked.status, 403);
+    const connected = await fetch(`http://127.0.0.1:${port}/connect`, {
+      method: 'POST', headers: { Origin: 'https://www.glslsuxi.cn', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server: 'https://www.glslsuxi.cn', pair_code: 'internal-short-lived-proof', device_name: '测试电脑' }),
+    });
+    assert.equal(connected.status, 200);
+    const result = await connected.json();
+    assert.deepEqual(result, { status: 'paired', device_name: '测试电脑', device_public_id: 'device_public_test' });
+    assert.equal(JSON.stringify(result).includes('internal-short-lived-proof'), false);
+    assert.equal(received.code, 'internal-short-lived-proof');
+  } finally {
+    await new Promise(resolveClose => listener.close(resolveClose));
+  }
 });
 
 test('local upload keeps business facts and strips all session material', () => {
@@ -167,6 +205,8 @@ test('server contract exposes paired device endpoints and never accepts central 
     ctrip,
     meituan,
     localAgent,
+    starter,
+    autoStart,
     template,
     notifications,
   ] = await Promise.all([
@@ -177,6 +217,8 @@ test('server contract exposes paired device endpoints and never accepts central 
     read('scripts/ctrip_browser_capture.mjs'),
     read('scripts/meituan_browser_capture.mjs'),
     read('scripts/ota_local_collector.mjs'),
+    read('scripts/start_local_collector.ps1'),
+    read('scripts/register_local_collector_autostart.ps1'),
     read('resources/frontend/templates/fragments/35-page-online-data.html'),
     read('app/service/OtaFailureNotificationService.php'),
   ]);
@@ -206,8 +248,15 @@ test('server contract exposes paired device endpoints and never accepts central 
   assert.match(controller, /Authorization/);
   assert.match(ctrip, /ctrip_account_profile_/);
   assert.match(localAgent, /--sequential-sections=true/);
+  assert.match(localAgent, /createLocalConnectServer/);
+  assert.match(localAgent, /Access-Control-Allow-Private-Network/);
+  assert.match(starter, /serve/);
+  assert.match(starter, /--port=\$Port/);
+  assert.match(autoStart, /ONLOGON/);
   assert.match(meituan, /meituan_account_profile_/);
   assert.match(template, /data-testid="local-collector-account-center"/);
+  assert.match(template, /连接此电脑/);
+  assert.doesNotMatch(template, /生成 10 分钟配对码/);
   assert.match(template, /联系管理员/);
   assert.match(notifications, /buildOtaCollectionFailurePayload/);
   assert.match(notifications, /notify_wecom/);

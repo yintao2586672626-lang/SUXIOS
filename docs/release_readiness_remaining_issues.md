@@ -6,11 +6,15 @@ Scope: `@github`, `@openai-developers`, `@codex-security`, `@figma`, `@canva`
 
 Evidence note: this document records a dated 2026-07-09 snapshot. CI contract checks validate structure and behavior only; they are not release approval, and all dynamic gates must be rerun on the final checkout.
 
-## Current Conclusion
+## 2026-07-09 Historical Conclusion
 
 The existing contract and review checks can pass while the project remains not release-ready. `npm run review:release-readiness` defaults to `RELEASE_EVIDENCE_DIR` or `../release-evidence-temp` for controlled production env, LLM attestation, PR-candidate, staged-scope, and external-state result evidence. In the 2026-07-09 snapshot it reported 2 failures: design handoff and OTA credential rotation attestation. Production env, production LLM attestation, formal Codex Security scan artifacts, and PR #6 external-state evidence were closed only for that evidence head. The cited clean checkout was PR #6 head `e874b686a73bfe07d57a29bf85eba0dc6702a699`; none of those dynamic results may be reused after a PR or worktree change.
 
-Machine-readable status: `docs/release_readiness_status.json`.
+Historical machine-readable snapshot: `docs/release_readiness_status.json` (`current_use_forbidden=true`).
+
+Current stable blocker policy: `docs/release_blocker_policy.json`.
+
+Current live result: run `npm run state:refresh`, then `npm run review:release-readiness`; do not copy its transient PR, HEAD, worktree, lock, or pass-count facts back into tracked policy documents.
 
 Command-to-blocker matrix: `docs/release_verification_command_matrix.md`.
 
@@ -26,7 +30,7 @@ Command result evidence: `npm run review:release-readiness` writes `release-read
 
 Optional GitHub/local-state result evidence: run `npm run review:release-pr-candidates` to discover open viable release PRs; if exactly one viable PR exists it is selected automatically, and if multiple viable PRs exist set `RELEASE_PR_NUMBER` to the intended final PR and rerun `npm run review:release-pr-candidates` so the result records both `configured_release_pr_number` and `selected_release_pr_number`. The command writes `release-pr-candidates-result.json` under `RELEASE_PR_CANDIDATES_RESULT_FILE` or `RELEASE_EVIDENCE_DIR` / `../release-evidence-temp`, outside the repository. Run `npm run review:release-staged-scope` before final PR staging; it writes `release-staged-scope-result.json` under `RELEASE_STAGED_SCOPE_RESULT_FILE` or the same controlled evidence directory and rejects runtime/local staged files. Then set `RELEASE_EXTERNAL_STATE_RESULT_FILE=<controlled-path>` when running `npm run review:release-external-state`; otherwise the command writes `release-external-state-result.json` under `RELEASE_EVIDENCE_DIR` / `../release-evidence-temp`, and `review:release-readiness` consumes the latest controlled result. External-state also records `git rev-parse HEAD` and fails unless the captured local HEAD matches the selected final PR head. If Node child_process is blocked, use `npm run review:release-external-state:local`; the wrapper collects equivalent command evidence and writes both the evidence JSON and result JSON under the controlled evidence directory outside the repository. The raw collector can still write `docs/release_external_state_evidence.local.json`, which must stay ignored and is not the final readiness result. The result JSON follows `docs/release_external_state_result.example.json`.
 
-## Current Hard Blocker Matrix
+## 2026-07-09 Historical Hard Blocker Matrix
 
 | # | Scope | Blocker | Current evidence | Close condition |
 |---:|---|---|---|---|
@@ -47,7 +51,7 @@ Optional GitHub/local-state result evidence: run `npm run review:release-pr-cand
 | Production env evidence | Closed for current evidence head | External `RELEASE_ENV_FILE` at `../release-evidence-temp/production.env` passes `npm run review:release-env`; file contents are not committed. |
 | Production LLM connectivity | Closed for current evidence head | External `LLM_CONNECTIVITY_ATTESTATION_FILE` at `../release-evidence-temp/llm-attestation.json` passes `npm run review:release-llm`. |
 | Formal Codex Security scan | Closed for current release-evidence head | `docs/security/codex-security/latest` contains `scan_manifest.json`, `report.md`, `report.html`, threat model, finding discovery report, repository coverage ledger, reviewed surfaces, validation summary, and attack-path analysis report; `npm run review:release-security-scan` passes. |
-| GitHub / local handoff | Closed for current PR #6 verification head | `review:release-pr-candidates` selected PR #6; `review:release-staged-scope` found no forbidden staged files; `review:release-external-state` passed from a clean checkout at `e874b686a73bfe07d57a29bf85eba0dc6702a699`. |
+| GitHub / local handoff | Historical PR #6 snapshot only | The dated snapshot selected PR #6 and passed external-state at its then-current head. It does not describe the current checkout or current PR state. |
 | UI code-side handoff checklist | Added | `docs/ui-handoff/README.md` covers login, OTA data, revenue analysis, AI decision, operations management, and investment decision code-side review points. |
 | Local functional acceptance gate | Added | `npm run review:functional-readiness` checks structural coverage for OTA data, revenue analysis, AI decision, operations management, and investment decision. |
 | Release issue register | Added | `docs/release_issue_register.md` lists every open blocker, scope, evidence, acceptance command, and close condition. |
@@ -70,10 +74,11 @@ Required retained evidence:
 - A controlled production env file exists outside the repository and is referenced through `RELEASE_ENV_FILE`.
 - `APP_DEBUG=false`.
 - `APP_TRACE=false`.
-- `DB_HOST` does not point to localhost or loopback.
+- `DB_HOST=127.0.0.1` is accepted for the current `single_instance` deployment; `0.0.0.0` remains invalid.
 - Database values are non-placeholder and non-empty.
 - `DB_USER` is not `root`.
 - `AI_CONFIG_SECRET` is present and non-placeholder.
+- `SUXIOS_REQUIRE_PERSISTENT_LOCAL_STATE=true`, with external absolute cache and lock paths.
 - `RELEASE_ENV_FILE` does not point to `.example.production.env`, sample/template files, or a repo-local env file.
 - `npm run review:release-env` passes against the same `RELEASE_ENV_FILE`.
 - `npm run review:release-readiness` no longer reports the production env failure.
@@ -245,11 +250,11 @@ Required close evidence:
 
 Scope: `@github`
 
-The previous configured handoff target is stale, but current PR evidence now selects PR #6. `review:release-external-state` passes from a clean checkout where local HEAD matches PR #6 at `e874b686a73bfe07d57a29bf85eba0dc6702a699`. This must be rerun after any PR update.
+The 2026-07-09 snapshot selected PR #6. That PR number, head, worktree result, and external-state result are historical only and must not be reused for the current handoff.
 
 Required close evidence:
 
-- The actual final release PR remains selected through `RELEASE_PR_NUMBER=6` before release handoff.
+- The actual final release PR is selected from a fresh `npm run review:release-pr-candidates` result; set `RELEASE_PR_NUMBER` only when the fresh candidate set requires explicit selection.
 - The configured final release PR is open, non-draft, mergeable, and green.
 - `.git/index.lock` remains absent.
 - The release-closing checkout remains clean and matches the final PR head.

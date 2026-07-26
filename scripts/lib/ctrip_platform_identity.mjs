@@ -150,6 +150,8 @@ export function evaluateCtripPlatformIdentity(expectedIdentifiers, observedIdent
     observed_name_count: observedNames.length,
     matched_name_count: matchedNames.length,
     mismatched_name_count: mismatchedNames.length,
+    additional_identifiers_present: mismatched.length > 0,
+    out_of_scope_identifier_count: mismatched.length,
     sensitive_values_exposed: false,
   };
 
@@ -167,7 +169,10 @@ export function evaluateCtripPlatformIdentity(expectedIdentifiers, observedIdent
   if (observed.length > 0) {
     let status = 'matched';
     if (matched.length === 0) status = 'mismatch';
-    else if (mismatched.length > 0 || matched.length > 1 || observed.length > 1) status = 'ambiguous';
+    else if (
+      matched.length > 1
+      || (mismatched.length > 0 && options.allowAdditionalObservedIdentifiers !== true)
+    ) status = 'ambiguous';
 
     return {
       ...base,
@@ -176,6 +181,7 @@ export function evaluateCtripPlatformIdentity(expectedIdentifiers, observedIdent
       evidence_source: 'ota_request',
       validated_identifier: status === 'matched' ? matched[0] : '',
       validated_name: '',
+      row_scope_filter_required: status === 'matched' && mismatched.length > 0,
     };
   }
 

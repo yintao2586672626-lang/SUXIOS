@@ -24,6 +24,7 @@ test('home evidence hierarchy uses exact facts and source boundaries instead of 
 });
 
 test('compass static cache key matches the shipped asset content', () => {
-  const hash = createHash('sha256').update(compassStatic).digest('hex').slice(0, 10);
-  assert.match(publicIndex, new RegExp(`compass-static\\.js\\?v=[^"']*h${hash}`));
+  const runtime = readFileSync('public/app-startup-helpers.min.js');
+  const hash = createHash('sha256').update(runtime).digest('hex').slice(0, 10);
+  assert.match(publicIndex, new RegExp(`app-startup-helpers\\.min\\.js\\?v=[^"']*h${hash}`));
 });

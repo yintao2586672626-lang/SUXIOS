@@ -8,6 +8,7 @@ use app\model\OperationLog;
 use app\model\LoginLog;
 use app\model\SystemConfig;
 use app\model\Hotel;
+use app\service\AuthTokenState;
 use app\service\LoginRateLimiter;
 use app\service\PermissionService;
 use think\Response;
@@ -201,7 +202,11 @@ class Auth extends Base
 
         try {
             $tokenStored = $this->writeLoginCacheValue($tokenKey, $tokenData, self::TOKEN_TTL_SECONDS);
-            $userTokenStored = $this->writeLoginCacheValue($userTokenKey, $token, self::TOKEN_TTL_SECONDS);
+            $userTokenStored = $this->writeLoginCacheValue(
+                $userTokenKey,
+                AuthTokenState::userTokenDigest($token),
+                self::TOKEN_TTL_SECONDS
+            );
         } catch (\Throwable) {
             // Cleanup below is mandatory even when the cache driver throws.
         }
@@ -584,7 +589,7 @@ class Auth extends Base
                     LoginLog::record($user->id, $user->username, 'logout', 'success', null, $ip, $userAgent);
                 }
                 
-                cache('user_token_' . $userId, null);
+                AuthTokenState::forgetUserTokenIndexIfCurrent((int)$userId, $token);
             }
             cache('token_' . $token, null);
         }

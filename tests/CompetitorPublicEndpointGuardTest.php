@@ -52,8 +52,18 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
             self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, 'mt', $storeId, $hotelId, $bindingId, $tokenVersion]));
             self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId + 1, $hotelId, $bindingId, $tokenVersion]));
             self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId, $hotelId + 1, $bindingId, $tokenVersion]));
-            self::assertTrue($this->invokeNonPublic($controller, 'consumeTaskAssignment', $scope));
-            self::assertFalse($this->invokeNonPublic($controller, 'consumeTaskAssignment', $scope));
+            $fingerprint = str_repeat('a', 64);
+            self::assertTrue($this->invokeNonPublic($controller, 'consumeTaskAssignment', [...$scope, $fingerprint]));
+            self::assertFalse($this->invokeNonPublic($controller, 'consumeTaskAssignment', [...$scope, $fingerprint]));
+            self::assertTrue($this->invokeNonPublic($controller, 'hasTaskAssignment', $scope));
+            $expiredProcessing = cache($key);
+            self::assertIsArray($expiredProcessing);
+            $expiredProcessing['processing_at'] = time() - 301;
+            cache($key, $expiredProcessing, 60);
+            cache($ownerKey, $expiredProcessing, 60);
+            self::assertTrue($this->invokeNonPublic($controller, 'consumeTaskAssignment', [...$scope, $fingerprint]));
+            self::assertTrue($this->invokeNonPublic($controller, 'clearTaskAssignment', [...$scope, $fingerprint]));
+            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', $scope));
         } finally {
             cache($key, null);
             cache($otherDeviceKey, null);
@@ -130,6 +140,9 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
     {
         $root = dirname(__DIR__);
         $competitor = (string)file_get_contents($root . '/app/controller/CompetitorApi.php');
+        $reportFingerprintMigration = (string)file_get_contents(
+            $root . '/database/migrations/20260725_add_competitor_report_fingerprint.sql'
+        );
         $cookie = (string)file_get_contents($root . '/app/controller/concern/CookieEndpointConcern.php');
         $cron = (string)file_get_contents($root . '/app/controller/concern/AutoFetchConcern.php');
         $patrolCron = (string)file_get_contents($root . '/app/controller/concern/OperationWorkbenchConcern.php');
@@ -142,6 +155,13 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
         self::assertStringContainsString('$bindingId, $tokenVersion', $competitor);
         self::assertStringNotContainsString('$device = new CompetitorDevice();', $competitor);
         self::assertStringContainsString('withTaskAssignmentLock', $competitor);
+        self::assertStringContainsString("LocalStatePathPolicy::scopedLockDirectory('competitor-task')", $competitor);
+        self::assertStringContainsString('REPORT_PROCESSING_LEASE_SECONDS', $competitor);
+        self::assertStringContainsString('persistedReportByFingerprint', $competitor);
+        self::assertStringContainsString('competitor_report_idempotency_schema_missing', $competitor);
+        self::assertStringContainsString("SHOW INDEX FROM `competitor_price_log`", $competitor);
+        self::assertStringContainsString('report_fingerprint', $reportFingerprintMigration);
+        self::assertStringContainsString('ADD UNIQUE INDEX IF NOT EXISTS', $reportFingerprintMigration);
         self::assertStringContainsString('taskOwnershipCacheKey', $competitor);
         self::assertStringContainsString("'device_not_active'", $competitor);
         self::assertStringContainsString("'target_competitor_hotel_ids'", $competitor);

@@ -223,8 +223,12 @@ export function buildCardHtml(model) {
 }
 
 async function launchBrowser() {
+  const executablePath = String(process.env.SUXIOS_CHROME_EXECUTABLE || '').trim();
   try {
-    return await chromium.launch({ channel: 'chrome', headless: true });
+    return await chromium.launch({
+      ...(executablePath ? { executablePath } : { channel: 'chrome' }),
+      headless: true,
+    });
   } catch (chromeError) {
     try {
       return await chromium.launch({ headless: true });

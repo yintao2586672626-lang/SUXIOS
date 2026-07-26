@@ -41,8 +41,11 @@ final class FixedWindowRateLimiter
             ? Closure::fromCallable($clock)
             : static fn(): int => time();
 
-        $defaultLockDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR
-            . 'suxi_fixed_window_rate_limit_' . substr(hash('sha256', dirname(__DIR__, 2)), 0, 16);
+        $defaultLockDirectory = LocalStatePathPolicy::scopedLockDirectory('rate-limit');
+        if ($defaultLockDirectory === '') {
+            $defaultLockDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+                . 'suxi_fixed_window_rate_limit_' . substr(hash('sha256', dirname(__DIR__, 2)), 0, 16);
+        }
         $this->lockDirectory = rtrim($lockDirectory ?? $defaultLockDirectory, '\\/');
         if ($this->lockDirectory === '') {
             throw new \InvalidArgumentException('Fixed-window rate-limit lock directory is required.');

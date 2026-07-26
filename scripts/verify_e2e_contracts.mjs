@@ -167,12 +167,12 @@ requireText('public/index.html', 'v-for="(u, index) in logUsers"', 'operation lo
 requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user filter handles missing ids');
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.runtime.global.prod.js?v=', 'entry versions the local Vue runtime');
-requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requirePattern('public/index.html', /ctrip-static\.js\?v=[^"']*-h[0-9a-f]{10}/, 'entry cache-busts the current Ctrip static helper with its content hash');
+requireText('public/index.html', 'app-startup-helpers.min.js?v=', 'entry versions the minified startup helper bundle');
+requirePattern('public/index.html', /app-startup-helpers\.min\.js\?v=[^"']*-h[0-9a-f]{10}/, 'entry cache-busts the minified startup helper bundle with its content hash');
 requireText('public/ctrip-static.js', 'const buildCtripBusinessCanvas', 'Ctrip static owns business download canvas rendering');
 requireText('public/index.html', "const buildCtripBusinessCanvasStatic = requireCtripStatic('buildCtripBusinessCanvas')", 'entry uses extracted Ctrip business canvas renderer');
 requireText('public/index.html', 'return buildCtripBusinessCanvasStatic({', 'entry keeps Ctrip business canvas rendering as a thin adapter');
-requirePattern('public/index.html', /meituan-static\.js\?v=[^"']*-h[0-9a-f]{10}/, 'entry cache-busts the current Meituan static helper with its content hash');
+requirePattern('public/index.html', /app-startup-helpers\.min\.js\?v=[^"']*-h[0-9a-f]{10}/, 'entry cache-busts the minified startup helper bundle for Meituan');
 requireText('public/meituan-static.js', "rankTypes: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL']", 'Meituan form uses the canonical P_LL traffic-rank type');
 requireText('public/meituan-static.js', "const meituanBatchRankTypes = ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'];", 'Meituan batch tasks use the canonical P_LL traffic-rank type');
 requireNoText('public/meituan-static.js', 'P_LL_EXPOSE', 'Meituan static helper does not reintroduce the obsolete traffic-rank alias');
@@ -1695,7 +1695,7 @@ requireText('public/index.html', "requireAppSystemStatic('getHotelCodeNumber')",
 requireText('public/index.html', "requireAppSystemStatic('formatHotelCode')", 'entry uses extracted hotel-code formatter');
 requireText('public/index.html', "requireAppSystemStatic('normalizeOtaConfigHotelName')", 'entry uses extracted OTA config hotel-name normalizer');
 requireText('public/index.html', "requireAppSystemStatic('formatHotelBindingDate')", 'entry uses extracted hotel binding-date formatter');
-requirePattern('public/index.html', /system-static\.js\?v=[^"']+/, 'entry versions the current system static helper');
+requirePattern('public/index.html', /app-startup-helpers\.min\.js\?v=[^"']+/, 'entry versions the minified startup helper bundle');
 requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');
@@ -1843,15 +1843,15 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAi
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
 requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
-const dataHealthStaticHash = crypto
+const startupHelpersHash = crypto
   .createHash('sha256')
-  .update(readRaw('public/data-health-static.js'))
+  .update(readRaw('public/app-startup-helpers.min.js'))
   .digest('hex')
   .slice(0, 10);
 requirePattern(
   'public/index.html',
-  new RegExp(`data-health-static\\.js\\?v=[^"'<>\\s]*-h${dataHealthStaticHash}`),
-  'entry cache key follows the current data-health static helper content hash',
+  new RegExp(`app-startup-helpers\\.min\\.js\\?v=[^"'<>\\s]*-h${startupHelpersHash}`),
+  'entry cache key follows the current startup helper artifact content hash',
 );
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');

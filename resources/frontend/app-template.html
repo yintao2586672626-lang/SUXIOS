@@ -4892,6 +4892,14 @@
                         </div>
                     </div>
 
+                    <component
+                        v-if="currentPage === 'wechat-notification'"
+                        :is="wechatNotificationPanelBody"
+                        v-bind="wechatNotificationPanelProps"
+                        v-on="wechatNotificationPanelEvents"
+                        data-testid="wechat-notification-page"
+                    ></component>
+
                     <!-- 收益分析 -->
                     <div v-if="currentPage === 'revenue-research-center'" class="max-w-7xl mx-auto space-y-4">
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
@@ -16503,8 +16511,45 @@
                                     </div>
                                 </div>
 
-                                <!-- 统一数据源闭环 -->
                                 <div v-if="onlineDataTab === 'platform-sources'" data-testid="platform-data-sources-panel" class="space-y-6">
+                                    <section data-testid="cloud-browser-authorization-panel" class="overflow-hidden rounded-xl border border-sky-200 bg-white shadow-sm">
+                                        <header class="flex flex-col gap-3 border-b border-sky-100 bg-sky-50/70 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+                                            <div>
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <h4 class="text-lg font-semibold text-slate-900">{{ cloudAuthorizationPanelTitle }}</h4>
+                                                    <span class="rounded-full border border-sky-200 bg-white px-2 py-0.5 text-xs text-sky-700">账户级</span>
+                                                </div>
+                                                <p class="mt-1 text-sm leading-5 text-slate-600">在这里确认携程、美团的云端授权、最近采集和数据缺口。点击登录只会登记受保护的登录请求；未看到平台登录页前，不代表已经登录或可以采集。</p>
+                                            </div>
+                                            <button type="button" @click="loadCloudBrowserAuthorization()" :disabled="cloudBrowserAuthorizationLoading" class="inline-flex shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
+                                                <i :class="cloudBrowserAuthorizationLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ cloudAuthorizationRefreshText }}
+                                            </button>
+                                        </header>
+
+                                        <div class="space-y-3 p-5">
+                                            <div v-if="cloudBrowserAuthorizationError" data-testid="cloud-browser-authorization-error" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ cloudBrowserAuthorizationError }}</div>
+                                            <div v-if="cloudBrowserAuthorizationLoading &amp;&amp; !cloudAuthorizationRows.length" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">正在读取云端授权状态…</div>
+
+                                            <article v-for="row in cloudAuthorizationRows" :key="row.platform" :data-testid="'cloud-browser-authorization-' + row.platform" class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div class="min-w-0">
+                                                        <div class="flex flex-wrap items-center gap-2">
+                                                            <h5 class="font-semibold text-slate-900">{{ row.platformName }}</h5>
+                                                            <span :class="['rounded-full border px-2 py-0.5 text-xs font-medium', row.statusClass]">{{ row.statusText }}</span>
+                                                        </div>
+                                                        <p class="mt-2 text-xs leading-5 text-slate-600">{{ row.latestText }}</p>
+                                                        <p class="mt-1 text-xs leading-5 text-amber-800">{{ row.gapText }}</p>
+                                                        <p v-if="cloudAuthorizationGuide === row.platform &amp;&amp; row.actionMode === 'request_login'" data-testid="cloud-browser-login-pending" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">登录请求已登记。云端登录页准备好后请在受保护窗口完成验证；当前未出现平台页面时，请勿把此状态当作登录成功。</p>
+                                                    </div>
+                                                    <button type="button" @click="openCloudAuthorizationGuide(row)" :disabled="cloudBrowserAuthorizationLoading" class="inline-flex shrink-0 items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">{{ row.actionText }}</button>
+                                                </div>
+                                            </article>
+
+                                            <div v-if="!cloudBrowserAuthorizationLoading &amp;&amp; !cloudAuthorizationRows.length" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">{{ cloudAuthorizationEmptyText }}</div>
+                                            <p class="text-xs leading-5 text-slate-500">{{ cloudAuthorizationGuideText }}：只有平台身份、目标日期、字段、保存与回读均通过后，才会开放正式采集和正式报告。</p>
+                                        </div>
+                                    </section>
+
                                     <section data-testid="local-collector-account-center" class="overflow-hidden rounded-xl border border-indigo-200 bg-white shadow-sm">
                                         <div class="border-b border-indigo-100 bg-indigo-50/60 px-5 py-4">
                                             <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -16534,22 +16579,15 @@
                                             <div v-if="localCollectorStatus.status === 'migration_required'" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ localCollectorStatus.message }}</div>
 
                                             <details class="rounded-xl border border-slate-200 bg-slate-50" :open="!(localCollectorStatus.devices || []).length">
-                                                <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">第 1 步：配对账户使用者电脑</summary>
+                                                <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">第 1 步：连接账户使用者电脑</summary>
                                                 <div class="space-y-3 border-t border-slate-200 p-4">
                                                     <div class="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
                                                         <input v-model.trim="localCollectorDeviceName" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" placeholder="设备名称，例如：张经理办公电脑">
                                                         <button type="button" @click="generateLocalCollectorPairCode" :disabled="localCollectorPairing" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-slate-300">
-                                                            <i :class="localCollectorPairing ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-link mr-2'"></i>{{ localCollectorPairing ? '生成中...' : '生成 10 分钟配对码' }}
+                                                            <i :class="localCollectorPairing ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-link mr-2'"></i>{{ localCollectorPairing ? '连接中...' : '连接此电脑' }}
                                                         </button>
                                                     </div>
-                                                    <div v-if="localCollectorPairResult" class="rounded-lg border border-indigo-200 bg-white p-3">
-                                                        <div class="flex flex-wrap items-center justify-between gap-2">
-                                                            <div class="text-sm text-slate-700">配对码：<span class="font-mono text-lg font-semibold text-indigo-700">{{ localCollectorPairResult.pair_code }}</span>　有效至 {{ localCollectorPairResult.expires_at }}</div>
-                                                            <button type="button" @click="copyLocalCollectorPairCommand" class="rounded-md border border-indigo-200 px-3 py-1.5 text-xs text-indigo-700 hover:bg-indigo-50"><i class="fas fa-copy mr-1"></i>复制本机命令</button>
-                                                        </div>
-                                                        <code class="mt-2 block overflow-x-auto rounded bg-slate-900 px-3 py-2 text-xs text-slate-100">{{ localCollectorPairCommand }}</code>
-                                                        <p class="mt-2 text-xs text-slate-500">请在账户使用者电脑的 HOTEL 目录执行。设备令牌只返回一次并保存在该电脑，不会在页面回显。</p>
-                                                    </div>
+                                                    <p class="text-xs leading-5 text-slate-500">采集器打开时，点击连接即可完成本机绑定；不显示、不复制绑定码。若提示未运行，请先打开宿析采集器，再回到这里重试。</p>
                                                 </div>
                                             </details>
 

@@ -6,6 +6,7 @@ namespace app\middleware;
 use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\model\User;
+use app\service\AuthTokenState;
 use app\service\FixedWindowRateLimiter;
 use app\service\OperationAuditClassifier;
 use app\service\OperationAuditSanitizerService;
@@ -44,7 +45,7 @@ class Auth
         if ($this->isTokenExpiredByAge($tokenData)) {
             cache('token_' . $token, null);
             if (is_array($tokenData) && !empty($tokenData['user_id'])) {
-                cache('user_token_' . $tokenData['user_id'], null);
+                AuthTokenState::forgetUserTokenIndexIfCurrent((int)$tokenData['user_id'], $token);
             }
             return $this->withRequestId($this->authErrorResponse(401, 'token_expired', $requestId), $requestId);
         }
@@ -71,9 +72,7 @@ class Auth
         }
         if ($tokenAuthVersion === '' || !hash_equals($currentAuthVersion, $tokenAuthVersion)) {
             cache('token_' . $token, null);
-            if ((string)cache('user_token_' . $userId) === $token) {
-                cache('user_token_' . $userId, null);
-            }
+            AuthTokenState::forgetUserTokenIndexIfCurrent((int)$userId, $token);
             return $this->withRequestId($this->authErrorResponse(401, 'token_revoked', $requestId), $requestId);
         }
 

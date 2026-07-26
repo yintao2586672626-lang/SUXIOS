@@ -2380,6 +2380,35 @@ function p0_traffic_current_session_verified(array $row, array $config): bool
     }
 }
 
+/**
+ * Preserve only verifier-safe current-session states. A blocked probe remains
+ * unverified, but its concrete reason must not be collapsed into "unverified".
+ *
+ * @param array<string, mixed> $config
+ */
+function p0_traffic_current_session_status(array $config, bool $verified): string
+{
+    if ($verified) {
+        return 'verified';
+    }
+    if (!p0_truthy_config_value($config['current_session_probe_performed'] ?? false)) {
+        return 'unverified';
+    }
+    $status = strtolower(trim((string)($config['current_session_status'] ?? '')));
+    return in_array($status, [
+        'anti_bot',
+        'cookies_incomplete',
+        'identity_mismatch',
+        'identity_unverified',
+        'login_required',
+        'session_expired',
+        'login_expired',
+        'platform_contract_drift',
+        'permission_denied',
+        'capture_failed',
+    ], true) ? $status : 'unverified';
+}
+
 function p0_traffic_platform_hotel_identifier_present(string $platform, array $config): bool
 {
     $keys = $platform === 'meituan'
@@ -3304,6 +3333,9 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
             $profileDirPresent = $isBrowserProfileSource && p0_traffic_profile_dir_present($platform, $config);
             $historicalLoginMetadataPresent = $isBrowserProfileSource && p0_traffic_historical_login_metadata_present($config);
             $currentSessionVerified = $isBrowserProfileSource && p0_traffic_current_session_verified($row, $sourceConfig);
+            $currentSessionStatus = $isBrowserProfileSource
+                ? p0_traffic_current_session_status($config, $currentSessionVerified)
+                : 'unverified';
             $platformHotelIdentifierPresent = p0_traffic_platform_hotel_identifier_present($platform, $config);
             $profileBinding = $isBrowserProfileSource
                 ? p0_profile_binding_scope_status($platform, $row, $config, $profileScopeConflictedSourceIds)
@@ -3391,10 +3423,16 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
                 'capture_sections_has_traffic' => str_contains($captureSectionsText, 'traffic'),
                 'profile_dir_present' => $profileDirPresent,
                 'historical_login_metadata_present' => $historicalLoginMetadataPresent,
-                'login_evidence_scope' => $currentSessionVerified ? 'current_session_probe' : 'historical_metadata_only',
+                'login_evidence_scope' => $currentSessionVerified
+                    ? 'current_session_probe'
+                    : (
+                        $currentSessionStatus !== 'unverified'
+                            ? 'current_session_blocked_probe'
+                            : 'historical_metadata_only'
+                    ),
                 'current_session_probe_performed' => p0_truthy_config_value($config['current_session_probe_performed'] ?? false),
                 'current_session_verified' => $currentSessionVerified,
-                'current_session_status' => $currentSessionVerified ? 'verified' : 'unverified',
+                'current_session_status' => $currentSessionStatus,
                 'manual_login_state_verified' => $currentSessionVerified,
                 'profile_binding_status' => (string)($profileBinding['status'] ?? 'migration_required'),
                 'profile_binding_reason' => (string)($profileBinding['reason'] ?? 'profile_binding_unverified'),

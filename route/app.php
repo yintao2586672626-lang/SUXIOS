@@ -615,6 +615,21 @@ Route::group('api/admin/competitor-wechat-robot', function () {
     Route::post('/test-store/:storeId', 'admin.CompetitorWechatRobotController/apiTestStore');
 })->middleware(\app\middleware\Auth::class);
 
+// Account self-service enterprise WeChat onboarding. Every request is scoped
+// to the logged-in user's permitted hotel; complete Webhooks are never read.
+Route::group('api/wechat-notification', function () {
+    Route::get('/status', 'WechatNotificationOnboarding/status');
+    Route::post('/bind', 'WechatNotificationOnboarding/bind');
+    Route::post('/test', 'WechatNotificationOnboarding/test');
+})->middleware(\app\middleware\Auth::class);
+
+// Customer-facing cloud browser authorization. These routes only issue/read
+// opaque login-entry state; a future protected cloud gateway owns browser I/O.
+Route::group('api/cloud-browser-profiles', function () {
+    Route::get('/status', 'CloudBrowserAuthorization/status');
+    Route::post('/request-login', 'CloudBrowserAuthorization/requestLogin');
+})->middleware(\app\middleware\Auth::class);
+
 // 接收书签脚本的Cookies（不需要认证中间件，通过token参数验证）
 Route::rule('api/online-data/receive-cookies', 'ota.CredentialController/receiveCookies', 'POST|OPTIONS');
 
@@ -658,13 +673,26 @@ Route::get('api/health', function () {
         ], 503);
     }
 
+    $runtimeState = (new \app\service\SingleInstanceRuntimeReadiness())->check();
+    if (($runtimeState['ready'] ?? false) !== true) {
+        return json([
+            'status' => 'unavailable',
+            'time' => $checkedAt,
+            'checks' => array_merge([
+                'application' => 'ok',
+                'database' => 'ok',
+            ], (array)($runtimeState['checks'] ?? [])),
+            'failure_codes' => array_values((array)($runtimeState['failures'] ?? [])),
+        ], 503);
+    }
+
     return json([
         'status' => 'ok',
         'time' => $checkedAt,
-        'checks' => [
+        'checks' => array_merge([
             'application' => 'ok',
             'database' => 'ok',
-        ],
+        ], (array)($runtimeState['checks'] ?? [])),
     ]);
 });
 // ==================== AI Agent 路由 ====================

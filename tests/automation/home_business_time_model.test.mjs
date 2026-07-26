@@ -128,6 +128,7 @@ test('competitor data is diagnostic reference and does not raise core fact readi
 });
 
 test('home static cache key matches the shipped business time model content', () => {
-  const hash = createHash('sha256').update(source).digest('hex').slice(0, 10);
-  assert.match(publicIndex, new RegExp(`home-static\\.js\\?v=[^"']*h${hash}`));
+  const runtime = readFileSync('public/app-startup-helpers.min.js');
+  const hash = createHash('sha256').update(runtime).digest('hex').slice(0, 10);
+  assert.match(publicIndex, new RegExp(`app-startup-helpers\\.min\\.js\\?v=[^"']*h${hash}`));
 });

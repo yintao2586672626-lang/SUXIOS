@@ -87,7 +87,10 @@ final class RunCloudAutomation extends Command
             }
 
             $this->writeJson($output, $result);
-            return in_array((string)($result['status'] ?? ''), ['succeeded', 'partial'], true) ? 0 : 2;
+            // Missing OTA evidence is a completed business outcome: the gap has
+            // been recorded and this run must wait for the next capture window.
+            // It is not a PHP crash that systemd should restart repeatedly.
+            return in_array((string)($result['status'] ?? ''), ['succeeded', 'partial', 'blocked'], true) ? 0 : 2;
         } catch (\Throwable $e) {
             $message = preg_replace('/(key|token|secret|cookie|password)\s*[=:]\s*[^\s,;]+/i', '$1=<redacted>', $e->getMessage()) ?? '';
             $output->writeln('Cloud automation failed: ' . mb_substr(trim($message), 0, 240, 'UTF-8'));

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\PlatformDataSyncService;
+use app\service\PlatformNormalizedRowPersistenceService;
 use app\service\OnlineDataFieldFactService;
 use app\service\platform\CtripBrowserProfileDataSourceAdapter;
 use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
@@ -446,6 +447,36 @@ final class PlatformDataSyncServiceTest extends TestCase
             'interactive_browser' => true,
         ]));
 
+    }
+
+    public function testRequiredCurrentRunProfileSessionProbeAcceptsOnlyThisRunAuthAndMatchedHotelIdentity(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertRequiredCurrentRunProfileSessionProbe');
+        $method->setAccessible(true);
+        $source = [
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+        ];
+        $options = ['require_current_session_probe' => true];
+
+        self::assertNull($method->invoke($service, $source, $options, [
+            'status' => 'success',
+            'payload' => [
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'platform_identity_validation' => ['status' => 'matched'],
+            ],
+        ]));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Current session proof from this execution is missing');
+        $method->invoke($service, $source, $options, [
+            'status' => 'success',
+            'payload' => [
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'platform_identity_validation' => ['status' => 'mismatch'],
+            ],
+        ]);
     }
 
     public function testFreshPostLoginCollectionMayRunOnceToVerifyHotelIdentity(): void
@@ -4239,7 +4270,7 @@ final class PlatformDataSyncServiceTest extends TestCase
 
     public function testNormalizedPersistenceReceiptAndValueReadbackStayTruthful(): void
     {
-        $service = new PlatformDataSyncService();
+        $service = new PlatformNormalizedRowPersistenceService();
         $receiptMethod = new \ReflectionMethod($service, 'normalizedRowsRollbackReceipt');
         $receiptMethod->setAccessible(true);
         $matchMethod = new \ReflectionMethod($service, 'normalizedStoredValueMatches');

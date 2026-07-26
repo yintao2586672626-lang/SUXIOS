@@ -46,6 +46,16 @@ test('requires an exact and unambiguous observed Ctrip hotel match', () => {
   assert.equal(evaluateCtripPlatformIdentity(['130079194'], []) .status, 'unverified');
   assert.equal(evaluateCtripPlatformIdentity(['130079194'], ['999']) .status, 'mismatch');
   assert.equal(evaluateCtripPlatformIdentity(['130079194'], ['130079194', '999']) .status, 'ambiguous');
+  const scopedMultiHotel = evaluateCtripPlatformIdentity(
+    ['130079194'],
+    ['130079194', '999'],
+    { allowAdditionalObservedIdentifiers: true },
+  );
+  assert.equal(scopedMultiHotel.status, 'matched');
+  assert.equal(scopedMultiHotel.validated_identifier, '130079194');
+  assert.equal(scopedMultiHotel.row_scope_filter_required, true);
+  assert.equal(scopedMultiHotel.out_of_scope_identifier_count, 1);
+  assert.equal(scopedMultiHotel.sensitive_values_exposed, false);
   assert.equal(evaluateCtripPlatformIdentity([], ['130079194']) .status, 'expected_missing');
 });
 
@@ -120,5 +130,13 @@ test('capture script wires request identity into login and collection proof', ()
   assert.match(source, /observeTrustedCtripPageStateIdentity/);
   assert.match(source, /PAGE_URLS\.business_overview\?\.\[0\]\?\.url/);
   assert.match(source, /platform_identity_validation\s*=\s*evaluateCtripPlatformIdentity/);
+  assert.match(source, /identity_preflight/);
+  assert.match(source, /trusted_page_state_hotel_identity_mismatch/);
+  assert.match(source, /preflightIdentity\.status\s*===\s*'mismatch'/);
+  const listenerSetup = source.slice(
+    source.indexOf('if (authOnly) {', source.indexOf('const page = await browser.newPage()')),
+    source.indexOf('try {', source.indexOf('const page = await browser.newPage()')),
+  );
+  assert.doesNotMatch(listenerSetup, /else\s*{\s*registerResponseCapture/);
   assert.match(source, /identity_status:\s*platformIdentityValidation\?\.status/);
 });

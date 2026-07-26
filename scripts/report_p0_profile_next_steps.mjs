@@ -318,6 +318,21 @@ function profileFlowBlockingReasonCodes(step) {
     codes.push('current_session_probe_required');
   } else if (step?.current_session_verified !== true) {
     codes.push('current_session_not_verified');
+    const currentSessionStatus = String(step?.current_session_status || '').trim().toLowerCase();
+    if ([
+      'anti_bot',
+      'cookies_incomplete',
+      'identity_mismatch',
+      'identity_unverified',
+      'login_required',
+      'session_expired',
+      'login_expired',
+      'platform_contract_drift',
+      'permission_denied',
+      'capture_failed',
+    ].includes(currentSessionStatus)) {
+      codes.push(currentSessionStatus);
+    }
   }
   if (triggerStatus && !['available', 'ready', 'ready_for_session_probe', 'client_local_authorization_required'].includes(triggerStatus)) {
     codes.push(`profile_login_trigger_${triggerStatus}`);
@@ -368,6 +383,25 @@ function compactStep(platform, step, options = {}) {
   const currentSessionVerified = currentSessionProbePerformed
     && step?.current_session_verified === true
     && ['verified', 'logged_in', 'ready'].includes(currentSessionStatus);
+  const safeBlockedSessionStatuses = new Set([
+    'anti_bot',
+    'cookies_incomplete',
+    'identity_mismatch',
+    'identity_unverified',
+    'login_required',
+    'session_expired',
+    'login_expired',
+    'platform_contract_drift',
+    'permission_denied',
+    'capture_failed',
+  ]);
+  const reportedCurrentSessionStatus = currentSessionVerified
+    ? currentSessionStatus
+    : (
+      currentSessionProbePerformed && safeBlockedSessionStatuses.has(currentSessionStatus)
+        ? currentSessionStatus
+        : 'unverified'
+    );
   const manualLoginVerified = currentSessionVerified;
   const historicalLoginMetadataPresent = step?.historical_login_metadata_present === true
     || (step?.manual_login_state_verified === true && !currentSessionVerified);
@@ -401,10 +435,16 @@ function compactStep(platform, step, options = {}) {
     last_sync_status: step?.last_sync_status ?? '',
     manual_login_state_verified: manualLoginVerified,
     historical_login_metadata_present: historicalLoginMetadataPresent,
-    login_evidence_scope: currentSessionVerified ? 'current_session_probe' : 'historical_metadata_only',
+    login_evidence_scope: currentSessionVerified
+      ? 'current_session_probe'
+      : (
+        currentSessionProbePerformed && reportedCurrentSessionStatus !== 'unverified'
+          ? 'current_session_blocked_probe'
+          : 'historical_metadata_only'
+      ),
     current_session_probe_performed: currentSessionProbePerformed,
     current_session_verified: currentSessionVerified,
-    current_session_status: currentSessionVerified ? currentSessionStatus : 'unverified',
+    current_session_status: reportedCurrentSessionStatus,
     profile_dir_present: profileDirPresent,
     platform_hotel_identifier_present: platformHotelIdentifierPresent,
     profile_binding_status: profileBindingStatus,

@@ -200,7 +200,7 @@ function Assert-DatabaseVersion {
     $env:DB_USER = $DbUser
     $env:DB_PASS = $DbPass
 
-    $schemaArgs = $PhpRuntimeArgs + @("scripts\check_database_version.php")
+    $schemaArgs = $PhpRuntimeArgs + @("think", "db:check")
     $schemaOutput = & $PhpExe @schemaArgs 2>&1
     $schemaExitCode = $LASTEXITCODE
     foreach ($line in $schemaOutput) {

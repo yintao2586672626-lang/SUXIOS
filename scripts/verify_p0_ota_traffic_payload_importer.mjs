@@ -137,6 +137,203 @@ const cases = [
     expect: { exitCode: 0, status: 'ready_to_import', targetRows: 1, evidenceRows: 1, browserResponseEvidenceRows: 1, issuesAbsent: ['desensitized_capture_evidence_missing', 'browser_capture_response_evidence_missing'] },
   },
   {
+    name: 'ctrip_browser_capture_mixed_hotel_rows_filters_out_of_scope',
+    platform: 'ctrip',
+    payload: {
+      source: 'ctrip_browser_profile',
+      mode: 'capture',
+      system_hotel_id: Number(systemHotelId),
+      hotel_id: 'authorized-hotel',
+      auth_status: { ok: true, status: 'logged_in' },
+      capture_gate: { status: 'pass', failed_check_ids: [], mode: 'capture' },
+      responses: [
+        {
+          section: 'traffic',
+          row_count: 2,
+          url_hash: hash('f'),
+          source_trace_id: 'ctrip:mixed-hotel-row',
+        },
+      ],
+      traffic: [
+        trafficRow({
+          hotelId: 'authorized-hotel',
+          date,
+          dateSource: 'row',
+          trace: 'ctrip:mixed-hotel-row',
+          hash: hash('f'),
+          sourcePath: 'data.flowData.0',
+        }),
+        trafficRow({
+          hotelId: 'other-hotel',
+          date,
+          dateSource: 'row',
+          trace: 'ctrip:mixed-hotel-row',
+          hash: hash('f'),
+          sourcePath: 'data.flowData.1',
+        }),
+      ],
+    },
+    expect: {
+      exitCode: 0,
+      status: 'ready_to_import',
+      targetRows: 1,
+      evidenceRows: 1,
+      scopeFilterApplied: true,
+      scopeFilterMatchedRows: 1,
+      scopeFilterRejectedRows: 1,
+      warningsPresent: ['browser_capture_out_of_scope_rows_rejected'],
+      issuesAbsent: ['browser_capture_row_hotel_scope_mismatch'],
+    },
+  },
+  {
+    name: 'ctrip_browser_capture_all_rows_other_hotel_blocked',
+    platform: 'ctrip',
+    payload: {
+      source: 'ctrip_browser_profile',
+      mode: 'capture',
+      system_hotel_id: Number(systemHotelId),
+      hotel_id: 'authorized-hotel',
+      auth_status: { ok: true, status: 'logged_in' },
+      capture_gate: { status: 'pass', failed_check_ids: [], mode: 'capture' },
+      responses: [
+        {
+          section: 'traffic',
+          row_count: 1,
+          url_hash: hash('g'),
+          source_trace_id: 'ctrip:wrong-hotel-row',
+        },
+      ],
+      traffic: [
+        trafficRow({
+          hotelId: 'other-hotel',
+          date,
+          dateSource: 'row',
+          trace: 'ctrip:wrong-hotel-row',
+          hash: hash('g'),
+        }),
+      ],
+    },
+    expect: {
+      exitCode: 1,
+      status: 'blocked',
+      targetRows: 0,
+      evidenceRows: 0,
+      scopeFilterApplied: true,
+      scopeFilterMatchedRows: 0,
+      scopeFilterRejectedRows: 1,
+      issuesPresent: ['browser_capture_row_hotel_scope_mismatch', 'target_date_traffic_rows_missing'],
+    },
+  },
+  {
+    name: 'ctrip_browser_capture_identity_mismatch_blocked',
+    platform: 'ctrip',
+    payload: {
+      source: 'ctrip_browser_profile',
+      mode: 'capture',
+      system_hotel_id: Number(systemHotelId),
+      hotel_id: 'authorized-hotel',
+      auth_status: { ok: true, status: 'logged_in' },
+      capture_gate: { status: 'pass', failed_check_ids: [], mode: 'capture' },
+      platform_identity_validation: {
+        status: 'mismatch',
+        source_validation: false,
+        validated_identifier: '',
+        sensitive_values_exposed: false,
+      },
+      responses: [
+        {
+          section: 'traffic',
+          row_count: 1,
+          url_hash: hash('h'),
+          source_trace_id: 'ctrip:identity-mismatch',
+        },
+      ],
+      traffic: [
+        {
+          ...trafficRow({
+            hotelId: 'authorized-hotel',
+            date,
+            dateSource: 'row',
+            trace: 'ctrip:identity-mismatch',
+            hash: hash('h'),
+          }),
+          _platform_hotel_identifier_source: 'capture_scope_default',
+        },
+      ],
+    },
+    expect: {
+      exitCode: 1,
+      status: 'blocked',
+      targetRows: 0,
+      evidenceRows: 0,
+      scopeFilterApplied: true,
+      scopeFilterMatchedRows: 0,
+      scopeFilterRejectedRows: 1,
+      issuesPresent: [
+        'browser_capture_platform_identity_not_matched',
+        'browser_capture_row_hotel_scope_mismatch',
+        'target_date_traffic_rows_missing',
+      ],
+    },
+  },
+  {
+    name: 'ctrip_browser_capture_verified_scope_accepts_defaulted_row_identity',
+    platform: 'ctrip',
+    payload: {
+      source: 'ctrip_browser_profile',
+      mode: 'capture',
+      system_hotel_id: Number(systemHotelId),
+      hotel_id: 'authorized-hotel',
+      auth_status: { ok: true, status: 'logged_in' },
+      capture_gate: { status: 'pass', failed_check_ids: [], mode: 'capture' },
+      platform_identity_validation: {
+        status: 'matched',
+        source_validation: true,
+        validated_identifier: 'authorized-hotel',
+        sensitive_values_exposed: false,
+      },
+      responses: [
+        {
+          section: 'traffic',
+          row_count: 1,
+          url_hash: hash('i'),
+          source_trace_id: 'ctrip:verified-default-scope',
+        },
+      ],
+      traffic: [
+        {
+          ...trafficRow({
+            hotelId: 'authorized-hotel',
+            date,
+            dateSource: 'row',
+            trace: 'ctrip:verified-default-scope',
+            hash: hash('i'),
+          }),
+          _platform_hotel_identifier_source: 'capture_scope_default',
+          listExposure: 0,
+          detailExposure: 0,
+          flowRate: 0,
+          orderFillingNum: 0,
+          orderSubmitNum: 0,
+        },
+      ],
+    },
+    expect: {
+      exitCode: 1,
+      status: 'blocked',
+      targetRows: 1,
+      evidenceRows: 1,
+      scopeFilterApplied: true,
+      scopeFilterMatchedRows: 1,
+      scopeFilterRejectedRows: 0,
+      issuesPresent: ['target_date_required_traffic_metrics_zero_unverified'],
+      issuesAbsent: [
+        'browser_capture_platform_identity_not_matched',
+        'browser_capture_row_hotel_scope_mismatch',
+      ],
+    },
+  },
+  {
     name: 'browser_capture_raw_metadata_projection_ready',
     platform: 'ctrip',
     payload: {
@@ -168,7 +365,7 @@ const cases = [
           section: 'traffic',
           row_count: 1,
           status: 200,
-          url_hash: hash('browser-projection'),
+          url_hash: hash('a'),
           source_trace_id: 'ctrip:browser-projection',
           request_date_source: 'request.query.date',
         },
@@ -179,7 +376,7 @@ const cases = [
           date,
           dateSource: 'row',
           trace: 'ctrip:browser-projection',
-          hash: hash('browser-projection'),
+          hash: hash('a'),
           sourcePath: 'traffic.0',
         }),
       ].map((row) => ({
@@ -231,7 +428,7 @@ const cases = [
         {
           section: 'traffic',
           row_count: 1,
-          url_hash: hash('request-date'),
+          url_hash: hash('b'),
           source_trace_id: 'ctrip:request-date-row',
           request_date_source: 'request.payload.dataDate',
         },
@@ -242,7 +439,7 @@ const cases = [
           date,
           dateSource: 'request.payload.dataDate',
           trace: 'ctrip:request-date-row',
-          hash: hash('request-date'),
+          hash: hash('b'),
           sourcePath: 'data.traffic.0',
         }),
       ],
@@ -278,7 +475,7 @@ const cases = [
           section: 'traffic',
           row_count: 0,
           standard_row_count: 1,
-          url_hash: hash('standard-row-count'),
+          url_hash: hash('c'),
           source_trace_id: 'ctrip:standard-row-count',
           request_date_source: 'request.query.date',
         },
@@ -293,7 +490,7 @@ const cases = [
           _source_path: 'standard_rows.0',
           capture_evidence: {
             source_trace_id: 'ctrip:standard-row-count',
-            source_url_hash: hash('standard-row-count'),
+            source_url_hash: hash('c'),
           },
           list_exposure: 30,
           detail_exposure: 15,
@@ -1191,6 +1388,7 @@ const cases = [
 for (const item of cases) {
   const result = runImporterCase(item);
   const issueCodes = new Set((result.issues || []).map((issue) => issue.code));
+  const warningCodes = new Set((result.warnings || []).map((warning) => warning.code));
   const summary = result.summary || {};
   check(item.name, `${item.name} status`, result.status === item.expect.status, `expected ${item.expect.status}, got ${result.status}`);
   check(item.name, `${item.name} exit code`, result.exitCode === item.expect.exitCode, `expected ${item.expect.exitCode}, got ${result.exitCode}`);
@@ -1220,6 +1418,15 @@ for (const item of cases) {
   }
   if (Number.isFinite(Number(item.expect.projectionDroppedTopLevelMin))) {
     check(item.name, `${item.name} payload import projection dropped top-level capture metadata`, Number(result.payload_import_projection?.dropped_top_level_key_count || 0) >= item.expect.projectionDroppedTopLevelMin, JSON.stringify(result.payload_import_projection || {}));
+  }
+  if (typeof item.expect.scopeFilterApplied === 'boolean') {
+    check(item.name, `${item.name} hotel scope filter applied`, result.payload_hotel_scope_filter?.applied === item.expect.scopeFilterApplied, JSON.stringify(result.payload_hotel_scope_filter || {}));
+  }
+  if (Number.isFinite(Number(item.expect.scopeFilterMatchedRows))) {
+    check(item.name, `${item.name} hotel scope matched rows`, Number(result.payload_hotel_scope_filter?.matched_row_count || 0) === item.expect.scopeFilterMatchedRows, JSON.stringify(result.payload_hotel_scope_filter || {}));
+  }
+  if (Number.isFinite(Number(item.expect.scopeFilterRejectedRows))) {
+    check(item.name, `${item.name} hotel scope rejected rows`, Number(result.payload_hotel_scope_filter?.rejected_row_count || 0) === item.expect.scopeFilterRejectedRows, JSON.stringify(result.payload_hotel_scope_filter || {}));
   }
   if (Number.isFinite(Number(item.expect.defaultedDateRows))) {
     check(item.name, `${item.name} defaulted date rows`, Number(summary.defaulted_date_rows || 0) === item.expect.defaultedDateRows, JSON.stringify(summary));
@@ -1272,6 +1479,9 @@ for (const item of cases) {
   }
   for (const code of item.expect.issuesAbsent || []) {
     check(item.name, `${item.name} issue ${code} absent`, !issueCodes.has(code), [...issueCodes].join(', '));
+  }
+  for (const code of item.expect.warningsPresent || []) {
+    check(item.name, `${item.name} warning ${code} present`, warningCodes.has(code), [...warningCodes].join(', '));
   }
 }
 
@@ -1644,7 +1854,7 @@ const runtimeExecuteCases = [
           date: runtimeExecuteDate,
           dateSource: 'request.payload.dataDate',
           trace: 'ctrip:runtime-execute-traffic',
-          hash: hash('r'),
+          hash: hash('d'),
           sourcePath: 'traffic.0',
         }),
       ],
@@ -1660,7 +1870,7 @@ const runtimeExecuteCases = [
           dataDate: runtimeExecuteDate,
           dateSource: 'request.query.date',
           trace: 'meituan:runtime-execute-traffic',
-          hash: hash('s'),
+          hash: hash('e'),
           sourcePath: 'traffic.0',
         }),
       ],
@@ -1755,7 +1965,11 @@ function runImporterCase(item, importDate = date, scopedSystemHotelId = systemHo
     ], {
       cwd: root,
       encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
     });
+    if (child.error) {
+      throw new Error(`${item.name} importer process failed: ${child.error.message}`);
+    }
     const stdout = String(child.stdout || '').trim();
     let parsed = {};
     try {
@@ -1785,7 +1999,11 @@ function runImporterMarkdownCase(item, importDate = date, scopedSystemHotelId = 
     ], {
       cwd: root,
       encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
     });
+    if (child.error) {
+      throw new Error(`${item.name} importer process failed: ${child.error.message}`);
+    }
     const stdout = String(child.stdout || '').trim();
     if (Number(child.status ?? 0) !== Number(item.expect.exitCode ?? 0)) {
       throw new Error(`${item.name} markdown exit code ${child.status}; stdout=${stdout}; stderr=${child.stderr || ''}`);

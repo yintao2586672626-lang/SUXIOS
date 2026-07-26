@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\middleware;
 
 use app\service\SchemaVersionService;
+use app\service\SchemaVersionStatusCache;
 use Closure;
 use think\Request;
 use think\Response;
@@ -14,18 +15,24 @@ final class DatabaseSchemaGuard
     /** @var null|callable():array<string,mixed> */
     private $statusResolver;
     private float $cacheTtlSeconds;
-    /** @var null|array<string,mixed> */
-    private ?array $cachedStatus = null;
-    private float $cachedAt = 0.0;
+    private ?SchemaVersionStatusCache $statusCache;
 
-    public function __construct(?callable $statusResolver = null, float $cacheTtlSeconds = 2.0)
-    {
+    public function __construct(
+        ?callable $statusResolver = null,
+        float $cacheTtlSeconds = SchemaVersionStatusCache::DEFAULT_TTL_SECONDS,
+        ?SchemaVersionStatusCache $statusCache = null
+    ) {
         $this->statusResolver = $statusResolver;
         $this->cacheTtlSeconds = max(0.0, $cacheTtlSeconds);
+        $this->statusCache = $statusCache;
     }
 
     public function handle(Request $request, Closure $next): Response
     {
+        if (trim((string)$request->pathinfo(), '/') === 'api/health') {
+            return $next($request);
+        }
+
         try {
             $status = $this->resolveStatus();
             if (($status['ready'] ?? false) === true) {
@@ -54,20 +61,33 @@ final class DatabaseSchemaGuard
     /** @return array<string,mixed> */
     private function resolveStatus(): array
     {
-        $now = microtime(true);
-        if ($this->cachedStatus !== null && ($now - $this->cachedAt) <= $this->cacheTtlSeconds) {
-            return $this->cachedStatus;
-        }
-        if (is_callable($this->statusResolver)) {
-            $status = (array)($this->statusResolver)();
-        } else {
+        $config = null;
+        $root = null;
+        if ($this->statusCache === null && !is_callable($this->statusResolver)) {
             $default = (string)config('database.default', 'mysql');
             $config = (array)config("database.connections.{$default}", []);
-            $status = SchemaVersionService::fromDatabaseConfig($config, app()->getRootPath())->status();
+            $root = app()->getRootPath();
+            $this->statusCache = new SchemaVersionStatusCache($config, $root);
         }
-        $this->cachedStatus = $status;
-        $this->cachedAt = $now;
-        return $status;
+
+        $resolver = function () use ($config, $root): array {
+            if (is_callable($this->statusResolver)) {
+                return (array)($this->statusResolver)();
+            }
+
+            return SchemaVersionService::fromDatabaseConfig(
+                is_array($config) ? $config : [],
+                is_string($root) ? $root : app()->getRootPath()
+            )->status();
+        };
+        if ($this->statusCache !== null && $this->cacheTtlSeconds > 0) {
+            return $this->statusCache->remember(
+                $resolver,
+                (int)max(1, ceil($this->cacheTtlSeconds))
+            );
+        }
+
+        return $resolver();
     }
 
     /** @param array<string,mixed> $status */

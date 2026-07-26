@@ -207,9 +207,30 @@ function externalStateDiagnostics(externalStateResult, gitStatus) {
 
   return {
     source: 'git status --short --branch',
+    git_status_command_exit_code: gitStatus.exit_code,
+    git_status_command_error: gitStatus.error || gitStatus.stderr || null,
     git_status_changed_entries: gitStatus.changed_details,
     git_status_changed_summary: gitStatus.changed_summary,
   };
+}
+
+function currentProjectStateUpdatedAt() {
+  const statePath = path.join(repoRoot, 'vault/current-state.md');
+  if (!fs.existsSync(statePath)) {
+    return null;
+  }
+  const text = fs.readFileSync(statePath, 'utf8');
+  const updatedAt = text.match(/^Updated:\s*(.+)$/m)?.[1]?.trim() || '';
+  const timestamp = Date.parse(updatedAt);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function evidenceIsFreshForCurrentProjectState(result) {
+  const currentStateUpdatedAt = currentProjectStateUpdatedAt();
+  const generatedAt = Date.parse(String(result?.data?.generated_at || ''));
+  return Number.isFinite(currentStateUpdatedAt)
+    && Number.isFinite(generatedAt)
+    && generatedAt >= currentStateUpdatedAt;
 }
 
 function prCandidateSummary(prCandidateResult) {
@@ -230,22 +251,33 @@ function prCandidateSummary(prCandidateResult) {
     String(candidate?.number ?? '') === String(selectedPrNumber ?? '')
   ));
   const selectedHeadRefOid = String(selectedCandidate?.headRefOid || '').trim();
+  const isFreshForCurrentState = evidenceIsFreshForCurrentProjectState(prCandidateResult);
+  const effectiveStatus = isFreshForCurrentState
+    ? (prCandidateResult.data?.status || 'failed')
+    : 'failed';
   return {
     path: prCandidateResult.path,
     command: prCandidateResult.data?.command || 'npm run review:release-pr-candidates',
     exists: prCandidateResult.exists,
-    status: prCandidateResult.data?.status || 'unknown',
+    status: effectiveStatus,
     generated_at: prCandidateResult.data?.generated_at || null,
-    gh_pr_list_checked_at: prCandidateResult.data?.gh_pr_list_checked_at || currentGhPrList?.checked_at || null,
-    gh_pr_list_open_pr_count: prCandidateResult.data?.gh_pr_list_open_pr_count ?? currentGhPrList?.open_pr_count ?? null,
-    current_gh_pr_list: currentGhPrList,
+    is_fresh_for_current_project_state: isFreshForCurrentState,
+    gh_pr_list_checked_at: isFreshForCurrentState
+      ? (prCandidateResult.data?.gh_pr_list_checked_at || currentGhPrList?.checked_at || null)
+      : null,
+    gh_pr_list_open_pr_count: isFreshForCurrentState
+      ? (prCandidateResult.data?.gh_pr_list_open_pr_count ?? currentGhPrList?.open_pr_count ?? null)
+      : null,
+    current_gh_pr_list: isFreshForCurrentState ? currentGhPrList : null,
     github_connector_diagnostic: normalizedGithubConnectorDiagnostic,
     base_ref: prCandidateResult.data?.base_ref || 'unknown',
-    configured_release_pr_number: configuredPrNumber,
-    selected_release_pr_number: selectedPrNumber,
-    selected_release_pr_head_sha: /^[a-f0-9]{40}$/i.test(selectedHeadRefOid) ? selectedHeadRefOid : null,
+    configured_release_pr_number: isFreshForCurrentState ? configuredPrNumber : null,
+    selected_release_pr_number: isFreshForCurrentState ? selectedPrNumber : null,
+    selected_release_pr_head_sha: isFreshForCurrentState && /^[a-f0-9]{40}$/i.test(selectedHeadRefOid) ? selectedHeadRefOid : null,
     viable_candidates: Number(prCandidateResult.data?.summary?.viable_candidates || 0),
-    failures: compactFailures(prCandidateResult),
+    failures: isFreshForCurrentState
+      ? compactFailures(prCandidateResult)
+      : ['PR candidate evidence predates vault/current-state.md; rerun npm run review:release-pr-candidates.'],
   };
 }
 
@@ -402,27 +434,40 @@ function worktreeClosePlan(gitDiagnostics, quarantineBundle) {
     ? gitDiagnostics.git_status_changed_entries
     : [];
   const summary = gitDiagnostics?.git_status_changed_summary || summarizeGitStatusEntries(entries);
-  const currentChangedEntries = Number(summary.total || 0);
+  const gitStatusVerified = !('git_status_command_exit_code' in (gitDiagnostics || {}))
+    || Number(gitDiagnostics.git_status_command_exit_code) === 0;
+  const currentChangedEntries = gitStatusVerified ? Number(summary.total || 0) : null;
   const effectiveQuarantineBundle = {
     ...quarantineBundle,
     current_changed_entries: currentChangedEntries,
   };
   if (
+    gitStatusVerified
+    &&
     quarantineBundle?.status === 'available_as_preservation_evidence_not_release_closure'
     && Number(quarantineBundle.changed_paths || 0) !== currentChangedEntries
   ) {
     effectiveQuarantineBundle.status = 'stale_changed_path_mismatch';
     effectiveQuarantineBundle.stale_reason = `quarantine manifest changed_paths=${Number(quarantineBundle.changed_paths || 0)} does not match current changed_entries=${currentChangedEntries}`;
   }
-  const quarantineMatchesCurrent = effectiveQuarantineBundle.status === 'available_as_preservation_evidence_not_release_closure'
+  if (!gitStatusVerified) {
+    effectiveQuarantineBundle.status = 'git_status_unverified';
+    effectiveQuarantineBundle.stale_reason = gitDiagnostics?.git_status_command_error || 'git status could not be executed';
+  }
+  const quarantineMatchesCurrent = gitStatusVerified
+    && effectiveQuarantineBundle.status === 'available_as_preservation_evidence_not_release_closure'
     && Number(effectiveQuarantineBundle.changed_paths || 0) === currentChangedEntries;
   const isolationEvidence = {
-    status: currentChangedEntries === 0
+    status: !gitStatusVerified
+      ? 'git_status_unverified'
+      : currentChangedEntries === 0
       ? 'not_needed_clean_worktree'
       : (quarantineMatchesCurrent ? 'current_dirty_state_preserved_not_release_closure' : 'missing_or_stale'),
     quarantine_matches_current: quarantineMatchesCurrent,
-    still_blocks_release: currentChangedEntries > 0,
-    required_next_step: currentChangedEntries === 0
+    still_blocks_release: !gitStatusVerified || currentChangedEntries > 0,
+    required_next_step: !gitStatusVerified
+      ? 'Run git status --short --branch in a shell that can execute Git, then regenerate the gap pack.'
+      : currentChangedEntries === 0
       ? 'Keep git status clean until final external-state review.'
       : 'Review, commit, or isolate these changes from the final release PR; quarantine evidence alone is not release closure.',
   };
@@ -439,13 +484,21 @@ function worktreeClosePlan(gitDiagnostics, quarantineBundle) {
     };
   }).filter((category) => category.count > 0);
 
+  const stagingPlan = worktreeStagingPlan(entries);
+  if (!gitStatusVerified) {
+    stagingPlan.status = 'git_status_unverified';
+    stagingPlan.close_condition = 'Git status must be collected successfully before any worktree or staged-scope conclusion.';
+  }
+
   return {
-    status: Number(summary.total || 0) === 0 ? 'clean' : 'blocked_until_clean_or_isolated',
-    changed_entries: Number(summary.total || 0),
+    status: !gitStatusVerified
+      ? 'blocked_git_status_unverified'
+      : Number(summary.total || 0) === 0 ? 'clean' : 'blocked_until_clean_or_isolated',
+    changed_entries: currentChangedEntries,
     changed_summary: summary,
     quarantine_bundle: effectiveQuarantineBundle,
     isolation_evidence: isolationEvidence,
-    staging_plan: worktreeStagingPlan(entries),
+    staging_plan: stagingPlan,
     categories,
     acceptance_commands: [
       'git status --short --branch',
@@ -627,8 +680,11 @@ function operatorIntakePacket(
         path: prCandidates.path,
         command: prCandidates.command || 'npm run review:release-pr-candidates',
         status: prCandidates.status,
+        is_fresh_for_current_project_state: prCandidates.is_fresh_for_current_project_state,
         gh_pr_list_checked_at: prCandidates.gh_pr_list_checked_at || null,
         gh_pr_list_open_pr_count: prCandidates.gh_pr_list_open_pr_count ?? null,
+        selected_release_pr_number: prCandidates.selected_release_pr_number ?? null,
+        selected_release_pr_head_sha: prCandidates.selected_release_pr_head_sha ?? null,
         github_connector_diagnostic: prCandidates.github_connector_diagnostic || null,
         does_not_close_release_readiness: true,
       },
@@ -783,34 +839,56 @@ function buildGapPack() {
   const designManifestPath = evidencePath('design_handoff_manifest.json');
   const otaAttestationPath = evidencePath('ota_credential_rotation_attestation.json');
   const gitStatus = runGitStatus();
-  const gitDiagnostics = externalStateDiagnostics(externalStateResult, gitStatus);
+  const readinessResultIsFresh = evidenceIsFreshForCurrentProjectState(readinessResult);
+  const stagedScopeResultIsFresh = evidenceIsFreshForCurrentProjectState(stagedScopeResult);
+  const externalStateResultIsFresh = evidenceIsFreshForCurrentProjectState(externalStateResult);
+  const gitDiagnostics = externalStateDiagnostics(
+    externalStateResultIsFresh ? externalStateResult : { path: externalStateResult.path, data: null },
+    gitStatus,
+  );
   const quarantineBundle = summarizeWorktreeQuarantine(worktreeQuarantineManifestPath());
   const localWorktreeClosePlan = worktreeClosePlan(gitDiagnostics, quarantineBundle);
   const latestPrCandidates = prCandidateSummary(prCandidateResult);
   const githubConnector = githubEvidence.data?.latest_connector_check || null;
-  const currentPrConnector = status.data?.current_pr?.connector_evidence || null;
-  const currentPrConnectorEvidence = currentPrConnector ? {
-    ...currentPrConnector,
-    checked_at: githubConnector?.checked_at || currentPrConnector.checked_at || null,
+  const currentPrConnectorEvidence = githubConnector ? {
+    path: 'docs/release_github_handoff_evidence.json',
+    ...githubConnector,
+    is_stale_for_current_review: true,
+    does_not_close_release_readiness: true,
   } : null;
-  const currentPrStatusWithConnectorEvidence = status.data?.current_pr ? {
-    number: status.data.current_pr.number ?? null,
-    status: status.data.current_pr.status || 'unknown',
-    checks: status.data.current_pr.checks || 'unknown',
-    source_of_truth: status.data.current_pr.source_of_truth || 'unknown',
+  const currentPrStatusWithConnectorEvidence = {
+    number: latestPrCandidates.selected_release_pr_number,
+    status: latestPrCandidates.status === 'passed' ? 'selected_from_fresh_live_review' : 'live_review_required',
+    checks: latestPrCandidates.status === 'passed' ? 'from_fresh_candidate_result' : 'not_currently_verified',
+    source_of_truth: latestPrCandidates.status === 'passed'
+      ? latestPrCandidates.path
+      : 'rerun npm run review:release-pr-candidates after vault/current-state.md',
     connector_evidence: currentPrConnectorEvidence,
-    pr_candidate_review: status.data.current_pr.pr_candidate_review || null,
-  } : null;
+    pr_candidate_review: {
+      ...latestPrCandidates,
+      connector_diagnostic: latestPrCandidates.github_connector_diagnostic,
+    },
+  };
   const latestExternalState = {
     path: externalStateResult.path,
     exists: externalStateResult.exists,
-    status: externalStateResult.data?.status || 'unknown',
-    expected_release_pr_number: externalStateResult.data?.expected_release_pr_number ?? null,
-    expected_local_head_sha: externalStateResult.data?.expected_local_head_sha ?? null,
-    expected_release_pr_head_sha: externalStateResult.data?.expected_release_pr_head_sha ?? null,
-    failures: compactFailures(externalStateResult),
+    status: externalStateResultIsFresh ? (externalStateResult.data?.status || 'failed') : 'failed',
+    is_fresh_for_current_project_state: externalStateResultIsFresh,
+    expected_release_pr_number: externalStateResultIsFresh ? (externalStateResult.data?.expected_release_pr_number ?? null) : null,
+    expected_local_head_sha: externalStateResultIsFresh ? (externalStateResult.data?.expected_local_head_sha ?? null) : null,
+    expected_release_pr_head_sha: externalStateResultIsFresh ? (externalStateResult.data?.expected_release_pr_head_sha ?? null) : null,
+    failures: externalStateResultIsFresh
+      ? compactFailures(externalStateResult)
+      : ['Release external-state gate has not passed for the current vault/current-state.md snapshot.'],
     diagnostics: gitDiagnostics,
   };
+  const latestReadinessFailures = readinessResultIsFresh ? compactFailures(readinessResult) : [
+    'Release readiness evidence predates vault/current-state.md.',
+    'Design handoff manifest was not found for the current project snapshot.',
+    'OTA credential rotation attestation was not found for the current project snapshot.',
+    'Release PR candidate gate has not passed for the current project snapshot.',
+    'Release external-state gate has not passed for the current project snapshot.',
+  ];
 
   return {
     schema_version: 1,
@@ -823,15 +901,18 @@ function buildGapPack() {
         path: status.path,
         exists: status.exists,
         overall_status: status.data?.overall_status || 'unknown',
+        status_role: status.data?.status_role || 'unknown',
+        current_use_forbidden: status.data?.current_use_forbidden === true,
         current_pr: currentPrStatusWithConnectorEvidence,
       },
       latest_release_readiness_result: {
         path: readinessResult.path,
         exists: readinessResult.exists,
-        mode: readinessResult.data?.mode || 'unknown',
-        final_release_ready: readinessResult.data?.final_release_ready === true,
-        status: readinessResult.data?.status || 'unknown',
-        failures: compactFailures(readinessResult),
+        mode: readinessResultIsFresh ? (readinessResult.data?.mode || 'unknown') : 'pre_ready',
+        final_release_ready: readinessResultIsFresh && readinessResult.data?.final_release_ready === true,
+        status: readinessResultIsFresh ? (readinessResult.data?.status || 'failed') : 'failed',
+        is_fresh_for_current_project_state: readinessResultIsFresh,
+        failures: latestReadinessFailures,
       },
       latest_release_evidence_result: {
         path: releaseEvidenceResult.path,
@@ -892,9 +973,12 @@ function buildGapPack() {
       latest_release_staged_scope_result: {
         path: stagedScopeResult.path,
         exists: stagedScopeResult.exists,
-        status: stagedScopeResult.data?.status || 'unknown',
+        status: stagedScopeResultIsFresh ? (stagedScopeResult.data?.status || 'failed') : 'failed',
+        is_fresh_for_current_project_state: stagedScopeResultIsFresh,
         does_not_close_release_readiness: stagedScopeResult.data?.does_not_close_release_readiness === true,
-        failures: compactFailures(stagedScopeResult),
+        failures: stagedScopeResultIsFresh
+          ? compactFailures(stagedScopeResult)
+          : ['Release staged-scope gate has not passed for the current vault/current-state.md snapshot.'],
       },
       latest_external_state_result: latestExternalState,
       local_git_status: gitStatus,

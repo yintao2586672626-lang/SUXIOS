@@ -9147,9 +9147,14 @@
                         statusCode: statusCode || 'unconfigured',
                         statusText: platformProfileStatusLabel(normalizedProfileItem),
                         bindingContract,
+                        profileConfigured: hasConfiguredProfile,
                         currentSessionVerified,
                         profileReusable,
                         profileReuseWarning,
+                        loginBlocked,
+                        collectionStatus,
+                        collectionDone,
+                        collectionPartial,
                         historicalLoginMetadataPresent,
                         failureRaw,
                         failureText,
@@ -9195,6 +9200,162 @@
             const meituanPlatformProfileLoginTask = computed(() => platformProfileLoginTask('meituan'));
             const ctripPlatformProfileLoginTask = computed(() => platformProfileLoginTask('ctrip'));
             const platformProfileSummary = computed(() => platformProfileStatus.value?.summary || {});
+            // This is deliberately an evidence surface, not a remote-browser control.
+            // The website can show what the cloud is allowed to consume, while a user
+            // still completes any actual platform login in the isolated authorization browser.
+            const cloudAuthorizationGuide = ref('');
+            const cloudAuthorizationPanelTitle = '云端授权状态';
+            const cloudAuthorizationRefreshText = '刷新';
+            const cloudAuthorizationGuideText = '登录后刷新';
+            const cloudAuthorizationEmptyText = '未取得授权状态。';
+            const cloudBrowserAuthorization = ref({ hotel_id: 0, profiles: [] });
+            const cloudBrowserAuthorizationLoading = ref(false);
+            const cloudBrowserAuthorizationError = ref('');
+            const platformAuthorizationEvidenceRows = computed(() => platformProfileFlowRows.value.map((row) => {
+                const code = String(row?.statusCode || 'unconfigured').toLowerCase();
+                const platformName = String(row?.platformName || row?.platform || 'OTA');
+                const expired = ['session_expired', 'login_expired', 'cookies_incomplete'].includes(code);
+                let status = 'unconfigured';
+                let statusText = '未授权';
+                let statusClass = 'border-slate-200 bg-slate-50 text-slate-700';
+                let actionText = '查看授权入口';
+                if (expired) {
+                    status = 'session_expired';
+                    statusText = '会话失效';
+                    statusClass = 'border-red-200 bg-red-50 text-red-700';
+                    actionText = '重新登录入口';
+                } else if (code === 'waiting_login') {
+                    status = 'waiting_login';
+                    statusText = '等待登录';
+                    statusClass = 'border-amber-200 bg-amber-50 text-amber-800';
+                    actionText = '打开登录说明';
+                } else if (row?.currentSessionVerified && code === 'logged_in') {
+                    status = 'collectable';
+                    statusText = '可采集';
+                    statusClass = 'border-emerald-200 bg-emerald-50 text-emerald-800';
+                    actionText = '查看授权说明';
+                } else if (row?.profileConfigured || ['profile_reusable', 'renewal_warning', 'logged_in'].includes(code)) {
+                    status = 'verification_pending';
+                    statusText = '已登录待验证';
+                    statusClass = 'border-blue-200 bg-blue-50 text-blue-800';
+                    actionText = '查看验证说明';
+                }
+                const latestText = row?.collectionDone
+                    ? `最近采集：${row.targetDateText || '目标日期'} 已入库并通过字段完整性核验`
+                    : (row?.collectionPartial
+                        ? `最近采集：${row.targetDateText || '目标日期'} 仅部分完成`
+                        : `最近采集：${row?.targetDateText || '尚未取得'}`);
+                const gapText = row?.collectionDone
+                    ? '数据缺口：无已确认缺口'
+                    : `数据缺口：${String(row?.failureText || '尚未取得可用于正式报告的完整数据').trim()}`;
+                return {
+                    platform: row?.platform || '',
+                    platformName,
+                    status,
+                    statusText,
+                    statusClass,
+                    actionText,
+                    latestText,
+                    gapText,
+                    nextAction: String(row?.statusText || '请先完成授权状态核验'),
+                };
+            }));
+            const loadCloudBrowserAuthorization = async (options = {}) => {
+                const hotelId = Number(getAutoFetchHotelId() || 0);
+                cloudBrowserAuthorizationError.value = '';
+                if (!hotelId) {
+                    cloudBrowserAuthorization.value = { hotel_id: 0, profiles: [] };
+                    cloudBrowserAuthorizationError.value = '请先选择门店';
+                    return cloudBrowserAuthorization.value;
+                }
+                cloudBrowserAuthorizationLoading.value = true;
+                try {
+                    const res = await request(`/cloud-browser-profiles/status?hotel_id=${encodeURIComponent(String(hotelId))}`);
+                    if (res.code !== 200) throw new Error(res.message || '云端授权状态读取失败');
+                    cloudBrowserAuthorization.value = res.data || { hotel_id: hotelId, profiles: [] };
+                } catch (error) {
+                    cloudBrowserAuthorization.value = { hotel_id: hotelId, profiles: [] };
+                    cloudBrowserAuthorizationError.value = error.message || '云端授权状态读取失败';
+                    if (!options.silent) showToast(cloudBrowserAuthorizationError.value, 'error');
+                } finally {
+                    cloudBrowserAuthorizationLoading.value = false;
+                }
+                return cloudBrowserAuthorization.value;
+            };
+            const cloudAuthorizationRows = computed(() => {
+                const evidenceByPlatform = new Map(platformAuthorizationEvidenceRows.value.map((row) => [row.platform, row]));
+                const profileByPlatform = new Map((Array.isArray(cloudBrowserAuthorization.value?.profiles) ? cloudBrowserAuthorization.value.profiles : [])
+                    .map((profile) => [String(profile?.platform || '').toLowerCase(), profile]));
+                return ['ctrip', 'meituan'].map((platform) => {
+                    const profile = profileByPlatform.get(platform) || null;
+                    const evidence = evidenceByPlatform.get(platform) || null;
+                    const state = String(profile?.authorization_status || 'unauthorized').toLowerCase();
+                    const statusMeta = {
+                        unauthorized: ['未授权', 'border-slate-200 bg-slate-50 text-slate-700', '创建登录入口', 'request_login'],
+                        awaiting_login: ['等待登录', 'border-amber-200 bg-amber-50 text-amber-800', '查看登录入口', 'request_login'],
+                        login_verified: ['已登录待验证', 'border-blue-200 bg-blue-50 text-blue-800', '刷新状态', 'refresh'],
+                        ready_to_collect: ['可采集', 'border-emerald-200 bg-emerald-50 text-emerald-800', '刷新状态', 'refresh'],
+                        session_expired: ['会话失效', 'border-red-200 bg-red-50 text-red-700', '重新登录', 'request_login'],
+                        awaiting_relogin: ['等待重新登录', 'border-amber-200 bg-amber-50 text-amber-800', '查看重新登录入口', 'request_login'],
+                    }[state] || ['状态未确认', 'border-slate-200 bg-slate-50 text-slate-700', '刷新状态', 'refresh'];
+                    const latestText = evidence?.collectionDone
+                        ? `最近采集：${evidence.targetDateText || '目标日期'} 已完成保存与回读`
+                        : (evidence?.collectionPartial
+                            ? `最近采集：${evidence.targetDateText || '目标日期'} 部分完成`
+                            : '最近采集：未取得');
+                    return {
+                        platform,
+                        platformName: platform === 'ctrip' ? '携程' : '美团',
+                        status: state,
+                        statusText: statusMeta[0],
+                        actionText: statusMeta[2],
+                        actionMode: statusMeta[3],
+                        latestText,
+                        gapText: evidence?.collectionDone
+                            ? '数据缺口：无已确认缺口'
+                            : `数据缺口：${String(evidence?.failureText || '尚未取得正式报告所需的完整数据').trim()}`,
+                        summary: `${statusMeta[0]}；${latestText}；${evidence?.collectionDone
+                            ? '数据缺口：无已确认缺口'
+                            : `数据缺口：${String(evidence?.failureText || '尚未取得正式报告所需的完整数据').trim()}`}`,
+                        l: `${platform === 'ctrip' ? '携程' : '美团'}：${statusMeta[0]}；${latestText}；${evidence?.collectionDone
+                            ? '无已确认缺口'
+                            : String(evidence?.failureText || '尚未取得正式报告所需的完整数据').trim()}`,
+                    };
+                });
+            });
+            const openCloudAuthorizationGuide = async (row = {}) => {
+                const platform = String(row?.platform || '').trim().toLowerCase();
+                if (!platform) return;
+                cloudAuthorizationGuide.value = platform;
+                if (row.actionMode !== 'request_login') {
+                    await loadCloudBrowserAuthorization({ silent: true });
+                    return;
+                }
+                const hotelId = Number(getAutoFetchHotelId() || 0);
+                if (!hotelId) {
+                    cloudBrowserAuthorizationError.value = '请先选择门店';
+                    return;
+                }
+                cloudBrowserAuthorizationLoading.value = true;
+                cloudBrowserAuthorizationError.value = '';
+                try {
+                    const res = await request('/cloud-browser-profiles/request-login', {
+                        method: 'POST',
+                        body: JSON.stringify({ hotel_id: hotelId, platform }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '云端登录入口创建失败');
+                    await loadCloudBrowserAuthorization({ silent: true });
+                    showToast('已登记云端登录请求。看到受保护的平台登录页后再完成验证；当前不代表浏览器已打开或已登录。', 'info');
+                } catch (error) {
+                    cloudBrowserAuthorizationError.value = error.message || '云端登录入口创建失败';
+                    showToast(cloudBrowserAuthorizationError.value, 'error');
+                } finally {
+                    cloudBrowserAuthorizationLoading.value = false;
+                }
+            };
+            const openCloudAuth = openCloudAuthorizationGuide;
+            const c = cloudAuthorizationRows;
+            const o = openCloudAuthorizationGuide;
             const autoFetchBackfillDate = ref('');
             const autoFetchBackfillingDate = ref('');
             const autoFetchRunState = ref({
@@ -13558,6 +13719,9 @@
                         showSuccess: false,
                     }));
                 }
+                if (newPage === 'wechat-notification') {
+                    runPageLoadOnce(newPage, 'main', () => loadWechatNotificationStatus());
+                }
                 if (newPage === 'users') {
                     runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
                         loadUsers(),
@@ -14085,6 +14249,7 @@
                             name: '系统与权限',
                             icon: 'fas fa-cog',
                             sourcePaths: [
+                                'wechat-notification',
                                 'users',
                                 'roles',
                                 'operation-logs',
@@ -14225,6 +14390,9 @@
                         pendingOnlineDataEntryTab = String(item.tab || '');
                     }
                     currentPage.value = item.path;
+                    if (item.path === 'wechat-notification') {
+                        nextTick(() => loadWechatNotificationStatus());
+                    }
                     if (item.path === 'hotels') {
                         nextTick(() => ensureHotelOtaConfigLists());
                     }
@@ -15935,6 +16103,264 @@
             };
             const apiRequest = request;
 
+            // 普通账户企业微信通知绑定。Webhook 只存在于当前输入框，
+            // 保存或切换门店后立即清空，页面状态只消费后端掩码。
+            const wechatNotificationPanelBody = shallowRef(null);
+            let wechatNotificationPanelLoadPromise = null;
+            const ensureWechatNotificationPanelReady = () => {
+                if (wechatNotificationPanelBody.value) {
+                    return Promise.resolve(wechatNotificationPanelBody.value);
+                }
+                if (!wechatNotificationPanelLoadPromise) {
+                    wechatNotificationPanelLoadPromise = new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = 'wechat-notification-static.js?v=20260725-account-binding-h1dcac3efb2';
+                        script.async = true;
+                        script.onload = () => {
+                            if (!window.SUXI_WECHAT_NOTIFICATION_PANEL) {
+                                reject(new Error('企业微信通知页面组件加载失败'));
+                                return;
+                            }
+                            wechatNotificationPanelBody.value = markRaw(window.SUXI_WECHAT_NOTIFICATION_PANEL);
+                            resolve(wechatNotificationPanelBody.value);
+                        };
+                        script.onerror = () => reject(new Error('企业微信通知页面组件加载失败'));
+                        document.head.appendChild(script);
+                    }).catch((error) => {
+                        wechatNotificationPanelLoadPromise = null;
+                        throw error;
+                    });
+                }
+                return wechatNotificationPanelLoadPromise;
+            };
+            const wechatNotificationHotelId = ref('');
+            const wechatNotificationLoading = ref(false);
+            const wechatNotificationSaving = ref(false);
+            const wechatNotificationTesting = ref(false);
+            const wechatNotificationError = ref('');
+            const wechatNotificationState = ref({
+                hotel_id: null,
+                binding_status: 'binding_missing',
+                binding: null,
+            });
+            const wechatNotificationForm = ref({
+                name: '宿析通知群',
+                webhook: '',
+            });
+            const wechatNotificationHotelOptions = computed(() => {
+                const source = permittedHotels.value.length ? permittedHotels.value : hotels.value;
+                return (Array.isArray(source) ? source : []).filter(hotel => hotel?.id);
+            });
+            const wechatNotificationSelectedHotel = computed(() => (
+                wechatNotificationHotelOptions.value.find(
+                    hotel => String(hotel.id) === String(wechatNotificationHotelId.value)
+                ) || null
+            ));
+            const wechatNotificationBinding = computed(() => (
+                wechatNotificationState.value?.binding || null
+            ));
+            const wechatNotificationStatusText = computed(() => {
+                if (wechatNotificationLoading.value) return '正在读取';
+                if (wechatNotificationError.value) return '读取失败';
+                if (!wechatNotificationBinding.value) return '尚未绑定';
+                if (wechatNotificationBinding.value.last_test_status === 'sent') return '已绑定，测试送达';
+                if (wechatNotificationBinding.value.last_test_status === 'failed') return '已绑定，测试未送达';
+                return '已绑定，待测试';
+            });
+            const wechatNotificationStatusClass = computed(() => {
+                if (wechatNotificationError.value || wechatNotificationBinding.value?.last_test_status === 'failed') {
+                    return 'border-red-200 bg-red-50 text-red-700';
+                }
+                if (wechatNotificationBinding.value?.last_test_status === 'sent') {
+                    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+                }
+                return 'border-amber-200 bg-amber-50 text-amber-800';
+            });
+            const wechatNotificationLastTestText = computed(() => {
+                const value = String(wechatNotificationBinding.value?.last_tested_at || '').trim();
+                return value || '尚未发送测试消息';
+            });
+            const wechatNotificationPanelProps = computed(() => ({
+                hotels: wechatNotificationHotelOptions.value,
+                hotelId: wechatNotificationHotelId.value,
+                state: wechatNotificationState.value,
+                form: wechatNotificationForm.value,
+                loading: wechatNotificationLoading.value,
+                saving: wechatNotificationSaving.value,
+                testing: wechatNotificationTesting.value,
+                error: wechatNotificationError.value,
+                statusText: wechatNotificationStatusText.value,
+                statusClass: wechatNotificationStatusClass.value,
+                lastTestText: wechatNotificationLastTestText.value,
+            }));
+            const ensureWechatNotificationHotel = () => {
+                const options = wechatNotificationHotelOptions.value;
+                const currentExists = options.some(
+                    hotel => String(hotel.id) === String(wechatNotificationHotelId.value)
+                );
+                if (currentExists) return String(wechatNotificationHotelId.value);
+                const preferred = options.find(hotel => String(hotel.id) === String(user.value?.hotel_id || ''));
+                wechatNotificationHotelId.value = String(preferred?.id || options[0]?.id || '');
+                return wechatNotificationHotelId.value;
+            };
+            const loadWechatNotificationStatus = async () => {
+                wechatNotificationForm.value.webhook = '';
+                wechatNotificationError.value = '';
+                try {
+                    await ensureWechatNotificationPanelReady();
+                } catch (error) {
+                    wechatNotificationError.value = error?.message || '企业微信通知页面组件加载失败';
+                    return;
+                }
+                if (!wechatNotificationHotelOptions.value.length) {
+                    await loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS }).catch(() => null);
+                }
+                const hotelId = ensureWechatNotificationHotel();
+                if (!hotelId) {
+                    wechatNotificationState.value = {
+                        hotel_id: null,
+                        binding_status: 'permission_denied',
+                        binding: null,
+                    };
+                    wechatNotificationError.value = '当前账户没有可绑定的门店';
+                    return;
+                }
+                wechatNotificationLoading.value = true;
+                try {
+                    const response = await request(
+                        `/wechat-notification/status?hotel_id=${encodeURIComponent(hotelId)}`,
+                        { withBusinessContext: false }
+                    );
+                    if (String(wechatNotificationHotelId.value) !== String(hotelId)) return;
+                    if (response.code !== 200) {
+                        throw new Error(response.message || '企业微信通知状态读取失败');
+                    }
+                    wechatNotificationState.value = response.data || {
+                        hotel_id: Number(hotelId),
+                        binding_status: 'binding_missing',
+                        binding: null,
+                    };
+                    if (wechatNotificationState.value.binding?.name) {
+                        wechatNotificationForm.value.name = wechatNotificationState.value.binding.name;
+                    }
+                } catch (error) {
+                    if (String(wechatNotificationHotelId.value) !== String(hotelId)) return;
+                    wechatNotificationState.value = {
+                        hotel_id: Number(hotelId),
+                        binding_status: 'unavailable',
+                        binding: null,
+                    };
+                    wechatNotificationError.value = error?.data?.message || error?.message || '企业微信通知状态读取失败';
+                } finally {
+                    if (String(wechatNotificationHotelId.value) === String(hotelId)) {
+                        wechatNotificationLoading.value = false;
+                    }
+                }
+            };
+            const changeWechatNotificationHotel = () => {
+                wechatNotificationForm.value.webhook = '';
+                wechatNotificationState.value = {
+                    hotel_id: Number(wechatNotificationHotelId.value) || null,
+                    binding_status: 'binding_missing',
+                    binding: null,
+                };
+                return loadWechatNotificationStatus();
+            };
+            const saveWechatNotificationBinding = async () => {
+                const hotelId = ensureWechatNotificationHotel();
+                const webhook = String(wechatNotificationForm.value.webhook || '').trim();
+                const name = String(wechatNotificationForm.value.name || '').trim();
+                if (!hotelId) {
+                    showToast('请选择有权限的门店', 'warning');
+                    return;
+                }
+                if (!webhook) {
+                    showToast('请输入企业微信群机器人 Webhook', 'warning');
+                    return;
+                }
+                wechatNotificationSaving.value = true;
+                wechatNotificationError.value = '';
+                try {
+                    const response = await request('/wechat-notification/bind', {
+                        method: 'POST',
+                        withBusinessContext: false,
+                        body: JSON.stringify({
+                            hotel_id: Number(hotelId),
+                            name,
+                            webhook,
+                        }),
+                    });
+                    if (response.code !== 200) {
+                        throw new Error(response.message || '企业微信通知绑定失败');
+                    }
+                    wechatNotificationState.value = {
+                        hotel_id: Number(hotelId),
+                        binding_status: 'configured',
+                        binding: response.data?.binding || null,
+                    };
+                    wechatNotificationForm.value.webhook = '';
+                    showToast(response.message || '企业微信通知已绑定');
+                } catch (error) {
+                    wechatNotificationError.value = error?.data?.message || error?.message || '企业微信通知绑定失败';
+                    showToast(wechatNotificationError.value, 'error');
+                } finally {
+                    wechatNotificationForm.value.webhook = '';
+                    wechatNotificationSaving.value = false;
+                }
+            };
+            const testWechatNotificationBinding = async () => {
+                const hotelId = ensureWechatNotificationHotel();
+                if (!hotelId || !wechatNotificationBinding.value) {
+                    showToast('请先绑定企业微信通知群', 'warning');
+                    return;
+                }
+                wechatNotificationTesting.value = true;
+                wechatNotificationError.value = '';
+                try {
+                    const response = await request('/wechat-notification/test', {
+                        method: 'POST',
+                        withBusinessContext: false,
+                        body: JSON.stringify({ hotel_id: Number(hotelId) }),
+                    });
+                    if (response.code !== 200) {
+                        throw new Error(response.message || '测试消息未成功送达');
+                    }
+                    wechatNotificationState.value = {
+                        hotel_id: Number(hotelId),
+                        binding_status: 'configured',
+                        binding: response.data?.binding || wechatNotificationBinding.value,
+                    };
+                    showToast(response.message || '测试消息已发送');
+                } catch (error) {
+                    const responseData = error?.data?.data || null;
+                    if (responseData?.binding) {
+                        wechatNotificationState.value = {
+                            hotel_id: Number(hotelId),
+                            binding_status: 'configured',
+                            binding: responseData.binding,
+                        };
+                    }
+                    wechatNotificationError.value = error?.data?.message || error?.message || '测试消息未成功送达';
+                    showToast(wechatNotificationError.value, 'error');
+                } finally {
+                    wechatNotificationTesting.value = false;
+                }
+            };
+            const wechatNotificationPanelEvents = {
+                hotelChange: (hotelId) => {
+                    wechatNotificationHotelId.value = hotelId;
+                    changeWechatNotificationHotel();
+                },
+                updateName: (name) => {
+                    wechatNotificationForm.value.name = name;
+                },
+                updateWebhook: (webhook) => {
+                    wechatNotificationForm.value.webhook = webhook;
+                },
+                save: saveWechatNotificationBinding,
+                test: testWechatNotificationBinding,
+            };
+
             const normalizeCtripPublicHotelIdInput = (value) => {
                 const raw = String(value || '').trim();
                 if (/^[1-9][0-9]{0,19}$/.test(raw)) return raw;
@@ -17556,14 +17982,7 @@
                 return run;
             };
 
-            const localCollectorPairCommand = computed(() => {
-                const code = String(localCollectorPairResult.value?.pair_code || '').trim();
-                if (!code) return '';
-                const origin = String(window.location.origin || '').replace(/\/+$/, '');
-                const name = String(localCollectorPairResult.value?.device_name || localCollectorDeviceName.value || '我的 Windows 采集电脑')
-                    .replace(/"/g, '');
-                return `node scripts/ota_local_collector.mjs pair --server=${origin} --code=${code} --name="${name}"`;
-            });
+            const localCollectorConnectEndpoint = 'http://127.0.0.1:48761/connect';
 
             const localCollectorPlatformText = (platform) => (
                 String(platform || '').toLowerCase() === 'meituan' ? '美团' : '携程'
@@ -17731,7 +18150,7 @@
                 }
             };
 
-            const generateLocalCollectorPairCode = async () => {
+            const connectLocalCollector = async () => {
                 localCollectorPairing.value = true;
                 localCollectorError.value = '';
                 try {
@@ -17741,22 +18160,37 @@
                             device_name: String(localCollectorDeviceName.value || '').trim(),
                         }),
                     });
-                    if (res.code !== 200) throw new Error(res.message || '配对码生成失败');
-                    localCollectorPairResult.value = res.data || null;
-                    showToast('配对码已生成，10 分钟内在账户使用者电脑执行命令');
+                    if (res.code !== 200 || !res.data?.pair_code) throw new Error(res.message || '本机连接准备失败');
+                    const origin = String(window.location.origin || '').replace(/\/+$/, '');
+                    const localResponse = await fetch(localCollectorConnectEndpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            server: origin,
+                            pair_code: String(res.data.pair_code),
+                            device_name: String(localCollectorDeviceName.value || '').trim(),
+                        }),
+                    });
+                    const localResult = await localResponse.json().catch(() => ({}));
+                    if (!localResponse.ok || localResult.status !== 'paired') {
+                        throw new Error(localResult.message || '未检测到本机采集器，请先打开宿析采集器后重试');
+                    }
+                    localCollectorPairResult.value = null;
+                    await loadLocalCollectorStatus({ silent: true });
+                    showToast('此电脑已连接，网站将同步本机采集状态');
                 } catch (error) {
-                    localCollectorError.value = error.message || '配对码生成失败';
+                    localCollectorError.value = error.message || '本机采集器连接失败';
                     showToast(localCollectorError.value, 'error');
                 } finally {
                     localCollectorPairing.value = false;
                 }
             };
 
-            const copyLocalCollectorPairCommand = async () => {
-                if (!localCollectorPairCommand.value) return;
-                await copyToClipboard(localCollectorPairCommand.value);
-                showToast('本机配对命令已复制');
-            };
+            // Keep the existing template/export surface stable while the UI switches
+            // from a visible pairing code to one-click local connection.
+            const localCollectorPairCommand = computed(() => '');
+            const generateLocalCollectorPairCode = connectLocalCollector;
+            const copyLocalCollectorPairCommand = async () => {};
 
             const createLocalCollectorAccount = async () => {
                 const form = localCollectorAccountForm.value;
@@ -17888,6 +18322,7 @@
                         force: options.force === true,
                         cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,
                     }),
+                    loadCloudBrowserAuthorization({ silent: true }),
                     loadLocalCollectorStatus({ silent: true }),
                 ]);
                 scheduleDelayedPageTask(() => {
@@ -39060,6 +39495,7 @@
                 usersLoading, usersLoadError, usersSnapshotReady, loadUsers,
                 userTenantBindingMissing, userTenantScopeMessage, userTenantScopeBlocker,
                 hotels, permittedHotels, hotelManagementLoading, hotelManagementSnapshotReady, hotelManagementLoadError, hotelManagementLastRefreshedAt, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, copyUserBasicLoginInfo, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, filteredUserAssignmentHotels, userHotelAssignmentSearch, userHotelAssignmentSelectedOnly, selectedUserIds, userBatchStatusLoading, toggleAllFilteredUsers, batchUpdateUserStatus, getHotelNameById, hotelConfigTargetText, hotelSelectOptionText, normalizeHotelOtaStrategy, hotelOtaStrategyText, hotelOtaStrategyClass, hotelOtaStrategyButtonClass, hotelOtaStrategyReview, hotelOtaApplicabilityBadgeText, hotelOtaApplicabilityBadgeClass, hotelOtaApplicabilityBadgeTitle, hotelFormChannelSelected, toggleHotelFormChannel, hotelPlatformApplicable, hotelInactivePlatformText, hotelApplicablePlatformBindingRows, hotelVerifiedOtaState, hotelOtaStatusBadges, userHotelScopeText, userHotelScopeSummary, userDisplaySequence, userLastLoginText, userLastLoginSortDirection, toggleUserLastLoginSort, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, isMeituanAdsNotApplicableForHotel, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelCreatedDateText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelPlatformIssueText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelProblemQueueOverview, hotelAccountFilterPresentation, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, selectedHotelIds, hotelBatchStatusLoading, expandedHotelIds, isHotelDetailsExpanded, toggleHotelDetails, toggleAllFilteredHotels, batchUpdateHotelStatus, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                wechatNotificationPanelBody, wechatNotificationPanelProps, wechatNotificationPanelEvents, wechatNotificationHotelId, wechatNotificationLoading, wechatNotificationSaving, wechatNotificationTesting, wechatNotificationError, wechatNotificationState, wechatNotificationForm, wechatNotificationHotelOptions, wechatNotificationSelectedHotel, wechatNotificationBinding, wechatNotificationStatusText, wechatNotificationStatusClass, wechatNotificationLastTestText, loadWechatNotificationStatus, changeWechatNotificationHotel, saveWechatNotificationBinding, testWechatNotificationBinding,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
@@ -39124,6 +39560,7 @@
                 otaFetchResultView,
                 localCollectorOrderedTargetDateText, localCollectorOrderedQueueText, localCollectorOrderedGateText,
                 localCollectorOrderedCurrentText, localCollectorOrderedNextText, localCollectorOrderedNextReasonText, localCollectorOrderedNextActionText,
+                cloudAuthorizationGuide, cloudAuthorizationPanelTitle, cloudAuthorizationRefreshText, cloudAuthorizationGuideText, cloudAuthorizationEmptyText, cloudBrowserAuthorizationLoading, cloudBrowserAuthorizationError, loadCloudBrowserAuthorization, cloudAuthorizationRows, openCloudAuthorizationGuide, openCloudAuth, c, o,
                 onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionBoundaryRows, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceLoadFailed, platformDataSourceSnapshotReady, platformDataSourceLoadError, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, localCollectorStatus, localCollectorLoading, localCollectorError, localCollectorPairing, localCollectorPairResult, localCollectorPairCommand, localCollectorSaving, localCollectorTaskRunningKey, localCollectorDeviceName, localCollectorAccountForm, localCollectorBindingForm, localCollectorBackfillDate, localCollectorPlatformText, localCollectorStatusText, localCollectorStatusClass, loadLocalCollectorStatus, generateLocalCollectorPairCode, copyLocalCollectorPairCommand, createLocalCollectorAccount, bindLocalCollectorHotel, createLocalCollectorTask, contactLocalCollectorAdmin, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, togglePlatformAccountCenterDetails, openPlatformAccountCenterAction, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureReadinessNotice, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,

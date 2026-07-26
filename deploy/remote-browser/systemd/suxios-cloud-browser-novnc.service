@@ -1,0 +1,19 @@
+[Unit]
+Description=SUXIOS loopback-only cloud browser noVNC
+After=suxios-cloud-browser-vnc.service
+Requires=suxios-cloud-browser-vnc.service
+
+[Service]
+Type=simple
+User=suxios-browser
+Group=suxios-browser
+ExecStart=/usr/bin/websockify --web @NOVNC_ROOT@ 127.0.0.1:6080 127.0.0.1:5900
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

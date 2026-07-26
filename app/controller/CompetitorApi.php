@@ -12,6 +12,7 @@ use app\service\CompetitorEventFeedService;
 use app\service\CompetitorManualObservationService;
 use app\service\FixedWindowRateLimiter;
 use app\service\HotelScopeService;
+use app\service\LocalStatePathPolicy;
 use think\facade\Db;
 use think\Response;
 
@@ -19,6 +20,7 @@ class CompetitorApi extends Base
 {
     private const TASK_ASSIGNMENT_TTL_SECONDS = 7200;
     private const COMPLETED_REPORT_TTL_SECONDS = 7200;
+    private const REPORT_PROCESSING_LEASE_SECONDS = 300;
     private const SCREENSHOT_MAX_BYTES = 2 * 1024 * 1024;
     private const SCREENSHOT_MAX_BASE64_CHARS = 2796404;
     private const SCREENSHOT_MAX_WIDTH = 8000;
@@ -405,7 +407,7 @@ class CompetitorApi extends Base
 
         if (!$deviceAuth->bindingSessionIsCurrent($device)) {
             foreach ($data as $item) {
-                $this->consumeTaskAssignment(
+                $this->clearTaskAssignment(
                     $deviceId,
                     (string)($item['platform'] ?? ''),
                     (int)($item['store_id'] ?? 0),
@@ -568,6 +570,20 @@ class CompetitorApi extends Base
             return $this->apiError('竞对酒店不存在或未启用', 403);
         }
 
+        if (LocalStatePathPolicy::resolve()['persistent_paths_required']
+            && !$this->competitorReportFingerprintSchemaReady()) {
+            OperationLog::record('competitor', 'report_denied', '竞对事件上报失败: 报告幂等迁移未完成', null, $storeId, 'competitor_report_idempotency_schema_missing', [
+                'audit_type' => 'operation',
+                'outcome' => 'failed',
+                'tenant_id' => $tenantId,
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
+            ]);
+            return $this->apiError('竞对报告持久化升级未完成，请先执行数据库迁移', 503);
+        }
+
         $targetOtaHotelId = trim((string)($target->hotel_code ?? ''));
         $submittedOtaHotelId = trim((string)$this->request->post('ota_hotel_id', ''));
         if (preg_match('/^[1-9][0-9]{0,19}$/D', $targetOtaHotelId) !== 1) {
@@ -658,7 +674,9 @@ class CompetitorApi extends Base
             $price,
             $base64,
             $availability,
-            (string)$rateContext['content_hash']
+            (string)$rateContext['content_hash'],
+            $bindingId,
+            $tokenVersion
         );
         if (!$deviceAuth->bindingSessionIsCurrent($device)) {
             return $this->bindingChangedError();
@@ -666,6 +684,15 @@ class CompetitorApi extends Base
         if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion)) {
             $completedReport = $this->completedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint, $bindingId, $tokenVersion);
             if ($completedReport !== null) {
+                $this->clearTaskAssignment(
+                    $deviceId,
+                    $platform,
+                    $storeId,
+                    $hotelId,
+                    $bindingId,
+                    $tokenVersion,
+                    $reportFingerprint
+                );
                 OperationLog::record('competitor', 'report_replayed', '竞对价格上报命中幂等结果', null, $storeId, null, [
                     'audit_type' => 'operation',
                     'outcome' => 'success',
@@ -725,15 +752,32 @@ class CompetitorApi extends Base
         }
 
         if (!$deviceAuth->bindingSessionIsCurrent($device)) {
-            $this->consumeTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion);
+            $this->clearTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion);
             $this->removeSavedScreenshot($screenshotPath);
             return $this->bindingChangedError();
         }
 
-        if (!$this->consumeTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion)) {
+        if (!$this->consumeTaskAssignment(
+            $deviceId,
+            $platform,
+            $storeId,
+            $hotelId,
+            $bindingId,
+            $tokenVersion,
+            $reportFingerprint
+        )) {
             $this->removeSavedScreenshot($screenshotPath);
             $completedReport = $this->completedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint, $bindingId, $tokenVersion);
             if ($completedReport !== null) {
+                $this->clearTaskAssignment(
+                    $deviceId,
+                    $platform,
+                    $storeId,
+                    $hotelId,
+                    $bindingId,
+                    $tokenVersion,
+                    $reportFingerprint
+                );
                 OperationLog::record('competitor', 'report_replayed', '竞对价格上报命中幂等结果', null, $storeId, null, [
                     'audit_type' => 'operation',
                     'outcome' => 'success',
@@ -770,6 +814,7 @@ class CompetitorApi extends Base
             return $this->apiError('该任务正在处理或已完成，请勿重复上报', 409);
         }
 
+        $durableReplay = false;
         try {
             $log = Db::transaction(function () use (
                 $bindingId,
@@ -784,11 +829,25 @@ class CompetitorApi extends Base
                 $price,
                 $screenshotPath,
                 $deviceId,
-                $rateContext
+                $rateContext,
+                $reportFingerprint,
+                &$durableReplay
             ): CompetitorPriceLog {
             $currentBinding = CompetitorDevice::where('id', $bindingId)->lock(true)->find();
             if (!$currentBinding || !$deviceAuth->bindingSessionMatches($device, $currentBinding)) {
                 throw new \DomainException('competitor_device_binding_changed');
+            }
+
+            $persisted = $this->persistedReportByFingerprint(
+                $deviceId,
+                $platform,
+                $storeId,
+                $hotelId,
+                $reportFingerprint
+            );
+            if ($persisted !== null) {
+                $durableReplay = true;
+                return $persisted;
             }
 
             $log = new CompetitorPriceLog();
@@ -806,6 +865,9 @@ class CompetitorApi extends Base
                     $log->{$field} = $value;
                 }
                 $log->readback_verified = 0;
+            }
+            if ($this->competitorReportFingerprintSchemaReady()) {
+                $log->report_fingerprint = $reportFingerprint;
             }
             $log->save();
 
@@ -863,6 +925,26 @@ class CompetitorApi extends Base
         }
 
         $this->rememberCompletedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint, (int)$log->id, $bindingId, $tokenVersion);
+        $this->clearTaskAssignment(
+            $deviceId,
+            $platform,
+            $storeId,
+            $hotelId,
+            $bindingId,
+            $tokenVersion,
+            $reportFingerprint
+        );
+        if ($durableReplay) {
+            $this->removeSavedScreenshot($screenshotPath);
+            return json([
+                'code' => 200,
+                'message' => 'ok',
+                'data' => [
+                    'id' => (int)$log->id,
+                    'idempotent_replay' => true,
+                ],
+            ]);
+        }
 
         // Only the still-current credential may mark the binding online.
         CompetitorDevice::where('id', $bindingId)
@@ -1059,17 +1141,81 @@ class CompetitorApi extends Base
         int $storeId,
         int $hotelId,
         int $bindingId = 0,
-        int $tokenVersion = 0
+        int $tokenVersion = 0,
+        string $reportFingerprint = ''
     ): bool
     {
-        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion): bool {
+        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion, $reportFingerprint): bool {
             if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion)) {
                 return false;
             }
-            $assignmentDeleted = (bool)cache(
-                $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion),
-                null
+
+            $assignmentKey = $this->taskAssignmentCacheKey(
+                $deviceId,
+                $platform,
+                $storeId,
+                $hotelId,
+                $bindingId,
+                $tokenVersion
             );
+            $ownerKey = $this->taskOwnershipCacheKey($platform, $storeId, $hotelId);
+            $assignment = cache($assignmentKey);
+            if (!is_array($assignment)) {
+                return false;
+            }
+
+            $processingAt = (int)($assignment['processing_at'] ?? 0);
+            if (($assignment['state'] ?? 'assigned') === 'processing'
+                && $processingAt > 0
+                && time() - $processingAt < self::REPORT_PROCESSING_LEASE_SECONDS) {
+                return false;
+            }
+
+            $assignment['state'] = 'processing';
+            $assignment['processing_at'] = time();
+            $assignment['report_fingerprint'] = $reportFingerprint;
+            if (!cache($ownerKey, $assignment, self::TASK_ASSIGNMENT_TTL_SECONDS)) {
+                return false;
+            }
+            if (!cache($assignmentKey, $assignment, self::TASK_ASSIGNMENT_TTL_SECONDS)) {
+                cache($ownerKey, null);
+                return false;
+            }
+
+            return true;
+        });
+    }
+
+    private function clearTaskAssignment(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        int $bindingId = 0,
+        int $tokenVersion = 0,
+        string $reportFingerprint = ''
+    ): bool {
+        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion, $reportFingerprint): bool {
+            if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion)) {
+                return false;
+            }
+
+            $assignmentKey = $this->taskAssignmentCacheKey(
+                $deviceId,
+                $platform,
+                $storeId,
+                $hotelId,
+                $bindingId,
+                $tokenVersion
+            );
+            $assignment = cache($assignmentKey);
+            if ($reportFingerprint !== ''
+                && is_array($assignment)
+                && !hash_equals((string)($assignment['report_fingerprint'] ?? ''), $reportFingerprint)) {
+                return false;
+            }
+
+            $assignmentDeleted = (bool)cache($assignmentKey, null);
             $ownerDeleted = (bool)cache($this->taskOwnershipCacheKey($platform, $storeId, $hotelId), null);
             return $assignmentDeleted && $ownerDeleted;
         });
@@ -1082,8 +1228,8 @@ class CompetitorApi extends Base
             return $callback();
         }
 
-        $dir = rtrim(runtime_path(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'competitor-task-locks';
-        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+        $dir = $this->taskAssignmentLockDirectory();
+        if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
             throw new \RuntimeException('competitor task lock directory is unavailable');
         }
         $handle = fopen($dir . DIRECTORY_SEPARATOR . $lockKey . '.lock', 'c+');
@@ -1104,6 +1250,16 @@ class CompetitorApi extends Base
         }
     }
 
+    private function taskAssignmentLockDirectory(): string
+    {
+        $configured = LocalStatePathPolicy::scopedLockDirectory('competitor-task');
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        return rtrim(runtime_path(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'competitor-task-locks';
+    }
+
     private function reportFingerprint(
         string $deviceId,
         string $platform,
@@ -1112,13 +1268,17 @@ class CompetitorApi extends Base
         ?float $price,
         string $base64,
         string $availability = '',
-        string $contextHash = ''
+        string $contextHash = '',
+        int $bindingId = 0,
+        int $tokenVersion = 0
     ): string {
         return $this->hashScopeValues([
             $deviceId,
             $platform,
             (string)$storeId,
             (string)$hotelId,
+            (string)$bindingId,
+            (string)$tokenVersion,
             $price === null ? 'price:null' : number_format($price, 2, '.', ''),
             strtolower(trim($availability)),
             strtolower(trim($contextHash)),
@@ -1165,17 +1325,62 @@ class CompetitorApi extends Base
         int $tokenVersion = 0
     ): ?array {
         $completed = cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion));
-        if (!is_array($completed)
-            || (int)($completed['id'] ?? 0) <= 0
-            || !hash_equals((string)($completed['fingerprint'] ?? ''), $fingerprint)) {
+        if (is_array($completed)
+            && (int)($completed['id'] ?? 0) > 0
+            && hash_equals((string)($completed['fingerprint'] ?? ''), $fingerprint)) {
+            return [
+                'fingerprint' => (string)$completed['fingerprint'],
+                'id' => (int)$completed['id'],
+                'completed_at' => (int)($completed['completed_at'] ?? 0),
+            ];
+        }
+
+        $persisted = $this->persistedReportByFingerprint(
+            $deviceId,
+            $platform,
+            $storeId,
+            $hotelId,
+            $fingerprint
+        );
+        if ($persisted === null) {
             return null;
         }
 
+        $this->rememberCompletedReport(
+            $deviceId,
+            $platform,
+            $storeId,
+            $hotelId,
+            $fingerprint,
+            (int)$persisted->id,
+            $bindingId,
+            $tokenVersion
+        );
+
         return [
-            'fingerprint' => (string)$completed['fingerprint'],
-            'id' => (int)$completed['id'],
-            'completed_at' => (int)($completed['completed_at'] ?? 0),
+            'fingerprint' => $fingerprint,
+            'id' => (int)$persisted->id,
+            'completed_at' => time(),
         ];
+    }
+
+    private function persistedReportByFingerprint(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        string $fingerprint
+    ): ?CompetitorPriceLog {
+        if (!$this->competitorReportFingerprintSchemaReady() || strlen($fingerprint) !== 64) {
+            return null;
+        }
+
+        return CompetitorPriceLog::where('report_fingerprint', $fingerprint)
+            ->where('device_id', $deviceId)
+            ->where('platform', $platform)
+            ->where('store_id', $storeId)
+            ->where('hotel_id', $hotelId)
+            ->find();
     }
 
     private function removeSavedScreenshot(string $relativePath): void
@@ -1416,6 +1621,26 @@ class CompetitorApi extends Base
             $ready = !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'comparison_key'"))
                 && !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'availability_scope_key'"))
                 && !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'readback_verified'"));
+        } catch (\Throwable) {
+            $ready = false;
+        }
+        return $ready;
+    }
+
+    private function competitorReportFingerprintSchemaReady(): bool
+    {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        try {
+            $ready = !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'report_fingerprint'"));
+            if ($ready) {
+                $indexes = Db::query("SHOW INDEX FROM `competitor_price_log` WHERE `Key_name` = 'uniq_competitor_report_fingerprint'");
+                $ready = count($indexes) === 1
+                    && (int)($indexes[0]['Non_unique'] ?? $indexes[0]['non_unique'] ?? 1) === 0
+                    && (string)($indexes[0]['Column_name'] ?? $indexes[0]['column_name'] ?? '') === 'report_fingerprint';
+            }
         } catch (\Throwable) {
             $ready = false;
         }

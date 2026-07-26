@@ -351,7 +351,7 @@ assert.doesNotMatch(authController, /BETA_HOTEL_BINDING_CUTOFF_DATE|2026-07-05|è
 assert.match(indexHtml, /const showAuthNotices = \(payload = \{\}\) =>/, 'front-end must render auth notices from login and auth info payloads');
 assert.match(indexHtml, /setTimeout\(\(\) => showAuthNotices\(res\.data\), 600\)/, 'login success should show beta binding notice after the welcome message');
 assert.match(authController, /\$tokenStored = \$this->writeLoginCacheValue\(\$tokenKey, \$tokenData, self::TOKEN_TTL_SECONDS\)/, 'token cache TTL must use the 72-hour constant');
-assert.match(authController, /\$userTokenStored = \$this->writeLoginCacheValue\(\$userTokenKey, \$token, self::TOKEN_TTL_SECONDS\)/, 'user token index TTL must use the 72-hour constant');
+assert.match(authController, /AuthTokenState::userTokenDigest\(\$token\),\s*self::TOKEN_TTL_SECONDS/s, 'user token index must store only a one-way digest with the 72-hour TTL');
 assert.match(authController, /'expires_in'\s*=>\s*self::TOKEN_TTL_SECONDS/, 'login response must expose the 72-hour token expiry');
 assert.match(hotelScopeService, /private function ownedOrGrantedHotelIds\(User \$user, \?string \$capability = null\): array/, 'non-super hotel scope must be centralized');
 assert.match(hotelScopeService, /\$this->primaryHotelIds\(\$user\)[\s\S]*\$this->ownedHotelIds\(\$user\)[\s\S]*\$this->grantedHotelIds\(\$user, \$capability\)/, 'non-super users must only see primary, owned, or explicitly granted hotels');

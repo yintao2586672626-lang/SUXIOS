@@ -2,6 +2,7 @@ import { chmod, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:f
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import process from 'node:process';
 import { buildOtaMapCollectionPlan } from './lib/ota_field_data_map.mjs';
@@ -479,6 +480,94 @@ async function pairDevice(args, configPath) {
   console.log('下一步：node scripts/ota_local_collector.mjs run');
 }
 
+export function isTrustedLocalConnectOrigin(origin, server) {
+  try {
+    return new URL(String(origin || '')).origin === new URL(normalizeServer(server)).origin;
+  } catch {
+    return false;
+  }
+}
+
+async function readLocalConnectBody(request) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    if (bytes > 16 * 1024) throw new Error('Local connection request is too large.');
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new Error('Local connection request is invalid.');
+  }
+}
+
+/**
+ * Loopback-only bridge for the authenticated website. The short-lived pairing
+ * proof stays inside the browser request and is never rendered in the UI.
+ */
+export function createLocalConnectServer({
+  server,
+  configPath = DEFAULT_CONFIG,
+  pairDeviceFn = pairDevice,
+  onPaired = null,
+} = {}) {
+  const trustedServer = normalizeServer(server);
+  const trustedOrigin = new URL(trustedServer).origin;
+  const writeJson = (response, status, body, allowOrigin = '') => {
+    const headers = {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    };
+    if (allowOrigin) {
+      headers['Access-Control-Allow-Origin'] = allowOrigin;
+      headers.Vary = 'Origin';
+      headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS';
+      headers['Access-Control-Allow-Headers'] = 'Content-Type';
+      headers['Access-Control-Allow-Private-Network'] = 'true';
+    }
+    response.writeHead(status, headers);
+    response.end(JSON.stringify(body));
+  };
+
+  return createServer(async (request, response) => {
+    const origin = String(request.headers.origin || '');
+    const trustedRequest = isTrustedLocalConnectOrigin(origin, trustedServer);
+    if (request.method === 'OPTIONS') {
+      writeJson(response, trustedRequest ? 204 : 403, {}, trustedRequest ? trustedOrigin : '');
+      return;
+    }
+    if (request.method !== 'POST' || request.url !== '/connect' || !trustedRequest) {
+      writeJson(response, 403, { status: 'forbidden' });
+      return;
+    }
+    try {
+      const input = await readLocalConnectBody(request);
+      if (!isTrustedLocalConnectOrigin(input.server, trustedServer)) {
+        writeJson(response, 403, { status: 'server_mismatch' }, trustedOrigin);
+        return;
+      }
+      const paired = await pairDeviceFn({
+        server: trustedServer,
+        code: String(input.pair_code || ''),
+        name: String(input.device_name || 'Windows local collector'),
+      }, configPath);
+      await Promise.resolve(onPaired?.(paired));
+      writeJson(response, 200, {
+        status: 'paired',
+        device_name: String(paired.device_name || ''),
+        device_public_id: String(paired.device_public_id || ''),
+      }, trustedOrigin);
+    } catch (error) {
+      writeJson(response, 422, {
+        status: 'pair_failed',
+        message: String(error?.message || 'Local collector connection failed.'),
+      }, trustedOrigin);
+    }
+  });
+}
+
 async function postProgress(device, task, status, message) {
   return apiRequest(device.server, `/api/ota-local-collector/tasks/${task.id}/progress`, {
     method: 'POST',
@@ -642,10 +731,49 @@ async function runOneCycle(device) {
   return { idle: false, pollAfter: 1 };
 }
 
+async function runCollectorLoop(configPath, pollMs) {
+  const device = await loadDeviceConfig(configPath);
+  console.log(`Local collector started: ${device.device_name || device.device_public_id}`);
+  while (true) {
+    try {
+      const cycle = await runOneCycle(device);
+      await new Promise(resolveWait => setTimeout(resolveWait, cycle.pollAfter * 1_000 || pollMs));
+    } catch (error) {
+      console.error(`Local collector retry: ${error.message}`);
+      await new Promise(resolveWait => setTimeout(resolveWait, pollMs));
+    }
+  }
+}
+
+async function serveLocalConnect(args, configPath) {
+  const server = normalizeServer(args.server);
+  const port = Math.max(1024, Math.min(65535, Number(args.port || 48761)));
+  const pollMs = Math.max(3_000, Number(args.pollMs || DEFAULT_POLL_MS));
+  let collectorLoop = null;
+  const startCollector = () => {
+    if (collectorLoop || !existsSync(configPath)) return;
+    collectorLoop = runCollectorLoop(configPath, pollMs)
+      .catch(error => console.error(`Local collector stopped: ${error.message}`))
+      .finally(() => { collectorLoop = null; });
+  };
+  const listener = createLocalConnectServer({ server, configPath, onPaired: startCollector });
+  await new Promise((resolveListen, rejectListen) => {
+    listener.once('error', rejectListen);
+    listener.listen(port, '127.0.0.1', resolveListen);
+  });
+  console.log(`Local collector connect endpoint ready: http://127.0.0.1:${port}/connect`);
+  startCollector();
+  await new Promise(() => {});
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = String(args._[0] || 'run').toLowerCase();
   const configPath = resolve(String(args.config || DEFAULT_CONFIG));
+  if (command === 'serve') {
+    await serveLocalConnect(args, configPath);
+    return;
+  }
   if (command === 'pair') {
     await pairDevice(args, configPath);
     return;

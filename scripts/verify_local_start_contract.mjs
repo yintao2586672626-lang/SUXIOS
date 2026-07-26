@@ -30,7 +30,7 @@ if (!fs.existsSync(startupScriptPath)) {
     'Wait-MySql',
     'Assert-DatabaseReady',
     'Assert-DatabaseVersion',
-    'scripts\\check_database_version.php',
+    '@("think", "db:check")',
     'Start-ThinkPhp',
     'Test-StaticAsset',
     '/api/health',

@@ -188,6 +188,13 @@ const payload = {
     validated_name: '',
     sensitive_values_exposed: false,
   },
+  identity_preflight: {
+    performed: false,
+    status: 'not_checked',
+    blocked: false,
+    evidence_source: '',
+    sensitive_values_exposed: false,
+  },
   capture_execution: {
     mode: parallelSectionsEnabled ? 'parallel_pages' : 'single_page_sequential',
     section_concurrency: parallelSectionsEnabled ? sectionConcurrency : 1,
@@ -224,8 +231,6 @@ const page = await browser.newPage();
 await bringLoginPageToFront(page);
 if (authOnly) {
   registerSessionProbeResponseObserver(page);
-} else {
-  registerResponseCapture(page, payload, defaultCaptureState);
 }
 
 try {
@@ -248,20 +253,58 @@ try {
       await holdInteractiveLoginWindow(page, 'Ctrip');
     }
   } else {
-    if (parallelSectionsEnabled) {
-      await page.close().catch(() => null);
-      await captureSectionsWithConcurrency(browser, requestedSections, sectionConcurrency);
+    await probeTrustedCtripBusinessPageIdentity(page);
+    const preflightIdentity = evaluateCtripPlatformIdentity(
+      [hotelId],
+      [],
+      {
+        expectedNames: [platformHotelName],
+        observedNames: Array.from(observedPlatformHeaderNames),
+        pageStateIdentifiers: Array.from(observedPlatformPageStateIdentifiers),
+        allowTrustedPageHeader: true,
+      },
+    );
+    const preflightBlocked = preflightIdentity.status === 'mismatch'
+      && preflightIdentity.evidence_source === 'trusted_ota_page_state';
+    payload.platform_identity_validation = preflightIdentity;
+    payload.identity_preflight = {
+      performed: true,
+      status: preflightIdentity.status,
+      blocked: preflightBlocked,
+      evidence_source: preflightIdentity.evidence_source || '',
+      expected_identifier_count: Number(preflightIdentity.expected_identifier_count || 0),
+      observed_identifier_count: Number(preflightIdentity.observed_page_state_identifier_count || 0),
+      matched_identifier_count: Number(preflightIdentity.matched_page_state_identifier_count || 0),
+      mismatched_identifier_count: Number(preflightIdentity.mismatched_page_state_identifier_count || 0),
+      sensitive_values_exposed: false,
+    };
+    if (preflightBlocked) {
+      payload.pages.push({
+        name: 'identity_preflight',
+        label: 'Platform hotel identity preflight',
+        url: sanitizeObservedPageUrl(page.url()),
+        ok: false,
+        error: 'trusted_page_state_hotel_identity_mismatch',
+        sensitive_values_exposed: false,
+      });
+      process.exitCode = 3;
     } else {
-      for (const section of requestedSections) {
-        const pageTargets = PAGE_URLS[section] || [];
-        if (pageTargets.length === 0) {
-          payload.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, error: 'no page URL configured' });
-          continue;
-        }
-        defaultCaptureState.activeCaptureSection = section;
-        defaultCaptureState.activeTrafficPlatform = section === 'traffic_report' ? 'Ctrip' : '';
-        for (const targetPage of pageTargets) {
-          await captureSection(page, section, targetPage.url, targetPage.confidence, payload, defaultCaptureState);
+      if (parallelSectionsEnabled) {
+        await page.close().catch(() => null);
+        await captureSectionsWithConcurrency(browser, requestedSections, sectionConcurrency);
+      } else {
+        registerResponseCapture(page, payload, defaultCaptureState);
+        for (const section of requestedSections) {
+          const pageTargets = PAGE_URLS[section] || [];
+          if (pageTargets.length === 0) {
+            payload.pages.push({ name: section, label: sectionLabel(section), url: '', ok: false, error: 'no page URL configured' });
+            continue;
+          }
+          defaultCaptureState.activeCaptureSection = section;
+          defaultCaptureState.activeTrafficPlatform = section === 'traffic_report' ? 'Ctrip' : '';
+          for (const targetPage of pageTargets) {
+            await captureSection(page, section, targetPage.url, targetPage.confidence, payload, defaultCaptureState);
+          }
         }
       }
     }
@@ -443,10 +486,9 @@ async function observeTrustedCtripPageStateIdentity(page) {
 }
 
 async function probeTrustedCtripBusinessPageIdentity(page) {
-  if (!platformHotelName) return false;
   const landingHeaderObserved = await observeTrustedCtripPageHeaderIdentity(page);
   const landingStateObserved = await observeTrustedCtripPageStateIdentity(page);
-  if (landingHeaderObserved && landingStateObserved) return true;
+  if (landingStateObserved && (!platformHotelName || landingHeaderObserved)) return true;
 
   const target = PAGE_URLS.business_overview?.[0]?.url || '';
   if (!target) return false;
@@ -456,7 +498,7 @@ async function probeTrustedCtripBusinessPageIdentity(page) {
   await dismissBlockingOverlays(page);
   const headerObserved = await observeTrustedCtripPageHeaderIdentity(page);
   const stateObserved = await observeTrustedCtripPageStateIdentity(page);
-  return headerObserved && stateObserved;
+  return stateObserved && (!platformHotelName || headerObserved);
 }
 
 async function holdInteractiveLoginWindow(page, platformName) {
@@ -503,6 +545,10 @@ async function finalizePayload() {
       observedNames: Array.from(observedPlatformHeaderNames),
       pageStateIdentifiers: Array.from(observedPlatformPageStateIdentifiers),
       allowTrustedPageHeader: true,
+      // Ctrip eBooking accounts may legitimately expose several hotels.
+      // Exact target identity is sufficient for this capture only because the
+      // importer enforces the same identifier on every persisted row.
+      allowAdditionalObservedIdentifiers: true,
     },
   );
   const outputPayload = includeResponseDataInOutput ? payload : compactCaptureOutputPayload(payload);
@@ -1573,6 +1619,7 @@ function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
 
   const compareText = String(firstValue(row, ['compareType', 'compare_type', 'type', 'rankType', 'name', 'hotelName'], '')).toLowerCase();
   const isCompetitor = /competitor|peer|average|avg|compete/.test(compareText);
+  const explicitPlatformHotelId = ctripPlatformHotelId(row, '');
   const resolvedHotelId = ctripPlatformHotelId(row, isCompetitor ? '-1' : hotelId);
   if (!resolvedHotelId) {
     return null;
@@ -1590,6 +1637,9 @@ function normalizeTrafficRow(row, sourceUrl, requestDateEvidence = {}) {
   return {
     ...row,
     hotelId: resolvedHotelId,
+    _platform_hotel_identifier_source: explicitPlatformHotelId
+      ? 'response_row'
+      : 'capture_scope_default',
     date: dataDate,
     ...(dateSource ? { date_source: dateSource } : {}),
     listExposure: Math.round(listExposure),

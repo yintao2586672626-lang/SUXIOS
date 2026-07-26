@@ -251,8 +251,7 @@ test('OTA manual credential states expose migration blockers without weakening e
   assert.match(html, /selectedCtripManualCredentialState\.detail/);
   assert.match(html, /selectedMeituanManualCredentialState\.label/);
   assert.match(html, /selectedMeituanManualCredentialState\.detail/);
-  assert.match(html, /ctrip-static\.js\?v=[^"']*-h[0-9a-f]{10}/);
-  assert.match(html, /meituan-static\.js\?v=[^"']*-h[0-9a-f]{10}/);
+  assert.match(html, /app-startup-helpers\.min\.js\?v=[^"']*-h[0-9a-f]{10}/);
   assert.doesNotMatch(html, /携程已配置｜上次更新/);
   assert.doesNotMatch(html, /美团已配置｜上次更新/);
 });

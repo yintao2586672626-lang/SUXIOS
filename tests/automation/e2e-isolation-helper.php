@@ -715,16 +715,11 @@ function e2eCleanup(string $prefix): array
     if ($userRows !== []) {
         $userId = (int)$userRows[0]['id'];
         $authCacheEntries = 0;
-        $token = cache('user_token_' . $userId);
-        if (is_string($token) && $token !== '') {
-            if (cache('token_' . $token) !== null) {
-                $authCacheEntries++;
-            }
-            cache('token_' . $token, null);
-        }
         if (cache('user_token_' . $userId) !== null) {
             $authCacheEntries++;
         }
+        // The per-user index intentionally stores only a one-way token digest.
+        // Individual token entries expire by TTL and cannot be reconstructed here.
         cache('user_token_' . $userId, null);
         $deleted['auth_cache_entries'] = $authCacheEntries;
         if (e2eHasColumn('operation_logs', 'user_id')) {

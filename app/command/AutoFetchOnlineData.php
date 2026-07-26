@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\command;
 
+use app\model\User;
 use app\service\PlatformDataSyncService;
 use app\service\OtaFailureNotificationService;
 use app\service\OtaOrderedCollectionPlanner;
@@ -20,12 +21,27 @@ class AutoFetchOnlineData extends Command
 {
     private const PROFILE_LOCK_STALE_SECONDS = 300;
 
+    /** @var array<string, mixed> */
+    private array $cloudCollectorScope = [];
+
+    private ?User $cloudCollectorUser = null;
+
     protected function configure()
     {
         $this->setName('online-data:auto-fetch')
             ->addOption('hotel-id', null, Option::VALUE_REQUIRED, 'Optional positive hotel id scope')
             ->addOption('target-date', null, Option::VALUE_REQUIRED, 'Explicit historical date within the previous 7 days')
             ->addOption('source-ids', null, Option::VALUE_REQUIRED, 'Optional comma-separated Profile source ids within the hotel scope')
+            ->addOption('platforms', null, Option::VALUE_REQUIRED, 'Optional comma-separated OTA platform scope: ctrip,meituan')
+            ->addOption('collector-mode', null, Option::VALUE_REQUIRED, 'Cloud collector mode; only single_user_local is supported')
+            ->addOption('collector-user-id', null, Option::VALUE_REQUIRED, 'Explicit cloud collector owner user id')
+            ->addOption('collector-device-id', null, Option::VALUE_REQUIRED, 'Explicit non-secret cloud collector device id')
+            ->addOption('bind-cloud-scope', null, Option::VALUE_NONE, 'Preview or bind the explicit cloud collector scope without OTA requests')
+            ->addOption('confirm-cloud-scope-binding', null, Option::VALUE_NONE, 'Confirm writing the explicit cloud collector binding')
+            ->addOption('rotate-cloud-device-binding', null, Option::VALUE_NONE, 'Allow replacing a different existing collector device binding')
+            ->addOption('unbind-cloud-scope', null, Option::VALUE_NONE, 'Preview or remove the explicit cloud collector binding')
+            ->addOption('confirm-cloud-scope-unbind', null, Option::VALUE_NONE, 'Confirm removing the explicit cloud collector binding')
+            ->addOption('validate-cloud-scope', null, Option::VALUE_NONE, 'Validate cloud collector scope without OTA requests or persistence')
             ->addOption('force-rerun', null, Option::VALUE_NONE, 'Rerun one completed explicit hotel/date/source scope')
             ->addOption('daily-only', null, Option::VALUE_NONE, 'Run only the yesterday historical schedule; skip realtime snapshots')
             ->addOption('realtime-only', null, Option::VALUE_NONE, 'Run only today realtime snapshots; skip yesterday historical collection')
@@ -73,6 +89,20 @@ class AutoFetchOnlineData extends Command
             }
         }
 
+        $platformsOption = $input->getOption('platforms');
+        $platforms = [];
+        if ($platformsOption !== null) {
+            if ($hotelId === null) {
+                $output->writeln('platforms requires an explicit hotel-id scope.');
+                return 1;
+            }
+            $platforms = $this->normalizeExplicitPlatforms((string)$platformsOption);
+            if ($platforms === []) {
+                $output->writeln('platforms must contain ctrip and/or meituan.');
+                return 1;
+            }
+        }
+
         $forceRerun = (bool)$input->getOption('force-rerun');
         if ($forceRerun && ($hotelId === null || $targetDate === null || $sourceIds === [])) {
             $output->writeln('force-rerun requires explicit hotel-id, target-date, and source-ids.');
@@ -90,21 +120,181 @@ class AutoFetchOnlineData extends Command
             return 1;
         }
 
-        // Cloud timers must never turn an unprepared server into a blind
-        // collector. The marker is deliberately separate from normal local
-        // runs: local test/manual collection keeps its existing behaviour,
-        // while a cloud unit must have completed an authorised login/profile
-        // verification before it can make a platform request.
-        if ($this->truthy(getenv('SUXIOS_OTA_CLOUD_COLLECTOR'))
-            && !$this->truthy(getenv('SUXIOS_OTA_CLOUD_PROFILE_READY'))) {
-            $output->writeln('Cloud OTA collector blocked: protected cloud Profile login/verification is not ready.');
-            return 75;
+        $bindCloudScope = (bool)$input->getOption('bind-cloud-scope');
+        $confirmCloudScopeBinding = (bool)$input->getOption('confirm-cloud-scope-binding');
+        $rotateCloudDeviceBinding = (bool)$input->getOption('rotate-cloud-device-binding');
+        $unbindCloudScope = (bool)$input->getOption('unbind-cloud-scope');
+        $confirmCloudScopeUnbind = (bool)$input->getOption('confirm-cloud-scope-unbind');
+        $validateCloudScope = (bool)$input->getOption('validate-cloud-scope');
+        $cloudCollectorEnabled = $this->truthy(getenv('SUXIOS_OTA_CLOUD_COLLECTOR'));
+        if (($validateCloudScope || $bindCloudScope || $unbindCloudScope) && !$cloudCollectorEnabled) {
+            $output->writeln(
+                'Cloud scope validation, binding or unbinding requires SUXIOS_OTA_CLOUD_COLLECTOR=1.'
+            );
+            return 1;
+        }
+        if (count(array_filter([$validateCloudScope, $bindCloudScope, $unbindCloudScope])) > 1) {
+            $output->writeln(
+                'validate-cloud-scope, bind-cloud-scope and unbind-cloud-scope are mutually exclusive.'
+            );
+            return 1;
+        }
+        if ($confirmCloudScopeBinding && !$bindCloudScope) {
+            $output->writeln('confirm-cloud-scope-binding requires bind-cloud-scope.');
+            return 1;
+        }
+        if ($rotateCloudDeviceBinding && (!$bindCloudScope || !$confirmCloudScopeBinding)) {
+            $output->writeln(
+                'rotate-cloud-device-binding requires bind-cloud-scope and confirm-cloud-scope-binding.'
+            );
+            return 1;
+        }
+        if ($confirmCloudScopeUnbind && !$unbindCloudScope) {
+            $output->writeln('confirm-cloud-scope-unbind requires unbind-cloud-scope.');
+            return 1;
+        }
+        if (($bindCloudScope || $unbindCloudScope)
+            && ($forceRerun || $targetDate !== null || $dailyOnly || $realtimeOnly)
+        ) {
+            $output->writeln(
+                'Cloud scope binding or unbinding cannot be combined with collection schedule or rerun options.'
+            );
+            return 1;
+        }
+        if ($cloudCollectorEnabled) {
+            $collectorMode = strtolower(trim((string)$input->getOption('collector-mode')));
+            $collectorUserId = $this->normalizePositiveIntegerOption($input->getOption('collector-user-id'));
+            $collectorDeviceId = trim((string)$input->getOption('collector-device-id'));
+            if ($collectorMode !== 'single_user_local'
+                || $collectorUserId === null
+                || !$this->validCollectorDeviceId($collectorDeviceId)
+                || $hotelId === null
+                || $sourceIds === []
+                || $platforms === []
+            ) {
+                $output->writeln(
+                    'Cloud OTA collector blocked: explicit single_user_local mode, collector-user-id, '
+                    . 'collector-device-id, hotel-id, source-ids, and platforms are required.'
+                );
+                return 78;
+            }
+            try {
+                $sources = $this->initializeCloudCollectorScope(
+                    $collectorUserId,
+                    $collectorDeviceId,
+                    $hotelId,
+                    $sourceIds,
+                    $platforms,
+                    !$bindCloudScope
+                );
+            } catch (\Throwable $e) {
+                $output->writeln('Cloud OTA collector blocked: ' . $e->getMessage());
+                return 78;
+            }
+            if ($bindCloudScope) {
+                if (!$confirmCloudScopeBinding) {
+                    $output->writeln(
+                        'SUXIOS_OTA_CLOUD_BINDING='
+                        . json_encode(
+                            $this->cloudCollectorBindingReceipt(
+                                'confirmation_required',
+                                false
+                            ),
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                        )
+                    );
+                    return 0;
+                }
+                try {
+                    $this->bindCloudCollectorSources(
+                        $sources,
+                        $this->cloudCollectorScope,
+                        $rotateCloudDeviceBinding
+                    );
+                    $this->initializeCloudCollectorScope(
+                        $collectorUserId,
+                        $collectorDeviceId,
+                        $hotelId,
+                        $sourceIds,
+                        $platforms
+                    );
+                } catch (\Throwable $e) {
+                    $output->writeln('Cloud OTA collector binding blocked: ' . $e->getMessage());
+                    return 78;
+                }
+                $output->writeln(
+                    'SUXIOS_OTA_CLOUD_BINDING='
+                    . json_encode(
+                        $this->cloudCollectorBindingReceipt(
+                            'scope_bound_for_current_device',
+                            true
+                        ),
+                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                    )
+                );
+                return 0;
+            }
+            if ($unbindCloudScope) {
+                if (!$confirmCloudScopeUnbind) {
+                    $output->writeln(
+                        'SUXIOS_OTA_CLOUD_BINDING='
+                        . json_encode(
+                            $this->cloudCollectorBindingReceipt(
+                                'unbind_confirmation_required',
+                                false
+                            ),
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                        )
+                    );
+                    return 0;
+                }
+                try {
+                    $this->unbindCloudCollectorSources($sources);
+                } catch (\Throwable $e) {
+                    $output->writeln('Cloud OTA collector unbind blocked: ' . $e->getMessage());
+                    return 78;
+                }
+                $output->writeln(
+                    'SUXIOS_OTA_CLOUD_BINDING='
+                    . json_encode(
+                        $this->cloudCollectorBindingReceipt('scope_unbound', true),
+                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                    )
+                );
+                return 0;
+            }
+            if ($validateCloudScope) {
+                $output->writeln(
+                    'SUXIOS_OTA_CLOUD_SCOPE='
+                    . json_encode(
+                        $this->cloudCollectorScopeValidationReceipt(),
+                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                    )
+                );
+                return 0;
+            }
         }
         $runMode = $dailyOnly ? 'daily' : ($realtimeOnly ? 'realtime' : '');
-        return $this->executeSegmentedSchedules($output, $hotelId, $targetDate, $sourceIds, $forceRerun, $runMode);
+        return $this->executeSegmentedSchedules(
+            $output,
+            $hotelId,
+            $targetDate,
+            $sourceIds,
+            $forceRerun,
+            $runMode,
+            $platforms
+        );
     }
 
-    private function executeSegmentedSchedules(Output $output, ?int $hotelIdFilter = null, ?string $targetDateOverride = null, array $sourceIds = [], bool $forceRerun = false, string $runMode = ''): int
+    private function executeSegmentedSchedules(
+        Output $output,
+        ?int $hotelIdFilter = null,
+        ?string $targetDateOverride = null,
+        array $sourceIds = [],
+        bool $forceRerun = false,
+        string $runMode = '',
+        array $platforms = []
+    ): int
     {
         $output->writeln('[' . date('Y-m-d H:i:s') . '] Start online data auto-fetch schedule check.');
 
@@ -141,6 +331,12 @@ class AutoFetchOnlineData extends Command
                 : ($runMode === 'realtime'
                     ? [$this->explicitRealtimeRun($hotelId, $now)]
                     : $this->buildDueRuns($hotelId, $status, $now));
+            if ($platforms !== []) {
+                foreach ($dueRuns as &$dueRun) {
+                    $dueRun['target_platforms'] = $platforms;
+                }
+                unset($dueRun);
+            }
             if ($runMode === 'daily') {
                 $dueRuns = array_values(array_filter(
                     $dueRuns,
@@ -481,6 +677,371 @@ class AutoFetchOnlineData extends Command
         return $ids;
     }
 
+    /** @return array<int, string> */
+    private function normalizeExplicitPlatforms(string $value): array
+    {
+        $platforms = [];
+        foreach (explode(',', strtolower(trim($value))) as $platform) {
+            $platform = trim($platform);
+            if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+                return [];
+            }
+            $platforms[$platform] = $platform;
+        }
+        return array_values($platforms);
+    }
+
+    private function normalizePositiveIntegerOption(mixed $value): ?int
+    {
+        $value = trim((string)$value);
+        return $value !== '' && ctype_digit($value) && (int)$value > 0
+            ? (int)$value
+            : null;
+    }
+
+    private function validCollectorDeviceId(string $value): bool
+    {
+        return preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/D', $value) === 1;
+    }
+
+    /**
+     * @param array<int, int> $sourceIds
+     * @param array<int, string> $platforms
+     */
+    private function initializeCloudCollectorScope(
+        int $userId,
+        string $deviceId,
+        int $hotelId,
+        array $sourceIds,
+        array $platforms,
+        bool $requireExistingBinding = true
+    ): array {
+        $user = User::where('id', $userId)->where('status', User::STATUS_ENABLED)->find();
+        if (!$user instanceof User) {
+            throw new \RuntimeException('collector user is missing or disabled.');
+        }
+
+        $hotel = Db::name('hotels')
+            ->field('id,tenant_id,status')
+            ->where('id', $hotelId)
+            ->where('status', 1)
+            ->find();
+        $tenantId = is_array($hotel) ? (int)($hotel['tenant_id'] ?? 0) : 0;
+        if (!is_array($hotel) || $tenantId <= 0) {
+            throw new \RuntimeException('collector hotel is missing, disabled, or has no tenant scope.');
+        }
+        $hasExplicitHotelGrant = $this->hasExplicitCloudCollectorHotelGrant($userId, $hotelId, $tenantId);
+        $authorizationMode = $this->collectorTenantAuthorizationMode(
+            (int)($user->tenant_id ?? 0),
+            $user->isSuperAdmin(),
+            $tenantId,
+            $hasExplicitHotelGrant
+        );
+
+        $scope = [
+            'mode' => 'single_user_local',
+            'authorization_mode' => $authorizationMode,
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'device_id' => $deviceId,
+            'device_id_hash' => hash('sha256', $deviceId),
+            'hotel_id' => $hotelId,
+            'source_ids' => $sourceIds,
+            'platforms' => $platforms,
+        ];
+        $sources = Db::name('platform_data_sources')
+            ->field('id,tenant_id,user_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+            ->whereIn('id', $sourceIds)
+            ->select()
+            ->toArray();
+        $foundIds = array_values(array_unique(array_map(
+            static fn(array $source): int => (int)($source['id'] ?? 0),
+            $sources
+        )));
+        sort($foundIds, SORT_NUMERIC);
+        if ($foundIds !== $sourceIds) {
+            throw new \RuntimeException('collector source whitelist contains missing data-source ids.');
+        }
+
+        $presentPlatforms = [];
+        foreach ($sources as $source) {
+            $this->assertCloudCollectorSourceRow($source, $scope, $requireExistingBinding);
+            $platform = strtolower(trim((string)($source['platform'] ?? '')));
+            $presentPlatforms[$platform] = true;
+        }
+        foreach ($platforms as $platform) {
+            if (!isset($presentPlatforms[$platform])) {
+                throw new \RuntimeException("collector source whitelist has no {$platform} data source.");
+            }
+        }
+        if (count(OtaOrderedCollectionPlanner::oneSourcePerBrowserProfileAccount($sources)) !== count($sources)) {
+            throw new \RuntimeException(
+                'collector source whitelist contains duplicate browser Profile account rows; '
+                . 'select one source id per platform account.'
+            );
+        }
+
+        $this->cloudCollectorScope = $scope;
+        $this->cloudCollectorUser = $user;
+        return $sources;
+    }
+
+    private function hasExplicitCloudCollectorHotelGrant(int $userId, int $hotelId, int $tenantId): bool
+    {
+        $now = date('Y-m-d H:i:s');
+        $grant = Db::name('user_hotel_permissions')
+            ->field('id')
+            ->where('user_id', $userId)
+            ->where('hotel_id', $hotelId)
+            ->where('tenant_id', $tenantId)
+            ->where('can_fetch_online_data', 1)
+            ->whereIn('status', ['active', '1', 1])
+            ->where(static function ($query) use ($now): void {
+                $query->whereNull('expires_at')->whereOr('expires_at', '>', $now);
+            })
+            ->find();
+        return is_array($grant) && (int)($grant['id'] ?? 0) > 0;
+    }
+
+    private function collectorTenantAuthorizationMode(
+        int $userTenantId,
+        bool $isSuperAdmin,
+        int $hotelTenantId,
+        bool $hasExplicitHotelGrant
+    ): string {
+        if (!$hasExplicitHotelGrant) {
+            throw new \RuntimeException(
+                'collector user has no active, unexpired, tenant-bound hotel fetch grant.'
+            );
+        }
+        if ($userTenantId === $hotelTenantId) {
+            return 'same_tenant_explicit_hotel_grant';
+        }
+        if ($isSuperAdmin) {
+            return 'cross_tenant_super_admin_explicit_hotel_grant';
+        }
+        throw new \RuntimeException(
+            'collector user and hotel tenant scopes do not match, and the user is not a controlled super admin.'
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sources
+     * @param array<string, mixed> $scope
+     */
+    private function bindCloudCollectorSources(
+        array $sources,
+        array $scope,
+        bool $allowDeviceRotation
+    ): void {
+        $boundAt = date('Y-m-d H:i:s');
+        Db::transaction(function () use ($sources, $scope, $allowDeviceRotation, $boundAt): void {
+            foreach ($sources as $source) {
+                $sourceId = (int)($source['id'] ?? 0);
+                $config = json_decode((string)($source['config_json'] ?? ''), true);
+                $config = is_array($config) ? $config : [];
+                $existingDeviceId = trim((string)($config['collector_device_id'] ?? ''));
+                $existingDeviceHash = strtolower(trim((string)($config['collector_device_id_hash'] ?? '')));
+                $existingMethod = strtolower(trim((string)($config['source_method'] ?? '')));
+                $hasExistingBinding = $existingDeviceId !== ''
+                    || $existingDeviceHash !== ''
+                    || $existingMethod !== '';
+                $sameDevice = $existingDeviceId !== ''
+                    && hash_equals((string)$scope['device_id'], $existingDeviceId)
+                    && preg_match('/^[a-f0-9]{64}$/D', $existingDeviceHash) === 1
+                    && hash_equals((string)$scope['device_id_hash'], $existingDeviceHash);
+                if ($hasExistingBinding && !$sameDevice && !$allowDeviceRotation) {
+                    throw new \RuntimeException(
+                        "data source {$sourceId} already has another or incomplete device binding; "
+                        . 'use rotate-cloud-device-binding only after the owner logs in on the replacement device.'
+                    );
+                }
+
+                $boundConfig = $this->cloudCollectorBoundSourceConfig($source, $config, $scope, $boundAt);
+                Db::name('platform_data_sources')
+                    ->where('id', $sourceId)
+                    ->update([
+                        'config_json' => json_encode(
+                            $boundConfig,
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                        ),
+                        'update_time' => $boundAt,
+                    ]);
+            }
+        });
+    }
+
+    /** @param array<int, array<string, mixed>> $sources */
+    private function unbindCloudCollectorSources(array $sources): void
+    {
+        $bindingKeys = [
+            'source_method',
+            'collector_binding_mode',
+            'collector_device_id',
+            'collector_device_id_hash',
+            'collector_user_id',
+            'collector_tenant_id',
+            'collector_hotel_id',
+            'collector_platform',
+            'collector_bound_at',
+        ];
+        $updatedAt = date('Y-m-d H:i:s');
+        Db::transaction(function () use ($sources, $bindingKeys, $updatedAt): void {
+            foreach ($sources as $source) {
+                $sourceId = (int)($source['id'] ?? 0);
+                $currentConfigJson = (string)Db::name('platform_data_sources')
+                    ->where('id', $sourceId)
+                    ->lock(true)
+                    ->value('config_json');
+                $currentSource = $source;
+                $currentSource['config_json'] = $currentConfigJson;
+                $this->assertCloudCollectorSourceRow(
+                    $currentSource,
+                    $this->cloudCollectorScope
+                );
+                $config = json_decode($currentConfigJson, true);
+                $config = is_array($config) ? $config : [];
+                foreach ($bindingKeys as $key) {
+                    unset($config[$key]);
+                }
+                Db::name('platform_data_sources')
+                    ->where('id', $sourceId)
+                    ->update([
+                        'config_json' => json_encode(
+                            $config,
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                        ),
+                        'update_time' => $updatedAt,
+                    ]);
+            }
+        });
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $scope
+     * @return array<string, mixed>
+     */
+    private function cloudCollectorBoundSourceConfig(
+        array $source,
+        array $config,
+        array $scope,
+        string $boundAt
+    ): array {
+        $config['source_method'] = 'single_user_local';
+        $config['collector_binding_mode'] = 'single_user_local';
+        $config['collector_device_id'] = (string)$scope['device_id'];
+        $config['collector_device_id_hash'] = (string)$scope['device_id_hash'];
+        $config['collector_user_id'] = (int)$scope['user_id'];
+        $config['collector_tenant_id'] = (int)$scope['tenant_id'];
+        $config['collector_hotel_id'] = (int)$scope['hotel_id'];
+        $config['collector_platform'] = strtolower(trim((string)($source['platform'] ?? '')));
+        $config['collector_bound_at'] = $boundAt;
+        return $config;
+    }
+
+    /** @return array<string, mixed> */
+    private function cloudCollectorBindingReceipt(string $status, bool $databaseWritePerformed): array
+    {
+        return [
+            'status' => $status,
+            'mode' => (string)($this->cloudCollectorScope['mode'] ?? ''),
+            'authorization_mode' => (string)($this->cloudCollectorScope['authorization_mode'] ?? ''),
+            'tenant_id' => (int)($this->cloudCollectorScope['tenant_id'] ?? 0),
+            'user_id' => (int)($this->cloudCollectorScope['user_id'] ?? 0),
+            'collector_device_id' => (string)($this->cloudCollectorScope['device_id'] ?? ''),
+            'hotel_id' => (int)($this->cloudCollectorScope['hotel_id'] ?? 0),
+            'source_ids' => array_values((array)($this->cloudCollectorScope['source_ids'] ?? [])),
+            'platforms' => array_values((array)($this->cloudCollectorScope['platforms'] ?? [])),
+            'database_write_performed' => $databaseWritePerformed,
+            'current_session_probe_performed' => false,
+            'collection_performed' => false,
+            'persistence_performed' => false,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function cloudCollectorScopeValidationReceipt(): array
+    {
+        return [
+            'status' => 'scope_ready_for_current_session_probe',
+            'mode' => (string)($this->cloudCollectorScope['mode'] ?? ''),
+            'authorization_mode' => (string)($this->cloudCollectorScope['authorization_mode'] ?? ''),
+            'tenant_id' => (int)($this->cloudCollectorScope['tenant_id'] ?? 0),
+            'user_id' => (int)($this->cloudCollectorScope['user_id'] ?? 0),
+            'collector_device_id' => (string)($this->cloudCollectorScope['device_id'] ?? ''),
+            'hotel_id' => (int)($this->cloudCollectorScope['hotel_id'] ?? 0),
+            'source_ids' => array_values((array)($this->cloudCollectorScope['source_ids'] ?? [])),
+            'platforms' => array_values((array)($this->cloudCollectorScope['platforms'] ?? [])),
+            'current_session_probe_performed' => false,
+            'collection_performed' => false,
+            'persistence_performed' => false,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /** @param array<string, mixed> $source @param array<string, mixed> $scope */
+    private function assertCloudCollectorSourceRow(
+        array $source,
+        array $scope,
+        bool $requireExistingBinding = true
+    ): void
+    {
+        $sourceId = (int)($source['id'] ?? 0);
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        if ($sourceId <= 0
+            || !in_array($sourceId, (array)$scope['source_ids'], true)
+            || (int)($source['tenant_id'] ?? 0) !== (int)$scope['tenant_id']
+            || (int)($source['user_id'] ?? 0) !== (int)$scope['user_id']
+            || (int)($source['system_hotel_id'] ?? 0) !== (int)$scope['hotel_id']
+            || !in_array($platform, (array)$scope['platforms'], true)
+            || strtolower(trim((string)($source['ingestion_method'] ?? ''))) !== 'browser_profile'
+            || (int)($source['enabled'] ?? 0) !== 1
+            || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
+        ) {
+            throw new \RuntimeException("data source {$sourceId} is outside the collector user/tenant/hotel/platform whitelist.");
+        }
+
+        if (!$requireExistingBinding) {
+            return;
+        }
+
+        $config = json_decode((string)($source['config_json'] ?? ''), true);
+        $config = is_array($config) ? $config : [];
+        if (strtolower(trim((string)($config['source_method'] ?? ''))) !== 'single_user_local') {
+            throw new \RuntimeException("data source {$sourceId} is not marked single_user_local.");
+        }
+        if (strtolower(trim((string)($config['collector_binding_mode'] ?? ''))) !== 'single_user_local'
+            || trim((string)($config['collector_bound_at'] ?? '')) === ''
+        ) {
+            throw new \RuntimeException("data source {$sourceId} has no complete collector binding receipt.");
+        }
+        $configuredDeviceId = trim((string)($config['collector_device_id'] ?? ''));
+        if ($configuredDeviceId === ''
+            || !hash_equals((string)$scope['device_id'], $configuredDeviceId)
+        ) {
+            throw new \RuntimeException("data source {$sourceId} is not assigned to this collector device id.");
+        }
+        $configuredDeviceHash = strtolower(trim((string)($config['collector_device_id_hash'] ?? '')));
+        if (preg_match('/^[a-f0-9]{64}$/D', $configuredDeviceHash) !== 1
+            || !hash_equals((string)$scope['device_id_hash'], $configuredDeviceHash)
+        ) {
+            throw new \RuntimeException("data source {$sourceId} is not bound to this collector device.");
+        }
+        if ((int)($config['collector_user_id'] ?? 0) !== (int)$scope['user_id']
+            || (int)($config['collector_tenant_id'] ?? 0) !== (int)$scope['tenant_id']
+            || (int)($config['collector_hotel_id'] ?? 0) !== (int)$scope['hotel_id']
+            || strtolower(trim((string)($config['collector_platform'] ?? '')))
+                !== strtolower(trim((string)($source['platform'] ?? '')))
+        ) {
+            throw new \RuntimeException(
+                "data source {$sourceId} collector binding metadata does not match its current scope."
+            );
+        }
+    }
+
     /** @return array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string} */
     private function explicitHistoricalRun(int $hotelId, string $targetDate, array $sourceIds = []): array
     {
@@ -597,13 +1158,23 @@ class AutoFetchOnlineData extends Command
                 ->where('system_hotel_id', $hotelId)
                 ->whereIn('platform', ['ctrip', 'meituan'])
                 ->where('ingestion_method', 'browser_profile');
+            if ($this->cloudCollectorScope !== []) {
+                $sourceQuery
+                    ->where('tenant_id', (int)$this->cloudCollectorScope['tenant_id'])
+                    ->where('user_id', (int)$this->cloudCollectorScope['user_id']);
+            }
             if ($sourceIds !== []) {
                 $sourceQuery->whereIn('id', $sourceIds);
             }
             $sources = $sourceQuery
-                ->field('id,platform,data_type,status,last_sync_time,system_hotel_id,config_json')
+                ->field('id,tenant_id,user_id,platform,data_type,status,last_sync_time,system_hotel_id,ingestion_method,enabled,config_json')
                 ->select()
                 ->toArray();
+            if ($this->cloudCollectorScope !== []) {
+                foreach ($sources as $source) {
+                    $this->assertCloudCollectorSourceRow($source, $this->cloudCollectorScope);
+                }
+            }
             if ($sourceIds !== []) {
                 $foundSourceIds = array_values(array_unique(array_map(
                     static fn(array $source): int => (int)($source['id'] ?? 0),
@@ -649,6 +1220,19 @@ class AutoFetchOnlineData extends Command
                 'hotel_id' => $hotelId,
                 'exception_type' => get_debug_type($e),
             ]);
+            if ($this->cloudCollectorScope !== []) {
+                return [
+                    'attempted' => true,
+                    'success' => false,
+                    'message' => 'cloud_collector_source_scope_invalid',
+                    'saved_count' => 0,
+                    'data_period' => $dataPeriod,
+                    'timing' => [],
+                    'platform_results' => [],
+                    'failed_platforms' => $targetPlatforms ?: ['ctrip', 'meituan'],
+                    'successful_platforms' => [],
+                ];
+            }
             return ['attempted' => false, 'success' => false, 'message' => '', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => []];
         }
 
@@ -677,14 +1261,14 @@ class AutoFetchOnlineData extends Command
             ];
         }
 
-        $systemUser = new class {
-            public int $id = 1;
+        $systemUser = $this->cloudCollectorUser ?? new class {
+                public int $id = 1;
 
-            public function isSuperAdmin(): bool
-            {
-                return true;
-            }
-        };
+                public function isSuperAdmin(): bool
+                {
+                    return true;
+                }
+            };
         $service = new PlatformDataSyncService();
         $messages = [];
         $savedCount = 0;
@@ -748,6 +1332,18 @@ class AutoFetchOnlineData extends Command
                     // remain bounded to its first missing section instead.
                     'bounded_capture_sections' => implode(',', (array)($orderedPlan['sections'] ?? [])),
                     'ordered_collection' => $orderedPlan,
+                    'require_current_session_probe' => $this->cloudCollectorScope !== [],
+                    'required_collector_binding' => $this->cloudCollectorScope === []
+                        ? []
+                        : [
+                            'mode' => (string)$this->cloudCollectorScope['mode'],
+                            'tenant_id' => (int)$this->cloudCollectorScope['tenant_id'],
+                            'user_id' => (int)$this->cloudCollectorScope['user_id'],
+                            'device_id' => (string)$this->cloudCollectorScope['device_id'],
+                            'device_id_hash' => (string)$this->cloudCollectorScope['device_id_hash'],
+                            'hotel_id' => (int)$this->cloudCollectorScope['hotel_id'],
+                            'platform' => $platform,
+                        ],
                 ]);
             } catch (\Throwable $e) {
                 $failedCount++;
