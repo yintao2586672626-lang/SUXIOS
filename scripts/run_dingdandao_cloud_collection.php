@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use app\service\DingdandaoOperatingTargetCaptureService;
+use app\service\DingdandaoOperatingTargetSyncService;
 use think\App;
 use think\facade\Db;
 
@@ -151,13 +152,39 @@ try {
     ) {
         throw new RuntimeException('dingdandao_collection_prefill_readback_failed');
     }
+    $targetSync = (new DingdandaoOperatingTargetSyncService())->syncVerifiedCapture(
+        $tenantId,
+        $hotelId,
+        $ownerUserId,
+        (int)$capture['id']
+    );
+    if ((int)($targetSync['capture_id'] ?? 0) !== (int)$capture['id']
+        || (int)($targetSync['record_id'] ?? 0) <= 0
+        || (string)($targetSync['target_date'] ?? '') !== $targetDate
+        || (string)($targetSync['fact_scope'] ?? '') !== 'accommodation_room_fee'
+        || (string)($targetSync['source_type'] ?? '') !== 'pms'
+        || (string)($targetSync['quality_status'] ?? '') !== 'verified'
+    ) {
+        throw new RuntimeException('dingdandao_target_sync_readback_failed');
+    }
 
     $closeOutcome = 'completed';
     $result = [
-        'status' => 'saved_and_readback_verified',
+        'status' => ($targetSync['send_eligible'] ?? false) === true
+            ? 'saved_synced_and_report_ready'
+            : 'saved_synced_but_report_blocked',
         'hotel_id' => $hotelId,
         'target_date' => $targetDate,
         'capture_id' => (int)$capture['id'],
+        'operating_target_record_id' => (int)$targetSync['record_id'],
+        'operating_target_revision_no' => (int)$targetSync['revision_no'],
+        'operating_target_status' => (string)$targetSync['status'],
+        'operating_target_sync_status' => (string)$targetSync['sync_status'],
+        'report_send_eligible' => ($targetSync['send_eligible'] ?? false) === true,
+        'report_gap_codes' => array_values(array_filter(array_map(
+            static fn(array $gap): string => trim((string)($gap['code'] ?? '')),
+            is_array($targetSync['gaps'] ?? null) ? $targetSync['gaps'] : []
+        ))),
         'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
         'identity_status' => 'matched',
         'reconciliation_status' => 'matched',
