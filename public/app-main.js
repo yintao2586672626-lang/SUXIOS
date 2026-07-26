@@ -13866,6 +13866,12 @@
                         return loadOperationFullData();
                     });
                 }
+                if (newPage === 'operating-targets') {
+                    runPageLoadOnce(newPage, 'main', () => loadOperatingTarget());
+                }
+                if (newPage === 'manual-notifications') {
+                    runPageLoadOnce(newPage, 'main', () => loadManualNotificationCenter());
+                }
                 if (newPage === 'ops-insight') {
                     runPageLoadOnce(newPage, 'main', async () => {
                         await ensureOperationStaticReady();
@@ -14020,6 +14026,8 @@
             const testIdNameMap = requireSystemStatic('testIdNameMap');
             const resolveMenuItems = requireSystemStatic('resolveMenuItems');
             const filterVisibleMenuItems = requireSystemStatic('filterVisibleMenuItems');
+            const resetOperatingTargetFormForContext = requireSystemStatic('resetOperatingTargetFormForContext');
+            const replaceManualNotificationVariables = requireSystemStatic('replaceManualNotificationVariables');
             const menuItems = computed(() => resolveMenuItems(menuItemDefinitions, systemConfig.value));
 
             const testIdStaticScript = 'testid-static.js';
@@ -14222,6 +14230,8 @@
                     icon: 'fas fa-tasks',
                     testid: 'nav-lean-operation',
                     children: [
+                        { type: 'source', sourcePath: 'operating-targets', overrides: { name: '经营目标' } },
+                        { type: 'source', sourcePath: 'manual-notifications', overrides: { name: '定时消息' } },
                         { type: 'source', sourcePath: 'ops-track', overrides: { name: '任务执行与复盘' } },
                     ],
                 },
@@ -19904,6 +19914,75 @@
                 hotel_id: '',
                 date: operationToday,
             });
+            const operatingTargetForm = ref({
+                hotel_id: '',
+                target_date: operationToday,
+                target_revenue: '',
+                actual_revenue: '',
+                sold_room_nights: '',
+                sellable_room_nights: '',
+                fact_scope: 'whole_hotel',
+                source_type: 'manual',
+                source_reference: '',
+                quality_status: 'manual_confirmed',
+                quality_reason: '',
+                fact_captured_at: '',
+                change_reason: '',
+            });
+            const operatingTargetResult = ref(null);
+            const operatingTargetPmsStatus = ref(null);
+            const operatingTargetPreview = ref(null);
+            const operatingTargetHistory = ref({ list: [] });
+            const operatingTargetSnapshots = ref({ list: [] });
+            const operatingTargetSelectedSnapshot = ref(null);
+            const operatingTargetReportGate = ref(null);
+            const operatingTargetTestFirstConfirmed = ref(false);
+            const operatingTargetTestResult = ref(null);
+            const operatingTargetError = ref('');
+            const operatingTargetLoading = ref({
+                current: false,
+                prefill: false,
+                save: false,
+                history: false,
+                snapshots: false,
+                reportGate: false,
+                testRequest: false,
+            });
+            const manualNotificationMetadata = ref({
+                types: [],
+                send_methods: [],
+                trigger_types: [],
+                variables: [],
+                test_target: null,
+                scheduler_status: 'not_connected',
+                scheduler_note: '',
+            });
+            const manualNotificationForm = ref({
+                id: 0,
+                hotel_id: '',
+                template_type: 'today_revenue_management',
+                notification_type: 'today_revenue_management',
+                business_date: operationToday,
+                title: '',
+                body: '',
+                send_method: 'manual_preview',
+                trigger_type: 'manual_test',
+                planned_send_at: '',
+                enabled: false,
+            });
+            const manualNotificationHistory = ref({ list: [], total: 0 });
+            const manualNotificationDispatchHistory = ref({ list: [], total: 0 });
+            const manualNotificationPreview = ref(null);
+            const manualNotificationEditing = ref(false);
+            const manualNotificationError = ref('');
+            const manualNotificationLoading = ref({
+                metadata: false,
+                history: false,
+                dispatchHistory: false,
+                preview: false,
+                save: false,
+                testId: 0,
+            });
             const strategyForm = ref({
                 hotel_id: '',
                 strategy_type: 'price_adjust',
@@ -21032,6 +21111,7 @@
                 }
                 currentPage.value = targetPage;
                 if (targetPage === 'ops-source') nextTick(() => loadOperationFullData());
+                if (targetPage === 'operating-targets') nextTick(() => loadOperatingTarget());
                 if (targetPage === 'ops-analysis') nextTick(() => analyzeOperationRootCause());
                 if (targetPage === 'ops-insight') nextTick(() => loadOperationAlerts());
                 if (targetPage === 'ops-track') nextTick(() => loadOperationActions());
@@ -21127,6 +21207,66 @@
             const operationDecisionCards = computed(() => buildOperationDecisionCards(operationFullData.value || {}, operationDisplayFormatters));
             const operationUnreadCount = computed(() => operationAlerts.value?.unread_count || (operationAlerts.value?.list || []).filter(item => item.status !== 'read').length);
             const operationCanMarkAlertsRead = computed(() => operationAlerts.value?.capabilities?.can_mark_read === true);
+            const operatingTargetStatusText = (status) => ({
+                ready: '已具备计算条件',
+                partial: '信息不完整，结果仅部分可用',
+                blocked: '数据冲突，已阻断计算',
+                missing: '尚未保存当日记录',
+                unverified: '未验证',
+            }[String(status || '')] || '待核对');
+            const operatingTargetStatusClass = (status) => {
+                if (status === 'ready') return 'border-emerald-100 bg-emerald-50 text-emerald-800';
+                if (status === 'blocked') return 'border-red-100 bg-red-50 text-red-700';
+                if (status === 'missing') return 'border-gray-200 bg-gray-50 text-gray-600';
+                return 'border-amber-100 bg-amber-50 text-amber-800';
+            };
+            const operatingTargetMetricText = (value, kind = 'number') => {
+                if (value === null || value === undefined || value === '') return '未取得';
+                const number = Number(value);
+                if (!Number.isFinite(number)) return '未取得';
+                if (kind === 'percent') return `${number.toFixed(2)}%`;
+                if (kind === 'money') return `¥${number.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                if (kind === 'moneyRate') return `¥${number.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/间夜`;
+                return number.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+            };
+            const operatingTargetSourceText = (sourceType) => ({
+                manual: '人工录入',
+                daily_report: '经营日报',
+                pms: 'PMS',
+                import: '导入文件',
+            }[String(sourceType || '')] || '未说明来源');
+            const operatingTargetQualityText = (qualityStatus) => ({
+                verified: '已验证',
+                manual_confirmed: '已人工确认',
+                unverified: '未验证',
+                missing: '缺失',
+                collection_failed: '采集失败',
+                identity_mismatch: '身份不匹配',
+            }[String(qualityStatus || '')] || '未说明质量状态');
+            const buildOperatingTargetMetricRows = (record) => {
+                const metrics = record?.calculation?.metrics || {};
+                const targetAchieved = String(record?.calculation?.status || '') === 'ready'
+                    && metrics.required_average_rate === null
+                    && Number(metrics.remaining_revenue) === 0
+                    && Number(metrics.completion_rate_percent) >= 100;
+                return [
+                    { key: 'completion_rate_percent', label: '营收完成率', value: operatingTargetMetricText(metrics.completion_rate_percent, 'percent') },
+                    { key: 'remaining_revenue', label: '剩余营收目标', value: operatingTargetMetricText(metrics.remaining_revenue, 'money') },
+                    { key: 'selling_progress_percent', label: '销售进度', value: operatingTargetMetricText(metrics.selling_progress_percent, 'percent') },
+                    { key: 'remaining_sellable_room_nights', label: '剩余可售房夜', value: operatingTargetMetricText(metrics.remaining_sellable_room_nights) },
+                    {
+                        key: 'required_average_rate',
+                        label: '所需均价',
+                        value: targetAchieved
+                            ? '不需要（目标已完成）'
+                            : operatingTargetMetricText(metrics.required_average_rate, 'moneyRate'),
+                    },
+                ];
+            };
+            const operatingTargetMetricRows = computed(() => buildOperatingTargetMetricRows(operatingTargetResult.value));
+            const operatingTargetSnapshotMetricRows = computed(() => buildOperatingTargetMetricRows(
+                operatingTargetSelectedSnapshot.value?.record || null
+            ));
             const filteredOperationAlerts = computed(() => {
                 const list = operationAlerts.value?.list || [];
                 if (operationAlertFilter.value === 'all') return list;
@@ -21147,6 +21287,568 @@
                 if (hotelId) params.append('hotel_id', hotelId);
                 if (operationFilters.value.date) params.append('date', operationFilters.value.date);
                 return params.toString();
+            };
+
+            const operatingTargetContext = () => {
+                const targetDate = String(operatingTargetForm.value.target_date || '').trim();
+                let hotelId = String(operatingTargetForm.value.hotel_id || '').trim();
+                if (!hotelId && operationHotelOptions.value.length === 1) {
+                    hotelId = String(operationHotelOptions.value[0].id);
+                    operatingTargetForm.value.hotel_id = hotelId;
+                }
+                if (!hotelId || !isOperationHotelPermitted(hotelId)) {
+                    operatingTargetError.value = '请选择有权限的门店后再读取或保存经营目标。';
+                    return null;
+                }
+                if (!targetDate) {
+                    operatingTargetError.value = '请选择经营日期后再读取或保存经营目标。';
+                    return null;
+                }
+                return { hotelId, targetDate };
+            };
+            const applyOperatingTargetRecord = (record, context = null) => {
+                if (!record) {
+                    const activeContext = context || {
+                        hotelId: String(operatingTargetForm.value.hotel_id || ''),
+                        targetDate: String(operatingTargetForm.value.target_date || ''),
+                    };
+                    operatingTargetForm.value = resetOperatingTargetFormForContext(
+                        operatingTargetForm.value,
+                        activeContext.hotelId,
+                        activeContext.targetDate
+                    );
+                    return;
+                }
+                const facts = record.facts || {};
+                operatingTargetForm.value = {
+                    ...operatingTargetForm.value,
+                    hotel_id: String(record.hotel_id || operatingTargetForm.value.hotel_id || ''),
+                    target_date: record.target_date || operatingTargetForm.value.target_date,
+                    target_revenue: facts.target_revenue ?? '',
+                    actual_revenue: facts.actual_revenue ?? '',
+                    sold_room_nights: facts.sold_room_nights ?? '',
+                    sellable_room_nights: facts.sellable_room_nights ?? '',
+                    fact_scope: facts.fact_scope || 'whole_hotel',
+                    source_type: facts.source_type || 'manual',
+                    source_reference: facts.source_reference || '',
+                    quality_status: facts.quality_status || 'unverified',
+                    quality_reason: facts.quality_reason || '',
+                    fact_captured_at: facts.fact_captured_at || '',
+                };
+            };
+            const loadOperatingTargetHistory = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                operatingTargetLoading.value.history = true;
+                try {
+                    const res = await apiRequest(`/operating-targets/history?hotel_id=${encodeURIComponent(context.hotelId)}&limit=60`);
+                    if (res.code !== 200) throw new Error(res.message || '经营目标历史读取失败');
+                    operatingTargetHistory.value = res.data || { list: [] };
+                } catch (error) {
+                    operatingTargetError.value = operationErrorMessage(error, '经营目标历史读取失败');
+                } finally {
+                    operatingTargetLoading.value.history = false;
+                }
+            };
+            const loadOperatingTargetSnapshots = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                operatingTargetLoading.value.snapshots = true;
+                try {
+                    const res = await apiRequest(`/operating-targets/snapshots?hotel_id=${encodeURIComponent(context.hotelId)}&target_date=${encodeURIComponent(context.targetDate)}&limit=20`);
+                    if (res.code !== 200) throw new Error(res.message || '经营目标历史版本读取失败');
+                    operatingTargetSnapshots.value = res.data || { list: [] };
+                    const currentId = Number(operatingTargetSelectedSnapshot.value?.id || 0);
+                    const matched = (operatingTargetSnapshots.value.list || []).find(item => Number(item.id || 0) === currentId);
+                    operatingTargetSelectedSnapshot.value = matched || operatingTargetSnapshots.value.list?.[0] || null;
+                } catch (error) {
+                    operatingTargetError.value = operationErrorMessage(error, '经营目标历史版本读取失败');
+                } finally {
+                    operatingTargetLoading.value.snapshots = false;
+                }
+            };
+            const loadOperatingTargetReportGate = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                operatingTargetLoading.value.reportGate = true;
+                try {
+                    const res = await apiRequest(`/operating-targets/report-preview?hotel_id=${encodeURIComponent(context.hotelId)}&target_date=${encodeURIComponent(context.targetDate)}`);
+                    if (res.code !== 200) throw new Error(res.message || '经营目标报告预览读取失败');
+                    operatingTargetReportGate.value = res.data?.gate || null;
+                    operatingTargetTestResult.value = null;
+                    operatingTargetTestFirstConfirmed.value = false;
+                } catch (error) {
+                    operatingTargetReportGate.value = null;
+                    operatingTargetError.value = operationErrorMessage(error, '经营目标报告预览读取失败');
+                } finally {
+                    operatingTargetLoading.value.reportGate = false;
+                }
+            };
+            const loadOperatingTarget = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                operatingTargetLoading.value.current = true;
+                operatingTargetError.value = '';
+                try {
+                    const res = await apiRequest(`/operating-targets/current?hotel_id=${encodeURIComponent(context.hotelId)}&target_date=${encodeURIComponent(context.targetDate)}`);
+                    if (res.code !== 200) throw new Error(res.message || '经营目标读取失败');
+                    operatingTargetResult.value = res.data?.record || null;
+                    operatingTargetPreview.value = res.data?.report_preview || null;
+                    operatingTargetPmsStatus.value = res.data?.pms_source_status || null;
+                    applyOperatingTargetRecord(operatingTargetResult.value, context);
+                    await Promise.all([
+                        loadOperatingTargetHistory(),
+                        loadOperatingTargetSnapshots(),
+                        loadOperatingTargetReportGate(),
+                    ]);
+                } catch (error) {
+                    operatingTargetError.value = operationErrorMessage(error, '经营目标读取失败');
+                } finally {
+                    operatingTargetLoading.value.current = false;
+                }
+            };
+            const prefillOperatingTargetFromDailyReport = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                operatingTargetLoading.value.prefill = true;
+                operatingTargetError.value = '';
+                try {
+                    const res = await apiRequest(`/operating-targets/prefill/daily-report?hotel_id=${encodeURIComponent(context.hotelId)}&target_date=${encodeURIComponent(context.targetDate)}`);
+                    if (res.code !== 200) throw new Error(res.message || '经营日报预填失败');
+                    const prefill = res.data?.prefill || null;
+                    if (!prefill) {
+                        const gaps = (res.data?.gaps || []).map(item => item.message).filter(Boolean);
+                        throw new Error(gaps[0] || '该门店该日期没有可预填的全酒店经营日报');
+                    }
+                    operatingTargetForm.value = {
+                        ...operatingTargetForm.value,
+                        ...prefill,
+                        hotel_id: context.hotelId,
+                        target_date: context.targetDate,
+                        quality_status: 'unverified',
+                    };
+                    showToast('已预填同门店同日期日报；请核对后确认数据状态再保存。', 'info');
+                } catch (error) {
+                    operatingTargetError.value = operationErrorMessage(error, '经营日报预填失败');
+                } finally {
+                    operatingTargetLoading.value.prefill = false;
+                }
+            };
+            const prefillOperatingTargetFromDingdandao = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                operatingTargetLoading.value.prefill = true;
+                operatingTargetError.value = '';
+                try {
+                    const res = await apiRequest(`/operating-targets/prefill/dingdandao?hotel_id=${encodeURIComponent(context.hotelId)}&target_date=${encodeURIComponent(context.targetDate)}`);
+                    if (res.code !== 200) throw new Error(res.message || '订单来了事实预填失败');
+                    const prefill = res.data?.prefill || null;
+                    operatingTargetPmsStatus.value = res.data?.capture || operatingTargetPmsStatus.value;
+                    if (!prefill) {
+                        const gaps = (res.data?.gaps || []).map(item => item.message).filter(Boolean);
+                        throw new Error(gaps[0] || '订单来了事实尚未通过身份、日期、对账和回读门禁');
+                    }
+                    operatingTargetForm.value = {
+                        ...operatingTargetForm.value,
+                        ...prefill,
+                        hotel_id: context.hotelId,
+                        target_date: context.targetDate,
+                        target_revenue: operatingTargetForm.value.target_revenue,
+                    };
+                    showToast('已预填订单来了同店当天住宿房费事实；目标金额也必须使用住宿房费口径。', 'info');
+                } catch (error) {
+                    operatingTargetError.value = operationErrorMessage(error, '订单来了事实预填失败');
+                } finally {
+                    operatingTargetLoading.value.prefill = false;
+                }
+            };
+            const saveOperatingTarget = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                operatingTargetLoading.value.save = true;
+                operatingTargetError.value = '';
+                try {
+                    const payload = {
+                        ...operatingTargetForm.value,
+                        hotel_id: context.hotelId,
+                        target_date: context.targetDate,
+                        fact_scope: operatingTargetForm.value.fact_scope || 'whole_hotel',
+                    };
+                    const res = await apiRequest('/operating-targets', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '经营目标保存失败');
+                    operatingTargetResult.value = res.data?.record || null;
+                    operatingTargetPreview.value = res.data?.report_preview || null;
+                    applyOperatingTargetRecord(operatingTargetResult.value, context);
+                    await Promise.all([
+                        loadOperatingTargetHistory(),
+                        loadOperatingTargetSnapshots(),
+                        loadOperatingTargetReportGate(),
+                    ]);
+                    showToast('经营目标已保存并完成数据库回读。', 'success');
+                } catch (error) {
+                    operatingTargetError.value = operationErrorMessage(error, '经营目标保存失败；未将其标记为成功');
+                } finally {
+                    operatingTargetLoading.value.save = false;
+                }
+            };
+            const requestOperatingTargetTestPush = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                const gate = operatingTargetReportGate.value || {};
+                const target = gate?.test_push_gate?.test_target || null;
+                if (!target || Number(target.hotel_id || 0) !== Number(context.hotelId)) {
+                    operatingTargetError.value = '测试推送仅允许酒店80（敦煌漠蓝新）的漠蓝测试机器人。';
+                    return;
+                }
+                if (!operatingTargetTestFirstConfirmed.value) {
+                    operatingTargetError.value = '请先确认已核对来源、日期、质量和正式发送门禁。';
+                    return;
+                }
+                if (!String(gate.preview_fingerprint || '').trim()) {
+                    operatingTargetError.value = '当前页面预览缺少校验指纹，请重新读取记录后再试。';
+                    return;
+                }
+                if (!window.confirm('再次确认：本轮只向酒店80的漠蓝测试机器人发起 test_only 请求，不读取Webhook、不向企业微信外发。是否继续？')) {
+                    return;
+                }
+                operatingTargetLoading.value.testRequest = true;
+                operatingTargetError.value = '';
+                try {
+                    const res = await apiRequest('/operating-targets/report-test-request', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            hotel_id: context.hotelId,
+                            target_date: context.targetDate,
+                            preview_fingerprint: gate.preview_fingerprint,
+                            test_only: true,
+                            target_robot_id: Number(target.robot_id || 0),
+                            target_robot_name: String(target.robot_name || ''),
+                            first_confirmation: true,
+                            second_confirmation: true,
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '测试推送请求未通过门禁');
+                    operatingTargetTestResult.value = res.data || null;
+                    showToast('测试推送请求已受理；本轮未向企业微信外发。', 'success');
+                } catch (error) {
+                    operatingTargetTestResult.value = error?.data?.data || null;
+                    operatingTargetError.value = operationErrorMessage(error, '测试推送请求未通过门禁');
+                } finally {
+                    operatingTargetLoading.value.testRequest = false;
+                }
+            };
+
+            const manualNotificationContext = () => {
+                let hotelId = String(manualNotificationForm.value.hotel_id || '').trim();
+                if (!hotelId && operationHotelOptions.value.length === 1) {
+                    hotelId = String(operationHotelOptions.value[0].id);
+                    manualNotificationForm.value.hotel_id = hotelId;
+                }
+                if (!hotelId || !isOperationHotelPermitted(hotelId)) {
+                    manualNotificationError.value = '请选择有权限的门店后再管理通知。';
+                    return null;
+                }
+                const businessDate = String(manualNotificationForm.value.business_date || '').trim();
+                if (!businessDate) {
+                    manualNotificationError.value = '请选择业务日期。';
+                    return null;
+                }
+                const hotel = operationHotelOptions.value.find(item => String(item.id) === hotelId);
+                return {
+                    hotelId,
+                    businessDate,
+                    hotelName: String(hotel?.name || '未取得'),
+                };
+            };
+            const manualNotificationTemplateCards = computed(() => (
+                Array.isArray(manualNotificationMetadata.value?.types)
+                    ? manualNotificationMetadata.value.types
+                    : []
+            ));
+            const manualNotificationBodyCount = computed(() => (
+                Array.from(String(manualNotificationForm.value.body || '')).length
+            ));
+            const manualNotificationDataStatus = computed(() => (
+                manualNotificationForm.value.enabled
+                && manualNotificationForm.value.trigger_type !== 'manual_test'
+                    ? '等待真实测试成功后启用'
+                    : '仅保存/仅测试'
+            ));
+            const manualNotificationLivePreview = computed(() => {
+                const hotel = operationHotelOptions.value.find(
+                    item => String(item.id) === String(manualNotificationForm.value.hotel_id || '')
+                );
+                const replacements = {
+                    hotelName: String(hotel?.name || '未取得'),
+                    businessDate: manualNotificationForm.value.business_date || '未取得',
+                    statisticsTime: manualNotificationForm.value.planned_send_at || '待配置',
+                    dataStatus: manualNotificationDataStatus.value,
+                };
+                return {
+                    title: replaceManualNotificationVariables(manualNotificationForm.value.title, replacements),
+                    body: replaceManualNotificationVariables(manualNotificationForm.value.body, replacements),
+                    status: manualNotificationDataStatus.value,
+                };
+            });
+            const manualNotificationTypeLabel = (item) => (
+                item?.template_type_label
+                || item?.notification_type_label
+                || manualNotificationTemplateCards.value.find(template => template.key === item?.template_type)?.label
+                || '未取得'
+            );
+            const manualNotificationStatusText = (item) => {
+                if (item?.schedule_status_label) return item.schedule_status_label;
+                return item?.enabled && item?.trigger_type !== 'manual_test'
+                    ? '等待真实测试成功后启用'
+                    : '仅保存/仅测试';
+            };
+            const manualNotificationStatusClass = (item) => (
+                item?.schedule_status === 'awaiting_test'
+                    ? 'border-amber-200 bg-amber-50 text-amber-700'
+                    : item?.schedule_status === 'schedule_enabled'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-600'
+            );
+            const manualNotificationTestAllowed = (item) => (
+                Number(item?.hotel_id || manualNotificationForm.value.hotel_id || 0)
+                    === Number(manualNotificationMetadata.value?.test_target?.hotel_id || 80)
+                && Number(manualNotificationMetadata.value?.test_target?.robot_id || 0) === 1
+                && String(manualNotificationMetadata.value?.test_target?.robot_name || '') === '漠蓝测试'
+                && String(item?.send_method || '') === 'wecom_test'
+            );
+            const loadManualNotificationMetadata = async () => {
+                const context = manualNotificationContext();
+                if (!context) return;
+                manualNotificationLoading.value.metadata = true;
+                manualNotificationError.value = '';
+                try {
+                    const params = new URLSearchParams({
+                        hotel_id: context.hotelId,
+                        business_date: context.businessDate,
+                    });
+                    const res = await apiRequest(`/manual-notifications/metadata?${params.toString()}`);
+                    if (res.code !== 200) throw new Error(res.message || '通知模板读取失败');
+                    manualNotificationMetadata.value = res.data || manualNotificationMetadata.value;
+                } catch (error) {
+                    manualNotificationError.value = operationErrorMessage(error, '通知模板读取失败');
+                } finally {
+                    manualNotificationLoading.value.metadata = false;
+                }
+            };
+            const loadManualNotificationHistory = async () => {
+                const context = manualNotificationContext();
+                if (!context) return;
+                manualNotificationLoading.value.history = true;
+                manualNotificationError.value = '';
+                try {
+                    const res = await apiRequest(`/manual-notifications/history?hotel_id=${encodeURIComponent(context.hotelId)}&limit=50`);
+                    if (res.code !== 200) throw new Error(res.message || '通知历史读取失败');
+                    manualNotificationHistory.value = res.data || { list: [], total: 0 };
+                } catch (error) {
+                    manualNotificationError.value = operationErrorMessage(error, '通知历史读取失败');
+                } finally {
+                    manualNotificationLoading.value.history = false;
+                }
+            };
+            const loadManualNotificationDispatchHistory = async () => {
+                const context = manualNotificationContext();
+                if (!context) return;
+                manualNotificationLoading.value.dispatchHistory = true;
+                try {
+                    const res = await apiRequest(`/manual-notifications/dispatch-history?hotel_id=${encodeURIComponent(context.hotelId)}&limit=50`);
+                    if (res.code !== 200) throw new Error(res.message || '调度与发送历史读取失败');
+                    manualNotificationDispatchHistory.value = res.data || { list: [], total: 0 };
+                } catch (error) {
+                    manualNotificationDispatchHistory.value = { list: [], total: 0 };
+                    manualNotificationError.value = operationErrorMessage(error, '调度与发送历史读取失败');
+                } finally {
+                    manualNotificationLoading.value.dispatchHistory = false;
+                }
+            };
+            const loadManualNotificationCenter = async () => {
+                if (!manualNotificationForm.value.hotel_id && operationHotelOptions.value.length) {
+                    manualNotificationForm.value.hotel_id = String(operationHotelOptions.value[0].id);
+                }
+                const context = manualNotificationContext();
+                if (!context) return;
+                await Promise.all([
+                    loadManualNotificationMetadata(),
+                    loadManualNotificationHistory(),
+                    loadManualNotificationDispatchHistory(),
+                ]);
+            };
+            const selectManualNotificationTemplate = (template) => {
+                if (!template?.key) return;
+                manualNotificationForm.value = {
+                    ...manualNotificationForm.value,
+                    id: 0,
+                    template_type: template.key,
+                    notification_type: template.key,
+                    title: template.title || '',
+                    body: template.body || '',
+                    send_method: template.key === 'operating_target_report' ? 'wecom_test' : 'manual_preview',
+                    trigger_type: 'manual_test',
+                    planned_send_at: '',
+                    enabled: false,
+                };
+                manualNotificationPreview.value = null;
+                manualNotificationEditing.value = true;
+                manualNotificationError.value = '';
+            };
+            const insertManualNotificationVariable = (variable) => {
+                const token = String(variable || '');
+                if (!token) return;
+                const current = String(manualNotificationForm.value.body || '');
+                manualNotificationForm.value.body = current
+                    ? `${current}${current.endsWith('\n') ? '' : '\n'}${token}`
+                    : token;
+            };
+            const previewManualNotification = async () => {
+                const context = manualNotificationContext();
+                if (!context) return;
+                manualNotificationLoading.value.preview = true;
+                manualNotificationError.value = '';
+                try {
+                    const res = await apiRequest('/manual-notifications/preview', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            ...manualNotificationForm.value,
+                            hotel_id: context.hotelId,
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '通知预览失败');
+                    manualNotificationPreview.value = res.data || null;
+                } catch (error) {
+                    manualNotificationError.value = operationErrorMessage(error, '通知预览失败');
+                } finally {
+                    manualNotificationLoading.value.preview = false;
+                }
+            };
+            const saveManualNotification = async () => {
+                const context = manualNotificationContext();
+                if (!context) return;
+                manualNotificationLoading.value.save = true;
+                manualNotificationError.value = '';
+                try {
+                    const res = await apiRequest('/manual-notifications', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            ...manualNotificationForm.value,
+                            hotel_id: context.hotelId,
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '通知保存失败');
+                    const record = res.data?.record || null;
+                    manualNotificationForm.value.id = Number(record?.id || 0);
+                    manualNotificationPreview.value = res.data?.preview || null;
+                    await loadManualNotificationHistory();
+                    showToast(
+                        record?.schedule_status === 'awaiting_test'
+                            ? '通知已保存；完成一次真实测试后才会启用定时发送。'
+                            : record?.schedule_status === 'schedule_enabled'
+                                ? '通知已保存，测试群定时发送已启用。'
+                            : '通知已保存并完成回读，当前仅预览/测试。',
+                        'success'
+                    );
+                } catch (error) {
+                    manualNotificationError.value = operationErrorMessage(error, '通知保存失败');
+                } finally {
+                    manualNotificationLoading.value.save = false;
+                }
+            };
+            const openManualNotificationRecord = (item) => {
+                if (!item) return;
+                manualNotificationForm.value = {
+                    ...manualNotificationForm.value,
+                    id: Number(item.id || 0),
+                    hotel_id: String(item.hotel_id || manualNotificationForm.value.hotel_id || ''),
+                    template_type: item.template_type || item.notification_type || 'blank_custom',
+                    notification_type: item.template_type || item.notification_type || 'blank_custom',
+                    business_date: item.business_date || operationToday,
+                    title: item.title || '',
+                    body: item.body || '',
+                    send_method: item.send_method || 'manual_preview',
+                    trigger_type: item.trigger_type || 'manual_test',
+                    planned_send_at: item.planned_send_at
+                        ? String(item.planned_send_at).replace(' ', 'T').slice(0, 16)
+                        : '',
+                    enabled: item.enabled === true,
+                };
+                manualNotificationPreview.value = null;
+                manualNotificationEditing.value = true;
+                manualNotificationError.value = '';
+            };
+            const testManualNotification = async (item) => {
+                if (!manualNotificationTestAllowed(item)) {
+                    showToast('测试推送仅允许酒店80绑定的1号漠蓝测试机器人。', 'warning');
+                    return;
+                }
+                if (!window.confirm('仅向酒店80绑定的1号“漠蓝测试”机器人发送一次测试消息，确认继续吗？')) {
+                    return;
+                }
+                manualNotificationLoading.value.testId = Number(item.id || 0);
+                manualNotificationError.value = '';
+                try {
+                    const idempotencyKey = typeof crypto?.randomUUID === 'function'
+                        ? `manual-test:${crypto.randomUUID()}`
+                        : `manual-test:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+                    const res = await apiRequest(`/manual-notifications/${encodeURIComponent(item.id)}/test-push`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            hotel_id: Number(item.hotel_id),
+                            confirmed: true,
+                            target_robot_id: Number(manualNotificationMetadata.value?.test_target?.robot_id || 0),
+                            target_robot_name: manualNotificationMetadata.value?.test_target?.robot_name || '',
+                            idempotency_key: idempotencyKey,
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '测试推送失败');
+                    const status = String(res.data?.delivery_status || '');
+                    showToast(
+                        status === 'sent' ? '测试消息已送达漠蓝测试机器人。' : (res.data?.message || '测试消息未送达。'),
+                        status === 'sent' ? 'success' : 'warning'
+                    );
+                    await loadManualNotificationHistory();
+                    await loadManualNotificationDispatchHistory();
+                } catch (error) {
+                    manualNotificationError.value = operationErrorMessage(error, '测试推送失败；正式群未触发。');
+                    await Promise.all([
+                        loadManualNotificationHistory(),
+                        loadManualNotificationDispatchHistory(),
+                    ]);
+                } finally {
+                    manualNotificationLoading.value.testId = 0;
+                }
+            };
+            const retryManualNotificationDispatch = async (item) => {
+                if (!item || String(item.status || '') !== 'failed') return;
+                if (!window.confirm('仅重试这条明确失败的测试群发送；已送达或结果不明确的记录不会重试。确认继续吗？')) {
+                    return;
+                }
+                manualNotificationLoading.value.testId = Number(item.notification_id || 0);
+                manualNotificationError.value = '';
+                try {
+                    const res = await apiRequest(`/manual-notifications/dispatches/${encodeURIComponent(item.id)}/retry`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            hotel_id: Number(item.hotel_id || manualNotificationForm.value.hotel_id || 0),
+                            confirmed: true,
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '失败发送重试未送达');
+                    showToast('失败发送已重试并送达漠蓝测试群。', 'success');
+                } catch (error) {
+                    manualNotificationError.value = operationErrorMessage(error, '显式重试失败或结果不明确。');
+                } finally {
+                    manualNotificationLoading.value.testId = 0;
+                    await Promise.all([
+                        loadManualNotificationHistory(),
+                        loadManualNotificationDispatchHistory(),
+                    ]);
+                }
             };
 
             const loadOperationFullData = async () => {
@@ -39424,8 +40126,15 @@
                 transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
                 transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceMetricRows, transferSourceLoading, transferRecords, transferRecordsLoading, transferExecutionLoadingId, transferHotelOptions, transferDecisionLayerRows, transferCurrentReadiness,
                 transferRecordTypeLabel, transferReadinessBadgeClass, transferReadinessMissingText, transferExecutionIntentId, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, createTransferExecutionIntent, archiveTransferRecord,
-                    operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationClosureOverview, operationEffectValidation,
+                operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationClosureOverview, operationEffectValidation,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
+                operatingTargetForm, operatingTargetResult, operatingTargetPmsStatus, operatingTargetPreview, operatingTargetHistory, operatingTargetSnapshots, operatingTargetSelectedSnapshot, operatingTargetReportGate, operatingTargetTestFirstConfirmed, operatingTargetTestResult, operatingTargetError, operatingTargetLoading,
+                operatingTargetStatusText, operatingTargetStatusClass, operatingTargetSourceText, operatingTargetQualityText, operatingTargetMetricRows, operatingTargetSnapshotMetricRows, loadOperatingTarget, loadOperatingTargetHistory, loadOperatingTargetSnapshots, loadOperatingTargetReportGate, prefillOperatingTargetFromDailyReport, prefillOperatingTargetFromDingdandao, saveOperatingTarget, requestOperatingTargetTestPush,
+                manualNotificationMetadata, manualNotificationForm, manualNotificationHistory, manualNotificationDispatchHistory, manualNotificationPreview, manualNotificationEditing, manualNotificationError, manualNotificationLoading,
+                manualNotificationTemplateCards, manualNotificationBodyCount, manualNotificationDataStatus, manualNotificationLivePreview,
+                manualNotificationTypeLabel, manualNotificationStatusText, manualNotificationStatusClass, manualNotificationTestAllowed,
+                loadManualNotificationCenter, loadManualNotificationMetadata, loadManualNotificationHistory, loadManualNotificationDispatchHistory, selectManualNotificationTemplate,
+                insertManualNotificationVariable, previewManualNotification, saveManualNotification, openManualNotificationRecord, testManualNotification, retryManualNotificationDispatch,
                 operationEvidenceModalOpen, operationEvidenceForm, closeOperationEvidenceModal, submitOperationExecutionEvidence,
                 operationReviewModalOpen, operationReviewForm, closeOperationReviewModal, submitOperationExecutionReview,
                 operationStrategyRequirementText, operationStrategyAmountRequired, operationStrategyDiscountRequired,

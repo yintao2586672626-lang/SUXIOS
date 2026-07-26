@@ -28,6 +28,7 @@ return [
         'cloud-collection:dispatch' => 'app\command\RunCloudCollectionDispatch',
         'cloud-wechat-push:run' => 'app\command\RunCloudWechatPushOrchestrator',
         'cloud-data-bridge:run' => 'app\command\RunCloudDataBridge',
+        'manual-notification:schedule' => 'app\command\RunManualNotificationSchedule',
         'hotel-monitor:wechat-broadcast' => 'app\command\BroadcastHourlyHotelMonitor',
         'video-factory:director' => 'app\command\VideoFactoryDirector',
     ],

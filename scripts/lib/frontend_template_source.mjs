@@ -18,6 +18,8 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-opening-overview', domain: 'opening', path: 'fragments/13-page-opening-overview.html', anchor: '<div v-if="currentPage === \'opening-overview\'" class="max-w-7xl mx-auto space-y-6">' },
   { id: 'page-opening-checklist', domain: 'opening', path: 'fragments/14-page-opening-checklist.html', anchor: '<div v-if="currentPage === \'opening-checklist\'" class="max-w-7xl mx-auto space-y-6">' },
   { id: 'page-ops-source', domain: 'operations', path: 'fragments/15a-page-ops-source.html', anchor: '<div v-if="currentPage === \'ops-source\'" class="max-w-7xl mx-auto space-y-6">' },
+  { id: 'page-operating-targets', domain: 'operations', path: 'fragments/15aa-page-operating-targets.html', anchor: '<div v-if="currentPage === \'operating-targets\'" class="max-w-7xl mx-auto space-y-6">' },
+  { id: 'page-manual-notifications', domain: 'operations', path: 'fragments/15ab-page-manual-notifications.html', anchor: '<div v-if="currentPage === \'manual-notifications\'" class="max-w-7xl mx-auto space-y-6" data-testid="page-manual-notifications">' },
   { id: 'page-ops-analysis', domain: 'operations', path: 'fragments/15b-page-ops-analysis.html', anchor: '<div v-if="currentPage === \'ops-analysis\'" class="max-w-7xl mx-auto space-y-6">' },
   { id: 'page-ops-insight', domain: 'operations', path: 'fragments/15c-page-ops-insight.html', anchor: '<div v-if="currentPage === \'ops-insight\'" class="max-w-7xl mx-auto space-y-6">' },
   { id: 'page-ops-plan', domain: 'operations', path: 'fragments/15-page-ops-plan.html', anchor: '<div v-if="currentPage === \'ops-plan\'" class="max-w-7xl mx-auto space-y-6">' },
@@ -60,6 +62,18 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
 ].map((fragment) => Object.freeze(fragment)));
 
 export const FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH = 'resources/frontend/templates/manifest.json';
+
+export const frontendTemplateManifestFragments = () => FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS.map(({
+  id,
+  domain,
+  path: fragmentPath,
+  anchor,
+}) => ({ id, domain, path: fragmentPath, anchor }));
+
+export const frontendTemplateManifestMatchesDefinitions = (manifest) => {
+  if (!Array.isArray(manifest?.fragments)) return false;
+  return JSON.stringify(manifest.fragments) === JSON.stringify(frontendTemplateManifestFragments());
+};
 
 export const FRONTEND_STARTUP_RENDER_FRAGMENT_IDS = Object.freeze([
   'app-shell',
@@ -112,6 +126,9 @@ export function loadFrontendTemplateManifest(repoRoot) {
   }
   if (manifest?.schema_version !== 1 || !Array.isArray(manifest.fragments) || !manifest.fragments.length) {
     throw new Error('Frontend template fragment manifest must use schema_version 1 with a non-empty fragments array.');
+  }
+  if (!frontendTemplateManifestMatchesDefinitions(manifest)) {
+    throw new Error('Frontend template fragment manifest is out of sync with the registered fragment definitions; run npm run sync:frontend-template.');
   }
   if (manifest.source_snapshot !== 'resources/frontend/app-template.html'
     || !/^[a-f0-9]{64}$/.test(String(manifest.source_snapshot_sha256 || ''))

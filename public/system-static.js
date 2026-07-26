@@ -258,6 +258,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
             permissions: [],
             children: [
                 { name: '经营数据总览', path: 'ops-source', icon: 'fas fa-search' },
+                { name: '经营目标', path: 'operating-targets', icon: 'fas fa-bullseye' },
+                { name: '定时消息', path: 'manual-notifications', icon: 'fas fa-paper-plane', testid: 'nav-manual-notifications' },
                 { name: '可能影响因素分析', path: 'ops-analysis', icon: 'fas fa-microscope' },
                 { name: '风险预警', path: 'ops-insight', icon: 'fas fa-bell' },
                 { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
@@ -293,6 +295,34 @@ window.SUXI_SYSTEM_STATIC = (() => {
             ],
         },
     ];
+    const resetOperatingTargetFormForContext = (form = {}, hotelId = '', targetDate = '') => ({
+        ...form,
+        hotel_id: String(hotelId || ''),
+        target_date: String(targetDate || ''),
+        target_revenue: '',
+        actual_revenue: '',
+        sold_room_nights: '',
+        sellable_room_nights: '',
+        fact_scope: 'whole_hotel',
+        source_type: 'manual',
+        source_reference: '',
+        quality_status: 'unverified',
+        quality_reason: '',
+        fact_captured_at: '',
+        change_reason: '',
+    });
+    const replaceManualNotificationVariables = (value, context = {}) => {
+        const replacements = {
+            '{酒店名称}': String(context.hotelName || '未取得'),
+            '{经营日期}': String(context.businessDate || '未取得'),
+            '{统计时间}': String(context.statisticsTime || '待配置'),
+            '{数据状态}': String(context.dataStatus || '仅保存/仅测试'),
+        };
+        return Object.entries(replacements).reduce(
+            (text, [token, replacement]) => text.split(token).join(replacement),
+            String(value || ''),
+        );
+    };
     const testIdNameMap = {
         '项目AI管理': 'project-ai-management',
         '首页': 'compass',
@@ -2116,6 +2146,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         languageOptions,
         hotelAiToolboxLinks,
         menuItemDefinitions,
+        resetOperatingTargetFormForContext,
+        replaceManualNotificationVariables,
         testIdNameMap,
         hotelColumns,
         userColumns,
