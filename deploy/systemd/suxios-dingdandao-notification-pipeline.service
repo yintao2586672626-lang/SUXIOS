@@ -27,6 +27,3 @@ ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/run/suxios-dingdandao-pipeline /run/suxios-dingdandao-collection -/var/www/suxios/current/runtime -/var/www/suxios/current/storage
 UMask=0027
-
-[Install]
-WantedBy=multi-user.target

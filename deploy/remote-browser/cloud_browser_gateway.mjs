@@ -27,6 +27,7 @@ const HEADER_BYTES = MAGIC.length + 12 + 16;
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PROFILE_ID_PATTERN = /^cbp_[A-Za-z0-9_-]{16,64}$/;
 const SESSION_ID_PATTERN = /^cbls_[A-Za-z0-9_-]{16,64}$/;
+const PROFILE_LEASE_ID_PATTERN = /^cbpl_[A-Za-z0-9_-]{16,64}$/;
 const COLLECTION_SESSION_ID_PATTERN = /^cbcs_[A-Za-z0-9_-]{16,64}$/;
 const COLLECTION_CLAIM_ID_PATTERN = /^cct_[A-Za-z0-9_-]{16,64}$/;
 const TICKET_PATTERN = /^[A-Za-z0-9_-]{32,96}$/;
@@ -208,10 +209,23 @@ export class EncryptedProfileVault {
     const encryptedPath = this.encryptedPath(profileId);
     const runtimePath = this.runtimePath(profileId);
     const archivePath = join(this.runtimeRoot, `${profileId}.restore.tar.gz`);
-    await rm(runtimePath, { recursive: true, force: true });
-    await mkdir(runtimePath, { recursive: true, mode: 0o700 });
+    try {
+      await stat(runtimePath);
+      throw new Error('profile_runtime_quarantine_present');
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    let encryptedArchiveExists = true;
     try {
       await stat(encryptedPath);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      encryptedArchiveExists = false;
+    }
+    await rm(archivePath, { force: true });
+    await mkdir(runtimePath, { recursive: true, mode: 0o700 });
+    if (!encryptedArchiveExists) return runtimePath;
+    try {
       await decryptArchive(encryptedPath, archivePath, this.key, profileId);
       await runProcess(this.tarBinary, [
         '--extract',
@@ -223,8 +237,6 @@ export class EncryptedProfileVault {
         '--no-same-owner',
         '--no-same-permissions',
       ]);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
     } finally {
       await rm(archivePath, { force: true });
     }
@@ -236,6 +248,7 @@ export class EncryptedProfileVault {
     const archivePath = join(this.runtimeRoot, `${profileId}.seal.tar.gz`);
     const encryptedPath = this.encryptedPath(profileId);
     const pendingPath = `${encryptedPath}.pending`;
+    let sealed = false;
     try {
       await runProcess(this.tarBinary, [
         '--create',
@@ -250,10 +263,13 @@ export class EncryptedProfileVault {
       const { rename } = await import('node:fs/promises');
       await rename(pendingPath, encryptedPath);
       await chmod(encryptedPath, 0o600);
+      sealed = true;
     } finally {
       await rm(archivePath, { force: true });
       await rm(pendingPath, { force: true });
-      await rm(runtimePath, { recursive: true, force: true });
+      if (sealed) {
+        await rm(runtimePath, { recursive: true, force: true });
+      }
     }
     return encryptedPath;
   }
@@ -432,6 +448,66 @@ function validateCollectionOpenRequest(body) {
   };
 }
 
+function validateProfileLeaseOpenRequest(body) {
+  return {
+    profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
+    platform: assertOpaque(body.platform, DINGDANDAO_PLATFORM_PATTERN, 'platform_invalid'),
+    tenantId: positiveInteger(body.tenant_id, 'tenant_id_invalid'),
+    hotelId: positiveInteger(body.hotel_id, 'hotel_id_invalid'),
+    ownerUserId: positiveInteger(body.owner_user_id, 'owner_user_id_invalid'),
+    targetDate: assertOpaque(body.target_date, DATE_PATTERN, 'target_date_invalid'),
+    leaseKind: assertOpaque(
+      body.lease_kind,
+      /^(binding_identity|daily_collection)$/,
+      'profile_lease_kind_invalid',
+    ),
+    accessMode: assertOpaque(body.access_mode, /^read_only$/, 'access_mode_invalid'),
+  };
+}
+
+function validateProfileLeaseCloseRequest(body) {
+  return {
+    profileLeaseId: assertOpaque(
+      body.profile_lease_id,
+      PROFILE_LEASE_ID_PATTERN,
+      'profile_lease_id_invalid',
+    ),
+    profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
+    platform: assertOpaque(body.platform, DINGDANDAO_PLATFORM_PATTERN, 'platform_invalid'),
+    outcome: assertOpaque(
+      body.outcome,
+      /^(completed|cancelled|failed|session_expired|policy_blocked|window_expired)$/,
+      'profile_lease_outcome_invalid',
+    ),
+  };
+}
+
+function validateProfileLeaseScope(result, lease) {
+  const commonScopeMatches = result?.tenant_id === lease.tenantId
+    && result?.hotel_id === lease.hotelId
+    && result?.owner_user_id === lease.ownerUserId;
+  if (!commonScopeMatches) throw new Error('profile_lease_scope_mismatch');
+  if (lease.leaseKind === 'binding_identity') {
+    if (result?.status !== 'ready_for_identity_probe'
+      || result?.profile_id !== lease.profileId
+      || result?.provider !== lease.platform
+      || result?.binding_persisted !== false
+    ) {
+      throw new Error('profile_lease_scope_mismatch');
+    }
+    return result;
+  }
+  if (result?.validated !== true
+    || result?.target_date !== lease.targetDate
+    || result?.profile?.profile_id !== lease.profileId
+    || result?.profile?.platform !== lease.platform
+    || result?.access_mode !== lease.accessMode
+  ) {
+    throw new Error('profile_lease_scope_mismatch');
+  }
+  return result;
+}
+
 function validateCollectionCloseRequest(body) {
   return {
     collectionSessionId: assertOpaque(
@@ -552,19 +628,28 @@ async function startBrowser(config, profilePath, platform, startUrl = null) {
   });
 }
 
-async function stopBrowser(child) {
+async function waitForChildExit(child, timeoutMs) {
+  if (!child || child.exitCode !== null) return true;
+  return await new Promise((resolvePromise) => {
+    const timer = setTimeout(() => {
+      child.removeListener?.('exit', onExit);
+      resolvePromise(child.exitCode !== null);
+    }, timeoutMs);
+    const onExit = () => {
+      clearTimeout(timer);
+      resolvePromise(true);
+    };
+    child.once('exit', onExit);
+  });
+}
+
+export async function stopBrowser(child) {
   if (!child || child.exitCode !== null) return;
   child.kill('SIGTERM');
-  await new Promise((resolvePromise) => {
-    const timer = setTimeout(() => {
-      if (child.exitCode === null) child.kill('SIGKILL');
-      resolvePromise();
-    }, 5000);
-    child.once('exit', () => {
-      clearTimeout(timer);
-      resolvePromise();
-    });
-  });
+  if (await waitForChildExit(child, 5000)) return;
+  child.kill('SIGKILL');
+  if (await waitForChildExit(child, 2000)) return;
+  throw new Error('browser_stop_unconfirmed');
 }
 
 function delay(milliseconds) {
@@ -574,7 +659,12 @@ function delay(milliseconds) {
   });
 }
 
-async function waitForBrowserPage(config, child, timeoutMs = 12000) {
+async function waitForBrowserPage(
+  config,
+  child,
+  expectedTargetUrl = null,
+  timeoutMs = 12000,
+) {
   const endpoint = `http://127.0.0.1:${config.cdpPort}/json/list`;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -583,7 +673,9 @@ async function waitForBrowserPage(config, child, timeoutMs = 12000) {
       const response = await fetch(endpoint, { signal: AbortSignal.timeout(1000) });
       const targets = response.ok ? await response.json() : [];
       const page = Array.isArray(targets)
-        ? targets.find((target) => target?.type === 'page' && typeof target.webSocketDebuggerUrl === 'string')
+        ? targets.find((target) => target?.type === 'page'
+          && typeof target.webSocketDebuggerUrl === 'string'
+          && (expectedTargetUrl === null || target.url === expectedTargetUrl))
         : null;
       if (page) return page;
     } catch {
@@ -592,6 +684,22 @@ async function waitForBrowserPage(config, child, timeoutMs = 12000) {
     await delay(100);
   }
   throw new Error('browser_cdp_not_ready');
+}
+
+async function assertCdpPortAvailable(config) {
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${config.cdpPort}/json/version`,
+      { signal: AbortSignal.timeout(500) },
+    );
+    if (!response.ok) return;
+    const version = await response.json().catch(() => null);
+    if (typeof version?.webSocketDebuggerUrl === 'string') {
+      throw new Error('browser_cdp_port_busy');
+    }
+  } catch (error) {
+    if (error?.message === 'browser_cdp_port_busy') throw error;
+  }
 }
 
 export function shanghaiToday(now = new Date()) {
@@ -667,11 +775,19 @@ export function isDingdandaoReadOnlyRequestAllowed({
   return parsed.origin === source.origin && parsed.pathname === source.pathname;
 }
 
-async function installDingdandaoReadOnlyPolicy(config, child) {
+async function installDingdandaoReadOnlyPolicy(
+  config,
+  child,
+  expectedTargetUrl = null,
+) {
   if (typeof WebSocket !== 'function') {
     throw new Error('read_only_policy_websocket_unavailable');
   }
-  const target = await waitForBrowserPage(config, child);
+  const target = await waitForBrowserPage(
+    config,
+    child,
+    expectedTargetUrl,
+  );
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   const pending = new Map();
   let nextId = 1;
@@ -781,6 +897,10 @@ export async function createGateway(env = process.env, dependencies = {}) {
     || ((action, payload) => bridge(config, action, payload));
   const startBrowserCall = dependencies.startBrowser || startBrowser;
   const stopBrowserCall = dependencies.stopBrowser || stopBrowser;
+  const installReadOnlyPolicyCall = dependencies.installReadOnlyPolicy
+    || installDingdandaoReadOnlyPolicy;
+  const assertCdpPortAvailableCall = dependencies.assertCdpPortAvailable
+    || assertCdpPortAvailable;
   const nowCall = dependencies.now || (() => new Date());
   const [key, controlToken] = await Promise.all([
     readFile(config.keyFile).then(decodeMasterKey),
@@ -794,6 +914,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
   const receipts = new ReceiptChain(config.receiptPath);
   if (!(await receipts.verify())) throw new Error('receipt_chain_integrity_failed');
   const sessions = new Map();
+  const profileLeases = new Map();
 
   async function closeSession(session, { seal = true } = {}) {
     clearTimeout(session.timeout);
@@ -808,6 +929,62 @@ export async function createGateway(env = process.env, dependencies = {}) {
     if (session.leaseClosed === true) return;
     session.leaseClosed = true;
     session.state = 'lease_closed';
+  }
+
+  async function closeProfileLease(
+    session,
+    outcome,
+    receiptKind = 'profile_lease_closed',
+  ) {
+    clearTimeout(session.timeout);
+    session.state = 'closing';
+    try {
+      session.guard?.close();
+      await stopBrowserCall(session.browser);
+      await vault.seal(session.profileId);
+      session.state = 'closed';
+    } catch (error) {
+      session.state = 'quarantined';
+      throw error;
+    }
+    try {
+      return await receipts.append(receiptKind, {
+        profile_lease_id: session.profileLeaseId,
+        profile_id: session.profileId,
+        platform: session.platform,
+        tenant_id: session.tenantId,
+        hotel_id: session.hotelId,
+        owner_user_id: session.ownerUserId,
+        target_date: session.targetDate,
+        lease_kind: session.leaseKind,
+        access_mode: session.accessMode,
+        outcome,
+        session_owner: 'gateway_profile_lease',
+        owned_browser_closed: true,
+        user_browser_closed: false,
+        profile_encrypted_at_rest: true,
+      });
+    } finally {
+      profileLeases.delete(session.profileLeaseId);
+    }
+  }
+
+  async function expireProfileLease(session) {
+    const nestedCollections = [...sessions.values()]
+      .filter((candidate) => candidate.kind === 'dingdandao_collection'
+        && candidate.profileLeaseId === session.profileLeaseId);
+    for (const collection of nestedCollections) {
+      try {
+        await finalizeCollectionSession(
+          collection,
+          'window_expired',
+          'collection_window_timeout',
+        );
+      } catch {
+        sessions.delete(collection.key);
+      }
+    }
+    await closeProfileLease(session, 'window_expired', 'profile_lease_timeout');
   }
 
   async function completeCollectionLifecycle(session, outcome, receiptKind = 'collection_profile_closed') {
@@ -860,7 +1037,9 @@ export async function createGateway(env = process.env, dependencies = {}) {
         const activeCollectionSessions = [...sessions.values()]
           .filter((session) => session.kind === 'dingdandao_collection').length;
         const activeBrowserSessions = [...sessions.values()]
-          .filter((session) => session.kind === 'login' && session.browser).length;
+          .filter((session) => session.kind === 'login' && session.browser).length
+          + [...profileLeases.values()]
+            .filter((session) => session.browser).length;
         jsonResponse(response, 200, {
           status: 'ok',
           bind: config.bindAddress,
@@ -868,7 +1047,9 @@ export async function createGateway(env = process.env, dependencies = {}) {
           receipt_chain_valid: await receipts.verify(),
           active_login_sessions: activeLoginSessions,
           active_collection_sessions: activeCollectionSessions,
+          active_profile_leases: profileLeases.size,
           active_browser_sessions: activeBrowserSessions,
+          profile_lease_contract: 'dingdandao_profile_lease.v1',
           browser_autostart: false,
           read_only_policy_runtime: typeof WebSocket === 'function',
         });
@@ -877,7 +1058,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
 
       if (request.method === 'POST' && url.pathname === '/v1/login/open') {
         const login = validateLoginRequest(await jsonBody(request));
-        if (sessions.size > 0) {
+        if (sessions.size > 0 || profileLeases.size > 0) {
           throw new GatewayError('gateway_login_capacity_busy', 409);
         }
         const validated = await bridgeCall('validate_login', {
@@ -921,6 +1102,212 @@ export async function createGateway(env = process.env, dependencies = {}) {
           expires_at: session.expiresAt,
           viewer_url: config.viewerUrl,
           browser_started: true,
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/profile-lease/open') {
+        if (!authorized(request, controlToken)) {
+          jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
+          return;
+        }
+        const body = await jsonBody(request);
+        assertNoSensitiveMaterial(body);
+        const lease = validateProfileLeaseOpenRequest(body);
+        const now = nowCall();
+        if (!(now instanceof Date)
+          || !Number.isFinite(now.getTime())
+          || lease.targetDate !== shanghaiToday(now)
+        ) {
+          throw new GatewayError('profile_lease_target_date_not_today', 422);
+        }
+        if (sessions.size > 0 || profileLeases.size > 0) {
+          throw new GatewayError('gateway_profile_lease_capacity_busy', 409);
+        }
+        const action = lease.leaseKind === 'binding_identity'
+          ? 'validate_dingdandao_binding_lease'
+          : 'validate_dingdandao_collection';
+        validateProfileLeaseScope(
+          await bridgeCall(action, {
+            profile_id: lease.profileId,
+            tenant_id: lease.tenantId,
+            hotel_id: lease.hotelId,
+            owner_user_id: lease.ownerUserId,
+            target_date: lease.targetDate,
+          }),
+          lease,
+        );
+
+        const profileLeaseId = `cbpl_${randomBytes(18).toString('base64url')}`;
+        const ownershipTargetUrl = `about:blank#suxios-${profileLeaseId}`;
+        const expiresAt = new Date(
+          now.getTime() + config.collectionTtlSeconds * 1000,
+        ).toISOString();
+        let browser = null;
+        let guard = null;
+        let restored = false;
+        try {
+          await assertCdpPortAvailableCall(config);
+          const profilePath = await vault.restore(lease.profileId);
+          restored = true;
+          browser = await startBrowserCall(
+            config,
+            profilePath,
+            lease.platform,
+            ownershipTargetUrl,
+          );
+          guard = await installReadOnlyPolicyCall(
+            config,
+            browser,
+            ownershipTargetUrl,
+          );
+        } catch (error) {
+          guard?.close();
+          let cleanupError = null;
+          let browserStopped = browser === null;
+          if (browser) {
+            try {
+              await stopBrowserCall(browser);
+              browserStopped = true;
+            } catch (stopError) {
+              cleanupError = stopError;
+            }
+          }
+          if (restored && browserStopped) {
+            try {
+              await vault.seal(lease.profileId);
+            } catch (sealError) {
+              cleanupError = cleanupError || sealError;
+            }
+          }
+          if (cleanupError !== null) {
+            profileLeases.set(profileLeaseId, {
+              ...lease,
+              kind: 'dingdandao_profile_lease',
+              profileLeaseId,
+              browser,
+              guard,
+              state: 'quarantined',
+              openedAt: now.toISOString(),
+              expiresAt,
+              timeout: null,
+            });
+            throw new GatewayError(
+              'profile_lease_start_cleanup_failed',
+              500,
+            );
+          }
+          throw new GatewayError(publicError(error), 422);
+        }
+        const session = {
+          ...lease,
+          kind: 'dingdandao_profile_lease',
+          profileLeaseId,
+          browser,
+          guard,
+          state: 'open',
+          openedAt: now.toISOString(),
+          expiresAt,
+          timeout: null,
+        };
+        session.timeout = setTimeout(async () => {
+          try {
+            await expireProfileLease(session);
+          } catch {
+            // Keep the lease fail-closed when its owned Profile cannot be resealed.
+          }
+        }, config.collectionTtlSeconds * 1000);
+        session.timeout.unref();
+        profileLeases.set(profileLeaseId, session);
+        try {
+          await receipts.append('profile_lease_opened', {
+            profile_lease_id: profileLeaseId,
+            profile_id: lease.profileId,
+            platform: lease.platform,
+            tenant_id: lease.tenantId,
+            hotel_id: lease.hotelId,
+            owner_user_id: lease.ownerUserId,
+            target_date: lease.targetDate,
+            lease_kind: lease.leaseKind,
+            access_mode: lease.accessMode,
+            status: 'open',
+            session_owner: 'gateway_profile_lease',
+            external_browser_required: false,
+            user_browser_closed: false,
+          });
+        } catch {
+          try {
+            await closeProfileLease(
+              session,
+              'failed',
+              'profile_lease_open_receipt_failed',
+            );
+          } catch {
+            // A stop or seal failure keeps the lease in capacity fail-closed.
+          }
+          throw new GatewayError('profile_lease_open_receipt_failed', 500);
+        }
+        jsonResponse(response, 201, {
+          status: 'profile_lease_open',
+          profile_lease_id: profileLeaseId,
+          profile_id: lease.profileId,
+          platform: lease.platform,
+          tenant_id: lease.tenantId,
+          hotel_id: lease.hotelId,
+          owner_user_id: lease.ownerUserId,
+          target_date: lease.targetDate,
+          lease_kind: lease.leaseKind,
+          access_mode: lease.accessMode,
+          expires_at: expiresAt,
+          session_owner: 'gateway_profile_lease',
+          browser_started: true,
+          profile_restored: true,
+          read_only_enforced: true,
+          external_browser_required: false,
+          user_browser_closed: false,
+          sensitive_values_exposed: false,
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/profile-lease/close') {
+        if (!authorized(request, controlToken)) {
+          jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
+          return;
+        }
+        const body = await jsonBody(request);
+        assertNoSensitiveMaterial(body);
+        const lease = validateProfileLeaseCloseRequest(body);
+        const session = profileLeases.get(lease.profileLeaseId);
+        if (!session
+          || session.profileId !== lease.profileId
+          || session.platform !== lease.platform
+        ) {
+          throw new GatewayError('active_profile_lease_not_found', 404);
+        }
+        const nestedCollectionActive = [...sessions.values()]
+          .some((candidate) => candidate.kind === 'dingdandao_collection'
+            && candidate.profileLeaseId === lease.profileLeaseId);
+        if (nestedCollectionActive) {
+          throw new GatewayError('profile_lease_collection_active', 409);
+        }
+        let receipt;
+        try {
+          receipt = await closeProfileLease(session, lease.outcome);
+        } catch {
+          throw new GatewayError('profile_lease_close_failed', 500);
+        }
+        jsonResponse(response, 200, {
+          status: 'profile_lease_closed',
+          profile_lease_id: lease.profileLeaseId,
+          profile_id: lease.profileId,
+          platform: lease.platform,
+          owned_browser_closed: true,
+          profile_encrypted_at_rest: true,
+          user_browser_closed: false,
+          sensitive_values_exposed: false,
+          receipt_id: receipt.receipt_id,
+          receipt_hash: receipt.receipt_hash,
         });
         return;
       }
@@ -986,6 +1373,18 @@ export async function createGateway(env = process.env, dependencies = {}) {
         if (sessions.size > 0) {
           throw new GatewayError('gateway_collection_capacity_busy', 409);
         }
+        const profileLease = [...profileLeases.values()]
+          .find((candidate) => candidate.state === 'open'
+            && candidate.leaseKind === 'daily_collection'
+            && candidate.profileId === collection.profileId
+            && candidate.platform === collection.platform
+            && candidate.tenantId === collection.tenantId
+            && candidate.hotelId === collection.hotelId
+            && candidate.ownerUserId === collection.ownerUserId
+            && candidate.targetDate === collection.targetDate);
+        if (!profileLease) {
+          throw new GatewayError('gateway_profile_lease_required', 409);
+        }
         const collectionSessionId = `cbcs_${randomBytes(18).toString('base64url')}`;
         const expiresAt = new Date(
           now.getTime() + config.collectionTtlSeconds * 1000,
@@ -995,6 +1394,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
           kind: 'dingdandao_collection',
           key: collectionSessionId,
           collectionSessionId,
+          profileLeaseId: profileLease.profileLeaseId,
           claimId: null,
           providerHotelName: null,
           leaseClosed: false,
@@ -1047,6 +1447,9 @@ export async function createGateway(env = process.env, dependencies = {}) {
             collection_transport: 'existing_session_direct_post',
             browser_started: false,
             profile_mutated: false,
+            profile_lease_id: profileLease.profileLeaseId,
+            session_owner: 'gateway_profile_lease',
+            external_browser_required: false,
           });
         } catch {
           try {
@@ -1093,6 +1496,9 @@ export async function createGateway(env = process.env, dependencies = {}) {
           expires_at: expiresAt,
           browser_started: false,
           profile_mutated: false,
+          profile_lease_id: profileLease.profileLeaseId,
+          session_owner: 'gateway_profile_lease',
+          external_browser_required: false,
         });
         return;
       }

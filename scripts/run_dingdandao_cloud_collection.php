@@ -42,6 +42,7 @@ if (!validDate($targetDate)
     || !preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{1,4}$#D', $cdpUrl)
     || !in_array($tokenFile, [
         '/run/credentials/suxios-dingdandao-collection.service/control-token',
+        '/run/credentials/suxios-dingdandao-notification-pipeline.service/control-token',
         '/etc/suxios-cloud-browser/control-token',
     ], true)
     || $nodeBinary !== '/usr/bin/node'

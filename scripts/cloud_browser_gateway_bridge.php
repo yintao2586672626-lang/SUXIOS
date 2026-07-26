@@ -54,6 +54,12 @@ try {
             requiredPositiveInt($input, 'owner_user_id'),
             requiredDate($input, 'target_date')
         ),
+        'validate_dingdandao_binding_lease' => $dingdandaoCollection->bindingBootstrapScope(
+            requiredId($input, 'profile_id', 'cbp_'),
+            requiredPositiveInt($input, 'tenant_id'),
+            requiredPositiveInt($input, 'hotel_id'),
+            requiredPositiveInt($input, 'owner_user_id')
+        ),
         'claim_dingdandao_collection' => $dingdandaoCollection->claim(
             requiredId($input, 'profile_id', 'cbp_'),
             requiredId($input, 'collection_session_id', 'cbcs_'),

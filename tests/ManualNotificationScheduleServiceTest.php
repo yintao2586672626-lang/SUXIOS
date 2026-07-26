@@ -189,6 +189,27 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         self::assertStringContainsString('未取得的数据未使用0或旧日数据补齐', $result['results'][0]['payload']['markdown']['content']);
     }
 
+    public function testScopedPreviewEnumeratesTheFullDueSetBeforeDispatch(): void
+    {
+        for ($index = 0; $index < 6; $index++) {
+            $this->insertRecord();
+        }
+
+        $result = (new ManualNotificationScheduleService())->runDue(
+            $this->time('2026-07-26 18:04:00'),
+            false,
+            'test',
+            5,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+
+        self::assertSame('preview', $result['status']);
+        self::assertSame(6, $result['candidate_count']);
+        self::assertSame(6, $result['due_count']);
+        self::assertCount(6, $result['results']);
+    }
+
     public function testExplicitDispatchUsesFakeSenderAndIsIdempotentPerWindowAndMode(): void
     {
         $notificationId = $this->insertRecord();

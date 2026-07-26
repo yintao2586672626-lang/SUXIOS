@@ -151,6 +151,7 @@ final class ManualNotificationPipelineRunService
             'sent_count',
             'failed_count',
             'blocked_count',
+            'stale_sending_outcome_unknown_count',
             'capture_id',
             'operating_target_record_id',
             'operating_target_revision_no',

@@ -16,7 +16,9 @@ $options = getopt('', [
     'hotel-id:',
     'owner-user-id:',
     'profile-id:',
+    'gateway-url::',
     'cdp-url::',
+    'control-token-file::',
     'node-binary::',
     'execute',
     'confirmation::',
@@ -31,15 +33,22 @@ $profileId = opaqueId(
     'cbp_',
     'profile_id_invalid'
 );
+$gatewayUrl = rtrim(
+    trim((string)($options['gateway-url'] ?? 'http://127.0.0.1:8787')),
+    '/'
+);
 $cdpUrl = rtrim(
     trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')),
     '/'
 );
+$tokenFile = trim((string)($options['control-token-file']
+    ?? '/etc/suxios-cloud-browser/control-token'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
 $execute = array_key_exists('execute', $options);
 $confirmation = trim((string)($options['confirmation'] ?? ''));
-if (!preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{1,4}$#D', $cdpUrl)
-    || (int)parse_url($cdpUrl, PHP_URL_PORT) > 65535
+if ($gatewayUrl !== 'http://127.0.0.1:8787'
+    || $cdpUrl !== 'http://127.0.0.1:9223'
+    || $tokenFile !== '/etc/suxios-cloud-browser/control-token'
     || $nodeBinary !== '/usr/bin/node'
     || (!$execute && $confirmation !== '')
 ) {
@@ -79,7 +88,50 @@ $identity = [];
 $result = null;
 $mainError = null;
 $bindingPersistenceStatus = false;
+$profileLeaseId = null;
+$controlToken = @file_get_contents($tokenFile);
+$controlToken = is_string($controlToken) ? trim($controlToken) : '';
+if (strlen($controlToken) < 32) {
+    fail('dingdandao_binding_control_token_unavailable');
+}
 try {
+    $opened = bindingLeaseGatewayRequest(
+        $gatewayUrl,
+        $controlToken,
+        '/v1/profile-lease/open',
+        [
+            'profile_id' => $profileId,
+            'platform' => 'dingdandao',
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'owner_user_id' => $ownerUserId,
+            'target_date' => (new DateTimeImmutable(
+                'now',
+                new DateTimeZone('Asia/Shanghai')
+            ))->format('Y-m-d'),
+            'lease_kind' => 'binding_identity',
+            'access_mode' => 'read_only',
+        ]
+    );
+    if (($opened['status'] ?? '') !== 'profile_lease_open'
+        || ($opened['browser_started'] ?? null) !== true
+        || ($opened['profile_restored'] ?? null) !== true
+        || ($opened['read_only_enforced'] ?? null) !== true
+        || ($opened['session_owner'] ?? '') !== 'gateway_profile_lease'
+        || ($opened['external_browser_required'] ?? null) !== false
+        || ($opened['user_browser_closed'] ?? null) !== false
+        || (int)($opened['tenant_id'] ?? 0) !== $tenantId
+        || (int)($opened['hotel_id'] ?? 0) !== $hotelId
+        || (int)($opened['owner_user_id'] ?? 0) !== $ownerUserId
+        || (string)($opened['lease_kind'] ?? '') !== 'binding_identity'
+    ) {
+        throw new RuntimeException('dingdandao_binding_profile_lease_unverified');
+    }
+    $profileLeaseId = trim((string)($opened['profile_lease_id'] ?? ''));
+    if (preg_match('/^cbpl_[A-Za-z0-9_-]{16,64}$/D', $profileLeaseId) !== 1) {
+        throw new RuntimeException('dingdandao_binding_profile_lease_id_invalid');
+    }
+
     $service = new DingdandaoCloudCollectionService();
     $scope = $service->bindingBootstrapScope(
         $profileId,
@@ -201,6 +253,39 @@ try {
     if ($privateIdentityOutput !== '') {
         $privateIdentityOutput = str_repeat("\0", strlen($privateIdentityOutput));
     }
+    if ($profileLeaseId !== null) {
+        try {
+            $closed = bindingLeaseGatewayRequest(
+                $gatewayUrl,
+                $controlToken,
+                '/v1/profile-lease/close',
+                [
+                    'profile_lease_id' => $profileLeaseId,
+                    'profile_id' => $profileId,
+                    'platform' => 'dingdandao',
+                    'outcome' => $mainError === null ? 'completed' : 'failed',
+                ]
+            );
+            if (($closed['status'] ?? '') !== 'profile_lease_closed'
+                || ($closed['owned_browser_closed'] ?? null) !== true
+                || ($closed['profile_encrypted_at_rest'] ?? null) !== true
+                || ($closed['user_browser_closed'] ?? null) !== false
+                || ($closed['sensitive_values_exposed'] ?? null) !== false
+            ) {
+                throw new RuntimeException(
+                    'dingdandao_binding_profile_lease_close_unverified'
+                );
+            }
+        } catch (Throwable $closeError) {
+            $mainError = safeReason(
+                ($mainError ?? 'dingdandao_binding_bootstrap_failed')
+                . '_'
+                . $closeError->getMessage()
+            );
+            $result = null;
+        }
+    }
+    $controlToken = str_repeat("\0", strlen($controlToken));
     flock($lock, LOCK_UN);
     fclose($lock);
 }
@@ -211,6 +296,12 @@ if ($mainError !== null || !is_array($result)) {
         $bindingPersistenceStatus
     );
 }
+$result['profile_lease_status'] = 'closed';
+$result['owned_browser_closed'] = true;
+$result['profile_encrypted_at_rest'] = true;
+$result['external_browser_required'] = false;
+$result['user_browser_closed'] = false;
+$result['sensitive_values_exposed'] = false;
 echo json_encode(
     $result,
     JSON_UNESCAPED_UNICODE
@@ -288,6 +379,35 @@ function runIdentityProbe(
         throw new RuntimeException('dingdandao_binding_private_output_invalid');
     }
     $decoded['identity'] = $identity;
+    return $decoded;
+}
+
+/** @return array<string,mixed> */
+function bindingLeaseGatewayRequest(
+    string $baseUrl,
+    string $token,
+    string $path,
+    array $body
+): array {
+    $json = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/json\r\n"
+                . "Authorization: Bearer {$token}\r\n",
+            'content' => $json,
+            'timeout' => 30,
+            'ignore_errors' => true,
+        ],
+    ]);
+    $raw = file_get_contents($baseUrl . $path, false, $context);
+    $decoded = is_string($raw) ? json_decode($raw, true) : null;
+    if (!is_array($decoded) || ($decoded['status'] ?? '') === 'failed') {
+        $reason = is_array($decoded) ? (string)($decoded['reason'] ?? '') : '';
+        throw new RuntimeException(
+            $reason !== '' ? $reason : 'dingdandao_binding_gateway_failed'
+        );
+    }
     return $decoded;
 }
 

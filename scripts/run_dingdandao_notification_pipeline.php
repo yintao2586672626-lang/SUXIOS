@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use app\service\ManualNotificationPipelineRunService;
+use app\service\ManualNotificationDispatchLedgerService;
 use app\service\ManualNotificationTestTargetService;
 use think\App;
 use think\facade\Db;
@@ -74,12 +75,33 @@ if (!is_resource($lock) || !flock($lock, LOCK_EX | LOCK_NB)) {
 
 $timezone = new DateTimeZone('Asia/Shanghai');
 $observedAt = new DateTimeImmutable('now', $timezone);
+$observedAtArgument = '--at=' . $observedAt->format('Y-m-d H:i:s');
 $businessDate = $observedAt->format('Y-m-d');
 $runs = new ManualNotificationPipelineRunService();
 $pipelineRunId = 0;
 $dispatchRequested = false;
 $dispatchStarted = false;
 try {
+    $staleSendingCount = (new ManualNotificationDispatchLedgerService())
+        ->markStaleSendingAsOutcomeUnknown($hotelId, $robotId, $observedAt);
+    if ($staleSendingCount > 0) {
+        $pipelineRunId = $runs->start($hotelId, $robotId, $observedAt);
+        $runs->finish($pipelineRunId, 'blocked', false, [
+            'stage' => 'stale_reconciliation',
+            'reason_code' => 'pipeline_stale_sending_outcome_unknown',
+            'business_date' => $businessDate,
+            'blocked_count' => $staleSendingCount,
+            'stale_sending_outcome_unknown_count' => $staleSendingCount,
+        ], $observedAt);
+        $blockedRunId = $pipelineRunId;
+        $pipelineRunId = 0;
+        pipelineFail(
+            'pipeline_stale_sending_outcome_unknown',
+            2,
+            $blockedRunId
+        );
+    }
+
     $preview = pipelineRunJsonProcess([
         $phpBinary,
         $root . '/think',
@@ -88,11 +110,17 @@ try {
         '--mode=test',
         '--hotel-id=' . $hotelId,
         '--robot-id=' . $robotId,
+        $observedAtArgument,
         '--limit=' . $limit,
     ], $root);
     $candidateCount = (int)($preview['candidate_count'] ?? 0);
     $dueCount = (int)($preview['due_count'] ?? 0);
-    if (($preview['status'] ?? '') !== 'preview') {
+    if (($preview['status'] ?? '') !== 'preview'
+        || (string)($preview['observed_at'] ?? '')
+            !== $observedAt->format('Y-m-d H:i:s')
+        || ($dueCount > 0
+            && pipelineDueResultKeys($preview, $observedAt) === null)
+    ) {
         throw new RuntimeException('pipeline_due_preview_invalid');
     }
     if ($dueCount <= 0) {
@@ -113,13 +141,14 @@ try {
 
     $collection = pipelineRunJsonProcess([
         $phpBinary,
-        $root . '/scripts/run_dingdandao_cloud_collection.php',
+        $root . '/scripts/run_dingdandao_profile_lease_collection.php',
         '--hotel-id=' . $hotelId,
         '--owner-user-id=' . $ownerUserId,
         '--profile-id=' . $profileId,
         '--target-date=' . $businessDate,
         '--control-token-file=' . $tokenFile,
         '--node-binary=' . $nodeBinary,
+        '--collector-script=' . $root . '/scripts/run_dingdandao_cloud_collection.php',
     ], $root);
     if (($collection['report_send_eligible'] ?? false) !== true
         || ($collection['status'] ?? '') !== 'saved_synced_and_report_ready'
@@ -156,22 +185,32 @@ try {
         '--mode=test',
         '--hotel-id=' . $hotelId,
         '--robot-id=' . $robotId,
+        $observedAtArgument,
         '--limit=' . $limit,
     ], $root, true);
     $dispatchStatus = (string)($dispatch['status'] ?? '');
     $sentCount = (int)($dispatch['sent_count'] ?? 0);
     $failedCount = (int)($dispatch['failed_count'] ?? 0);
     $blockedCount = (int)($dispatch['blocked_count'] ?? 0);
+    $dispatchClosureReason = pipelineDispatchClosureReason(
+        $preview,
+        $dispatch,
+        $observedAt
+    );
     if ($dispatchStatus !== 'dispatch_checked'
         || $failedCount > 0
         || $blockedCount > 0
+        || $dispatchClosureReason !== null
     ) {
-        $status = $failedCount > 0 ? 'failed' : 'blocked';
+        $status = $failedCount > 0 || $dispatchClosureReason !== null
+            ? 'failed'
+            : 'blocked';
         $runs->finish($pipelineRunId, $status, true, [
             'stage' => 'wecom_dispatch',
-            'reason_code' => $dispatchStatus !== ''
-                ? $dispatchStatus
-                : 'pipeline_dispatch_failed',
+            'reason_code' => $dispatchClosureReason
+                ?? ($dispatchStatus !== ''
+                    ? $dispatchStatus
+                    : 'pipeline_dispatch_failed'),
             'business_date' => $businessDate,
             'candidate_count' => $candidateCount,
             'due_count' => $dueCount,
@@ -186,7 +225,10 @@ try {
             'schedule_run_id' => (int)($dispatch['schedule_run_id'] ?? 0),
         ], new DateTimeImmutable('now', $timezone));
         pipelineFail(
-            $dispatchStatus !== '' ? $dispatchStatus : 'pipeline_dispatch_failed',
+            $dispatchClosureReason
+                ?? ($dispatchStatus !== ''
+                    ? $dispatchStatus
+                    : 'pipeline_dispatch_failed'),
             2,
             $pipelineRunId,
             $sentCount > 0,
@@ -196,7 +238,9 @@ try {
 
     $finished = $runs->finish($pipelineRunId, 'completed', true, [
         'stage' => 'completed',
-        'reason_code' => $sentCount > 0 ? 'wecom_test_sent' : 'dispatch_idempotent_noop',
+        'reason_code' => $sentCount > 0
+            ? 'wecom_test_sent'
+            : 'dispatch_already_sent_verified',
         'business_date' => $businessDate,
         'candidate_count' => $candidateCount,
         'due_count' => $dueCount,
@@ -309,6 +353,113 @@ function pipelineOpaqueId(string $value, string $prefix, string $reason): string
         pipelineFail($reason, 2);
     }
     return $value;
+}
+
+/**
+ * The preview and dispatch must describe the same exact due set at the same
+ * observed time. A zero-send result is successful only when every due item has
+ * durable evidence that the same dispatch window was already sent.
+ *
+ * @param array<string,mixed> $preview
+ * @param array<string,mixed> $dispatch
+ */
+function pipelineDispatchClosureReason(
+    array $preview,
+    array $dispatch,
+    DateTimeImmutable $observedAt
+): ?string {
+    $expectedObservedAt = $observedAt
+        ->setTimezone(new DateTimeZone('Asia/Shanghai'))
+        ->format('Y-m-d H:i:s');
+    if ((string)($dispatch['observed_at'] ?? '') !== $expectedObservedAt) {
+        return 'pipeline_dispatch_observed_at_mismatch';
+    }
+    $expectedDueCount = (int)($preview['due_count'] ?? 0);
+    if ($expectedDueCount <= 0
+        || (int)($dispatch['due_count'] ?? -1) !== $expectedDueCount
+    ) {
+        return 'pipeline_dispatch_due_count_mismatch';
+    }
+
+    $expectedKeys = pipelineDueResultKeys($preview, $observedAt);
+    $actualKeys = pipelineDueResultKeys($dispatch, $observedAt);
+    if ($expectedKeys === null
+        || $actualKeys === null
+        || $expectedKeys !== $actualKeys
+    ) {
+        return 'pipeline_dispatch_due_set_mismatch';
+    }
+
+    $sentResultCount = 0;
+    $alreadySentCount = 0;
+    foreach ((array)($dispatch['results'] ?? []) as $result) {
+        if (!is_array($result)) {
+            return 'pipeline_dispatch_result_invalid';
+        }
+        $status = (string)($result['status'] ?? '');
+        if ($status === 'sent') {
+            $sentResultCount++;
+            continue;
+        }
+        if ($status === 'skipped'
+            && (string)($result['existing_status'] ?? '') === 'sent'
+        ) {
+            $alreadySentCount++;
+            continue;
+        }
+        return (int)($dispatch['sent_count'] ?? 0) === 0
+            ? 'pipeline_dispatch_zero_send_unverified'
+            : 'pipeline_dispatch_result_unclosed';
+    }
+    $sentCount = (int)($dispatch['sent_count'] ?? -1);
+    if ($sentCount === 0 && $alreadySentCount !== $expectedDueCount) {
+        return 'pipeline_dispatch_zero_send_unverified';
+    }
+    if ($sentResultCount !== $sentCount
+        || $sentResultCount + $alreadySentCount !== $expectedDueCount
+    ) {
+        return 'pipeline_dispatch_result_count_mismatch';
+    }
+    return null;
+}
+
+/**
+ * @param array<string,mixed> $summary
+ * @return array<int,string>|null
+ */
+function pipelineDueResultKeys(
+    array $summary,
+    DateTimeImmutable $observedAt
+): ?array {
+    $businessDate = $observedAt
+        ->setTimezone(new DateTimeZone('Asia/Shanghai'))
+        ->format('Y-m-d');
+    $results = $summary['results'] ?? null;
+    if (!is_array($results)
+        || count($results) !== (int)($summary['due_count'] ?? -1)
+    ) {
+        return null;
+    }
+    $keys = [];
+    foreach ($results as $result) {
+        if (!is_array($result)) {
+            return null;
+        }
+        $notificationId = (int)($result['notification_id'] ?? 0);
+        $dispatchWindow = trim((string)($result['dispatch_window'] ?? ''));
+        if ($notificationId <= 0
+            || (string)($result['business_date'] ?? '') !== $businessDate
+            || preg_match(
+                '/^' . preg_quote($businessDate, '/') . ' \d{2}:\d{2}$/D',
+                $dispatchWindow
+            ) !== 1
+        ) {
+            return null;
+        }
+        $keys[] = $notificationId . '|' . $dispatchWindow;
+    }
+    sort($keys, SORT_STRING);
+    return $keys;
 }
 
 function pipelineSafeReason(string $reason): string

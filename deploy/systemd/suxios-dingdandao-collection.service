@@ -3,6 +3,7 @@ Description=SUXIOS Dingdandao read-only current-day collection
 After=network-online.target mariadb.service php8.3-fpm.service suxios-cloud-browser-gateway.service
 Wants=network-online.target
 Requires=suxios-cloud-browser-gateway.service
+ConditionPathExists=/var/www/suxios/current/scripts/run_dingdandao_profile_lease_collection.php
 ConditionPathExists=/var/www/suxios/current/scripts/run_dingdandao_cloud_collection.php
 
 [Service]

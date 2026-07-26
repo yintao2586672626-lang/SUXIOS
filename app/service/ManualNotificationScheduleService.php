@@ -76,7 +76,7 @@ final class ManualNotificationScheduleService
             if ($scopeHotelId > 0) {
                 $query->where('hotel_id', $scopeHotelId);
             }
-            if (!$dispatch) {
+            if (!$dispatch && $scopeHotelId <= 0) {
                 $query->limit($limit);
             }
             $rows = $query->select()->toArray();

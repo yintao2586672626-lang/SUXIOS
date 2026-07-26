@@ -14,6 +14,9 @@ ENV_FILE="$ENV_DIR/dingdandao-notification-pipeline.env"
 SERVICE_NAME="suxios-dingdandao-notification-pipeline.service"
 TIMER_NAME="suxios-dingdandao-notification-pipeline.timer"
 LEGACY_TIMER_NAME="suxios-manual-notification-test-dispatch.timer"
+LEGACY_SERVICE_NAME="suxios-manual-notification-test-dispatch.service"
+STANDALONE_COLLECTION_TIMER_NAME="suxios-dingdandao-collection.timer"
+STANDALONE_COLLECTION_SERVICE_NAME="suxios-dingdandao-collection.service"
 GATEWAY_SERVICE="suxios-cloud-browser-gateway.service"
 CONTROL_TOKEN_FILE="/etc/suxios-cloud-browser/control-token"
 
@@ -27,6 +30,67 @@ assert_timer_disabled() {
       exit 78
       ;;
   esac
+}
+
+disable_pipeline_service_autostart() {
+  local enabled_state
+  enabled_state="$(systemctl is-enabled "$SERVICE_NAME" 2>/dev/null || true)"
+  case "$enabled_state" in
+    ""|disabled|static|not-found) ;;
+    *) systemctl disable "$SERVICE_NAME" ;;
+  esac
+}
+
+assert_pipeline_service_timer_only() {
+  local enabled_state
+  local active_state
+  enabled_state="$(systemctl is-enabled "$SERVICE_NAME" 2>/dev/null || true)"
+  active_state="$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || true)"
+  case "$enabled_state" in
+    ""|disabled|static|not-found) ;;
+    *)
+      echo "Install refused: the pipeline service has direct boot enablement ($enabled_state)." >&2
+      exit 78
+      ;;
+  esac
+  case "$active_state" in
+    ""|inactive|unknown|not-found) ;;
+    *)
+      echo "Install refused: the pipeline service is not inactive ($active_state)." >&2
+      exit 78
+      ;;
+  esac
+}
+
+assert_unit_disabled_and_inactive() {
+  local unit_name="$1"
+  local enabled_state
+  local active_state
+  enabled_state="$(systemctl is-enabled "$unit_name" 2>/dev/null || true)"
+  active_state="$(systemctl is-active "$unit_name" 2>/dev/null || true)"
+  case "$enabled_state" in
+    ""|disabled|not-found) ;;
+    *)
+      echo "Enable refused: conflicting unit $unit_name must be disabled (current: $enabled_state)." >&2
+      echo "Disable it explicitly, confirm its ownership, then rerun this installer." >&2
+      exit 78
+      ;;
+  esac
+  case "$active_state" in
+    ""|inactive|unknown|not-found) ;;
+    *)
+      echo "Enable refused: conflicting unit $unit_name must be inactive (current: $active_state)." >&2
+      echo "Stop it explicitly, confirm no collection or dispatch is running, then rerun this installer." >&2
+      exit 78
+      ;;
+  esac
+}
+
+assert_conflicting_units_disabled_and_inactive() {
+  assert_unit_disabled_and_inactive "$STANDALONE_COLLECTION_TIMER_NAME"
+  assert_unit_disabled_and_inactive "$STANDALONE_COLLECTION_SERVICE_NAME"
+  assert_unit_disabled_and_inactive "$LEGACY_TIMER_NAME"
+  assert_unit_disabled_and_inactive "$LEGACY_SERVICE_NAME"
 }
 
 while (($#)); do
@@ -73,16 +137,21 @@ required_files=(
   "vendor/autoload.php"
   "app/command/RunManualNotificationSchedule.php"
   "app/service/CloudBrowserProfileService.php"
+  "app/service/DingdandaoCloudCollectionService.php"
   "app/service/DingdandaoOperatingTargetCaptureService.php"
   "app/service/DingdandaoOperatingTargetSyncService.php"
+  "app/service/ManualNotificationDispatchLedgerService.php"
   "app/service/ManualNotificationPipelineRunService.php"
   "app/service/ManualNotificationScheduleService.php"
   "app/service/ManualNotificationTestTargetService.php"
+  "app/service/OperatingTargetNotificationPayloadService.php"
   "scripts/dingdandao_cloud_capture.mjs"
   "scripts/run_dingdandao_cloud_collection.php"
+  "scripts/run_dingdandao_profile_lease_collection.php"
   "scripts/run_dingdandao_notification_pipeline.php"
   "database/migrations/20260726_create_dingdandao_operating_target_captures.sql"
   "database/migrations/20260726_create_manual_notification_schedule_dispatches.sql"
+  "database/migrations/20260726_extend_manual_notification_dispatch_attempts.sql"
   "database/migrations/20260726_create_manual_notification_schedule_runs.sql"
   "database/migrations/20260726_extend_manual_notification_schedule_runs_scope_robot.sql"
   "deploy/systemd/$SERVICE_NAME"
@@ -146,6 +215,7 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
   echo "Install refused while the Dingdandao pipeline is running." >&2
   exit 78
 fi
+disable_pipeline_service_autostart
 if systemctl cat "$TIMER_NAME" >/dev/null 2>&1; then
   systemctl disable --now "$TIMER_NAME"
 fi
@@ -155,6 +225,7 @@ if systemctl is-active --quiet "$TIMER_NAME" \
   exit 78
 fi
 assert_timer_disabled
+assert_pipeline_service_timer_only
 
 if [[ ! -d "$ENV_DIR" ]]; then
   install -d -o root -g www-data -m 0750 "$ENV_DIR"
@@ -172,8 +243,10 @@ install -o root -g root -m 0644 \
   "$SYSTEMD_DIR/$TIMER_NAME"
 systemctl daemon-reload
 systemd-analyze verify "$SYSTEMD_DIR/$SERVICE_NAME" "$SYSTEMD_DIR/$TIMER_NAME"
+assert_pipeline_service_timer_only
 
 if [[ $ENABLE_TEST_DISPATCH -eq 1 ]]; then
+  assert_conflicting_units_disabled_and_inactive
   if [[ ! -s "$CONTROL_TOKEN_FILE" ]]; then
     echo "Cloud browser control credential is missing; its value was not read." >&2
     exit 78
@@ -182,13 +255,16 @@ if [[ $ENABLE_TEST_DISPATCH -eq 1 ]]; then
     echo "Cloud browser gateway is not active." >&2
     exit 78
   fi
-  sudo -u www-data php "${verify_args[@]}" --require-enabled-schedule
+  sudo -u www-data php "${verify_args[@]}" \
+    --require-enabled-schedule \
+    --require-enable-readiness
+  assert_conflicting_units_disabled_and_inactive
   systemctl enable --now "$TIMER_NAME"
   systemctl is-enabled "$TIMER_NAME"
   systemctl is-active "$TIMER_NAME"
-  echo "INSTALLED_AND_ENABLED release=$RELEASE_ROOT hotel_id=$HOTEL_ID robot_id=$ROBOT_ID mode=test"
+  echo "INSTALLED_AND_ENABLED release=$RELEASE_ROOT hotel_id=$HOTEL_ID robot_id=$ROBOT_ID mode=test runtime_live_session_gate=fail_closed"
   exit 0
 fi
 
 assert_timer_disabled
-echo "INSTALLED_DISABLED release=$RELEASE_ROOT hotel_id=$HOTEL_ID robot_id=$ROBOT_ID mode=test enabled=0"
+echo "INSTALLED_DISABLED release=$RELEASE_ROOT hotel_id=$HOTEL_ID robot_id=$ROBOT_ID mode=test enabled=0 service_trigger=timer_only"
