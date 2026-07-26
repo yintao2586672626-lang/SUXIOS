@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use RuntimeException;
 use think\facade\Db;
 
@@ -22,7 +24,7 @@ final class CloudBrowserProfileService
     public const SESSION_EXPIRED = 'session_expired';
     public const AWAITING_RELOGIN = 'awaiting_relogin';
 
-    private const PLATFORMS = ['ctrip', 'meituan'];
+    private const PLATFORMS = ['ctrip', 'meituan', 'dingdandao'];
     private const LOGIN_TTL_SECONDS = 900;
 
     /** @return array<string,mixed> */
@@ -204,6 +206,85 @@ final class CloudBrowserProfileService
         });
     }
 
+    /**
+     * Read-only preflight for the trusted loopback gateway.  It proves the
+     * Profile still belongs to the exact hotel/user scope and is eligible for
+     * a same-day Dingdandao report read before any browser is started.
+     *
+     * @return array<string,mixed>
+     */
+    public function validateDingdandaoCollectionProfile(
+        string $profilePublicId,
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $targetDate
+    ): array {
+        if ($tenantId <= 0 || $hotelId <= 0 || $ownerUserId <= 0) {
+            throw new RuntimeException('cloud_browser_collection_scope_invalid');
+        }
+        $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($targetDate), new DateTimeZone('Asia/Shanghai'));
+        if (!$date instanceof DateTimeImmutable
+            || $date->format('Y-m-d') !== trim($targetDate)
+            || $date->format('Y-m-d') !== $now->format('Y-m-d')
+        ) {
+            throw new RuntimeException('cloud_browser_collection_target_date_not_today');
+        }
+
+        $profile = $this->profileByPublicId($profilePublicId, false);
+        if ((int)$profile['tenant_id'] !== $tenantId
+            || (int)$profile['system_hotel_id'] !== $hotelId
+            || (int)$profile['owner_user_id'] !== $ownerUserId
+            || strtolower((string)$profile['platform']) !== 'dingdandao'
+        ) {
+            throw new RuntimeException('cloud_browser_collection_scope_mismatch');
+        }
+        if (strtolower((string)$profile['authorization_status']) !== self::READY_TO_COLLECT) {
+            throw new RuntimeException('cloud_browser_collection_profile_not_ready');
+        }
+        $readyAt = $this->timestamp(
+            (string)($profile['ready_at'] ?? ''),
+            'cloud_browser_collection_ready_evidence_missing'
+        );
+        if ($readyAt > $now->getTimestamp()) {
+            throw new RuntimeException('cloud_browser_collection_ready_evidence_invalid');
+        }
+        $sessionExpiresAt = $this->timestamp(
+            (string)($profile['session_expires_at'] ?? ''),
+            'cloud_browser_collection_session_expiry_missing'
+        );
+        if ($sessionExpiresAt <= $now->getTimestamp()) {
+            throw new RuntimeException('cloud_browser_collection_session_expired');
+        }
+
+        $hotel = Db::name('hotels')
+            ->field('id,tenant_id,name,status')
+            ->where('id', $hotelId)
+            ->find();
+        if (!is_array($hotel)
+            || (int)($hotel['tenant_id'] ?? 0) !== $tenantId
+            || (int)($hotel['status'] ?? 0) !== 1
+            || trim((string)($hotel['name'] ?? '')) === ''
+        ) {
+            throw new RuntimeException('cloud_browser_collection_hotel_scope_invalid');
+        }
+
+        return [
+            'validated' => true,
+            'collection_kind' => 'operating_target_today',
+            'access_mode' => 'read_only',
+            'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+            'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
+            'target_date' => $date->format('Y-m-d'),
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'owner_user_id' => $ownerUserId,
+            'expected_hotel_name' => (string)$hotel['name'],
+            'profile' => $this->publicProfile($profile),
+        ];
+    }
+
     /** @return array<string,mixed> */
     public function markReadyToCollect(string $profilePublicId, ?string $sessionExpiresAt = null): array
     {
@@ -277,6 +358,20 @@ final class CloudBrowserProfileService
             throw new RuntimeException('cloud_browser_session_expiry_invalid');
         }
         return $value;
+    }
+
+    private function timestamp(string $value, string $reason): int
+    {
+        $value = trim($value);
+        $date = DateTimeImmutable::createFromFormat(
+            '!Y-m-d H:i:s',
+            $value,
+            new DateTimeZone('Asia/Shanghai')
+        );
+        if (!$date instanceof DateTimeImmutable || $date->format('Y-m-d H:i:s') !== $value) {
+            throw new RuntimeException($reason);
+        }
+        return $date->getTimestamp();
     }
 
     /** @return array<string,mixed>|null */

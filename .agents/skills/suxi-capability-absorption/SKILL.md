@@ -33,6 +33,8 @@ description: 用于宿析OS从外部 Skill、Prompt或智能体配置、源码�
 
 确定材料类型后读取 [source-routes.md](references/source-routes.md) 中对应章节；需要判断学习深度、证据强度、纠错或防遗忘时读取 [learning-protocol.md](references/learning-protocol.md)；材料来自互联网且包含 Skill、插件、Prompt、脚本或智能体配置时，必须读取 [online-skill-practices.md](references/online-skill-practices.md)。只启用真正需要的项目 Skill 或工具。
 
+当材料来自 Hoxio / `yunqi52.com`，或用户要求继续吸收其门店管理、经营概览、市场、竞对、流量、订单流向、AI P图、调价、提醒等产品经验时，先读取 [Hoxio 优胜板块与宿析OS吸收清单](references/hoxio-better-module-patterns.md)。它只负责来源指纹、产品模式与取舍；具体 OTA 事实仍路由到对应专项 reference 和 eval。
+
 - Skill / Prompt / 智能体 / 自动化：核对规则、工具、脚本、资产和依赖；支持 n8n、Dify、Coze 等 JSON/YAML 工作流导出；在线来源先做静态预览、来源锁定和权限审查，再从目标业务入口在当前样例上真实使用一次。
 - 源码 / 仓库 / SDK / CLI：运行真实入口，抽取行为合同，再选择复用、适配或原生重建。
 - API / OpenAPI / Postman / MCP / Webhook：验证真实请求与错误响应，完成鉴权边界、字段映射、调用和失败回显。

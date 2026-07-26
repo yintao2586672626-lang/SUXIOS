@@ -12,6 +12,9 @@
                                     <button @click="openCtripManualTab('ctrip-ranking')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         竞争圈数据
                                     </button>
+                                    <button data-testid="ctrip-market-competition-tab" @click="openCtripManualTab('ctrip-market-competition')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-market-competition' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
+                                        市场与竞对
+                                    </button>
                                     <button data-testid="ctrip-public-profile-tab" @click="openCtripManualTab('ctrip-public-profiles')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-public-profiles' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
                                         公开档案
                                     </button>
@@ -719,7 +722,8 @@
                                 </div>
 
                                 <!-- 携程公开酒店档案 -->
-                                <div v-if="onlineDataTab === 'ctrip-public-profiles'" data-testid="ctrip-public-profile-panel" class="space-y-5">
+                                <div v-if="['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab)" class="space-y-5">
+                                    <div v-if="onlineDataTab === 'ctrip-public-profiles'" data-testid="ctrip-public-profile-panel" class="space-y-5">
                                     <section class="overflow-hidden rounded-xl border border-emerald-950 bg-gray-900 text-white shadow-sm">
                                         <div class="p-5 sm:p-6">
                                             <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -880,6 +884,31 @@
                                         </div>
                                         <div v-else data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">选择平台和业务日期后读取 12 维公开页证据。</div>
                                     </section>
+                                    </div>
+
+                                    <div v-if="onlineDataTab === 'ctrip-market-competition'" data-testid="ctrip-market-competition-panel" class="space-y-5">
+                                    <section data-testid="ctrip-market-competition-hero" class="overflow-hidden rounded-xl border border-[#3c3324] bg-[#06110d] text-white shadow-sm">
+                                        <div class="p-5 sm:p-6">
+                                            <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                                                <div class="max-w-3xl">
+                                                    <div class="text-xs font-semibold tracking-[0.2em] text-[#dcc591]">CTRIP MARKET &amp; COMPETITOR</div>
+                                                    <h4 class="mt-2 text-xl font-semibold">市场与竞对</h4>
+                                                    <p class="mt-2 text-sm leading-6 text-slate-300">用已入库的携程竞争圈经营、流量、排名和价格事件，回答“本店与竞圈差在哪里、哪些变化需要今天核对”。不把竞品库存变化推算成真实销量，不把 OTA 渠道证据扩大为全酒店事实。</p>
+                                                </div>
+                                                <div class="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-[220px_auto]">
+                                                    <label class="text-xs text-slate-300">系统门店
+                                                        <select v-model="selectedCtripHotelId" data-testid="ctrip-market-competition-hotel" :disabled="ctripCompetitiveOperationsLoading || competitorEventFeedLoading" class="mt-1 w-full rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60">
+                                                            <option value="">请选择门店</option>
+                                                            <option v-for="hotel in ctripPublicProfileHotelOptions" :key="'market-competitor-' + hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                        </select>
+                                                    </label>
+                                                    <button type="button" @click="openCtripManualTab('ctrip-public-profiles')" class="self-end rounded-lg border border-[#dcc591]/60 bg-white/5 px-4 py-2 text-sm font-medium text-[#f4e7c6] hover:bg-white/10">
+                                                        管理竞对档案
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </section>
 
                                     <section data-testid="ctrip-competitive-operations-panel" class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
                                         <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -936,7 +965,8 @@
                                         <div v-if="competitorEventFeed?.truncated" data-testid="ctrip-competitor-event-feed-truncated" class="mt-2 text-xs text-amber-800">仅返回最新事件，当前按部分证据处理。</div>
                                     </section>
 
-                                    <div v-if="ctripPublicProfilePayload?.scope_notice" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-500">数据边界：{{ ctripPublicProfilePayload.scope_notice }}</div>
+                                    <div class="rounded-lg border border-[#e5dcc8] bg-[#fcfaf5] px-3 py-2 text-xs leading-5 text-[#6f572f]">数据边界：仅使用已保存且质量可用的携程 OTA 证据；缺失、未验证、非同口径价格和无回读事件不进入经营判断。</div>
+                                    </div>
                                 </div>
 
                                 <!-- 流量概要 -->

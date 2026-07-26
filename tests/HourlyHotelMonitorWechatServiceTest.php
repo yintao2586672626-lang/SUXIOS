@@ -20,6 +20,7 @@ final class HourlyHotelMonitorWechatServiceTest extends TestCase
             '2026-07-25 01:00:00'
         );
         $content = (string)$payload['markdown']['content'];
+        self::assertStringContainsString('观察日：2026-07-25；OTA校验日：2026-07-24', $content);
         self::assertStringContainsString('敦煌漠蓝新', $content);
         self::assertStringContainsString('订单：12', $content);
         self::assertStringContainsString('今日进度｜事实', $content);

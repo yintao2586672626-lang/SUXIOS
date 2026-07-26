@@ -15,6 +15,7 @@ use app\service\MeituanOnlineDataPersistenceService;
 use app\service\MeituanRankCandidateService;
 use app\service\OnlineTrafficDataExtractionService;
 use app\service\OtaExecutionStageException;
+use app\service\OtaFailureNotificationService;
 use think\Response;
 use think\facade\Db;
 
@@ -825,6 +826,24 @@ trait OnlineDataManualFetchConcern
             $persistenceOutcome = $this->buildCtripManualFetchPersistenceOutcome($autoSave, $persistenceState);
             if ($systemHotelId > 0 && $persistenceState['persisted']) {
                 $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
+                if (!$this->isTruthyRequestValue($requestData['background_task'] ?? false)) {
+                    try {
+                        (new OtaFailureNotificationService())->recordCollectionOutcome([
+                            'hotel_id' => (int)$systemHotelId,
+                            'platform' => 'ctrip',
+                            'success' => true,
+                            'saved_count' => (int)$persistenceState['saved_count'],
+                            'data_date' => $displayDataDate,
+                            'actor_user_id' => (int)($this->currentUser->id ?? 0),
+                        ]);
+                    } catch (\Throwable $e) {
+                        \think\facade\Log::warning('Synchronous OTA reminder resolution failed', [
+                            'hotel_id' => (int)$systemHotelId,
+                            'platform' => 'ctrip',
+                            'exception_type' => get_debug_type($e),
+                        ]);
+                    }
+                }
             }
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
                 $this->recordAutoFetchNotification((int)$systemHotelId, $persistenceState['persisted'], '携程手动获取完成', $displayDataDate, [

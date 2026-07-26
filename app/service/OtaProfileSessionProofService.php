@@ -100,6 +100,7 @@ final class OtaProfileSessionProofService
             }
 
             $config = $this->clearStaleAuthenticationFailureConfig(array_replace($config, $metadataPatch));
+            $platformHotelId = trim((string)($config['platform_hotel_id'] ?? ''));
             $config['auth_status'] = [
                 'ok' => true,
                 'status' => $authStatusCode,
@@ -119,6 +120,9 @@ final class OtaProfileSessionProofService
                 'current_session_probe_scope' => 'same_data_source_profile_session',
                 'current_session_probe_producer' => $producer,
             ];
+            if ($platformHotelId !== '') {
+                $proof['current_session_probe_platform_hotel_id'] = $platformHotelId;
+            }
             $proof['current_session_probe_contract_version'] = (string)$proofContext['contract_version'];
             $proof['current_session_probe_evidence_level'] = (string)$proofContext['evidence_level'];
             $proof['current_session_probe_evidence_type'] = (string)$proofContext['evidence_type'];
@@ -645,6 +649,7 @@ final class OtaProfileSessionProofService
             }
 
             $config = $this->decodeConfig((string)($source['config_json'] ?? ''));
+            $platformHotelId = trim((string)($config['platform_hotel_id'] ?? ''));
             if (($config['current_session_probe_performed'] ?? null) !== true
                 || ($config['current_session_verified'] ?? null) !== true
                 || strtolower(trim((string)($config['current_session_status'] ?? ''))) !== 'verified'
@@ -658,6 +663,11 @@ final class OtaProfileSessionProofService
                     'platform_profile_login_task',
                     'platform_data_sync_preflight',
                 ], true)
+                || ($platformHotelId !== ''
+                    && !hash_equals(
+                        $platformHotelId,
+                        trim((string)($config['current_session_probe_platform_hotel_id'] ?? ''))
+                    ))
             ) {
                 return null;
             }

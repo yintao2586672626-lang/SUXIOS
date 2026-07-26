@@ -184,6 +184,8 @@ final class HourlyHotelMonitorWechatService
         $lines = [
             '# ' . self::text((string)($hotel['name'] ?? '未命名门店'), 80) . '｜经营监控',
             '> ' . self::text($observedAt, 24) . ($deliveryMode === 'formal' ? '｜运营群' : '｜测试群'),
+            '> 观察日：' . self::text(substr($observedAt, 0, 10), 10)
+                . '；OTA校验日：' . self::text($targetDate, 10),
             '> 范围：已授权 OTA 渠道，不代表全酒店经营结果',
         ];
 

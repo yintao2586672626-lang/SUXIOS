@@ -145,7 +145,9 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
 
         $receipt = $method->invoke($command);
 
-        self::assertSame('scope_ready_for_current_session_probe', $receipt['status']);
+        self::assertSame('blocked', $receipt['status']);
+        self::assertFalse($receipt['collection_allowed']);
+        self::assertSame('采集范围尚未完成预检，已阻止采集。', $receipt['message']);
         self::assertSame('cross_tenant_super_admin_explicit_hotel_grant', $receipt['authorization_mode']);
         self::assertSame('server-owner-device', $receipt['collector_device_id']);
         self::assertSame([25, 68], $receipt['source_ids']);
@@ -240,6 +242,27 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
 
             self::assertSame(1, $command->run($input, $output));
             self::assertStringContainsString($expectedMessage, $output->fetch());
+        }
+    }
+
+    public function testCanonicalPlatformHotelAnchorParserRequiresExactSourcePairs(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'normalizePlatformHotelAnchors');
+
+        self::assertSame([
+            25 => 'ctrip-h80',
+            68 => 'meituan-h80',
+        ], $method->invoke($command, '68=meituan-h80,25=ctrip-h80'));
+        foreach ([
+            '',
+            '25',
+            '25=',
+            'bad=hotel',
+            '25=hotel,25=other',
+            '25=hotel id',
+        ] as $invalid) {
+            self::assertSame([], $method->invoke($command, $invalid), $invalid);
         }
     }
 
@@ -339,6 +362,7 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         ];
         $config = [
             'stable_profile_id' => 'existing-profile',
+            'platform_hotel_id' => 'hotel-80',
             'manual_login_state_verified' => true,
         ];
 
@@ -351,6 +375,7 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         );
 
         self::assertSame('existing-profile', $bound['stable_profile_id']);
+        self::assertSame('hotel-80', $bound['platform_hotel_id']);
         self::assertTrue($bound['manual_login_state_verified']);
         self::assertSame('single_user_local', $bound['source_method']);
         self::assertSame('single_user_local', $bound['collector_binding_mode']);

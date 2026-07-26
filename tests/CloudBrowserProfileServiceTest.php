@@ -37,15 +37,15 @@ final class CloudBrowserProfileServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        Db::execute('CREATE TABLE IF NOT EXISTS hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL, status INTEGER NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS cloud_browser_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, owner_user_id INTEGER NOT NULL, platform TEXT NOT NULL, profile_public_id TEXT NOT NULL UNIQUE, authorization_status TEXT NOT NULL, status_reason TEXT NOT NULL, login_verified_at TEXT NULL, ready_at TEXT NULL, session_expires_at TEXT NULL, last_state_change_at TEXT NOT NULL, create_time TEXT NOT NULL, update_time TEXT NOT NULL, UNIQUE(tenant_id, owner_user_id, system_hotel_id, platform))');
         Db::execute('CREATE TABLE IF NOT EXISTS cloud_browser_login_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, profile_id INTEGER NOT NULL, session_public_id TEXT NOT NULL UNIQUE, ticket_hash TEXT NOT NULL, session_status TEXT NOT NULL, requested_by INTEGER NOT NULL, expires_at TEXT NOT NULL, verified_at TEXT NULL, create_time TEXT NOT NULL, update_time TEXT NOT NULL)');
         Db::name('cloud_browser_login_sessions')->delete(true);
         Db::name('cloud_browser_profiles')->delete(true);
         Db::name('hotels')->delete(true);
         Db::name('hotels')->insertAll([
-            ['id' => 80, 'tenant_id' => 8],
-            ['id' => 81, 'tenant_id' => 9],
+            ['id' => 80, 'tenant_id' => 8, 'name' => '敦煌漠蓝新', 'status' => 1],
+            ['id' => 81, 'tenant_id' => 9, 'name' => '其他酒店', 'status' => 1],
         ]);
     }
 
@@ -191,5 +191,57 @@ final class CloudBrowserProfileServiceTest extends TestCase
         }
         $this->expectException(\RuntimeException::class);
         $service->requestLoginEntry(80, 7, 'unknown-platform');
+    }
+
+    public function testDingdandaoProfileRequiresExactReadySameDayCollectionScope(): void
+    {
+        $service = new CloudBrowserProfileService();
+        $entry = $service->requestLoginEntry(80, 7, 'dingdandao');
+        $ready = $service->completeGatewayLogin(
+            (string)$entry['profile']['profile_id'],
+            (string)$entry['login_entry']['session_id'],
+            (string)$entry['login_entry']['ticket'],
+            date('Y-m-d H:i:s', time() + 86400)
+        );
+        self::assertSame(CloudBrowserProfileService::READY_TO_COLLECT, $ready['authorization_status']);
+
+        $validated = $service->validateDingdandaoCollectionProfile(
+            (string)$entry['profile']['profile_id'],
+            8,
+            80,
+            7,
+            date('Y-m-d')
+        );
+        self::assertTrue($validated['validated']);
+        self::assertSame('read_only', $validated['access_mode']);
+        self::assertSame('today_only', $validated['source_scope']);
+        self::assertSame('敦煌漠蓝新', $validated['expected_hotel_name']);
+
+        try {
+            $service->validateDingdandaoCollectionProfile(
+                (string)$entry['profile']['profile_id'],
+                8,
+                81,
+                7,
+                date('Y-m-d')
+            );
+            self::fail('cross-hotel collection scope must be rejected');
+        } catch (\RuntimeException $error) {
+            self::assertSame('cloud_browser_collection_scope_mismatch', $error->getMessage());
+        }
+
+        $service->markSessionExpired((string)$entry['profile']['profile_id']);
+        try {
+            $service->validateDingdandaoCollectionProfile(
+                (string)$entry['profile']['profile_id'],
+                8,
+                80,
+                7,
+                date('Y-m-d')
+            );
+            self::fail('expired Profile must be rejected');
+        } catch (\RuntimeException $error) {
+            self::assertSame('cloud_browser_collection_profile_not_ready', $error->getMessage());
+        }
     }
 }

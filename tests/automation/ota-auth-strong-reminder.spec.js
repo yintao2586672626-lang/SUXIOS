@@ -150,9 +150,19 @@ test('OTA Cookie reminder auto-closes while keeping the top banner', async ({ pa
   await snoozeButton.click();
   await expect(modal).toBeHidden();
   await expect(banner).toBeVisible();
+  const snoozedUntilBeforeReload = await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem('suxios_ota_auth_reminder_snoozed_until_v1') || '{}');
+    return Number(stored.__all__ || 0);
+  });
+  expect(snoozedUntilBeforeReload).toBeGreaterThan(Date.now() + 23 * 60 * 60 * 1000);
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(banner).toBeVisible({ timeout: 15000 });
+  const snoozedUntilAfterReload = await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem('suxios_ota_auth_reminder_snoozed_until_v1') || '{}');
+    return Number(stored.__all__ || 0);
+  });
+  expect(snoozedUntilAfterReload).toBe(snoozedUntilBeforeReload);
   await expect(modal).toBeHidden();
 
   await page.getByTestId('header-notification-trigger').click();

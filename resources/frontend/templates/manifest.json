@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "c3ae87e7daa3078e57ceba2d44e58d57406c83d4e56196ecfcfd1b804cd7bb72",
-  "source_snapshot_bytes": 2095036,
+  "source_snapshot_sha256": "827c0912bfc6c4b1ecee65c9eaa9f3c9db7722f1ac55b458ca483d9c689db266",
+  "source_snapshot_bytes": 2157245,
   "fragments": [
     {
       "id": "app-shell",
@@ -99,6 +99,18 @@
       "domain": "operations",
       "path": "fragments/15a-page-ops-source.html",
       "anchor": "<div v-if=\"currentPage === 'ops-source'\" class=\"max-w-7xl mx-auto space-y-6\">"
+    },
+    {
+      "id": "page-operating-targets",
+      "domain": "operations",
+      "path": "fragments/15aa-page-operating-targets.html",
+      "anchor": "<div v-if=\"currentPage === 'operating-targets'\" class=\"max-w-7xl mx-auto space-y-6\">"
+    },
+    {
+      "id": "page-manual-notifications",
+      "domain": "operations",
+      "path": "fragments/15ab-page-manual-notifications.html",
+      "anchor": "<div v-if=\"currentPage === 'manual-notifications'\" class=\"max-w-7xl mx-auto space-y-6\" data-testid=\"page-manual-notifications\">"
     },
     {
       "id": "page-ops-analysis",

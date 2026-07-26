@@ -497,8 +497,10 @@ function e2eSeedAiReportInputs(string $prefix): array
 /**
  * Promote only the freshly saved temporal-axis synthetic rows into trusted
  * E2E fixtures. The public save endpoint deliberately cannot invent capture
- * provenance, so this isolated helper attaches explicit test provenance and
- * re-establishes readback proof after that metadata write.
+ * provenance or claim that a generic business widget is the verified Ctrip
+ * daily business overview. This isolated helper therefore attaches explicit
+ * synthetic-only provenance, the captured endpoint/section contract and a
+ * zero-missing field-fact summary before re-establishing readback proof.
  *
  * @return array<string, mixed>
  */
@@ -564,8 +566,52 @@ function e2eVerifyTemporalInputs(string $prefix): array
         $pending = e2eFilterPayload('online_daily_data', [
             'source_trace_id' => $traceId,
             'ingestion_method' => 'isolated_e2e_fixture',
+            'compare_type' => 'self',
             'validation_status' => 'normal',
             'validation_flags' => '[]',
+            'raw_data' => json_encode([
+                'synthetic' => true,
+                'fixture_scope' => 'isolated_e2e_temporal_axis',
+                'source_trace_id' => $traceId,
+                'row' => [
+                    'endpoint_id' => 'business_market_overview',
+                    'section' => 'business_overview',
+                    'source' => 'ctrip',
+                    'platform' => 'ctrip',
+                    'compare_type' => 'self',
+                    'hotelId' => $otaHotelId,
+                    'hotelName' => (string)$hotel['name'],
+                    'dataDate' => $date,
+                    'amount' => (float)$row['amount'],
+                    'quantity' => (float)$row['quantity'],
+                    'bookOrderNum' => (int)$row['book_order_num'],
+                ],
+                'field_facts' => [
+                    [
+                        'metric_key' => 'order_amount',
+                        'status' => 'captured',
+                        'stored_value_present' => true,
+                        'storage_field' => 'online_daily_data.amount',
+                    ],
+                    [
+                        'metric_key' => 'room_nights',
+                        'status' => 'captured',
+                        'stored_value_present' => true,
+                        'storage_field' => 'online_daily_data.quantity',
+                    ],
+                    [
+                        'metric_key' => 'order_count',
+                        'status' => 'captured',
+                        'stored_value_present' => true,
+                        'storage_field' => 'online_daily_data.book_order_num',
+                    ],
+                ],
+                'field_fact_summary' => [
+                    'captured_count' => 3,
+                    'missing_count' => 0,
+                    'missing_metric_keys' => [],
+                ],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             'readback_verified' => 0,
             'readback_verified_at' => null,
             'update_time' => $verifiedAt,
@@ -580,11 +626,21 @@ function e2eVerifyTemporalInputs(string $prefix): array
         }
 
         $stored = Db::name('online_daily_data')->where('id', $rowId)->find();
+        $raw = is_array($stored) && is_string($stored['raw_data'] ?? null)
+            ? json_decode((string)$stored['raw_data'], true)
+            : null;
         if (!is_array($stored)
             || (string)($stored['source_trace_id'] ?? '') !== $traceId
             || (string)($stored['data_date'] ?? '') !== $date
             || (string)($stored['data_period'] ?? '') !== $expectedPeriod
             || (int)($stored['is_final'] ?? -1) !== $expectedFinal
+            || (string)($stored['compare_type'] ?? '') !== 'self'
+            || !is_array($raw)
+            || ($raw['synthetic'] ?? false) !== true
+            || (string)($raw['fixture_scope'] ?? '') !== 'isolated_e2e_temporal_axis'
+            || strtolower(trim((string)($raw['row']['endpoint_id'] ?? ''))) !== 'business_market_overview'
+            || strtolower(trim((string)($raw['row']['section'] ?? ''))) !== 'business_overview'
+            || (int)($raw['field_fact_summary']['missing_count'] ?? 1) !== 0
             || (int)($stored['readback_verified'] ?? -1) !== 0) {
             throw new RuntimeException('Temporal input provenance readback failed for ' . $date);
         }

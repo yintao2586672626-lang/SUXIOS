@@ -81,6 +81,7 @@ test('strong reminder is persistent, opens after login, and cannot be bulk-clear
   assert.doesNotMatch(appMain, /strongOtaReminderCanDefer/);
   assert.match(appMain, /suxios_ota_auth_reminder_session_deferred_v1/);
   assert.match(appMain, /suxios_ota_auth_reminder_snoozed_until_v1/);
+  assert.doesNotMatch(appMain, /saveStrongOtaReminderSnoozedUntil\(\{\}\)/);
   assert.match(appMain, /const strongOtaReminderGlobalSnoozeKey = '__all__'/);
   assert.match(appMain, /normalized\[strongOtaReminderGlobalSnoozeKey\] = Math\.max/);
   assert.match(appMain, /const snoozeStrongOtaReminder24Hours = \(\) =>/);

@@ -58,14 +58,23 @@ final class WechatAiDailyReportIntegrationTest extends TestCase
         $dataConfig = (string)file_get_contents(
             $root . '/resources/frontend/templates/fragments/34-page-data-config.html'
         );
+        $wechatNotificationPage = (string)file_get_contents(
+            $root . '/resources/frontend/templates/fragments/18-page-hotels.html'
+        );
+        $wechatNotificationPanel = (string)file_get_contents(
+            $root . '/public/wechat-notification-static.js'
+        );
         $dailyReport = (string)file_get_contents(
             $root . '/resources/frontend/templates/fragments/16-page-ai-daily-report.html'
         );
         $frontend = (string)file_get_contents($root . '/public/app-main.js');
 
         self::assertStringContainsString("Route::post('/:id/send-wecom'", $route);
-        self::assertStringContainsString('wecom-robot-management', $dataConfig);
-        self::assertStringContainsString('binding_missing', $dataConfig);
+        self::assertStringNotContainsString('wecom-robot-management', $dataConfig);
+        self::assertStringContainsString('wecom-robot-management', $wechatNotificationPage);
+        self::assertStringContainsString('门店共享机器人', $wechatNotificationPage);
+        self::assertStringContainsString('binding_missing', $wechatNotificationPage);
+        self::assertStringContainsString('我的通知群', $wechatNotificationPanel);
         self::assertStringContainsString('ai-daily-report-send-wecom', $dailyReport);
         self::assertStringContainsString('ai-daily-report-wecom-edition', $dailyReport);
         self::assertStringContainsString('企业微信简版', $dailyReport);
@@ -91,5 +100,28 @@ final class WechatAiDailyReportIntegrationTest extends TestCase
         self::assertStringContainsString("'source_fingerprint'", $body);
         self::assertStringNotContainsString('$this->checkSuperAdmin();', $body);
         self::assertStringNotContainsString('sendPayloadToStore', $body);
+    }
+
+    public function testAccountBindingsCannotEnterAdminSharedRobotManagement(): void
+    {
+        $root = dirname(__DIR__);
+        $controller = (string)file_get_contents(
+            $root . '/app/controller/admin/CompetitorWechatRobotController.php'
+        );
+        $delivery = (string)file_get_contents(
+            $root . '/app/service/WechatRobotDeliveryService.php'
+        );
+
+        self::assertStringContainsString("private const ADMIN_NOTIFICATION_SCOPE = 'admin_shared';", $controller);
+        self::assertStringContainsString("'notification_scope' => self::ADMIN_NOTIFICATION_SCOPE", $controller);
+        self::assertStringContainsString('adminManagedRobotQuery()', $controller);
+        self::assertStringContainsString("->whereNull('owner_user_id')", $controller);
+        self::assertStringContainsString("->whereOr('notification_scope', self::ADMIN_NOTIFICATION_SCOPE)", $controller);
+        self::assertStringContainsString('$this->adminManagedRobotQuery()', $controller);
+
+        self::assertStringContainsString("private const ADMIN_NOTIFICATION_SCOPE = 'admin_shared';", $delivery);
+        self::assertStringContainsString('if ($onlyRobotIds !== [])', $delivery);
+        self::assertStringContainsString("->whereNull('owner_user_id')", $delivery);
+        self::assertStringContainsString("->whereOr('notification_scope', self::ADMIN_NOTIFICATION_SCOPE)", $delivery);
     }
 }

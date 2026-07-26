@@ -1,0 +1,22 @@
+[Unit]
+Description=SUXIOS manual notification test-only dispatcher (hotel 80, robot 1)
+After=mariadb.service php8.3-fpm.service
+ConditionPathExists=/var/www/suxios/current/think
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+# Explicit test-only delivery. The command rejects every other hotel, robot, or mode.
+ExecStart=/usr/bin/php -d memory_limit=192M think manual-notification:schedule --dispatch --mode=test --hotel-id=80 --robot-id=1 --limit=100
+Nice=10
+CPUQuota=20%
+MemoryMax=192M
+TasksMax=12
+TimeoutStartSec=2min
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SUXIOS hotel 80 robot 1 test notification dispatcher every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=10s
+Persistent=false
+Unit=suxios-manual-notification-test-dispatch.service
+
+[Install]
+WantedBy=timers.target

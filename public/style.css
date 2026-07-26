@@ -6039,7 +6039,10 @@ aside.sidebar:not(.collapsed) {
 }
 
 .suxi-app-shell main[data-current-page="online-data"],
-.suxi-app-shell main[data-current-page="data-config"] {
+.suxi-app-shell main[data-current-page="data-config"],
+.suxi-app-shell main[data-current-page="operating-targets"],
+.suxi-app-shell main[data-current-page="manual-notifications"],
+.suxi-app-shell main[data-current-page="wechat-notification"] {
     --sx-page-accent: #0f766e;
     --sx-page-accent-dark: #115e59;
     --sx-page-accent-soft: #ccfbf1;

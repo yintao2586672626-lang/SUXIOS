@@ -23,10 +23,21 @@ apt-get install -y ca-certificates chromium nodejs novnc websockify x11vnc xvfb
 
 node_bin="$(command -v node)"
 php_bin="$(command -v php || true)"
-chrome_bin="$(command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+chrome_bin="$(
+  command -v google-chrome-stable \
+    || command -v chromium \
+    || command -v chromium-browser \
+    || { [[ -x /snap/bin/chromium ]] && printf '/snap/bin/chromium\n'; } \
+    || true
+)"
 novnc_root="/usr/share/novnc"
 if [[ -z "$chrome_bin" || ! -x "$node_bin" || -z "$php_bin" || ! -x "$php_bin" || ! -f "$novnc_root/vnc.html" ]]; then
   echo "Required Chromium, Node.js, PHP CLI, or noVNC runtime is unavailable." >&2
+  exit 1
+fi
+if ! "$node_bin" --experimental-websocket -e \
+  'if (typeof globalThis.WebSocket !== "function") process.exit(1)'; then
+  echo "Node.js runtime cannot provide the WebSocket client required by the read-only CDP policy." >&2
   exit 1
 fi
 

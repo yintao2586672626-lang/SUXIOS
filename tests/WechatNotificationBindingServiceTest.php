@@ -3,8 +3,11 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\controller\admin\CompetitorWechatRobotController;
 use app\service\WechatNotificationBindingService;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
+use ReflectionMethod;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
@@ -66,5 +69,46 @@ final class WechatNotificationBindingServiceTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         (new WechatNotificationBindingService())->bind(80, 7, '测试群', 'https://example.com/webhook?key=nope');
+    }
+
+    public function testAdminRobotQueryExcludesAccountOwnedBindings(): void
+    {
+        $legacySharedId = (int)Db::name('competitor_wechat_robot')->insertGetId([
+            'store_id' => 80,
+            'owner_user_id' => null,
+            'notification_scope' => null,
+            'name' => '历史门店共享群',
+            'webhook' => 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=legacy-shared-key',
+            'status' => 1,
+        ]);
+        $adminSharedId = (int)Db::name('competitor_wechat_robot')->insertGetId([
+            'store_id' => 80,
+            'owner_user_id' => null,
+            'notification_scope' => 'admin_shared',
+            'name' => '新门店共享群',
+            'webhook' => 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=admin-shared-key',
+            'status' => 1,
+        ]);
+        $accountBindingId = (int)Db::name('competitor_wechat_robot')->insertGetId([
+            'store_id' => 80,
+            'owner_user_id' => 7,
+            'notification_scope' => 'account_onboarding',
+            'name' => '账号自己的通知群',
+            'webhook' => 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=account-owned-key',
+            'status' => 1,
+        ]);
+
+        $controller = (new ReflectionClass(CompetitorWechatRobotController::class))
+            ->newInstanceWithoutConstructor();
+        $queryMethod = new ReflectionMethod(CompetitorWechatRobotController::class, 'adminManagedRobotQuery');
+        $rows = $queryMethod->invoke($controller)->order('id', 'asc')->select()->toArray();
+        self::assertSame([$legacySharedId, $adminSharedId], array_map(
+            static fn(array $row): int => (int)$row['id'],
+            $rows
+        ));
+
+        $findMethod = new ReflectionMethod(CompetitorWechatRobotController::class, 'findAdminManagedRobot');
+        self::assertSame($adminSharedId, (int)$findMethod->invoke($controller, $adminSharedId)['id']);
+        self::assertNull($findMethod->invoke($controller, $accountBindingId));
     }
 }

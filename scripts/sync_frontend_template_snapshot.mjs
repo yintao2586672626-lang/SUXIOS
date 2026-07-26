@@ -7,6 +7,11 @@ import {
   writeFileAtomic,
 } from './lib/frontend_template_lock.mjs';
 import { loadFrontendTemplateSource } from './lib/frontend_template_source.mjs';
+import {
+  FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH,
+  frontendTemplateManifestFragments,
+  frontendTemplateManifestMatchesDefinitions,
+} from './lib/frontend_template_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const releaseLock = await acquireFrontendTemplateLock(repoRoot, { owner: 'sync-frontend-template-snapshot' });
@@ -14,6 +19,25 @@ try {
 const checkOnly = process.argv.includes('--check');
 const force = process.argv.includes('--force');
 const hash = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
+
+const registeredManifestPath = path.resolve(repoRoot, FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH);
+const registeredManifestSource = fs.readFileSync(registeredManifestPath, 'utf8');
+let registeredManifest;
+try {
+  registeredManifest = JSON.parse(registeredManifestSource);
+} catch (error) {
+  throw new Error(`Frontend template fragment manifest is invalid JSON: ${error.message}`);
+}
+if (!frontendTemplateManifestMatchesDefinitions(registeredManifest)) {
+  if (checkOnly) {
+    throw new Error('Frontend template fragment manifest is out of sync with the registered fragment definitions.');
+  }
+  registeredManifest = {
+    ...registeredManifest,
+    fragments: frontendTemplateManifestFragments(),
+  };
+  writeFileAtomic(registeredManifestPath, `${JSON.stringify(registeredManifest, null, 2)}\n`);
+}
 
 const source = loadFrontendTemplateSource(repoRoot);
 const manifestSourceBefore = fs.readFileSync(source.manifestPath, 'utf8');

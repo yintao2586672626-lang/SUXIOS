@@ -9,6 +9,8 @@ description: 用于宿析OS登录、SaaS数据驾驶舱、经营看板、收益�
 
 这是宿析OS唯一允许隐式触发的视觉 Skill。先保持真实数据链路、现有交互和组件契约，再把界面统一到生产登录页的品牌语言。不要自动串联 `gpt-taste`、`minimalist-ui`、`high-end-visual-design`、`impeccable`、`ui-ux-pro-max` 或图像生成类 Skill；只有用户明确点名时才把它们作为局部参考。
 
+涉及 Hoxio / `yunqi52.com` 的界面借鉴时，读取 [Hoxio 优胜板块与宿析OS吸收清单](../suxi-capability-absorption/references/hoxio-better-module-patterns.md)。只吸收信息层级、短操作路径、状态卡和下一步动作，不做像素级复制；生产登录页仍是宿析OS唯一默认品牌锚点。
+
 ## 品牌视觉锚点
 
 生产登录页的核心气质是“高端酒店经营系统”，不是通用科技蓝：

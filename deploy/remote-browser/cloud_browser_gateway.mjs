@@ -6,7 +6,7 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import {
   appendFile,
   chmod,
@@ -27,8 +27,14 @@ const HEADER_BYTES = MAGIC.length + 12 + 16;
 const MAX_REQUEST_BYTES = 16 * 1024;
 const PROFILE_ID_PATTERN = /^cbp_[A-Za-z0-9_-]{16,64}$/;
 const SESSION_ID_PATTERN = /^cbls_[A-Za-z0-9_-]{16,64}$/;
+const COLLECTION_SESSION_ID_PATTERN = /^cbcs_[A-Za-z0-9_-]{16,64}$/;
 const TICKET_PATTERN = /^[A-Za-z0-9_-]{32,96}$/;
-const PLATFORM_PATTERN = /^(ctrip|meituan)$/;
+const LOGIN_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao)$/;
+const OTA_RECEIPT_PLATFORM_PATTERN = /^(ctrip|meituan)$/;
+const DINGDANDAO_PLATFORM_PATTERN = /^dingdandao$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DINGDANDAO_SOURCE_URL =
+  'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
 const SENSITIVE_KEY_PATTERN =
   /(cookie|password|authorization(?!_status)|(^|_)(token|secret|headers?|raw|html|har)(_|$)|profile[_-]?path|localstorage|sessionstorage)/i;
 
@@ -305,11 +311,17 @@ function loadConfig(env = process.env) {
     controlTokenFile: env.SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE || '/run/credentials/suxios-cloud-browser-gateway.service/control-token',
     phpBinary: env.SUXIOS_CLOUD_BROWSER_PHP_BINARY || '/usr/bin/php',
     bridgeScript: env.SUXIOS_CLOUD_BROWSER_BRIDGE_SCRIPT || join(projectRoot, 'scripts', 'cloud_browser_gateway_bridge.php'),
-    browserExecutable: env.SUXIOS_CLOUD_BROWSER_EXECUTABLE || '/usr/bin/chromium',
+    browserExecutable: env.SUXIOS_CLOUD_BROWSER_EXECUTABLE
+      || ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'].find(existsSync)
+      || '/usr/bin/chromium',
     display: env.SUXIOS_CLOUD_BROWSER_DISPLAY || ':99',
     cdpPort: Number.parseInt(env.SUXIOS_CLOUD_BROWSER_CDP_PORT || '9223', 10),
     viewerUrl: env.SUXIOS_CLOUD_BROWSER_VIEWER_URL || 'http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale',
     loginTtlSeconds: Math.min(900, Math.max(60, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_LOGIN_TTL_SECONDS || '900', 10))),
+    collectionTtlSeconds: Math.min(
+      600,
+      Math.max(60, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_COLLECTION_TTL_SECONDS || '300', 10)),
+    ),
     profileSessionTtlSeconds: Math.min(
       30 * 86400,
       Math.max(3600, Number.parseInt(env.SUXIOS_CLOUD_BROWSER_PROFILE_SESSION_TTL_SECONDS || '604800', 10)),
@@ -359,7 +371,60 @@ function validateLoginRequest(body) {
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
     sessionId: assertOpaque(body.session_id, SESSION_ID_PATTERN, 'session_id_invalid'),
     ticket: assertOpaque(body.ticket, TICKET_PATTERN, 'ticket_invalid'),
-    platform: assertOpaque(body.platform, PLATFORM_PATTERN, 'platform_invalid'),
+    platform: assertOpaque(body.platform, LOGIN_PLATFORM_PATTERN, 'platform_invalid'),
+  };
+}
+
+function validateLoginCompletionRequest(body) {
+  return {
+    profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
+    sessionId: assertOpaque(body.session_id, SESSION_ID_PATTERN, 'session_id_invalid'),
+    ticket: body.ticket == null || String(body.ticket).trim() === ''
+      ? null
+      : assertOpaque(body.ticket, TICKET_PATTERN, 'ticket_invalid'),
+    platform: assertOpaque(body.platform, LOGIN_PLATFORM_PATTERN, 'platform_invalid'),
+  };
+}
+
+function positiveInteger(value, reason) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== String(value).trim()) {
+    throw new Error(reason);
+  }
+  return parsed;
+}
+
+function validateCollectionOpenRequest(body) {
+  return {
+    profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
+    platform: assertOpaque(body.platform, DINGDANDAO_PLATFORM_PATTERN, 'platform_invalid'),
+    tenantId: positiveInteger(body.tenant_id, 'tenant_id_invalid'),
+    hotelId: positiveInteger(body.hotel_id, 'hotel_id_invalid'),
+    ownerUserId: positiveInteger(body.owner_user_id, 'owner_user_id_invalid'),
+    targetDate: assertOpaque(body.target_date, DATE_PATTERN, 'target_date_invalid'),
+    collectionKind: assertOpaque(
+      body.collection_kind,
+      /^operating_target_today$/,
+      'collection_kind_invalid',
+    ),
+    accessMode: assertOpaque(body.access_mode, /^read_only$/, 'access_mode_invalid'),
+  };
+}
+
+function validateCollectionCloseRequest(body) {
+  return {
+    collectionSessionId: assertOpaque(
+      body.collection_session_id,
+      COLLECTION_SESSION_ID_PATTERN,
+      'collection_session_id_invalid',
+    ),
+    profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
+    platform: assertOpaque(body.platform, DINGDANDAO_PLATFORM_PATTERN, 'platform_invalid'),
+    outcome: assertOpaque(
+      body.outcome,
+      /^(completed|cancelled|session_expired|policy_blocked)$/,
+      'collection_outcome_invalid',
+    ),
   };
 }
 
@@ -375,10 +440,19 @@ async function bridge(config, action, payload) {
   return parsed.result;
 }
 
-async function startBrowser(config, profilePath, platform) {
-  const loginUrl = platform === 'meituan'
-    ? 'https://me.meituan.com/ebooking/'
-    : 'https://ebooking.ctrip.com/home/mainland';
+function platformStartUrl(platform) {
+  const urls = {
+    ctrip: 'https://ebooking.ctrip.com/home/mainland',
+    meituan: 'https://me.meituan.com/ebooking/',
+    dingdandao: DINGDANDAO_SOURCE_URL,
+  };
+  const url = urls[platform];
+  if (!url) throw new Error('platform_start_url_missing');
+  return url;
+}
+
+async function startBrowser(config, profilePath, platform, startUrl = null) {
+  const loginUrl = startUrl || platformStartUrl(platform);
   const child = spawn(config.browserExecutable, [
     '--disable-dev-shm-usage',
     '--no-first-run',
@@ -427,12 +501,166 @@ async function stopBrowser(child) {
   });
 }
 
+function delay(milliseconds) {
+  return new Promise((resolvePromise) => {
+    const timer = setTimeout(resolvePromise, milliseconds);
+    timer.unref?.();
+  });
+}
+
+async function waitForBrowserPage(config, child, timeoutMs = 12000) {
+  const endpoint = `http://127.0.0.1:${config.cdpPort}/json/list`;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (child?.exitCode !== null) throw new Error('browser_exited_before_cdp_ready');
+    try {
+      const response = await fetch(endpoint, { signal: AbortSignal.timeout(1000) });
+      const targets = response.ok ? await response.json() : [];
+      const page = Array.isArray(targets)
+        ? targets.find((target) => target?.type === 'page' && typeof target.webSocketDebuggerUrl === 'string')
+        : null;
+      if (page) return page;
+    } catch {
+      // Chromium may need a short startup interval before the loopback CDP port exists.
+    }
+    await delay(100);
+  }
+  throw new Error('browser_cdp_not_ready');
+}
+
+export function isDingdandaoReadOnlyRequestAllowed({ url, method, resourceType }) {
+  let parsed;
+  try {
+    parsed = new URL(String(url || ''));
+  } catch {
+    return false;
+  }
+  const normalizedMethod = String(method || '').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod) || parsed.protocol !== 'https:') {
+    return false;
+  }
+  if (resourceType !== 'Document') {
+    return true;
+  }
+  const source = new URL(DINGDANDAO_SOURCE_URL);
+  return parsed.origin === source.origin && parsed.pathname === source.pathname;
+}
+
+async function installDingdandaoReadOnlyPolicy(config, child) {
+  if (typeof WebSocket !== 'function') {
+    throw new Error('read_only_policy_websocket_unavailable');
+  }
+  const target = await waitForBrowserPage(config, child);
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  const pending = new Map();
+  let nextId = 1;
+  let closed = false;
+
+  await new Promise((resolvePromise, reject) => {
+    const timer = setTimeout(() => reject(new Error('read_only_policy_connect_timeout')), 5000);
+    socket.addEventListener('open', () => {
+      clearTimeout(timer);
+      resolvePromise();
+    }, { once: true });
+    socket.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error('read_only_policy_connect_failed'));
+    }, { once: true });
+  });
+
+  const send = (method, params = {}) => new Promise((resolvePromise, reject) => {
+    if (closed || socket.readyState !== WebSocket.OPEN) {
+      reject(new Error('read_only_policy_connection_closed'));
+      return;
+    }
+    const id = nextId++;
+    pending.set(id, { resolvePromise, reject });
+    socket.send(JSON.stringify({ id, method, params }));
+  });
+
+  socket.addEventListener('message', (event) => {
+    let message;
+    try {
+      message = JSON.parse(String(event.data));
+    } catch {
+      return;
+    }
+    if (Number.isInteger(message.id) && pending.has(message.id)) {
+      const request = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) {
+        request.reject(new Error(safeReason(message.error.message, 'cdp_command_failed')));
+      } else {
+        request.resolvePromise(message.result || {});
+      }
+      return;
+    }
+    if (message.method !== 'Fetch.requestPaused') return;
+    const paused = message.params || {};
+    const allowed = isDingdandaoReadOnlyRequestAllowed({
+      url: paused.request?.url,
+      method: paused.request?.method,
+      resourceType: paused.resourceType,
+    });
+    const command = allowed ? 'Fetch.continueRequest' : 'Fetch.failRequest';
+    const params = allowed
+      ? { requestId: paused.requestId }
+      : { requestId: paused.requestId, errorReason: 'BlockedByClient' };
+    send(command, params).catch(() => undefined);
+  });
+
+  socket.addEventListener('close', () => {
+    closed = true;
+    for (const request of pending.values()) {
+      request.reject(new Error('read_only_policy_connection_closed'));
+    }
+    pending.clear();
+  });
+
+  try {
+    await send('Network.enable');
+    await send('Network.setCacheDisabled', { cacheDisabled: true });
+    await send('Page.enable');
+    await send('Fetch.enable', {
+      patterns: [{ urlPattern: '*', requestStage: 'Request' }],
+    });
+    await send('Browser.setDownloadBehavior', { behavior: 'deny' });
+    const navigation = await send('Page.navigate', { url: DINGDANDAO_SOURCE_URL });
+    if (navigation.errorText) throw new Error('read_only_navigation_failed');
+  } catch (error) {
+    closed = true;
+    socket.close();
+    throw error;
+  }
+
+  return {
+    close() {
+      if (closed) return;
+      closed = true;
+      socket.close();
+    },
+  };
+}
+
 function publicError(error) {
   return safeReason(error?.message || error);
 }
 
-export async function createGateway(env = process.env) {
+class GatewayError extends Error {
+  constructor(message, statusCode = 422) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+export async function createGateway(env = process.env, dependencies = {}) {
   const config = loadConfig(env);
+  const bridgeCall = dependencies.bridge
+    || ((action, payload) => bridge(config, action, payload));
+  const startBrowserCall = dependencies.startBrowser || startBrowser;
+  const stopBrowserCall = dependencies.stopBrowser || stopBrowser;
+  const installReadOnlyPolicyCall = dependencies.installReadOnlyPolicy
+    || installDingdandaoReadOnlyPolicy;
   const [key, controlToken] = await Promise.all([
     readFile(config.keyFile).then(decodeMasterKey),
     readSecret(config.controlTokenFile, 'gateway_control_token_invalid'),
@@ -448,22 +676,30 @@ export async function createGateway(env = process.env) {
 
   async function closeSession(session, { seal = true } = {}) {
     clearTimeout(session.timeout);
-    await stopBrowser(session.browser);
+    session.guard?.close();
+    await stopBrowserCall(session.browser);
     if (seal) await vault.seal(session.profileId);
-    sessions.delete(session.sessionId);
+    sessions.delete(session.key);
   }
 
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || '/', `http://${config.bindAddress}:${config.port}`);
     try {
       if (request.method === 'GET' && url.pathname === '/health') {
+        const activeLoginSessions = [...sessions.values()]
+          .filter((session) => session.kind === 'login').length;
+        const activeCollectionSessions = [...sessions.values()]
+          .filter((session) => session.kind === 'dingdandao_collection').length;
         jsonResponse(response, 200, {
           status: 'ok',
           bind: config.bindAddress,
           encrypted_profile_store: true,
           receipt_chain_valid: await receipts.verify(),
-          active_login_sessions: sessions.size,
+          active_login_sessions: activeLoginSessions,
+          active_collection_sessions: activeCollectionSessions,
+          active_browser_sessions: sessions.size,
           browser_autostart: false,
+          read_only_policy_runtime: typeof WebSocket === 'function',
         });
         return;
       }
@@ -471,9 +707,9 @@ export async function createGateway(env = process.env) {
       if (request.method === 'POST' && url.pathname === '/v1/login/open') {
         const login = validateLoginRequest(await jsonBody(request));
         if (sessions.size > 0) {
-          throw new Error('gateway_login_capacity_busy');
+          throw new GatewayError('gateway_login_capacity_busy', 409);
         }
-        const validated = await bridge(config, 'validate_login', {
+        const validated = await bridgeCall('validate_login', {
           profile_id: login.profileId,
           session_id: login.sessionId,
           ticket: login.ticket,
@@ -482,9 +718,11 @@ export async function createGateway(env = process.env) {
           throw new Error('login_entry_scope_mismatch');
         }
         const profilePath = await vault.restore(login.profileId);
-        const browser = await startBrowser(config, profilePath, login.platform);
+        const browser = await startBrowserCall(config, profilePath, login.platform);
         const session = {
           ...login,
+          kind: 'login',
+          key: login.sessionId,
           ticketHash: sha256(login.ticket),
           browser,
           openedAt: new Date().toISOString(),
@@ -500,7 +738,7 @@ export async function createGateway(env = process.env) {
               status: 'expired',
             });
           } catch {
-            sessions.delete(session.sessionId);
+            // Keep capacity fail-closed if the Profile could not be sealed.
           }
         }, config.loginTtlSeconds * 1000);
         session.timeout.unref();
@@ -521,23 +759,24 @@ export async function createGateway(env = process.env) {
           jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
           return;
         }
-        const login = validateLoginRequest(await jsonBody(request));
+        const login = validateLoginCompletionRequest(await jsonBody(request));
         const session = sessions.get(login.sessionId);
         if (!session
+          || session.kind !== 'login'
           || session.profileId !== login.profileId
           || session.platform !== login.platform
-          || session.ticketHash !== sha256(login.ticket)) {
-          throw new Error('active_login_session_not_found');
+          || (login.ticket !== null && session.ticketHash !== sha256(login.ticket))) {
+          throw new GatewayError('active_login_session_not_found', 404);
         }
         await closeSession(session);
         const sessionExpiresAt = new Date(Date.now() + config.profileSessionTtlSeconds * 1000)
           .toISOString()
           .slice(0, 19)
           .replace('T', ' ');
-        const profile = await bridge(config, 'complete_login', {
+        const profile = await bridgeCall('complete_login', {
           profile_id: login.profileId,
           session_id: login.sessionId,
-          ticket: login.ticket,
+          ticket: session.ticket,
           session_expires_at: sessionExpiresAt,
         });
         const receipt = await receipts.append('login_profile_ready', {
@@ -558,6 +797,153 @@ export async function createGateway(env = process.env) {
         return;
       }
 
+      if (request.method === 'POST' && url.pathname === '/v1/collection/open') {
+        if (!authorized(request, controlToken)) {
+          jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
+          return;
+        }
+        const collection = validateCollectionOpenRequest(await jsonBody(request));
+        if (sessions.size > 0) {
+          throw new GatewayError('gateway_collection_capacity_busy', 409);
+        }
+        const validated = await bridgeCall('validate_dingdandao_collection', {
+          profile_id: collection.profileId,
+          tenant_id: collection.tenantId,
+          hotel_id: collection.hotelId,
+          owner_user_id: collection.ownerUserId,
+          target_date: collection.targetDate,
+        });
+        if (validated?.validated !== true
+          || validated?.profile?.profile_id !== collection.profileId
+          || validated?.profile?.platform !== collection.platform
+          || validated?.tenant_id !== collection.tenantId
+          || validated?.hotel_id !== collection.hotelId
+          || validated?.owner_user_id !== collection.ownerUserId
+          || validated?.target_date !== collection.targetDate
+          || validated?.collection_kind !== collection.collectionKind
+          || validated?.access_mode !== collection.accessMode
+        ) {
+          throw new Error('collection_scope_mismatch');
+        }
+
+        const collectionSessionId = `cbcs_${randomBytes(18).toString('base64url')}`;
+        const profilePath = await vault.restore(collection.profileId);
+        let browser;
+        let guard;
+        try {
+          browser = await startBrowserCall(config, profilePath, collection.platform, 'about:blank');
+          guard = await installReadOnlyPolicyCall(config, browser);
+        } catch {
+          guard?.close();
+          await stopBrowserCall(browser);
+          try {
+            await vault.seal(collection.profileId);
+          } catch {
+            throw new GatewayError('profile_seal_failed', 500);
+          }
+          throw new GatewayError('read_only_policy_setup_failed', 500);
+        }
+
+        const session = {
+          ...collection,
+          kind: 'dingdandao_collection',
+          key: collectionSessionId,
+          collectionSessionId,
+          browser,
+          guard,
+          openedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + config.collectionTtlSeconds * 1000).toISOString(),
+        };
+        session.timeout = setTimeout(async () => {
+          try {
+            await closeSession(session);
+            await receipts.append('collection_window_timeout', {
+              collection_session_id: session.collectionSessionId,
+              profile_id: session.profileId,
+              platform: session.platform,
+              tenant_id: session.tenantId,
+              hotel_id: session.hotelId,
+              owner_user_id: session.ownerUserId,
+              target_date: session.targetDate,
+              access_mode: session.accessMode,
+              status: 'expired',
+            });
+          } catch {
+            // Keep capacity fail-closed if the Profile could not be sealed.
+          }
+        }, config.collectionTtlSeconds * 1000);
+        session.timeout.unref();
+        sessions.set(collectionSessionId, session);
+        jsonResponse(response, 201, {
+          status: 'collection_open',
+          collection_session_id: collectionSessionId,
+          profile_id: collection.profileId,
+          platform: collection.platform,
+          tenant_id: collection.tenantId,
+          hotel_id: collection.hotelId,
+          owner_user_id: collection.ownerUserId,
+          target_date: collection.targetDate,
+          collection_kind: collection.collectionKind,
+          source_url: DINGDANDAO_SOURCE_URL,
+          source_scope: 'today_only',
+          access_mode: 'read_only',
+          read_only_enforced: true,
+          expires_at: session.expiresAt,
+          browser_started: true,
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/collection/close') {
+        if (!authorized(request, controlToken)) {
+          jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
+          return;
+        }
+        const collection = validateCollectionCloseRequest(await jsonBody(request));
+        const session = sessions.get(collection.collectionSessionId);
+        if (!session
+          || session.kind !== 'dingdandao_collection'
+          || session.profileId !== collection.profileId
+          || session.platform !== collection.platform
+        ) {
+          throw new GatewayError('active_collection_session_not_found', 404);
+        }
+        try {
+          await closeSession(session);
+        } catch {
+          throw new GatewayError('profile_seal_failed', 500);
+        }
+        if (collection.outcome === 'session_expired') {
+          await bridgeCall('expire_profile', {
+            profile_id: collection.profileId,
+            reason: 'dingdandao_session_expired',
+          });
+        }
+        const receipt = await receipts.append('collection_profile_closed', {
+          collection_session_id: collection.collectionSessionId,
+          profile_id: collection.profileId,
+          platform: collection.platform,
+          tenant_id: session.tenantId,
+          hotel_id: session.hotelId,
+          owner_user_id: session.ownerUserId,
+          target_date: session.targetDate,
+          access_mode: session.accessMode,
+          outcome: collection.outcome,
+          profile_sealed: true,
+          data_status: 'unverified',
+        });
+        jsonResponse(response, 200, {
+          status: 'collection_closed',
+          collection_session_id: collection.collectionSessionId,
+          browser_started: false,
+          profile_sealed: true,
+          data_status: 'unverified',
+          receipt_id: receipt.receipt_id,
+          receipt_hash: receipt.receipt_hash,
+        });
+        return;
+      }
+
       if (request.method === 'POST' && url.pathname === '/v1/collection/receipt') {
         if (!authorized(request, controlToken)) {
           jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
@@ -568,7 +954,7 @@ export async function createGateway(env = process.env) {
         const payload = {
           task_id: assertOpaque(body.task_id, /^cct_[A-Za-z0-9_-]{8,96}$/, 'task_id_invalid'),
           profile_id: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-          platform: assertOpaque(body.platform, PLATFORM_PATTERN, 'platform_invalid'),
+          platform: assertOpaque(body.platform, OTA_RECEIPT_PLATFORM_PATTERN, 'platform_invalid'),
           tenant_id: Number.parseInt(body.tenant_id, 10),
           hotel_id: Number.parseInt(body.hotel_id, 10),
           target_date: assertOpaque(body.target_date, /^\d{4}-\d{2}-\d{2}$/, 'target_date_invalid'),
@@ -613,7 +999,11 @@ export async function createGateway(env = process.env) {
 
       jsonResponse(response, 404, { status: 'failed', reason: 'gateway_route_not_found' });
     } catch (error) {
-      jsonResponse(response, 422, { status: 'failed', reason: publicError(error) });
+      jsonResponse(
+        response,
+        Number.isInteger(error?.statusCode) ? error.statusCode : 422,
+        { status: 'failed', reason: publicError(error) },
+      );
     }
   });
 

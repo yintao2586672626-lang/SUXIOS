@@ -218,12 +218,29 @@ final class OtaFailureNotificationServiceTest extends TestCase
     public function testSuccessfulPlatformResolvesOnlyItsOwnStrongReminderDuringPartialRun(): void
     {
         $this->seedHotelAndUsers();
+        Db::name('hotels')->insert([
+            'id' => 8,
+            'tenant_id' => 1,
+            'name' => '第二家测试门店',
+            'status' => 1,
+            'created_by' => 201,
+            'owner_user_id' => 202,
+        ]);
         $this->grantHotel(101, 7);
+        $this->grantHotel(101, 8);
         $this->seedConfig(7, 'ctrip', 101);
         $this->seedConfig(7, 'meituan', 101);
+        $this->seedConfig(8, 'ctrip', 101);
         $service = new OtaFailureNotificationService();
         $service->recordCollectionOutcome([
             'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'reason_code' => 'login_expired',
+            'success' => false,
+            'saved_count' => 0,
+        ]);
+        $service->recordCollectionOutcome([
+            'hotel_id' => 8,
             'platform' => 'ctrip',
             'reason_code' => 'login_expired',
             'success' => false,
@@ -243,7 +260,9 @@ final class OtaFailureNotificationServiceTest extends TestCase
         self::assertSame('resolved', $result['resolutions'][0]['status']);
         self::assertSame('meituan', $result['deliveries'][0]['platform']);
         self::assertSame('ota_auth_required', (string)SystemNotification::where('platform', 'meituan')->value('category'));
-        self::assertSame(1, (int)SystemNotification::where('platform', 'ctrip')->value('is_cleared'));
+        self::assertSame(1, (int)SystemNotification::where('hotel_id', 7)->where('platform', 'ctrip')->value('is_cleared'));
+        self::assertSame(0, (int)SystemNotification::where('hotel_id', 8)->where('platform', 'ctrip')->value('is_cleared'));
+        self::assertSame(0, (int)SystemNotification::where('hotel_id', 7)->where('platform', 'meituan')->value('is_cleared'));
     }
 
     public function testNoRecipientCreatesExplicitAuditInsteadOfBroadcastNotification(): void

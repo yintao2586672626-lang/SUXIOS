@@ -211,7 +211,9 @@ requireText('public/index.html', 'const dualOtaMetricNoteText = (note = \'\') =>
 requireText('public/index.html', 'const dualOtaIsCtripTrafficPendingWindow = () => {', 'AI workbench has an explicit early-morning Ctrip traffic pending window');
 requireText('public/index.html', "const dualOtaCtripTrafficPendingNote = '凌晨0-8点携程流量数据待更新';", 'AI workbench labels early-morning missing Ctrip traffic as pending update');
 requireText('public/index.html', "return dualOtaMetric(label, '待更新', dualOtaCtripTrafficPendingNote, 'warning');", 'AI workbench renders missing Ctrip traffic as pending during the early-morning window');
-requireText('public/dual-ota-home-static.js', "const resolveDualOtaBoundHotelRow = (rows = [], systemHotelId = '') => {", 'AI workbench resolves the Ctrip current-hotel row only from a verified system hotel binding');
+requireText('public/dual-ota-home-static.js', "const hasExplicitDualOtaSelfIdentity = (row = {}) => {", 'AI workbench requires an explicit Ctrip self-row identity');
+requireText('public/dual-ota-home-static.js', "if (!hasExplicitDualOtaSelfIdentity(row)) return false;", 'AI workbench rejects competitor-circle rows before resolving the current hotel');
+requireText('public/dual-ota-home-static.js', "const resolveDualOtaBoundHotelRow = (rows = [], systemHotelId = '') => {", 'AI workbench resolves the Ctrip current-hotel row from both the self identity and verified system hotel binding');
 requireText('public/index.html', 'return resolveDualOtaBoundHotelRow(rows, selectedId);', 'AI workbench uses the verified system hotel binding for the Ctrip current-hotel row');
 requireNoText('public/index.html', 'dualOtaRowIsPlatformSelf', 'AI workbench no longer falls back to an unverified platform-self row');
 requireText('public/index.html', "dualOtaMissingCtripMetric('销售额', '当前门店携程明细行未返回')", 'AI workbench current-store Ctrip column keeps the competitor-average metric shape and explains the missing range when the self row is missing');

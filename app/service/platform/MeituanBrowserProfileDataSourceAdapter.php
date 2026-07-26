@@ -31,7 +31,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     {
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
-        $storeId = $this->firstString($options, $config, ['store_id', 'storeId', 'poi_id', 'poiId']);
+        $storeId = $this->firstString($options, $config, ['platform_hotel_id', 'store_id', 'storeId', 'poi_id', 'poiId']);
         if ($storeId === '') {
             return [
                 'status' => 'waiting_config',
@@ -95,7 +95,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         $requestedSections = $this->firstString($options, $config, ['capture_sections', 'captureSections', 'sections', 'profile_sections'], BrowserProfileCaptureRequestService::MEITUAN_DEFAULT_SECTIONS);
         $sections = $this->sanitizeSections($requestedSections);
-        $poiId = $this->firstString($options, $config, ['poi_id', 'poiId']);
+        $poiId = $this->firstString($options, $config, ['platform_hotel_id', 'poi_id', 'poiId']);
         $poiName = $this->firstString($options, $config, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'name']);
         $adsUrl = $this->firstString($options, $config, ['ads_url', 'adsUrl']);
         $dataPeriod = $this->firstString($options, $config, ['data_period', 'dataPeriod']);

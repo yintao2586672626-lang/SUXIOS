@@ -7,6 +7,8 @@ use think\facade\Db;
 
 final class WechatRobotDeliveryService
 {
+    private const ADMIN_NOTIFICATION_SCOPE = 'admin_shared';
+
     /** @var callable|null */
     private $transport;
 
@@ -39,6 +41,20 @@ final class WechatRobotDeliveryService
         )));
         if ($onlyRobotIds !== []) {
             $query->whereIn('id', $onlyRobotIds);
+        } else {
+            // Calls without explicit robot IDs are hotel-level shared sends.
+            // Account-owned bindings are reachable only through an explicitly
+            // selected robot ID after the caller has checked that account scope.
+            $query
+                ->where(function ($scopeQuery): void {
+                    $scopeQuery->whereNull('owner_user_id')
+                        ->whereOr('owner_user_id', 0);
+                })
+                ->where(function ($scopeQuery): void {
+                    $scopeQuery->whereNull('notification_scope')
+                        ->whereOr('notification_scope', '')
+                        ->whereOr('notification_scope', self::ADMIN_NOTIFICATION_SCOPE);
+                });
         }
         $robots = $query->select()->toArray();
         if ($robots === []) {

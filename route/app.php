@@ -177,6 +177,35 @@ Route::group('api/daily-reports', function () {
     Route::post('/', 'DailyReport/create');
 })->middleware(\app\middleware\Auth::class);
 
+// Whole-hotel daily operating targets. This is intentionally separate from
+// OTA channel data and AI daily-report generation.
+Route::group('api/operating-targets', function () {
+    Route::get('/history', 'OperatingTarget/history');
+    Route::get('/snapshots', 'OperatingTarget/snapshots');
+    Route::get('/prefill/daily-report', 'OperatingTarget/prefillDailyReport');
+    Route::get('/prefill/dingdandao', 'OperatingTarget/prefillDingdandao');
+    Route::get('/pms/dingdandao/status', 'OperatingTarget/dingdandaoStatus');
+    Route::post('/pms/dingdandao/captures', 'OperatingTarget/saveDingdandaoCapture');
+    Route::get('/preview', 'OperatingTarget/preview');
+    Route::get('/report-preview', 'OperatingTarget/reportPreview');
+    Route::get('/current', 'OperatingTarget/current');
+    Route::post('/report-test-request', 'OperatingTarget/requestTestPush');
+    Route::post('/', 'OperatingTarget/save');
+})->middleware(\app\middleware\Auth::class);
+
+// User-authored hotel notifications. Dynamic operating-target delivery and
+// every attempt remain scoped to hotel 80's named test robot.
+Route::group('api/manual-notifications', function () {
+    Route::get('/metadata', 'ManualNotification/metadata');
+    Route::get('/history', 'ManualNotification/history');
+    Route::get('/dispatch-history', 'ManualNotification/dispatchHistory');
+    Route::post('/preview', 'ManualNotification/preview');
+    Route::post('/dispatches/:dispatchId/retry', 'ManualNotification/retryDispatch');
+    Route::post('/:id/test-push', 'ManualNotification/testPush');
+    Route::get('/:id', 'ManualNotification/read');
+    Route::post('/', 'ManualNotification/save');
+})->middleware(\app\middleware\Auth::class);
+
 Route::group('api/ai-daily-reports', function () {
     Route::get('/latest', 'AiDailyReport/latest');
     Route::post('/generate', 'AiDailyReport/generate');
