@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SUXIOS Dingdandao verified test-group pipeline every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=10s
+Persistent=false
+Unit=suxios-dingdandao-notification-pipeline.service
+
+[Install]
+WantedBy=timers.target

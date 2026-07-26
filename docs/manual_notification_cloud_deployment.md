@@ -106,3 +106,64 @@ sudo bash deploy/systemd/install_manual_notification_test_dispatch.sh \
 ```bash
 sudo systemctl disable --now suxios-manual-notification-test-dispatch.timer
 ```
+
+## 订单来了经营目标：采集后再发送
+
+订单来了作为经营目标数据源时，不启用上面的“仅发送”timer，改用组合流水线：
+
+```text
+到点检查
+  -> 云端已登录 Profile 只读采集今日住宿数据
+  -> 门店身份、日期、六项汇总、房费明细合计、数据库回读
+  -> 同步到住宿房费口径经营目标（保留人工目标金额）
+  -> 报告门禁
+  -> 仅测试群机器人发送
+  -> 调度、采集、阻断、发送与重试记录
+```
+
+先只读检查，不安装、不发送：
+
+```bash
+sudo bash deploy/systemd/install_dingdandao_notification_pipeline.sh \
+  --release-root /var/www/suxios/current \
+  --hotel-id <HOTEL_ID> \
+  --robot-id <ROBOT_ID> \
+  --owner-user-id <OWNER_USER_ID> \
+  --profile-id <DINGDANDAO_PROFILE_ID>
+```
+
+安装但保持禁用：
+
+```bash
+sudo bash deploy/systemd/install_dingdandao_notification_pipeline.sh \
+  --release-root /var/www/suxios/current \
+  --hotel-id <HOTEL_ID> \
+  --robot-id <ROBOT_ID> \
+  --owner-user-id <OWNER_USER_ID> \
+  --profile-id <DINGDANDAO_PROFILE_ID> \
+  --install
+```
+
+只有云端 Profile 已完成真实登录、测试群绑定正确、启用计划已保存并取得真实发送授权后，
+才可执行唯一启用动作：
+
+```bash
+sudo bash deploy/systemd/install_dingdandao_notification_pipeline.sh \
+  --release-root /var/www/suxios/current \
+  --hotel-id <HOTEL_ID> \
+  --robot-id <ROBOT_ID> \
+  --owner-user-id <OWNER_USER_ID> \
+  --profile-id <DINGDANDAO_PROFILE_ID> \
+  --install \
+  --enable-test-dispatch
+```
+
+组合流水线与 `suxios-manual-notification-test-dispatch.timer` 不得同时启用，
+避免同一分钟重复发送。流水线在数据缺失、登录过期、门店身份不匹配、明细对账失败、
+经营目标口径不一致或报告门禁未通过时，必须保存阻断状态并停止在企业微信调用之前。
+
+回滚：
+
+```bash
+sudo systemctl disable --now suxios-dingdandao-notification-pipeline.timer
+```
