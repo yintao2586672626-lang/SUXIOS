@@ -70,7 +70,7 @@ final class OnlineDataTenantScopeTest extends TestCase
         $controller->releaseEvidenceStatus();
     }
 
-    public function testReleaseEvidenceRequiredInputsExposePassedPrState(): void
+    public function testReleaseEvidenceRequiredInputsRequireLiveReviewEvenWithHistoricalPrState(): void
     {
         $controller = $this->controllerWithUser($this->tenantUser([], true));
 
@@ -96,10 +96,11 @@ final class OnlineDataTenantScopeTest extends TestCase
             $byId[(string)$input['id']] = $input;
         }
 
-        self::assertSame('missing', $byId['design_handoff_manifest']['status']);
-        self::assertSame('missing', $byId['ota_credential_rotation_attestation']['status']);
-        self::assertSame('passed', $byId['final_release_pr_and_local_state']['status']);
-        self::assertStringContainsString('review:release-external-state passed', $byId['final_release_pr_and_local_state']['success_evidence']);
+        self::assertSame('open', $byId['design_handoff_manifest']['status']);
+        self::assertSame('open', $byId['ota_credential_rotation_attestation']['status']);
+        self::assertSame('live_review_required', $byId['final_release_pr_and_local_state']['status']);
+        self::assertSame('', $byId['final_release_pr_and_local_state']['success_evidence']);
+        self::assertStringContainsString('review:release-external-state', $byId['final_release_pr_and_local_state']['next_action']);
     }
 
     public function testReleaseEvidenceRequiredInputsFollowClosedBlockers(): void
@@ -129,10 +130,10 @@ final class OnlineDataTenantScopeTest extends TestCase
             $byId[(string)$input['id']] = $input;
         }
 
-        self::assertSame('passed', $byId['design_handoff_manifest']['status']);
-        self::assertStringContainsString('controlled design manifest', $byId['design_handoff_manifest']['success_evidence']);
-        self::assertSame('missing', $byId['ota_credential_rotation_attestation']['status']);
-        self::assertSame('passed', $byId['final_release_pr_and_local_state']['status']);
+        self::assertSame('closed', $byId['design_handoff_manifest']['status']);
+        self::assertSame('', $byId['design_handoff_manifest']['success_evidence']);
+        self::assertSame('open', $byId['ota_credential_rotation_attestation']['status']);
+        self::assertSame('live_review_required', $byId['final_release_pr_and_local_state']['status']);
     }
 
     private function controllerWithUser(object $user): OnlineData
