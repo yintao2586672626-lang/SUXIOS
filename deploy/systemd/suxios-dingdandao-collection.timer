@@ -1,0 +1,12 @@
+[Unit]
+Description=Prepare hourly SUXIOS Dingdandao current-day collection
+
+[Timer]
+OnCalendar=*-*-* *:05:00
+AccuracySec=30s
+RandomizedDelaySec=30s
+Persistent=false
+Unit=suxios-dingdandao-collection.service
+
+[Install]
+WantedBy=timers.target

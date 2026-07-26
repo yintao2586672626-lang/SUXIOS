@@ -45,6 +45,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
 
     protected function setUp(): void
     {
+        Db::execute('DROP TRIGGER IF EXISTS mutate_dingdandao_detail_readback');
         Db::name('dingdandao_room_fee_capture_details')->delete(true);
         Db::name('dingdandao_operating_target_captures')->delete(true);
     }
@@ -169,8 +170,137 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertSame('verified', $first['quality_status']);
         self::assertSame('readback_verified', $first['readback_status']);
         self::assertSame($first['id'], $second['id']);
+        self::assertCount(6, $first['auxiliary_query_status']);
+        self::assertSame(
+            'readable_not_promoted',
+            $first['auxiliary_query_status'][0]['status']
+        );
+        self::assertSame('county_diagnostic_only', $first['county_context']['fact_scope']);
+        self::assertSame('readable_separate', $first['county_context']['data_status']);
+        self::assertFalse($first['county_context']['bool_city']);
+        self::assertSame(4573.08, $first['county_context']['summary']['total_room_fee']);
+        self::assertSame(10135.29, $first['summary']['total_room_fee']);
+        $storedSnapshot = json_decode((string)Db::name('dingdandao_operating_target_captures')
+            ->where('id', (int)$first['id'])
+            ->value('snapshot_json'), true);
+        self::assertSame('dingdandao_operating_target_capture.v2', $storedSnapshot['contract_version']);
+        self::assertSame(
+            $first['county_context'],
+            $storedSnapshot['county_context']
+        );
         self::assertSame(1, (int)Db::name('dingdandao_operating_target_captures')->count());
         self::assertSame(17, (int)Db::name('dingdandao_room_fee_capture_details')->count());
+    }
+
+    public function testCountyContextChangesFingerprintWithoutChangingHotelSummary(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $firstInput = $this->validInput();
+        $first = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $firstInput,
+            true,
+            'provider-hotel-5'
+        );
+        $secondInput = $this->validInput();
+        $secondInput['county_context']['summary']['total_room_fee'] = 4571.44;
+        $secondInput['county_context']['trend']['total_room_fee'][1]['value'] = 4571.44;
+        $second = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $secondInput,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertNotSame($first['source_fingerprint'], $second['source_fingerprint']);
+        self::assertNotSame($first['id'], $second['id']);
+        self::assertSame(10135.29, $first['summary']['total_room_fee']);
+        self::assertSame(10135.29, $second['summary']['total_room_fee']);
+        self::assertSame(4571.44, $second['county_context']['summary']['total_room_fee']);
+        self::assertSame(
+            [10135.29, 10135.29],
+            array_map(
+                'floatval',
+                Db::name('dingdandao_operating_target_captures')
+                    ->order('id', 'asc')
+                    ->column('total_room_fee')
+            )
+        );
+    }
+
+    public function testMissingCountyContextIsPartialWithoutHotelFallback(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        unset($input['county_context']);
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame('partial', $capture['county_context']['data_status']);
+        self::assertSame('county_diagnostic_only', $capture['county_context']['fact_scope']);
+        self::assertSame(
+            array_fill_keys([
+                'total_room_fee',
+                'adr',
+                'occupancy_rate_percent',
+                'revpar',
+                'sold_room_nights',
+                'average_daily_room_nights',
+            ], null),
+            $capture['county_context']['summary']
+        );
+        self::assertSame(10135.29, $capture['summary']['total_room_fee']);
+    }
+
+    public function testUnknownAuxiliaryPathIsRejectedBeforePersistence(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['auxiliary_query_status'][0]['api_path'] = '/v2/unknown';
+
+        try {
+            $service->save(8, 5, 7, '敦煌漠蓝新', $input, true, 'provider-hotel-5');
+            self::fail('unknown auxiliary paths must not enter a trusted snapshot');
+        } catch (\InvalidArgumentException $error) {
+            self::assertSame('dingdandao_capture_auxiliary_invalid', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
+    }
+
+    public function testUncontrolledCountyTraceIsRejectedBeforePersistence(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['county_context']['field_trace']['summary'] = 'API:/untrusted#data';
+
+        try {
+            $service->save(8, 5, 7, '敦煌漠蓝新', $input, true, 'provider-hotel-5');
+            self::fail('uncontrolled county traces must not enter a trusted snapshot');
+        } catch (\InvalidArgumentException $error) {
+            self::assertSame('dingdandao_capture_county_invalid', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
     }
 
     public function testTrustedCaptureRejectsWrongProviderAnchorBeforeWriting(): void
@@ -189,6 +319,29 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
                 'different-provider-hotel'
             );
             self::fail('wrong provider anchor must be rejected');
+        } catch (\InvalidArgumentException $error) {
+            self::assertSame('dingdandao_capture_not_verified', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
+    }
+
+    public function testTrustedCaptureRequiresServerProviderAnchorBeforeWriting(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        try {
+            $input = $this->validInput();
+            $service->save(
+                8,
+                5,
+                7,
+                (string)$input['provider_hotel_name'],
+                $input,
+                true,
+                null
+            );
+            self::fail('trusted persistence must require a server provider anchor');
         } catch (\InvalidArgumentException $error) {
             self::assertSame('dingdandao_capture_not_verified', $error->getMessage());
         }
@@ -222,6 +375,76 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertSame('verified', $capture['quality_status']);
         self::assertSame('readback_verified', $capture['readback_status']);
         self::assertSame(18, (int)Db::name('dingdandao_room_fee_capture_details')->count());
+    }
+
+    public function testTrustedCaptureRollsBackWhenOrderedDetailReadbackWasMutated(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        Db::execute(
+            "CREATE TRIGGER mutate_dingdandao_detail_readback "
+            . "AFTER INSERT ON dingdandao_room_fee_capture_details "
+            . "WHEN NEW.source_row_index = 1 "
+            . "BEGIN UPDATE dingdandao_room_fee_capture_details "
+            . "SET room_number = 'tampered' WHERE id = NEW.id; END"
+        );
+        try {
+            $input = $this->validInput();
+            $service->save(
+                8,
+                5,
+                7,
+                (string)$input['provider_hotel_name'],
+                $input,
+                true,
+                'provider-hotel-5'
+            );
+            self::fail('mutated detail readback must not become verified');
+        } catch (\RuntimeException $error) {
+            self::assertSame('dingdandao_capture_readback_failed', $error->getMessage());
+        } finally {
+            Db::execute('DROP TRIGGER IF EXISTS mutate_dingdandao_detail_readback');
+        }
+        self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
+        self::assertSame(0, (int)Db::name('dingdandao_room_fee_capture_details')->count());
+    }
+
+    public function testTrustedRetryRechecksPersistedDetailsBeforeReusingSnapshot(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+        Db::name('dingdandao_room_fee_capture_details')
+            ->where('capture_id', (int)$capture['id'])
+            ->where('source_row_index', 1)
+            ->update(['room_number' => 'tampered-after-save']);
+
+        try {
+            $service->save(
+                8,
+                5,
+                7,
+                (string)$input['provider_hotel_name'],
+                $input,
+                true,
+                'provider-hotel-5'
+            );
+            self::fail('a trusted retry must not reuse a mutated snapshot');
+        } catch (\RuntimeException $error) {
+            self::assertSame('dingdandao_capture_readback_failed', $error->getMessage());
+        }
+        self::assertSame(1, (int)Db::name('dingdandao_operating_target_captures')->count());
     }
 
     public function testTrendPreservesRecentSourcePointsAndRejectsFutureOrStaleDates(): void
@@ -313,6 +536,67 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             'summary' => $summary,
             'room_fee_details' => $details,
             'trend' => [],
+            'auxiliary_query_status' => [
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsSumDetail',
+                    'type' => 1,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+                    'type' => 1,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsSumDetail',
+                    'type' => 2,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+                    'type' => 2,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsSumDetail',
+                    'type' => 3,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+                    'type' => 3,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                ],
+            ],
+            'county_context' => [
+                'fact_scope' => 'county_diagnostic_only',
+                'data_status' => 'readable_separate',
+                'bool_city' => false,
+                'summary' => [
+                    'total_room_fee' => 4573.08,
+                    'adr' => 411.18,
+                    'occupancy_rate_percent' => 44.10,
+                    'revpar' => 181.33,
+                    'sold_room_nights' => 11.12,
+                    'average_daily_room_nights' => 11.12,
+                ],
+                'trend' => [
+                    'total_room_fee' => [
+                        ['date' => '2026-07-26', 'value' => 5456.66],
+                        ['date' => '2026-07-27', 'value' => 4573.08],
+                    ],
+                ],
+                'field_trace' => [
+                    'summary' => 'API:/v2/um-b/web/pro/data/businessIndicatorsTotal/county#data',
+                    'trend' => 'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=5#data.list[]',
+                ],
+            ],
             'field_trace' => array_fill_keys(array_keys($summary), 'API:/api/verified-read'),
         ];
     }

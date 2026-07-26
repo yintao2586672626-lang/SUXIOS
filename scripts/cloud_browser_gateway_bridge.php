@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use app\service\CloudBrowserProfileService;
+use app\service\DingdandaoCloudCollectionService;
 use think\App;
 
 const MAX_GATEWAY_INPUT_BYTES = 8192;
@@ -27,6 +28,7 @@ require $autoload;
 
 $action = strtolower(trim((string)($input['action'] ?? '')));
 $service = new CloudBrowserProfileService();
+$dingdandaoCollection = new DingdandaoCloudCollectionService();
 
 try {
     $result = match ($action) {
@@ -51,6 +53,23 @@ try {
             requiredPositiveInt($input, 'hotel_id'),
             requiredPositiveInt($input, 'owner_user_id'),
             requiredDate($input, 'target_date')
+        ),
+        'claim_dingdandao_collection' => $dingdandaoCollection->claim(
+            requiredId($input, 'profile_id', 'cbp_'),
+            requiredId($input, 'collection_session_id', 'cbcs_'),
+            requiredPositiveInt($input, 'tenant_id'),
+            requiredPositiveInt($input, 'hotel_id'),
+            requiredPositiveInt($input, 'owner_user_id'),
+            requiredDate($input, 'target_date'),
+            requiredText($input, 'collection_kind', 40),
+            requiredText($input, 'access_mode', 20),
+            requiredText($input, 'window_expires_at', 40)
+        ),
+        'complete_dingdandao_collection' => $dingdandaoCollection->completeLifecycle(
+            requiredId($input, 'claim_id', 'cct_'),
+            requiredId($input, 'collection_session_id', 'cbcs_'),
+            requiredId($input, 'profile_id', 'cbp_'),
+            requiredText($input, 'outcome', 32)
         ),
         default => throw new RuntimeException('gateway_action_unsupported'),
     };

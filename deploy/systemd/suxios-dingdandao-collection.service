@@ -1,0 +1,35 @@
+[Unit]
+Description=SUXIOS Dingdandao read-only current-day collection
+After=network-online.target mariadb.service php8.3-fpm.service suxios-cloud-browser-gateway.service
+Wants=network-online.target
+Requires=suxios-cloud-browser-gateway.service
+ConditionPathExists=/var/www/suxios/current/scripts/run_dingdandao_cloud_collection.php
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=/etc/suxios/dingdandao-collection.env
+LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
+RuntimeDirectory=suxios-dingdandao-collection
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/bash /var/www/suxios/current/scripts/run_dingdandao_collection_once.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=suxios-dingdandao-collection
+Nice=10
+CPUQuota=30%
+MemoryMax=256M
+TasksMax=24
+TimeoutStartSec=5min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/suxios-dingdandao-collection -/var/www/suxios/current/runtime -/var/www/suxios/current/storage
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

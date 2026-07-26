@@ -28,6 +28,7 @@ const MAX_REQUEST_BYTES = 16 * 1024;
 const PROFILE_ID_PATTERN = /^cbp_[A-Za-z0-9_-]{16,64}$/;
 const SESSION_ID_PATTERN = /^cbls_[A-Za-z0-9_-]{16,64}$/;
 const COLLECTION_SESSION_ID_PATTERN = /^cbcs_[A-Za-z0-9_-]{16,64}$/;
+const COLLECTION_CLAIM_ID_PATTERN = /^cct_[A-Za-z0-9_-]{16,64}$/;
 const TICKET_PATTERN = /^[A-Za-z0-9_-]{32,96}$/;
 const LOGIN_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao)$/;
 const OTA_RECEIPT_PLATFORM_PATTERN = /^(ctrip|meituan)$/;
@@ -41,8 +42,11 @@ const DINGDANDAO_BUSINESS_QUERY_PATHS = new Map([
   ['/v2/um-b/web/pro/data/businessIndicatorsSumDetail', 'sum_detail'],
   ['/v2/um-b/web/pro/data/businessIndicatorsTrend', 'trend'],
   ['/v2/um-b/web/pro/data/businessIndicatorsDailyDetail', 'daily_detail'],
+  ['/v2/um-b/web/pro/data/businessIndicatorsTotal/county', 'county_total'],
+  ['/v2/um-b/web/pro/data/businessIndicatorsTrend/county', 'county_trend'],
 ]);
 const DINGDANDAO_DETAIL_QUERY_TYPES = new Set([0, 1, 2, 3]);
+const DINGDANDAO_TREND_QUERY_TYPES = new Set([0, 1, 2, 3, 5]);
 const SENSITIVE_KEY_PATTERN =
   /(cookie|password|authorization(?!_status)|(^|_)(token|secret|headers?|raw|html|har)(_|$)|profile[_-]?path|localstorage|sessionstorage)/i;
 
@@ -70,6 +74,15 @@ function safeReason(value, fallback = 'gateway_operation_failed') {
 function assertOpaque(value, pattern, reason) {
   const normalized = String(value || '').trim();
   if (!pattern.test(normalized)) throw new Error(reason);
+  return normalized;
+}
+
+function assertBoundedText(value, maxLength, reason) {
+  const normalized = String(value || '').trim();
+  if (normalized === ''
+    || normalized.length > maxLength
+    || /[\u0000-\u001f\u007f]/.test(normalized)
+  ) throw new Error(reason);
   return normalized;
 }
 
@@ -430,10 +443,55 @@ function validateCollectionCloseRequest(body) {
     platform: assertOpaque(body.platform, DINGDANDAO_PLATFORM_PATTERN, 'platform_invalid'),
     outcome: assertOpaque(
       body.outcome,
-      /^(completed|cancelled|session_expired|policy_blocked)$/,
+      /^(completed|cancelled|failed|session_expired|policy_blocked|report_blocked|window_expired)$/,
       'collection_outcome_invalid',
     ),
   };
+}
+
+function validateCollectionClaim(result, collection, collectionSessionId, windowExpiresAt) {
+  const claimId = assertOpaque(
+    result?.claim_id,
+    COLLECTION_CLAIM_ID_PATTERN,
+    'collection_claim_id_invalid',
+  );
+  const providerHotelName = assertBoundedText(
+    result?.provider_hotel_name,
+    160,
+    'collection_provider_hotel_name_invalid',
+  );
+  if (result?.claimed !== true
+    || result?.collection_session_id !== collectionSessionId
+    || result?.profile_id !== collection.profileId
+    || result?.platform !== collection.platform
+    || result?.tenant_id !== collection.tenantId
+    || result?.hotel_id !== collection.hotelId
+    || result?.owner_user_id !== collection.ownerUserId
+    || result?.target_date !== collection.targetDate
+    || result?.collection_kind !== collection.collectionKind
+    || result?.access_mode !== collection.accessMode
+    || result?.source_scope !== 'today_only'
+    || result?.window_expires_at !== windowExpiresAt
+    || result?.lifecycle_status !== 'open'
+    || result?.data_status !== 'unverified'
+  ) {
+    throw new Error('collection_claim_scope_mismatch');
+  }
+  return { claimId, providerHotelName };
+}
+
+function validateCollectionCompletion(result, session, outcome) {
+  if (result?.completed !== true
+    || result?.claim_id !== session.claimId
+    || result?.collection_session_id !== session.collectionSessionId
+    || result?.profile_id !== session.profileId
+    || result?.outcome !== outcome
+    || result?.lifecycle_status !== 'closed'
+    || result?.data_status !== 'unverified'
+  ) {
+    throw new Error('collection_completion_scope_mismatch');
+  }
+  return result;
 }
 
 async function bridge(config, action, payload) {
@@ -448,7 +506,7 @@ async function bridge(config, action, payload) {
   return parsed.result;
 }
 
-function platformStartUrl(platform) {
+export function platformStartUrl(platform) {
   const urls = {
     ctrip: 'https://ebooking.ctrip.com/home/mainland',
     meituan: 'https://me.meituan.com/ebooking/',
@@ -536,7 +594,7 @@ async function waitForBrowserPage(config, child, timeoutMs = 12000) {
   throw new Error('browser_cdp_not_ready');
 }
 
-function shanghaiToday(now = new Date()) {
+export function shanghaiToday(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric',
@@ -569,13 +627,16 @@ function dingdandaoReadOnlyPostBodyAllowed(path, postData, today) {
     || !DATE_PATTERN.test(body.startDate)
   ) return false;
   const keys = Object.keys(body).sort().join(',');
-  if (queryKind === 'total') {
+  if (['total', 'county_total'].includes(queryKind)) {
     return keys === 'TIMEZONEOFFSET,endDate,festivalType,ntwNum,startDate'
       && body.festivalType === -1200;
   }
   if (keys !== 'TIMEZONEOFFSET,endDate,ntwNum,startDate,type') return false;
+  if (queryKind === 'county_trend') {
+    return body.type === 5;
+  }
   if (queryKind === 'trend') {
-    return Number.isInteger(body.type) && body.type >= 0 && body.type <= 5;
+    return DINGDANDAO_TREND_QUERY_TYPES.has(body.type);
   }
   return DINGDANDAO_DETAIL_QUERY_TYPES.has(body.type);
 }
@@ -720,8 +781,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
     || ((action, payload) => bridge(config, action, payload));
   const startBrowserCall = dependencies.startBrowser || startBrowser;
   const stopBrowserCall = dependencies.stopBrowser || stopBrowser;
-  const installReadOnlyPolicyCall = dependencies.installReadOnlyPolicy
-    || installDingdandaoReadOnlyPolicy;
+  const nowCall = dependencies.now || (() => new Date());
   const [key, controlToken] = await Promise.all([
     readFile(config.keyFile).then(decodeMasterKey),
     readSecret(config.controlTokenFile, 'gateway_control_token_invalid'),
@@ -743,6 +803,54 @@ export async function createGateway(env = process.env, dependencies = {}) {
     sessions.delete(session.key);
   }
 
+  async function closeCollectionLease(session) {
+    clearTimeout(session.timeout);
+    if (session.leaseClosed === true) return;
+    session.leaseClosed = true;
+    session.state = 'lease_closed';
+  }
+
+  async function completeCollectionLifecycle(session, outcome, receiptKind = 'collection_profile_closed') {
+    const completed = validateCollectionCompletion(
+      await bridgeCall('complete_dingdandao_collection', {
+        claim_id: session.claimId,
+        collection_session_id: session.collectionSessionId,
+        profile_id: session.profileId,
+        outcome,
+      }),
+      session,
+      outcome,
+    );
+    session.state = 'server_completed';
+    const receipt = await receipts.append(receiptKind, {
+      claim_id: session.claimId,
+      collection_session_id: session.collectionSessionId,
+      profile_id: session.profileId,
+      platform: session.platform,
+      tenant_id: session.tenantId,
+      hotel_id: session.hotelId,
+      owner_user_id: session.ownerUserId,
+      target_date: session.targetDate,
+      access_mode: session.accessMode,
+      outcome,
+      existing_browser_required: true,
+      existing_browser_closed: false,
+      profile_mutated: false,
+      data_status: completed.data_status,
+    });
+    sessions.delete(session.key);
+    return { completed, receipt };
+  }
+
+  async function finalizeCollectionSession(
+    session,
+    outcome,
+    receiptKind = 'collection_profile_closed',
+  ) {
+    await closeCollectionLease(session);
+    return await completeCollectionLifecycle(session, outcome, receiptKind);
+  }
+
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || '/', `http://${config.bindAddress}:${config.port}`);
     try {
@@ -751,6 +859,8 @@ export async function createGateway(env = process.env, dependencies = {}) {
           .filter((session) => session.kind === 'login').length;
         const activeCollectionSessions = [...sessions.values()]
           .filter((session) => session.kind === 'dingdandao_collection').length;
+        const activeBrowserSessions = [...sessions.values()]
+          .filter((session) => session.kind === 'login' && session.browser).length;
         jsonResponse(response, 200, {
           status: 'ok',
           bind: config.bindAddress,
@@ -758,7 +868,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
           receipt_chain_valid: await receipts.verify(),
           active_login_sessions: activeLoginSessions,
           active_collection_sessions: activeCollectionSessions,
-          active_browser_sessions: sessions.size,
+          active_browser_sessions: activeBrowserSessions,
           browser_autostart: false,
           read_only_policy_runtime: typeof WebSocket === 'function',
         });
@@ -863,80 +973,109 @@ export async function createGateway(env = process.env, dependencies = {}) {
           jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
           return;
         }
-        const collection = validateCollectionOpenRequest(await jsonBody(request));
+        const collectionBody = await jsonBody(request);
+        assertNoSensitiveMaterial(collectionBody);
+        const collection = validateCollectionOpenRequest(collectionBody);
+        const now = nowCall();
+        if (!(now instanceof Date)
+          || !Number.isFinite(now.getTime())
+          || collection.targetDate !== shanghaiToday(now)
+        ) {
+          throw new GatewayError('collection_target_date_not_today', 422);
+        }
         if (sessions.size > 0) {
           throw new GatewayError('gateway_collection_capacity_busy', 409);
         }
-        const validated = await bridgeCall('validate_dingdandao_collection', {
-          profile_id: collection.profileId,
-          tenant_id: collection.tenantId,
-          hotel_id: collection.hotelId,
-          owner_user_id: collection.ownerUserId,
-          target_date: collection.targetDate,
-        });
-        if (validated?.validated !== true
-          || validated?.profile?.profile_id !== collection.profileId
-          || validated?.profile?.platform !== collection.platform
-          || validated?.tenant_id !== collection.tenantId
-          || validated?.hotel_id !== collection.hotelId
-          || validated?.owner_user_id !== collection.ownerUserId
-          || validated?.target_date !== collection.targetDate
-          || validated?.collection_kind !== collection.collectionKind
-          || validated?.access_mode !== collection.accessMode
-        ) {
-          throw new Error('collection_scope_mismatch');
-        }
-
         const collectionSessionId = `cbcs_${randomBytes(18).toString('base64url')}`;
-        const profilePath = await vault.restore(collection.profileId);
-        let browser;
-        let guard;
-        try {
-          browser = await startBrowserCall(config, profilePath, collection.platform, 'about:blank');
-          guard = await installReadOnlyPolicyCall(config, browser);
-        } catch {
-          guard?.close();
-          await stopBrowserCall(browser);
-          try {
-            await vault.seal(collection.profileId);
-          } catch {
-            throw new GatewayError('profile_seal_failed', 500);
-          }
-          throw new GatewayError('read_only_policy_setup_failed', 500);
-        }
-
+        const expiresAt = new Date(
+          now.getTime() + config.collectionTtlSeconds * 1000,
+        ).toISOString();
         const session = {
           ...collection,
           kind: 'dingdandao_collection',
           key: collectionSessionId,
           collectionSessionId,
-          browser,
-          guard,
-          openedAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + config.collectionTtlSeconds * 1000).toISOString(),
+          claimId: null,
+          providerHotelName: null,
+          leaseClosed: false,
+          state: 'claiming',
+          openedAt: now.toISOString(),
+          expiresAt,
+          timeout: null,
         };
+        sessions.set(collectionSessionId, session);
+
+        try {
+          const claimed = await bridgeCall('claim_dingdandao_collection', {
+            profile_id: collection.profileId,
+            collection_session_id: collectionSessionId,
+            tenant_id: collection.tenantId,
+            hotel_id: collection.hotelId,
+            owner_user_id: collection.ownerUserId,
+            target_date: collection.targetDate,
+            collection_kind: collection.collectionKind,
+            access_mode: collection.accessMode,
+            window_expires_at: expiresAt,
+          });
+          const validatedClaim = validateCollectionClaim(
+            claimed,
+            collection,
+            collectionSessionId,
+            expiresAt,
+          );
+          session.claimId = validatedClaim.claimId;
+          session.providerHotelName = validatedClaim.providerHotelName;
+          session.state = 'claimed';
+        } catch (error) {
+          sessions.delete(collectionSessionId);
+          throw new GatewayError(publicError(error), 422);
+        }
+
+        try {
+          session.state = 'open';
+          await receipts.append('collection_window_opened', {
+            claim_id: session.claimId,
+            collection_session_id: collectionSessionId,
+            profile_id: collection.profileId,
+            platform: collection.platform,
+            tenant_id: collection.tenantId,
+            hotel_id: collection.hotelId,
+            owner_user_id: collection.ownerUserId,
+            target_date: collection.targetDate,
+            access_mode: collection.accessMode,
+            status: 'open',
+            collection_transport: 'existing_session_direct_post',
+            browser_started: false,
+            profile_mutated: false,
+          });
+        } catch {
+          try {
+            await finalizeCollectionSession(
+              session,
+              'cancelled',
+              'collection_open_failed',
+            );
+          } catch {
+            throw new GatewayError('collection_claim_completion_failed', 500);
+          }
+          throw new GatewayError('collection_open_receipt_failed', 500);
+        }
+
         session.timeout = setTimeout(async () => {
           try {
-            await closeSession(session);
-            await receipts.append('collection_window_timeout', {
-              collection_session_id: session.collectionSessionId,
-              profile_id: session.profileId,
-              platform: session.platform,
-              tenant_id: session.tenantId,
-              hotel_id: session.hotelId,
-              owner_user_id: session.ownerUserId,
-              target_date: session.targetDate,
-              access_mode: session.accessMode,
-              status: 'expired',
-            });
+            await finalizeCollectionSession(
+              session,
+              'window_expired',
+              'collection_window_timeout',
+            );
           } catch {
-            // Keep capacity fail-closed if the Profile could not be sealed.
+            // Keep the claimed session fail-closed for an idempotent completion retry.
           }
         }, config.collectionTtlSeconds * 1000);
         session.timeout.unref();
-        sessions.set(collectionSessionId, session);
         jsonResponse(response, 201, {
           status: 'collection_open',
+          claim_id: session.claimId,
           collection_session_id: collectionSessionId,
           profile_id: collection.profileId,
           platform: collection.platform,
@@ -949,8 +1088,11 @@ export async function createGateway(env = process.env, dependencies = {}) {
           source_scope: 'today_only',
           access_mode: 'read_only',
           read_only_enforced: true,
-          expires_at: session.expiresAt,
-          browser_started: true,
+          collection_transport: 'existing_session_direct_post',
+          existing_session_required: true,
+          expires_at: expiresAt,
+          browser_started: false,
+          profile_mutated: false,
         });
         return;
       }
@@ -960,7 +1102,9 @@ export async function createGateway(env = process.env, dependencies = {}) {
           jsonResponse(response, 401, { status: 'failed', reason: 'gateway_control_auth_required' });
           return;
         }
-        const collection = validateCollectionCloseRequest(await jsonBody(request));
+        const collectionBody = await jsonBody(request);
+        assertNoSensitiveMaterial(collectionBody);
+        const collection = validateCollectionCloseRequest(collectionBody);
         const session = sessions.get(collection.collectionSessionId);
         if (!session
           || session.kind !== 'dingdandao_collection'
@@ -969,38 +1113,21 @@ export async function createGateway(env = process.env, dependencies = {}) {
         ) {
           throw new GatewayError('active_collection_session_not_found', 404);
         }
+        let finalized;
         try {
-          await closeSession(session);
+          finalized = await finalizeCollectionSession(session, collection.outcome);
         } catch {
-          throw new GatewayError('profile_seal_failed', 500);
+          throw new GatewayError('collection_claim_completion_failed', 500);
         }
-        if (collection.outcome === 'session_expired') {
-          await bridgeCall('expire_profile', {
-            profile_id: collection.profileId,
-            reason: 'dingdandao_session_expired',
-          });
-        }
-        const receipt = await receipts.append('collection_profile_closed', {
-          collection_session_id: collection.collectionSessionId,
-          profile_id: collection.profileId,
-          platform: collection.platform,
-          tenant_id: session.tenantId,
-          hotel_id: session.hotelId,
-          owner_user_id: session.ownerUserId,
-          target_date: session.targetDate,
-          access_mode: session.accessMode,
-          outcome: collection.outcome,
-          profile_sealed: true,
-          data_status: 'unverified',
-        });
         jsonResponse(response, 200, {
           status: 'collection_closed',
           collection_session_id: collection.collectionSessionId,
           browser_started: false,
-          profile_sealed: true,
-          data_status: 'unverified',
-          receipt_id: receipt.receipt_id,
-          receipt_hash: receipt.receipt_hash,
+          existing_browser_closed: false,
+          profile_mutated: false,
+          data_status: finalized.completed.data_status,
+          receipt_id: finalized.receipt.receipt_id,
+          receipt_hash: finalized.receipt.receipt_hash,
         });
         return;
       }

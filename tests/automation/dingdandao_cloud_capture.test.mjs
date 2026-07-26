@@ -1,146 +1,47 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
-  buildCaptureFromDingdandaoResponses,
-  buildCaptureFromSnapshot,
+  classifyDingdandaoResponseRequest,
+  collectDingdandaoDirect,
+  dingdandaoDirectRequests,
+  dingdandaoSessionMaterialFromStorage,
   DINGDANDAO_API_PATHS,
   DINGDANDAO_DETAIL_TYPES,
   DINGDANDAO_TREND_TYPES,
-  extractNetworkCandidate,
+  isTrustedDingdandaoCaptureComplete,
+  readDingdandaoSessionMaterial,
+  shanghaiToday,
 } from '../../scripts/dingdandao_cloud_capture.mjs';
 
-const hotelName = '\u6566\u714c\u6f20\u84dd\u65b0';
+const providerHotelName = '\u6566\u714c\u6f20\u84dd';
+const providerHotelId = 'provider-hotel-5';
 
-test('visible same-day facts map to a sanitized Dingdandao capture without defaults', () => {
-  const rows = Array.from({ length: 16 }, (_, index) => [
-    '\u5927\u5e8a\u623f',
-    `R${index + 1}`,
-    String(index === 15 ? 633.39 : 633.46),
-  ]);
-  rows.push(['', '\u5408\u8ba1', '10135.29']);
-  const capture = buildCaptureFromSnapshot({
-    bodyText: [
-      '\u7ecf\u8425\u6307\u6807',
-      '\u603b\u623f\u8d39', '10135.29',
-      'ADR', '633.46',
-      '\u5165\u4f4f\u7387', '100%',
-      'RevPAR', '633.46',
-      '\u7d2f\u8ba1\u552e\u51fa\u95f4\u591c', '16',
-      '\u5e73\u5747\u6bcf\u65e5\u95f4\u591c', '16',
-      '\u7edf\u8ba1\u65e5\u671f\uff1a2026-07-27',
-    ].join('\n'),
-    controls: [{
-      label: '\u5f53\u524d\u95e8\u5e97',
-      context: '\u95e8\u5e97\u9009\u62e9',
-      selectedText: hotelName,
-      optionValue: 'provider-hotel-5',
-      authoritative: true,
-    }],
-    tables: [{
-      headers: ['\u623f\u578b', '\u623f\u95f4', '\u623f\u8d39'],
-      rows,
-    }],
-  }, {
-    expectedHotelName: hotelName,
-    targetDate: '2026-07-27',
-    capturedAt: '2026-07-27T08:00:00+08:00',
-  });
-
-  assert.equal(capture.business_date, '2026-07-27');
-  assert.equal(capture.provider_hotel_id, 'provider-hotel-5');
-  assert.equal(capture.provider_hotel_name, hotelName);
-  assert.equal(capture.identity_evidence_type, 'platform_store_selector');
-  assert.deepEqual(capture.summary, {
-    total_room_fee: 10135.29,
-    adr: 633.46,
-    occupancy_rate_percent: 100,
-    revpar: 633.46,
-    sold_room_nights: 16,
-    average_daily_room_nights: 16,
-  });
-  assert.equal(capture.room_fee_details.filter((row) => row.row_kind === 'room').length, 16);
-  assert.equal(capture.room_fee_details.at(-1).row_kind, 'grand_total');
-  assert.equal(capture.target_date_matches, true);
-  assert.equal(capture.capture_method, 'browser_assist_dom');
-  assert.equal(Object.keys(capture.field_trace).length, 6);
-});
-
-test('structured same-origin response is accepted only when one object contains all facts', () => {
-  const incomplete = extractNetworkCandidate({
-    data: { totalRoomFee: 10135.29, adr: 633.46, hotelName },
-  }, '/api/incomplete');
-  assert.equal(incomplete, null);
-
-  const complete = extractNetworkCandidate({
-    data: {
-      totalRoomFee: 10135.29,
-      adr: 633.46,
-      occupancyRate: 100,
-      revpar: 633.46,
-      soldRoomNights: 16,
-      averageDailyRoomNights: 16,
-      hotelId: 'provider-hotel-5',
-      hotelName,
-      businessDate: '2026-07-27',
-    },
-  }, '/api/verified-read');
-  assert.equal(complete.present, 6);
-  assert.equal(complete.provider_hotel_id, 'provider-hotel-5');
-  assert.equal(complete.business_date, '2026-07-27');
-  assert.match(complete.field_trace.total_room_fee, /^API:\/api\/verified-read#/);
-});
-
-test('real Dingdandao response shapes preserve zero room facts and hierarchy totals', () => {
-  const targetDate = '2026-07-27';
-  const ok = (path, data, queryType = undefined) => ({
-    method: 'POST',
-    path,
-    status: 200,
-    ...(queryType === undefined ? {} : { query_type: queryType }),
-    payload: { code: '1', msg: '\u6210\u529f', data },
-  });
-  const records = [
-    ok(DINGDANDAO_API_PATHS.identity, {
-      id: 'provider-hotel-5',
-      name: hotelName,
-    }),
-    ok(`${DINGDANDAO_API_PATHS.total}/county`, {
-      totalRoomFee: 4573.08,
-      adr: 411.18,
-      occ: 44.1,
-      revPar: 181.33,
-      totalSalesNight: 11.12,
-      adn: 11.12,
-    }),
-    ok(DINGDANDAO_API_PATHS.total, {
+function responseData(path, type, targetDate) {
+  if (path === DINGDANDAO_API_PATHS.identity) {
+    return { id: providerHotelId, name: providerHotelName };
+  }
+  if (path === DINGDANDAO_API_PATHS.total) {
+    return {
       totalRoomFee: 6450.14,
       adr: 645.01,
       occ: 66.67,
       revPar: 430.01,
       totalSalesNight: 10,
       adn: 10,
-    }),
-    ok(DINGDANDAO_API_PATHS.sumDetail, {
-      list: [{
-        roomTypeId: 'wrong-room-type',
-        roomTypeName: '\u95f4\u591c\u660e\u7ec6',
-      }],
-    }, DINGDANDAO_DETAIL_TYPES.roomNights),
-    ok(DINGDANDAO_API_PATHS.sumDetail, {
+    };
+  }
+  if (path === DINGDANDAO_API_PATHS.sumDetail) {
+    return {
       list: [{
         roomTypeId: 'room-type-1',
         roomTypeName: '\u666f\u89c2\u5927\u5e8a\u623f',
+        roomList: [{ sum: type === 0 ? 6450.14 : 10 }],
       }],
-    }, DINGDANDAO_DETAIL_TYPES.roomFee),
-    ok(DINGDANDAO_API_PATHS.dailyDetail, {
-      list: [{
-        roomTypeId: 'wrong-room-type',
-        roomId: 'wrong-room',
-        roomName: 'wrong-room',
-        dailyRoomRate: [{ date: targetDate, price: 10 }],
-      }],
-    }, DINGDANDAO_DETAIL_TYPES.roomNights),
-    ok(DINGDANDAO_API_PATHS.dailyDetail, {
+    };
+  }
+  if (path === DINGDANDAO_API_PATHS.dailyDetail && type === 0) {
+    return {
       list: [
         {
           roomTypeId: 'room-type-1',
@@ -152,7 +53,7 @@ test('real Dingdandao response shapes preserve zero room facts and hierarchy tot
           roomTypeId: 'room-type-1',
           roomId: 'room-2',
           roomName: 'V22',
-          dailyRoomRate: [{ date: targetDate, price: 1038 }],
+          dailyRoomRate: [{ date: targetDate, price: 6450.14 }],
         },
         {
           roomTypeId: 'room-type-1',
@@ -164,7 +65,7 @@ test('real Dingdandao response shapes preserve zero room facts and hierarchy tot
           roomTypeId: 'room-type-1',
           roomId: null,
           roomName: '\u666f\u89c2\u5927\u5e8a\u623f\u5c0f\u8ba1',
-          dailyRoomRate: [{ date: targetDate, price: 1038 }],
+          dailyRoomRate: [{ date: targetDate, price: 6450.14 }],
         },
         {
           roomTypeId: null,
@@ -173,66 +74,528 @@ test('real Dingdandao response shapes preserve zero room facts and hierarchy tot
           dailyRoomRate: [{ date: targetDate, price: 6450.14 }],
         },
       ],
-    }, DINGDANDAO_DETAIL_TYPES.roomFee),
-    ok(`${DINGDANDAO_API_PATHS.trend}/county`, {
-      list: [
-        { date: '2026-07-26', value: 5456.66 },
-        { date: targetDate, value: 4573.08 },
-      ],
-    }, DINGDANDAO_TREND_TYPES.totalRoomFee),
-    ok(DINGDANDAO_API_PATHS.trend, {
-      list: [{ date: targetDate, value: 10 }],
-    }, 0),
-    ok(DINGDANDAO_API_PATHS.trend, {
+    };
+  }
+  if (path === DINGDANDAO_API_PATHS.dailyDetail) {
+    return {
+      list: [{
+        roomTypeId: 'room-type-1',
+        roomId: 'room-1',
+        roomName: 'V21',
+        dailyRoomRate: [{ date: targetDate, price: type }],
+      }],
+    };
+  }
+  if (path === DINGDANDAO_API_PATHS.trend) {
+    return {
       list: [
         { date: '2026-07-26', value: 10679.29 },
         { date: targetDate, value: 6450.14 },
-        { date: '2026-07-28', value: 99999 },
       ],
-    }, DINGDANDAO_TREND_TYPES.totalRoomFee),
-  ];
+    };
+  }
+  if (path === DINGDANDAO_API_PATHS.countyTotal) {
+    return {
+      boolCity: true,
+      totalRoomFee: 4573.08,
+      adr: 411.18,
+      occ: 44.1,
+      revPar: 181.33,
+      totalSalesNight: 11.12,
+      adn: 11.12,
+    };
+  }
+  if (path === DINGDANDAO_API_PATHS.countyTrend) {
+    return {
+      boolCity: true,
+      list: [{ date: targetDate, value: 4573.08 }],
+    };
+  }
+  throw new Error('unexpected_test_path');
+}
 
-  const capture = buildCaptureFromDingdandaoResponses(records, {
+test('session material accepts only the verified localStorage mapping and same-origin cookies', () => {
+  const now = new Date('2026-07-27T02:00:00.000Z');
+  const material = dingdandaoSessionMaterialFromStorage({
+    now,
+    userAgent: 'Mozilla/5.0 test-current-browser',
+    entries: [
+      ['networkInfo', JSON.stringify({
+        ntwNum: 'network_123',
+        ntwInviteCode: 'network_123',
+      })],
+      ['networkNumNew', 'network_123'],
+      ['ntwIdNew', 'must_not_be_used'],
+      ['token', 'local-storage-token-value'],
+    ],
+    cookies: [{
+      name: 'sid',
+      value: 'cookie-value',
+      domain: '.dingdandao.com',
+      path: '/',
+      expires: -1,
+    }],
+  });
+  assert.deepEqual(material, {
+    ntwNum: 'network_123',
+    token: 'local-storage-token-value',
+    cookieHeader: 'sid=cookie-value',
+    userAgent: 'Mozilla/5.0 test-current-browser',
+  });
+
+  assert.throws(() => dingdandaoSessionMaterialFromStorage({
+    now,
+    userAgent: 'Mozilla/5.0 test-current-browser',
+    entries: [
+      ['networkInfo', JSON.stringify({
+        ntwNum: 'network_123',
+        ntwInviteCode: 'different_network',
+      })],
+      ['networkNumNew', 'network_123'],
+      ['token', 'local-storage-token-value'],
+    ],
+    cookies: [{
+      name: 'sid',
+      value: 'cookie-value',
+      domain: '.dingdandao.com',
+      path: '/',
+      expires: -1,
+    }],
+  }), /capture_session_expired/);
+
+  assert.throws(() => dingdandaoSessionMaterialFromStorage({
+    now,
+    userAgent: 'Mozilla/5.0 test-current-browser',
+    entries: [
+      ['ntwIdNew', 'network_123'],
+      ['token', 'local-storage-token-value'],
+    ],
+    cookies: [{
+      name: 'sid',
+      value: 'cookie-value',
+      domain: '.dingdandao.com',
+      path: '/',
+      expires: -1,
+    }],
+  }), /capture_session_expired/);
+});
+
+test('direct request plan contains only the 13 verified current-day POST contracts', () => {
+  const targetDate = '2026-07-27';
+  const requests = dingdandaoDirectRequests('network_123', targetDate);
+  assert.equal(requests.length, 13);
+  assert.deepEqual(requests.map((request) => request.path), [
+    DINGDANDAO_API_PATHS.identity,
+    DINGDANDAO_API_PATHS.total,
+    DINGDANDAO_API_PATHS.sumDetail,
+    DINGDANDAO_API_PATHS.dailyDetail,
+    DINGDANDAO_API_PATHS.sumDetail,
+    DINGDANDAO_API_PATHS.dailyDetail,
+    DINGDANDAO_API_PATHS.sumDetail,
+    DINGDANDAO_API_PATHS.dailyDetail,
+    DINGDANDAO_API_PATHS.sumDetail,
+    DINGDANDAO_API_PATHS.dailyDetail,
+    DINGDANDAO_API_PATHS.trend,
+    DINGDANDAO_API_PATHS.countyTotal,
+    DINGDANDAO_API_PATHS.countyTrend,
+  ]);
+  assert.deepEqual(
+    requests
+      .filter((request) => request.path === DINGDANDAO_API_PATHS.sumDetail)
+      .map((request) => request.body.type),
+    [0, 1, 2, 3],
+  );
+  assert.deepEqual(
+    requests
+      .filter((request) => request.path === DINGDANDAO_API_PATHS.dailyDetail)
+      .map((request) => request.body.type),
+    [0, 1, 2, 3],
+  );
+  for (const request of requests.slice(1)) {
+    assert.equal(request.body.startDate, targetDate);
+    assert.equal(request.body.endDate, targetDate);
+    assert.equal(request.body.TIMEZONEOFFSET, -480);
+  }
+  assert.deepEqual(Object.keys(requests[0].body).sort(), ['TIMEZONEOFFSET', 'ntwNum']);
+});
+
+test('closed Dingdandao page uses and cleans only a collector-owned same-origin target', async () => {
+  const calls = [];
+  const connection = {
+    async send(method, params = {}, sessionId = null) {
+      calls.push({ method, params, sessionId });
+      if (method === 'Target.getTargets') {
+        return {
+          targetInfos: [{
+            type: 'page',
+            targetId: 'user_page_target',
+            url: 'https://example.com/',
+          }],
+        };
+      }
+      if (method === 'Storage.getCookies') {
+        return {
+          cookies: [{
+            name: 'sid',
+            value: 'cookie-value',
+            domain: '.dingdandao.com',
+            path: '/',
+            expires: -1,
+          }],
+        };
+      }
+      if (method === 'Target.createTarget') return { targetId: 'collector_target' };
+      if (method === 'Browser.getVersion') {
+        return { userAgent: 'Mozilla/5.0 test-current-browser' };
+      }
+      if (method === 'Target.attachToTarget') return { sessionId: 'collector_session' };
+      if (method === 'Page.getFrameTree') {
+        return {
+          frameTree: {
+            frame: { url: 'https://www.dingdandao.com/' },
+          },
+        };
+      }
+      if (method === 'DOMStorage.getDOMStorageItems') {
+        return {
+          entries: [
+            ['networkInfo', JSON.stringify({
+              ntwNum: 'network_123',
+              ntwInviteCode: 'network_123',
+            })],
+            ['networkNumNew', 'network_123'],
+            ['token', 'local-storage-token-value'],
+          ],
+        };
+      }
+      return {};
+    },
+    close() {
+      calls.push({ method: 'connection.close' });
+    },
+  };
+
+  const material = await readDingdandaoSessionMaterial(
+    'http://127.0.0.1:9223',
+    {
+      now: new Date('2026-07-27T02:00:00.000Z'),
+      connect: async () => connection,
+    },
+  );
+  assert.equal(material.ntwNum, 'network_123');
+  assert.equal(
+    calls.find((call) => call.method === 'Target.createTarget')?.params.url,
+    'https://www.dingdandao.com/',
+  );
+  assert.equal(
+    calls.find((call) => call.method === 'Target.createTarget')?.params.background,
+    true,
+  );
+  assert.deepEqual(
+    calls.filter((call) => call.method === 'Target.closeTarget')
+      .map((call) => call.params.targetId),
+    ['collector_target'],
+  );
+  assert.equal(
+    calls.some((call) => (
+      call.method === 'Target.closeTarget'
+      && call.params.targetId === 'user_page_target'
+    )),
+    false,
+  );
+});
+
+test('a stale browser context cannot block a valid default-context session', async () => {
+  const calls = [];
+  const connection = {
+    async send(method, params = {}, sessionId = null) {
+      calls.push({ method, params, sessionId });
+      if (method === 'Target.getTargets') {
+        return {
+          targetInfos: [
+            {
+              type: 'page',
+              targetId: 'stale_page_target',
+              browserContextId: 'stale_context_id',
+              url: 'https://www.dingdandao.com/stale',
+            },
+            {
+              type: 'page',
+              targetId: 'default_page_target',
+              url: 'https://www.dingdandao.com/current',
+            },
+          ],
+        };
+      }
+      if (method === 'Target.getBrowserContexts') {
+        return { browserContextIds: ['stale_context_id'] };
+      }
+      if (
+        method === 'Storage.getCookies'
+        && params.browserContextId === 'stale_context_id'
+      ) {
+        throw new Error('Failed to find browser context: stale_context_id');
+      }
+      if (method === 'Storage.getCookies') {
+        return {
+          cookies: [{
+            name: 'sid',
+            value: 'cookie-value',
+            domain: '.dingdandao.com',
+            path: '/',
+            expires: -1,
+          }],
+        };
+      }
+      if (method === 'Browser.getVersion') {
+        return { userAgent: 'Mozilla/5.0 test-current-browser' };
+      }
+      if (method === 'Target.attachToTarget') return { sessionId: 'default_session' };
+      if (method === 'Page.getFrameTree') {
+        return {
+          frameTree: {
+            frame: { url: 'https://www.dingdandao.com/current' },
+          },
+        };
+      }
+      if (method === 'DOMStorage.getDOMStorageItems') {
+        return {
+          entries: [
+            ['networkInfo', JSON.stringify({
+              ntwNum: 'network_123',
+              ntwInviteCode: 'network_123',
+            })],
+            ['networkNumNew', 'network_123'],
+            ['token', 'local-storage-token-value'],
+          ],
+        };
+      }
+      return {};
+    },
+    close() {
+      calls.push({ method: 'connection.close' });
+    },
+  };
+
+  const material = await readDingdandaoSessionMaterial(
+    'http://127.0.0.1:9223',
+    {
+      now: new Date('2026-07-27T02:00:00.000Z'),
+      connect: async () => connection,
+    },
+  );
+
+  assert.equal(material.ntwNum, 'network_123');
+  assert.deepEqual(
+    calls.filter((call) => call.method === 'Storage.getCookies')
+      .map((call) => call.params.browserContextId || null),
+    ['stale_context_id', null],
+  );
+  assert.equal(
+    calls.find((call) => call.method === 'Target.attachToTarget')
+      ?.params.targetId,
+    'default_page_target',
+  );
+  assert.equal(calls.some((call) => call.method === 'Target.createTarget'), false);
+});
+
+test('missing current-session cookies fails before creating a temporary target', async () => {
+  const calls = [];
+  const connection = {
+    async send(method) {
+      calls.push(method);
+      if (method === 'Target.getTargets') {
+        return {
+          targetInfos: [{
+            type: 'page',
+            targetId: 'user_page_target',
+            url: 'https://example.com/',
+          }],
+        };
+      }
+      if (method === 'Storage.getCookies') return { cookies: [] };
+      return {};
+    },
+    close() {
+      calls.push('connection.close');
+    },
+  };
+  await assert.rejects(readDingdandaoSessionMaterial(
+    'http://127.0.0.1:9223',
+    {
+      now: new Date('2026-07-27T02:00:00.000Z'),
+      connect: async () => connection,
+    },
+  ), /capture_session_expired/);
+  assert.equal(calls.includes('Target.createTarget'), false);
+  assert.equal(calls.includes('connection.close'), true);
+});
+
+test('endpoint and type classifier keeps hotel, auxiliary, and county facts separate', () => {
+  const targetDate = '2026-07-27';
+  const base = {
+    TIMEZONEOFFSET: -480,
+    ntwNum: 'network_123',
+    startDate: targetDate,
+    endDate: targetDate,
+  };
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.total,
+    requestBody: { ...base, festivalType: -1200 },
     targetDate,
+  }).fact_kind, 'hotel_total');
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.countyTotal,
+    requestBody: { ...base, festivalType: -1200 },
+    targetDate,
+  }).fact_kind, 'county_total');
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.dailyDetail,
+    requestBody: { ...base, type: 0 },
+    targetDate,
+  }).fact_kind, 'room_fee');
+  for (const type of [1, 2, 3]) {
+    assert.equal(classifyDingdandaoResponseRequest({
+      path: DINGDANDAO_API_PATHS.dailyDetail,
+      requestBody: { ...base, type },
+      targetDate,
+    }).fact_kind, 'auxiliary_detail');
+  }
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.trend,
+    requestBody: { ...base, type: 5 },
+    targetDate,
+  }).fact_kind, 'total_room_fee_trend');
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.countyTrend,
+    requestBody: { ...base, type: 5 },
+    targetDate,
+  }).fact_kind, 'county_total_room_fee_trend');
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.countyTrend,
+    requestBody: { ...base, type: 1 },
+    targetDate,
+  }).allowed, false);
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.trend,
+    requestBody: { ...base, type: 4 },
+    targetDate,
+  }).allowed, false);
+  assert.equal(classifyDingdandaoResponseRequest({
+    path: DINGDANDAO_API_PATHS.total,
+    requestBody: {
+      ...base,
+      startDate: '2026-07-26',
+      endDate: '2026-07-26',
+      festivalType: -1200,
+    },
+    targetDate,
+  }).allowed, false);
+});
+
+test('direct collector reuses one in-memory session, reconciles facts, and exposes no session material', async () => {
+  const now = new Date('2026-07-27T02:00:00.000Z');
+  const targetDate = shanghaiToday(now);
+  const sessionMaterial = {
+    ntwNum: 'network_123',
+    token: 'secret-token-value',
+    cookieHeader: 'sid=secret-cookie-value',
+    userAgent: 'Mozilla/5.0 test-current-browser',
+  };
+  const calls = [];
+  const capture = await collectDingdandaoDirect({
+    cdpUrl: 'http://127.0.0.1:9223',
+    targetDate,
+    expectedHotelName: providerHotelName,
     capturedAt: '2026-07-27T08:00:00+08:00',
+  }, {
+    now,
+    readSession: async () => sessionMaterial,
+    postJson: async (path, body, activeSession) => {
+      assert.equal(activeSession.token, 'secret-token-value');
+      assert.equal(activeSession.cookieHeader, 'sid=secret-cookie-value');
+      calls.push({ path, body: structuredClone(body) });
+      return {
+        code: '1',
+        errorDetail: null,
+        data: responseData(path, body.type, targetDate),
+      };
+    },
   });
 
-  assert.equal(capture.capture_method, 'network_response');
-  assert.equal(capture.source_api_path, DINGDANDAO_API_PATHS.total);
-  assert.equal(capture.business_date, targetDate);
-  assert.equal(capture.provider_hotel_name, hotelName);
-  assert.equal(capture.identity_evidence_type, 'verified_api_store_identity');
-  assert.deepEqual(capture.summary, {
-    total_room_fee: 6450.14,
-    adr: 645.01,
-    occupancy_rate_percent: 66.67,
-    revpar: 430.01,
-    sold_room_nights: 10,
-    average_daily_room_nights: 10,
+  assert.equal(calls.length, 13);
+  assert.deepEqual(sessionMaterial, {
+    ntwNum: '',
+    token: '',
+    cookieHeader: '',
+    userAgent: '',
   });
-  assert.equal(capture.room_fee_details.length, 5);
-  assert.deepEqual(capture.room_fee_details.map((row) => row.row_kind), [
-    'room',
-    'room',
-    'unassigned',
-    'room_type_total',
-    'grand_total',
-  ]);
-  assert.equal(capture.room_fee_details[0].room_fee, 0);
-  assert.equal(capture.room_fee_details[0].room_type, '\u666f\u89c2\u5927\u5e8a\u623f');
-  assert.equal(capture.room_fee_details[2].room_fee, 0);
-  assert.equal(capture.room_fee_details[2].room_number, '\u672a\u6392\u623f');
-  assert.deepEqual(capture.trend.total_room_fee, [
-    { date: '2026-07-26', value: 10679.29 },
-    { date: targetDate, value: 6450.14 },
-  ]);
-  assert.match(capture.field_trace.total_room_fee, /businessIndicatorsTotal/);
-  assert.match(capture.field_trace.provider_hotel_identity, /\/v2\/ntw\/web\/ntw\/get/);
-  assert.match(capture.field_trace.room_type_names, /businessIndicatorsSumDetail/);
-  assert.match(capture.field_trace.room_type_names, /type=0/);
-  assert.match(capture.field_trace.room_fee_details, /businessIndicatorsDailyDetail/);
-  assert.match(capture.field_trace.room_fee_details, /type=0/);
-  assert.match(capture.field_trace.trend, /businessIndicatorsTrend/);
-  assert.match(capture.field_trace.trend, /type=5/);
-  assert.equal(capture.target_date_matches, true);
+  assert.equal(capture.provider_hotel_id, providerHotelId);
+  assert.equal(capture.provider_hotel_name, providerHotelName);
+  assert.equal(capture.summary.total_room_fee, 6450.14);
+  assert.equal(capture.room_fee_details.filter(
+    (row) => ['room', 'unassigned'].includes(row.row_kind),
+  ).reduce((sum, row) => sum + row.room_fee, 0), 6450.14);
+  assert.equal(capture.trend.total_room_fee.at(-1).value, 6450.14);
+  assert.equal(capture.auxiliary_query_status.length, 6);
+  assert.equal(capture.auxiliary_query_status.every(
+    (status) => status.status === 'readable_not_promoted',
+  ), true);
+  assert.equal(capture.county_context.fact_scope, 'county_diagnostic_only');
+  assert.equal(capture.county_context.summary.total_room_fee, 4573.08);
+  assert.notEqual(
+    capture.county_context.summary.total_room_fee,
+    capture.summary.total_room_fee,
+  );
+  assert.equal(isTrustedDingdandaoCaptureComplete(capture, {
+    targetDate,
+    expectedHotelName: '\u6566\u714c\u00b7\u6f20\u84dd',
+  }), false);
+  const serialized = JSON.stringify(capture);
+  assert.doesNotMatch(serialized, /network_123|secret-token-value|secret-cookie-value/);
+});
+
+test('historical dates and expired current sessions fail closed without API fallback', async () => {
+  const now = new Date('2026-07-27T02:00:00.000Z');
+  let sessionRead = false;
+  await assert.rejects(collectDingdandaoDirect({
+    cdpUrl: 'http://127.0.0.1:9223',
+    targetDate: '2026-07-26',
+    expectedHotelName: providerHotelName,
+  }, {
+    now,
+    readSession: async () => {
+      sessionRead = true;
+      throw new Error('must_not_run');
+    },
+  }), /capture_target_date_not_today/);
+  assert.equal(sessionRead, false);
+
+  await assert.rejects(collectDingdandaoDirect({
+    cdpUrl: 'http://127.0.0.1:9223',
+    targetDate: shanghaiToday(now),
+    expectedHotelName: providerHotelName,
+  }, {
+    now,
+    readSession: async () => {
+      throw new Error('capture_session_expired');
+    },
+  }), /capture_session_expired/);
+});
+
+test('production collector uses CDP storage and direct POST without opening, navigating, or closing a browser', async () => {
+  const source = await readFile(
+    new URL('../../scripts/dingdandao_cloud_capture.mjs', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /Storage\.getCookies/);
+  assert.match(source, /DOMStorage\.getDOMStorageItems/);
+  assert.match(source, /items\.get\('networkInfo'\)/);
+  assert.match(source, /items\.get\('networkNumNew'\)/);
+  assert.match(source, /items\.get\('token'\)/);
+  assert.match(source, /headers:[\s\S]{0,300}token: sessionMaterial\.token/);
+  assert.match(source, /Target\.createTarget/);
+  assert.match(source, /Target\.closeTarget/);
+  assert.doesNotMatch(source, /ntwIdNew/);
+  assert.doesNotMatch(source, /connectOverCDP|page\.reload|Page\.navigate|browser\.close/);
 });
