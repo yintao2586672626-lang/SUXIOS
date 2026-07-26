@@ -142,6 +142,16 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
   assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
   const payload = extractJson(output);
   const sequence = payload.p0_execution_plan.operator_sequence.map((item) => `${item.platform}:${item.type}`);
+  const ctripSummary = payload.p0_execution_plan.platform_summaries
+    .find((item) => item.platform === 'ctrip');
+  const readyCtripHotelIds = (ctripSummary?.next_steps || [])
+    .filter((item) => item.hotel_ready === true)
+    .map((item) => Number(item.system_hotel_id))
+    .sort((left, right) => left - right);
+  const readyCtripSequenceHotelIds = payload.p0_execution_plan.operator_sequence
+    .filter((item) => item.platform === 'ctrip' && item.type === 'already_ready')
+    .map((item) => Number(item.system_hotel_id))
+    .sort((left, right) => left - right);
   const workflow = payload.downstream_reference_workflow;
   const targetReadyPlatforms = workflow.evidence_scope.target_ready_platforms;
   const hasTargetDateCtrip = targetReadyPlatforms.includes('ctrip');
@@ -158,6 +168,11 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
   assert.equal(workflow.revenue_to_ai_handoff.can_create_operation_execution, false);
   assert(workflow.revenue_to_ai_handoff.revenue_metric_keys.includes('ota_adr'));
   assert(workflow.revenue_to_ai_handoff.required_before_execution.includes('all_required_p0_platforms_ready'));
+  assert.deepEqual(
+    readyCtripSequenceHotelIds,
+    readyCtripHotelIds,
+    'already_ready must be emitted only for hotel scopes with ready P0 evidence',
+  );
 
   if (hasTargetDateCtrip) {
     assert.equal(workflow.status, 'partial_reference_workflow_not_claimable');
@@ -171,7 +186,6 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
     assert.deepEqual(workflow.revenue_to_ai_handoff.source_platforms, ['ctrip']);
     assert.deepEqual(workflow.revenue_to_ai_handoff.target_blocked_platforms, ['meituan']);
     assert.equal(workflow.revenue_to_ai_handoff.ai_draft_status, 'draft_reference_only');
-    assert(sequence.includes('ctrip:already_ready'));
     assert(sequence.includes('meituan:operator_skip'));
   } else {
     assert.equal(workflow.status, 'p0_required');
@@ -184,7 +198,6 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
     assert.equal(workflow.revenue_to_ai_handoff.source_scope, 'ota_channel_reference');
     assert.deepEqual([...workflow.revenue_to_ai_handoff.target_blocked_platforms].sort(), ['ctrip', 'meituan']);
     assert.equal(workflow.revenue_to_ai_handoff.ai_draft_status, 'requires_p0');
-    assert(!sequence.includes('ctrip:already_ready'));
     assert(sequence.every((item) => !item.startsWith('meituan:') || item === 'meituan:operator_skip'));
   }
   assert.doesNotMatch(output, /\/api\/online-data\/capture-meituan-browser/);

@@ -25,6 +25,7 @@ function excludesAll(label, source, needles) {
 
 const report = read('scripts/report_business_chain_status.php');
 const runtimeTest = read('tests/automation/business_chain_status_report.test.mjs');
+const p0ExecutionPlanTest = read('tests/BusinessChainP0ExecutionPlanTest.php');
 const revenueAi = read('app/service/RevenueAiOverviewService.php');
 const pkg = read('package.json');
 const workflow = read('.github/workflows/php.yml');
@@ -120,6 +121,10 @@ includesAll('business-chain report embeds executable P0 next steps from verifier
   'login_trigger_entry',
   'after_login_sync_entry',
   'business_chain_p0_platform_ready',
+  'business_chain_p0_hotel_ready',
+  'profile_scope_system_hotel_ids',
+  'hotel_ready',
+  'p0_hotel_scope_ready',
   'already_ready_no_login',
   'already_ready',
   'operator_skip',
@@ -129,6 +134,21 @@ includesAll('business-chain report embeds executable P0 next steps from verifier
   'p0_skipped_by_operator_reference_only_no_collection',
   'single_scope_verifier',
   'P0 Execution Plan',
+]);
+
+includesAll('business-chain P0 execution-plan regression keeps mixed hotel readiness scoped', p0ExecutionPlanTest, [
+  'testMixedHotelReadinessNeverPromotesTheWholePlatformToReady',
+  'profile_scope_system_hotel_ids',
+  'profile_scope_missing_target_date_traffic_hotel_ids',
+  'assertArrayNotHasKey(64',
+  '[false, true, false]',
+  "['already_ready', 'single_scope_verifier']",
+]);
+
+includesAll('business-chain runtime test aligns already-ready actions to hotel-scoped proof', runtimeTest, [
+  'readyCtripHotelIds',
+  'readyCtripSequenceHotelIds',
+  'already_ready must be emitted only for hotel scopes with ready P0 evidence',
 ]);
 
 includesAll('business-chain report exposes skip-P0 downstream reference workflow', report, [
@@ -233,7 +253,6 @@ includesAll('business-chain report runtime test guards operator skip output', ru
   'report_business_chain_status.php',
   '--skip-platform=meituan',
   'p0_skipped_by_operator',
-  'ctrip:already_ready',
   'meituan:operator_skip',
   'target_ready_platforms',
   'operator_skip_platforms',

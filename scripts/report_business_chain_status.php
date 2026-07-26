@@ -519,14 +519,82 @@ function business_chain_extract_json(string $text): array
  */
 function business_chain_p0_platform_ready(array $platformPayload, array $gate): bool
 {
-    $status = strtolower(trim((string)($gate['status'] ?? $gate['action_status'] ?? $platformPayload['status'] ?? '')));
-    if ($status === 'ready') {
+    $gateStatus = strtolower(trim((string)($gate['status'] ?? '')));
+    if ($gateStatus !== '') {
+        return $gateStatus === 'ready';
+    }
+
+    $legacyStatus = strtolower(trim((string)($gate['action_status'] ?? $platformPayload['status'] ?? '')));
+    if ($legacyStatus === 'ready') {
         return true;
     }
     $missingInputs = business_chain_list($gate['action_missing_inputs'] ?? []);
     return (int)($platformPayload['target_date_rows'] ?? 0) > 0
         && (int)($gate['traffic_rows'] ?? 0) > 0
         && $missingInputs === [];
+}
+
+/**
+ * @return array<int, true>
+ */
+function business_chain_p0_hotel_id_lookup(mixed $value): array
+{
+    $lookup = [];
+    foreach (business_chain_list($value) as $hotelId) {
+        $normalizedHotelId = (int)$hotelId;
+        if ($normalizedHotelId > 0) {
+            $lookup[$normalizedHotelId] = true;
+        }
+    }
+    return $lookup;
+}
+
+/**
+ * @param array<string, mixed> $gate
+ */
+function business_chain_p0_hotel_ready(array $gate, ?int $systemHotelId, bool $platformReady): bool
+{
+    if ($platformReady) {
+        return true;
+    }
+    if ($systemHotelId === null || $systemHotelId <= 0 || !array_key_exists('profile_scope_system_hotel_ids', $gate)) {
+        return false;
+    }
+
+    $activeHotelLookup = business_chain_p0_hotel_id_lookup($gate['profile_scope_system_hotel_ids']);
+    if (!isset($activeHotelLookup[$systemHotelId])) {
+        return false;
+    }
+
+    foreach ([
+        'profile_scope_missing_profile_source_hotel_ids',
+        'profile_scope_missing_traffic_source_hotel_ids',
+        'profile_scope_missing_target_date_traffic_hotel_ids',
+    ] as $missingHotelKey) {
+        if (isset(business_chain_p0_hotel_id_lookup($gate[$missingHotelKey] ?? [])[$systemHotelId])) {
+            return false;
+        }
+    }
+
+    $rowCounts = is_array($gate['system_hotel_row_counts'] ?? null)
+        ? $gate['system_hotel_row_counts']
+        : [];
+    if ((int)($rowCounts[(string)$systemHotelId] ?? $rowCounts[$systemHotelId] ?? 0) <= 0) {
+        return false;
+    }
+
+    foreach ([
+        'traffic_field_fact_status',
+        'p0_standard_fact_status',
+        'required_metric_value_status',
+        'platform_hotel_identifier_status',
+    ] as $statusKey) {
+        if (strtolower(trim((string)($gate[$statusKey] ?? ''))) !== 'ready') {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -565,43 +633,51 @@ function business_chain_compact_p0_execution_plan(
         $gate = is_array($platformPayload['p0_traffic_gate'] ?? null) ? $platformPayload['p0_traffic_gate'] : [];
         $platformReady = business_chain_p0_platform_ready($platformPayload, $gate);
         $operatorSkipActive = isset($operatorSkippedLookup[strtolower($platform)]);
+        $activeHotelScopeDeclared = array_key_exists('profile_scope_system_hotel_ids', $gate);
+        $activeHotelLookup = business_chain_p0_hotel_id_lookup($gate['profile_scope_system_hotel_ids'] ?? []);
         $steps = [];
         foreach (business_chain_list($gate['hotel_scoped_next_steps'] ?? []) as $step) {
             if (!is_array($step)) {
+                continue;
+            }
+            $stepHotelId = isset($step['system_hotel_id']) ? (int)$step['system_hotel_id'] : null;
+            if ($activeHotelScopeDeclared && ($stepHotelId === null || !isset($activeHotelLookup[$stepHotelId]))) {
                 continue;
             }
             $trigger = is_array($step['profile_login_trigger'] ?? null) ? $step['profile_login_trigger'] : [];
             $afterLoginSync = is_array($trigger['after_login_sync'] ?? null) ? $trigger['after_login_sync'] : [];
             $manualLoginVerified = ($step['manual_login_state_verified'] ?? false) === true;
             $skipWithVerifiedLogin = $operatorSkipActive && $manualLoginVerified;
+            $hotelReady = business_chain_p0_hotel_ready($gate, $stepHotelId, $platformReady);
             $compact = [
                 'platform' => $platform,
-                'system_hotel_id' => isset($step['system_hotel_id']) ? (int)$step['system_hotel_id'] : null,
+                'system_hotel_id' => $stepHotelId,
                 'data_source_id' => isset($step['data_source_id']) ? (int)$step['data_source_id'] : null,
                 'data_source_status' => (string)($step['data_source_status'] ?? ''),
                 'last_sync_status' => (string)($step['last_sync_status'] ?? ''),
                 'manual_login_state_verified' => $manualLoginVerified,
-                'login_trigger_entry' => ($platformReady || $skipWithVerifiedLogin) ? '' : (string)($trigger['entry'] ?? ''),
-                'login_trigger_status' => $platformReady
+                'login_trigger_entry' => ($hotelReady || $skipWithVerifiedLogin) ? '' : (string)($trigger['entry'] ?? ''),
+                'login_trigger_status' => $hotelReady
                     ? 'already_ready_no_login'
                     : ($skipWithVerifiedLogin ? 'login_verified_reference_only' : (string)($trigger['status'] ?? '')),
-                'after_login_sync_entry' => ($platformReady || $operatorSkipActive) ? '' : (string)($afterLoginSync['entry'] ?? ''),
-                'after_login_sync_status' => $platformReady
+                'after_login_sync_entry' => ($hotelReady || $operatorSkipActive) ? '' : (string)($afterLoginSync['entry'] ?? ''),
+                'after_login_sync_status' => $hotelReady
                     ? 'already_ready_no_sync'
                     : ($operatorSkipActive ? 'skipped_by_operator_no_sync' : ''),
                 'verifier_command' => (string)($step['p0_verifier_command'] ?? ''),
                 'platform_ready' => $platformReady,
+                'hotel_ready' => $hotelReady,
                 'operator_skip_active' => $operatorSkipActive,
             ];
             $steps[] = $compact;
-            if ($platformReady) {
+            if ($hotelReady) {
                 $operatorSequence[] = [
                     'type' => 'already_ready',
                     'platform' => $platform,
                     'system_hotel_id' => $compact['system_hotel_id'],
                     'data_source_id' => $compact['data_source_id'],
-                    'status' => 'p0_traffic_gate_ready',
-                    'boundary' => 'Target-date OTA rows and traffic field evidence are already ready; do not start login or after-login sync from this report.',
+                    'status' => $platformReady ? 'p0_traffic_gate_ready' : 'p0_hotel_scope_ready',
+                    'boundary' => 'Target-date OTA rows and traffic field evidence are already ready for this hotel scope; do not start login or after-login sync from this report.',
                 ];
                 $operatorSequence[] = [
                     'type' => 'single_scope_verifier',
@@ -2369,21 +2445,31 @@ function business_chain_markdown(array $report): string
     return implode(PHP_EOL, $lines) . PHP_EOL;
 }
 
-$options = parse_business_chain_args($argv);
+/**
+ * @param array<int, string> $argv
+ */
+function business_chain_main(array $argv): int
+{
+    $options = parse_business_chain_args($argv);
 
-try {
-    $app = new App();
-    $app->initialize();
-    $report = business_chain_report($options);
-    if ($options['format'] === 'markdown') {
-        echo business_chain_markdown($report);
-    } else {
-        echo json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    try {
+        $app = new App();
+        $app->initialize();
+        $report = business_chain_report($options);
+        if ($options['format'] === 'markdown') {
+            echo business_chain_markdown($report);
+        } else {
+            echo json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+        }
+        $focusedChainReady = (string)($report['focused_chain']['status'] ?? '') === 'scoped_ai_review_ready';
+        return ($report['status'] ?? '') === 'incomplete' && !$options['skip_p0'] && !$focusedChainReady ? 2 : 0;
+    } catch (Throwable $e) {
+        $payload = business_chain_failure_payload($e);
+        fwrite(STDERR, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+        return 1;
     }
-    $focusedChainReady = (string)($report['focused_chain']['status'] ?? '') === 'scoped_ai_review_ready';
-    exit(($report['status'] ?? '') === 'incomplete' && !$options['skip_p0'] && !$focusedChainReady ? 2 : 0);
-} catch (Throwable $e) {
-    $payload = business_chain_failure_payload($e);
-    fwrite(STDERR, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
-    exit(1);
+}
+
+if (realpath((string)($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
+    exit(business_chain_main($argv));
 }
