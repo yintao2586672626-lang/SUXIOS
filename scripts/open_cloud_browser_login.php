@@ -14,7 +14,7 @@ $hotelId = (int)($options['hotel-id'] ?? 0);
 $ownerUserId = (int)($options['owner-user-id'] ?? 0);
 $platform = strtolower(trim((string)($options['platform'] ?? '')));
 $gatewayUrl = rtrim(trim((string)($options['gateway-url'] ?? 'http://127.0.0.1:8787')), '/');
-if ($hotelId <= 0 || $ownerUserId <= 0 || !in_array($platform, ['ctrip', 'meituan'], true)
+if ($hotelId <= 0 || $ownerUserId <= 0 || !in_array($platform, ['ctrip', 'meituan', 'dingdandao'], true)
     || $gatewayUrl !== 'http://127.0.0.1:8787'
 ) {
     fwrite(STDERR, "cloud_browser_login_arguments_invalid\n");

@@ -33,6 +33,7 @@ health="$(curl --silent --fail http://127.0.0.1:8787/health)"
 grep -q '"encrypted_profile_store":true' <<<"$health"
 grep -q '"receipt_chain_valid":true' <<<"$health"
 grep -q '"browser_autostart":false' <<<"$health"
+grep -q '"read_only_policy_runtime":true' <<<"$health"
 
 find /var/lib/suxios-cloud-browser/profiles -maxdepth 1 -type f \
   ! -name '*.tar.gz.enc' -print -quit | grep -q . && {

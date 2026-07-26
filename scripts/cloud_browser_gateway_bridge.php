@@ -45,6 +45,13 @@ try {
             requiredId($input, 'profile_id', 'cbp_'),
             requiredText($input, 'reason', 80)
         ),
+        'validate_dingdandao_collection' => $service->validateDingdandaoCollectionProfile(
+            requiredId($input, 'profile_id', 'cbp_'),
+            requiredPositiveInt($input, 'tenant_id'),
+            requiredPositiveInt($input, 'hotel_id'),
+            requiredPositiveInt($input, 'owner_user_id'),
+            requiredDate($input, 'target_date')
+        ),
         default => throw new RuntimeException('gateway_action_unsupported'),
     };
 } catch (Throwable $e) {
@@ -81,6 +88,27 @@ function requiredText(array $input, string $key, int $maxLength): string
 {
     $value = trim((string)($input[$key] ?? ''));
     if ($value === '' || strlen($value) > $maxLength || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+        throw new RuntimeException('gateway_' . $key . '_invalid');
+    }
+    return $value;
+}
+
+/** @param array<string,mixed> $input */
+function requiredPositiveInt(array $input, string $key): int
+{
+    $value = filter_var($input[$key] ?? null, FILTER_VALIDATE_INT);
+    if (!is_int($value) || $value <= 0) {
+        throw new RuntimeException('gateway_' . $key . '_invalid');
+    }
+    return $value;
+}
+
+/** @param array<string,mixed> $input */
+function requiredDate(array $input, string $key): string
+{
+    $value = trim((string)($input[$key] ?? ''));
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+    if (!$date instanceof DateTimeImmutable || $date->format('Y-m-d') !== $value) {
         throw new RuntimeException('gateway_' . $key . '_invalid');
     }
     return $value;

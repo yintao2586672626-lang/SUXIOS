@@ -55,7 +55,9 @@ final class DingdandaoOperatingTargetCaptureService
         int $hotelId,
         int $userId,
         string $expectedHotelName,
-        array $input
+        array $input,
+        bool $verifiedOnly = false,
+        ?string $expectedProviderHotelId = null
     ): array {
         if ($tenantId <= 0 || $hotelId <= 0 || $userId <= 0 || trim($expectedHotelName) === '') {
             throw new \InvalidArgumentException('dingdandao_capture_scope_invalid');
@@ -95,6 +97,33 @@ final class DingdandaoOperatingTargetCaptureService
             $dateMatchesToday,
             $fieldTrace
         );
+        if (!$verifiedOnly && $assessment['quality_status'] === 'verified') {
+            $manualGap = $this->gap('dingdandao_trusted_collection_required');
+            $assessment['capture_status'] = 'identity_unverified';
+            $assessment['quality_status'] = 'unverified';
+            $assessment['quality_reason'] = $manualGap['message'];
+            $assessment['gaps'] = $this->uniqueGaps([...$assessment['gaps'], $manualGap]);
+        }
+        if ($verifiedOnly) {
+            $expectedProviderHotelId = $this->textOrNull($expectedProviderHotelId, 120);
+            $capturedTimestamp = strtotime($capturedAt);
+            $captureAgeSeconds = $capturedTimestamp === false
+                ? PHP_INT_MAX
+                : $observedNow->getTimestamp() - $capturedTimestamp;
+            if ($assessment['quality_status'] !== 'verified'
+                || $assessment['capture_status'] !== 'verified'
+                || $assessment['reconciliation_status'] !== 'matched'
+                || $providerHotelId === null
+                || ($expectedProviderHotelId !== null
+                    && !hash_equals($expectedProviderHotelId, $providerHotelId))
+                || $capturedTimestamp === false
+                || $captureAgeSeconds < -300
+                || $captureAgeSeconds > 1800
+                || date('Y-m-d', $capturedTimestamp) !== $businessDate
+            ) {
+                throw new \InvalidArgumentException('dingdandao_capture_not_verified');
+            }
+        }
         $snapshot = [
             'contract_version' => 'dingdandao_operating_target_capture.v1',
             'provider' => self::PROVIDER,
@@ -120,7 +149,9 @@ final class DingdandaoOperatingTargetCaptureService
             'gap_codes' => array_column($assessment['gaps'], 'code'),
             'captured_at' => $capturedAt,
         ];
-        $fingerprint = hash('sha256', $this->json($snapshot));
+        $fingerprintFacts = $snapshot;
+        unset($fingerprintFacts['captured_at']);
+        $fingerprint = hash('sha256', $this->json($fingerprintFacts));
         $now = $observedNow->format('Y-m-d H:i:s');
 
         return Db::transaction(function () use (
@@ -144,8 +175,23 @@ final class DingdandaoOperatingTargetCaptureService
             $assessment,
             $snapshot,
             $fingerprint,
-            $now
+            $now,
+            $verifiedOnly
         ): array {
+            if ($verifiedOnly) {
+                $existing = Db::name('dingdandao_operating_target_captures')
+                    ->where('tenant_id', $tenantId)
+                    ->where('hotel_id', $hotelId)
+                    ->where('business_date', $businessDate)
+                    ->where('source_fingerprint', $fingerprint)
+                    ->where('quality_status', 'verified')
+                    ->where('readback_status', 'readback_verified')
+                    ->lock(true)
+                    ->find();
+                if (is_array($existing)) {
+                    return $this->read($tenantId, $hotelId, (int)$existing['id']);
+                }
+            }
             $captureId = (int)Db::name('dingdandao_operating_target_captures')->insertGetId([
                 'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
@@ -211,8 +257,28 @@ final class DingdandaoOperatingTargetCaptureService
                 ->where('capture_id', $captureId)
                 ->whereIn('row_kind', ['room', 'unassigned'])
                 ->sum('room_fee');
-            $readbackVerified = $storedCount === count($details)
+            $storedCapture = Db::name('dingdandao_operating_target_captures')
+                ->where('id', $captureId)
+                ->find();
+            $readbackVerified = is_array($storedCapture)
+                && $storedCount === count($details)
                 && abs($storedRoomTotal - (float)$assessment['detail_room_fee_total']) <= 0.01;
+            if ($readbackVerified) {
+                $readbackVerified = $this->mainReadbackMatches(
+                    $storedCapture,
+                    $tenantId,
+                    $hotelId,
+                    $businessDate,
+                    $providerHotelId,
+                    $providerHotelName,
+                    $sourceUrl,
+                    $summary,
+                    $fingerprint
+                );
+            }
+            if ($verifiedOnly && !$readbackVerified) {
+                throw new \RuntimeException('dingdandao_capture_readback_failed');
+            }
             Db::name('dingdandao_operating_target_captures')
                 ->where('id', $captureId)
                 ->update([
@@ -232,6 +298,40 @@ final class DingdandaoOperatingTargetCaptureService
 
             return $this->read($tenantId, $hotelId, $captureId);
         });
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $summary */
+    private function mainReadbackMatches(
+        array $row,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        ?string $providerHotelId,
+        ?string $providerHotelName,
+        string $sourceUrl,
+        array $summary,
+        string $fingerprint
+    ): bool {
+        if ((int)($row['tenant_id'] ?? 0) !== $tenantId
+            || (int)($row['hotel_id'] ?? 0) !== $hotelId
+            || (string)($row['provider'] ?? '') !== self::PROVIDER
+            || (string)($row['business_date'] ?? '') !== $businessDate
+            || (string)($row['source_url'] ?? '') !== $sourceUrl
+            || (string)($row['source_scope'] ?? '') !== self::SOURCE_SCOPE
+            || (string)($row['provider_hotel_id'] ?? '') !== (string)$providerHotelId
+            || (string)($row['provider_hotel_name'] ?? '') !== (string)$providerHotelName
+            || (string)($row['source_fingerprint'] ?? '') !== $fingerprint
+        ) {
+            return false;
+        }
+        foreach (self::SUMMARY_FIELDS as $field) {
+            $expected = $summary[$field] ?? null;
+            $stored = $row[$field] ?? null;
+            if ($expected === null ? $stored !== null : abs((float)$stored - (float)$expected) > 0.01) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** @return array<string, mixed> */
@@ -743,6 +843,7 @@ final class DingdandaoOperatingTargetCaptureService
             $code === 'dingdandao_capture_table_missing' => '订单来了住宿数据存储表尚未安装。',
             $code === 'dingdandao_hotel_identity_mismatch' => '订单来了当前门店与宿析OS酒店绑定不一致。',
             $code === 'dingdandao_hotel_identity_unverified' => '只看到了页面标题或通知，尚未从门店选择器或已验证接口取得权威门店身份。',
+            $code === 'dingdandao_trusted_collection_required' => '人工上传的门店身份和来源证据未由服务端独立验证，已按未验证状态保存并阻断推送。',
             $code === 'dingdandao_today_only_date_mismatch' => '当前试用范围只允许读取今日数据，页面日期与当前日期不一致。',
             $code === 'dingdandao_room_fee_details_missing' => '未取得房型/房间房费明细，不能核对汇总总房费。',
             $code === 'dingdandao_room_fee_reconciliation_mismatch' => '房费明细合计与经营指标总房费不一致。',
