@@ -58,6 +58,11 @@ test('Molanxin systemd assets are unique and never operate existing units', asyn
   const assets = `${service}\n${timer}\n${envExample}`;
 
   assert.match(service, /^Type=oneshot$/m);
+  assert.match(
+    service,
+    /^WorkingDirectory=\/var\/www\/suxios\/molanxin-three-source-current$/m,
+  );
+  assert.doesNotMatch(service, /\/var\/www\/suxios\/current(?:\/|\s|$)/);
   assert.match(service, /^Environment=SUXIOS_OTA_CLOUD_COLLECTOR=1$/m);
   assert.match(service, /^RuntimeDirectory=suxios-molanxin-three-source-collection$/m);
   assert.match(service, /ExecStartPre=.*online-data:auto-fetch --validate-cloud-scope/);
