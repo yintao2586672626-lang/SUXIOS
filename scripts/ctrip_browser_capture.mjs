@@ -34,6 +34,11 @@ import {
   sanitizeOtaPayloadForStorage,
 } from './lib/ota_capture_standard.mjs';
 import {
+  buildOtaEndpointDiscoveryCandidate,
+  classifyOtaEndpointDiscoveryResponse,
+  upsertOtaEndpointDiscoveryCandidate,
+} from './lib/ota_endpoint_discovery.mjs';
+import {
   classifyOtaSessionProbeResponse,
   evaluateOtaSessionProbe,
   isTrustedOtaPlatformUrl,
@@ -149,6 +154,7 @@ const payload = {
   xhr_urls: [],
   unmatched_xhr_urls: [],
   endpoint_candidates: [],
+  endpoint_discovery_candidates: [],
   p3_evidence_drafts: [],
   p3_evidence_matrix: null,
   capture_audit: null,
@@ -652,6 +658,7 @@ function createSectionCaptureTarget(section) {
     xhr_urls: [],
     unmatched_xhr_urls: [],
     endpoint_candidates: [],
+    endpoint_discovery_candidates: [],
     p3_evidence_drafts: [],
     rows: [],
     standard_rows: [],
@@ -754,7 +761,7 @@ async function retrySectionsSequentially(context, sections) {
 }
 
 function mergeSectionCaptureTarget(target) {
-  for (const key of ['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'screenshots']) {
+  for (const key of ['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'endpoint_discovery_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'screenshots']) {
     const rows = Array.isArray(target[key]) ? target[key] : [];
     payload[key].push(...rows);
   }
@@ -1139,9 +1146,6 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       source_trace_id: observedUrlEvidence.source_trace_id || '',
       source_url_hash: observedUrlEvidence.source_url_hash || '',
     };
-    if (target.xhr_urls.length < 200) {
-      target.xhr_urls.push({ ...observedUrlMetadata, status: response.status(), request_type: requestType });
-    }
     if (response.status() !== 200) {
       return;
     }
@@ -1158,23 +1162,35 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeSection });
     const urlSection = endpoint?.section || '';
     const approvedMappingMatches = approvedMappingsForUrl(url);
+    const contentType = response.headers()['content-type'] || '';
+    const discoveryEligibility = classifyOtaEndpointDiscoveryResponse('ctrip', {
+      url,
+      status: response.status(),
+      resourceType: requestType,
+      contentType,
+    });
     const unmatchedXhr = {
       url,
       status: response.status(),
       request_type: requestType,
       method: request?.method?.() || '',
     };
-    if (!endpoint && target.unmatched_xhr_urls.length < 200) {
-      target.unmatched_xhr_urls.push({ ...unmatchedXhr, ...observedUrlMetadata });
-    }
     const p3Candidate = buildCtripEndpointCandidates([unmatchedXhr])[0] || null;
-    if (!urlSection && approvedMappingMatches.length === 0 && !p3Candidate && !urlLower.includes('datacenter') && !urlLower.includes('pyramid') && !urlLower.includes('psi') && !urlLower.includes('bpi')) {
+    if (
+      !urlSection
+      && approvedMappingMatches.length === 0
+      && !p3Candidate
+      && !discoveryEligibility.eligible
+      && !urlLower.includes('datacenter')
+      && !urlLower.includes('pyramid')
+      && !urlLower.includes('psi')
+      && !urlLower.includes('bpi')
+    ) {
       return;
     }
 
     let body = null;
     try {
-      const contentType = response.headers()['content-type'] || '';
       const text = await response.text();
       body = parseResponseBody(text, contentType);
     } catch (error) {
@@ -1212,23 +1228,81 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       target.p3_evidence_drafts.push(...drafts);
     }
 
-    const section = urlSection || approvedMappingMatches[0]?.candidate_section || inferSection(body, url);
+    const rawDiscoveryCandidate = !endpoint && approvedMappingMatches.length === 0
+      ? buildOtaEndpointDiscoveryCandidate('ctrip', {
+          url,
+          body,
+          status: response.status(),
+          method: request?.method?.() || '',
+          resourceType: requestType,
+          contentType,
+          requestedSections,
+        })
+      : null;
+    const discoveredSection = resolveCtripDiscoveredSection(rawDiscoveryCandidate, activeSection);
+    const discoveryCandidate = rawDiscoveryCandidate
+      ? {
+          ...rawDiscoveryCandidate,
+          active_section: activeSection,
+          resolved_section: discoveredSection,
+          auto_capture: rawDiscoveryCandidate.auto_capture && Boolean(discoveredSection),
+        }
+      : null;
+    if (
+      (endpoint || approvedMappingMatches.length > 0 || p3Candidate || discoveryCandidate)
+      && target.xhr_urls.length < 200
+    ) {
+      target.xhr_urls.push({
+        ...observedUrlMetadata,
+        status: response.status(),
+        request_type: requestType,
+      });
+    }
+    if (
+      !endpoint
+      && (approvedMappingMatches.length > 0 || p3Candidate || discoveryCandidate)
+      && target.unmatched_xhr_urls.length < 200
+    ) {
+      target.unmatched_xhr_urls.push({ ...unmatchedXhr, ...observedUrlMetadata });
+    }
+    if (discoveryCandidate) {
+      target.endpoint_discovery_candidates = upsertOtaEndpointDiscoveryCandidate(
+        target.endpoint_discovery_candidates,
+        discoveryCandidate,
+      );
+    }
+
+    const section = urlSection
+      || approvedMappingMatches[0]?.candidate_section
+      || discoveredSection
+      || inferSection(body, url);
     if (!section || (!requestedSections.includes(section) && approvedMappingMatches.length === 0)) {
       return;
     }
 
-    const dataType = endpoint?.dataType || approvedMappingMatches[0]?.data_type || sectionDataType(section);
+    const dataType = endpoint?.dataType
+      || approvedMappingMatches[0]?.data_type
+      || ctripDiscoveredDataType(discoveryCandidate, section);
     const platform = inferCtripResponsePlatform(section, endpoint, url, requestPayload, state);
     const sanitizerSection = endpoint?.section === 'comment_review' ? 'reviews' : dataType;
     const safeBody = sanitizeOtaPayloadForStorage(body, sanitizerSection);
-    const responseEvidence = buildOtaCaptureEvidence('ctrip', { url, section, captureSource: `xhr:${dataType}` });
-    const rows = normalizeRows(safeBody, dataType, url, requestDateEvidence).map(row => attachCtripCaptureEvidence({
+    const responseCaptureSource = discoveryCandidate?.auto_capture
+      ? `xhr:auto_discovered:${dataType}`
+      : `xhr:${dataType}`;
+    const responseEvidence = buildOtaCaptureEvidence('ctrip', {
+      url,
+      section,
+      captureSource: responseCaptureSource,
+    });
+    const rows = normalizeRows(safeBody, dataType, url, requestDateEvidence, {
+      allowDiscoveredBusiness: Boolean(discoveryCandidate?.auto_capture),
+    }).map(row => attachCtripCaptureEvidence({
       ...row,
       section,
       data_type: dataType,
       endpoint_id: endpoint?.id || '',
       endpoint_label: endpoint?.label || '',
-    }, { url, section, dataType }));
+    }, { url, section, dataType, captureSource: responseCaptureSource }));
     const factContext = {
       endpoint,
       section,
@@ -1267,6 +1341,16 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     }))
       .map(row => annotateCtripStandardRowDateSource(row, requestDateEvidence))
       .map(row => attachCtripCaptureEvidence(row, factContext));
+    const autoDiscovered = Boolean(discoveryCandidate?.auto_capture);
+    if (
+      autoDiscovered
+      && rows.length === 0
+      && catalogFacts.length === 0
+      && standardRows.length === 0
+      && approvedRows.length === 0
+    ) {
+      return;
+    }
     target.catalog_facts.push(...catalogFacts);
     target.standard_rows.push(...standardRows);
     target.standard_rows.push(...approvedRows);
@@ -1287,6 +1371,12 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       catalog_fact_count: catalogFacts.length,
       standard_row_count: standardRows.length + approvedRows.length,
       approved_mapping_row_count: approvedRows.length,
+      auto_discovered: autoDiscovered,
+      ...(autoDiscovered ? {
+        discovery_confidence: discoveryCandidate.confidence,
+        discovery_reason_ids: discoveryCandidate.reason_ids,
+        safe_route: discoveryCandidate.safe_route,
+      } : {}),
       data: safeBody,
     });
 
@@ -1344,6 +1434,44 @@ function registerSessionProbeResponseObserver(page) {
 
 function sanitizeObservedPageUrl(value) {
   return sanitizeOtaObservedUrl(value);
+}
+
+function resolveCtripDiscoveredSection(candidate, activeSection) {
+  const section = String(activeSection || '').trim();
+  if (!candidate?.auto_capture || !section || !requestedSections.includes(section)) {
+    return '';
+  }
+  const coarseSection = String(candidate.candidate_section || '').trim();
+  const activeDataType = sectionDataType(section);
+  if (coarseSection === 'reviews') {
+    return section === 'comment_review' ? section : '';
+  }
+  if (coarseSection === 'traffic') {
+    return activeDataType === 'traffic' ? section : '';
+  }
+  if (coarseSection === 'search_keyword') {
+    return section === 'traffic_report' ? section : '';
+  }
+  if (coarseSection === 'ads') {
+    return section === 'ads_pyramid' ? section : '';
+  }
+  if (coarseSection === 'quality') {
+    return activeDataType === 'quality' && section !== 'comment_review' ? section : '';
+  }
+  if (coarseSection === 'business' || coarseSection === 'orders') {
+    return activeDataType === 'business' ? section : '';
+  }
+  return '';
+}
+
+function ctripDiscoveredDataType(candidate, section) {
+  const coarseSection = String(candidate?.candidate_section || '').trim();
+  if (coarseSection === 'reviews') return 'review';
+  if (coarseSection === 'traffic' || coarseSection === 'search_keyword') return 'traffic';
+  if (coarseSection === 'ads') return 'advertising';
+  if (coarseSection === 'quality') return 'quality';
+  if (coarseSection === 'business' || coarseSection === 'orders') return 'business';
+  return sectionDataType(section);
 }
 
 function isLegacyCtripBusinessMetricUrl(url) {
@@ -1406,7 +1534,7 @@ function annotateCtripStandardRowDateSource(row, requestDateEvidence = {}) {
   return { ...row, date_source: 'capture_context.default_data_date' };
 }
 
-function normalizeRows(value, section, sourceUrl, requestDateEvidence = {}) {
+function normalizeRows(value, section, sourceUrl, requestDateEvidence = {}, options = {}) {
   if (section === 'reviews') {
     return normalizeCommentList(value).map(row => normalizeCommentRow(row, sourceUrl, 'xhr:getCommentList'));
   }
@@ -1415,7 +1543,7 @@ function normalizeRows(value, section, sourceUrl, requestDateEvidence = {}) {
       .map(row => normalizeTrafficRow(row, sourceUrl, requestDateEvidence))
       .filter(Boolean);
   }
-  if (!isLegacyCtripBusinessMetricUrl(sourceUrl)) {
+  if (!options.allowDiscoveredBusiness && !isLegacyCtripBusinessMetricUrl(sourceUrl)) {
     return [];
   }
   return normalizeGenericList(value, 'business')
@@ -1428,7 +1556,9 @@ function attachCtripCaptureEvidence(row, context = {}) {
     url: context.url || row._source_url || row.source_url || '',
     section: context.section || row.section || row.data_type || '',
     sourcePath: row._source_path || row.source_path || '',
-    captureSource: row._capture_source || `xhr:${context.dataType || row.data_type || context.section || 'unknown'}`,
+    captureSource: context.captureSource
+      || row._capture_source
+      || `xhr:${context.dataType || row.data_type || context.section || 'unknown'}`,
   });
 }
 
@@ -2130,6 +2260,7 @@ function summarize(data) {
     standard_rows: data.standard_rows.length,
     catalog_facts: data.catalog_facts.length,
     endpoint_candidates: data.endpoint_candidates.length,
+    endpoint_discovery_candidates: data.endpoint_discovery_candidates.length,
     p3_evidence_drafts: data.p3_evidence_drafts.length,
     p3_evidence_ready: data.p3_evidence_drafts.filter(item => item.catalog_ready).length,
     responses: data.responses.length,
