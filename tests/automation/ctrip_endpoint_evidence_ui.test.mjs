@@ -67,10 +67,11 @@ test('Ctrip generic data configuration is metadata-only and strips credential fi
   assert.match(html, /String\(item\?\.credential_status \|\| ''\) === 'ready'/);
   assert.match(html, /item\?\.has_cookies === true/);
   assert.match(html, /<textarea v-model="dataConfigForm\.cookies"[^>]*\bdisabled\b[^>]*>/);
-  assert.match(html, /<textarea v-model="dataConfigForm\.headers_json"[^>]*\bdisabled\b[^>]*>/);
+  assert.doesNotMatch(html, /<textarea v-model="dataConfigForm\.headers_json"[^>]*>/);
   assert.match(html, /<textarea v-model="dataConfigForm\.payload_json"[^>]*\bdisabled\b[^>]*>/);
   assert.match(html, /请求体不在通用配置中保存/);
-  assert.match(html, /请求头由凭据保险库管理/);
+  assert.match(html, /真实采集步骤仅在服务端展开/);
+  assert.match(html, /v-model="dataConfigForm\.request_source"/);
 
   for (const model of ['ctripForm', 'ctripTrafficForm', 'ctripAdsBrowserCaptureForm', 'ctripOverviewForm']) {
     assert.match(

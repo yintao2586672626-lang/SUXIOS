@@ -19,6 +19,9 @@ const appMainSource = existsSync('public/app-main.js') ? readFileSync('public/ap
 const otaDiagnosisStaticSource = existsSync('public/ota-diagnosis-static.js') ? readFileSync('public/ota-diagnosis-static.js', 'utf8') : '';
 const autoFetchStaticSource = existsSync('public/auto-fetch-static.js') ? readFileSync('public/auto-fetch-static.js', 'utf8') : '';
 const platformAutoSettingsSource = existsSync('public/components/online-data/platform-auto-settings-panels.js') ? readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8') : '';
+const dataConfigDialogsSource = existsSync('resources/frontend/templates/components/data-config-dialogs.html')
+  ? readFileSync('resources/frontend/templates/components/data-config-dialogs.html', 'utf8')
+  : '';
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
 const meituanStaticSource = existsSync('public/meituan-static.js') ? readFileSync('public/meituan-static.js', 'utf8') : '';
@@ -29,6 +32,7 @@ const source = [
   otaDiagnosisStaticSource,
   autoFetchStaticSource,
   platformAutoSettingsSource,
+  dataConfigDialogsSource,
   ctripStaticSource,
   systemStaticSource,
   meituanStaticSource,
@@ -292,41 +296,21 @@ const checks = [
       && !reusableOtaSecretTaskField.test(runFetchBody),
   },
   {
-    name: 'Ctrip Cookie API exposes a core diagnosis endpoint preset',
+    name: 'Ctrip collection presets remain server-private and the browser selects an opaque task',
     pass: source.includes('getCtripCookieApiCorePresetEndpoints')
       && source.includes("requireCtripStatic('getCtripCookieApiCorePresetEndpoints')")
-      && source.includes('getCtripCookieApiCorePresetJson')
       && source.includes('fillCtripCookieApiCorePreset')
-      && source.includes('填入核心诊断接口')
       && ctripStaticSource.includes('getCtripCookieApiCorePresetEndpoints')
-      && ctripStaticSource.includes('queryHotCalendarInfo')
-      && ctripStaticSource.includes('queryHomePageRealTimeData')
-      && ctripStaticSource.includes('queryCampaignSummaryReport')
-      && ctripStaticSource.includes('getHotelPsiV2')
-      && ctripStaticSource.includes('getBbkComprehensiveTable')
-      && ctripStaticSource.includes('dataCenterBusinessReportDetail')
-      && ctripStaticSource.includes('queryScanFlowDetailsV2')
-      && ctripStaticSource.includes('market_calendar')
-      && ctripStaticSource.includes('homepage')
-      && ctripStaticSource.includes('traffic_report')
-      && ctripStaticSource.includes('ads_pyramid')
-      && ctripStaticSource.includes('quality_psi')
-      && ctripStaticSource.includes('biztravel_bpi')
-      && ctripStaticSource.includes('biztravel_business_report')
-      && ctripStaticSource.includes('biztravel_competitor')
-      && ctripStaticSource.includes('user_profile')
-      && ctripStaticSource.includes('im_board')
-      && ctripStaticSource.includes('competitor_overview')
-      && ctripStaticSource.includes('loss_analysis')
-      && ctripStaticSource.includes('competitor_rank')
-      && ctripStaticSource.includes('queryUserSex')
-      && ctripStaticSource.includes('getImIndex')
-      && ctripStaticSource.includes('getManagementData')
-      && ctripStaticSource.includes('getTripartiteOrderLoss')
-      && ctripStaticSource.includes('getCompetingRank')
-      && !indexSource.includes("request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo'")
-      && source.includes('fillCtripCookieApiCorePreset')
-      && source.includes('填入核心诊断接口'),
+      && ctripStaticSource.includes('const getCtripCookieApiCorePresetEndpoints = () => ([])')
+      && ctripStaticSource.includes('normalizedRequestSource')
+      && dataConfigDialogsSource.includes('真实采集步骤仅在服务端展开')
+      && dataConfigDialogsSource.includes('v-model="dataConfigForm.request_source"')
+      && controllerSource.includes("'competition_circle' =>")
+      && controllerSource.includes("'traffic_report'")
+      && controllerSource.includes('getManagementData')
+      && controllerSource.includes('getCompetingRank')
+      && !ctripStaticSource.includes('getManagementData')
+      && !ctripStaticSource.includes('getCompetingRank'),
   },
   {
     name: 'Ctrip Cookie API request metadata can be tested only with a ready platform credential locator',
@@ -350,19 +334,17 @@ const checks = [
       && !runFetchBody.includes('cookie_extractable'),
   },
   {
-    name: 'Ctrip overview manual fetch uses vault locator plus API URLs without browser capture',
-    pass: requestConcernSource.includes('fetchCtripOverviewData')
-      && requestConcernSource.includes('sanitizeCtripOverviewExecutionRequestData')
+    name: 'Ctrip overview actions use vault locator plus server-defined task codes without browser endpoint catalogs',
+    pass: requestConcernSource.includes('fetchCtripCookieApiData')
+      && requestConcernSource.includes('isTaskScopedCtripCookieApiRequest')
       && requestConcernSource.includes('$this->withOtaCredentialForExecution(')
-      && requestConcernSource.includes('sendCtripOverviewRequest')
-      && ctripOverviewRequestBody.includes("config_id: String(configId || '').trim()")
-      && ctripOverviewRequestBody.includes('system_hotel_id: systemHotelId')
-      && ctripOverviewRequestBody.includes('request_urls: normalizeCtripExecutionRequestUrls(requestUrls)')
-      && !reusableOtaSecretTaskField.test(ctripOverviewRequestBody)
-      && (source + ctripStaticSource).includes('queryFlowTransforNewV1')
-      && (source + ctripStaticSource).includes('getTrafficReportV1')
-      && !source.includes("request('/online-data/capture-ctrip-overview-browser'")
-      && !requestConcernSource.includes('captureCtripOverviewBrowserData'),
+      && source.includes("requestSource: 'competition_circle'")
+      && source.includes("requestSource: 'revenue_overview'")
+      && source.includes("requestSource: 'traffic_report'")
+      && source.includes("requestSource: 'quality_psi'")
+      && source.includes("requestSource: 'ads_pyramid'")
+      && !ctripStaticSource.includes('queryFlowTransforNewV1')
+      && !ctripStaticSource.includes('getTrafficReportV1'),
   },
   {
     name: 'manual auto-fetch shows persistent in-panel progress and result',

@@ -5600,7 +5600,7 @@ try {
 }
 
 try {
-  const context = { window: {} };
+  const context = { window: {}, URL };
   vm.runInNewContext(read('public/ctrip-static.js'), context, {
     filename: 'public/ctrip-static.js',
   });
@@ -5686,8 +5686,8 @@ try {
       file: 'public/ctrip-static.js',
       label: 'Ctrip config builders preserve default form, payload and missing states',
       ok: defaultConfigForm.id === null
-        && defaultConfigForm.url.includes('getDayReportCompeteHotelReport')
-        && defaultConfigForm.node_id === '24588'
+        && defaultConfigForm.url === ''
+        && defaultConfigForm.node_id === ''
         && defaultConfigForm.capture_sections === 'all'
         && overriddenConfigForm.hotel_id === '10'
         && overriddenConfigForm.name === '携程账号'
@@ -5775,7 +5775,7 @@ try {
         && requestedConfigBody.hotel_id === '20'
         && requestedConfigBody.ctrip_hotel_id === 'ctrip-20'
         && requestedConfigBody.cookies === 'sid=save'
-        && resetConfigForm.url.includes('getDayReportCompeteHotelReport')
+        && resetConfigForm.url === ''
         && resetConfigForm.cookies === ''
         && saveEvents.join('|') === 'notify:info:配置保存成功|reload'
         && saveLogs.length === 0
@@ -7224,8 +7224,8 @@ try {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip ads builders keep request fields and URL guard',
-      ok: defaultCtripAdsEffectReportUrl.includes('queryCampaignReportList')
-        && isCtripAdsApiUrl(defaultCtripAdsEffectReportUrl) === true
+      ok: defaultCtripAdsEffectReportUrl === ''
+        && isCtripAdsApiUrl(defaultCtripAdsEffectReportUrl) === false
         && isCtripAdsApiUrl('https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true') === false
         && normalizeCtripAdsApiType('anything') === 'effect_report'
         && adsBody.config_id === 'ctrip-58'
@@ -7605,9 +7605,9 @@ try {
     checks.push({
       file: 'public/system-static.js',
       label: 'data config type defaults keep OTA source presets',
-      ok: ctripDefaults.node_id === '24588'
-        && ctripDefaults.nodeId === '24588'
-        && String(ctripDefaults.url || '').includes('ebooking.ctrip.com')
+      ok: ctripDefaults.node_id === ''
+        && ctripDefaults.nodeId === ''
+        && String(ctripDefaults.url || '') === ''
         && meituanDefaults.rank_type === 'P_RZ'
         && meituanDefaults.rankType === 'P_RZ'
         && meituanDefaults.data_scope === 'vpoi'

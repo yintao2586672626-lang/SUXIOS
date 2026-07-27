@@ -692,7 +692,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
             ['business_overview', 'traffic_report'],
             $collection['task']['request']['sections']
         );
-        self::assertSame('ota_yesterday_core', $collection['task']['request']['ordered_collection']['scope']);
+        self::assertArrayNotHasKey('ordered_collection', $collection['task']['request']);
         self::assertSame(2, Db::name('ota_local_collector_tasks')->count());
 
         Db::name('ota_local_collector_accounts')->where('id', $created['account_id'])->update([
@@ -920,8 +920,9 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertNotContains('local_account_hotel_binding_missing', $ordered['gap_report']['gap_codes']);
         self::assertCount(2, $ordered['queue']);
         self::assertSame('meituan', $ordered['next']['platform']);
-        self::assertSame(['list_exposure', 'detail_exposure', 'flow_rate'], $ordered['next']['missing_field_keys']);
+        self::assertArrayNotHasKey('missing_field_keys', $ordered['next']);
         self::assertSame(['traffic'], $ordered['next']['sections']);
+        self::assertSame('redacted', $ordered['implementation_visibility']);
     }
 
     public function testSecondPlatformSuccessRunsAndPersistsTheExactDateAuthorityVerifierReceipt(): void

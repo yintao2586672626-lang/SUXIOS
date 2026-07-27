@@ -635,7 +635,7 @@ trait PlatformProfileCaptureConcern
         $requestSource = trim((string)($requestData['request_source'] ?? ''));
         $spiderkey = $this->resolveCtripCookieApiSpiderkey($credentialPayload);
         $endpoints = $requestSource !== ''
-            ? $this->buildCtripCookieApiPresetEndpoints($requestSource, $spiderkey)
+            ? $this->buildCtripCookieApiPresetEndpoints($requestSource, $spiderkey, $dataDate, $hotelId)
             : $this->normalizeCtripCookieApiEndpointsFromRequest($requestData, $dataDate, $hotelId);
         if ($endpoints === []) {
             throw new \InvalidArgumentException('请提供携程接口 Request URL，或 endpoints/endpoints_json 接口清单');
@@ -688,10 +688,58 @@ trait PlatformProfileCaptureConcern
         return '';
     }
 
-    private function buildCtripCookieApiPresetEndpoints(string $requestSource, string $spiderkey = ''): array
+    private function buildCtripCookieApiPresetEndpoints(
+        string $requestSource,
+        string $spiderkey = '',
+        string $dataDate = '',
+        string $hotelId = ''
+    ): array
     {
+        $endpoint = static function (string $requestUrl, string $method, string $section): array {
+            return [
+                'request_url' => $requestUrl,
+                'method' => $method,
+                'payload' => [],
+                'headers' => [],
+                'section' => $section,
+            ];
+        };
+
         if ($requestSource !== 'traffic_report') {
-            throw new \InvalidArgumentException('未知的携程 Cookie API 采集预设');
+            $endpoints = match ($requestSource) {
+                'competition_circle' => [
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/getManagementData', 'POST', 'competitor_overview'),
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/getFlowSource', 'POST', 'competitor_overview'),
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/getTripartiteOrderLoss', 'POST', 'loss_analysis'),
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/getCompetingRank', 'POST', 'competitor_rank'),
+                ],
+                'revenue_overview' => [
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/queryMarketDetails', 'POST', 'sales_report'),
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/queryOrderTrendV1', 'POST', 'sales_report'),
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/queryHotelOccupiedRoomTrendV1', 'POST', 'sales_report'),
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/queryRoomTensitiesV1', 'POST', 'sales_report'),
+                ],
+                'quality_psi' => [
+                    $endpoint('https://ebooking.ctrip.com/psi/api/getHotelPsiV2', 'GET', 'quality_psi'),
+                ],
+                'ads_pyramid' => [
+                    $endpoint('https://ebooking.ctrip.com/restapi/soa2/24588/queryCampaignSummaryReport', 'POST', 'ads_pyramid'),
+                ],
+                default => throw new \InvalidArgumentException('Unknown Ctrip task-scoped collection preset.'),
+            };
+
+            foreach ($endpoints as &$item) {
+                $item['payload'] = $this->normalizeCtripCookieApiPayloadDefaults(
+                    (string)$item['request_url'],
+                    (string)$item['method'],
+                    (array)$item['payload'],
+                    $dataDate,
+                    $hotelId
+                );
+            }
+            unset($item);
+
+            return $endpoints;
         }
 
         $requestUrl = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/querySearchFlowDetails?hostType=Ebooking';
@@ -733,6 +781,17 @@ trait PlatformProfileCaptureConcern
                 'section' => 'traffic_report',
             ];
         }
+
+        foreach ($endpoints as &$item) {
+            $item['payload'] = $this->normalizeCtripCookieApiPayloadDefaults(
+                (string)$item['request_url'],
+                (string)$item['method'],
+                (array)$item['payload'],
+                $dataDate,
+                $hotelId
+            );
+        }
+        unset($item);
 
         return $endpoints;
     }

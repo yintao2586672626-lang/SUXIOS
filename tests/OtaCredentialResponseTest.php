@@ -299,8 +299,16 @@ final class OtaCredentialResponseTest extends TestCase
         return new class($failure) {
             use \app\controller\concern\OnlineDataRequestConcern;
 
+            public object $currentUser;
+
             public function __construct(private readonly \Throwable $failure)
             {
+                $this->currentUser = new class {
+                    public function isSuperAdmin(): bool
+                    {
+                        return true;
+                    }
+                };
             }
 
             private function checkPermission(): void
@@ -1407,7 +1415,10 @@ final class OtaCredentialResponseTest extends TestCase
         $response = $this->deletePermissionFailureHarness()->deleteCtripConfig();
 
         self::assertSame(403, $response->getCode());
-        self::assertStringContainsString('无权删除此配置', (string)$response->getContent());
+        self::assertStringContainsString(
+            'Ctrip collection configuration is restricted to super-admin maintenance.',
+            (string)$response->getContent()
+        );
     }
 
     public function testMeituanPersistenceStoresOnlySafeMetadataAndUsesExactLocator(): void

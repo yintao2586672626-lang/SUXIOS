@@ -200,10 +200,11 @@ test('Ctrip profile field config manages modules from the same panel', () => {
   assert.match(html, /const ctripProfilePrimaryCategoryCards = computed/);
   assert.match(html, /ctripProfileModulePageUrl\(module\)/);
   assert.match(html, /\/online-data\/ctrip-profile-modules/);
-  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/outline\?microJump=true/);
-  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/weekReport\?microJump=true/);
-  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/beneficialdata\?microJump=true/);
-  assert.match(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\/flowdata\?microJump=true/);
+  assert.doesNotMatch(ctripStatic, /https:\/\/ebooking\.ctrip\.com\/datacenter\/inland\/businessreport\//);
+  assert.match(backend, /businessreport\/outline\?microJump=true/);
+  assert.match(backend, /businessreport\/weekReport\?microJump=true/);
+  assert.match(backend, /businessreport\/beneficialdata\?microJump=true/);
+  assert.match(backend, /businessreport\/flowdata\?microJump=true/);
   assert.match(backend, /CTRIP_PROFILE_MODULES_CONFIG_KEY/);
   assert.match(backend, /'page_url' => trim/);
   assert.match(backend, /'primary_category' => trim/);
@@ -835,22 +836,13 @@ test('Ctrip learning table records scope, source, conversion, missing status and
   assert.match(learningDoc, /"store_id": "门店ID"/);
 });
 
-test('Ctrip preferred Cookie preset fetches all future-search scopes in one run', () => {
+test('Ctrip preferred Cookie preset stays private and expands on the server', () => {
   const api = loadCtripStaticApi();
   const endpoints = api.getCtripCookieApiCorePresetEndpoints();
-  const searchEndpoints = endpoints.filter(item => String(item.request_url || '').includes('querySearchFlowDetails'));
 
-  assert.equal(searchEndpoints.length, 4);
-  assert.equal(
-    searchEndpoints.map(item => `${item.payload.dataType}:${item.payload.searchType}`).sort().join(','),
-    '0:0,0:1,3:0,3:1'
-  );
-  for (const item of searchEndpoints) {
-    assert.equal(item.method, 'POST');
-    assert.equal(item.section, 'traffic_report');
-    assert.equal(item.payload.platform, 'Ctrip');
-    assert.equal(item.payload.spiderVersion, '2.0');
-    assert.equal(Object.hasOwn(item.payload, 'spiderkey'), false);
-    assert.equal(Object.hasOwn(item.payload, 'fingerPrintKeys'), false);
-  }
+  assert.deepEqual(Array.from(endpoints), []);
+  assert.match(backend, /buildCtripCookieApiPresetEndpoints/);
+  assert.match(backend, /'traffic_report'/);
+  assert.match(backend, /\[\[0, '0'\], \[3, '0'\], \[0, '1'\], \[3, '1'\]\]/);
+  assert.doesNotMatch(ctripStatic, /querySearchFlowDetails/);
 });
