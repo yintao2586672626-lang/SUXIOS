@@ -12,6 +12,9 @@ test('Tencent Cloud release archive excludes local sensitive and runtime paths',
   assert.match(source, /git -C \$hotelRoot archive --format=tar\.gz/);
   assert.match(source, /Dirty-worktree deployment is disabled/);
   assert.match(source, /Test-ForbiddenArchiveEntry/);
+  assert.match(source, /:\(exclude\)reports\/\*\*/);
+  assert.match(source, /:\(exclude\)runtime\/\*\*/);
+  assert.match(source, /:\(exclude\)storage\/\*\*/);
   assert.match(source, /tar\.exe -tzf \$archivePath/);
   assert.match(source, /Upload was refused/);
   assert.match(source, /\(dump\|backup\).*\\\.sql/);
@@ -30,6 +33,7 @@ test('git archive keeps ignored backups and runtime data out while retaining mig
     mkdirSync(join(fixtureRoot, '.codex-tmp'), { recursive: true });
     mkdirSync(join(fixtureRoot, '.playwright-cli'), { recursive: true });
     mkdirSync(join(fixtureRoot, 'storage', 'ctrip_profile_store_1'), { recursive: true });
+    mkdirSync(join(fixtureRoot, 'reports'), { recursive: true });
     writeFileSync(join(fixtureRoot, 'app', 'index.php'), '<?php echo "ok";\n', 'utf8');
     writeFileSync(join(fixtureRoot, 'database', 'migrations', '001_safe.sql'), 'SELECT 1;\n', 'utf8');
     writeFileSync(join(fixtureRoot, 'hotelx_dump.sql'), 'test-only fixture\n', 'utf8');
@@ -38,6 +42,7 @@ test('git archive keeps ignored backups and runtime data out while retaining mig
     writeFileSync(join(fixtureRoot, '.playwright-cli', 'session.json'), 'test-only fixture\n', 'utf8');
     writeFileSync(join(fixtureRoot, '.env'), 'DB_PASS=test-only\n', 'utf8');
     writeFileSync(join(fixtureRoot, 'storage', 'ctrip_profile_store_1', 'Cookies'), 'test-only fixture\n', 'utf8');
+    writeFileSync(join(fixtureRoot, 'reports', 'tracked-evidence.json'), '{"test":true}\n', 'utf8');
     writeFileSync(join(fixtureRoot, '.gitignore'), [
       '/*_dump.sql',
       '/*_backup*.sql',
@@ -61,6 +66,7 @@ test('git archive keeps ignored backups and runtime data out while retaining mig
 
     const build = spawnSync('git', [
       'archive', '--format=tar.gz', `--output=${archivePath}`, 'HEAD',
+      '--', '.', ':(exclude)reports/**', ':(exclude)runtime/**', ':(exclude)storage/**',
     ], { cwd: fixtureRoot, encoding: 'utf8', windowsHide: true });
     assert.equal(build.status, 0, build.stderr || build.stdout);
 
@@ -78,6 +84,7 @@ test('git archive keeps ignored backups and runtime data out while retaining mig
     assert.doesNotMatch(entries, /\.playwright-cli/);
     assert.doesNotMatch(entries, /(^|\/)\.env(\r?$|\/)/m);
     assert.doesNotMatch(entries, /ctrip_profile_store_1/);
+    assert.doesNotMatch(entries, /reports\/tracked-evidence\.json/);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

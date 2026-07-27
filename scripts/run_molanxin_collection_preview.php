@@ -76,14 +76,19 @@ try {
         '--control-token-file=' . $tokenFile,
         '--node-binary=' . $nodeBinary,
         '--collector-script=' . $root . '/scripts/run_dingdandao_cloud_collection.php',
+        '--collection-only',
     ], $root);
     if (!in_array((string)($collection['status'] ?? ''), [
-        'saved_synced_and_report_ready',
-        'saved_synced_but_report_blocked',
+        'saved_capture_and_base_facts_ready',
     ], true)
         || (int)($collection['capture_id'] ?? 0) <= 0
         || (string)($collection['target_date'] ?? '') !== $targetDate
         || (int)($collection['hotel_id'] ?? 0) !== $hotelId
+        || (string)($collection['runner_mode'] ?? '') !== 'collection_only'
+        || ($collection['base_fact_ready'] ?? null) !== true
+        || (int)($collection['operating_target_record_id'] ?? -1) !== 0
+        || (string)($collection['operating_target_sync_status'] ?? '')
+            !== 'skipped_collection_only'
         || ($collection['message_sent'] ?? null) !== false
         || ($collection['sensitive_values_exposed'] ?? null) !== false
     ) {

@@ -118,7 +118,21 @@ $installerUploaded = $false
 New-Item -ItemType Directory -Path $deployTempRoot | Out-Null
 
 try {
-    & git -C $hotelRoot archive --format=tar.gz --output=$archivePath $sourceCommit
+    $archivePathspecs = @(
+        '.',
+        ':(exclude).codex-tmp/**',
+        ':(exclude).playwright-cli/**',
+        ':(exclude)database/backups/**',
+        ':(exclude)node_modules/**',
+        ':(exclude)vendor/**',
+        ':(exclude)runtime/**',
+        ':(exclude)storage/**',
+        ':(exclude)reports/**',
+        ':(exclude)test-results/**',
+        ':(exclude)output/**'
+    )
+    & git -C $hotelRoot archive --format=tar.gz --output=$archivePath `
+        $sourceCommit -- @archivePathspecs
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to build the release archive."
     }

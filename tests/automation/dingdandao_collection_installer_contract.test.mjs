@@ -28,5 +28,7 @@ test('collection-only installer scopes one hotel and cannot dispatch WeCom', asy
 
   assert.match(runner, /SingleHotelOperatingDigestService/);
   assert.match(runner, /SingleHotelCollectionPreviewRunService/);
+  assert.match(runner, /'--collection-only'/);
+  assert.doesNotMatch(runner, /DingdandaoOperatingTargetSyncService/);
   assert.doesNotMatch(runner, /manual-notification:schedule|test-push|WechatRobotDelivery/);
 });

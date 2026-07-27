@@ -41,6 +41,8 @@ test('Dingdandao bootstrap and daily collector are wrapped by one gateway-owned 
   assert.match(wrapper, /'lease_kind' => 'daily_collection'/);
   assert.match(wrapper, /\$expectedCollectorScript = realpath\(/);
   assert.match(wrapper, /hash_equals\(\$expectedCollectorScript, \$resolvedCollectorScript\)/);
+  assert.match(wrapper, /'collection-only'/);
+  assert.match(wrapper, /\$command\[\] = '--collection-only'/);
   assert.match(wrapper, /'external_browser_required'[\s\S]{0,80}false/);
   assert.match(wrapper, /'user_browser_closed'[\s\S]{0,80}false/);
   assert.match(wrapper, /\$profileLeaseStatus = 'open'/);

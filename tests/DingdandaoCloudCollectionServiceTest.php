@@ -1192,6 +1192,17 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
             "\$closeOutcome = \$reportSendEligible ? 'completed' : 'report_blocked';",
             $runner
         );
+        self::assertStringContainsString("'collection-only'", $runner);
+        self::assertStringContainsString('if (!$collectionOnly)', $runner);
+        self::assertStringContainsString(
+            "'saved_capture_and_base_facts_ready'",
+            $runner
+        );
+        self::assertStringContainsString(
+            "'operating_target_sync_status' => is_array(\$targetSync)",
+            $runner
+        );
+        self::assertStringContainsString("'skipped_collection_only'", $runner);
         self::assertStringContainsString("'--experimental-websocket'", $runner);
     }
 

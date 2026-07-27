@@ -24,6 +24,9 @@ test('Dingdandao collection timer runs one collection-only three-source instance
   assert.doesNotMatch(`${service}\n${timer}\n${runner}`, /systemctl\s+(?:enable|start|restart|daemon-reload)/);
 
   assert.match(runner, /scripts\/run_dingdandao_cloud_collection\.php/);
+  assert.match(runner, /'--collection-only'/);
+  assert.match(runner, /saved_capture_and_base_facts_ready/);
+  assert.match(runner, /skipped_collection_only/);
   assert.match(runner, /SingleHotelOperatingDigestService/);
   assert.match(runner, /SingleHotelCollectionPreviewRunService/);
   assert.match(runner, /--control-token-file=/);

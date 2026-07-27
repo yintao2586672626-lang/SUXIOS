@@ -22,6 +22,7 @@ $options = getopt('', [
     'php-binary::',
     'node-binary::',
     'collector-script::',
+    'collection-only',
 ]);
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
     ->format('Y-m-d');
@@ -50,6 +51,7 @@ $phpBinary = trim((string)($options['php-binary'] ?? '/usr/bin/php'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
 $collectorScript = trim((string)($options['collector-script']
     ?? $root . '/scripts/run_dingdandao_cloud_collection.php'));
+$collectionOnly = array_key_exists('collection-only', $options);
 $expectedCollectorScript = realpath(
     $root . '/scripts/run_dingdandao_cloud_collection.php'
 );
@@ -144,7 +146,8 @@ try {
         $gatewayUrl,
         $cdpUrl,
         $tokenFile,
-        $nodeBinary
+        $nodeBinary,
+        $collectionOnly
     );
     if (($collection['ok'] ?? false) !== true) {
         $businessDataPersisted = ($collection['business_data_persisted'] ?? false) === true;
@@ -254,7 +257,8 @@ function runCollectorProcess(
     string $gatewayUrl,
     string $cdpUrl,
     string $tokenFile,
-    string $nodeBinary
+    string $nodeBinary,
+    bool $collectionOnly
 ): array {
     $command = [
         $phpBinary,
@@ -268,6 +272,9 @@ function runCollectorProcess(
         '--control-token-file=' . $tokenFile,
         '--node-binary=' . $nodeBinary,
     ];
+    if ($collectionOnly) {
+        $command[] = '--collection-only';
+    }
     $pipes = [];
     $process = proc_open(
         $command,

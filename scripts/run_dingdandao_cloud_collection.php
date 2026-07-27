@@ -23,6 +23,7 @@ $options = getopt('', [
     'cdp-url::',
     'control-token-file::',
     'node-binary::',
+    'collection-only',
 ]);
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
     ->format('Y-m-d');
@@ -35,6 +36,7 @@ $cdpUrl = rtrim(trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')), 
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/run/credentials/suxios-dingdandao-collection.service/control-token'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
+$collectionOnly = array_key_exists('collection-only', $options);
 
 if (!validDate($targetDate)
     || $targetDate !== $today
@@ -181,39 +183,57 @@ try {
     ) {
         throw new RuntimeException('dingdandao_collection_prefill_readback_failed');
     }
-    $targetSync = (new DingdandaoOperatingTargetSyncService())->syncVerifiedCapture(
-        $tenantId,
-        $hotelId,
-        $ownerUserId,
-        (int)$capture['id']
-    );
-    if ((int)($targetSync['capture_id'] ?? 0) !== (int)$capture['id']
-        || (int)($targetSync['record_id'] ?? 0) <= 0
-        || (string)($targetSync['target_date'] ?? '') !== $targetDate
-        || (string)($targetSync['fact_scope'] ?? '') !== 'accommodation_room_fee'
-        || (string)($targetSync['source_type'] ?? '') !== 'pms'
-        || (string)($targetSync['quality_status'] ?? '') !== 'verified'
-    ) {
-        throw new RuntimeException('dingdandao_target_sync_readback_failed');
+    $targetSync = null;
+    $reportSendEligible = false;
+    if (!$collectionOnly) {
+        $targetSync = (new DingdandaoOperatingTargetSyncService())->syncVerifiedCapture(
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            (int)$capture['id']
+        );
+        if ((int)($targetSync['capture_id'] ?? 0) !== (int)$capture['id']
+            || (int)($targetSync['record_id'] ?? 0) <= 0
+            || (string)($targetSync['target_date'] ?? '') !== $targetDate
+            || (string)($targetSync['fact_scope'] ?? '') !== 'accommodation_room_fee'
+            || (string)($targetSync['source_type'] ?? '') !== 'pms'
+            || (string)($targetSync['quality_status'] ?? '') !== 'verified'
+        ) {
+            throw new RuntimeException('dingdandao_target_sync_readback_failed');
+        }
+        $reportSendEligible = ($targetSync['send_eligible'] ?? false) === true;
+        $closeOutcome = $reportSendEligible ? 'completed' : 'report_blocked';
+    } else {
+        $closeOutcome = 'completed';
     }
-
-    $reportSendEligible = ($targetSync['send_eligible'] ?? false) === true;
-    $closeOutcome = $reportSendEligible ? 'completed' : 'report_blocked';
     $result = [
-        'status' => $reportSendEligible
-            ? 'saved_synced_and_report_ready'
-            : 'saved_synced_but_report_blocked',
+        'status' => $collectionOnly
+            ? 'saved_capture_and_base_facts_ready'
+            : ($reportSendEligible
+                ? 'saved_synced_and_report_ready'
+                : 'saved_synced_but_report_blocked'),
+        'runner_mode' => $collectionOnly ? 'collection_only' : 'target_sync',
         'hotel_id' => $hotelId,
         'target_date' => $targetDate,
         'capture_id' => (int)$capture['id'],
-        'operating_target_record_id' => (int)$targetSync['record_id'],
-        'operating_target_revision_no' => (int)$targetSync['revision_no'],
-        'operating_target_status' => (string)$targetSync['status'],
-        'operating_target_sync_status' => (string)$targetSync['sync_status'],
+        'operating_target_record_id' => is_array($targetSync)
+            ? (int)$targetSync['record_id']
+            : 0,
+        'operating_target_revision_no' => is_array($targetSync)
+            ? (int)$targetSync['revision_no']
+            : 0,
+        'operating_target_status' => is_array($targetSync)
+            ? (string)$targetSync['status']
+            : 'not_enabled',
+        'operating_target_sync_status' => is_array($targetSync)
+            ? (string)$targetSync['sync_status']
+            : 'skipped_collection_only',
         'report_send_eligible' => $reportSendEligible,
         'report_gap_codes' => array_values(array_filter(array_map(
             static fn(array $gap): string => trim((string)($gap['code'] ?? '')),
-            is_array($targetSync['gaps'] ?? null) ? $targetSync['gaps'] : []
+            is_array($targetSync) && is_array($targetSync['gaps'] ?? null)
+                ? $targetSync['gaps']
+                : []
         ))),
         'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
         'identity_status' => 'matched',
@@ -222,6 +242,7 @@ try {
         'readback_status' => 'readback_verified',
         'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
         'detail_row_count' => (int)($capture['detail_row_count'] ?? 0),
+        'base_fact_ready' => true,
         'sensitive_values_exposed' => false,
         'message_sent' => false,
     ];
