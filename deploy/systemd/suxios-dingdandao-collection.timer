@@ -1,8 +1,8 @@
 [Unit]
-Description=Prepare hourly SUXIOS Dingdandao current-day collection
+Description=Run hourly SUXIOS Molanxin PMS collection and three-source digest
 
 [Timer]
-OnCalendar=*-*-* *:05:00
+OnCalendar=*-*-* *:35:00 Asia/Shanghai
 AccuracySec=30s
 RandomizedDelaySec=30s
 Persistent=false

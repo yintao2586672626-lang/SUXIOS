@@ -374,6 +374,33 @@ final class OperatingTargetReportGateService
             ];
         }
 
+        $integrated = is_array($operatingTargetPreview['integrated_sources'] ?? null)
+            ? $operatingTargetPreview['integrated_sources']
+            : null;
+        if (is_array($integrated) && ($integrated['applies'] ?? false) === true) {
+            if (($integrated['delivery_allowed'] ?? false) !== true) {
+                $integratedBlockers = array_values(array_filter(
+                    (array)($integrated['blockers'] ?? []),
+                    'is_array'
+                ));
+                if ($integratedBlockers === []) {
+                    $integratedBlockers[] = [
+                        'code' => 'single_hotel_integrated_sources_not_ready',
+                        'message' => '单店PMS、携程或美团来源证据未通过。',
+                    ];
+                }
+                array_push($blockers, ...$integratedBlockers);
+            }
+            if ((int)($integrated['hotel_id'] ?? 0) !== (int)($operatingTargetPreview['hotel_id'] ?? 0)
+                || (string)($integrated['business_date'] ?? '') !== (string)($operatingTargetPreview['target_date'] ?? '')
+            ) {
+                $blockers[] = [
+                    'code' => 'single_hotel_integrated_scope_mismatch',
+                    'message' => '单店综合来源与经营目标的酒店或日期不一致。',
+                ];
+            }
+        }
+
         $blockers = $this->uniqueBlockers($blockers);
         $allowed = $blockers === [];
 
@@ -430,7 +457,19 @@ final class OperatingTargetReportGateService
             '> 数据质量：' . $this->safeText((string)$factTrace['quality_label'], 80),
             '> 采集/核对时间：' . $this->safeText((string)$factTrace['fact_captured_at'], 40),
         ]);
-        $payload['markdown']['content'] = implode("\n", $lines);
+        $integrated = is_array($preview['integrated_sources'] ?? null)
+            ? $preview['integrated_sources']
+            : null;
+        if (is_array($integrated) && ($integrated['applies'] ?? false) === true) {
+            $lines[0] = '# 宿析OS｜敦煌漠蓝新单店经营日报';
+            array_push($lines, '', ...$this->integratedSourceLines($integrated));
+        }
+        $payload['markdown']['content'] = mb_strcut(
+            implode("\n", $lines),
+            0,
+            3800,
+            'UTF-8'
+        );
 
         return $payload;
     }
@@ -685,6 +724,9 @@ final class OperatingTargetReportGateService
             'reminders' => is_array($preview['reminders'] ?? null)
                 ? array_values($preview['reminders'])
                 : [],
+            'integrated_sources' => is_array($preview['integrated_sources'] ?? null)
+                ? $preview['integrated_sources']
+                : null,
         ];
         $encoded = json_encode(
             $canonical,
@@ -692,6 +734,78 @@ final class OperatingTargetReportGateService
         );
 
         return hash('sha256', $encoded === false ? '' : $encoded);
+    }
+
+    /** @param array<string,mixed> $integrated @return array<int,string> */
+    private function integratedSourceLines(array $integrated): array
+    {
+        $sources = is_array($integrated['sources'] ?? null) ? $integrated['sources'] : [];
+        $pms = is_array($sources['pms'] ?? null) ? $sources['pms'] : [];
+        $ctrip = is_array($sources['ctrip'] ?? null) ? $sources['ctrip'] : [];
+        $meituan = is_array($sources['meituan'] ?? null) ? $sources['meituan'] : [];
+        $pmsFacts = is_array($pms['facts'] ?? null) ? $pms['facts'] : [];
+        $ctripFacts = is_array($ctrip['facts'] ?? null) ? $ctrip['facts'] : [];
+        $meituanFacts = is_array($meituan['facts'] ?? null) ? $meituan['facts'] : [];
+
+        return [
+            '**PMS住宿经营事实（订单来了）**',
+            '- 房费：' . $this->metricText($pmsFacts['room_fee_revenue'] ?? null, '元')
+                . '；ADR：' . $this->metricText($pmsFacts['adr'] ?? null, '元')
+                . '；入住率：' . $this->metricText($pmsFacts['occupancy_rate_percent'] ?? null, '%'),
+            '- RevPAR：' . $this->metricText($pmsFacts['revpar'] ?? null, '元')
+                . '；累计售出间夜：' . $this->metricText($pmsFacts['sold_room_nights'] ?? null, '间夜')
+                . '；平均每日间夜：'
+                . $this->metricText($pmsFacts['average_daily_room_nights'] ?? null, '间夜'),
+            '- 推算可售房夜：'
+                . $this->metricText($pmsFacts['sellable_room_nights'] ?? null, '间夜'),
+            '- 状态：' . $this->sourceStatusLabel($pms)
+                . '；明细对账：' . $this->safeText((string)($pms['reconciliation_status'] ?? '未验证'), 24),
+            '',
+            '**携程渠道事实（不与PMS相加）**',
+            '- 渠道收入：' . $this->metricText($ctripFacts['channel_revenue'] ?? null, '元')
+                . '；订单：' . $this->metricText($ctripFacts['orders'] ?? null, '单')
+                . '；间夜：' . $this->metricText($ctripFacts['room_nights'] ?? null, '间夜'),
+            '- 状态：' . $this->sourceStatusLabel($ctrip)
+                . '；采集时间：' . $this->safeText((string)($ctrip['collected_at'] ?? '未记录'), 32),
+            '',
+            '**美团渠道事实（流量转化口径）**',
+            '- 曝光：' . $this->metricText($meituanFacts['list_exposure'] ?? null, '次')
+                . '；意向访客：' . $this->metricText($meituanFacts['detail_exposure'] ?? null, '人')
+                . '；转化率：' . $this->metricText($meituanFacts['flow_rate_percent'] ?? null, '%'),
+            '- 支付订单：' . $this->metricText($meituanFacts['paid_orders'] ?? null, '单')
+                . '；房费：缺失；间夜：缺失',
+            '- 目标日订单页汇总：'
+                . $this->metricText($meituanFacts['target_date_order_count'] ?? null, '单')
+                . '（仅订单数字段已验证，与流量转化口径不相加）',
+            '- 状态：' . $this->sourceStatusLabel($meituan)
+                . '；缺失字段未用0补齐',
+            '',
+            '> 口径：PMS为住宿房费经营事实；携程、美团仅为各自OTA渠道事实，三者不相加。',
+        ];
+    }
+
+    /** @param array<string,mixed> $source */
+    private function sourceStatusLabel(array $source): string
+    {
+        return match (strtolower(trim((string)($source['status'] ?? 'missing')))) {
+            'ready' => '已验证并回读',
+            'partial' => '部分可用（身份/日期/回读已验证）',
+            'blocked' => '已阻断',
+            default => '缺失或未验证',
+        };
+    }
+
+    private function metricText(mixed $value, string $unit): string
+    {
+        if (is_bool($value) || $value === null || $value === '' || !is_numeric($value)) {
+            return '缺失';
+        }
+        $number = (float)$value;
+        $text = abs($number - round($number)) < 0.000001
+            ? (string)(int)round($number)
+            : number_format($number, 2, '.', '');
+
+        return $text . $unit;
     }
 
     /**

@@ -1157,6 +1157,10 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
         self::assertStringContainsString('completeTrustedCapture(', $runner);
         self::assertStringNotContainsString('latestProviderHotelId(', $runner);
         self::assertStringContainsString(
+            "'--collection-mode=operating_indicators'",
+            $runner
+        );
+        self::assertStringContainsString(
             "(\$opened['browser_started'] ?? null) !== false",
             $runner
         );

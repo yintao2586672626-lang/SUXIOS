@@ -1,10 +1,11 @@
 [Unit]
-Description=SUXIOS Dingdandao read-only current-day collection
+Description=SUXIOS Molanxin PMS collection and three-source digest
 After=network-online.target mariadb.service php8.3-fpm.service suxios-cloud-browser-gateway.service
 Wants=network-online.target
 Requires=suxios-cloud-browser-gateway.service
 ConditionPathExists=/var/www/suxios/current/scripts/run_dingdandao_profile_lease_collection.php
 ConditionPathExists=/var/www/suxios/current/scripts/run_dingdandao_cloud_collection.php
+ConditionPathExists=/var/www/suxios/current/scripts/run_molanxin_collection_preview.php
 
 [Service]
 Type=oneshot
@@ -16,7 +17,8 @@ EnvironmentFile=/etc/suxios/dingdandao-collection.env
 LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
 RuntimeDirectory=suxios-dingdandao-collection
 RuntimeDirectoryMode=0750
-ExecStart=/usr/bin/bash /var/www/suxios/current/scripts/run_dingdandao_collection_once.sh
+ExecStartPre=/usr/bin/php /var/www/suxios/current/deploy/systemd/verify_dingdandao_collection.php --hotel-id=${SUXIOS_DINGDANDAO_HOTEL_ID} --owner-user-id=${SUXIOS_DINGDANDAO_OWNER_USER_ID} --profile-id=${SUXIOS_DINGDANDAO_PROFILE_ID} --require-runtime
+ExecStart=/usr/bin/php -d memory_limit=256M /var/www/suxios/current/scripts/run_molanxin_collection_preview.php --hotel-id=${SUXIOS_DINGDANDAO_HOTEL_ID} --owner-user-id=${SUXIOS_DINGDANDAO_OWNER_USER_ID} --profile-id=${SUXIOS_DINGDANDAO_PROFILE_ID} --control-token-file=/run/credentials/suxios-dingdandao-collection.service/control-token
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=suxios-dingdandao-collection
@@ -31,6 +33,3 @@ ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/run/suxios-dingdandao-collection -/var/www/suxios/current/runtime -/var/www/suxios/current/storage
 UMask=0027
-
-[Install]
-WantedBy=multi-user.target

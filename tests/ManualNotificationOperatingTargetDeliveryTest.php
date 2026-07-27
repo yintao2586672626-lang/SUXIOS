@@ -6,7 +6,9 @@ namespace Tests;
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
 use app\service\ManualNotificationTestTargetService;
+use app\service\OperatingTargetNotificationPayloadService;
 use app\service\OperatingTargetService;
+use app\service\SingleHotelOperatingDigestService;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
@@ -215,6 +217,30 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
         ]);
     }
 
+    public function testMissingTargetStillProvidesLocalThreeSourceMessagePreview(): void
+    {
+        $today = $this->today();
+
+        $page = $this->targetPayloads($today)->pagePreview(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            '敦煌漠蓝新',
+            $today
+        );
+        $brief = $page['report_preview']['integrated_message_preview'] ?? [];
+
+        self::assertSame('missing', $page['operating_target_status']);
+        self::assertSame('preview_ready', $brief['status'] ?? null);
+        self::assertTrue($brief['preview_only'] ?? false);
+        self::assertFalse($brief['message_sent'] ?? true);
+        self::assertFalse($brief['external_delivery_authorized'] ?? true);
+        self::assertStringContainsString('经营目标：未设置', (string)($brief['content'] ?? ''));
+        self::assertStringContainsString('订单来了PMS', (string)($brief['content'] ?? ''));
+        self::assertStringContainsString('携程｜渠道事实', (string)($brief['content'] ?? ''));
+        self::assertStringContainsString('美团｜流量与订单事实', (string)($brief['content'] ?? ''));
+        self::assertStringContainsString('渠道收入：未获取', (string)($brief['content'] ?? ''));
+    }
+
     public function testReadyAccommodationTargetFlowsThroughImmediateAndScheduledDelivery(): void
     {
         $today = $this->today();
@@ -247,7 +273,8 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
                     'sent_count' => 1,
                     'failed_count' => 0,
                 ];
-            }
+            },
+            $this->targetPayloads($today)
         );
         $saved = $notifications->save(
             self::TENANT_ID,
@@ -292,7 +319,8 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
                     'sent_count' => 1,
                     'failed_count' => 0,
                 ];
-            }
+            },
+            $this->targetPayloads($today)
         );
         $run = $scheduler->runDue(
             new DateTimeImmutable($today . ' 18:01:00', new DateTimeZone('Asia/Shanghai')),
@@ -384,6 +412,80 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             'planned_send_at' => $today . 'T18:00',
             'enabled' => true,
         ];
+    }
+
+    private function targetPayloads(string $today): OperatingTargetNotificationPayloadService
+    {
+        $scope = (array)Config::get('single_hotel_operating_digest', []);
+        $digest = new SingleHotelOperatingDigestService(
+            static fn(): array => [
+                'id' => self::HOTEL_ID,
+                'tenant_id' => self::TENANT_ID,
+                'name' => (string)($scope['hotel_name'] ?? ''),
+                'status' => 1,
+            ],
+            static fn(): array => [
+                'id' => 901,
+                'tenant_id' => self::TENANT_ID,
+                'hotel_id' => self::HOTEL_ID,
+                'business_date' => $today,
+                'identity_status' => 'matched',
+                'capture_status' => 'verified',
+                'quality_status' => 'verified',
+                'reconciliation_status' => 'matched',
+                'readback_status' => 'readback_verified',
+                'captured_at' => $today . ' 12:00:00',
+                'detail_room_fee_total' => 10135.29,
+                'detail_row_count' => 16,
+                'summary' => [
+                    'total_room_fee' => 10135.29,
+                    'adr' => 633.46,
+                    'occupancy_rate_percent' => 100,
+                    'revpar' => 633.46,
+                    'sold_room_nights' => 16,
+                    'average_daily_room_nights' => 16,
+                    'derived_sellable_room_nights' => 16,
+                ],
+            ],
+            static fn(): array => [
+                'source_policy' => [
+                    'hotel_scope' => 'system_hotel_id_strict_exact_only',
+                    'readback_policy' => 'readback_verified_required_equals_1',
+                    'platform_hotel_identity_policy' => 'platform_data_source_config_exact_required',
+                    'metric_scope' => 'ota_channel',
+                ],
+                'rows' => [[
+                    'data_date' => $today,
+                    'source' => 'ctrip',
+                    'data_source_id' => 5,
+                    'platform_hotel_id' => (string)(
+                        $scope['platforms']['ctrip']['platform_hotel_id'] ?? ''
+                    ),
+                    'amount' => 1200,
+                    'book_order_num' => 2,
+                    'quantity' => 2,
+                    'collected_at' => $today . ' 12:05:00',
+                ]],
+            ],
+            static fn(): array => [
+                'business_date' => $today,
+                'row_id' => 902,
+                'identity_matched' => true,
+                'readback_verified' => true,
+                'field_facts_verified' => true,
+                'collected_at' => $today . ' 12:10:00',
+                'facts' => [
+                    'list_exposure' => 100,
+                    'detail_exposure' => 20,
+                    'flow_rate_percent' => 20,
+                    'paid_orders' => 2,
+                    'target_date_order_count' => 0,
+                ],
+            ],
+            $scope
+        );
+
+        return new OperatingTargetNotificationPayloadService(null, null, $digest);
     }
 
     private function today(): string

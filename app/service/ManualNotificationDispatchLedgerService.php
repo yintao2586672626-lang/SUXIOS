@@ -15,7 +15,7 @@ use think\facade\Db;
  */
 final class ManualNotificationDispatchLedgerService
 {
-    public const RENDER_CONTRACT_VERSION = 'operating_target_wecom.v1';
+    public const RENDER_CONTRACT_VERSION = 'operating_target_wecom.v2';
 
     /**
      * @param array<string, mixed> $candidate

@@ -184,15 +184,23 @@ class TrustedOtaFactRepository
 
         [$trustedRows, $supersededRows] = $this->selectCanonicalRows($trustedRows);
         [$trustedRows, $suppressedMixedTypeRows] = $this->preferSummaryFactsPerSourceDate($trustedRows);
+        $platformHotelIds = $this->platformHotelIdsBySource(
+            $trustedRows,
+            $systemHotelId
+        );
         $rows = [];
         foreach ($trustedRows as $row) {
+            $dataSourceId = (int)($row['data_source_id'] ?? 0);
             $rows[] = [
                 'data_date' => (string)($row['data_date'] ?? ''),
                 'amount' => $this->metricValue($row, 'amount', $dataGaps),
                 'quantity' => $this->metricValue($row, 'quantity', $dataGaps),
                 'book_order_num' => $this->metricValue($row, 'book_order_num', $dataGaps),
                 'source' => $this->normalizedSource($this->firstText($row, $this->decodeRaw($row['raw_data'] ?? null), ['source', 'platform'])),
+                'data_source_id' => $dataSourceId,
+                'platform_hotel_id' => $platformHotelIds[$dataSourceId] ?? null,
                 'metric_scope' => 'ota_channel',
+                'collected_at' => $this->collectedAt($row),
             ];
         }
 
@@ -662,6 +670,19 @@ class TrustedOtaFactRepository
         return $value;
     }
 
+    /** @param array<string, mixed> $row */
+    private function collectedAt(array $row): ?string
+    {
+        foreach (['snapshot_time', 'update_time', 'updated_at', 'create_time', 'created_at'] as $field) {
+            $value = trim((string)($row[$field] ?? ''));
+            if ($value !== '' && strtotime($value) !== false) {
+                return date('Y-m-d H:i:s', (int)strtotime($value));
+            }
+        }
+
+        return null;
+    }
+
     /** @return array<string, mixed> */
     private function decodeRaw(mixed $raw): array
     {
@@ -673,6 +694,75 @@ class TrustedOtaFactRepository
         }
         $decoded = json_decode($raw, true);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Resolve the exact platform hotel identifier from the same browser-Profile
+     * data-source row that produced each trusted fact. The raw fact keeps only
+     * non-secret binding proof, so the configured identifier remains the
+     * authoritative exact-value comparison point for single-hotel consumers.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, string>
+     */
+    private function platformHotelIdsBySource(
+        array $rows,
+        int $systemHotelId
+    ): array {
+        $sourceIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => (int)($row['data_source_id'] ?? 0),
+            $rows
+        ), static fn(int $id): bool => $id > 0)));
+        sort($sourceIds, SORT_NUMERIC);
+        if ($sourceIds === []) {
+            return [];
+        }
+
+        try {
+            $sources = Db::name('platform_data_sources')
+                ->field(
+                    'id,system_hotel_id,platform,ingestion_method,enabled,config_json'
+                )
+                ->whereIn('id', $sourceIds)
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('platform', 'ctrip')
+                ->where('ingestion_method', 'browser_profile')
+                ->where('enabled', 1)
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $resolved = [];
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $sourceId = (int)($source['id'] ?? 0);
+            $config = $this->decodeRaw($source['config_json'] ?? null);
+            foreach ([
+                'platform_hotel_id',
+                'platformHotelId',
+                'hotel_id',
+                'hotelId',
+                'ota_hotel_id',
+                'otaHotelId',
+                'ctrip_hotel_id',
+                'ctripHotelId',
+                'master_hotel_id',
+                'masterHotelId',
+                'external_hotel_id',
+            ] as $key) {
+                $identifier = $this->scalarText($config[$key] ?? null);
+                if ($identifier !== '') {
+                    $resolved[$sourceId] = $identifier;
+                    break;
+                }
+            }
+        }
+
+        return $resolved;
     }
 
     /**
@@ -817,6 +907,7 @@ class TrustedOtaFactRepository
             'validation_policy' => 'explicit_trusted_status_allowlist_and_no_blocking_flags',
             'trace_policy' => 'row_raw_and_captured_field_fact_trace_must_match',
             'binding_policy' => 'raw_hotel_binding_evidence_required',
+            'platform_hotel_identity_policy' => 'platform_data_source_config_exact_required',
             'metric_fact_policy' => 'each_non_null_pricing_metric_requires_captured_field_fact',
             'period_policy' => 'historical_final_else_latest_realtime_per_business_grain',
             'metric_scope' => 'ota_channel',

@@ -25,6 +25,11 @@ export const DINGDANDAO_TREND_TYPES = Object.freeze({
   totalRoomFee: 5,
 });
 
+export const DINGDANDAO_COLLECTION_MODES = Object.freeze({
+  operatingIndicators: 'operating_indicators',
+  fullDiagnostic: 'full_diagnostic',
+});
+
 const DINGDANDAO_DETAIL_TYPE_SET = new Set(Object.values(DINGDANDAO_DETAIL_TYPES));
 const DINGDANDAO_READABLE_TREND_TYPE_SET = new Set([0, 1, 2, 3, 5]);
 
@@ -492,7 +497,22 @@ export async function readDingdandaoSessionMaterial(
   }
 }
 
-export function dingdandaoDirectRequests(ntwNum, targetDate) {
+function normalizeDingdandaoCollectionMode(value) {
+  const normalized = String(
+    value || DINGDANDAO_COLLECTION_MODES.operatingIndicators,
+  ).trim().toLowerCase();
+  if (!Object.values(DINGDANDAO_COLLECTION_MODES).includes(normalized)) {
+    throw new Error('capture_collection_mode_invalid');
+  }
+  return normalized;
+}
+
+export function dingdandaoDirectRequests(
+  ntwNum,
+  targetDate,
+  collectionMode = DINGDANDAO_COLLECTION_MODES.operatingIndicators,
+) {
+  const mode = normalizeDingdandaoCollectionMode(collectionMode);
   const base = {
     TIMEZONEOFFSET: -480,
     ntwNum: validSessionText(ntwNum, 120, /^[A-Za-z0-9_-]+$/),
@@ -508,12 +528,15 @@ export function dingdandaoDirectRequests(ntwNum, targetDate) {
       body: { ...dated, festivalType: -1200 },
     },
   ];
-  for (const type of [
-    DINGDANDAO_DETAIL_TYPES.roomFee,
-    DINGDANDAO_DETAIL_TYPES.roomNights,
-    DINGDANDAO_DETAIL_TYPES.occupancyRate,
-    DINGDANDAO_DETAIL_TYPES.revpar,
-  ]) {
+  const detailTypes = mode === DINGDANDAO_COLLECTION_MODES.fullDiagnostic
+    ? [
+      DINGDANDAO_DETAIL_TYPES.roomFee,
+      DINGDANDAO_DETAIL_TYPES.roomNights,
+      DINGDANDAO_DETAIL_TYPES.occupancyRate,
+      DINGDANDAO_DETAIL_TYPES.revpar,
+    ]
+    : [DINGDANDAO_DETAIL_TYPES.roomFee];
+  for (const type of detailTypes) {
     requests.push(
       { path: DINGDANDAO_API_PATHS.sumDetail, body: { ...dated, type } },
       { path: DINGDANDAO_API_PATHS.dailyDetail, body: { ...dated, type } },
@@ -524,15 +547,17 @@ export function dingdandaoDirectRequests(ntwNum, targetDate) {
       path: DINGDANDAO_API_PATHS.trend,
       body: { ...dated, type: DINGDANDAO_TREND_TYPES.totalRoomFee },
     },
-    {
+  );
+  if (mode === DINGDANDAO_COLLECTION_MODES.fullDiagnostic) {
+    requests.push({
       path: DINGDANDAO_API_PATHS.countyTotal,
       body: { ...dated, festivalType: -1200 },
     },
     {
       path: DINGDANDAO_API_PATHS.countyTrend,
       body: { ...dated, type: DINGDANDAO_TREND_TYPES.totalRoomFee },
-    },
-  );
+    });
+  }
   return requests;
 }
 
@@ -602,6 +627,7 @@ export async function collectDingdandaoDirect(
     cdpUrl,
     targetDate,
     expectedHotelName,
+    collectionMode = DINGDANDAO_COLLECTION_MODES.operatingIndicators,
     timeoutMs = 12000,
     capturedAt = new Date().toISOString(),
   },
@@ -622,7 +648,11 @@ export async function collectDingdandaoDirect(
   let sessionMaterial = await readSession(cdpUrl, { now });
   const records = [];
   try {
-    for (const request of dingdandaoDirectRequests(sessionMaterial.ntwNum, targetDate)) {
+    for (const request of dingdandaoDirectRequests(
+      sessionMaterial.ntwNum,
+      targetDate,
+      collectionMode,
+    )) {
       const classification = classifyDingdandaoResponseRequest({
         path: request.path,
         requestBody: request.body,
@@ -1089,10 +1119,14 @@ function parseArguments(argv) {
   if (!normalizeText(values['expected-hotel-name'])) {
     throw new Error('capture_expected_hotel_name_missing');
   }
+  const collectionMode = normalizeDingdandaoCollectionMode(
+    values['collection-mode'],
+  );
   return {
     cdpUrl: cdpUrl.toString().replace(/\/$/, ''),
     targetDate: values['target-date'],
     expectedHotelName: normalizeText(values['expected-hotel-name']).slice(0, 160),
+    collectionMode,
     timeoutMs: Math.min(30000, Math.max(3000, Number.parseInt(values['timeout-ms'] || '12000', 10))),
   };
 }
@@ -1110,6 +1144,7 @@ async function main() {
   const capture = await collectDingdandaoDirect(options);
   process.stdout.write(`${JSON.stringify({
     status: 'captured_unverified',
+    collection_mode: options.collectionMode,
     capture,
     raw_response_exposed: false,
     session_material_exposed: false,
