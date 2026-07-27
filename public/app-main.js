@@ -2357,6 +2357,7 @@
             const showRawData = ref(false); // 是否展开原始数据
             const createCtripFetchForm = requireCtripStatic('createCtripFetchForm');
             const createCtripConfigForm = requireCtripStatic('createCtripConfigForm');
+            const buildCtripConfigFormForHotel = requireCtripStatic('buildCtripConfigFormForHotel');
             const buildCtripConfigSavePayload = requireCtripStatic('buildCtripConfigSavePayload');
             const validateCtripConfigSaveInput = requireCtripStatic('validateCtripConfigSaveInput');
             const buildCtripBookmarkletSuccessState = requireCtripStatic('buildCtripBookmarkletSuccessState');
@@ -24629,6 +24630,32 @@
                 return ctripConfigList.value.find(item => String(item.hotel_id || item.system_hotel_id || '') === String(hotelId)) || null;
             };
 
+            const hydrateCtripConfigFormForHotel = (hotelId, options = {}) => {
+                const targetHotelId = String(hotelId || '').trim();
+                const currentForm = ctripConfigForm.value || {};
+                if (options.onlyIfStableFieldsBlank === true) {
+                    const alreadyHasStableFields = Boolean(currentForm.id)
+                        || [
+                            currentForm.ctrip_hotel_id,
+                            currentForm.hotel_room_count,
+                            currentForm.competitor_room_count,
+                        ].some(value => String(value ?? '').trim() !== '');
+                    if (alreadyHasStableFields) return currentForm;
+                }
+                const nextForm = buildCtripConfigFormForHotel({
+                    hotelId: targetHotelId,
+                    hotelName: getHotelNameById(targetHotelId),
+                    configs: ctripConfigList.value,
+                });
+                ctripConfigForm.value = nextForm;
+                return nextForm;
+            };
+
+            watch(() => String(ctripConfigForm.value?.hotel_id || ''), (hotelId, previousHotelId) => {
+                if (hotelId === previousHotelId) return;
+                hydrateCtripConfigFormForHotel(hotelId);
+            });
+
             const findMeituanConfigByHotelId = (hotelId) => {
                 return findMeituanConfigForHotel({
                     hotelId,
@@ -25800,11 +25827,12 @@
                     return;
                 }
 
-                ctripConfigForm.value = createCtripConfigForm({
-                    id: null,
-                    name: `${hotelName}携程数据源`,
-                    hotel_id: hotelId,
-                });
+                await loadCtripConfigList({ force: true, applySelectedConfig: false });
+                if (ctripConfigListLoadFailed.value) {
+                    showToast('读取携程配置失败，已阻止打开空白表单，避免生成重复配置', 'error');
+                    return;
+                }
+                hydrateCtripConfigFormForHotel(hotelId);
                 currentPage.value = 'ctrip-ebooking';
                 await nextTick();
                 openCtripManualTab('ctrip-config');
@@ -36006,6 +36034,9 @@
                             const validIds = new Set(ctripConfigList.value.map(item => String(item.id)));
                             selectedCtripConfigIds.value = selectedCtripConfigIds.value.filter(id => validIds.has(String(id)));
                             alignCtripTargetHotelToAccountPrimary();
+                            hydrateCtripConfigFormForHotel(ctripConfigForm.value?.hotel_id, {
+                                onlyIfStableFieldsBlank: true,
+                            });
                             if (selectedCtripHotelId.value && shouldApplySelectedConfig) {
                                 deferUiTask(() => (
                                     isAuthSessionCurrent(requestSession)
