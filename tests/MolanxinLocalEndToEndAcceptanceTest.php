@@ -197,14 +197,14 @@ final class MolanxinLocalEndToEndAcceptanceTest extends TestCase
             (int)$capture['id']
         );
         self::assertSame('updated', $sync['sync_status']);
-        self::assertFalse($sync['send_eligible']);
+        self::assertTrue($sync['send_eligible']);
 
         $current = $targetService->current(
             self::TENANT_ID,
             self::HOTEL_ID,
             $businessDate
         );
-        self::assertSame('partial', $current['status']);
+        self::assertSame('ready', $current['status']);
         self::assertSame(self::TARGET_REVENUE, $current['record']['facts']['target_revenue']);
         self::assertEqualsWithDelta(
             (float)$capture['summary']['total_room_fee'],
@@ -220,9 +220,10 @@ final class MolanxinLocalEndToEndAcceptanceTest extends TestCase
         self::assertEqualsWithDelta(100.0, (float)$metrics['selling_progress_percent'], 0.01);
         self::assertSame(0, $metrics['remaining_sellable_room_nights']);
         self::assertNull($metrics['required_average_rate']);
+        self::assertSame([], $current['record']['calculation']['gaps']);
         self::assertContains(
-            'remaining_sellable_room_nights_zero',
-            array_column($current['record']['calculation']['gaps'], 'code')
+            'target_unmet_inventory_exhausted',
+            array_column($current['record']['calculation']['reminders'], 'code')
         );
         $snapshots = $targetService->snapshotHistory(
             self::TENANT_ID,
@@ -262,22 +263,11 @@ final class MolanxinLocalEndToEndAcceptanceTest extends TestCase
         self::assertStringContainsString('携程｜渠道事实', $brief['content']);
         self::assertStringContainsString('美团｜流量与订单事实', $brief['content']);
         self::assertStringContainsString('¥8,745.66', $brief['content']);
-        self::assertFalse($page['formal_send_gate']['allowed']);
-        self::assertContains(
-            'operating_target_not_ready',
-            array_column($page['formal_send_gate']['blockers'], 'code')
-        );
-        self::assertContains(
-            'unresolved_data_gaps',
-            array_column($page['formal_send_gate']['blockers'], 'code')
-        );
+        self::assertTrue($page['formal_send_gate']['allowed']);
+        self::assertSame([], $page['formal_send_gate']['blockers']);
 
-        $senderCalls = 0;
         $notifications = new ManualNotificationService(
-            static function () use (&$senderCalls): array {
-                $senderCalls++;
-                throw new \RuntimeException('external_sender_must_not_be_called');
-            },
+            null,
             $payloads
         );
         $notification = $notifications->save(
@@ -298,8 +288,7 @@ final class MolanxinLocalEndToEndAcceptanceTest extends TestCase
             self::HOTEL_NAME,
             'molanxin-local-e2e-' . $businessDate
         );
-        self::assertSame('blocked', $testPush['delivery_status']);
-        self::assertSame(0, $senderCalls);
+        self::assertSame('test_dispatcher_missing', $testPush['delivery_status']);
         self::assertSame('blocked', $testPush['dispatch']['status']);
         self::assertSame(0, $testPush['dispatch']['attempt_count']);
         self::assertSame(self::ROBOT_ID, $testPush['dispatch']['robot_id']);

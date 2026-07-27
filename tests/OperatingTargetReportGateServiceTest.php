@@ -118,6 +118,43 @@ final class OperatingTargetReportGateServiceTest extends TestCase
         self::assertContains('operating_fact_scope_unsupported', array_column($scopeGate['blockers'], 'code'));
     }
 
+    public function testVerifiedSoldOutShortfallRemainsSendableAsBusinessAlert(): void
+    {
+        $preview = $this->readyPreview();
+        $preview['facts']['target_revenue'] = 20000;
+        $preview['facts']['actual_revenue'] = 8745.66;
+        $preview['facts']['sold_room_nights'] = 15;
+        $preview['facts']['sellable_room_nights'] = 15;
+        $preview['facts']['fact_scope'] = 'accommodation_room_fee';
+        $preview['facts']['source_type'] = 'pms';
+        $preview['metrics']['completion_rate_percent'] = 43.73;
+        $preview['metrics']['remaining_revenue'] = 11254.34;
+        $preview['metrics']['selling_progress_percent'] = 100.0;
+        $preview['metrics']['remaining_sellable_room_nights'] = 0;
+        $preview['metrics']['required_average_rate'] = null;
+        $preview['gaps'] = [];
+        $preview['reminders'] = [[
+            'level' => 'danger',
+            'code' => 'target_unmet_inventory_exhausted',
+            'message' => '仍有未完成住宿营收，但剩余可售房夜为 0；所需均价不适用。',
+        ]];
+
+        $page = (new OperatingTargetReportGateService())->pagePreview(
+            $preview,
+            '敦煌漠蓝新'
+        );
+
+        self::assertTrue($page['formal_send_gate']['allowed']);
+        self::assertStringContainsString(
+            '所需均价不适用',
+            (string)$page['payload']['markdown']['content']
+        );
+        self::assertStringNotContainsString(
+            '剩余所需均价：0',
+            (string)$page['payload']['markdown']['content']
+        );
+    }
+
     public function testUnauthorizedTestPushNeverInvokesInjectedDispatcher(): void
     {
         $calls = [];

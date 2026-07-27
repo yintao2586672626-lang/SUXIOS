@@ -140,6 +140,31 @@ final class OperatingTargetServiceTest extends TestCase
         self::assertContains('input_inconsistent', array_column($saved['record']['calculation']['gaps'], 'code'));
     }
 
+    public function testUnmetTargetWithNoRemainingInventoryIsAReadyBusinessAlert(): void
+    {
+        $saved = (new OperatingTargetService())->save(1, 5, 7, [
+            'target_date' => '2026-07-28',
+            'target_revenue' => 20000,
+            'actual_revenue' => 8745.66,
+            'sold_room_nights' => 15,
+            'sellable_room_nights' => 15,
+            'fact_scope' => 'accommodation_room_fee',
+            'source_type' => 'pms',
+            'source_reference' => 'dingdandao_capture:verified',
+            'quality_status' => 'verified',
+            'fact_captured_at' => '2026-07-28 01:00:00',
+        ]);
+
+        self::assertSame('ready', $saved['status']);
+        self::assertSame([], $saved['record']['calculation']['gaps']);
+        self::assertSame(0, $saved['record']['calculation']['metrics']['remaining_sellable_room_nights']);
+        self::assertNull($saved['record']['calculation']['metrics']['required_average_rate']);
+        self::assertContains(
+            'target_unmet_inventory_exhausted',
+            array_column($saved['record']['calculation']['reminders'], 'code')
+        );
+    }
+
     public function testPrefillReadsOnlySameHotelSameDateDailyReportAsUnverified(): void
     {
         Db::name('daily_reports')->insert([

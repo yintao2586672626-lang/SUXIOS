@@ -425,7 +425,11 @@ final class OperatingTargetService
             if ($remainingSellableRoomNights !== null && $remainingSellableRoomNights > 0) {
                 $requiredAverageRate = round($remainingRevenue / $remainingSellableRoomNights, 2);
             } elseif ($remainingSellableRoomNights === 0) {
-                $gaps[] = $this->gap('remaining_sellable_room_nights_zero', '仍有未完成营收，但剩余可售房夜为 0，所需均价无定义。');
+                $reminders[] = [
+                    'level' => 'danger',
+                    'code' => 'target_unmet_inventory_exhausted',
+                    'message' => '仍有未完成住宿营收，但剩余可售房夜为 0；所需均价不适用，请核对可售房量、房费口径或目标。',
+                ];
             }
         }
 
