@@ -79,6 +79,11 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /stored\.executionKind !== evidence\.executionKind/);
   assert.match(verifier, /const repeatableMigrationPaths = migrationPaths\.filter/);
   assert.match(verifier, /freshInitBaselineAdoptedMigrationFiles\.has\(basename\(migrationPath\)\)/);
+  assert.match(verifier, /immutableHistoricalNonRepeatableMigrationFiles/);
+  assert.match(verifier, /20260725_add_account_wechat_notification_binding\.sql/);
+  assert.match(verifier, /20260726_extend_manual_notification_dispatch_attempts\.sql/);
+  assert.match(verifier, /20260726_extend_manual_notification_schedule_runs_scope_robot\.sql/);
+  assert.match(verifier, /immutableHistoricalNonRepeatableMigrationFiles\.has\(basename\(migrationPath\)\)/);
   assert.match(verifier, /schema_baseline_sources/);
   assert.match(verifier, /unresolved migration failures/);
   assert.match(verifier, /assertGovernedCompatibilityColumns\('Fresh initialization'\)/);
@@ -97,6 +102,8 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /unique_intent_ids/);
   assert.match(verifier, /database_rows/);
   assert.match(verifier, /migration_files:\s*migrationPaths\.length/);
+  assert.match(verifier, /repeatable_migration_files:\s*repeatableMigrationPaths\.length/);
+  assert.match(verifier, /immutable_historical_non_repeatable_migrations/);
   assert.match(verifier, /idx_online_daily_history_date_id/);
   assert.match(verifier, /ai_report_generation_tasks/);
   assert.match(verifier, /login_support_contact/);

@@ -23,6 +23,16 @@ const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 const freshInitBaselineAdoptedMigrationFiles = new Set([
   '20260723_validate_owner_tenant_bootstrap_targets.sql',
 ]);
+// These migrations are already registered in production with immutable
+// checksums and contain one-time ADD COLUMN / ADD INDEX DDL. Fresh
+// initialization still executes each file once and the catalog, checksum,
+// execution-kind, and final schema checks still cover them. Only the synthetic
+// second and third executions are excluded.
+const immutableHistoricalNonRepeatableMigrationFiles = new Set([
+  '20260725_add_account_wechat_notification_binding.sql',
+  '20260726_extend_manual_notification_dispatch_attempts.sql',
+  '20260726_extend_manual_notification_schedule_runs_scope_robot.sql',
+]);
 if (process.env.SUXI_CI_MYSQL_VERIFY !== '1') {
   throw new Error('SUXI_CI_MYSQL_VERIFY=1 is required for this destructive dedicated-database verifier');
 }
@@ -85,7 +95,8 @@ const workingTreeUntrackedMigrationFiles = diskMigrationFiles.filter(
 );
 const migrationPaths = diskMigrationFiles.map(name => join(migrationDirectory, name));
 const repeatableMigrationPaths = migrationPaths.filter(
-  migrationPath => !freshInitBaselineAdoptedMigrationFiles.has(basename(migrationPath)),
+  migrationPath => !freshInitBaselineAdoptedMigrationFiles.has(basename(migrationPath))
+    && !immutableHistoricalNonRepeatableMigrationFiles.has(basename(migrationPath)),
 );
 
 const mysqlBinary = process.env.MYSQL_BINARY || process.env.SUXI_MYSQL || 'mysql';
@@ -794,6 +805,10 @@ try {
     baseline_source_files: declaredBaselineSources.length,
     catalog_pending_after_baseline: catalogPendingMigrationFiles.length,
     migration_files: migrationPaths.length,
+    repeatable_migration_files: repeatableMigrationPaths.length,
+    immutable_historical_non_repeatable_migrations: [
+      ...immutableHistoricalNonRepeatableMigrationFiles,
+    ],
     working_tree_untracked_migration_files: workingTreeUntrackedMigrationFiles.length,
     schema_versions_registered_after_init: schemaVersionsAfterInit,
     schema_versions_registered: schemaVersionsAfterRepeats,
