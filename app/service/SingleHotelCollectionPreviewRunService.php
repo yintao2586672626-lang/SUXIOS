@@ -170,6 +170,20 @@ final class SingleHotelCollectionPreviewRunService
             'pms_status',
             'ctrip_status',
             'meituan_status',
+            'pms_evidence_ready',
+            'ctrip_evidence_ready',
+            'meituan_evidence_ready',
+            'pms_capture_ids',
+            'pms_captured_at',
+            'ctrip_row_ids',
+            'ctrip_data_source_ids',
+            'ctrip_source_trace_ids',
+            'ctrip_collected_at',
+            'meituan_row_ids',
+            'meituan_data_source_ids',
+            'meituan_source_trace_ids',
+            'meituan_traffic_collected_at',
+            'meituan_order_collected_at',
             'digest_contract_version',
             'brief_contract_version',
             'preview_fingerprint',
@@ -188,9 +202,18 @@ final class SingleHotelCollectionPreviewRunService
             }
             if (is_array($value)) {
                 $result[$key] = array_values(array_slice(array_filter(array_map(
-                    fn(mixed $item): string => $this->safeText($item, 80),
+                    function (mixed $item): int|string|null {
+                        if (is_int($item) && $item > 0) {
+                            return $item;
+                        }
+                        if (is_scalar($item)) {
+                            $safe = $this->safeText($item, 160);
+                            return $safe !== '' ? $safe : null;
+                        }
+                        return null;
+                    },
                     $value
-                )), 0, 20));
+                ), static fn(mixed $item): bool => $item !== null), 0, 40));
                 continue;
             }
             $result[$key] = $this->safeText($value, 180);

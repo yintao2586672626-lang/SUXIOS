@@ -1,0 +1,35 @@
+[Unit]
+Description=SUXIOS Molanxin hotel 5 PMS Ctrip Meituan collection preview
+After=network-online.target mariadb.service php8.3-fpm.service suxios-cloud-browser-gateway.service
+Wants=network-online.target
+ConditionPathExists=/var/www/suxios/current/think
+ConditionPathExists=/var/www/suxios/current/scripts/run_molanxin_three_source_collection.php
+ConditionPathExists=/var/www/suxios/current/scripts/run_molanxin_collection_preview.php
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+Environment=SUXIOS_OTA_CLOUD_COLLECTOR=1
+EnvironmentFile=/etc/suxios/molanxin-three-source-collection.env
+LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
+RuntimeDirectory=suxios-molanxin-three-source-collection
+RuntimeDirectoryMode=0750
+ExecStartPre=/usr/bin/php -d memory_limit=256M think online-data:auto-fetch --validate-cloud-scope --collector-mode=single_user_local --collector-user-id=${SUXIOS_MOLANXIN_OTA_COLLECTOR_USER_ID} --collector-device-id=${SUXIOS_MOLANXIN_OTA_COLLECTOR_DEVICE_ID} --hotel-id=${SUXIOS_MOLANXIN_HOTEL_ID} --source-ids=${SUXIOS_MOLANXIN_OTA_SOURCE_IDS} --platforms=ctrip,meituan --no-interaction
+ExecStart=/usr/bin/php -d memory_limit=512M /var/www/suxios/current/scripts/run_molanxin_three_source_collection.php --hotel-id=${SUXIOS_MOLANXIN_HOTEL_ID} --owner-user-id=${SUXIOS_MOLANXIN_OWNER_USER_ID} --pms-profile-id=${SUXIOS_MOLANXIN_PMS_PROFILE_ID} --ota-collector-user-id=${SUXIOS_MOLANXIN_OTA_COLLECTOR_USER_ID} --ota-collector-device-id=${SUXIOS_MOLANXIN_OTA_COLLECTOR_DEVICE_ID} --ota-source-ids=${SUXIOS_MOLANXIN_OTA_SOURCE_IDS} --control-token-file=/run/credentials/suxios-molanxin-three-source-collection.service/control-token --runtime-directory=/run/suxios-molanxin-three-source-collection
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=suxios-molanxin-three-source-collection
+Nice=10
+CPUQuota=60%
+MemoryMax=640M
+TasksMax=40
+TimeoutStartSec=45min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/suxios-molanxin-three-source-collection -/var/www/suxios/current/runtime -/var/www/suxios/current/storage
+UMask=0027

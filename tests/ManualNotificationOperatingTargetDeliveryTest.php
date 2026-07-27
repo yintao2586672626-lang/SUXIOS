@@ -393,7 +393,11 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
         self::assertStringContainsString('总房费：¥8,745.66', $previewContent);
         self::assertStringContainsString('经营目标模块：未启用', $previewContent);
         self::assertStringContainsString(
-            '未获取或未验证（不阻断PMS基础事实）',
+            '缺失（不阻断PMS基础事实）',
+            $previewContent
+        );
+        self::assertStringContainsString(
+            '证据门禁阻断（不阻断PMS基础事实）',
             $previewContent
         );
         self::assertStringNotContainsString('20000', $previewContent);
@@ -591,10 +595,14 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             static fn(): array => [
                 'business_date' => $today,
                 'row_id' => 902,
+                'order_row_id' => 903,
+                'data_source_id' => 6,
                 'identity_matched' => true,
                 'readback_verified' => true,
                 'field_facts_verified' => true,
+                'order_fact_verified' => true,
                 'collected_at' => $today . ' 12:10:00',
+                'order_collected_at' => $today . ' 12:10:00',
                 'facts' => [
                     'list_exposure' => 100,
                     'detail_exposure' => 20,

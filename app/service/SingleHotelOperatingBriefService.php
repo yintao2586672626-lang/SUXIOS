@@ -20,9 +20,18 @@ final class SingleHotelOperatingBriefService
         $pms = is_array($sources['pms'] ?? null) ? $sources['pms'] : [];
         $ctrip = is_array($sources['ctrip'] ?? null) ? $sources['ctrip'] : [];
         $meituan = is_array($sources['meituan'] ?? null) ? $sources['meituan'] : [];
-        $pmsFacts = is_array($pms['facts'] ?? null) ? $pms['facts'] : [];
-        $ctripFacts = is_array($ctrip['facts'] ?? null) ? $ctrip['facts'] : [];
-        $meituanFacts = is_array($meituan['facts'] ?? null) ? $meituan['facts'] : [];
+        $pmsFacts = ($pms['delivery_evidence_ready'] ?? false) === true
+            && is_array($pms['facts'] ?? null)
+            ? $pms['facts']
+            : [];
+        $ctripFacts = ($ctrip['delivery_evidence_ready'] ?? false) === true
+            && is_array($ctrip['facts'] ?? null)
+            ? $ctrip['facts']
+            : [];
+        $meituanFacts = ($meituan['delivery_evidence_ready'] ?? false) === true
+            && is_array($meituan['facts'] ?? null)
+            ? $meituan['facts']
+            : [];
 
         $sourceGatePassed = ($digest['applies'] ?? false) === true
             && ($digest['base_delivery_allowed'] ?? $digest['delivery_allowed'] ?? false) === true
@@ -55,17 +64,13 @@ final class SingleHotelOperatingBriefService
                 ),
             '',
             '## 携程｜可选渠道事实',
-            '- 来源状态：' . (($ctrip['delivery_evidence_ready'] ?? false) === true
-                ? '同店同日事实已核验'
-                : '未获取或未验证（不阻断PMS基础事实）'),
+            '- 来源状态：' . $this->sourceStatusLabel($ctrip),
             '- 渠道收入：' . $this->money($ctripFacts['channel_revenue'] ?? null)
                 . '；订单：' . $this->count($ctripFacts['orders'] ?? null)
                 . '；间夜：' . $this->count($ctripFacts['room_nights'] ?? null),
             '',
             '## 美团｜可选流量与订单事实',
-            '- 来源状态：' . (($meituan['delivery_evidence_ready'] ?? false) === true
-                ? '同店同日事实已核验'
-                : '未获取或未验证（不阻断PMS基础事实）'),
+            '- 来源状态：' . $this->sourceStatusLabel($meituan),
             '- 列表曝光：' . $this->count($meituanFacts['list_exposure'] ?? null)
                 . '；详情曝光：' . $this->count($meituanFacts['detail_exposure'] ?? null),
             '- 流量转化率：' . $this->percent($meituanFacts['flow_rate_percent'] ?? null)
@@ -124,6 +129,41 @@ final class SingleHotelOperatingBriefService
             'blockers' => $blockers,
             'gaps' => $gaps,
         ];
+    }
+
+    /** @param array<string,mixed> $source */
+    private function sourceStatusLabel(array $source): string
+    {
+        if (($source['delivery_evidence_ready'] ?? false) === true) {
+            return '同店同日事实已核验';
+        }
+
+        if (strtolower(trim((string)($source['identity_status'] ?? ''))) === 'mismatched') {
+            return '身份不匹配（不阻断PMS基础事实）';
+        }
+
+        $freshness = strtolower(trim((string)($source['freshness_status'] ?? '')));
+        $orderFreshness = strtolower(trim((string)($source['order_freshness_status'] ?? '')));
+        if ($freshness === 'stale' || $orderFreshness === 'stale') {
+            return '数据已过时（不阻断PMS基础事实）';
+        }
+
+        $statuses = [
+            strtolower(trim((string)($source['status'] ?? ''))),
+            strtolower(trim((string)($source['repository_data_status'] ?? ''))),
+            strtolower(trim((string)($source['source_status'] ?? ''))),
+        ];
+        if (array_intersect($statuses, ['failed', 'error', 'collection_failed', 'capture_failed']) !== []) {
+            return '采集或读取失败（不阻断PMS基础事实）';
+        }
+        if (in_array('missing', $statuses, true)) {
+            return '缺失（不阻断PMS基础事实）';
+        }
+        if (in_array('blocked', $statuses, true)) {
+            return '证据门禁阻断（不阻断PMS基础事实）';
+        }
+
+        return '未验证（不阻断PMS基础事实）';
     }
 
     private function money(mixed $value): string

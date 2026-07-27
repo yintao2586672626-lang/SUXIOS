@@ -144,6 +144,40 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertSame([], $result['data_gaps']);
     }
 
+    public function testCurrentDateUsesNewestVerifiedFactEvenWhenOlderRowIsFinal(): void
+    {
+        $today = (new \DateTimeImmutable(
+            'now',
+            new \DateTimeZone('Asia/Shanghai')
+        ))->format('Y-m-d');
+        $this->insertRow([
+            'data_date' => $today,
+            'amount' => 100,
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'snapshot_time' => $today . ' 09:00:00',
+            'update_time' => $today . ' 09:00:00',
+        ]);
+        $this->insertRow([
+            'data_date' => $today,
+            'amount' => 999,
+            'data_period' => 'realtime_snapshot',
+            'is_final' => 0,
+            'snapshot_time' => $today . ' 12:00:00',
+            'update_time' => $today . ' 12:00:00',
+        ]);
+
+        $result = (new TrustedOtaFactRepository())->pricingHistory(
+            80,
+            $today,
+            $today
+        );
+
+        self::assertSame('ready', $result['data_status']);
+        self::assertSame([999.0], array_column($result['rows'], 'amount'));
+        self::assertSame(1, $result['data_quality']['superseded_period_rows']);
+    }
+
     public function testFailsClosedWhenSystemHotelScopeColumnIsMissing(): void
     {
         $this->recreateTable(

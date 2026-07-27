@@ -29,8 +29,15 @@ test('Dingdandao collection timer runs one collection-only three-source instance
   assert.match(runner, /skipped_collection_only/);
   assert.match(runner, /SingleHotelOperatingDigestService/);
   assert.match(runner, /SingleHotelCollectionPreviewRunService/);
+  assert.match(runner, /'source_readiness' => \$sourceReadiness/);
+  assert.match(runner, /'source_lineage' => \$sourceLineage/);
+  assert.match(runner, /ctrip_source_trace_ids/);
+  assert.match(runner, /meituan_source_trace_ids/);
   assert.match(runner, /--control-token-file=/);
   assert.match(runner, /\/run\/credentials\/suxios-dingdandao-collection\.service\/control-token/);
+  assert.match(runner, /\/run\/credentials\/suxios-molanxin-three-source-collection\.service\/control-token/);
+  assert.match(runner, /--runtime-directory=/);
+  assert.match(runner, /\/run\/suxios-molanxin-three-source-collection/);
   assert.match(runner, /'message_sent' => false/);
   assert.match(runner, /'dispatch_requested' => false/);
   assert.doesNotMatch(runner, /manual-notification:schedule|WechatRobotDelivery|testPush|competitor_wechat_robot/);

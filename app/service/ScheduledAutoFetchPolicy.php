@@ -527,7 +527,8 @@ final class ScheduledAutoFetchPolicy
     public function dailyTrustReceiptReady(
         array $receipt,
         ?string $expectedDate = null,
-        ?int $expectedHotelId = null
+        ?int $expectedHotelId = null,
+        array $expectedPlatforms = self::REQUIRED_DAILY_PLATFORMS
     ): bool {
         if (($receipt['collection_complete'] ?? false) !== true
             || ($receipt['exportable_snapshot_complete'] ?? false) !== true
@@ -540,7 +541,12 @@ final class ScheduledAutoFetchPolicy
         }
         $requiredPlatforms = $this->platformList($receipt['required_platforms'] ?? []);
         sort($requiredPlatforms, SORT_STRING);
-        if ($requiredPlatforms !== self::REQUIRED_DAILY_PLATFORMS) {
+        $expectedPlatforms = $this->platformList($expectedPlatforms);
+        if ($expectedPlatforms === []) {
+            $expectedPlatforms = self::REQUIRED_DAILY_PLATFORMS;
+        }
+        sort($expectedPlatforms, SORT_STRING);
+        if ($requiredPlatforms !== $expectedPlatforms) {
             return false;
         }
         $readyPlatforms = [];
@@ -568,7 +574,7 @@ final class ScheduledAutoFetchPolicy
         }
         $readyPlatforms = array_keys($readyPlatforms);
         sort($readyPlatforms, SORT_STRING);
-        if ($readyPlatforms !== self::REQUIRED_DAILY_PLATFORMS) {
+        if ($readyPlatforms !== $requiredPlatforms) {
             return false;
         }
         if (($receipt['authority_verifier_required'] ?? true) !== true) {
@@ -594,9 +600,10 @@ final class ScheduledAutoFetchPolicy
                 strtolower(trim((string)$receipt['collection_anchor_hash'])),
                 strtolower(trim((string)($verifier['collection_anchor_hash'] ?? '')))
             )
-            && $verifiedPlatforms === self::REQUIRED_DAILY_PLATFORMS
-            && (int)($verifier['p0_platforms_ready'] ?? -1) === count(self::REQUIRED_DAILY_PLATFORMS)
-            && (int)($verifier['traffic_gates_ready'] ?? -1) === count(self::REQUIRED_DAILY_PLATFORMS)
+            && $this->platformList($verifier['required_platforms'] ?? []) === $requiredPlatforms
+            && $verifiedPlatforms === $requiredPlatforms
+            && (int)($verifier['p0_platforms_ready'] ?? -1) === count($requiredPlatforms)
+            && (int)($verifier['traffic_gates_ready'] ?? -1) === count($requiredPlatforms)
             && strtolower(trim((string)($verifier['continuous_trust_status'] ?? ''))) === 'verified'
             && $this->stringList($verifier['continuous_trust_missing_steps'] ?? []) === [];
     }

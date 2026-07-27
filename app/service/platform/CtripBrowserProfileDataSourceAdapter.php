@@ -152,7 +152,16 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             }
             $sections = implode(',', $sectionList);
         }
-        $hotelId = $this->firstString($options, $config, ['hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'node_id', 'nodeId']);
+        $hotelId = $this->firstString($options, $config, [
+            'hotel_id',
+            'hotelId',
+            'ctrip_hotel_id',
+            'ctripHotelId',
+            'platform_hotel_id',
+            'platformHotelId',
+            'node_id',
+            'nodeId',
+        ]);
         $hotelName = $this->firstString($options, $config, ['hotel_name', 'hotelName', 'name']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
         $sectionConcurrency = $this->resolveCtripSectionConcurrency($options, $config);

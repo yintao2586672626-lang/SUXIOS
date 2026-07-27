@@ -22,6 +22,7 @@ $options = getopt('', [
     'gateway-url::',
     'cdp-url::',
     'control-token-file::',
+    'runtime-directory::',
     'node-binary::',
     'collection-only',
 ]);
@@ -35,6 +36,8 @@ $gatewayUrl = rtrim(trim((string)($options['gateway-url'] ?? 'http://127.0.0.1:8
 $cdpUrl = rtrim(trim((string)($options['cdp-url'] ?? 'http://127.0.0.1:9223')), '/');
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/run/credentials/suxios-dingdandao-collection.service/control-token'));
+$runtimeDirectory = rtrim(trim((string)($options['runtime-directory']
+    ?? '/run/suxios-dingdandao-collection')), '/');
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
 $collectionOnly = array_key_exists('collection-only', $options);
 
@@ -45,7 +48,12 @@ if (!validDate($targetDate)
     || !in_array($tokenFile, [
         '/run/credentials/suxios-dingdandao-collection.service/control-token',
         '/run/credentials/suxios-dingdandao-notification-pipeline.service/control-token',
+        '/run/credentials/suxios-molanxin-three-source-collection.service/control-token',
         '/etc/suxios-cloud-browser/control-token',
+    ], true)
+    || !in_array($runtimeDirectory, [
+        '/run/suxios-dingdandao-collection',
+        '/run/suxios-molanxin-three-source-collection',
     ], true)
     || $nodeBinary !== '/usr/bin/node'
 ) {
@@ -65,7 +73,7 @@ if (!is_array($hotel)
 }
 $tenantId = (int)$hotel['tenant_id'];
 
-$lockPath = '/run/suxios-dingdandao-collection/hotel-' . $hotelId . '.lock';
+$lockPath = $runtimeDirectory . '/hotel-' . $hotelId . '.lock';
 if (!is_dir(dirname($lockPath))) {
     fail('dingdandao_collection_lock_directory_missing');
 }

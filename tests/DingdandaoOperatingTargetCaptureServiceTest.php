@@ -57,7 +57,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         );
 
         $identity = $this->invoke($service, 'identityStatus', [
-            '敦煌漠蓝',
+            '敦煌漠蓝新',
             '敦煌漠蓝新',
             'unverified',
         ]);
@@ -190,6 +190,51 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         );
         self::assertSame(1, (int)Db::name('dingdandao_operating_target_captures')->count());
         self::assertSame(17, (int)Db::name('dingdandao_room_fee_capture_details')->count());
+    }
+
+    public function testLatestUsesCaptureTimeInsteadOfLateInsertedOlderFact(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $newer = $this->validInput();
+        $newer['captured_at'] = '2026-07-27 08:05:00';
+        $newerSaved = $service->save(
+            8,
+            5,
+            7,
+            (string)$newer['provider_hotel_name'],
+            $newer,
+            true,
+            'provider-hotel-5'
+        );
+
+        $older = $this->validInput();
+        $older['captured_at'] = '2026-07-27 08:04:00';
+        $older['summary']['total_room_fee'] = 10000.0;
+        $older['summary']['adr'] = 625.0;
+        $older['summary']['revpar'] = 625.0;
+        $older['room_fee_details'][15]['room_fee'] = 498.10;
+        $older['room_fee_details'][16]['room_fee'] = 10000.0;
+        $olderSaved = $service->save(
+            8,
+            5,
+            7,
+            (string)$older['provider_hotel_name'],
+            $older,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertGreaterThan((int)$newerSaved['id'], (int)$olderSaved['id']);
+        $latest = $service->latest(8, 5, '2026-07-27');
+        self::assertSame((int)$newerSaved['id'], (int)$latest['id']);
+        self::assertSame('2026-07-27 08:05:00', $latest['captured_at']);
+        self::assertEqualsWithDelta(
+            10135.29,
+            (float)$latest['summary']['total_room_fee'],
+            0.01
+        );
     }
 
     public function testCountyContextChangesFingerprintWithoutChangingHotelSummary(): void

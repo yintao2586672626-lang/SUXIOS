@@ -28,7 +28,7 @@ final class SingleHotelOperatingBriefPayloadServiceTest extends TestCase
         self::assertSame('not_enabled', $page['operating_target_status']);
         self::assertSame(0, $page['operating_target_record_id']);
         self::assertSame(
-            ['unavailable', 'unavailable'],
+            ['missing', 'blocked'],
             array_values($page['optional_channel_status'])
         );
         self::assertStringContainsString('总房费：¥8,745.66', $content);
@@ -38,7 +38,11 @@ final class SingleHotelOperatingBriefPayloadServiceTest extends TestCase
         self::assertStringContainsString('累计售出间夜：15', $content);
         self::assertStringContainsString('经营目标模块：未启用', $content);
         self::assertStringContainsString(
-            '未获取或未验证（不阻断PMS基础事实）',
+            '缺失（不阻断PMS基础事实）',
+            $content
+        );
+        self::assertStringContainsString(
+            '证据门禁阻断（不阻断PMS基础事实）',
             $content
         );
         self::assertStringNotContainsString('20000', $content);

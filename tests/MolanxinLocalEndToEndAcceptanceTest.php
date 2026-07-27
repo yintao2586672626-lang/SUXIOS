@@ -366,10 +366,14 @@ final class MolanxinLocalEndToEndAcceptanceTest extends TestCase
             static fn(): array => [
                 'business_date' => $businessDate,
                 'row_id' => 502,
+                'order_row_id' => 503,
+                'data_source_id' => 6,
                 'identity_matched' => true,
                 'readback_verified' => true,
                 'field_facts_verified' => true,
+                'order_fact_verified' => true,
                 'collected_at' => $businessDate . ' 12:10:00',
+                'order_collected_at' => $businessDate . ' 12:10:00',
                 'facts' => [
                     'list_exposure' => 200,
                     'detail_exposure' => 40,

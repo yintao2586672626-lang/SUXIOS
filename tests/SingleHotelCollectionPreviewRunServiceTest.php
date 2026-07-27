@@ -89,6 +89,23 @@ final class SingleHotelCollectionPreviewRunServiceTest extends TestCase
             'pms_status' => 'ready',
             'ctrip_status' => 'ready',
             'meituan_status' => 'partial',
+            'pms_evidence_ready' => true,
+            'ctrip_evidence_ready' => true,
+            'meituan_evidence_ready' => true,
+            'pms_capture_ids' => [12],
+            'pms_captured_at' => '2026-07-28 01:35:10',
+            'ctrip_row_ids' => [701],
+            'ctrip_data_source_ids' => [5],
+            'ctrip_source_trace_ids' => ['ctrip-trace-701'],
+            'ctrip_collected_at' => '2026-07-28 01:35:12',
+            'meituan_row_ids' => [823, 824],
+            'meituan_data_source_ids' => [6],
+            'meituan_source_trace_ids' => [
+                'meituan-traffic-823',
+                'meituan-order-824',
+            ],
+            'meituan_traffic_collected_at' => '2026-07-28 01:35:15',
+            'meituan_order_collected_at' => '2026-07-28 01:35:16',
             'gap_codes' => ['meituan_room_revenue_missing'],
         ], $observedAt->modify('+30 seconds'));
 
@@ -104,6 +121,25 @@ final class SingleHotelCollectionPreviewRunServiceTest extends TestCase
         self::assertSame(0, (int)$row['dispatch_requested']);
         self::assertSame(0, (int)$row['sent_count']);
         self::assertNull($row['scope_robot_id']);
+        $summary = json_decode(
+            (string)$row['result_summary_json'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertTrue($summary['pms_evidence_ready']);
+        self::assertTrue($summary['ctrip_evidence_ready']);
+        self::assertTrue($summary['meituan_evidence_ready']);
+        self::assertSame([12], $summary['pms_capture_ids']);
+        self::assertSame([701], $summary['ctrip_row_ids']);
+        self::assertSame([5], $summary['ctrip_data_source_ids']);
+        self::assertSame(['ctrip-trace-701'], $summary['ctrip_source_trace_ids']);
+        self::assertSame([823, 824], $summary['meituan_row_ids']);
+        self::assertSame([6], $summary['meituan_data_source_ids']);
+        self::assertSame(
+            ['meituan-traffic-823', 'meituan-order-824'],
+            $summary['meituan_source_trace_ids']
+        );
     }
 
     public function testBlockedPreviewIsNotMisreportedAsTechnicalFailure(): void

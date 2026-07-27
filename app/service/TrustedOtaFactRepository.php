@@ -192,6 +192,7 @@ class TrustedOtaFactRepository
         foreach ($trustedRows as $row) {
             $dataSourceId = (int)($row['data_source_id'] ?? 0);
             $rows[] = [
+                'row_id' => (int)($row['id'] ?? 0),
                 'data_date' => (string)($row['data_date'] ?? ''),
                 'amount' => $this->metricValue($row, 'amount', $dataGaps),
                 'quantity' => $this->metricValue($row, 'quantity', $dataGaps),
@@ -199,6 +200,8 @@ class TrustedOtaFactRepository
                 'source' => $this->normalizedSource($this->firstText($row, $this->decodeRaw($row['raw_data'] ?? null), ['source', 'platform'])),
                 'data_source_id' => $dataSourceId,
                 'platform_hotel_id' => $platformHotelIds[$dataSourceId] ?? null,
+                'observed_platform_hotel_id' => $this->observedPlatformHotelId($row),
+                'source_trace_id' => $this->scalarText($row['source_trace_id'] ?? null),
                 'metric_scope' => 'ota_channel',
                 'collected_at' => $this->collectedAt($row),
             ];
@@ -566,12 +569,19 @@ class TrustedOtaFactRepository
         }
 
         $superseded = 0;
+        $currentBusinessDate = (new \DateTimeImmutable(
+            'now',
+            new \DateTimeZone('Asia/Shanghai')
+        ))->format('Y-m-d');
         foreach ($grouped as $items) {
             $finalItems = array_values(array_filter(
                 $items,
                 fn(array $row): bool => $this->isFinalPeriodRow($row)
             ));
-            $candidates = $finalItems !== [] ? $finalItems : $items;
+            $itemBusinessDate = (string)($items[0]['data_date'] ?? '');
+            $candidates = $itemBusinessDate === $currentBusinessDate
+                ? $items
+                : ($finalItems !== [] ? $finalItems : $items);
             $winner = $candidates[0];
             foreach (array_slice($candidates, 1) as $candidate) {
                 if ($this->periodRowOrder($candidate) >= $this->periodRowOrder($winner)) {
@@ -694,6 +704,47 @@ class TrustedOtaFactRepository
         }
         $decoded = json_decode($raw, true);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<string,mixed> $row */
+    private function observedPlatformHotelId(array $row): ?string
+    {
+        $raw = $this->decodeRaw($row['raw_data'] ?? null);
+        $source = $this->normalizedSource($this->firstText($row, $raw, ['source', 'platform']));
+        $keys = $source === 'meituan'
+            ? ['platform_hotel_id', 'external_hotel_id', 'poi_id', 'poiId', 'store_id', 'storeId']
+            : [
+                'platform_hotel_id',
+                'external_hotel_id',
+                'ota_hotel_id',
+                'otaHotelId',
+                'ctrip_hotel_id',
+                'ctripHotelId',
+                'hotel_id',
+                'hotelId',
+                'node_id',
+                'nodeId',
+            ];
+        $candidates = [];
+        $identity = is_array($raw['platform_identity_validation'] ?? null)
+            ? $raw['platform_identity_validation']
+            : [];
+        if (strtolower($this->scalarText($identity['status'] ?? null)) === 'matched') {
+            $candidates[] = $this->scalarText($identity['validated_identifier'] ?? null);
+        }
+        foreach (['row', 'metrics', 'detail'] as $nestedKey) {
+            $values = is_array($raw[$nestedKey] ?? null) ? $raw[$nestedKey] : [];
+            foreach ($keys as $key) {
+                $candidate = $this->scalarText($values[$key] ?? null);
+                if ($candidate !== '') {
+                    $candidates[] = $candidate;
+                    break;
+                }
+            }
+        }
+        $candidates = $this->uniqueStrings($candidates);
+
+        return count($candidates) === 1 ? $candidates[0] : null;
     }
 
     /**

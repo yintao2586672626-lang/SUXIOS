@@ -26,6 +26,8 @@ class AutoFetchOnlineData extends Command
 
     private ?User $cloudCollectorUser = null;
 
+    private bool $explicitCloudRealtimeRun = false;
+
     protected function configure()
     {
         $this->setName('online-data:auto-fetch')
@@ -50,6 +52,7 @@ class AutoFetchOnlineData extends Command
 
     protected function execute(Input $input, Output $output)
     {
+        $this->explicitCloudRealtimeRun = false;
         $hotelIdOption = $input->getOption('hotel-id');
         $hotelId = null;
         if ($hotelIdOption !== null) {
@@ -191,6 +194,10 @@ class AutoFetchOnlineData extends Command
                 $output->writeln('Cloud OTA collector blocked: ' . $e->getMessage());
                 return 78;
             }
+            $this->explicitCloudRealtimeRun = $realtimeOnly
+                && !$validateCloudScope
+                && !$bindCloudScope
+                && !$unbindCloudScope;
             if ($bindCloudScope) {
                 if (!$confirmCloudScopeBinding) {
                     $output->writeln(
@@ -309,13 +316,16 @@ class AutoFetchOnlineData extends Command
             return 1;
         }
         $hasIncompleteDueRun = false;
+        $trustedReceiptPlatforms = $platforms !== []
+            ? $platforms
+            : ['ctrip', 'meituan'];
 
         foreach ($hotels as $hotel) {
             $hotelId = (int)$hotel['id'];
             $hotelName = (string)($hotel['name'] ?? $hotelId);
             $status = Cache::get("online_data_auto_fetch_status_{$hotelId}", []);
             $status = is_array($status) ? $status : [];
-            if (empty($status['enabled'])) {
+            if (!$this->autoFetchEnabledForCurrentInvocation($status)) {
                 if ($targetDateOverride !== null) {
                     $output->writeln("Hotel {$hotelName} auto-fetch is disabled.");
                     $hasIncompleteDueRun = true;
@@ -362,7 +372,8 @@ class AutoFetchOnlineData extends Command
                     if (is_array($executedReceipt) && $this->machineReceiptDailyTrustReady(
                         $executedReceipt,
                         (string)$run['data_date'],
-                        $hotelId
+                        $hotelId,
+                        $trustedReceiptPlatforms
                     )) {
                         $output->writeln("Hotel {$hotelName} {$run['label']} already executed with dual-OTA P0 proof, skipped.");
                         $this->writeMachineReceipt($output, $executedReceipt);
@@ -523,7 +534,7 @@ class AutoFetchOnlineData extends Command
                         $verifier = (new P0OtaFieldLoopVerifierRunner())->verify(
                             $hotelId,
                             (string)$run['data_date'],
-                            ['ctrip', 'meituan'],
+                            $trustedReceiptPlatforms,
                             (string)($receipt['collection_anchor_hash'] ?? '')
                         );
                         Cache::set(
@@ -539,7 +550,8 @@ class AutoFetchOnlineData extends Command
                     $trustedReady = $this->machineReceiptDailyTrustReady(
                         $receipt,
                         (string)$run['data_date'],
-                        $hotelId
+                        $hotelId,
+                        $trustedReceiptPlatforms
                     );
                     if (!$trustedReady && $outcome['complete']) {
                         $outcome['complete'] = false;
@@ -634,6 +646,12 @@ class AutoFetchOnlineData extends Command
 
         $output->writeln('[' . date('Y-m-d H:i:s') . '] Online data auto-fetch schedule check finished.');
         return $hasIncompleteDueRun ? 1 : 0;
+    }
+
+    /** @param array<string,mixed> $status */
+    private function autoFetchEnabledForCurrentInvocation(array $status): bool
+    {
+        return !empty($status['enabled']) || $this->explicitCloudRealtimeRun;
     }
 
     private function canonicalHistoricalExecutedKey(int $hotelId, string $targetDate): string
@@ -1711,13 +1729,15 @@ class AutoFetchOnlineData extends Command
     private function machineReceiptDailyTrustReady(
         array $receipt,
         ?string $expectedDate = null,
-        ?int $expectedHotelId = null
+        ?int $expectedHotelId = null,
+        array $expectedPlatforms = ['ctrip', 'meituan']
     ): bool
     {
         return (new ScheduledAutoFetchPolicy())->dailyTrustReceiptReady(
             $receipt,
             $expectedDate,
-            $expectedHotelId
+            $expectedHotelId,
+            $expectedPlatforms
         );
     }
 

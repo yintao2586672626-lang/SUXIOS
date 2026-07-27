@@ -2615,6 +2615,52 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testCtripBrowserProfileAdapterAcceptsStrictPlatformHotelIdAliases(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            foreach (['platform_hotel_id', 'platformHotelId'] as $alias) {
+                $capturedArgs = [];
+                $captureRunner = $this->captureRunner([
+                    'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'capture_gate' => ['status' => 'pass'],
+                    'standard_rows' => [[
+                        'hotel_id' => '24588',
+                        'hotel_name' => 'Ctrip Demo Hotel',
+                        'data_date' => '2026-05-31',
+                        'data_type' => 'business',
+                        'amount' => '1888',
+                        'source_trace_id' => 'platform-hotel-id-alias-' . $alias,
+                    ]],
+                ]);
+                $adapter = new CtripBrowserProfileDataSourceAdapter(
+                    $root,
+                    'node',
+                    static function (array $args) use (&$capturedArgs, $captureRunner): array {
+                        $capturedArgs = $args;
+                        return $captureRunner($args);
+                    }
+                );
+                $source = $this->ctripBrowserProfileSource();
+                unset($source['config']['hotel_id']);
+                $source['config'][$alias] = '24588';
+
+                $result = $adapter->fetch($source, ['interactive_browser' => false]);
+
+                self::assertSame('success', $result['status'], $alias);
+                self::assertContains('--hotel-id=24588', $capturedArgs, $alias);
+                self::assertSame(
+                    'matched',
+                    $result['payload']['platform_identity_validation']['status'] ?? '',
+                    $alias
+                );
+            }
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripBrowserProfileAdapterNeverInjectsStoredCookiesForInteractiveProfileSetup(): void
     {
         $root = $this->createCtripBrowserProfileTestRoot();

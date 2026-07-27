@@ -261,6 +261,81 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertFalse($unverifiedReceipt['collection_complete']);
     }
 
+    public function testExplicitSinglePlatformReceiptsRequireOnlyTheRequestedTrustedPlatform(): void
+    {
+        foreach ([
+            ['platform' => 'ctrip', 'source_id' => 25, 'sync_task_id' => 1001],
+            ['platform' => 'meituan', 'source_id' => 68, 'sync_task_id' => 1002],
+        ] as $scope) {
+            $platform = $scope['platform'];
+            $result = [
+                'success' => true,
+                'saved_count' => 1,
+                'required_platforms' => [$platform],
+                'platform_results' => [
+                    $this->verifiedPlatformResult(
+                        $platform,
+                        $scope['source_id'],
+                        $scope['sync_task_id'],
+                        true
+                    ),
+                ],
+            ];
+            $outcome = $this->policy->classifyOutcome($result);
+            self::assertTrue($outcome['complete'], $platform);
+            self::assertSame([$platform], $outcome['required_platforms'], $platform);
+
+            $receipt = $this->buildMachineReceipt(
+                $outcome,
+                $result,
+                [$scope['source_id']]
+            );
+            $receipt = $this->policy->attachAuthorityVerifier(
+                $receipt,
+                $this->mockAuthorityVerifier($receipt, [$platform])
+            );
+
+            self::assertTrue(
+                $this->policy->dailyTrustReceiptReady(
+                    $receipt,
+                    '2026-07-16',
+                    58,
+                    [$platform]
+                ),
+                $platform
+            );
+            self::assertTrue(
+                $this->machineReceiptDailyTrustReady($receipt, [$platform]),
+                $platform
+            );
+            self::assertFalse(
+                $this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58),
+                $platform . ' must not satisfy the default dual-platform scope'
+            );
+        }
+    }
+
+    public function testExplicitSinglePlatformReceiptFailsWhenTheRequestedPlatformIsMissing(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 1,
+            'required_platforms' => ['ctrip'],
+            'platform_results' => [
+                $this->verifiedPlatformResult('meituan', 68, 1002, true),
+            ],
+        ];
+        $outcome = $this->policy->classifyOutcome($result);
+        $receipt = $this->buildMachineReceipt($outcome, $result, [68]);
+
+        self::assertFalse($outcome['complete']);
+        self::assertSame(['ctrip'], $outcome['failed_platforms']);
+        self::assertFalse($receipt['exportable_snapshot_complete']);
+        self::assertFalse(
+            $this->machineReceiptDailyTrustReady($receipt, ['ctrip'])
+        );
+    }
+
     public function testAuthorityVerifierMustMatchHotelDatePlatformsAndPersistedTrust(): void
     {
         $result = [
@@ -505,7 +580,11 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
     }
 
     /** @param array<string, mixed> $outcome @param array<string, mixed> $result */
-    private function buildMachineReceipt(array $outcome, array $result): array
+    private function buildMachineReceipt(
+        array $outcome,
+        array $result,
+        array $sourceIds = [25, 68]
+    ): array
     {
         $reflection = new \ReflectionClass(AutoFetchOnlineData::class);
         $command = $reflection->newInstanceWithoutConstructor();
@@ -513,23 +592,36 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         $method->setAccessible(true);
 
         /** @var array<string, mixed> $receipt */
-        $receipt = $method->invoke($command, 58, '2026-07-16', [25, 68], $outcome, $result);
+        $receipt = $method->invoke($command, 58, '2026-07-16', $sourceIds, $outcome, $result);
         return $receipt;
     }
 
     /** @param array<string, mixed> $receipt */
-    private function machineReceiptDailyTrustReady(array $receipt): bool
+    private function machineReceiptDailyTrustReady(
+        array $receipt,
+        array $expectedPlatforms = ['ctrip', 'meituan']
+    ): bool
     {
         $reflection = new \ReflectionClass(AutoFetchOnlineData::class);
         $command = $reflection->newInstanceWithoutConstructor();
         $method = $reflection->getMethod('machineReceiptDailyTrustReady');
         $method->setAccessible(true);
-        return (bool)$method->invoke($command, $receipt);
+        return (bool)$method->invoke(
+            $command,
+            $receipt,
+            null,
+            null,
+            $expectedPlatforms
+        );
     }
 
     /** @return array<string, mixed> */
-    private function mockAuthorityVerifier(array $receipt): array
+    private function mockAuthorityVerifier(
+        array $receipt,
+        array $platforms = ['ctrip', 'meituan']
+    ): array
     {
+        sort($platforms, SORT_STRING);
         return [
             'verification_source' => 'external_p0_verifier',
             'status' => 'passed',
@@ -537,12 +629,12 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
             'authority_ready' => true,
             'target_date' => '2026-07-16',
             'hotel_id' => 58,
-            'required_platforms' => ['ctrip', 'meituan'],
-            'verified_platforms' => ['ctrip', 'meituan'],
+            'required_platforms' => $platforms,
+            'verified_platforms' => $platforms,
             'collection_anchor_hash' => (string)($receipt['collection_anchor_hash'] ?? ''),
-            'platform_statuses' => ['ctrip' => 'ready', 'meituan' => 'ready'],
-            'p0_platforms_ready' => 2,
-            'traffic_gates_ready' => 2,
+            'platform_statuses' => array_fill_keys($platforms, 'ready'),
+            'p0_platforms_ready' => count($platforms),
+            'traffic_gates_ready' => count($platforms),
             'continuous_trust_status' => 'verified',
             'continuous_trust_missing_steps' => [],
             'issue_codes' => [],

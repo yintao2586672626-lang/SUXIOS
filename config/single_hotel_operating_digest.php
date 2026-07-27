@@ -4,6 +4,7 @@ declare(strict_types=1);
 return [
     'tenant_id' => 1,
     'hotel_id' => 5,
+    'realtime_max_age_minutes' => 180,
     'hotel_name' => '敦煌漠蓝新',
     'pms' => [
         'provider' => 'dingdandao',

@@ -20,6 +20,7 @@ $options = getopt('', [
     'profile-id:',
     'target-date::',
     'control-token-file::',
+    'runtime-directory::',
     'php-binary::',
     'node-binary::',
 ]);
@@ -34,13 +35,21 @@ $profileId = trim((string)($options['profile-id'] ?? ''));
 $targetDate = trim((string)($options['target-date'] ?? $today));
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/run/credentials/suxios-dingdandao-collection.service/control-token'));
+$runtimeDirectory = rtrim(trim((string)($options['runtime-directory']
+    ?? '/run/suxios-dingdandao-collection')), '/');
 $phpBinary = trim((string)($options['php-binary'] ?? '/usr/bin/php'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
 if (preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', $profileId) !== 1
     || !molanxinValidDate($targetDate)
     || $targetDate !== $today
-    || $tokenFile
-        !== '/run/credentials/suxios-dingdandao-collection.service/control-token'
+    || !in_array($tokenFile, [
+        '/run/credentials/suxios-dingdandao-collection.service/control-token',
+        '/run/credentials/suxios-molanxin-three-source-collection.service/control-token',
+    ], true)
+    || !in_array($runtimeDirectory, [
+        '/run/suxios-dingdandao-collection',
+        '/run/suxios-molanxin-three-source-collection',
+    ], true)
     || $phpBinary !== '/usr/bin/php'
     || $nodeBinary !== '/usr/bin/node'
 ) {
@@ -74,6 +83,7 @@ try {
         '--profile-id=' . $profileId,
         '--target-date=' . $targetDate,
         '--control-token-file=' . $tokenFile,
+        '--runtime-directory=' . $runtimeDirectory,
         '--node-binary=' . $nodeBinary,
         '--collector-script=' . $root . '/scripts/run_dingdandao_cloud_collection.php',
         '--collection-only',
@@ -98,6 +108,58 @@ try {
     $digest = $digestService->build($tenantId, $hotelId, $targetDate, []);
     $brief = (new SingleHotelOperatingBriefService())->preview($digest);
     $sources = is_array($digest['sources'] ?? null) ? $digest['sources'] : [];
+    $sourceReadiness = [
+        'pms' => ($sources['pms']['delivery_evidence_ready'] ?? false) === true,
+        'ctrip' => ($sources['ctrip']['delivery_evidence_ready'] ?? false) === true,
+        'meituan' => ($sources['meituan']['delivery_evidence_ready'] ?? false) === true,
+    ];
+    $pmsLineage = is_array($sources['pms']['lineage'] ?? null)
+        ? $sources['pms']['lineage']
+        : [];
+    $ctripLineage = is_array($sources['ctrip']['lineage'] ?? null)
+        ? $sources['ctrip']['lineage']
+        : [];
+    $meituanLineage = is_array($sources['meituan']['lineage'] ?? null)
+        ? $sources['meituan']['lineage']
+        : [];
+    $sourceLineage = [
+        'pms' => [
+            'capture_ids' => molanxinPositiveIds([
+                $pmsLineage['capture_id'] ?? $collection['capture_id'] ?? null,
+            ]),
+            'captured_at' => molanxinSafeTimestamp($pmsLineage['captured_at'] ?? null),
+        ],
+        'ctrip' => [
+            'row_ids' => molanxinPositiveIds($ctripLineage['row_ids'] ?? []),
+            'data_source_ids' => molanxinPositiveIds(
+                $ctripLineage['data_source_ids'] ?? []
+            ),
+            'source_trace_ids' => molanxinSafeTraceIds(
+                $ctripLineage['source_trace_ids'] ?? []
+            ),
+            'collected_at' => molanxinSafeTimestamp(
+                $ctripLineage['collected_at'] ?? null
+            ),
+        ],
+        'meituan' => [
+            'row_ids' => molanxinPositiveIds([
+                $meituanLineage['traffic_row_id'] ?? null,
+                $meituanLineage['order_row_id'] ?? null,
+            ]),
+            'data_source_ids' => molanxinPositiveIds([
+                $meituanLineage['data_source_id'] ?? null,
+            ]),
+            'source_trace_ids' => molanxinSafeTraceIds(
+                $meituanLineage['source_trace_ids'] ?? []
+            ),
+            'traffic_collected_at' => molanxinSafeTimestamp(
+                $meituanLineage['collected_at'] ?? null
+            ),
+            'order_collected_at' => molanxinSafeTimestamp(
+                $meituanLineage['order_collected_at'] ?? null
+            ),
+        ],
+    ];
     $previewStatus = (string)($brief['status'] ?? '') === 'preview_ready'
         ? ((string)($digest['status'] ?? '') === 'ready' ? 'ready' : 'partial')
         : 'blocked';
@@ -129,6 +191,22 @@ try {
         'pms_status' => (string)($sources['pms']['status'] ?? 'missing'),
         'ctrip_status' => (string)($sources['ctrip']['status'] ?? 'missing'),
         'meituan_status' => (string)($sources['meituan']['status'] ?? 'missing'),
+        'pms_evidence_ready' => $sourceReadiness['pms'],
+        'ctrip_evidence_ready' => $sourceReadiness['ctrip'],
+        'meituan_evidence_ready' => $sourceReadiness['meituan'],
+        'pms_capture_ids' => $sourceLineage['pms']['capture_ids'],
+        'pms_captured_at' => $sourceLineage['pms']['captured_at'],
+        'ctrip_row_ids' => $sourceLineage['ctrip']['row_ids'],
+        'ctrip_data_source_ids' => $sourceLineage['ctrip']['data_source_ids'],
+        'ctrip_source_trace_ids' => $sourceLineage['ctrip']['source_trace_ids'],
+        'ctrip_collected_at' => $sourceLineage['ctrip']['collected_at'],
+        'meituan_row_ids' => $sourceLineage['meituan']['row_ids'],
+        'meituan_data_source_ids' => $sourceLineage['meituan']['data_source_ids'],
+        'meituan_source_trace_ids' => $sourceLineage['meituan']['source_trace_ids'],
+        'meituan_traffic_collected_at' =>
+            $sourceLineage['meituan']['traffic_collected_at'],
+        'meituan_order_collected_at' =>
+            $sourceLineage['meituan']['order_collected_at'],
         'digest_contract_version' => (string)($digest['contract_version'] ?? ''),
         'brief_contract_version' => (string)($brief['contract_version'] ?? ''),
         'preview_fingerprint' => $fingerprint,
@@ -162,6 +240,8 @@ try {
             'ctrip' => (string)($sources['ctrip']['status'] ?? 'missing'),
             'meituan' => (string)($sources['meituan']['status'] ?? 'missing'),
         ],
+        'source_readiness' => $sourceReadiness,
+        'source_lineage' => $sourceLineage,
         'preview_fingerprint' => $fingerprint,
         'message_preview' => (string)($brief['content'] ?? ''),
         'run_readback_status' => (string)$run['status'],
@@ -267,6 +347,49 @@ function molanxinSafeReason(string $reason): string
         240,
         'UTF-8'
     );
+}
+
+/** @return array<int,int> */
+function molanxinPositiveIds(mixed $value): array
+{
+    $values = is_array($value) ? $value : [$value];
+    $ids = array_values(array_unique(array_filter(
+        array_map('intval', $values),
+        static fn(int $id): bool => $id > 0
+    )));
+    sort($ids, SORT_NUMERIC);
+
+    return $ids;
+}
+
+/** @return array<int,string> */
+function molanxinSafeTraceIds(mixed $value): array
+{
+    $values = is_array($value) ? $value : [$value];
+    $result = [];
+    foreach ($values as $candidate) {
+        $candidate = trim((string)$candidate);
+        if ($candidate === ''
+            || preg_match('/^[A-Za-z0-9._:-]{1,160}$/D', $candidate) !== 1
+        ) {
+            continue;
+        }
+        $result[] = $candidate;
+    }
+
+    return array_values(array_unique($result));
+}
+
+function molanxinSafeTimestamp(mixed $value): ?string
+{
+    $value = trim((string)$value);
+    if ($value === ''
+        || preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.+-].*)?$/D', $value) !== 1
+    ) {
+        return null;
+    }
+
+    return mb_strcut($value, 0, 64, 'UTF-8');
 }
 
 function molanxinFail(string $reason, int $exitCode, int $runId = 0): never

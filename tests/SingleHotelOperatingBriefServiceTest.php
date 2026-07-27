@@ -34,11 +34,25 @@ final class SingleHotelOperatingBriefServiceTest extends TestCase
         $digest = $this->digest();
         $digest['sources']['ctrip'] = [
             'delivery_evidence_ready' => false,
-            'facts' => [],
+            'identity_status' => 'mismatched',
+            'status' => 'partial',
+            'facts' => [
+                'channel_revenue' => 9999.99,
+                'orders' => 88,
+                'room_nights' => 77,
+            ],
         ];
         $digest['sources']['meituan'] = [
             'delivery_evidence_ready' => false,
-            'facts' => [],
+            'identity_status' => 'unverified',
+            'status' => 'failed',
+            'facts' => [
+                'list_exposure' => 888888,
+                'detail_exposure' => 777777,
+                'flow_rate_percent' => 66.66,
+                'paid_orders' => 55,
+                'target_date_order_count' => 44,
+            ],
         ];
         $digest['gaps'] = [
             [
@@ -61,13 +75,19 @@ final class SingleHotelOperatingBriefServiceTest extends TestCase
         self::assertTrue($preview['source_gate_passed']);
         self::assertSame([], $preview['blockers']);
         self::assertStringContainsString(
-            '未获取或未验证（不阻断PMS基础事实）',
+            '身份不匹配（不阻断PMS基础事实）',
+            $preview['content']
+        );
+        self::assertStringContainsString(
+            '采集或读取失败（不阻断PMS基础事实）',
             $preview['content']
         );
         self::assertStringContainsString('可选模块与提示', $preview['content']);
         self::assertStringContainsString('携程同店同日渠道事实未通过', $preview['content']);
         self::assertStringContainsString('美团同店同日渠道事实未通过', $preview['content']);
         self::assertStringContainsString('渠道收入：未获取', $preview['content']);
+        self::assertStringNotContainsString('¥9,999.99', $preview['content']);
+        self::assertStringNotContainsString('888888', $preview['content']);
     }
 
     public function testUnknownValuesAreNeverRenderedAsZero(): void
@@ -98,6 +118,8 @@ final class SingleHotelOperatingBriefServiceTest extends TestCase
         self::assertFalse($preview['message_sent']);
         self::assertStringContainsString('当前阻断', $preview['content']);
         self::assertStringContainsString('订单来了PMS证据未通过完整门禁', $preview['content']);
+        self::assertStringContainsString('总房费：未获取', $preview['content']);
+        self::assertStringNotContainsString('¥8,275.67', $preview['content']);
     }
 
     /** @return array<string,mixed> */

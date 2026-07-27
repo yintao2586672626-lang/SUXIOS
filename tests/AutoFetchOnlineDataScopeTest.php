@@ -104,6 +104,25 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringContainsString('realtime-only cannot be combined with target-date.', $output->fetch());
     }
 
+    public function testExplicitCloudRealtimeRunDoesNotDependOnLegacySchedulerEnabledFlag(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod(
+            $command,
+            'autoFetchEnabledForCurrentInvocation'
+        );
+        self::assertFalse($method->invoke($command, []));
+        self::assertTrue($method->invoke($command, ['enabled' => true]));
+
+        $property = new \ReflectionProperty(
+            $command,
+            'explicitCloudRealtimeRun'
+        );
+        $property->setValue($command, true);
+        self::assertTrue($method->invoke($command, []));
+        self::assertTrue($method->invoke($command, ['enabled' => false]));
+    }
+
     public function testCloudCollectorFailsClosedBeforeDatabaseOrPlatformWorkWhenExplicitScopeIsMissing(): void
     {
         $previousCollector = getenv('SUXIOS_OTA_CLOUD_COLLECTOR');

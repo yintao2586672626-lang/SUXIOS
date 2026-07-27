@@ -19,6 +19,7 @@ $options = getopt('', [
     'gateway-url::',
     'cdp-url::',
     'control-token-file::',
+    'runtime-directory::',
     'php-binary::',
     'node-binary::',
     'collector-script::',
@@ -47,6 +48,8 @@ $cdpUrl = rtrim(
 );
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/run/credentials/suxios-dingdandao-collection.service/control-token'));
+$runtimeDirectory = rtrim(trim((string)($options['runtime-directory']
+    ?? '/run/suxios-dingdandao-collection')), '/');
 $phpBinary = trim((string)($options['php-binary'] ?? '/usr/bin/php'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
 $collectorScript = trim((string)($options['collector-script']
@@ -59,13 +62,19 @@ $resolvedCollectorScript = realpath($collectorScript);
 $allowedTokenFiles = [
     '/run/credentials/suxios-dingdandao-collection.service/control-token',
     '/run/credentials/suxios-dingdandao-notification-pipeline.service/control-token',
+    '/run/credentials/suxios-molanxin-three-source-collection.service/control-token',
     '/etc/suxios-cloud-browser/control-token',
+];
+$allowedRuntimeDirectories = [
+    '/run/suxios-dingdandao-collection',
+    '/run/suxios-molanxin-three-source-collection',
 ];
 if (!leaseValidDate($targetDate)
     || $targetDate !== $today
     || $gatewayUrl !== 'http://127.0.0.1:8787'
     || $cdpUrl !== 'http://127.0.0.1:9223'
     || !in_array($tokenFile, $allowedTokenFiles, true)
+    || !in_array($runtimeDirectory, $allowedRuntimeDirectories, true)
     || $phpBinary !== '/usr/bin/php'
     || $nodeBinary !== '/usr/bin/node'
     || !is_string($expectedCollectorScript)
@@ -146,6 +155,7 @@ try {
         $gatewayUrl,
         $cdpUrl,
         $tokenFile,
+        $runtimeDirectory,
         $nodeBinary,
         $collectionOnly
     );
@@ -257,6 +267,7 @@ function runCollectorProcess(
     string $gatewayUrl,
     string $cdpUrl,
     string $tokenFile,
+    string $runtimeDirectory,
     string $nodeBinary,
     bool $collectionOnly
 ): array {
@@ -270,6 +281,7 @@ function runCollectorProcess(
         '--gateway-url=' . $gatewayUrl,
         '--cdp-url=' . $cdpUrl,
         '--control-token-file=' . $tokenFile,
+        '--runtime-directory=' . $runtimeDirectory,
         '--node-binary=' . $nodeBinary,
     ];
     if ($collectionOnly) {

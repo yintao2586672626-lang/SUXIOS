@@ -1,0 +1,12 @@
+[Unit]
+Description=Run hourly SUXIOS Molanxin hotel 5 three-source collection preview
+
+[Timer]
+OnCalendar=*-*-* *:50:00 Asia/Shanghai
+AccuracySec=30s
+RandomizedDelaySec=30s
+Persistent=false
+Unit=suxios-molanxin-three-source-collection.service
+
+[Install]
+WantedBy=timers.target

@@ -508,6 +508,7 @@ final class DingdandaoOperatingTargetCaptureService
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('business_date', $businessDate)
+            ->order('captured_at', 'desc')
             ->order('id', 'desc')
             ->find();
         if (!is_array($row)) {
