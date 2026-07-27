@@ -1284,9 +1284,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
     });
     const getDataConfigTypeDefaults = (type) => ({
         'ctrip-ebooking': {
-            url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-            node_id: '24588',
-            nodeId: '24588',
+            url: '',
+            node_id: '',
+            nodeId: '',
             date_range: '1',
         },
         'meituan-ebooking': {
@@ -1297,7 +1297,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             date_range: '1',
         },
         'ctrip-traffic': {
-            url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+            url: '',
             platform: 'Ctrip',
             date_range: '1',
         },
@@ -1306,6 +1306,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             date_range: '1',
             request_urls: '',
             endpoints_json: '',
+            request_source: 'traffic_report',
         },
         'meituan-traffic': {
             date_range: '1',

@@ -3039,7 +3039,7 @@
                 name: '',
                 hotel_id: '',
                 ctrip_hotel_id: '',
-                url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                url: '',
                 node_id: '',
                 capture_sections: 'all',
                 hotel_room_count: '',
@@ -15196,8 +15196,8 @@
                     id: null,
                     name: '',
                     cookies: '',
-                    node_id: '24588',
-                    url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                    node_id: '',
+                    url: '',
                 },
                 meituan: {
                     id: null,
@@ -34371,9 +34371,11 @@
 
             const fillCtripCookieApiCorePreset = () => {
                 ctripCookieApiForm.value.requestUrl = '';
-                ctripCookieApiForm.value.method = 'GET';
+                ctripCookieApiForm.value.method = 'POST';
                 ctripCookieApiForm.value.payloadJson = '';
-                ctripCookieApiForm.value.endpointsJson = getCtripCookieApiCorePresetJson();
+                ctripCookieApiForm.value.endpointsJson = '';
+                ctripCookieApiForm.value.requestSource = 'traffic_report';
+                showToast('已选择按任务下发的携程流量采集');
             };
 
             const fillDataConfigCtripCookieApiCorePreset = () => {
@@ -34382,16 +34384,18 @@
                 dataConfigForm.value.requestUrls = '';
                 dataConfigForm.value.request_url = '';
                 dataConfigForm.value.requestUrl = '';
-                dataConfigForm.value.method = 'GET';
+                dataConfigForm.value.method = 'POST';
+                dataConfigForm.value.request_source = 'traffic_report';
+                dataConfigForm.value.requestSource = 'traffic_report';
                 dataConfigForm.value.profile_id = firstDataConfigValue(
                     dataConfigForm.value.profile_id,
                     ctripCookieApiForm.value.profileId,
                     ctripBrowserCaptureForm.value.profileId
                 );
                 dataConfigForm.value.profileId = dataConfigForm.value.profile_id;
-                dataConfigForm.value.endpoints_json = ctripCookieApiForm.value.endpointsJson;
-                dataConfigForm.value.endpointsJson = ctripCookieApiForm.value.endpointsJson;
-                showToast('已填入携程核心诊断接口');
+                dataConfigForm.value.endpoints_json = '';
+                dataConfigForm.value.endpointsJson = '';
+                showToast('已选择按任务下发的携程流量采集');
             };
 
             const resolveCtripCookieApiProfileId = (systemHotelId = '', activeConfig = null) => String(resolveCtripBrowserProfileId({
@@ -35143,11 +35147,7 @@
                 }, 80);
             };
 
-            const ctripOverviewCookieApiSections = (sections = []) => {
-                const sectionSet = new Set((Array.isArray(sections) ? sections : [sections]).map(item => String(item || '').trim()).filter(Boolean));
-                const endpoints = getCtripCookieApiCorePresetEndpoints();
-                return sectionSet.size === 0 ? endpoints : endpoints.filter(item => sectionSet.has(String(item.section || '').trim()));
-            };
+            const ctripOverviewCookieApiSections = () => [];
 
             const runCtripOverviewCookieApiCapture = async (sections = [], label = '核心数据', options = {}) => {
                 const systemHotelId = await syncCtripOverviewTargetHotel({ loadConfig: true });
@@ -35241,11 +35241,11 @@
             };
 
             const ctripOverviewFetchActionMap = () => ({
-                'ctrip-ranking': () => runCtripOverviewCookieApiCapture(['competitor_overview', 'competitor_rank'], '竞争表现'),
-                'ctrip-flow-overview': () => runCtripOverviewCookieApiCapture(['business_overview', 'sales_report'], '收益经营'),
+                'ctrip-ranking': () => runCtripOverviewCookieApiCapture(['competitor_overview', 'competitor_rank'], '竞争表现', { requestSource: 'competition_circle' }),
+                'ctrip-flow-overview': () => runCtripOverviewCookieApiCapture(['business_overview', 'sales_report'], '收益经营', { requestSource: 'revenue_overview' }),
                 'ctrip-traffic': () => runCtripTrafficManualCapture(),
-                'ctrip-quality': () => runCtripOverviewCookieApiCapture(['quality_psi'], '服务质量'),
-                'ctrip-ads': () => runCtripOverviewCookieApiCapture(['ads_pyramid'], '广告投放'),
+                'ctrip-quality': () => runCtripOverviewCookieApiCapture(['quality_psi'], '服务质量', { requestSource: 'quality_psi' }),
+                'ctrip-ads': () => runCtripOverviewCookieApiCapture(['ads_pyramid'], '广告投放', { requestSource: 'ads_pyramid' }),
             });
 
             const prepareCtripOverviewFetchAction = async (tabName) => {
@@ -35867,8 +35867,8 @@
                         name: ctripConfig?.name || (hotelName ? `${hotelName}携程数据源` : ''),
                         cookies: ctripConfig?.cookies || '',
                         ctrip_hotel_id: ctripConfig?.ctrip_hotel_id || ctripConfig?.ctripHotelId || ctripConfig?.ota_hotel_id || '',
-                        node_id: ctripConfig?.node_id || '24588',
-                        url: ctripConfig?.url || 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                        node_id: ctripConfig?.node_id || '',
+                        url: ctripConfig?.url || '',
                     },
                     meituan: {
                         id: meituanConfig?.id || null,
@@ -35913,7 +35913,7 @@
                             ctrip,
                             existing,
                             fallbackName: `${hotelName}携程数据源`,
-                            defaultUrl: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                            defaultUrl: '',
                         })),
                     });
                     if (res.code !== 200) {
@@ -36273,8 +36273,8 @@
                     id: null,
                     name: '',
                     hotel_id: autoFetchHotelId.value || selectedCtripHotelId.value || '',
-                    url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                    node_id: '24588',
+                    url: '',
+                    node_id: '',
                     capture_sections: 'all',
                     hotel_room_count: '',
                     competitor_room_count: '',
@@ -36297,7 +36297,7 @@
                     name: config?.name || row?.name || '',
                     hotel_id: config?.hotel_id || config?.system_hotel_id || row?.hotel_id || '',
                     ctrip_hotel_id: config?.ctrip_hotel_id || config?.ctripHotelId || config?.ota_hotel_id || '',
-                    url: config?.url || 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
+                    url: config?.url || '',
                     node_id: config?.node_id || '',
                     capture_sections: 'all',
                     hotel_room_count: config?.hotel_room_count || row?.hotel_room_count || '',

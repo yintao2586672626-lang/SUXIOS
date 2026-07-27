@@ -358,19 +358,13 @@ test('one-click traffic action hydrates every traffic view without a second hist
   assert.match(html, /不会沿用历史值冒充今日数据/);
 });
 
-test('traffic preset includes the verified current-hotel realtime rank endpoint', () => {
+test('traffic preset is opaque in the browser and selected by task code', () => {
   const context = { window: {}, console };
   vm.runInNewContext(ctripStaticSource, context, { filename: 'public/ctrip-static.js' });
   const ctripApi = context.window.SUXI_CTRIP_STATIC;
-  const trafficEndpoints = ctripApi.getCtripCookieApiCorePresetEndpoints()
-    .filter(endpoint => endpoint.section === 'traffic_report');
-  const realtimeEndpoint = trafficEndpoints.find(endpoint => endpoint.request_url.includes('fetchCurrentHotelSeqInfoV1'));
-
-  assert.ok(realtimeEndpoint);
-  assert.equal(realtimeEndpoint.request_url, 'https://ebooking.ctrip.com/datacenter/api/biddingajax/fetchCurrentHotelSeqInfoV1');
-  assert.equal(realtimeEndpoint.method, 'POST');
-  assert.ok(trafficEndpoints.some(endpoint => endpoint.request_url.includes('fetchVisitorTitleV2')));
-  assert.ok(trafficEndpoints.some(endpoint => endpoint.request_url.includes('getDayReportRealTimeDate')));
+  assert.deepEqual(Array.from(ctripApi.getCtripCookieApiCorePresetEndpoints()), []);
+  assert.match(html, /requestSource:\s*'traffic_report'/);
+  assert.doesNotMatch(ctripStaticSource, /fetchCurrentHotelSeqInfoV1|fetchVisitorTitleV2|getDayReportRealTimeDate/);
 });
 
 test('realtime traffic rank extraction prefers the current hotel rank over competitor rank', () => {
@@ -500,7 +494,7 @@ test('one-click traffic capture is manual Cookie API only and submits the truste
   assert.match(manualCapture, /requestSource:\s*'traffic_report'/);
   assert.match(manualCapture, /cookieData\.is_ready !== false/);
   assert.match(manualCapture, /Number\(cookieData\.saved_count \|\| 0\) > 0/);
-  assert.match(ctripStaticSource, /request_source:\s*String\(requestSource \|\| form\.requestSource \|\| ''\)\.trim\(\)/);
+  assert.match(ctripStaticSource, /normalizedRequestSource\s*=\s*String\(requestSource \|\| form\.requestSource \|\| ''\)\.trim\(\)/);
 });
 
 test('stored traffic data is loaded when the tab opens or the selected hotel changes', () => {

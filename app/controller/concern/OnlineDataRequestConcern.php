@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\CtripImplementationExposurePolicy;
 use app\service\MeituanManualIdentityService;
 use app\service\OtaExecutionStageException;
 use app\service\OtaProfileSessionProofService;
@@ -85,6 +86,53 @@ trait OnlineDataRequestConcern
         }
 
         return $summary;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function ctripCookieApiClientPayload(array $payload): array
+    {
+        if (CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            return $payload;
+        }
+
+        return CtripImplementationExposurePolicy::cookieCaptureResult($payload);
+    }
+
+    /** @param array<string, mixed> $requestData */
+    private function isTaskScopedCtripCookieApiRequest(array $requestData): bool
+    {
+        $requestSource = strtolower(trim((string)($requestData['request_source'] ?? '')));
+        if (!in_array($requestSource, [
+            'competition_circle',
+            'revenue_overview',
+            'traffic_report',
+            'quality_psi',
+            'ads_pyramid',
+        ], true)) {
+            return false;
+        }
+
+        foreach ([
+            'request_url',
+            'requestUrl',
+            'url',
+            'request_urls',
+            'requestUrls',
+            'endpoints',
+            'endpoints_json',
+            'endpointsJson',
+            'requests',
+        ] as $key) {
+            if (!array_key_exists($key, $requestData)) {
+                continue;
+            }
+            $value = $requestData[$key];
+            if (is_array($value) ? $value !== [] : trim((string)$value) !== '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -1063,6 +1111,9 @@ trait OnlineDataRequestConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            return $this->error('Ctrip endpoint evidence is restricted to super-admin maintenance.', 403);
+        }
 
         try {
             $projectRoot = dirname(__DIR__, 3);
@@ -1160,6 +1211,9 @@ trait OnlineDataRequestConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            return $this->error('Ctrip collection diagnostics are restricted to super-admin maintenance.', 403);
+        }
 
         $profileId = trim((string)($this->request->get('profile_id', $this->request->get('profileId', ''))));
         $snapshot = $this->buildLatestCtripDiagnosisSnapshot($profileId);
@@ -1204,6 +1258,10 @@ trait OnlineDataRequestConcern
                 'status_code' => (string)($status['status_code'] ?? 'login_expired'),
                 'output' => (string)($status['output'] ?? ''),
             ]);
+        }
+
+        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            $status = CtripImplementationExposurePolicy::profileStatus($status);
         }
 
         return $this->success(
@@ -1558,6 +1616,17 @@ trait OnlineDataRequestConcern
             if (!is_array($rawRequestData)) {
                 throw new \InvalidArgumentException('Invalid Ctrip Cookie API execution request schema.', 400);
             }
+            if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)
+                && !$this->isTaskScopedCtripCookieApiRequest($rawRequestData)) {
+                return $this->error(
+                    'Ordinary accounts may run only one server-defined Ctrip collection task at a time.',
+                    403,
+                    [
+                        'implementation_visibility' => 'redacted',
+                        'collection_contract' => 'task_scoped',
+                    ]
+                );
+            }
             $requestData = $this->sanitizeCtripCookieApiExecutionRequestData($rawRequestData);
             $configId = trim((string)($requestData['config_id'] ?? ''));
             $systemHotelId = $this->strictPositiveOtaConfigHotelId($requestData['system_hotel_id'] ?? null);
@@ -1637,7 +1706,9 @@ trait OnlineDataRequestConcern
             if (!$runResult['success']) {
                 return $this->error('携程 Cookie API 采集失败', 400, [
                     'reason' => 'ctrip_cookie_api_capture_failed',
-                    'output' => $prepared['output_path'],
+                    'output' => CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)
+                        ? $prepared['output_path']
+                        : null,
                 ]);
             }
 
@@ -1665,13 +1736,20 @@ trait OnlineDataRequestConcern
                             $identityCheck['message'] = (string)($identityCheck['message'] ?? '携程未返回可校验酒店身份，已阻止 Cookie API 自动入库；请先确认并补充真实携程 hotelId。');
                             $saveBlockedIdentity = $identityCheck;
                         } else {
-                            return $this->error((string)$identityCheck['message'], 409, [
+                            $identityFailurePayload = [
                                 'reason' => 'hotel_identity_mismatch',
                                 'identity_check' => $identityCheck,
                                 'saved_count' => 0,
                                 'row_count' => (int)$capturedCounts['standard_rows'],
-                                'output' => $prepared['output_path'],
-                            ]);
+                                'output' => CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)
+                                    ? $prepared['output_path']
+                                    : null,
+                            ];
+                            return $this->error(
+                                (string)$identityCheck['message'],
+                                409,
+                                $this->ctripCookieApiClientPayload($identityFailurePayload)
+                            );
                         }
                     }
                     if ($saveBlockedIdentity === null && empty($identityCheck['expected_hotel_ids'])) {
@@ -1755,6 +1833,7 @@ trait OnlineDataRequestConcern
                 'error_count' => count(is_array($payload['errors'] ?? null) ? $payload['errors'] : []),
                 'output' => $prepared['output_path'],
             ];
+            $responsePayload = $this->ctripCookieApiClientPayload($responsePayload);
 
             if ($autoSave && $saveBlockedIdentity === null && $capturedRowCount > 0 && $savedCount <= 0) {
                 return json([
@@ -2246,6 +2325,9 @@ trait OnlineDataRequestConcern
     public function saveCtripConfig(): Response
     {
         $this->checkPermission();
+        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            return $this->error('Ctrip collection configuration is restricted to super-admin maintenance.', 403);
+        }
 
         try {
             $requestData = $this->requestData();
@@ -2468,6 +2550,9 @@ trait OnlineDataRequestConcern
             $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
             $list = $this->collapseCtripConfigListByHotel($list);
             $list = $this->appendOtaConfigCollectionEvidence(array_values($list), 'ctrip');
+            if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+                $list = CtripImplementationExposurePolicy::configList($list);
+            }
 
             return $this->success(array_values($list));
         } catch (\Throwable $e) {
@@ -2479,6 +2564,9 @@ trait OnlineDataRequestConcern
     public function getCtripConfigDetail(): Response
     {
         $this->checkPermission();
+        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            return $this->error('Ctrip collection configuration detail is restricted to super-admin maintenance.', 403);
+        }
 
         $id = trim((string)$this->request->get('id', ''));
         if ($id === '') {
@@ -2517,6 +2605,9 @@ trait OnlineDataRequestConcern
     public function deleteCtripConfig(): Response
     {
         $this->checkPermission();
+        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            return $this->error('Ctrip collection configuration is restricted to super-admin maintenance.', 403);
+        }
         $id = trim((string)$this->request->param('id', ''));
         if ($id === '') {
             return $this->error('配置ID不能为空');

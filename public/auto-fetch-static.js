@@ -436,15 +436,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             case 'ctrip-cookie-api':
                 Object.assign(body, {
                     config_id: configId,
-                    request_urls: firstDataConfigValue(form.request_urls, form.requestUrls),
-                    request_url: firstDataConfigValue(form.request_url, form.url),
-                    method: String(form.method || 'GET').toUpperCase(),
-                    profile_id: firstDataConfigValue(form.profile_id, form.profileId),
-                    hotel_id: firstDataConfigValue(form.hotel_id, form.ctrip_hotel_id, form.ctripHotelId),
-                    node_id: firstDataConfigValue(form.node_id, form.nodeId),
+                    ctrip_hotel_id: firstDataConfigValue(form.ctrip_hotel_id, form.ctripHotelId, form.hotel_id),
                     data_date: firstDataConfigValue(startDate, endDate),
-                    start_date: startDate,
-                    end_date: endDate,
+                    request_source: firstDataConfigValue(form.request_source, form.requestSource, 'traffic_report'),
                     system_hotel_id: systemHotelId,
                 });
                 break;

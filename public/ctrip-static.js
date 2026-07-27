@@ -1,19 +1,19 @@
 window.SUXI_CTRIP_STATIC = (() => {
     const ctripProfilePrimaryCategoryOptions = ['流量转化数据', '经营收益数据', '服务质量数据', '竞争力数据'];
     const ctripProfileDefaultModuleOptions = [
-        { value: 'business_overview', label: '经营报告-概要-日报', page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true', primary_category: '经营收益数据' },
-        { value: 'business_weekly_overview', label: '经营报告-概要-周报', page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/weekReport?microJump=true', primary_category: '经营收益数据' },
-        { value: 'sales_report', label: '经营报告-销售数据', page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/beneficialdata?microJump=true', primary_category: '经营收益数据' },
-        { value: 'traffic_report', label: '经营报告-流量数据', page_url: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true', primary_category: '流量转化数据' },
-        { value: 'comment_review', label: '点评数据', page_url: 'https://ebooking.ctrip.com/comment/commentList?microJump=true', primary_category: '服务质量数据' },
-        { value: 'competitor_overview', label: '竞争圈动态-竞争圈概览', page_url: 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionprofile?microJump=true', primary_category: '竞争力数据' },
-        { value: 'loss_analysis', label: '竞争圈动态-流失分析', page_url: 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/lossanalysis?microJump=true', primary_category: '竞争力数据' },
-        { value: 'competitor_rank', label: '竞争圈动态-竞争圈榜单', page_url: 'https://ebooking.ctrip.com/ebkgrowth/datacenter/competition/competitionlist?microJump=true', primary_category: '竞争力数据' },
-        { value: 'quality_psi', label: 'PSI服务质量', page_url: 'https://ebooking.ctrip.com/toolcenter/psi/index?microJump=true', primary_category: '服务质量数据' },
-        { value: 'market_calendar', label: '市场分析-市场热度', page_url: 'https://ebooking.ctrip.com/ebkgrowth/datacenter/marketanalysis/marketheat?microJump=true', primary_category: '竞争力数据' },
-        { value: 'user_profile', label: '用户行为/点评分析', page_url: 'https://ebooking.ctrip.com/ebkgrowth/datacenter/userbehavior/user?microJump=true', primary_category: '流量转化数据' },
-        { value: 'im_board', label: '用户行为-IM看板', page_url: 'https://ebooking.ctrip.com/datacenter/inland/userbehavior/user?goto=im', primary_category: '服务质量数据' },
-        { value: 'ads_pyramid', label: '金字塔广告', page_url: 'https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true', primary_category: '流量转化数据' },
+        { value: 'business_overview', label: '经营报告-概要-日报', primary_category: '经营收益数据' },
+        { value: 'business_weekly_overview', label: '经营报告-概要-周报', primary_category: '经营收益数据' },
+        { value: 'sales_report', label: '经营报告-销售数据', primary_category: '经营收益数据' },
+        { value: 'traffic_report', label: '经营报告-流量数据', primary_category: '流量转化数据' },
+        { value: 'comment_review', label: '点评数据', primary_category: '服务质量数据' },
+        { value: 'competitor_overview', label: '竞争圈动态-竞争圈概览', primary_category: '竞争力数据' },
+        { value: 'loss_analysis', label: '竞争圈动态-流失分析', primary_category: '竞争力数据' },
+        { value: 'competitor_rank', label: '竞争圈动态-竞争圈榜单', primary_category: '竞争力数据' },
+        { value: 'quality_psi', label: 'PSI服务质量', primary_category: '服务质量数据' },
+        { value: 'market_calendar', label: '市场分析-市场热度', primary_category: '竞争力数据' },
+        { value: 'user_profile', label: '用户行为/点评分析', primary_category: '流量转化数据' },
+        { value: 'im_board', label: '用户行为-IM看板', primary_category: '服务质量数据' },
+        { value: 'ads_pyramid', label: '金字塔广告', primary_category: '流量转化数据' },
     ];
     const ctripProfileForbiddenFieldKeys = ['guest_phone', 'order_phone', 'room_status', 'room_source_mapping'];
     const ctripProfileForbiddenFieldAssets = [
@@ -78,59 +78,21 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (value === 'mismatched') return 'bg-red-500';
         return 'bg-gray-300';
     };
-    const ctripOverviewApiKeywords = [
-        'getDayReportRealTimeDate',
-        'fetchMarketOverViewV2',
-        'getDayReportFlowCompete',
-        'getDayReportServerQuantity',
-        'fetchCurrentHotelSeqInfoV1',
-        'fetchVisitorTitleV2',
-        'fetchCapacityOverViewV4',
-        'queryFlowTransforNewV1',
-        'getReportSuggestV1',
-        'getCompeteHotelReportV1',
-        'getHotWordsV1',
-        'getHotHotelsV1',
-        'getFlowHotelsV1',
-        'getHotRoomsV1',
-        'getUserBehaviorV1',
-        'getUserBehavorV1',
-        'getTrafficReportV1',
-        'getWeekSuggestionV1',
-        'getLastWeekReportV1',
-    ];
-    const ctripFlowOverviewApiGroups = [
-        { keyword: 'getDayReportRealTimeDate', scope: '经营概况', note: '日报日期与实时日期' },
-        { keyword: 'getDayReportFlowCompete', scope: '竞品流量', note: '竞品流量与竞争圈概览' },
-        { keyword: 'fetchCurrentHotelSeqInfoV1', scope: '当前酒店', note: '当前酒店序列与基础上下文' },
-        { keyword: 'fetchCapacityOverViewV4', scope: '经营概况', note: '库存、容量与经营概览' },
-        { keyword: 'fetchVisitorTitleV2', scope: '访客标题', note: '访客画像/标题类指标' },
-        { keyword: 'fetchMarketOverViewV2', scope: '市场概况', note: '市场与商圈概览' },
-        { keyword: 'queryFlowTransforNewV1', aliases: ['queryFlowTransforNewV1', 'queryFlowTransforNew'], scope: '流量漏斗', note: '曝光、详情、下单、成交链路' },
-        { keyword: 'queryScanFlowDetailsV2', scope: '流量明细', note: '流量明细列表' },
-        { keyword: 'queryHomePageRealTimeData', scope: '实时流量', note: '首页实时流量指标' },
-        { keyword: 'getDayReportCompeteHotelReport', scope: '竞对日报', note: '竞对日报与榜单相关指标' },
-        { keyword: 'getDayReportServerQuantity', scope: '服务质量', note: '服务质量与 PSI 相关指标' },
-        { keyword: 'getFlowData', scope: '流量数据', note: '流量数据接口' },
-        { keyword: 'getTrafficData', scope: '流量数据', note: '流量数据接口' },
-        { keyword: 'getStatData', scope: '统计数据', note: '统计汇总接口' },
-    ];
-    const ctripFlowOverviewDefaultRequestUrls = [
-        'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate',
-        'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportFlowCompete',
-        'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportServerQuantity',
-        'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-        'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
-    ];
-    const defaultCtripConfigUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport';
-    const defaultCtripAdsEffectReportUrl = 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE';
-    const ctripAdsApiUrlHint = '接口 URL 可留空使用默认 queryCampaignReportList；如手动填写，必须是 Network 中 CPC 广告 JSON 接口 URL';
+    const ctripOverviewApiKeywords = [];
+    const ctripFlowOverviewApiGroups = [];
+    const ctripFlowOverviewDefaultRequestUrls = [];
+    const defaultCtripConfigUrl = '';
+    const defaultCtripAdsEffectReportUrl = '';
+    const ctripAdsApiUrlHint = '普通账户仅选择采集任务，接口目录由服务端管理。';
     const isCtripAdsApiUrl = (url = '') => {
-        const text = String(url || '').trim().toLowerCase();
-        return text.includes('pyramidad')
-            || text.includes('promotion')
-            || text.includes('/toolcenter/api/cpc/')
-            || text.includes('querycampaignreportlist');
+        try {
+            const parsed = new URL(String(url || '').trim());
+            return parsed.protocol === 'https:'
+                && /(^|\.)ctrip\.com$/i.test(parsed.hostname)
+                && parsed.pathname.toLowerCase().includes('/api/');
+        } catch (_error) {
+            return false;
+        }
     };
     const normalizeCtripAdsApiType = (value = '') => 'effect_report';
     const runPostFetchRefresh = (callback, ...args) => {
@@ -304,7 +266,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         hotel_id: '',
         ctrip_hotel_id: '',
         url: defaultCtripConfigUrl,
-        node_id: '24588',
+        node_id: '',
         capture_sections: 'all',
         hotel_room_count: '',
         competitor_room_count: '',
@@ -385,7 +347,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         toastLevel: 'error',
     });
     const createCtripTrafficForm = () => ({
-        url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+        url: '',
         platform: 'Ctrip',
         dateRange: 'last_30_days',
         startDate: '',
@@ -449,18 +411,18 @@ window.SUXI_CTRIP_STATIC = (() => {
                 snapshot.captured_at = String(raw.captured_at || row?.captured_at || row?.update_time || row?.create_time || '');
             }
 
-            if (endpointId === 'business_visitor_title' || sourceUrl.includes('fetchVisitorTitleV2')) {
+            if (endpointId === 'business_visitor_title') {
                 assignFirst('visitor_count', [factValue('visitorTotal'), responseData.visitorTotal]);
                 assignFirst('competitor_avg_visitor', [factValue('competitorAvgNumber'), responseData.competitorAvgNumber]);
                 assignFirst('visitor_rank', [factValue('visitorRank'), responseData.visitorRank], { positiveOnly: true });
                 assignFirst('visitor_count_last_week', [factValue('lastVisitorTotal'), responseData.lastVisitorTotal]);
             }
-            if (endpointId === 'business_realtime' || sourceUrl.includes('getDayReportRealTimeDate')) {
+            if (endpointId === 'business_realtime') {
                 assignFirst('visitor_count', [factValue('visitorTotal'), responseData.visitorTotal]);
                 assignFirst('order_count', [factValue('orderQuantity'), responseData.orderQuantity]);
                 assignFirst('yesterday_order_count', [factValue('synchronizationOrderQuantity'), responseData.synchronizationOrderQuantity]);
             }
-            if (['traffic_hotel_seq', 'business_hotel_seq'].includes(endpointId) || sourceUrl.includes('fetchCurrentHotelSeqInfoV1')) {
+            if (['traffic_hotel_seq', 'business_hotel_seq'].includes(endpointId)) {
                 assignFirst('rank', [
                     factValue('rank', 'seqRank', 'trafficRank', 'appDetailUvRank'),
                     responseData.rank,
@@ -544,6 +506,7 @@ window.SUXI_CTRIP_STATIC = (() => {
     });
     const createCtripCookieApiForm = () => ({
         profileId: '',
+        requestSource: '',
         requestUrl: '',
         method: 'GET',
         payloadJson: '',
@@ -571,8 +534,8 @@ window.SUXI_CTRIP_STATIC = (() => {
     });
     const createCtripCommentBrowserCaptureForm = () => ({
         profileId: '',
-        pageUrl: 'https://ebooking.ctrip.com/comment/commentList?microJump=true',
-        apiKeyword: 'getCommentList',
+        pageUrl: '',
+        apiKeyword: '',
     });
     const normalizeCtripConfigName = (form = {}) => {
         const explicit = String(form.name || '').trim();
@@ -2521,6 +2484,17 @@ window.SUXI_CTRIP_STATIC = (() => {
     } = {}) => {
         const requestUrls = normalizeCtripExecutionRequestUrls(endpointsJson);
         const normalizedRequestUrl = String(requestUrl || '').trim();
+        const normalizedRequestSource = String(requestSource || form.requestSource || '').trim();
+        if (normalizedRequestSource) {
+            return {
+                config_id: String(configId || '').trim(),
+                system_hotel_id: systemHotelId,
+                ctrip_hotel_id: hotelId,
+                data_date: dataDate,
+                request_source: normalizedRequestSource,
+                auto_save: true,
+            };
+        }
         if (normalizedRequestUrl && !requestUrls.includes(normalizedRequestUrl)) {
             requestUrls.unshift(normalizedRequestUrl);
         }
@@ -2536,7 +2510,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             data_date: dataDate,
             request_url: normalizedRequestUrl,
             request_urls: requestUrls,
-            request_source: String(requestSource || form.requestSource || '').trim(),
+            request_source: normalizedRequestSource,
             method: String(form.method || 'GET').toUpperCase(),
             auto_save: true,
         };
@@ -3219,149 +3193,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
     };
 
-    const getCtripCookieApiCorePresetEndpoints = () => ([
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo',
-            method: 'GET',
-            section: 'market_calendar',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24306/queryHomePageRealTimeData',
-            method: 'GET',
-            section: 'homepage',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryMarketDetails',
-            method: 'POST',
-            section: 'sales_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryOrderTrendV1',
-            method: 'POST',
-            section: 'sales_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHotelOccupiedRoomTrendV1',
-            method: 'POST',
-            section: 'sales_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryRoomTensitiesV1',
-            method: 'POST',
-            section: 'sales_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/datacenter/api/biddingajax/fetchCurrentHotelSeqInfoV1',
-            method: 'POST',
-            section: 'traffic_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2',
-            method: 'POST',
-            section: 'traffic_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate',
-            method: 'POST',
-            section: 'traffic_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2',
-            method: 'POST',
-            section: 'traffic_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryFlowTransformNewV1',
-            method: 'POST',
-            section: 'traffic_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryFlowSource',
-            method: 'POST',
-            section: 'traffic_report',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryCityHotKeywords',
-            method: 'POST',
-            section: 'traffic_report',
-        },
-        ...[
-            [0, '0'],
-            [3, '0'],
-            [0, '1'],
-            [3, '1'],
-        ].map(([dataType, searchType]) => ({
-            request_url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/querySearchFlowDetails?hostType=Ebooking',
-            method: 'POST',
-            section: 'traffic_report',
-            payload: {
-                platform: 'Ctrip',
-                dataType,
-                searchType,
-                spiderVersion: '2.0',
-            },
-        })),
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryCampaignSummaryReport',
-            method: 'POST',
-            section: 'ads_pyramid',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/psi/api/getHotelPsiV2',
-            method: 'GET',
-            section: 'quality_psi',
-        },
-        {
-            request_url: 'https://bbk.ctripbiz.cn/api/getBbkComprehensiveTable',
-            method: 'POST',
-            section: 'biztravel_bpi',
-        },
-        {
-            request_url: 'https://bbk.ctripbiz.cn/api/dataCenterBusinessReportDetail',
-            method: 'POST',
-            section: 'biztravel_business_report',
-        },
-        {
-            request_url: 'https://bbk.ctripbiz.cn/api/dataCenterComparisonReportDetail',
-            method: 'POST',
-            section: 'biztravel_competitor',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryUserSex',
-            method: 'POST',
-            section: 'user_profile',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getImIndex',
-            method: 'POST',
-            section: 'im_board',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getImDateDistribute',
-            method: 'POST',
-            section: 'im_board',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getManagementData',
-            method: 'POST',
-            section: 'competitor_overview',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getFlowSource',
-            method: 'POST',
-            section: 'competitor_overview',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getTripartiteOrderLoss',
-            method: 'POST',
-            section: 'loss_analysis',
-        },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/getCompetingRank',
-            method: 'POST',
-            section: 'competitor_rank',
-        },
-    ]);
+    const getCtripCookieApiCorePresetEndpoints = () => ([]);
 
     const ctripDownloadPanelColors = (panelClass = '') => {
         const text = String(panelClass || '');

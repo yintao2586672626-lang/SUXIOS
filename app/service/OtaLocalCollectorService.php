@@ -230,6 +230,10 @@ final class OtaLocalCollectorService
                 $targetDate
             );
             if ($profileOrderedCollection !== null) {
+                $profileOrderedCollection = $this->publicOrderedCollectionSnapshot(
+                    $profileOrderedCollection,
+                    $actor['is_super_admin']
+                );
                 return [
                     'status' => 'ready',
                     'contract_version' => self::CONTRACT_VERSION,
@@ -331,11 +335,14 @@ final class OtaLocalCollectorService
                 ->select()
                 ->toArray();
         foreach ($tasks as &$task) {
-            $task['request_summary'] = $this->publicTaskRequest(
-                $this->decodeJson($task['request_json'] ?? null)
-            );
+            $taskRequest = $this->decodeJson($task['request_json'] ?? null);
+            $task['_ordered_missing_field_count'] = $this->privateTaskMissingFieldCount($taskRequest);
+            $task['request_summary'] = $this->publicTaskRequest($taskRequest);
             unset($task['lease_token_hash'], $task['request_json']);
-            $task['result_summary'] = $this->decodeJson($task['result_summary_json'] ?? null);
+            $task['result_summary'] = $this->publicTaskResultSummary(
+                $this->decodeJson($task['result_summary_json'] ?? null),
+                $actor['is_super_admin']
+            );
             unset($task['result_summary_json']);
             $task['recovery'] = $this->recoveryGuide(
                 (string)($task['error_code'] ?? ''),
@@ -346,6 +353,10 @@ final class OtaLocalCollectorService
         }
         unset($task);
         $tasks = $this->sortOrderedTasks($tasks);
+        foreach ($tasks as &$task) {
+            unset($task['_ordered_missing_field_count']);
+        }
+        unset($task);
         $profileOrderedCollection = $mappings === []
             ? $this->browserProfileOrderedCollectionSnapshot($actor, $targetDate)
             : null;
@@ -357,6 +368,10 @@ final class OtaLocalCollectorService
                 $deviceMap,
                 $targetDate
             );
+        $orderedCollection = $this->publicOrderedCollectionSnapshot(
+            $orderedCollection,
+            $actor['is_super_admin']
+        );
         $collectionMode = $profileOrderedCollection !== null
             ? 'browser_profile'
             : 'local_collector';
@@ -799,7 +814,9 @@ final class OtaLocalCollectorService
                 'data_type' => (string)$leased['data_type'],
                 'attempt' => (int)$leased['attempt'],
                 'max_attempts' => (int)$leased['max_attempts'],
-                'request' => $this->decodeJson($leased['request_json'] ?? null),
+                'request' => $this->leasedTaskRequest(
+                    $this->decodeJson($leased['request_json'] ?? null)
+                ),
                 'privacy_boundary' => '只上传结构化业务行和脱敏状态，不上传 Cookie、Profile、Authorization 或浏览器存储。',
             ],
         ];
@@ -2208,9 +2225,6 @@ final class OtaLocalCollectorService
                 'stage' => (string)($ordered['stage'] ?? ''),
                 'target_date' => (string)($ordered['target_date'] ?? ''),
                 'sections' => $this->sanitizeSections($ordered['sections'] ?? []),
-                'interface_ids' => $this->sanitizeFieldKeys($ordered['interface_ids'] ?? []),
-                'required_field_keys' => $this->sanitizeFieldKeys($ordered['required_field_keys'] ?? []),
-                'missing_field_keys' => $this->sanitizeFieldKeys($ordered['missing_field_keys'] ?? []),
             ],
             'retry_trigger' => (string)($request['retry_trigger'] ?? ''),
             'retry_of_task_id' => (int)($request['retry_of_task_id'] ?? 0),
@@ -2218,6 +2232,73 @@ final class OtaLocalCollectorService
                 is_array($request['resume_collections'] ?? null) ? $request['resume_collections'] : []
             ),
         ];
+    }
+
+    /**
+     * Device payloads contain only the current task scope. Interface catalogs,
+     * field mappings, recovery plans and server-side reasons remain private.
+     *
+     * @return array<string, mixed>
+     */
+    private function leasedTaskRequest(array $request): array
+    {
+        return [
+            'sections' => $this->sanitizeSections($request['sections'] ?? []),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function publicOrderedCollectionSnapshot(array $snapshot, bool $canViewImplementation): array
+    {
+        if ($canViewImplementation) {
+            return $snapshot;
+        }
+
+        $sanitizeQueueItem = static function (mixed $row): mixed {
+            if (!is_array($row)) {
+                return $row;
+            }
+            unset($row['interface_ids'], $row['missing_field_keys'], $row['required_field_keys']);
+            return $row;
+        };
+
+        foreach (['current', 'next'] as $key) {
+            if (array_key_exists($key, $snapshot)) {
+                $snapshot[$key] = $sanitizeQueueItem($snapshot[$key]);
+            }
+        }
+        if (is_array($snapshot['queue'] ?? null)) {
+            $snapshot['queue'] = array_values(array_map($sanitizeQueueItem, $snapshot['queue']));
+        }
+        $snapshot['implementation_visibility'] = 'redacted';
+        $snapshot['collection_contract'] = 'task_scoped';
+
+        return $snapshot;
+    }
+
+    /** @return array<string, mixed> */
+    private function publicTaskResultSummary(array $summary, bool $canViewImplementation): array
+    {
+        if ($canViewImplementation) {
+            return $summary;
+        }
+
+        foreach (['capture_summary', 'ordered_collection'] as $key) {
+            if (!is_array($summary[$key] ?? null)) {
+                continue;
+            }
+            unset(
+                $summary[$key]['expected_interface_ids'],
+                $summary[$key]['captured_interface_ids'],
+                $summary[$key]['missing_interface_ids'],
+                $summary[$key]['required_field_keys'],
+                $summary[$key]['captured_field_keys'],
+                $summary[$key]['missing_field_keys']
+            );
+        }
+        $summary['implementation_visibility'] = 'redacted';
+
+        return $summary;
     }
 
     /** @return array<int, string> */
@@ -2730,6 +2811,9 @@ final class OtaLocalCollectorService
 
     private function taskMissingFieldCount(array $task): int
     {
+        if (array_key_exists('_ordered_missing_field_count', $task)) {
+            return max(0, (int)$task['_ordered_missing_field_count']);
+        }
         $request = is_array($task['request_summary'] ?? null)
             ? $task['request_summary']
             : $this->publicTaskRequest($this->decodeJson($task['request_json'] ?? null));
@@ -2741,6 +2825,24 @@ final class OtaLocalCollectorService
         if ((string)($ordered['stage'] ?? '') === 'yesterday_core') {
             return count((array)($ordered['required_field_keys'] ?? []));
         }
+        return 0;
+    }
+
+    private function privateTaskMissingFieldCount(array $request): int
+    {
+        $ordered = is_array($request['ordered_collection'] ?? null)
+            ? $request['ordered_collection']
+            : [];
+        $missing = is_array($ordered['missing_field_keys'] ?? null)
+            ? $ordered['missing_field_keys']
+            : [];
+        if ($missing !== []) {
+            return count($missing);
+        }
+        if ((string)($ordered['stage'] ?? '') === 'yesterday_core') {
+            return count((array)($ordered['required_field_keys'] ?? []));
+        }
+
         return 0;
     }
 
