@@ -169,6 +169,63 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertContains('pricing_history_system_hotel_scope_column_missing', $result['data_gaps']);
     }
 
+    public function testPlatformHotelResolverAcceptsExactHotelIdButNeverProfileId(): void
+    {
+        Db::execute('DROP TABLE IF EXISTS platform_data_sources');
+        Db::execute(
+            'CREATE TABLE platform_data_sources ('
+            . 'id INTEGER PRIMARY KEY, '
+            . 'system_hotel_id INTEGER NOT NULL, '
+            . 'platform TEXT NOT NULL, '
+            . 'ingestion_method TEXT NOT NULL, '
+            . 'enabled INTEGER NOT NULL, '
+            . 'config_json TEXT NULL)'
+        );
+        try {
+            Db::name('platform_data_sources')->insertAll([
+                [
+                    'id' => 91,
+                    'system_hotel_id' => 80,
+                    'platform' => 'ctrip',
+                    'ingestion_method' => 'browser_profile',
+                    'enabled' => 1,
+                    'config_json' => $this->encodeRaw([
+                        'hotel_id' => '130079194',
+                        'stable_profile_id' => 'ctrip-profile-80',
+                    ]),
+                ],
+                [
+                    'id' => 92,
+                    'system_hotel_id' => 80,
+                    'platform' => 'ctrip',
+                    'ingestion_method' => 'browser_profile',
+                    'enabled' => 1,
+                    'config_json' => $this->encodeRaw([
+                        'stable_profile_id' => '130079194',
+                    ]),
+                ],
+            ]);
+            $method = new \ReflectionMethod(
+                TrustedOtaFactRepository::class,
+                'platformHotelIdsBySource'
+            );
+            $method->setAccessible(true);
+            $resolved = $method->invoke(
+                new TrustedOtaFactRepository(),
+                [
+                    ['data_source_id' => 91],
+                    ['data_source_id' => 92],
+                ],
+                80
+            );
+
+            self::assertSame('130079194', $resolved[91] ?? null);
+            self::assertArrayNotHasKey(92, $resolved);
+        } finally {
+            Db::execute('DROP TABLE IF EXISTS platform_data_sources');
+        }
+    }
+
     public function testDailySummarySuppressesUnderlyingOrderRowsForTheSameSourceDate(): void
     {
         $this->insertRow([
