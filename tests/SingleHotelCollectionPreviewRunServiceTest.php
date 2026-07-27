@@ -116,7 +116,7 @@ final class SingleHotelCollectionPreviewRunServiceTest extends TestCase
         $runId = $service->start(5, $observedAt);
         $result = $service->finish($runId, 'completed', 'blocked', [
             'stage' => 'three_source_preview',
-            'blocker_codes' => ['ctrip_delivery_evidence_missing'],
+            'blocker_codes' => ['pms_delivery_evidence_missing'],
         ], $observedAt->modify('+20 seconds'));
 
         self::assertSame('completed', $result['status']);

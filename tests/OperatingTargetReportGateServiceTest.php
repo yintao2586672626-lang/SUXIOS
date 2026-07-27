@@ -303,18 +303,38 @@ final class OperatingTargetReportGateServiceTest extends TestCase
         $preview['target_date'] = '2026-07-27';
         $preview['integrated_sources'] = $this->integratedSources();
         $preview['integrated_sources']['delivery_allowed'] = false;
+        $preview['integrated_sources']['target_delivery_allowed'] = false;
         $preview['integrated_sources']['blockers'] = [[
-            'code' => 'meituan_delivery_evidence_missing',
-            'message' => '美团来源证据未通过。',
+            'code' => 'pms_delivery_evidence_missing',
+            'message' => '订单来了PMS来源证据未通过。',
         ]];
 
         $gate = $service->formalSendGate($preview);
 
         self::assertFalse($gate['allowed']);
         self::assertContains(
-            'meituan_delivery_evidence_missing',
+            'pms_delivery_evidence_missing',
             array_column($gate['blockers'], 'code')
         );
+    }
+
+    public function testOptionalOtaGapsDoNotBlockCompleteTargetAndVerifiedPms(): void
+    {
+        $service = new OperatingTargetReportGateService();
+        $preview = $this->readyPreview();
+        $preview['target_date'] = '2026-07-27';
+        $preview['integrated_sources'] = $this->integratedSources();
+        $preview['integrated_sources']['delivery_allowed'] = false;
+        $preview['integrated_sources']['target_delivery_allowed'] = true;
+        $preview['integrated_sources']['integrated_blockers'] = [[
+            'code' => 'ctrip_delivery_evidence_missing',
+            'message' => '携程可选渠道事实未取得。',
+        ]];
+
+        $gate = $service->formalSendGate($preview);
+
+        self::assertTrue($gate['allowed']);
+        self::assertSame([], $gate['blockers']);
     }
 
     public function testAdapterHasNoNetworkDatabaseOrSessionAccess(): void
@@ -388,6 +408,8 @@ final class OperatingTargetReportGateServiceTest extends TestCase
             'business_date' => '2026-07-27',
             'status' => 'partial',
             'delivery_allowed' => true,
+            'base_delivery_allowed' => true,
+            'target_delivery_allowed' => true,
             'blockers' => [],
             'sources' => [
                 'pms' => [

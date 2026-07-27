@@ -68,7 +68,7 @@ final class SingleHotelOperatingDigestServiceTest extends TestCase
         self::assertNull($digest['sources']['meituan']['facts']['paid_orders']);
     }
 
-    public function testCtripPlatformHotelIdMismatchBlocksDelivery(): void
+    public function testCtripPlatformHotelIdMismatchDoesNotBlockPmsBaseDelivery(): void
     {
         $digest = $this->service(
             '999999999',
@@ -76,15 +76,131 @@ final class SingleHotelOperatingDigestServiceTest extends TestCase
         )->build(1, 5, '2026-07-27', $this->targetPreview());
 
         self::assertFalse($digest['delivery_allowed']);
+        self::assertTrue($digest['base_delivery_allowed']);
+        self::assertTrue($digest['target_delivery_allowed']);
+        self::assertSame('partial', $digest['status']);
         self::assertSame('mismatched', $digest['sources']['ctrip']['identity_status']);
         self::assertNull($digest['sources']['ctrip']['facts']['channel_revenue']);
+        self::assertSame([], $digest['blockers']);
         self::assertContains(
             'ctrip_delivery_evidence_missing',
-            array_column($digest['blockers'], 'code')
+            array_column($digest['integrated_blockers'], 'code')
+        );
+        self::assertContains(
+            'ctrip_optional_source_unavailable',
+            array_column($digest['gaps'], 'code')
         );
         self::assertSame(
             'ctrip_platform_hotel_identity_mismatch',
             $digest['sources']['ctrip']['gaps'][0]['code']
+        );
+    }
+
+    public function testMissingOptionalOtaSourcesDoNotBlockVerifiedPmsBaseDelivery(): void
+    {
+        $digest = (new SingleHotelOperatingDigestService(
+            static fn(): array => [
+                'id' => 5,
+                'tenant_id' => 1,
+                'name' => '敦煌漠蓝新',
+                'status' => 1,
+            ],
+            fn(): array => [
+                'id' => 1,
+                'tenant_id' => 1,
+                'hotel_id' => 5,
+                'business_date' => '2026-07-27',
+                'identity_status' => 'matched',
+                'capture_status' => 'verified',
+                'quality_status' => 'verified',
+                'reconciliation_status' => 'matched',
+                'readback_status' => 'readback_verified',
+                'captured_at' => '2026-07-27 22:10:00',
+                'detail_room_fee_total' => 8275.67,
+                'detail_row_count' => 25,
+                'summary' => $this->pmsSummary(),
+            ],
+            static fn(): array => ['rows' => []],
+            static fn(): array => [],
+            self::SCOPE
+        ))->build(1, 5, '2026-07-27', []);
+
+        self::assertFalse($digest['delivery_allowed']);
+        self::assertTrue($digest['base_delivery_allowed']);
+        self::assertTrue($digest['target_delivery_allowed']);
+        self::assertSame('partial', $digest['status']);
+        self::assertSame('ready', $digest['sources']['pms']['status']);
+        self::assertFalse($digest['sources']['ctrip']['delivery_evidence_ready']);
+        self::assertFalse($digest['sources']['meituan']['delivery_evidence_ready']);
+        self::assertSame([], $digest['blockers']);
+        self::assertSame(
+            ['ctrip_delivery_evidence_missing', 'meituan_delivery_evidence_missing'],
+            array_column($digest['integrated_blockers'], 'code')
+        );
+        self::assertSame(
+            ['unavailable', 'unavailable'],
+            array_values($digest['optional_source_status'])
+        );
+        self::assertContains(
+            'ctrip_optional_source_unavailable',
+            array_column($digest['gaps'], 'code')
+        );
+        self::assertContains(
+            'meituan_optional_source_unavailable',
+            array_column($digest['gaps'], 'code')
+        );
+        self::assertContains(
+            'operating_target_not_set',
+            array_column($digest['gaps'], 'code')
+        );
+    }
+
+    public function testOptionalSourceReadFailuresDoNotBlockVerifiedPmsBaseDelivery(): void
+    {
+        $digest = (new SingleHotelOperatingDigestService(
+            static fn(): array => [
+                'id' => 5,
+                'tenant_id' => 1,
+                'name' => '敦煌漠蓝新',
+                'status' => 1,
+            ],
+            fn(): array => [
+                'id' => 1,
+                'tenant_id' => 1,
+                'hotel_id' => 5,
+                'business_date' => '2026-07-27',
+                'identity_status' => 'matched',
+                'capture_status' => 'verified',
+                'quality_status' => 'verified',
+                'reconciliation_status' => 'matched',
+                'readback_status' => 'readback_verified',
+                'captured_at' => '2026-07-27 22:10:00',
+                'detail_room_fee_total' => 8275.67,
+                'detail_row_count' => 25,
+                'summary' => $this->pmsSummary(),
+            ],
+            static function (): array {
+                throw new \RuntimeException('ctrip_fixture_failed');
+            },
+            static function (): array {
+                throw new \RuntimeException('meituan_fixture_failed');
+            },
+            self::SCOPE
+        ))->build(1, 5, '2026-07-27', []);
+
+        self::assertTrue($digest['base_delivery_allowed']);
+        self::assertTrue($digest['target_delivery_allowed']);
+        self::assertFalse($digest['delivery_allowed']);
+        self::assertSame('failed', $digest['sources']['ctrip']['status']);
+        self::assertSame('failed', $digest['sources']['meituan']['status']);
+        self::assertSame([], $digest['blockers']);
+        self::assertContains(
+            'ctrip_source_read_failed',
+            array_column($digest['sources']['ctrip']['gaps'], 'code')
+        );
+        self::assertContains(
+            'meituan_source_read_failed',
+            array_column($digest['sources']['meituan']['gaps'], 'code')
         );
     }
 

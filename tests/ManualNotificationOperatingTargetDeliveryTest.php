@@ -8,6 +8,7 @@ use app\service\ManualNotificationService;
 use app\service\ManualNotificationTestTargetService;
 use app\service\OperatingTargetNotificationPayloadService;
 use app\service\OperatingTargetService;
+use app\service\SingleHotelOperatingBriefPayloadService;
 use app\service\SingleHotelOperatingDigestService;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -234,10 +235,10 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
         self::assertTrue($brief['preview_only'] ?? false);
         self::assertFalse($brief['message_sent'] ?? true);
         self::assertFalse($brief['external_delivery_authorized'] ?? true);
-        self::assertStringContainsString('经营目标：未设置', (string)($brief['content'] ?? ''));
+        self::assertStringContainsString('经营目标模块：未启用', (string)($brief['content'] ?? ''));
         self::assertStringContainsString('订单来了PMS', (string)($brief['content'] ?? ''));
-        self::assertStringContainsString('携程｜渠道事实', (string)($brief['content'] ?? ''));
-        self::assertStringContainsString('美团｜流量与订单事实', (string)($brief['content'] ?? ''));
+        self::assertStringContainsString('携程｜可选渠道事实', (string)($brief['content'] ?? ''));
+        self::assertStringContainsString('美团｜可选流量与订单事实', (string)($brief['content'] ?? ''));
         self::assertStringContainsString('渠道收入：未获取', (string)($brief['content'] ?? ''));
     }
 
@@ -344,6 +345,126 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
         self::assertSame([1, 1], array_column($history['list'], 'attempt_count'));
         self::assertSame(2, Db::name('manual_notification_dispatch_attempts')->count());
         self::assertSame('completed', Db::name('manual_notification_schedule_runs')->value('status'));
+    }
+
+    public function testVerifiedPmsBriefFlowsWithoutTargetOrOtaThroughTestOnlyLedger(): void
+    {
+        $today = $this->today();
+        $payloads = $this->briefPayloads($today);
+        $immediateCalls = [];
+        $notifications = new ManualNotificationService(
+            static function (
+                int $hotelId,
+                int $robotId,
+                array $payload,
+                array $context
+            ) use (&$immediateCalls): array {
+                $immediateCalls[] = [$hotelId, $robotId, $payload, $context];
+                return [
+                    'delivery_status' => 'sent',
+                    'sent_count' => 1,
+                    'failed_count' => 0,
+                ];
+            },
+            null,
+            null,
+            null,
+            $payloads
+        );
+        $saved = $notifications->save(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            7,
+            '敦煌漠蓝新',
+            [
+                'notification_type' => ManualNotificationService::OPERATING_BRIEF_TYPE,
+                'business_date' => $today,
+                'title' => $today . ' 单店经营事实简报',
+                'body' => "【单店经营事实简报】\n只使用已核验的订单来了住宿经营事实。",
+                'send_method' => 'wecom_test',
+                'trigger_type' => 'daily_fixed_time',
+                'planned_send_at' => $today . 'T18:00',
+                'enabled' => true,
+            ]
+        );
+        $previewContent = (string)($saved['preview']['payload']['markdown']['content'] ?? '');
+        self::assertSame('base_operating_facts', $saved['preview']['message_mode']);
+        self::assertTrue($saved['preview']['report_gate']['allowed']);
+        self::assertStringContainsString('总房费：¥8,745.66', $previewContent);
+        self::assertStringContainsString('经营目标模块：未启用', $previewContent);
+        self::assertStringContainsString(
+            '未获取或未验证（不阻断PMS基础事实）',
+            $previewContent
+        );
+        self::assertStringNotContainsString('20000', $previewContent);
+
+        $test = $notifications->testPush(
+            self::TENANT_ID,
+            self::HOTEL_ID,
+            (int)$saved['record']['id'],
+            7,
+            true,
+            self::ROBOT_ID,
+            self::ROBOT_NAME,
+            '敦煌漠蓝新',
+            'basic-facts-immediate-001'
+        );
+        self::assertSame('sent', $test['delivery_status']);
+        self::assertSame('schedule_enabled', $test['schedule_status']);
+        self::assertCount(1, $immediateCalls);
+        self::assertNull($test['dispatch']['operating_target_record_id']);
+        self::assertStringContainsString(
+            '【测试】企业微信测试群单次推送',
+            $immediateCalls[0][2]['markdown']['content']
+        );
+
+        $scheduledCalls = [];
+        $scheduler = new ManualNotificationScheduleService(
+            static function (
+                int $hotelId,
+                int $robotId,
+                array $payload,
+                array $context
+            ) use (&$scheduledCalls): array {
+                $scheduledCalls[] = [$hotelId, $robotId, $payload, $context];
+                return [
+                    'delivery_status' => 'sent',
+                    'sent_count' => 1,
+                    'failed_count' => 0,
+                ];
+            },
+            null,
+            null,
+            null,
+            $payloads
+        );
+        $run = $scheduler->runDue(
+            new DateTimeImmutable($today . ' 18:01:00', new DateTimeZone('Asia/Shanghai')),
+            true,
+            ManualNotificationScheduleService::MODE_TEST,
+            100,
+            self::HOTEL_ID,
+            self::ROBOT_ID
+        );
+        self::assertSame(1, $run['sent_count']);
+        self::assertSame(0, $run['blocked_count']);
+        self::assertCount(1, $scheduledCalls);
+        self::assertStringContainsString(
+            '【测试】企业微信测试群定时推送',
+            $scheduledCalls[0][2]['markdown']['content']
+        );
+
+        $history = $notifications->dispatchHistory(self::TENANT_ID, self::HOTEL_ID);
+        self::assertSame(2, $history['total']);
+        self::assertSame(
+            ['scheduled', 'immediate_test'],
+            array_column($history['list'], 'request_kind')
+        );
+        self::assertSame([1, 1], array_column($history['list'], 'attempt_count'));
+        self::assertSame(
+            ['single_hotel_operating_brief.v1', 'single_hotel_operating_brief.v1'],
+            array_column($history['list'], 'render_contract_version')
+        );
     }
 
     public function testBlockedAccommodationTargetPersistsGateWithoutCallingSender(): void
@@ -486,6 +607,47 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
         );
 
         return new OperatingTargetNotificationPayloadService(null, null, $digest);
+    }
+
+    private function briefPayloads(string $today): SingleHotelOperatingBriefPayloadService
+    {
+        $scope = (array)Config::get('single_hotel_operating_digest', []);
+        $digest = new SingleHotelOperatingDigestService(
+            static fn(): array => [
+                'id' => self::HOTEL_ID,
+                'tenant_id' => self::TENANT_ID,
+                'name' => (string)($scope['hotel_name'] ?? ''),
+                'status' => 1,
+            ],
+            static fn(): array => [
+                'id' => 903,
+                'tenant_id' => self::TENANT_ID,
+                'hotel_id' => self::HOTEL_ID,
+                'business_date' => $today,
+                'identity_status' => 'matched',
+                'capture_status' => 'verified',
+                'quality_status' => 'verified',
+                'reconciliation_status' => 'matched',
+                'readback_status' => 'readback_verified',
+                'captured_at' => $today . ' 12:00:00',
+                'detail_room_fee_total' => 8745.66,
+                'detail_row_count' => 25,
+                'summary' => [
+                    'total_room_fee' => 8745.66,
+                    'adr' => 583.04,
+                    'occupancy_rate_percent' => 100,
+                    'revpar' => 583.04,
+                    'sold_room_nights' => 15,
+                    'average_daily_room_nights' => 15,
+                    'derived_sellable_room_nights' => 15,
+                ],
+            ],
+            static fn(): array => ['rows' => []],
+            static fn(): array => [],
+            $scope
+        );
+
+        return new SingleHotelOperatingBriefPayloadService($digest);
     }
 
     private function today(): string

@@ -67,6 +67,8 @@ final class SingleHotelOperatingDigestService
                 'contract_version' => self::CONTRACT_VERSION,
                 'applies' => false,
                 'delivery_allowed' => false,
+                'base_delivery_allowed' => false,
+                'target_delivery_allowed' => false,
                 'status' => 'out_of_scope',
                 'blockers' => [['code' => 'single_hotel_digest_scope_mismatch']],
             ];
@@ -111,22 +113,52 @@ final class SingleHotelOperatingDigestService
             : call_user_func($this->pmsLoader, $tenantId, $hotelId, $businessDate);
         $pms = $this->normalizePms(is_array($pmsRaw) ? $pmsRaw : [], $tenantId, $hotelId, $businessDate);
 
-        $trustedRaw = $this->trustedOtaLoader === null
-            ? (new TrustedOtaFactRepository())->pricingHistory($hotelId, $businessDate, $businessDate)
-            : call_user_func($this->trustedOtaLoader, $hotelId, $businessDate);
+        $ctripReadFailed = false;
+        try {
+            $trustedRaw = $this->trustedOtaLoader === null
+                ? (new TrustedOtaFactRepository())->pricingHistory($hotelId, $businessDate, $businessDate)
+                : call_user_func($this->trustedOtaLoader, $hotelId, $businessDate);
+        } catch (\Throwable) {
+            $trustedRaw = [];
+            $ctripReadFailed = true;
+        }
         $ctrip = $this->normalizeCtrip(
             is_array($trustedRaw) ? $trustedRaw : [],
             $businessDate,
             trim((string)($scope['platforms']['ctrip']['platform_hotel_id'] ?? ''))
         );
+        if ($ctripReadFailed) {
+            $ctrip['status'] = 'failed';
+            $ctrip['delivery_evidence_ready'] = false;
+            $ctrip['gaps'] = [[
+                'code' => 'ctrip_source_read_failed',
+                'message' => '携程可选渠道事实读取失败，保持未获取且不阻断PMS基础经营事实。',
+            ]];
+            $ctrip['blocking_reason'] = '携程可选渠道事实读取失败。';
+        }
 
-        $meituanRaw = $this->meituanLoader === null
-            ? $this->loadMeituanTrafficFacts($tenantId, $hotelId, $businessDate, $scope)
-            : call_user_func($this->meituanLoader, $tenantId, $hotelId, $businessDate, $scope);
+        $meituanReadFailed = false;
+        try {
+            $meituanRaw = $this->meituanLoader === null
+                ? $this->loadMeituanTrafficFacts($tenantId, $hotelId, $businessDate, $scope)
+                : call_user_func($this->meituanLoader, $tenantId, $hotelId, $businessDate, $scope);
+        } catch (\Throwable) {
+            $meituanRaw = [];
+            $meituanReadFailed = true;
+        }
         $meituan = $this->normalizeMeituan(
             is_array($meituanRaw) ? $meituanRaw : [],
             $businessDate
         );
+        if ($meituanReadFailed) {
+            $meituan['status'] = 'failed';
+            $meituan['delivery_evidence_ready'] = false;
+            $meituan['gaps'] = [[
+                'code' => 'meituan_source_read_failed',
+                'message' => '美团可选渠道事实读取失败，保持未获取且不阻断PMS基础经营事实。',
+            ]];
+            $meituan['blocking_reason'] = '美团可选渠道事实读取失败。';
+        }
 
         $blockers = [];
         if (!$hotelMatched) {
@@ -141,31 +173,55 @@ final class SingleHotelOperatingDigestService
                 '经营目标与综合日报的酒店或日期不一致。'
             );
         }
+        if (($pms['delivery_evidence_ready'] ?? false) !== true) {
+            $blockers[] = $this->blocker(
+                'pms_delivery_evidence_missing',
+                (string)($pms['blocking_reason'] ?? '订单来了PMS来源证据未通过。')
+            );
+        }
+
+        $optionalSourceGaps = [];
         foreach ([
-            'pms' => $pms,
+            'ctrip' => ['source' => $ctrip, 'label' => '携程'],
+            'meituan' => ['source' => $meituan, 'label' => '美团'],
+        ] as $sourceKey => $definition) {
+            $source = $definition['source'];
+            if (($source['delivery_evidence_ready'] ?? false) === true) {
+                continue;
+            }
+            $optionalSourceGaps[] = [
+                'code' => $sourceKey . '_optional_source_unavailable',
+                'message' => $definition['label']
+                    . '同店同日渠道事实未通过；该可选渠道块标记为未获取，不阻断PMS基础经营事实推送。',
+            ];
+        }
+
+        $gaps = array_merge(
+            $targetPreviewPresent ? [] : [[
+                'code' => 'operating_target_not_set',
+                'message' => '经营目标模块未启用；目标、完成率、剩余营业额和所需均价不适用，不阻断PMS基础经营事实推送。',
+            ]],
+            (array)($pms['gaps'] ?? []),
+            $optionalSourceGaps,
+            (array)($ctrip['gaps'] ?? []),
+            (array)($meituan['gaps'] ?? [])
+        );
+        $baseDeliveryAllowed = $blockers === [];
+        $integratedBlockers = $blockers;
+        foreach ([
             'ctrip' => $ctrip,
             'meituan' => $meituan,
         ] as $sourceKey => $source) {
             if (($source['delivery_evidence_ready'] ?? false) === true) {
                 continue;
             }
-            $blockers[] = $this->blocker(
+            $integratedBlockers[] = $this->blocker(
                 $sourceKey . '_delivery_evidence_missing',
                 (string)($source['blocking_reason'] ?? ($sourceKey . '来源证据未通过。'))
             );
         }
-
-        $gaps = array_merge(
-            $targetPreviewPresent ? [] : [[
-                'code' => 'operating_target_not_set',
-                'message' => '经营目标未设置，不阻断PMS、携程和美团三源经营简报预览。',
-            ]],
-            (array)($pms['gaps'] ?? []),
-            (array)($ctrip['gaps'] ?? []),
-            (array)($meituan['gaps'] ?? [])
-        );
-        $deliveryAllowed = $blockers === [];
-        $status = !$deliveryAllowed
+        $deliveryAllowed = $integratedBlockers === [];
+        $status = !$baseDeliveryAllowed
             ? 'blocked'
             : ($gaps === [] ? 'ready' : 'partial');
 
@@ -178,7 +234,17 @@ final class SingleHotelOperatingDigestService
             'business_date' => $businessDate,
             'status' => $status,
             'delivery_allowed' => $deliveryAllowed,
+            'base_delivery_allowed' => $baseDeliveryAllowed,
+            'target_delivery_allowed' => $baseDeliveryAllowed,
             'operating_target_status' => $targetPreviewPresent ? 'present' : 'not_set',
+            'optional_source_status' => [
+                'ctrip' => ($ctrip['delivery_evidence_ready'] ?? false) === true
+                    ? 'available'
+                    : 'unavailable',
+                'meituan' => ($meituan['delivery_evidence_ready'] ?? false) === true
+                    ? 'available'
+                    : 'unavailable',
+            ],
             'scope_boundary' => [
                 'pms' => '订单来了住宿数据中心房费口径，不代表全酒店全部收入。',
                 'ctrip' => '携程渠道自店订单口径，不与PMS住宿收入相加。',
@@ -191,6 +257,7 @@ final class SingleHotelOperatingDigestService
             ],
             'gaps' => array_values($gaps),
             'blockers' => $blockers,
+            'integrated_blockers' => $integratedBlockers,
             'generated_at' => date('Y-m-d H:i:s'),
         ];
     }

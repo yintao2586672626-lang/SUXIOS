@@ -378,7 +378,10 @@ final class OperatingTargetReportGateService
             ? $operatingTargetPreview['integrated_sources']
             : null;
         if (is_array($integrated) && ($integrated['applies'] ?? false) === true) {
-            if (($integrated['delivery_allowed'] ?? false) !== true) {
+            $targetDeliveryAllowed = array_key_exists('target_delivery_allowed', $integrated)
+                ? ($integrated['target_delivery_allowed'] === true)
+                : (($integrated['delivery_allowed'] ?? false) === true);
+            if (!$targetDeliveryAllowed) {
                 $integratedBlockers = array_values(array_filter(
                     (array)($integrated['blockers'] ?? []),
                     'is_array'

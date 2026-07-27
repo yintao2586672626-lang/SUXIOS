@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "370b7dae751fb7c08b378322326eefd11740547b05e021e60562503f4fccbd33",
-  "source_snapshot_bytes": 2152965,
+  "source_snapshot_sha256": "9482d9f6cdc1e08ecb6ee9b0025792655cdf2b53641bf5085effe6c6b8cc9952",
+  "source_snapshot_bytes": 2153853,
   "fragments": [
     {
       "id": "app-shell",

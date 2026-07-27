@@ -260,8 +260,8 @@ final class MolanxinLocalEndToEndAcceptanceTest extends TestCase
         self::assertFalse($brief['message_sent']);
         self::assertFalse($brief['external_delivery_authorized']);
         self::assertStringContainsString('订单来了PMS', $brief['content']);
-        self::assertStringContainsString('携程｜渠道事实', $brief['content']);
-        self::assertStringContainsString('美团｜流量与订单事实', $brief['content']);
+        self::assertStringContainsString('携程｜可选渠道事实', $brief['content']);
+        self::assertStringContainsString('美团｜可选流量与订单事实', $brief['content']);
         self::assertStringContainsString('¥8,745.66', $brief['content']);
         self::assertTrue($page['formal_send_gate']['allowed']);
         self::assertSame([], $page['formal_send_gate']['blockers']);

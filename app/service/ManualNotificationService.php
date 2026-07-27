@@ -10,9 +10,11 @@ use think\facade\Db;
 final class ManualNotificationService
 {
     public const DYNAMIC_REPORT_TYPE = 'operating_target_report';
+    public const OPERATING_BRIEF_TYPE = 'single_hotel_operating_brief';
 
     private const TIMEZONE = 'Asia/Shanghai';
     private const TYPES = [
+        self::OPERATING_BRIEF_TYPE => '单店经营事实简报',
         self::DYNAMIC_REPORT_TYPE => '每日经营目标报告',
         'today_revenue_management' => '今日收益管理',
         'future_room_status' => '远期房态',
@@ -36,7 +38,8 @@ final class ManualNotificationService
         ?callable $testDispatcher = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
         private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
-        private readonly ?ManualNotificationTestTargetService $testTargets = null
+        private readonly ?ManualNotificationTestTargetService $testTargets = null,
+        private readonly ?SingleHotelOperatingBriefPayloadService $operatingBriefPayloads = null
     ) {
         $this->testDispatcher = $testDispatcher;
     }
@@ -54,7 +57,11 @@ final class ManualNotificationService
                 'label' => $label,
                 'title' => $this->defaultTitle($key, $date),
                 'body' => $this->defaultBody($key, $date),
-                'dynamic' => $key === self::DYNAMIC_REPORT_TYPE,
+                'dynamic' => in_array(
+                    $key,
+                    [self::OPERATING_BRIEF_TYPE, self::DYNAMIC_REPORT_TYPE],
+                    true
+                ),
             ];
         }
 
@@ -320,7 +327,7 @@ final class ManualNotificationService
                 $userId,
                 $robot,
                 'blocked',
-                '经营目标报告未通过来源、日期、质量或目标门禁；测试群未发送。'
+                '经营消息未通过酒店、日期、来源、质量或所选模块门禁；测试群未发送。'
             );
             $result['dispatch'] = $dispatch;
             $result['report_gate'] = $candidate['formal_send_gate'] ?? null;
@@ -512,10 +519,56 @@ final class ManualNotificationService
         array $data
     ): array {
         $type = (string)($data['template_type'] ?? $data['notification_type'] ?? '');
+        if ($type === self::OPERATING_BRIEF_TYPE) {
+            if ($tenantId <= 0) {
+                return $this->blockedDynamicPreview(
+                    $data,
+                    $type,
+                    'tenant_scope_missing',
+                    '缺少租户范围，单店经营事实简报不可预览。'
+                );
+            }
+            $page = $this->briefPayloads()->pagePreview(
+                $tenantId,
+                $hotelId,
+                $hotelName,
+                (string)$data['business_date']
+            );
+            return [
+                'title' => (string)$data['title'],
+                'body' => (string)$data['body'],
+                'notification_type' => $type,
+                'template_type' => $type,
+                'notification_type_label' => self::TYPES[$type],
+                'business_date' => (string)$data['business_date'],
+                'send_method' => (string)$data['send_method'],
+                'send_method_label' => self::SEND_METHODS[(string)$data['send_method']],
+                'trigger_type' => (string)$data['trigger_type'],
+                'trigger_type_label' => self::TRIGGER_TYPES[(string)$data['trigger_type']],
+                'planned_send_at' => $data['planned_send_at'] ?? null,
+                'enabled_requested' => (bool)$data['enabled'],
+                'schedule_status' => (bool)$data['enabled'] && (string)$data['trigger_type'] !== 'manual_test'
+                    ? 'awaiting_test'
+                    : 'saved_only',
+                'schedule_status_label' => (bool)$data['enabled'] && (string)$data['trigger_type'] !== 'manual_test'
+                    ? '等待一次真实测试成功后启用'
+                    : '仅保存/仅测试',
+                'scheduler_connected' => false,
+                'dynamic_report' => true,
+                'message_mode' => 'base_operating_facts',
+                'delivery_status' => 'preview_only',
+                'report_gate' => $page['base_fact_gate'] ?? null,
+                'payload' => $page['payload'] ?? null,
+                'operating_target_record_id' => 0,
+                'snapshot_revision_no' => 0,
+                'preview_fingerprint' => (string)($page['preview_fingerprint'] ?? ''),
+            ];
+        }
         if ($type === self::DYNAMIC_REPORT_TYPE) {
             if ($tenantId <= 0) {
                 return $this->blockedDynamicPreview(
                     $data,
+                    $type,
                     'tenant_scope_missing',
                     '缺少租户范围，动态经营目标报告不可预览。'
                 );
@@ -567,6 +620,15 @@ final class ManualNotificationService
         string $businessDate,
         string $deliveryMode
     ): array {
+        if ((string)$record['template_type'] === self::OPERATING_BRIEF_TYPE) {
+            return $this->briefPayloads()->build(
+                $tenantId,
+                $hotelId,
+                $hotelName,
+                $businessDate,
+                $deliveryMode
+            );
+        }
         if ((string)$record['template_type'] === self::DYNAMIC_REPORT_TYPE) {
             $today = $this->now()->format('Y-m-d');
             if ($deliveryMode === 'immediate_test' && $businessDate !== $today) {
@@ -672,14 +734,19 @@ final class ManualNotificationService
     }
 
     /** @param array<string, mixed> $data @return array<string, mixed> */
-    private function blockedDynamicPreview(array $data, string $code, string $message): array
+    private function blockedDynamicPreview(
+        array $data,
+        string $type,
+        string $code,
+        string $message
+    ): array
     {
         return [
             'title' => (string)$data['title'],
             'body' => (string)$data['body'],
-            'notification_type' => self::DYNAMIC_REPORT_TYPE,
-            'template_type' => self::DYNAMIC_REPORT_TYPE,
-            'notification_type_label' => self::TYPES[self::DYNAMIC_REPORT_TYPE],
+            'notification_type' => $type,
+            'template_type' => $type,
+            'notification_type_label' => self::TYPES[$type] ?? '动态经营消息',
             'business_date' => (string)$data['business_date'],
             'send_method' => (string)$data['send_method'],
             'trigger_type' => (string)$data['trigger_type'],
@@ -826,7 +893,7 @@ final class ManualNotificationService
             }
         }
         return $messages === []
-            ? '经营目标报告门禁未通过。'
+            ? '经营消息的数据门禁未通过。'
             : implode('；', array_slice($messages, 0, 3));
     }
 
@@ -844,6 +911,7 @@ final class ManualNotificationService
     private function defaultTitle(string $type, string $date): string
     {
         return match ($type) {
+            self::OPERATING_BRIEF_TYPE => $date . ' 单店经营事实简报',
             self::DYNAMIC_REPORT_TYPE => $date . ' 每日经营目标报告',
             'today_revenue_management' => $date . ' 今日收益管理',
             'future_room_status' => $date . ' 远期房态',
@@ -855,6 +923,13 @@ final class ManualNotificationService
     private function defaultBody(string $type, string $date): string
     {
         return match ($type) {
+            self::OPERATING_BRIEF_TYPE => implode("\n", [
+                '【单店经营事实简报】',
+                '酒店：{酒店名称}',
+                '经营日期：{经营日期}',
+                '基础内容只使用同酒店、同日期、已核验并回读的订单来了住宿经营事实。',
+                '经营目标未启用时标记不适用；携程和美团为独立可选渠道块，缺失不阻断基础事实。',
+            ]),
             self::DYNAMIC_REPORT_TYPE => implode("\n", [
                 '【每日经营目标报告】',
                 '酒店：{酒店名称}',
@@ -933,6 +1008,11 @@ final class ManualNotificationService
     private function targetPayloads(): OperatingTargetNotificationPayloadService
     {
         return $this->operatingTargetPayloads ?? new OperatingTargetNotificationPayloadService();
+    }
+
+    private function briefPayloads(): SingleHotelOperatingBriefPayloadService
+    {
+        return $this->operatingBriefPayloads ?? new SingleHotelOperatingBriefPayloadService();
     }
 
     private function dispatchLedger(): ManualNotificationDispatchLedgerService

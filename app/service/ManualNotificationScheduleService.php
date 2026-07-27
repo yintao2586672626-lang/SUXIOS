@@ -10,8 +10,8 @@ use think\facade\Db;
 /**
  * Cloud-scheduler entry for saved notifications.
  *
- * Scheduled operating-target reports always resolve the exact current
- * Asia/Shanghai business date and must pass the same data gate as an immediate
+ * Scheduled operating messages always resolve the exact current Asia/Shanghai
+ * business date and must pass the same selected-module gate as an immediate
  * test. A dispatch is claimed before any external side effect.
  */
 final class ManualNotificationScheduleService
@@ -28,7 +28,8 @@ final class ManualNotificationScheduleService
         ?callable $sender = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
         private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
-        private readonly ?ManualNotificationTestTargetService $testTargets = null
+        private readonly ?ManualNotificationTestTargetService $testTargets = null,
+        private readonly ?SingleHotelOperatingBriefPayloadService $operatingBriefPayloads = null
     ) {
         $this->sender = $sender;
     }
@@ -434,6 +435,15 @@ final class ManualNotificationScheduleService
         $hotelId = (int)($row['hotel_id'] ?? 0);
         $tenantId = (int)($row['tenant_id'] ?? 0);
         $hotelName = $this->hotelName($hotelId);
+        if ((string)($row['template_type'] ?? '') === ManualNotificationService::OPERATING_BRIEF_TYPE) {
+            return $this->briefPayloads()->build(
+                $tenantId,
+                $hotelId,
+                $hotelName,
+                $businessDate,
+                $deliveryMode
+            );
+        }
         if ((string)($row['template_type'] ?? '') === ManualNotificationService::DYNAMIC_REPORT_TYPE) {
             return $this->targetPayloads()->build(
                 $tenantId,
@@ -504,7 +514,7 @@ final class ManualNotificationScheduleService
             }
         }
         return $messages === []
-            ? '经营目标报告门禁未通过。'
+            ? '经营消息的数据门禁未通过。'
             : implode('；', array_slice($messages, 0, 3));
     }
 
@@ -591,6 +601,11 @@ final class ManualNotificationScheduleService
     private function targetPayloads(): OperatingTargetNotificationPayloadService
     {
         return $this->operatingTargetPayloads ?? new OperatingTargetNotificationPayloadService();
+    }
+
+    private function briefPayloads(): SingleHotelOperatingBriefPayloadService
+    {
+        return $this->operatingBriefPayloads ?? new SingleHotelOperatingBriefPayloadService();
     }
 
     private function dispatchLedger(): ManualNotificationDispatchLedgerService

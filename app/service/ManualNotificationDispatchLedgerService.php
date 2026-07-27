@@ -16,6 +16,7 @@ use think\facade\Db;
 final class ManualNotificationDispatchLedgerService
 {
     public const RENDER_CONTRACT_VERSION = 'operating_target_wecom.v2';
+    public const OPERATING_BRIEF_RENDER_CONTRACT_VERSION = 'single_hotel_operating_brief.v1';
 
     /**
      * @param array<string, mixed> $candidate
@@ -73,7 +74,9 @@ final class ManualNotificationDispatchLedgerService
             'snapshot_revision_no' => $this->positiveOrNull(
                 $candidate['snapshot_revision_no'] ?? null
             ),
-            'render_contract_version' => self::RENDER_CONTRACT_VERSION,
+            'render_contract_version' => (string)($candidate['message_mode'] ?? '') === 'base_operating_facts'
+                ? self::OPERATING_BRIEF_RENDER_CONTRACT_VERSION
+                : self::RENDER_CONTRACT_VERSION,
             'payload_snapshot_json' => $payload === null ? null : $this->json($payload),
             'attempt_count' => 0,
             'max_attempts' => 3,

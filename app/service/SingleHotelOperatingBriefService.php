@@ -25,21 +25,19 @@ final class SingleHotelOperatingBriefService
         $meituanFacts = is_array($meituan['facts'] ?? null) ? $meituan['facts'] : [];
 
         $sourceGatePassed = ($digest['applies'] ?? false) === true
-            && ($digest['delivery_allowed'] ?? false) === true
-            && ($pms['delivery_evidence_ready'] ?? false) === true
-            && ($ctrip['delivery_evidence_ready'] ?? false) === true
-            && ($meituan['delivery_evidence_ready'] ?? false) === true;
+            && ($digest['base_delivery_allowed'] ?? $digest['delivery_allowed'] ?? false) === true
+            && ($pms['delivery_evidence_ready'] ?? false) === true;
         $status = $sourceGatePassed ? 'preview_ready' : 'blocked';
         $targetStatus = (string)($digest['operating_target_status'] ?? 'not_set');
         $targetLine = $targetStatus === 'present'
-            ? '经营目标：已设置（本简报仍保持三源事实分列）'
-            : '经营目标：未设置（不影响三源数据预览）';
+            ? '经营目标模块：已启用（与PMS及OTA事实分列）'
+            : '经营目标模块：未启用（不适用，不影响PMS基础事实推送）';
         $lines = [
-            '# 宿析OS｜敦煌漠蓝新三源经营简报',
+            '# 宿析OS｜敦煌漠蓝新经营事实简报',
             '> 日期：' . $this->text($digest['business_date'] ?? null, '未验证'),
             '> 状态：' . ($sourceGatePassed
-                ? '三源同店同日证据已通过，可供本地预览'
-                : '三源证据未全部通过，仅展示缺失/阻断状态'),
+                ? '订单来了PMS同店同日事实已通过基础推送门禁'
+                : '订单来了PMS身份、日期、质量或回读未通过，基础推送已阻断'),
             '> ' . $targetLine,
             '',
             '## 订单来了PMS｜住宿经营指标',
@@ -56,12 +54,18 @@ final class SingleHotelOperatingBriefService
                     $pmsFacts['detail_room_fee_total'] ?? null
                 ),
             '',
-            '## 携程｜渠道事实',
+            '## 携程｜可选渠道事实',
+            '- 来源状态：' . (($ctrip['delivery_evidence_ready'] ?? false) === true
+                ? '同店同日事实已核验'
+                : '未获取或未验证（不阻断PMS基础事实）'),
             '- 渠道收入：' . $this->money($ctripFacts['channel_revenue'] ?? null)
                 . '；订单：' . $this->count($ctripFacts['orders'] ?? null)
                 . '；间夜：' . $this->count($ctripFacts['room_nights'] ?? null),
             '',
-            '## 美团｜流量与订单事实',
+            '## 美团｜可选流量与订单事实',
+            '- 来源状态：' . (($meituan['delivery_evidence_ready'] ?? false) === true
+                ? '同店同日事实已核验'
+                : '未获取或未验证（不阻断PMS基础事实）'),
             '- 列表曝光：' . $this->count($meituanFacts['list_exposure'] ?? null)
                 . '；详情曝光：' . $this->count($meituanFacts['detail_exposure'] ?? null),
             '- 流量转化率：' . $this->percent($meituanFacts['flow_rate_percent'] ?? null)
@@ -89,6 +93,20 @@ final class SingleHotelOperatingBriefService
                 );
             }
         }
+        $gaps = array_values(array_filter(
+            (array)($digest['gaps'] ?? []),
+            'is_array'
+        ));
+        if ($sourceGatePassed && $gaps !== []) {
+            $lines[] = '';
+            $lines[] = '## 可选模块与提示';
+            foreach (array_slice($gaps, 0, 6) as $gap) {
+                $lines[] = '- ' . $this->text(
+                    $gap['message'] ?? $gap['code'] ?? null,
+                    '可选模块未取得'
+                );
+            }
+        }
 
         return [
             'contract_version' => self::CONTRACT_VERSION,
@@ -104,10 +122,7 @@ final class SingleHotelOperatingBriefService
             'operating_target_status' => $targetStatus,
             'content' => mb_strcut(implode("\n", $lines), 0, 3800, 'UTF-8'),
             'blockers' => $blockers,
-            'gaps' => array_values(array_filter(
-                (array)($digest['gaps'] ?? []),
-                'is_array'
-            )),
+            'gaps' => $gaps,
         ];
     }
 

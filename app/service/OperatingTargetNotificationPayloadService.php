@@ -104,6 +104,8 @@ final class OperatingTargetNotificationPayloadService
                 'business_date' => $businessDate,
                 'status' => 'blocked',
                 'delivery_allowed' => false,
+                'base_delivery_allowed' => false,
+                'target_delivery_allowed' => false,
                 'sources' => [],
                 'gaps' => [[
                     'code' => 'single_hotel_digest_read_failed',

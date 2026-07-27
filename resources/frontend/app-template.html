@@ -3381,7 +3381,7 @@
                             <div>
                                 <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">通知中心</p>
                                 <h1 class="mt-2 text-2xl font-semibold text-slate-900">定时消息</h1>
-                                <p class="mt-2 text-sm text-slate-600">配置宿析企业微信经营播报；经营目标报告按门店、日期和质量门禁动态生成，当前仅允许测试群投递，不向正式群发送。</p>
+                                <p class="mt-2 text-sm text-slate-600">配置宿析企业微信经营播报；基础经营事实简报不依赖经营目标，目标报告仅在主动选择时启用。当前仅允许测试群投递，不向正式群发送。</p>
                                 <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
                                     <span
                                         class="rounded-full border px-2.5 py-1 font-medium"
@@ -3424,7 +3424,7 @@
                             </div>
                             <span v-if="manualNotificationLoading.metadata" class="text-xs text-slate-500"><i class="fas fa-spinner fa-spin mr-1"></i>读取模板</span>
                         </div>
-                        <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                        <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                             <button
                                 v-for="template in manualNotificationTemplateCards"
                                 :key="template.key"
@@ -3435,13 +3435,15 @@
                                 :data-testid="`manual-notification-template-${template.key}`"
                             >
                                 <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f3ead9] text-[#8e6b34]">
-                                    <i :class="template.key === 'operating_target_report' ? 'fas fa-bullseye' : template.key === 'future_room_status' ? 'fas fa-calendar-alt' : template.key === 'daily_review' ? 'fas fa-clipboard-check' : template.key === 'blank_custom' ? 'fas fa-pen' : 'fas fa-chart-line'"></i>
+                                    <i :class="template.key === 'single_hotel_operating_brief' ? 'fas fa-hotel' : template.key === 'operating_target_report' ? 'fas fa-bullseye' : template.key === 'future_room_status' ? 'fas fa-calendar-alt' : template.key === 'daily_review' ? 'fas fa-clipboard-check' : template.key === 'blank_custom' ? 'fas fa-pen' : 'fas fa-chart-line'"></i>
                                 </span>
                                 <span class="mt-5 block text-base font-semibold text-slate-900">{{ template.label }}</span>
                                 <span class="mt-2 block text-sm leading-6 text-slate-500">
-                                    {{ template.key === 'operating_target_report'
-                                        ? '按当天已验证经营目标动态生成；门禁不通过时不发送'
-                                        : '新建可编辑的企业微信经营播报' }}
+                                    {{ template.key === 'single_hotel_operating_brief'
+                                        ? '只要求当天已核验的订单来了住宿事实；目标和渠道块均为可选'
+                                        : template.key === 'operating_target_report'
+                                            ? '主动启用目标模块后动态生成；目标事实不齐时不发送'
+                                            : '新建可编辑的企业微信经营播报' }}
                                 </span>
                             </button>
                         </div>
@@ -3465,7 +3467,7 @@
                                     <span class="mb-2 block text-sm font-medium text-slate-700">模板名称</span>
                                     <input
                                         v-model.trim="manualNotificationForm.title"
-                                        :readonly="manualNotificationForm.template_type === 'operating_target_report'"
+                                        :readonly="['single_hotel_operating_brief', 'operating_target_report'].includes(manualNotificationForm.template_type)"
                                         maxlength="120"
                                         class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15 read-only:bg-slate-50 read-only:text-slate-600"
                                         placeholder="填写宿析经营播报名称"
@@ -3480,19 +3482,21 @@
                                     </span>
                                     <textarea
                                         v-model="manualNotificationForm.body"
-                                        :readonly="manualNotificationForm.template_type === 'operating_target_report'"
+                                        :readonly="['single_hotel_operating_brief', 'operating_target_report'].includes(manualNotificationForm.template_type)"
                                         maxlength="5000"
                                         rows="14"
                                         class="w-full resize-y rounded-xl border border-slate-200 px-3 py-3 text-sm leading-7 text-slate-800 focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15 read-only:bg-slate-50 read-only:text-slate-600"
                                         placeholder="正文只填写中文、数字、常用标点或宿析变量；未知数据写“未取得/待配置”。"
                                         data-testid="manual-notification-body"
                                     ></textarea>
-                                    <span v-if="manualNotificationForm.template_type === 'operating_target_report'" class="mt-2 block text-xs leading-5 text-slate-500">
-                                        动态正文以发送时同酒店、同日期的经营目标快照生成；此处仅回显结构说明，不能编辑成静态成功数据。
+                                    <span v-if="['single_hotel_operating_brief', 'operating_target_report'].includes(manualNotificationForm.template_type)" class="mt-2 block text-xs leading-5 text-slate-500">
+                                        {{ manualNotificationForm.template_type === 'single_hotel_operating_brief'
+                                            ? '动态正文只使用发送时同酒店、同日期且已核验回读的订单来了住宿事实；目标未启用及可选渠道缺失不会阻断基础简报。'
+                                            : '动态正文以发送时同酒店、同日期的经营目标快照生成；此处仅回显结构说明，不能编辑成静态成功数据。' }}
                                     </span>
                                 </label>
 
-                                <div v-if="manualNotificationForm.template_type !== 'operating_target_report'">
+                                <div v-if="!['single_hotel_operating_brief', 'operating_target_report'].includes(manualNotificationForm.template_type)">
                                     <span class="mb-2 block text-xs font-medium text-slate-500">插入宿析变量</span>
                                     <div class="flex flex-wrap gap-2">
                                         <button
@@ -3560,7 +3564,7 @@
 
                                 <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" data-testid="manual-notification-data-gate">
                                     <p class="font-semibold"><i class="fas fa-shield-alt mr-2"></i>经营数据与测试群门禁</p>
-                                    <p class="mt-2 leading-6">没有同门店、同日期、来源、范围、质量和回读证据时，调度必须记录阻断且不发送；禁止用零值、旧日数据或静态正文绕过。当前目标仅为漠蓝测试群，正式群不在本次授权范围。</p>
+                                    <p class="mt-2 leading-6">基础简报只要求同门店、同日期的订单来了住宿事实通过身份、质量、对账和回读；经营目标、携程、美团为独立可选模块。缺失项如实显示，禁止用零值、旧日数据或静态正文绕过。当前仅允许漠蓝测试群，正式群不在本次授权范围。</p>
                                 </div>
 
                                 <p v-if="manualNotificationError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ manualNotificationError }}</p>

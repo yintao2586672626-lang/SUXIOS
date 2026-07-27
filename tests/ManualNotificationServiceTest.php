@@ -64,7 +64,14 @@ final class ManualNotificationServiceTest extends TestCase
         $metadata = (new ManualNotificationService())->metadata('2026-07-26', self::HOTEL_ID);
 
         self::assertSame(
-            ['operating_target_report', 'today_revenue_management', 'future_room_status', 'daily_review', 'blank_custom'],
+            [
+                'single_hotel_operating_brief',
+                'operating_target_report',
+                'today_revenue_management',
+                'future_room_status',
+                'daily_review',
+                'blank_custom',
+            ],
             array_column($metadata['types'], 'key')
         );
         self::assertStringContainsString('缺失', $metadata['types'][0]['body']);

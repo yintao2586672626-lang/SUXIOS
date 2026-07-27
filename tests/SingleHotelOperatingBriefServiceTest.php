@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 
 final class SingleHotelOperatingBriefServiceTest extends TestCase
 {
-    public function testRendersTargetIndependentThreeSourcePreview(): void
+    public function testRendersTargetIndependentOperatingFactsPreview(): void
     {
         $preview = (new SingleHotelOperatingBriefService())->preview($this->digest());
 
@@ -18,15 +18,56 @@ final class SingleHotelOperatingBriefServiceTest extends TestCase
         self::assertFalse($preview['external_delivery_authorized']);
         self::assertTrue($preview['source_gate_passed']);
         self::assertSame('not_set', $preview['operating_target_status']);
-        self::assertStringContainsString('经营目标：未设置', $preview['content']);
+        self::assertStringContainsString('经营目标模块：未启用', $preview['content']);
         self::assertStringContainsString('订单来了PMS', $preview['content']);
-        self::assertStringContainsString('携程｜渠道事实', $preview['content']);
-        self::assertStringContainsString('美团｜流量与订单事实', $preview['content']);
+        self::assertStringContainsString('携程｜可选渠道事实', $preview['content']);
+        self::assertStringContainsString('美团｜可选流量与订单事实', $preview['content']);
         self::assertStringContainsString('¥8,275.67', $preview['content']);
         self::assertStringContainsString('¥1,318.00', $preview['content']);
         self::assertStringContainsString('目标日期订单：0', $preview['content']);
         self::assertStringContainsString('渠道收入：未获取', $preview['content']);
         self::assertLessThanOrEqual(3800, strlen($preview['content']));
+    }
+
+    public function testMissingOptionalOtaBlocksRemainVisibleWithoutBlockingPmsPreview(): void
+    {
+        $digest = $this->digest();
+        $digest['sources']['ctrip'] = [
+            'delivery_evidence_ready' => false,
+            'facts' => [],
+        ];
+        $digest['sources']['meituan'] = [
+            'delivery_evidence_ready' => false,
+            'facts' => [],
+        ];
+        $digest['gaps'] = [
+            [
+                'code' => 'operating_target_not_set',
+                'message' => '经营目标模块未启用，不影响PMS基础经营事实推送。',
+            ],
+            [
+                'code' => 'ctrip_optional_source_unavailable',
+                'message' => '携程同店同日渠道事实未通过。',
+            ],
+            [
+                'code' => 'meituan_optional_source_unavailable',
+                'message' => '美团同店同日渠道事实未通过。',
+            ],
+        ];
+
+        $preview = (new SingleHotelOperatingBriefService())->preview($digest);
+
+        self::assertSame('preview_ready', $preview['status']);
+        self::assertTrue($preview['source_gate_passed']);
+        self::assertSame([], $preview['blockers']);
+        self::assertStringContainsString(
+            '未获取或未验证（不阻断PMS基础事实）',
+            $preview['content']
+        );
+        self::assertStringContainsString('可选模块与提示', $preview['content']);
+        self::assertStringContainsString('携程同店同日渠道事实未通过', $preview['content']);
+        self::assertStringContainsString('美团同店同日渠道事实未通过', $preview['content']);
+        self::assertStringContainsString('渠道收入：未获取', $preview['content']);
     }
 
     public function testUnknownValuesAreNeverRenderedAsZero(): void

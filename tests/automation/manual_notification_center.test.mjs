@@ -109,9 +109,12 @@ test('operating target page exposes truthful PMS evidence and report blockers', 
 });
 
 test('dynamic operating-target template supports save then immediate test without preview-as-success', () => {
+  assert.match(fragmentSource, /template\.key === 'single_hotel_operating_brief'/);
+  assert.match(fragmentSource, /基础经营事实简报不依赖经营目标/);
+  assert.match(fragmentSource, /只要求当天已核验的订单来了住宿事实；目标和渠道块均为可选/);
   assert.match(fragmentSource, /template\.key === 'operating_target_report'/);
-  assert.match(fragmentSource, /按当天已验证经营目标动态生成；门禁不通过时不发送/);
-  assert.match(fragmentSource, /xl:grid-cols-5/);
+  assert.match(fragmentSource, /主动启用目标模块后动态生成；目标事实不齐时不发送/);
+  assert.match(fragmentSource, /xl:grid-cols-3/);
   assert.match(fragmentSource, /data-testid="manual-notification-test-now"/);
   assert.match(fragmentSource, /Number\(manualNotificationForm\.id \|\| 0\) > 0/);
   assert.match(fragmentSource, /testManualNotification\(manualNotificationForm\)/);
