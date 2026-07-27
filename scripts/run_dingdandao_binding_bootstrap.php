@@ -20,6 +20,7 @@ $options = getopt('', [
     'cdp-url::',
     'control-token-file::',
     'node-binary::',
+    'runtime-directory::',
     'execute',
     'confirmation::',
 ]);
@@ -44,12 +45,19 @@ $cdpUrl = rtrim(
 $tokenFile = trim((string)($options['control-token-file']
     ?? '/etc/suxios-cloud-browser/control-token'));
 $nodeBinary = trim((string)($options['node-binary'] ?? '/usr/bin/node'));
+$runtimeDirectory = rtrim(trim((string)($options['runtime-directory']
+    ?? '/run/suxios-dingdandao-collection')), '/');
+$allowedRuntimeDirectories = [
+    '/run/suxios-dingdandao-collection',
+    '/run/suxios-molanxin-three-source-collection',
+];
 $execute = array_key_exists('execute', $options);
 $confirmation = trim((string)($options['confirmation'] ?? ''));
 if ($gatewayUrl !== 'http://127.0.0.1:8787'
     || $cdpUrl !== 'http://127.0.0.1:9223'
     || $tokenFile !== '/etc/suxios-cloud-browser/control-token'
     || $nodeBinary !== '/usr/bin/node'
+    || !in_array($runtimeDirectory, $allowedRuntimeDirectories, true)
     || (!$execute && $confirmation !== '')
 ) {
     fail('dingdandao_binding_arguments_invalid', 2);
@@ -73,7 +81,7 @@ if (!is_array($hotel)
 }
 $tenantId = (int)$hotel['tenant_id'];
 
-$lockPath = '/run/suxios-dingdandao-collection/hotel-' . $hotelId . '.lock';
+$lockPath = $runtimeDirectory . '/hotel-' . $hotelId . '.lock';
 if (!is_dir(dirname($lockPath))) {
     fail('dingdandao_binding_lock_directory_missing');
 }

@@ -1217,6 +1217,30 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
         );
 
         self::assertStringContainsString("'execute'", $runner);
+        self::assertStringContainsString("'runtime-directory::'", $runner);
+        self::assertStringContainsString(
+            "'/run/suxios-molanxin-three-source-collection'",
+            $runner
+        );
+        self::assertStringContainsString(
+            "?? '/run/suxios-dingdandao-collection')), '/');",
+            $runner
+        );
+        self::assertMatchesRegularExpression(
+            '/\$allowedRuntimeDirectories\s*=\s*\[\s*'
+                . "'\\/run\\/suxios-dingdandao-collection',\\s*"
+                . "'\\/run\\/suxios-molanxin-three-source-collection',\\s*"
+                . '\];/s',
+            $runner
+        );
+        self::assertStringContainsString(
+            "in_array(\$runtimeDirectory, \$allowedRuntimeDirectories, true)",
+            $runner
+        );
+        self::assertStringContainsString(
+            "\$lockPath = \$runtimeDirectory . '/hotel-' . \$hotelId . '.lock';",
+            $runner
+        );
         self::assertStringContainsString(
             "'BIND DINGDANDAO HOTEL ' . \$hotelId",
             $runner
@@ -1230,6 +1254,10 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
         self::assertStringContainsString("3 => ['pipe', 'w']", $runner);
         self::assertStringNotContainsString('Wechat', $runner);
         self::assertStringNotContainsString('systemctl', $runner);
+        self::assertStringNotContainsString('mkdir(', $runner);
+        self::assertStringNotContainsString('unlink(', $runner);
+        self::assertStringNotContainsString('proc_terminate', $runner);
+        self::assertStringNotContainsString('posix_kill', $runner);
         self::assertStringNotContainsString('completeTrustedCapture', $runner);
         self::assertStringContainsString('probeDingdandaoIdentity', $probe);
         self::assertStringContainsString("'identity_verified_unpersisted'", $probe);
