@@ -27,6 +27,12 @@ try {
     ] as $table) {
         Db::query('SELECT 1 FROM `' . $table . '` WHERE 1 = 0');
     }
+    Db::query(
+        'SELECT `source_scope`,`content_sections`,`business_date_rule`,`active_weekdays`,'
+        . '`effective_from`,`effective_to`,`hourly_start_time`,`hourly_end_time`,'
+        . '`interval_minutes`'
+        . ' FROM `manual_notifications` WHERE 1 = 0'
+    );
 
     $robot = Db::name('competitor_wechat_robot')
         ->where('id', 1)
@@ -42,7 +48,7 @@ try {
     $records = Db::name('manual_notifications')
         ->where('enabled', 1)
         ->where('schedule_status', 'schedule_enabled')
-        ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour'])
+        ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour', 'interval_minutes'])
         ->where('send_method', 'wecom_test')
         ->field('id,hotel_id,template_type,test_robot_id,test_robot_name')
         ->select()
@@ -52,7 +58,9 @@ try {
         if ((int)($record['hotel_id'] ?? 0) !== 80
             || (int)($record['test_robot_id'] ?? 0) !== 1
             || trim((string)($record['test_robot_name'] ?? '')) !== ManualNotificationService::TEST_ROBOT_NAME
-            || trim((string)($record['template_type'] ?? '')) !== ManualNotificationService::DYNAMIC_REPORT_TYPE
+            || !ManualNotificationService::isDynamicReportType(
+                trim((string)($record['template_type'] ?? ''))
+            )
         ) {
             $outsideScope[] = (int)($record['id'] ?? 0);
         }

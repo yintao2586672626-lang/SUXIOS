@@ -10,6 +10,8 @@ const fragmentSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15ab-page-manual-notifications.html',
   'utf8',
 );
+const schedulePanelSource = fs.readFileSync('public/wechat-notification-static.js', 'utf8');
+const notificationUiSource = `${fragmentSource}\n${schedulePanelSource}`;
 const operatingTargetFragmentSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15aa-page-operating-targets.html',
   'utf8',
@@ -86,14 +88,81 @@ test('notification center follows the required cards, editor, preview and histor
   for (const column of ['名称', '消息内容摘要', '发送时间', '状态', '操作']) {
     assert.match(fragmentSource, new RegExp(column));
   }
-  assert.match(fragmentSource, /新建消息/);
+  assert.match(fragmentSource, /新建推送计划/);
   assert.match(fragmentSource, /我的通知消息/);
   assert.doesNotMatch(fragmentSource, /我的模板消息/);
   assert.match(fragmentSource, /实时渲染/);
-  assert.match(fragmentSource, /经营数据与推送门禁/);
+  assert.match(schedulePanelSource, /系统固定策略（不可关闭）/);
   assert.match(fragmentSource, /manualNotificationBodyCount/);
   assert.match(fragmentSource, /manualNotificationTestAllowed\(item\)/);
   assert.doesNotMatch(fragmentSource, /手机号|客户短信/);
+});
+
+test('notification plans expose persisted schedule rules and truthful runtime state', () => {
+  for (const marker of [
+    'manual-notification-business-date-rule',
+    'manual-notification-weekdays',
+    'manual-notification-effective-from',
+    'manual-notification-effective-to',
+    'manual-notification-hourly-start',
+    'manual-notification-hourly-end',
+    'manual-notification-interval-minutes',
+    'manual-notification-interval-start',
+    'manual-notification-interval-end',
+    'manual-notification-enabled',
+    'manual-notification-runtime-status',
+    'manual-notification-next-run',
+    'manual-notification-current-blocker',
+  ]) {
+    assert.match(notificationUiSource, new RegExp(marker));
+  }
+  for (const policy of ['缺数据', '漏跑', '结果不明', '只有明确失败允许人工重试']) {
+    assert.match(schedulePanelSource, new RegExp(policy));
+  }
+  for (const field of [
+    'business_date_rule',
+    'active_weekdays',
+    'effective_from',
+    'effective_to',
+    'hourly_start_time',
+    'hourly_end_time',
+    'interval_minutes',
+    'next_run_at',
+  ]) {
+    assert.match(appMainSource, new RegExp(field));
+  }
+  assert.match(appMainSource, /applyManualNotificationRecord\(record\)/);
+  assert.match(notificationUiSource, /manual-notification-source-scope/);
+  assert.match(notificationUiSource, /manual-notification-content-sections/);
+  assert.match(notificationUiSource, /发送来源/);
+  assert.match(notificationUiSource, /发送什么/);
+});
+
+test('operating daily keeps custom compatibility while common templates choose a source', () => {
+  for (const marker of [
+    'manual-notification-content-template-mode',
+    'manual-notification-common-template-note',
+  ]) {
+    assert.match(fragmentSource, new RegExp(marker));
+  }
+  assert.match(fragmentSource, /manual-notification-content-mode-\$\{mode\.key\}/);
+  assert.match(fragmentSource, /通用模板/);
+  assert.match(fragmentSource, /自定义模板/);
+  assert.match(fragmentSource, /切回通用模板不会删除已保存的自定义文案/);
+  assert.match(appMainSource, /const selectManualNotificationContentMode = \(mode\) =>/);
+  assert.match(appMainSource, /operating_daily_custom_report/);
+  assert.match(appMainSource, /template\.key === item\?\.notification_type/);
+  assert.match(appMainSource, /source_scope: 'combined'/);
+  assert.match(notificationUiSource, /三源可分别配置发送来源、内容、时间和通知群/);
+  assert.match(
+    appMainSource,
+    /updateManualNotificationScheduleField[\s\S]{0,500}'source_scope'/,
+  );
+  assert.match(serviceSource, /\$input\['content_sections'\] \?\? null/);
+  assert.match(
+    serviceSource,
+    /\$type === self::OPERATING_DAILY_CUSTOM_REPORT_TYPE[\s\S]{0,500}\$sourceScope = 'combined'/,
+  );
 });
 
 test('PMS operating data page owns unified PMS deltas without duplicating source configuration', () => {
@@ -162,7 +231,7 @@ test('operating targets bind occupancy and RevPAR goals to PMS-only actuals and 
 });
 
 test('dynamic operating-target template supports save then immediate test without preview-as-success', () => {
-  assert.match(fragmentSource, /template\.key === 'operating_target_report'/);
+  assert.match(fragmentSource, /manual-notification-template-\$\{template\.key\}/);
   assert.match(fragmentSource, /按当天已验证经营目标动态生成；门禁不通过时不发送/);
   assert.match(fragmentSource, /xl:grid-cols-5/);
   assert.match(fragmentSource, /data-testid="manual-notification-test-now"/);

@@ -38,13 +38,22 @@ try {
         'SELECT `schedule_run_id`'
         . ' FROM `manual_notification_schedule_dispatches` WHERE 1 = 0'
     );
+    Db::query(
+        'SELECT `source_scope`,`content_sections`,`business_date_rule`,`active_weekdays`,'
+        . '`effective_from`,`effective_to`,`hourly_start_time`,`hourly_end_time`,'
+        . '`interval_minutes`'
+        . ' FROM `manual_notifications` WHERE 1 = 0'
+    );
 
     $records = Db::name('manual_notifications')
         ->alias('notification')
         ->leftJoin('hotels hotel', 'hotel.id = notification.hotel_id')
         ->where('notification.enabled', 1)
         ->where('notification.schedule_status', 'schedule_enabled')
-        ->whereIn('notification.trigger_type', ['daily_fixed_time', 'hourly_on_the_hour'])
+        ->whereIn(
+            'notification.trigger_type',
+            ['daily_fixed_time', 'hourly_on_the_hour', 'interval_minutes']
+        )
         ->where('notification.send_method', 'wecom_formal')
         ->field(
             'notification.id,notification.tenant_id,notification.hotel_id,'

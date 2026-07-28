@@ -9,6 +9,7 @@ const notificationPage = fs.readFileSync('resources/frontend/templates/fragments
 const hotelPage = fs.readFileSync('resources/frontend/templates/fragments/18-page-hotels.html', 'utf8');
 const dataConfigPage = fs.readFileSync('resources/frontend/templates/fragments/34-page-data-config.html', 'utf8');
 const panel = fs.readFileSync('public/wechat-notification-static.js', 'utf8');
+const notificationUi = `${notificationPage}\n${panel}`;
 const controller = fs.readFileSync('app/controller/WechatNotificationOnboarding.php', 'utf8');
 const adminController = fs.readFileSync('app/controller/admin/CompetitorWechatRobotController.php', 'utf8');
 const deliveryService = fs.readFileSync('app/service/WechatRobotDeliveryService.php', 'utf8');
@@ -74,9 +75,9 @@ test('enterprise WeChat uses one page with separate account and admin shared sco
   assert.match(notificationPage, /管理员配置/);
   assert.match(notificationPage, /门店共享机器人/);
   assert.match(notificationPage, /\['manual-notifications', 'wechat-notification'\]\.includes\(currentPage\)/);
-  assert.match(notificationPage, /data-testid="manual-notification-formal-robot"/);
+  assert.match(notificationUi, /manual-notification-formal-robot/);
   assert.match(notificationPage, /个人通知群与管理员共享机器人保持分开记录/);
-  assert.match(notificationPage, /正式自动推送计划/);
+  assert.match(panel, /自动发送设置/);
   assert.match(notificationPage, /data-testid="manual-notification-automatic-tasks"/);
   assert.match(notificationPage, /data-testid="manual-notification-history"/);
   assert.match(notificationPage, /data-testid="manual-notification-dispatch-history"/);

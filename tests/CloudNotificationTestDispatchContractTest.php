@@ -49,6 +49,16 @@ final class CloudNotificationTestDispatchContractTest extends TestCase
         );
         self::assertStringContainsString('verify_manual_notification_test_dispatch.php', $installer);
         self::assertStringContainsString('ManualNotificationDispatchLedgerService.php', $installer);
+        self::assertStringContainsString('ManualNotificationScheduleRuleService.php', $installer);
+        self::assertStringContainsString(
+            '20260728_w_extend_manual_notification_schedule_rules.sql',
+            $installer
+        );
+        self::assertStringContainsString(
+            '20260728_x_extend_manual_notification_three_source_delivery.sql',
+            $installer
+        );
+        self::assertStringContainsString('OperatingDailyReportPayloadService.php', $installer);
         self::assertStringContainsString('--require-enabled', $installer);
         self::assertStringContainsString('--preview --mode=test --hotel-id=80 --robot-id=1', $installer);
         self::assertStringContainsString('CHECK_OK', $installer);
@@ -77,6 +87,11 @@ final class CloudNotificationTestDispatchContractTest extends TestCase
         self::assertStringNotContainsString('$scopeHotelId !== 80', $command);
         self::assertStringNotContainsString('$scopeRobotId !== 1', $command);
         self::assertStringContainsString("'webhook_read' => false", $verifier);
+        self::assertStringContainsString('business_date_rule', $verifier);
+        self::assertStringContainsString('hourly_end_time', $verifier);
+        self::assertStringContainsString('source_scope', $verifier);
+        self::assertStringContainsString('content_sections', $verifier);
+        self::assertStringContainsString('interval_minutes', $verifier);
         self::assertStringNotContainsString("field('webhook", $verifier);
     }
 

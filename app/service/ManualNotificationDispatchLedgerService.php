@@ -77,7 +77,9 @@ final class ManualNotificationDispatchLedgerService
             'snapshot_revision_no' => $this->positiveOrNull(
                 $candidate['snapshot_revision_no'] ?? null
             ),
-            'render_contract_version' => self::RENDER_CONTRACT_VERSION,
+            'render_contract_version' => $this->renderContractVersion(
+                $candidate['render_contract_version'] ?? null
+            ),
             'payload_snapshot_json' => $payload === null ? null : $this->json($payload),
             'attempt_count' => 0,
             'max_attempts' => 3,
@@ -885,6 +887,14 @@ final class ManualNotificationDispatchLedgerService
             throw new \InvalidArgumentException($errorCode);
         }
         return $value;
+    }
+
+    private function renderContractVersion(mixed $value): string
+    {
+        $value = strtolower(trim((string)$value));
+        return preg_match('/^[a-z0-9._-]{1,64}$/D', $value) === 1
+            ? $value
+            : self::RENDER_CONTRACT_VERSION;
     }
 
     private function dispatchWindow(string $value): string

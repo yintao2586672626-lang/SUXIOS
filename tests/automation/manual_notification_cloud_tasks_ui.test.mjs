@@ -21,7 +21,11 @@ test('authenticated header omits the unused language switch', () => {
 test('manual notification page exposes truthful cloud automation task evidence', () => {
   const taskUiSource = `${notificationSource}\n${appMainSource}`;
   assert.match(notificationSource, /data-testid="manual-notification-automatic-tasks"/);
+  assert.match(notificationSource, /@click="handleManualNotificationAutomaticTaskClick"/);
   assert.match(appMainSource, /manualNotificationMetadata\.value\?\.automatic_tasks/);
+  assert.match(appMainSource, /data-manual-notification-edit-id/);
+  assert.match(appMainSource, /handleManualNotificationAutomaticTaskClick/);
+  assert.match(appMainSource, /云端固定任务只展示核验状态/);
   assert.match(taskUiSource, /固定发送/);
   assert.match(taskUiSource, /条件触发/);
   assert.match(taskUiSource, /最近核验/);
@@ -30,6 +34,18 @@ test('manual notification page exposes truthful cloud automation task evidence',
   assert.match(appMainSource, /escapeManualNotificationTaskText/);
   assert.match(taskUiSource, /当前酒店没有取得已启用的自动发送任务证据/);
   assert.doesNotMatch(taskUiSource, /任务成功等于消息送达/);
+});
+
+test('shared robot management follows the automatic task section', () => {
+  const automaticTaskIndex = notificationSource.indexOf(
+    'data-testid="manual-notification-automatic-tasks"',
+  );
+  const sharedRobotIndex = notificationSource.indexOf(
+    'data-testid="wecom-robot-management"',
+  );
+
+  assert.ok(automaticTaskIndex >= 0);
+  assert.ok(sharedRobotIndex > automaticTaskIndex);
 });
 
 test('notification center prefers the signed-in user hotel without a hard-coded store', () => {

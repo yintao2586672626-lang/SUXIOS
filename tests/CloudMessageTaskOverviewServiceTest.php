@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\CloudMessageTaskOverviewService;
+use app\service\ManualNotificationService;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
@@ -48,7 +49,7 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
         Db::execute('CREATE TABLE IF NOT EXISTS hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(120) NOT NULL, status INTEGER NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS competitor_wechat_robot (id INTEGER PRIMARY KEY, store_id INTEGER NOT NULL, name VARCHAR(120) NOT NULL, status INTEGER NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module VARCHAR(50) NOT NULL, action VARCHAR(50) NOT NULL, hotel_id INTEGER NOT NULL, error_info TEXT NULL, extra_data TEXT NULL, create_time DATETIME NOT NULL)');
-        Db::execute('CREATE TABLE IF NOT EXISTS manual_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, title VARCHAR(120) NOT NULL, trigger_type VARCHAR(32) NOT NULL, planned_send_at DATETIME NULL, enabled INTEGER NOT NULL, schedule_status VARCHAR(32) NOT NULL, test_robot_id INTEGER NULL, test_robot_name VARCHAR(120) NULL, update_time DATETIME NOT NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS manual_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, title VARCHAR(120) NOT NULL, notification_type VARCHAR(50) NOT NULL, template_type VARCHAR(50) NOT NULL, trigger_type VARCHAR(32) NOT NULL, planned_send_at DATETIME NULL, enabled INTEGER NOT NULL, schedule_status VARCHAR(32) NOT NULL, test_robot_id INTEGER NULL, test_robot_name VARCHAR(120) NULL, update_time DATETIME NOT NULL)');
 
         Db::name('manual_notifications')->delete(true);
         Db::name('operation_logs')->delete(true);
@@ -175,6 +176,42 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
         } finally {
             @unlink($snapshotPath);
         }
+    }
+
+    public function testSavedOperatingDailyPlanMakesMatchingCloudTaskEditableWithoutDuplication(): void
+    {
+        $notificationId = (int)Db::name('manual_notifications')->insertGetId([
+            'tenant_id' => 80,
+            'hotel_id' => 80,
+            'title' => '今日经营数据汇总｜PMS＋OTA',
+            'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'trigger_type' => 'manual_test',
+            'planned_send_at' => null,
+            'enabled' => 0,
+            'schedule_status' => 'test_verified',
+            'test_robot_id' => 1,
+            'test_robot_name' => '漠蓝测试',
+            'update_time' => '2026-07-28 22:23:04',
+        ]);
+        $units = [
+            'suxios-cloud-hotel-daily@80.timer' => $this->timer(
+                '2026-07-28 09:01:38',
+                '2026-07-29 09:02:12'
+            ),
+            'suxios-cloud-hotel-daily@80.service' => $this->service(),
+        ];
+        $overview = (new CloudMessageTaskOverviewService(
+            static fn(string $unit): array => $units[$unit] ?? [],
+            static fn(): array => [],
+            new DateTimeImmutable('2026-07-28 22:30:00', new DateTimeZone('Asia/Shanghai'))
+        ))->overview(80, 80);
+
+        self::assertSame(1, $overview['task_count']);
+        self::assertSame('daily_operating_report', $overview['tasks'][0]['key']);
+        self::assertTrue($overview['tasks'][0]['editable']);
+        self::assertSame($notificationId, $overview['tasks'][0]['notification_id']);
+        self::assertSame('已暂停', $overview['tasks'][0]['plan_status_label']);
     }
 
     /** @return array<string, string> */

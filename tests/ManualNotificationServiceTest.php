@@ -6,6 +6,7 @@ namespace Tests;
 use app\service\ManualNotificationDispatchLedgerService;
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
+use app\service\OperatingDailyReportPayloadService;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
@@ -46,7 +47,7 @@ final class ManualNotificationServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        Db::execute('CREATE TABLE IF NOT EXISTS manual_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, notification_type VARCHAR(40) NOT NULL, template_type VARCHAR(40) NOT NULL, business_date VARCHAR(10) NOT NULL, title VARCHAR(120) NOT NULL, body TEXT NOT NULL, send_method VARCHAR(32) NOT NULL, trigger_type VARCHAR(32) NOT NULL, planned_send_at DATETIME NULL, enabled INTEGER NOT NULL, schedule_status VARCHAR(32) NOT NULL, last_test_status VARCHAR(32) NOT NULL, last_test_message VARCHAR(255) NULL, last_tested_at DATETIME NULL, last_tested_by INTEGER NULL, test_robot_id INTEGER NULL, test_robot_name VARCHAR(120) NULL, created_by INTEGER NOT NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS manual_notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, notification_type VARCHAR(40) NOT NULL, template_type VARCHAR(40) NOT NULL, source_scope VARCHAR(32) NOT NULL DEFAULT "combined", content_sections VARCHAR(512) NOT NULL DEFAULT "", business_date VARCHAR(10) NOT NULL, business_date_rule VARCHAR(24) NOT NULL DEFAULT "today", title VARCHAR(120) NOT NULL, body TEXT NOT NULL, send_method VARCHAR(32) NOT NULL, trigger_type VARCHAR(32) NOT NULL, interval_minutes INTEGER NULL, planned_send_at DATETIME NULL, active_weekdays VARCHAR(20) NOT NULL DEFAULT "1,2,3,4,5,6,7", effective_from VARCHAR(10) NULL, effective_to VARCHAR(10) NULL, hourly_start_time VARCHAR(8) NOT NULL DEFAULT "09:00:00", hourly_end_time VARCHAR(8) NOT NULL DEFAULT "22:00:00", enabled INTEGER NOT NULL, schedule_status VARCHAR(32) NOT NULL, last_test_status VARCHAR(32) NOT NULL, last_test_message VARCHAR(255) NULL, last_tested_at DATETIME NULL, last_tested_by INTEGER NULL, test_robot_id INTEGER NULL, test_robot_name VARCHAR(120) NULL, created_by INTEGER NOT NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS competitor_wechat_robot (id INTEGER PRIMARY KEY AUTOINCREMENT, store_id INTEGER NOT NULL, name VARCHAR(120) NOT NULL, webhook TEXT NULL, status INTEGER NOT NULL, owner_user_id INTEGER NULL, notification_scope VARCHAR(40) NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(120) NOT NULL)');
         Db::execute('CREATE TABLE IF NOT EXISTS manual_notification_schedule_dispatches (id INTEGER PRIMARY KEY AUTOINCREMENT, notification_id INTEGER NOT NULL, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, dispatch_window VARCHAR(32) NOT NULL, delivery_mode VARCHAR(16) NOT NULL, trigger_type VARCHAR(32) NOT NULL, request_kind VARCHAR(32) NOT NULL, business_date VARCHAR(10) NULL, payload_fingerprint VARCHAR(64) NULL, operating_target_record_id INTEGER NULL, snapshot_revision_no INTEGER NULL, render_contract_version VARCHAR(48) NULL, payload_snapshot_json TEXT NULL, attempt_count INTEGER NOT NULL, max_attempts INTEGER NOT NULL, next_retry_at DATETIME NULL, last_attempt_at DATETIME NULL, response_reference VARCHAR(120) NULL, robot_id INTEGER NOT NULL, robot_name VARCHAR(120) NOT NULL, status VARCHAR(24) NOT NULL, result_code VARCHAR(64) NOT NULL, result_message VARCHAR(255) NULL, claimed_at DATETIME NOT NULL, dispatched_at DATETIME NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL, UNIQUE(notification_id, dispatch_window, delivery_mode))');
@@ -80,7 +81,185 @@ final class ManualNotificationServiceTest extends TestCase
         self::assertStringContainsString('缺失', $metadata['types'][0]['body']);
         self::assertStringContainsString('待配置', $metadata['types'][6]['body']);
         self::assertContains('{酒店名称}', $metadata['variables']);
+        self::assertSame(
+            ['common', 'custom'],
+            array_column($metadata['daily_content_template_modes'], 'key')
+        );
+        self::assertSame(
+            '今日经营数据汇总｜PMS＋OTA',
+            $metadata['daily_custom_template']['title']
+        );
+        self::assertContains('{美团支付订单}', $metadata['daily_template_variables']);
+        self::assertNotContains(
+            ManualNotificationService::OPERATING_DAILY_CUSTOM_REPORT_TYPE,
+            array_column($metadata['types'], 'key')
+        );
+        self::assertSame(
+            ['today', 'yesterday'],
+            array_column($metadata['business_date_rules'], 'key')
+        );
+        self::assertSame(range(1, 7), array_column($metadata['weekdays'], 'key'));
+        self::assertSame(
+            ['combined', 'ctrip', 'meituan', 'dingdandao_pms'],
+            array_column($metadata['source_scopes'], 'key')
+        );
+        self::assertContains(
+            'meituan_conversion',
+            array_column($metadata['content_sections'], 'key')
+        );
+        self::assertContains(
+            'interval_minutes',
+            array_column($metadata['trigger_types'], 'key')
+        );
+        self::assertStringContainsString('不补发', $metadata['fixed_policies']['missed_window']);
+        self::assertSame(
+            '经营目标与已核验经营事实',
+            $metadata['types'][1]['data_scope_label']
+        );
         self::assertSame('not_deployed', $metadata['scheduler_status']);
+    }
+
+    public function testOperatingDailyCustomTemplateKeepsCombinedCompatibilityAndCommonCanChooseSource(): void
+    {
+        $service = new ManualNotificationService();
+        $custom = $service->save(9, 80, 7, '敦煌漠蓝新', $this->validInput([
+            'template_type' => ManualNotificationService::OPERATING_DAILY_CUSTOM_REPORT_TYPE,
+            'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'ctrip',
+            'content_sections' => ['ctrip_traffic'],
+            'title' => '门店自定义快报',
+            'body' => "门店：{酒店名称}\n房费：{住宿客房房费}",
+        ]));
+
+        self::assertSame(
+            ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            $custom['record']['notification_type']
+        );
+        self::assertSame(
+            ManualNotificationService::OPERATING_DAILY_CUSTOM_REPORT_TYPE,
+            $custom['record']['template_type']
+        );
+        self::assertSame('custom', $custom['record']['content_template_mode']);
+        self::assertSame('combined', $custom['record']['source_scope']);
+        self::assertCount(7, $custom['record']['content_sections']);
+        self::assertSame('门店自定义快报', $custom['record']['title']);
+
+        $common = $service->save(9, 80, 7, '敦煌漠蓝新', $this->validInput([
+            'id' => $custom['record']['id'],
+            'template_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'meituan',
+            'content_sections' => ['meituan_traffic'],
+            'title' => $custom['record']['title'],
+            'body' => $custom['record']['body'],
+        ]));
+
+        self::assertSame('common', $common['record']['content_template_mode']);
+        self::assertSame('meituan', $common['record']['source_scope']);
+        self::assertSame(['meituan_traffic'], $common['record']['content_sections']);
+        self::assertSame('门店自定义快报', $common['record']['title']);
+        self::assertSame($custom['record']['body'], $common['record']['body']);
+        self::assertSame(1, $service->history(9, 80)['total']);
+    }
+
+    public function testScheduleRulesAreSavedReadBackAndValidated(): void
+    {
+        $service = new ManualNotificationService();
+        $saved = $service->save(9, 80, 7, '敦煌漠蓝新', $this->validInput([
+            'trigger_type' => 'hourly_on_the_hour',
+            'business_date_rule' => 'yesterday',
+            'active_weekdays' => [1, 2, 3, 4, 5],
+            'effective_from' => '2026-07-20',
+            'effective_to' => '2026-08-31',
+            'hourly_start_time' => '09:00',
+            'hourly_end_time' => '22:00',
+            'enabled' => true,
+        ]));
+
+        self::assertSame('yesterday', $saved['record']['business_date_rule']);
+        self::assertSame('昨日 T-1', $saved['record']['business_date_rule_label']);
+        self::assertSame([1, 2, 3, 4, 5], $saved['record']['active_weekdays']);
+        self::assertSame('工作日', $saved['record']['active_weekdays_label']);
+        self::assertSame('2026-07-20', $saved['record']['effective_from']);
+        self::assertSame('2026-08-31', $saved['record']['effective_to']);
+        self::assertSame('09:00', $saved['record']['hourly_start_time']);
+        self::assertSame('22:00', $saved['record']['hourly_end_time']);
+        self::assertSame('收益管理正文', $saved['record']['data_scope_label']);
+        self::assertSame('awaiting_test', $saved['record']['schedule_status']);
+        self::assertNull($saved['record']['next_run_at']);
+    }
+
+    public function testThreeSourcePlanPersistsSourceContentAndMinuteInterval(): void
+    {
+        $service = new ManualNotificationService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            new OperatingDailyReportPayloadService(
+                null,
+                static fn(): array => [],
+                static fn(): ?array => null
+            )
+        );
+        $saved = $service->save(9, 80, 7, '敦煌漠蓝新', $this->validInput([
+            'template_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'title' => '携程实时经营播报',
+            'body' => '正文按发送时同店同日可信事实动态生成。',
+            'source_scope' => 'ctrip',
+            'content_sections' => ['ctrip_traffic', 'ctrip_market'],
+            'trigger_type' => 'interval_minutes',
+            'interval_minutes' => 30,
+            'hourly_start_time' => '09:15',
+            'hourly_end_time' => '22:45',
+            'enabled' => true,
+        ]));
+
+        self::assertTrue($saved['readback_verified']);
+        self::assertSame('ctrip', $saved['record']['source_scope']);
+        self::assertSame('携程', $saved['record']['source_scope_label']);
+        self::assertSame(
+            ['ctrip_traffic', 'ctrip_market'],
+            $saved['record']['content_sections']
+        );
+        self::assertSame(30, $saved['record']['interval_minutes']);
+        self::assertSame('09:15', $saved['record']['hourly_start_time']);
+        self::assertSame('22:45', $saved['record']['hourly_end_time']);
+        self::assertSame('awaiting_test', $saved['record']['schedule_status']);
+    }
+
+    public function testHourlyScheduleRejectsInvalidBusinessWindow(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('manual_notification_hourly_window_invalid');
+
+        (new ManualNotificationService())->save(
+            9,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'trigger_type' => 'hourly_on_the_hour',
+                'hourly_start_time' => '22:00',
+                'hourly_end_time' => '09:00',
+            ])
+        );
+    }
+
+    public function testScheduleRejectsEmptyWeekdaySelection(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('manual_notification_weekdays_required');
+
+        (new ManualNotificationService())->save(
+            9,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $this->validInput(['active_weekdays' => []])
+        );
     }
 
     public function testSaveReadsBackHistoryAndKeepsUnknownValuesExplicit(): void
@@ -496,6 +675,12 @@ final class ManualNotificationServiceTest extends TestCase
             'send_method' => 'wecom_test',
             'trigger_type' => 'manual_test',
             'planned_send_at' => '',
+            'business_date_rule' => 'today',
+            'active_weekdays' => [1, 2, 3, 4, 5, 6, 7],
+            'effective_from' => '',
+            'effective_to' => '',
+            'hourly_start_time' => '09:00',
+            'hourly_end_time' => '22:00',
             'enabled' => false,
         ], $overrides);
     }

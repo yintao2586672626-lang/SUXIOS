@@ -17,10 +17,12 @@ final class ManualNotificationService
     public const TEST_ROBOT_NAME = '漠蓝测试';
     public const DYNAMIC_REPORT_TYPE = 'operating_target_report';
     public const OPERATING_DAILY_REPORT_TYPE = 'operating_daily_report';
+    public const OPERATING_DAILY_CUSTOM_REPORT_TYPE = 'operating_daily_custom_report';
 
     private const TIMEZONE = 'Asia/Shanghai';
     private const TYPES = [
         self::OPERATING_DAILY_REPORT_TYPE => '经营日报',
+        self::OPERATING_DAILY_CUSTOM_REPORT_TYPE => '经营日报（自定义模板）',
         self::DYNAMIC_REPORT_TYPE => '每日经营目标报告',
         'ai_analysis_result' => 'AI分析结果',
         'anomaly_alert' => '异常预警',
@@ -39,6 +41,68 @@ final class ManualNotificationService
         'manual_test' => '手动测试',
         'daily_fixed_time' => '每日固定时间',
         'hourly_on_the_hour' => '每小时整点',
+        'interval_minutes' => '按分钟间隔循环',
+    ];
+    private const BUSINESS_DATE_RULES = [
+        'today' => '今日累计 T0',
+        'yesterday' => '昨日 T-1',
+    ];
+    private const WEEKDAYS = [
+        1 => '周一',
+        2 => '周二',
+        3 => '周三',
+        4 => '周四',
+        5 => '周五',
+        6 => '周六',
+        7 => '周日',
+    ];
+    private const SOURCE_SCOPES = [
+        'combined' => [
+            'label' => '三源汇总（兼容原计划）',
+            'description' => '订单来了 PMS、携程（含去哪儿）和美团同店同日汇总。',
+        ],
+        'ctrip' => [
+            'label' => '携程',
+            'description' => '仅发送携程渠道事实；去哪儿同源指标可单独勾选。',
+        ],
+        'meituan' => [
+            'label' => '美团',
+            'description' => '仅发送美团渠道曝光、浏览、订单与转化事实。',
+        ],
+        'dingdandao_pms' => [
+            'label' => '订单来了 PMS',
+            'description' => '仅发送订单来了验真并回读的全酒店住宿客房经营事实。',
+        ],
+    ];
+    private const CONTENT_SECTIONS = [
+        'pms_summary' => [
+            'label' => '房费与已售间夜',
+            'source_scopes' => ['combined', 'dingdandao_pms'],
+        ],
+        'pms_efficiency' => [
+            'label' => '入住率、ADR 与 RevPAR',
+            'source_scopes' => ['combined', 'dingdandao_pms'],
+        ],
+        'ctrip_traffic' => [
+            'label' => '携程流量、订单与在店间夜',
+            'source_scopes' => ['combined', 'ctrip'],
+        ],
+        'ctrip_market' => [
+            'label' => '携程排名、竞争圈与起价',
+            'source_scopes' => ['combined', 'ctrip'],
+        ],
+        'qunar_traffic' => [
+            'label' => '去哪儿流量与转化',
+            'source_scopes' => ['combined', 'ctrip'],
+        ],
+        'meituan_traffic' => [
+            'label' => '美团曝光、浏览与曝光转化',
+            'source_scopes' => ['combined', 'meituan'],
+        ],
+        'meituan_conversion' => [
+            'label' => '美团支付订单与浏览转化',
+            'source_scopes' => ['combined', 'meituan'],
+        ],
     ];
 
     /** @var callable|null */
@@ -48,7 +112,9 @@ final class ManualNotificationService
         ?callable $testDispatcher = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
         private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
-        private readonly ?WechatRobotDeliveryService $deliveries = null
+        private readonly ?WechatRobotDeliveryService $deliveries = null,
+        private readonly ?ManualNotificationScheduleRuleService $scheduleRuleService = null,
+        private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null
     ) {
         $this->testDispatcher = $testDispatcher;
     }
@@ -57,9 +123,29 @@ final class ManualNotificationService
     {
         return in_array(
             trim($type),
-            [self::DYNAMIC_REPORT_TYPE, self::OPERATING_DAILY_REPORT_TYPE],
+            [
+                self::DYNAMIC_REPORT_TYPE,
+                self::OPERATING_DAILY_REPORT_TYPE,
+                self::OPERATING_DAILY_CUSTOM_REPORT_TYPE,
+            ],
             true
         );
+    }
+
+    public static function isOperatingDailyReportType(string $type): bool
+    {
+        return in_array(
+            trim($type),
+            [self::OPERATING_DAILY_REPORT_TYPE, self::OPERATING_DAILY_CUSTOM_REPORT_TYPE],
+            true
+        );
+    }
+
+    public static function operatingDailyTemplateMode(string $type): string
+    {
+        return trim($type) === self::OPERATING_DAILY_CUSTOM_REPORT_TYPE
+            ? OperatingDailyReportPayloadService::TEMPLATE_MODE_CUSTOM
+            : OperatingDailyReportPayloadService::TEMPLATE_MODE_COMMON;
     }
 
     /** @return array<string, mixed> */
@@ -75,12 +161,16 @@ final class ManualNotificationService
         );
         $templates = [];
         foreach (self::TYPES as $key => $label) {
+            if ($key === self::OPERATING_DAILY_CUSTOM_REPORT_TYPE) {
+                continue;
+            }
             $templates[] = [
                 'key' => $key,
                 'label' => $label,
                 'title' => $this->defaultTitle($key, $date),
                 'body' => $this->defaultBody($key, $date),
                 'dynamic' => self::isDynamicReportType($key),
+                'data_scope_label' => $this->dataScopeLabel($key),
             ];
         }
 
@@ -105,7 +195,56 @@ final class ManualNotificationService
                 self::TRIGGER_TYPES,
                 array_keys(self::TRIGGER_TYPES)
             ),
+            'source_scopes' => array_map(
+                fn(array $definition, string $key): array => [
+                    'key' => $key,
+                    'label' => (string)$definition['label'],
+                    'description' => (string)$definition['description'],
+                    'default_sections' => $this->defaultContentSections($key),
+                ],
+                self::SOURCE_SCOPES,
+                array_keys(self::SOURCE_SCOPES)
+            ),
+            'content_sections' => array_map(
+                static fn(array $definition, string $key): array => [
+                    'key' => $key,
+                    'label' => (string)$definition['label'],
+                    'source_scopes' => array_values((array)$definition['source_scopes']),
+                ],
+                self::CONTENT_SECTIONS,
+                array_keys(self::CONTENT_SECTIONS)
+            ),
+            'business_date_rules' => array_map(
+                static fn(string $label, string $key): array => ['key' => $key, 'label' => $label],
+                self::BUSINESS_DATE_RULES,
+                array_keys(self::BUSINESS_DATE_RULES)
+            ),
+            'weekdays' => array_map(
+                static fn(string $label, int $key): array => ['key' => $key, 'label' => $label],
+                self::WEEKDAYS,
+                array_keys(self::WEEKDAYS)
+            ),
+            'fixed_policies' => [
+                'missing_data' => '正式消息缺少同门店、同日期可信事实时阻断',
+                'missed_window' => '超过5分钟调度窗口不补发，只记录未执行',
+                'unknown_outcome' => '发送结果不明确时不自动重发',
+                'retry' => '只有明确失败记录允许人工重试',
+            ],
             'variables' => ['{酒店名称}', '{经营日期}', '{统计时间}', '{数据状态}'],
+            'daily_content_template_modes' => [
+                [
+                    'key' => OperatingDailyReportPayloadService::TEMPLATE_MODE_COMMON,
+                    'label' => '通用模板',
+                    'description' => '使用宿析统一的 PMS＋OTA 经营日报格式。',
+                ],
+                [
+                    'key' => OperatingDailyReportPayloadService::TEMPLATE_MODE_CUSTOM,
+                    'label' => '自定义模板',
+                    'description' => '编辑本计划的微信标题和正文；真实数据仍按原三源链路读取。',
+                ],
+            ],
+            'daily_custom_template' => OperatingDailyReportPayloadService::defaultCustomTemplate(),
+            'daily_template_variables' => OperatingDailyReportPayloadService::customTemplateVariables(),
             'test_target' => [
                 'hotel_id' => null,
                 'robot_id' => null,
@@ -201,12 +340,21 @@ final class ManualNotificationService
             'hotel_id' => $hotelId,
             'notification_type' => $normalized['notification_type'],
             'template_type' => $normalized['template_type'],
+            'source_scope' => $normalized['source_scope'],
+            'content_sections' => $normalized['content_sections'],
             'business_date' => $normalized['business_date'],
+            'business_date_rule' => $normalized['business_date_rule'],
             'title' => $normalized['title'],
             'body' => $normalized['body'],
             'send_method' => $normalized['send_method'],
             'trigger_type' => $normalized['trigger_type'],
+            'interval_minutes' => $normalized['interval_minutes'],
             'planned_send_at' => $normalized['planned_send_at'],
+            'active_weekdays' => $normalized['active_weekdays'],
+            'effective_from' => $normalized['effective_from'],
+            'effective_to' => $normalized['effective_to'],
+            'hourly_start_time' => $normalized['hourly_start_time'],
+            'hourly_end_time' => $normalized['hourly_end_time'],
             'enabled' => $normalized['enabled'] ? 1 : 0,
             'schedule_status' => $scheduleStatus,
             'last_test_status' => $testStillValid
@@ -345,7 +493,7 @@ final class ManualNotificationService
             'name' => (string)$binding['robot_name'],
         ];
 
-        $businessDate = (string)$record['business_date'];
+        $businessDate = $this->scheduleRules()->resolveBusinessDate($record, $this->now());
         $candidate = $this->deliveryCandidate(
             $tenantId,
             $hotelId,
@@ -615,9 +763,67 @@ final class ManualNotificationService
         if (!isset(self::TRIGGER_TYPES[$triggerType])) {
             throw new \InvalidArgumentException('manual_notification_trigger_invalid');
         }
+        $sourceScope = trim((string)($input['source_scope'] ?? 'combined'));
+        if (!isset(self::SOURCE_SCOPES[$sourceScope])) {
+            throw new \InvalidArgumentException('manual_notification_source_scope_invalid');
+        }
+        if ($type === self::OPERATING_DAILY_CUSTOM_REPORT_TYPE) {
+            // The legacy free-form template may reference variables from all
+            // three sources, so keep it on the combined compatibility scope.
+            $sourceScope = 'combined';
+            $contentSections = $this->normalizeContentSections(null, $sourceScope);
+            OperatingDailyReportPayloadService::assertCustomTemplate($title, $body);
+        } else {
+            $contentSections = self::isOperatingDailyReportType($type)
+                ? $this->normalizeContentSections(
+                    $input['content_sections'] ?? null,
+                    $sourceScope
+                )
+                : [];
+        }
         $plannedSendAt = $this->normalizeDateTime($input['planned_send_at'] ?? null);
         if ($triggerType === 'daily_fixed_time' && $plannedSendAt === null) {
             throw new \InvalidArgumentException('manual_notification_schedule_required');
+        }
+        $intervalMinutes = $triggerType === 'interval_minutes'
+            ? filter_var(
+                $input['interval_minutes'] ?? null,
+                FILTER_VALIDATE_INT,
+                ['options' => ['min_range' => 5, 'max_range' => 1440]]
+            )
+            : null;
+        if ($triggerType === 'interval_minutes' && $intervalMinutes === false) {
+            throw new \InvalidArgumentException('manual_notification_interval_invalid');
+        }
+        $businessDateRule = trim((string)($input['business_date_rule'] ?? 'today'));
+        if (!isset(self::BUSINESS_DATE_RULES[$businessDateRule])) {
+            throw new \InvalidArgumentException('manual_notification_business_date_rule_invalid');
+        }
+        $activeWeekdays = $this->normalizeWeekdays(
+            $input['active_weekdays'] ?? array_keys(self::WEEKDAYS)
+        );
+        $effectiveFrom = $this->normalizeOptionalDate($input['effective_from'] ?? null);
+        $effectiveTo = $this->normalizeOptionalDate($input['effective_to'] ?? null);
+        if ($effectiveFrom !== null && $effectiveTo !== null && $effectiveFrom > $effectiveTo) {
+            throw new \InvalidArgumentException('manual_notification_effective_range_invalid');
+        }
+        $hourlyStartTime = $this->normalizeHourTime(
+            $input['hourly_start_time'] ?? ManualNotificationScheduleRuleService::DEFAULT_HOURLY_START
+        );
+        $hourlyEndTime = $this->normalizeHourTime(
+            $input['hourly_end_time'] ?? ManualNotificationScheduleRuleService::DEFAULT_HOURLY_END
+        );
+        if ($triggerType === 'hourly_on_the_hour'
+            && (
+                !str_ends_with($hourlyStartTime, ':00:00')
+                || !str_ends_with($hourlyEndTime, ':00:00')
+                || $hourlyStartTime >= $hourlyEndTime
+            )
+        ) {
+            throw new \InvalidArgumentException('manual_notification_hourly_window_invalid');
+        }
+        if ($triggerType === 'interval_minutes' && $hourlyStartTime >= $hourlyEndTime) {
+            throw new \InvalidArgumentException('manual_notification_interval_window_invalid');
         }
         $targetRobotProvided = array_key_exists('target_robot_id', $input)
             || array_key_exists('target_robot_name', $input)
@@ -632,14 +838,25 @@ final class ManualNotificationService
             throw new \InvalidArgumentException('manual_notification_target_required');
         }
         return [
-            'notification_type' => $type,
+            'notification_type' => self::isOperatingDailyReportType($type)
+                ? self::OPERATING_DAILY_REPORT_TYPE
+                : $type,
             'template_type' => $type,
+            'source_scope' => $sourceScope,
+            'content_sections' => implode(',', $contentSections),
             'business_date' => $businessDate,
+            'business_date_rule' => $businessDateRule,
             'title' => $title,
             'body' => $body,
             'send_method' => $sendMethod,
             'trigger_type' => $triggerType,
+            'interval_minutes' => $intervalMinutes === false ? null : $intervalMinutes,
             'planned_send_at' => $plannedSendAt,
+            'active_weekdays' => implode(',', $activeWeekdays),
+            'effective_from' => $effectiveFrom,
+            'effective_to' => $effectiveTo,
+            'hourly_start_time' => $hourlyStartTime,
+            'hourly_end_time' => $hourlyEndTime,
             'enabled' => filter_var($input['enabled'] ?? false, FILTER_VALIDATE_BOOL),
             'target_robot_provided' => $targetRobotProvided,
             'target_robot_id' => $targetRobotId,
@@ -663,12 +880,27 @@ final class ManualNotificationService
                     '缺少租户范围，动态经营目标报告不可预览。'
                 );
             }
-            $page = $this->targetPayloads()->pagePreview(
-                $tenantId,
-                $hotelId,
-                $hotelName,
-                (string)$data['business_date']
-            );
+            $page = self::isOperatingDailyReportType($type)
+                ? $this->dailyPayloads()->pagePreview(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    (string)$data['business_date'],
+                    (string)($data['source_scope'] ?? 'combined'),
+                    $this->contentSectionsFromValue(
+                        $data['content_sections'] ?? null,
+                        (string)($data['source_scope'] ?? 'combined')
+                    ),
+                    self::operatingDailyTemplateMode($type),
+                    (string)($data['title'] ?? ''),
+                    (string)($data['body'] ?? '')
+                )
+                : $this->targetPayloads()->pagePreview(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    (string)$data['business_date']
+                );
             $scheduleStatus = trim((string)($data['schedule_status'] ?? ''));
             if ($scheduleStatus === '') {
                 $scheduleStatus = (bool)$data['enabled']
@@ -681,7 +913,18 @@ final class ManualNotificationService
                 'body' => (string)$data['body'],
                 'notification_type' => $type,
                 'template_type' => $type,
+                'content_template_mode' => self::isOperatingDailyReportType($type)
+                    ? self::operatingDailyTemplateMode($type)
+                    : 'ordinary',
                 'notification_type_label' => self::TYPES[$type],
+                'source_scope' => (string)($data['source_scope'] ?? 'combined'),
+                'source_scope_label' => $this->sourceScopeLabel(
+                    (string)($data['source_scope'] ?? 'combined')
+                ),
+                'content_sections' => $this->contentSectionsFromValue(
+                    $data['content_sections'] ?? null,
+                    (string)($data['source_scope'] ?? 'combined')
+                ),
                 'business_date' => (string)$data['business_date'],
                 'send_method' => (string)$data['send_method'],
                 'send_method_label' => self::SEND_METHODS[(string)$data['send_method']],
@@ -714,34 +957,52 @@ final class ManualNotificationService
         string $deliveryMode
     ): array {
         if (self::isDynamicReportType((string)$record['template_type'])) {
-            $today = $this->now()->format('Y-m-d');
-            if ($deliveryMode === 'immediate_test' && $businessDate !== $today) {
+            $expectedDate = $this->scheduleRules()->resolveBusinessDate($record, $this->now());
+            if ($deliveryMode === 'immediate_test' && $businessDate !== $expectedDate) {
                 return [
                     'status' => 'blocked',
-                    'reason_code' => 'operating_target_business_date_not_today',
+                    'reason_code' => 'operating_target_business_date_rule_mismatch',
                     'business_date' => $businessDate,
-                    'preview_fingerprint' => hash('sha256', $hotelId . '|' . $businessDate . '|not_today'),
+                    'preview_fingerprint' => hash('sha256', $hotelId . '|' . $businessDate . '|date_rule'),
                     'formal_send_gate' => [
                         'allowed' => false,
                         'status' => 'formal_send_blocked',
                         'blockers' => [[
-                            'code' => 'operating_target_business_date_not_today',
-                            'message' => '立即测试只允许当天经营目标报告。',
+                            'code' => 'operating_target_business_date_rule_mismatch',
+                            'message' => '测试业务日期与计划的数据日期规则不一致。',
                         ]],
                     ],
                     'payload' => null,
                 ];
             }
-            return $this->targetPayloads()->build(
-                $tenantId,
-                $hotelId,
-                $hotelName,
-                $businessDate,
-                $deliveryMode
-            );
+            return self::isOperatingDailyReportType((string)$record['template_type'])
+                ? $this->dailyPayloads()->build(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    $businessDate,
+                    $deliveryMode,
+                    (string)($record['source_scope'] ?? 'combined'),
+                    $this->contentSectionsFromValue(
+                        $record['content_sections'] ?? null,
+                        (string)($record['source_scope'] ?? 'combined')
+                    ),
+                    self::operatingDailyTemplateMode((string)$record['template_type']),
+                    (string)($record['title'] ?? ''),
+                    (string)($record['body'] ?? '')
+                )
+                : $this->targetPayloads()->build(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    $businessDate,
+                    $deliveryMode
+                );
         }
 
-        $preview = $this->staticPreview($hotelId, $hotelName, $record, true);
+        $previewRecord = $record;
+        $previewRecord['business_date'] = $businessDate;
+        $preview = $this->staticPreview($hotelId, $hotelName, $previewRecord, true);
         return [
             'status' => 'ready',
             'reason_code' => 'static_notification_ready',
@@ -859,7 +1120,51 @@ final class ManualNotificationService
             'notification_type_label' => self::TYPES[(string)($row['notification_type'] ?? '')] ?? '未取得',
             'template_type' => (string)($row['template_type'] ?? $row['notification_type'] ?? ''),
             'template_type_label' => self::TYPES[(string)($row['template_type'] ?? $row['notification_type'] ?? '')] ?? '未取得',
+            'content_template_mode' => self::isOperatingDailyReportType(
+                (string)($row['template_type'] ?? $row['notification_type'] ?? '')
+            )
+                ? self::operatingDailyTemplateMode(
+                    (string)($row['template_type'] ?? $row['notification_type'] ?? '')
+                )
+                : 'ordinary',
+            'content_template_mode_label' => self::isOperatingDailyReportType(
+                (string)($row['template_type'] ?? $row['notification_type'] ?? '')
+            )
+                ? (
+                    (string)($row['template_type'] ?? '') === self::OPERATING_DAILY_CUSTOM_REPORT_TYPE
+                        ? '自定义模板'
+                        : '通用模板'
+                )
+                : '普通模板',
+            'source_scope' => (string)($row['source_scope'] ?? 'combined'),
+            'source_scope_label' => $this->sourceScopeLabel(
+                (string)($row['source_scope'] ?? 'combined')
+            ),
+            'content_sections' => $this->contentSectionsFromValue(
+                $row['content_sections'] ?? null,
+                (string)($row['source_scope'] ?? 'combined')
+            ),
+            'content_sections_label' => implode('、', array_map(
+                static fn(string $section): string => (string)(
+                    self::CONTENT_SECTIONS[$section]['label'] ?? $section
+                ),
+                $this->contentSectionsFromValue(
+                    $row['content_sections'] ?? null,
+                    (string)($row['source_scope'] ?? 'combined')
+                )
+            )),
             'business_date' => (string)($row['business_date'] ?? ''),
+            'business_date_rule' => (string)($row['business_date_rule'] ?? 'today'),
+            'business_date_rule_label' => self::BUSINESS_DATE_RULES[
+                (string)($row['business_date_rule'] ?? 'today')
+            ] ?? self::BUSINESS_DATE_RULES['today'],
+            'data_scope_label' => self::isOperatingDailyReportType(
+                (string)($row['template_type'] ?? '')
+            )
+                ? 'PMS＋OTA 三源经营日报'
+                : $this->dataScopeLabel(
+                    (string)($row['template_type'] ?? $row['notification_type'] ?? '')
+                ),
             'title' => (string)($row['title'] ?? ''),
             'body' => $body,
             'body_summary' => mb_substr(preg_replace('/\s+/u', ' ', $body) ?? '', 0, 120),
@@ -867,10 +1172,28 @@ final class ManualNotificationService
             'send_method_label' => self::SEND_METHODS[(string)($row['send_method'] ?? '')] ?? '待配置',
             'trigger_type' => (string)($row['trigger_type'] ?? 'manual_test'),
             'trigger_type_label' => self::TRIGGER_TYPES[(string)($row['trigger_type'] ?? '')] ?? '待配置',
+            'interval_minutes' => $this->positiveOrNull($row['interval_minutes'] ?? null),
             'planned_send_at' => $row['planned_send_at'] ?? null,
+            'active_weekdays' => $this->weekdaysFromValue(
+                $row['active_weekdays'] ?? ManualNotificationScheduleRuleService::DEFAULT_WEEKDAYS
+            ),
+            'active_weekdays_label' => $this->weekdaysLabel(
+                $row['active_weekdays'] ?? ManualNotificationScheduleRuleService::DEFAULT_WEEKDAYS
+            ),
+            'effective_from' => $row['effective_from'] ?? null,
+            'effective_to' => $row['effective_to'] ?? null,
+            'hourly_start_time' => $this->shortTime(
+                $row['hourly_start_time'] ?? ManualNotificationScheduleRuleService::DEFAULT_HOURLY_START
+            ),
+            'hourly_end_time' => $this->shortTime(
+                $row['hourly_end_time'] ?? ManualNotificationScheduleRuleService::DEFAULT_HOURLY_END
+            ),
             'enabled' => (int)($row['enabled'] ?? 0) === 1,
             'schedule_status' => $scheduleStatus,
             'schedule_status_label' => $this->scheduleStatusLabel($scheduleStatus),
+            'next_run_at' => $scheduleStatus === 'schedule_enabled'
+                ? $this->scheduleRules()->nextRunAt($row, $this->now())
+                : null,
             'last_test_status' => (string)($row['last_test_status'] ?? 'never_tested'),
             'last_test_message' => $row['last_test_message'] ?? null,
             'last_tested_at' => $row['last_tested_at'] ?? null,
@@ -987,6 +1310,7 @@ final class ManualNotificationService
     {
         return match ($type) {
             self::OPERATING_DAILY_REPORT_TYPE => $date . ' 经营日报',
+            self::OPERATING_DAILY_CUSTOM_REPORT_TYPE => '今日经营数据汇总｜PMS＋OTA',
             self::DYNAMIC_REPORT_TYPE => $date . ' 每日经营目标报告',
             'ai_analysis_result' => $date . ' AI分析结果',
             'anomaly_alert' => $date . ' 异常预警',
@@ -1001,7 +1325,16 @@ final class ManualNotificationService
     private function defaultBody(string $type, string $date): string
     {
         return match ($type) {
-            self::OPERATING_DAILY_REPORT_TYPE,
+            self::OPERATING_DAILY_CUSTOM_REPORT_TYPE =>
+                OperatingDailyReportPayloadService::defaultCustomTemplate()['body'],
+            self::OPERATING_DAILY_REPORT_TYPE => implode("\n", [
+                '【经营日报通用模板】',
+                '酒店：{酒店名称}',
+                '经营日期：{经营日期}',
+                '正文由同酒店、同日期的 PMS、携程、去哪儿和美团已核验事实动态生成。',
+                '任一必需事实缺失时阻断发送，不以零值、旧数据或默认值补齐。',
+                '切换“自定义模板”后可编辑微信标题和正文；不会改变原数据采集项。',
+            ]),
             self::DYNAMIC_REPORT_TYPE => implode("\n", [
                 '【每日经营目标报告】',
                 '酒店：{酒店名称}',
@@ -1090,17 +1423,169 @@ final class ManualNotificationService
         return $parsed->format('Y-m-d H:i:s');
     }
 
+    private function normalizeOptionalDate(mixed $value): ?string
+    {
+        $value = trim((string)$value);
+        return $value === '' ? null : $this->normalizeDate($value);
+    }
+
+    private function normalizeHourTime(mixed $value): string
+    {
+        $value = trim((string)$value);
+        if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)(?::00)?$/D', $value, $matches) !== 1) {
+            throw new \InvalidArgumentException('manual_notification_hourly_window_invalid');
+        }
+        return $matches[1] . ':' . $matches[2] . ':00';
+    }
+
+    /** @return list<string> */
+    private function normalizeContentSections(mixed $value, string $sourceScope): array
+    {
+        $explicit = $value !== null;
+        $parts = is_array($value)
+            ? $value
+            : explode(',', trim((string)$value));
+        $allowed = array_flip($this->defaultContentSections($sourceScope));
+        $selected = [];
+        foreach ($parts as $part) {
+            $key = trim((string)$part);
+            if ($key === '') {
+                continue;
+            }
+            if (!isset(self::CONTENT_SECTIONS[$key]) || !isset($allowed[$key])) {
+                throw new \InvalidArgumentException('manual_notification_content_section_invalid');
+            }
+            $selected[$key] = $key;
+        }
+        if ($selected === []) {
+            if ($explicit) {
+                throw new \InvalidArgumentException('manual_notification_content_sections_required');
+            }
+            return array_keys($allowed);
+        }
+        return array_values($selected);
+    }
+
+    /** @return list<string> */
+    private function defaultContentSections(string $sourceScope): array
+    {
+        $sections = [];
+        foreach (self::CONTENT_SECTIONS as $key => $definition) {
+            if (in_array($sourceScope, (array)$definition['source_scopes'], true)) {
+                $sections[] = $key;
+            }
+        }
+        return $sections;
+    }
+
+    /** @return list<string> */
+    private function contentSectionsFromValue(mixed $value, string $sourceScope): array
+    {
+        $parts = is_array($value) ? $value : explode(',', (string)$value);
+        $allowed = array_flip($this->defaultContentSections($sourceScope));
+        $sections = [];
+        foreach ($parts as $part) {
+            $key = trim((string)$part);
+            if ($key !== '' && isset($allowed[$key])) {
+                $sections[$key] = $key;
+            }
+        }
+        return $sections === [] ? array_keys($allowed) : array_values($sections);
+    }
+
+    /** @return list<int> */
+    private function normalizeWeekdays(mixed $value): array
+    {
+        $weekdays = $this->weekdaysFromValue($value, false);
+        if ($weekdays === []) {
+            throw new \InvalidArgumentException('manual_notification_weekdays_required');
+        }
+        return $weekdays;
+    }
+
+    /** @return list<int> */
+    private function weekdaysFromValue(mixed $value, bool $fallbackToAll = true): array
+    {
+        $parts = is_array($value) ? $value : explode(',', (string)$value);
+        $weekdays = [];
+        foreach ($parts as $part) {
+            $weekday = (int)$part;
+            if ($weekday >= 1 && $weekday <= 7) {
+                $weekdays[$weekday] = $weekday;
+            }
+        }
+        ksort($weekdays);
+        if ($weekdays === [] && $fallbackToAll) {
+            return array_keys(self::WEEKDAYS);
+        }
+        return array_values($weekdays);
+    }
+
+    private function weekdaysLabel(mixed $value): string
+    {
+        $weekdays = $this->weekdaysFromValue($value);
+        if ($weekdays === array_keys(self::WEEKDAYS)) {
+            return '每天';
+        }
+        if ($weekdays === [1, 2, 3, 4, 5]) {
+            return '工作日';
+        }
+        return implode('、', array_map(
+            static fn(int $weekday): string => self::WEEKDAYS[$weekday],
+            $weekdays
+        ));
+    }
+
+    private function shortTime(mixed $value): string
+    {
+        $value = trim((string)$value);
+        return preg_match('/(\d{2}:\d{2})/', $value, $matches) === 1
+            ? $matches[1]
+            : '';
+    }
+
+    private function dataScopeLabel(string $type): string
+    {
+        return match ($type) {
+            self::OPERATING_DAILY_REPORT_TYPE,
+            self::OPERATING_DAILY_CUSTOM_REPORT_TYPE => 'PMS＋OTA 三源经营日报',
+            self::DYNAMIC_REPORT_TYPE => '经营目标与已核验经营事实',
+            'task_notification',
+            'daily_review' => '任务执行与复盘正文',
+            'future_room_status' => '远期房态正文',
+            'today_revenue_management' => '收益管理正文',
+            'ai_analysis_result',
+            'anomaly_alert' => '已保存分析或异常正文',
+            default => '人工自定义正文',
+        };
+    }
+
+    private function sourceScopeLabel(string $sourceScope): string
+    {
+        return (string)(self::SOURCE_SCOPES[$sourceScope]['label']
+            ?? self::SOURCE_SCOPES['combined']['label']);
+    }
+
     /** @param array<string, mixed> $existing @param array<string, mixed> $normalized */
     private function sameTestedPlan(array $existing, array $normalized): bool
     {
         foreach ([
             'notification_type',
             'template_type',
+            'source_scope',
+            'content_sections',
             'business_date',
+            'business_date_rule',
             'title',
             'body',
             'trigger_type',
+            'interval_minutes',
             'planned_send_at',
+            'active_weekdays',
+            'effective_from',
+            'effective_to',
+            'hourly_start_time',
+            'hourly_end_time',
         ] as $field) {
             if ((string)($existing[$field] ?? '') !== (string)($normalized[$field] ?? '')) {
                 return false;
@@ -1119,6 +1604,11 @@ final class ManualNotificationService
         return $this->operatingTargetPayloads ?? new OperatingTargetNotificationPayloadService();
     }
 
+    private function dailyPayloads(): OperatingDailyReportPayloadService
+    {
+        return $this->operatingDailyPayloads ?? new OperatingDailyReportPayloadService();
+    }
+
     private function dispatchLedger(): ManualNotificationDispatchLedgerService
     {
         return $this->ledger ?? new ManualNotificationDispatchLedgerService();
@@ -1127,6 +1617,11 @@ final class ManualNotificationService
     private function deliveryService(): WechatRobotDeliveryService
     {
         return $this->deliveries ?? new WechatRobotDeliveryService();
+    }
+
+    private function scheduleRules(): ManualNotificationScheduleRuleService
+    {
+        return $this->scheduleRuleService ?? new ManualNotificationScheduleRuleService();
     }
 
     private function positiveOrNull(mixed $value): ?int

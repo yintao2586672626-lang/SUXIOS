@@ -28,7 +28,9 @@ final class ManualNotificationScheduleService
         ?callable $sender = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
         private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
-        private readonly ?WechatRobotDeliveryService $deliveries = null
+        private readonly ?WechatRobotDeliveryService $deliveries = null,
+        private readonly ?ManualNotificationScheduleRuleService $scheduleRuleService = null,
+        private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null
     ) {
         $this->sender = $sender;
     }
@@ -67,7 +69,10 @@ final class ManualNotificationScheduleService
                 ->where('enabled', 1)
                 ->where('schedule_status', 'schedule_enabled')
                 ->where('send_method', $mode === self::MODE_FORMAL ? 'wecom_formal' : 'wecom_test')
-                ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour'])
+                ->whereIn(
+                    'trigger_type',
+                    ['daily_fixed_time', 'hourly_on_the_hour', 'interval_minutes']
+                )
                 ->order('id', 'asc');
             if ($scopeHotelId > 0) {
                 $query->where('hotel_id', $scopeHotelId);
@@ -83,7 +88,11 @@ final class ManualNotificationScheduleService
             $failedCount = 0;
             $blockedCount = 0;
             foreach ($rows as $row) {
-                $window = $this->dueWindow($row, $now);
+                $window = $this->scheduleRules()->dueWindow(
+                    $row,
+                    $now,
+                    self::DUE_GRACE_SECONDS
+                );
                 if ($window === null) {
                     continue;
                 }
@@ -158,7 +167,7 @@ final class ManualNotificationScheduleService
         $notificationId = (int)($row['id'] ?? 0);
         $hotelId = (int)($row['hotel_id'] ?? 0);
         $tenantId = (int)($row['tenant_id'] ?? 0);
-        $businessDate = $now->format('Y-m-d');
+        $businessDate = $this->scheduleRules()->resolveBusinessDate($row, $now);
         $base = [
             'notification_id' => $notificationId,
             'hotel_id' => $hotelId,
@@ -327,37 +336,6 @@ final class ManualNotificationScheduleService
         ];
     }
 
-    /** @param array<string, mixed> $row */
-    private function dueWindow(array $row, DateTimeImmutable $now): ?string
-    {
-        $triggerType = (string)($row['trigger_type'] ?? '');
-        if ($triggerType === 'hourly_on_the_hour') {
-            $scheduled = $now->setTime((int)$now->format('H'), 0, 0);
-        } elseif ($triggerType === 'daily_fixed_time') {
-            $planned = trim((string)($row['planned_send_at'] ?? ''));
-            if ($planned === '') {
-                return null;
-            }
-            try {
-                $plannedAt = new DateTimeImmutable($planned, new DateTimeZone(self::TIMEZONE));
-            } catch (\Throwable) {
-                return null;
-            }
-            $scheduled = $now->setTime(
-                (int)$plannedAt->format('H'),
-                (int)$plannedAt->format('i'),
-                0
-            );
-        } else {
-            return null;
-        }
-        $delta = $now->getTimestamp() - $scheduled->getTimestamp();
-        if ($delta < 0 || $delta >= self::DUE_GRACE_SECONDS) {
-            return null;
-        }
-        return $scheduled->format('Y-m-d H:i');
-    }
-
     /**
      * @param array<string, mixed> $row
      * @return array{eligible:bool,reason_code?:string,robot_id?:int,robot_name?:string}
@@ -403,13 +381,30 @@ final class ManualNotificationScheduleService
         if (ManualNotificationService::isDynamicReportType(
             (string)($row['template_type'] ?? '')
         )) {
-            $candidate = $this->targetPayloads()->build(
-                $tenantId,
-                $hotelId,
-                $hotelName,
-                $businessDate,
-                'scheduled_test'
-            );
+            $candidate = ManualNotificationService::isOperatingDailyReportType(
+                (string)($row['template_type'] ?? '')
+            )
+                ? $this->dailyPayloads()->build(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    $businessDate,
+                    'scheduled_test',
+                    (string)($row['source_scope'] ?? 'combined'),
+                    $this->contentSections($row['content_sections'] ?? null),
+                    ManualNotificationService::operatingDailyTemplateMode(
+                        (string)($row['template_type'] ?? '')
+                    ),
+                    (string)($row['title'] ?? ''),
+                    (string)($row['body'] ?? '')
+                )
+                : $this->targetPayloads()->build(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    $businessDate,
+                    'scheduled_test'
+                );
             return $mode === self::MODE_FORMAL
                 ? $this->formalizeDynamicCandidate($candidate)
                 : $candidate;
@@ -702,6 +697,11 @@ final class ManualNotificationScheduleService
         return $this->operatingTargetPayloads ?? new OperatingTargetNotificationPayloadService();
     }
 
+    private function dailyPayloads(): OperatingDailyReportPayloadService
+    {
+        return $this->operatingDailyPayloads ?? new OperatingDailyReportPayloadService();
+    }
+
     private function dispatchLedger(): ManualNotificationDispatchLedgerService
     {
         return $this->ledger ?? new ManualNotificationDispatchLedgerService();
@@ -710,6 +710,25 @@ final class ManualNotificationScheduleService
     private function deliveryService(): WechatRobotDeliveryService
     {
         return $this->deliveries ?? new WechatRobotDeliveryService();
+    }
+
+    private function scheduleRules(): ManualNotificationScheduleRuleService
+    {
+        return $this->scheduleRuleService ?? new ManualNotificationScheduleRuleService();
+    }
+
+    /** @return list<string> */
+    private function contentSections(mixed $value): array
+    {
+        $parts = is_array($value) ? $value : explode(',', (string)$value);
+        $sections = [];
+        foreach ($parts as $part) {
+            $key = trim((string)$part);
+            if ($key !== '') {
+                $sections[$key] = $key;
+            }
+        }
+        return array_values($sections);
     }
 
     private function tableExists(string $table): bool

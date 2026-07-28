@@ -52,12 +52,21 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             hotel_id INTEGER NOT NULL,
             notification_type VARCHAR(40) NOT NULL,
             template_type VARCHAR(40) NOT NULL,
+            source_scope VARCHAR(32) NOT NULL DEFAULT "combined",
+            content_sections VARCHAR(512) NOT NULL DEFAULT "",
             business_date VARCHAR(10) NOT NULL,
+            business_date_rule VARCHAR(24) NOT NULL DEFAULT "today",
             title VARCHAR(120) NOT NULL,
             body TEXT NOT NULL,
             send_method VARCHAR(32) NOT NULL,
             trigger_type VARCHAR(32) NOT NULL,
+            interval_minutes INTEGER NULL,
             planned_send_at DATETIME NULL,
+            active_weekdays VARCHAR(20) NOT NULL DEFAULT "1,2,3,4,5,6,7",
+            effective_from VARCHAR(10) NULL,
+            effective_to VARCHAR(10) NULL,
+            hourly_start_time VARCHAR(8) NOT NULL DEFAULT "09:00:00",
+            hourly_end_time VARCHAR(8) NOT NULL DEFAULT "22:00:00",
             enabled INTEGER NOT NULL,
             schedule_status VARCHAR(32) NOT NULL,
             test_robot_id INTEGER NULL,
@@ -209,6 +218,50 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         self::assertSame([], $calls);
         self::assertSame(0, Db::name('manual_notification_schedule_dispatches')->count());
         self::assertStringContainsString('未取得的数据未使用0或旧日数据补齐', $result['results'][0]['payload']['markdown']['content']);
+    }
+
+    public function testSchedulerEnforcesDateRulesWeekdaysAndHourlyWindow(): void
+    {
+        $this->insertRecord([
+            'trigger_type' => 'hourly_on_the_hour',
+            'planned_send_at' => null,
+            'business_date_rule' => 'yesterday',
+            'active_weekdays' => '7',
+            'effective_from' => '2026-07-26',
+            'effective_to' => '2026-07-26',
+            'hourly_start_time' => '09:00:00',
+            'hourly_end_time' => '22:00:00',
+        ]);
+        $service = new ManualNotificationScheduleService();
+
+        $outside = $service->runDue($this->time('2026-07-26 23:00:20'));
+        self::assertSame(0, $outside['due_count']);
+
+        $inside = $service->runDue($this->time('2026-07-26 18:00:20'));
+        self::assertSame(1, $inside['due_count']);
+        self::assertSame('2026-07-25', $inside['results'][0]['business_date']);
+        self::assertStringContainsString(
+            '业务日期：2026-07-25',
+            $inside['results'][0]['payload']['markdown']['content']
+        );
+    }
+
+    public function testSchedulerSelectsMinuteIntervalPlansAtTheirExactBucket(): void
+    {
+        $this->insertRecord([
+            'trigger_type' => 'interval_minutes',
+            'interval_minutes' => 30,
+            'planned_send_at' => null,
+            'hourly_start_time' => '09:15:00',
+            'hourly_end_time' => '11:45:00',
+        ]);
+
+        $result = (new ManualNotificationScheduleService())
+            ->runDue($this->time('2026-07-26 10:45:20'));
+
+        self::assertSame(1, $result['due_count']);
+        self::assertSame('2026-07-26 10:45', $result['results'][0]['dispatch_window']);
+        self::assertSame('interval_minutes', $result['results'][0]['trigger_type']);
     }
 
     public function testExplicitDispatchUsesFakeSenderAndIsIdempotentPerWindowAndMode(): void
@@ -627,12 +680,21 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             'hotel_id' => 80,
             'notification_type' => 'blank_custom',
             'template_type' => 'blank_custom',
+            'source_scope' => 'combined',
+            'content_sections' => '',
             'business_date' => '2026-07-26',
+            'business_date_rule' => 'today',
             'title' => '{经营日期} 自定义播报',
             'body' => "酒店：{酒店名称}\n经营日期：{经营日期}\n房量：未取得",
             'send_method' => 'wecom_test',
             'trigger_type' => 'daily_fixed_time',
+            'interval_minutes' => null,
             'planned_send_at' => '2026-07-26 18:00:00',
+            'active_weekdays' => '1,2,3,4,5,6,7',
+            'effective_from' => null,
+            'effective_to' => null,
+            'hourly_start_time' => '09:00:00',
+            'hourly_end_time' => '22:00:00',
             'enabled' => 1,
             'schedule_status' => 'schedule_enabled',
             'test_robot_id' => ManualNotificationService::TEST_ROBOT_ID,

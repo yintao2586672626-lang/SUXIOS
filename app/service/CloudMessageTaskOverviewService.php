@@ -81,6 +81,10 @@ final class CloudMessageTaskOverviewService
             }
         }
 
+        [$liveTasks, $manualTasks] = $this->attachEditableNotificationPlans(
+            $liveTasks,
+            $manualTasks
+        );
         $tasks = array_values(array_merge($liveTasks, $manualTasks));
         $activeCount = count(array_filter(
             $tasks,
@@ -260,8 +264,7 @@ final class CloudMessageTaskOverviewService
             $rows = Db::name('manual_notifications')
                 ->where('tenant_id', $tenantId)
                 ->where('hotel_id', $hotelId)
-                ->where('enabled', 1)
-                ->field('id,title,trigger_type,planned_send_at,schedule_status,test_robot_id,test_robot_name,update_time')
+                ->field('id,title,notification_type,template_type,trigger_type,planned_send_at,enabled,schedule_status,test_robot_id,test_robot_name,update_time')
                 ->order('id', 'desc')
                 ->select()
                 ->toArray();
@@ -271,13 +274,20 @@ final class CloudMessageTaskOverviewService
 
         return array_map(function (array $row) use ($robot): array {
             $status = (string)($row['schedule_status'] ?? '');
-            $active = $status === 'schedule_enabled';
+            $enabled = (int)($row['enabled'] ?? 0) === 1;
+            $active = $enabled && $status === 'schedule_enabled';
             $trigger = (string)($row['trigger_type'] ?? '');
             return [
                 'key' => 'manual_notification_' . (int)$row['id'],
+                'notification_id' => (int)$row['id'],
+                'notification_type' => (string)($row['notification_type'] ?? ''),
+                'template_type' => (string)($row['template_type'] ?? $row['notification_type'] ?? ''),
+                'trigger_type' => $trigger,
                 'name' => trim((string)($row['title'] ?? '')) ?: ('自定义定时消息 #' . (int)$row['id']),
-                'status' => $active ? 'active' : 'attention',
-                'status_label' => $active ? '运行中' : '等待真实测试',
+                'status' => $active ? 'active' : ($enabled ? 'attention' : 'paused'),
+                'status_label' => $active
+                    ? '运行中'
+                    : ($enabled ? '等待真实测试' : '已暂停'),
                 'schedule' => $trigger === 'hourly_on_the_hour'
                     ? '每小时整点'
                     : ($trigger === 'daily_fixed_time'
@@ -290,12 +300,69 @@ final class CloudMessageTaskOverviewService
                     ?: (string)($robot['name'] ?? '机器人绑定未取得'),
                 'last_run_at' => '',
                 'next_run_at' => (string)($row['planned_send_at'] ?? ''),
-                'last_result' => $active ? '已通过测试并启用' : '尚未取得成功发送回执',
+                'last_result' => $active
+                    ? '已通过测试并启用'
+                    : ($status === 'test_verified'
+                        ? '测试发送已验证，计划当前暂停'
+                        : ($status === 'awaiting_test'
+                            ? '等待一次真实测试成功'
+                            : '尚未取得成功发送回执')),
                 'service_result' => $active ? 'success' : 'unverified',
                 'source' => 'database',
                 'source_label' => '宿析OS通知配置',
+                'editable' => true,
+                'edit_label' => '编辑计划',
             ];
         }, $rows);
+    }
+
+    /**
+     * Links a saved, hotel-scoped report plan to its matching cloud task row.
+     * The cloud timer evidence remains read-only; editing opens the local plan
+     * and never pretends that a local save rewrote systemd.
+     *
+     * @param array<int, array<string, mixed>> $cloudTasks
+     * @param array<int, array<string, mixed>> $manualTasks
+     * @return array{0:array<int, array<string, mixed>>,1:array<int, array<string, mixed>>}
+     */
+    private function attachEditableNotificationPlans(
+        array $cloudTasks,
+        array $manualTasks
+    ): array {
+        $remaining = [];
+        foreach ($manualTasks as $manualTask) {
+            $templateType = (string)($manualTask['template_type'] ?? '');
+            $triggerType = (string)($manualTask['trigger_type'] ?? '');
+            $targetKey = $templateType === ManualNotificationService::OPERATING_DAILY_REPORT_TYPE
+                ? (in_array($triggerType, ['hourly_on_the_hour', 'interval_minutes'], true)
+                    ? 'hourly_operating_monitor'
+                    : 'daily_operating_report')
+                : '';
+            if ($targetKey === '') {
+                $remaining[] = $manualTask;
+                continue;
+            }
+
+            $linked = false;
+            foreach ($cloudTasks as &$cloudTask) {
+                if ($linked || (string)($cloudTask['key'] ?? '') !== $targetKey) {
+                    continue;
+                }
+                $cloudTask['editable'] = true;
+                $cloudTask['notification_id'] = (int)($manualTask['notification_id'] ?? 0);
+                $cloudTask['edit_label'] = '编辑计划';
+                $cloudTask['plan_status'] = (string)($manualTask['status'] ?? '');
+                $cloudTask['plan_status_label'] = (string)($manualTask['status_label'] ?? '');
+                $linked = true;
+            }
+            unset($cloudTask);
+
+            if (!$linked) {
+                $remaining[] = $manualTask;
+            }
+        }
+
+        return [$cloudTasks, $remaining];
     }
 
     /** @return array<string, mixed>|null */

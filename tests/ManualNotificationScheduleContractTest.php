@@ -28,10 +28,37 @@ final class ManualNotificationScheduleContractTest extends TestCase
         self::assertStringContainsString('dispatch_window_already_claimed', $service);
         self::assertStringContainsString("'wecom_formal'", $service);
         self::assertStringContainsString('resolvePlanRobot(', $service);
+        self::assertStringContainsString('scheduleRules()->dueWindow(', $service);
+        self::assertStringContainsString('scheduleRules()->resolveBusinessDate(', $service);
         self::assertStringNotContainsString('formal_delivery_not_authorized', $service);
         self::assertStringNotContainsString('--dispatch', $unit);
         self::assertStringContainsString('--preview', $unit);
         self::assertStringNotContainsString('[Install]', $timer);
+    }
+
+    public function testScheduleRuleMigrationKeepsSafetyPoliciesSystemOwned(): void
+    {
+        $root = dirname(__DIR__);
+        $sql = (string)file_get_contents(
+            $root . '/database/migrations/20260728_w_extend_manual_notification_schedule_rules.sql'
+        );
+        $ruleService = (string)file_get_contents(
+            $root . '/app/service/ManualNotificationScheduleRuleService.php'
+        );
+
+        foreach ([
+            'business_date_rule',
+            'active_weekdays',
+            'effective_from',
+            'effective_to',
+            'hourly_start_time',
+            'hourly_end_time',
+        ] as $field) {
+            self::assertStringContainsString('`' . $field . '`', $sql);
+        }
+        self::assertStringContainsString('missed windows are not backfilled', $sql);
+        self::assertStringContainsString('unknown outcomes are never retried', $sql);
+        self::assertStringContainsString("'Asia/Shanghai'", $ruleService);
     }
 
     public function testDispatchMigrationUsesNotificationWindowModeUniqueness(): void
@@ -45,6 +72,20 @@ final class ManualNotificationScheduleContractTest extends TestCase
             '/UNIQUE KEY[^\\n]+\\n\\s*\\(`notification_id`, `dispatch_window`, `delivery_mode`\\)/',
             $sql
         );
+    }
+
+    public function testThreeSourceMigrationPersistsScopeContentAndInterval(): void
+    {
+        $sql = (string)file_get_contents(
+            dirname(__DIR__)
+                . '/database/migrations/20260728_x_extend_manual_notification_three_source_delivery.sql'
+        );
+
+        foreach (['source_scope', 'content_sections', 'interval_minutes'] as $field) {
+            self::assertStringContainsString('`' . $field . '`', $sql);
+        }
+        self::assertStringContainsString('dingdandao_pms', $sql);
+        self::assertStringContainsString('idx_manual_notification_source_schedule', $sql);
     }
 
     public function testDispatchBaseMigrationSortsBeforeAttemptExtension(): void

@@ -16225,22 +16225,28 @@
             // 普通账户企业微信通知绑定。Webhook 只存在于当前输入框，
             // 保存或切换门店后立即清空，页面状态只消费后端掩码。
             const wechatNotificationPanelBody = shallowRef(null);
+            const manualNotificationSchedulePanelBody = shallowRef(null);
             let wechatNotificationPanelLoadPromise = null;
             const ensureWechatNotificationPanelReady = () => {
-                if (wechatNotificationPanelBody.value) {
+                if (wechatNotificationPanelBody.value && manualNotificationSchedulePanelBody.value) {
                     return Promise.resolve(wechatNotificationPanelBody.value);
                 }
                 if (!wechatNotificationPanelLoadPromise) {
                     wechatNotificationPanelLoadPromise = new Promise((resolve, reject) => {
                         const script = document.createElement('script');
-                        script.src = 'wechat-notification-static.js?v=20260727-scope-split-hc42c92b952';
+                        script.src = 'wechat-notification-static.js?v=20260728-three-source-h7bf2ee8038';
                         script.async = true;
                         script.onload = () => {
-                            if (!window.SUXI_WECHAT_NOTIFICATION_PANEL) {
+                            if (!window.SUXI_WECHAT_NOTIFICATION_PANEL
+                                || !window.SUXI_MANUAL_NOTIFICATION_SCHEDULE_PANEL
+                            ) {
                                 reject(new Error('企业微信通知页面组件加载失败'));
                                 return;
                             }
                             wechatNotificationPanelBody.value = markRaw(window.SUXI_WECHAT_NOTIFICATION_PANEL);
+                            manualNotificationSchedulePanelBody.value = markRaw(
+                                window.SUXI_MANUAL_NOTIFICATION_SCHEDULE_PANEL
+                            );
                             resolve(wechatNotificationPanelBody.value);
                         };
                         script.onerror = () => reject(new Error('企业微信通知页面组件加载失败'));
@@ -20299,7 +20305,15 @@
                 types: [],
                 send_methods: [],
                 trigger_types: [],
+                source_scopes: [],
+                content_sections: [],
+                business_date_rules: [],
+                weekdays: [],
+                fixed_policies: {},
                 variables: [],
+                daily_content_template_modes: [],
+                daily_custom_template: null,
+                daily_template_variables: [],
                 test_target: null,
                 scheduler_status: 'not_connected',
                 scheduler_note: '',
@@ -20310,16 +20324,29 @@
                 hotel_id: '',
                 template_type: 'today_revenue_management',
                 notification_type: 'today_revenue_management',
+                content_template_mode: 'common',
+                source_scope: 'combined',
+                content_sections: [],
                 business_date: operationToday,
+                business_date_rule: 'today',
                 title: '',
                 body: '',
                 send_method: 'manual_preview',
                 trigger_type: 'manual_test',
+                interval_minutes: 60,
                 planned_send_at: '',
+                active_weekdays: [1, 2, 3, 4, 5, 6, 7],
+                effective_from: '',
+                effective_to: '',
+                hourly_start_time: '09:00',
+                hourly_end_time: '22:00',
                 target_robot_id: '',
                 target_robot_name: '',
                 enabled: false,
                 schedule_status: 'saved_only',
+                schedule_status_label: '仅保存/仅测试',
+                next_run_at: null,
+                data_scope_label: '',
             });
             const manualNotificationHistory = ref({ list: [], total: 0 });
             const manualNotificationDispatchHistory = ref({ list: [], total: 0 });
@@ -22389,6 +22416,22 @@
             const manualNotificationBodyCount = computed(() => (
                 Array.from(String(manualNotificationForm.value.body || '')).length
             ));
+            const manualNotificationIsOperatingDaily = computed(() => (
+                ['operating_daily_report', 'operating_daily_custom_report'].includes(
+                    String(manualNotificationForm.value.template_type || '')
+                )
+            ));
+            const manualNotificationContentModeOptions = computed(() => (
+                Array.isArray(manualNotificationMetadata.value?.daily_content_template_modes)
+                    ? manualNotificationMetadata.value.daily_content_template_modes
+                    : []
+            ));
+            const manualNotificationVariableOptions = computed(() => (
+                manualNotificationIsOperatingDaily.value
+                && manualNotificationForm.value.content_template_mode === 'custom'
+                    ? (manualNotificationMetadata.value?.daily_template_variables || [])
+                    : (manualNotificationMetadata.value?.variables || [])
+            ));
             const manualNotificationDataStatus = computed(() => (
                 manualNotificationForm.value.schedule_status === 'schedule_enabled'
                     ? (manualNotificationForm.value.send_method === 'wecom_formal'
@@ -22399,10 +22442,103 @@
                         ? '等待真实测试成功后启用'
                         : '仅保存/仅测试'
             ));
+            const manualNotificationDataScopeLabel = computed(() => {
+                if (manualNotificationIsOperatingDaily.value) {
+                    const source = (manualNotificationMetadata.value?.source_scopes || []).find(
+                        item => String(item?.key || '') === String(
+                            manualNotificationForm.value.source_scope || 'combined'
+                        )
+                    );
+                    const sections = Array.isArray(manualNotificationForm.value.content_sections)
+                        ? manualNotificationForm.value.content_sections
+                        : String(manualNotificationForm.value.content_sections || '')
+                            .split(',')
+                            .map(value => value.trim())
+                            .filter(Boolean);
+                    return `${source?.label || '三源汇总（兼容原计划）'} · ${sections.length} 项内容`
+                        + (manualNotificationForm.value.content_template_mode === 'custom'
+                            ? ' · 自定义模板'
+                            : '');
+                }
+                return manualNotificationTemplateCards.value.find(
+                    template => template.key === manualNotificationForm.value.template_type
+                )?.data_scope_label
+                || manualNotificationForm.value.data_scope_label
+                || '人工自定义正文';
+            });
+            const manualNotificationLatestDispatch = computed(() => (
+                manualNotificationDispatchHistory.value?.list?.[0] || null
+            ));
+            const manualNotificationSchedulePanelProps = computed(() => ({
+                metadata: manualNotificationMetadata.value,
+                form: manualNotificationForm.value,
+                robots: manualNotificationFormalRobotOptions.value,
+                dataScopeLabel: manualNotificationDataScopeLabel.value,
+                dataStatus: manualNotificationDataStatus.value,
+                latestDispatch: manualNotificationLatestDispatch.value,
+                error: manualNotificationError.value,
+            }));
+            const updateManualNotificationScheduleField = ({ field, value } = {}) => {
+                if (![
+                    'business_date',
+                    'business_date_rule',
+                    'source_scope',
+                    'content_sections',
+                    'trigger_type',
+                    'interval_minutes',
+                    'planned_send_at',
+                    'active_weekdays',
+                    'effective_from',
+                    'effective_to',
+                    'hourly_start_time',
+                    'hourly_end_time',
+                    'send_method',
+                    'target_robot_id',
+                    'enabled',
+                ].includes(field)) return;
+                if (field === 'source_scope') {
+                    const source = (manualNotificationMetadata.value?.source_scopes || []).find(
+                        item => String(item?.key || '') === String(value || 'combined')
+                    );
+                    manualNotificationForm.value.source_scope = String(value || 'combined');
+                    manualNotificationForm.value.content_sections = Array.isArray(source?.default_sections)
+                        ? [...source.default_sections]
+                        : [];
+                    manualNotificationPreview.value = null;
+                    return;
+                }
+                manualNotificationForm.value[field] = value;
+                if (field === 'target_robot_id') syncManualNotificationTargetRobot();
+                if (field === 'business_date') loadManualNotificationMetadata();
+            };
+            const manualNotificationSchedulePanelEvents = {
+                fieldChange: updateManualNotificationScheduleField,
+            };
             const manualNotificationLivePreview = computed(() => {
                 const hotel = operationHotelOptions.value.find(
                     item => String(item.id) === String(manualNotificationForm.value.hotel_id || '')
                 );
+                const payload = manualNotificationPreview.value?.payload || null;
+                const backendContent = String(
+                    payload?.text?.content || payload?.markdown?.content || ''
+                ).trim();
+                if (manualNotificationIsOperatingDaily.value && backendContent) {
+                    const lines = backendContent.split('\n');
+                    return {
+                        title: lines.shift() || '今日经营数据汇总｜PMS＋OTA',
+                        body: lines.join('\n'),
+                        status: manualNotificationDataStatus.value,
+                    };
+                }
+                if (manualNotificationIsOperatingDaily.value
+                    && manualNotificationForm.value.content_template_mode === 'common'
+                ) {
+                    return {
+                        title: '今日经营数据汇总｜PMS＋OTA',
+                        body: '通用模板将按当前门店、业务日的真实 PMS＋OTA 数据生成；点击“页面预览”读取实际发送内容。',
+                        status: manualNotificationDataStatus.value,
+                    };
+                }
                 const replacements = {
                     hotelName: String(hotel?.name || '未取得'),
                     businessDate: manualNotificationForm.value.business_date || '未取得',
@@ -22431,6 +22567,7 @@
                     <h2 class="font-semibold text-slate-900">${escapeManualNotificationTaskText(overview?.hotel?.name, '当前酒店')}自动发送任务（${Number(overview.task_count || 0)} 项）</h2>
                     <p class="mt-1 text-sm text-slate-500">${escapeManualNotificationTaskText(overview.message, '正在读取真实云端调度状态；未取得证据前不显示为运行中。')}</p>
                     <p class="mt-1 text-xs text-slate-400" data-testid="manual-notification-automatic-source">来源：${escapeManualNotificationTaskText(overview.source_label, '待核验')}</p>
+                    <p class="mt-2 text-xs text-slate-500">宿析OS内保存的计划可直接编辑；云端固定任务只展示核验状态，不会伪装成本地已修改。</p>
                 </header>`;
                 if (!tasks.length) {
                     const emptyText = manualNotificationLoading.value.metadata
@@ -22440,8 +22577,22 @@
                 }
                 const rows = tasks.map((task) => {
                     const mode = task?.delivery_mode === 'scheduled_send' ? '固定发送' : '条件触发';
+                    const notificationId = Number(task?.notification_id || 0);
+                    const editable = task?.editable === true && notificationId > 0;
+                    const action = editable
+                        ? `<button type="button" class="rounded-lg border border-[#d8c49f] bg-[#fffaf0] px-3 py-1.5 text-xs font-semibold text-[#826333] hover:border-[#ad8b52]" data-manual-notification-edit-id="${notificationId}">${escapeManualNotificationTaskText(task?.edit_label, '编辑计划')}</button>`
+                        : '<span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-500">云端固定任务</span>';
+                    const planStatus = task?.plan_status_label
+                        ? `<p class="mt-1 text-xs text-[#826333]">关联计划：${escapeManualNotificationTaskText(task.plan_status_label)}</p>`
+                        : '';
                     return `<article class="p-5 text-sm" data-testid="manual-notification-automatic-task-${escapeManualNotificationTaskText(task?.key, 'unknown')}">
-                        <p class="font-medium text-slate-900">${escapeManualNotificationTaskText(task?.name)} · ${escapeManualNotificationTaskText(task?.status_label, '状态待核验')}</p>
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div class="min-w-0">
+                                <p class="font-medium text-slate-900">${escapeManualNotificationTaskText(task?.name)} · ${escapeManualNotificationTaskText(task?.status_label, '状态待核验')}</p>
+                                ${planStatus}
+                            </div>
+                            <div class="shrink-0">${action}</div>
+                        </div>
                         <p class="mt-1 text-slate-600">${escapeManualNotificationTaskText(task?.schedule, '调度时间未取得')} · ${mode}</p>
                         <p class="mt-1 text-slate-500">${escapeManualNotificationTaskText(task?.delivery_rule, '发送条件未取得')}</p>
                         <p class="mt-2 text-xs text-slate-400">最近结果：${escapeManualNotificationTaskText(task?.last_result)} · 目标机器人：${escapeManualNotificationTaskText(task?.target_robot_name, '绑定未取得')}</p>
@@ -22450,10 +22601,42 @@
                 }).join('');
                 return `${header}<div class="divide-y divide-slate-100">${rows}</div><p class="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">最近核验：${escapeManualNotificationTaskText(overview.observed_at)}（北京时间）</p>`;
             });
+            const handleManualNotificationAutomaticTaskClick = async (event) => {
+                const trigger = event?.target?.closest?.('[data-manual-notification-edit-id]');
+                if (!trigger) return;
+                const notificationId = Number(trigger.dataset.manualNotificationEditId || 0);
+                if (notificationId <= 0) return;
+
+                let record = manualNotificationHistory.value.list.find(
+                    item => Number(item?.id || 0) === notificationId
+                );
+                if (!record) {
+                    await loadManualNotificationHistory();
+                    record = manualNotificationHistory.value.list.find(
+                        item => Number(item?.id || 0) === notificationId
+                    );
+                }
+                if (!record) {
+                    manualNotificationError.value = '没有找到该任务对应的宿析OS通知计划，已保留云端任务原状态。';
+                    showToast(manualNotificationError.value, 'warning');
+                    return;
+                }
+
+                openManualNotificationRecord(record);
+                requestAnimationFrame(() => {
+                    document.getElementById('manual-notification-editor')?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start',
+                    });
+                });
+            };
             const manualNotificationTypeLabel = (item) => (
                 item?.template_type_label
                 || item?.notification_type_label
-                || manualNotificationTemplateCards.value.find(template => template.key === item?.template_type)?.label
+                || manualNotificationTemplateCards.value.find(template => (
+                    template.key === item?.template_type
+                    || template.key === item?.notification_type
+                ))?.label
                 || '未取得'
             );
             const manualNotificationStatusText = (item) => {
@@ -22490,7 +22673,7 @@
                         hotel_id: context.hotelId,
                         business_date: context.businessDate,
                     });
-                    const selectedRobotId = String(manualNotificationForm.value.test_robot_id || '').trim();
+                    const selectedRobotId = String(manualNotificationForm.value.target_robot_id || '').trim();
                     if (selectedRobotId) params.set('robot_id', selectedRobotId);
                     const res = await apiRequest(`/manual-notifications/metadata?${params.toString()}`);
                     if (res.code !== 200) throw new Error(res.message || '通知模板读取失败');
@@ -22553,23 +22736,84 @@
             };
             const selectManualNotificationTemplate = (template) => {
                 if (!template?.key) return;
+                const isOperatingDaily = template.key === 'operating_daily_report';
+                const combinedSource = (manualNotificationMetadata.value?.source_scopes || []).find(
+                    item => item?.key === 'combined'
+                );
+                const dailyCustomTemplate = manualNotificationMetadata.value?.daily_custom_template || {};
                 manualNotificationForm.value = {
                     ...manualNotificationForm.value,
                     id: 0,
                     template_type: template.key,
                     notification_type: template.key,
-                    title: template.title || '',
-                    body: template.body || '',
-                    send_method: template.key === 'operating_target_report' ? 'wecom_test' : 'manual_preview',
+                    content_template_mode: isOperatingDaily ? 'common' : 'ordinary',
+                    source_scope: 'combined',
+                    content_sections: isOperatingDaily && Array.isArray(combinedSource?.default_sections)
+                        ? [...combinedSource.default_sections]
+                        : [],
+                    title: isOperatingDaily
+                        ? (dailyCustomTemplate.title || '今日经营数据汇总｜PMS＋OTA')
+                        : (template.title || ''),
+                    body: isOperatingDaily
+                        ? (dailyCustomTemplate.body || template.body || '')
+                        : (template.body || ''),
+                    send_method: ['operating_target_report', 'operating_daily_report'].includes(template.key)
+                        ? 'wecom_test'
+                        : 'manual_preview',
                     trigger_type: 'manual_test',
+                    interval_minutes: 60,
                     planned_send_at: '',
+                    business_date_rule: 'today',
+                    active_weekdays: [1, 2, 3, 4, 5, 6, 7],
+                    effective_from: '',
+                    effective_to: '',
+                    hourly_start_time: '09:00',
+                    hourly_end_time: '22:00',
                     target_robot_id: '',
                     target_robot_name: '',
                     enabled: false,
                     schedule_status: 'saved_only',
+                    schedule_status_label: '仅保存/仅测试',
+                    next_run_at: null,
+                    data_scope_label: template.data_scope_label || '',
                 };
                 manualNotificationPreview.value = null;
                 manualNotificationEditing.value = true;
+                manualNotificationError.value = '';
+            };
+            const selectManualNotificationContentMode = (mode) => {
+                if (!['common', 'custom'].includes(String(mode || ''))) return;
+                const dailyCustomTemplate = manualNotificationMetadata.value?.daily_custom_template || {};
+                const combinedSource = (manualNotificationMetadata.value?.source_scopes || []).find(
+                    item => item?.key === 'combined'
+                );
+                const commonTemplate = manualNotificationTemplateCards.value.find(
+                    template => template?.key === 'operating_daily_report'
+                );
+                const currentBody = String(manualNotificationForm.value.body || '');
+                const shouldInitializeCustom = !currentBody.trim()
+                    || currentBody === String(commonTemplate?.body || '');
+                manualNotificationForm.value = {
+                    ...manualNotificationForm.value,
+                    notification_type: 'operating_daily_report',
+                    template_type: mode === 'custom'
+                        ? 'operating_daily_custom_report'
+                        : 'operating_daily_report',
+                    content_template_mode: mode,
+                    ...(mode === 'custom' ? {
+                        source_scope: 'combined',
+                        content_sections: Array.isArray(combinedSource?.default_sections)
+                            ? [...combinedSource.default_sections]
+                            : [],
+                    } : {}),
+                    title: mode === 'custom' && shouldInitializeCustom
+                        ? (dailyCustomTemplate.title || '今日经营数据汇总｜PMS＋OTA')
+                        : manualNotificationForm.value.title,
+                    body: mode === 'custom' && shouldInitializeCustom
+                        ? (dailyCustomTemplate.body || '')
+                        : manualNotificationForm.value.body,
+                };
+                manualNotificationPreview.value = null;
                 manualNotificationError.value = '';
             };
             const insertManualNotificationVariable = (variable) => {
@@ -22579,6 +22823,58 @@
                 manualNotificationForm.value.body = current
                     ? `${current}${current.endsWith('\n') ? '' : '\n'}${token}`
                     : token;
+                manualNotificationPreview.value = null;
+            };
+            const applyManualNotificationRecord = (item) => {
+                if (!item) return;
+                const weekdays = Array.isArray(item.active_weekdays)
+                    ? item.active_weekdays.map(Number).filter(day => day >= 1 && day <= 7)
+                    : String(item.active_weekdays || '1,2,3,4,5,6,7')
+                        .split(',')
+                        .map(Number)
+                        .filter(day => day >= 1 && day <= 7);
+                manualNotificationForm.value = {
+                    ...manualNotificationForm.value,
+                    id: Number(item.id || 0),
+                    hotel_id: String(item.hotel_id || manualNotificationForm.value.hotel_id || ''),
+                    template_type: item.template_type || item.notification_type || 'blank_custom',
+                    notification_type: item.notification_type || item.template_type || 'blank_custom',
+                    content_template_mode: item.content_template_mode
+                        || (item.template_type === 'operating_daily_custom_report'
+                            ? 'custom'
+                            : item.template_type === 'operating_daily_report'
+                                ? 'common'
+                                : 'ordinary'),
+                    source_scope: item.source_scope || 'combined',
+                    content_sections: Array.isArray(item.content_sections)
+                        ? [...item.content_sections]
+                        : String(item.content_sections || '')
+                            .split(',')
+                            .map(value => value.trim())
+                            .filter(Boolean),
+                    business_date: item.business_date || operationToday,
+                    business_date_rule: item.business_date_rule || 'today',
+                    title: item.title || '',
+                    body: item.body || '',
+                    send_method: item.send_method || 'manual_preview',
+                    trigger_type: item.trigger_type || 'manual_test',
+                    interval_minutes: Number(item.interval_minutes || 60),
+                    target_robot_id: item.target_robot_id ? String(item.target_robot_id) : '',
+                    target_robot_name: item.target_robot_name || '',
+                    planned_send_at: item.planned_send_at
+                        ? String(item.planned_send_at).replace(' ', 'T').slice(0, 16)
+                        : '',
+                    active_weekdays: weekdays.length ? weekdays : [1, 2, 3, 4, 5, 6, 7],
+                    effective_from: item.effective_from || '',
+                    effective_to: item.effective_to || '',
+                    hourly_start_time: item.hourly_start_time || '09:00',
+                    hourly_end_time: item.hourly_end_time || '22:00',
+                    enabled: item.enabled === true,
+                    schedule_status: item.schedule_status || 'saved_only',
+                    schedule_status_label: item.schedule_status_label || '',
+                    next_run_at: item.next_run_at || null,
+                    data_scope_label: item.data_scope_label || '',
+                };
             };
             const previewManualNotification = async () => {
                 const context = manualNotificationContext();
@@ -22616,8 +22912,7 @@
                     });
                     if (res.code !== 200) throw new Error(res.message || '通知保存失败');
                     const record = res.data?.record || null;
-                    manualNotificationForm.value.id = Number(record?.id || 0);
-                    manualNotificationForm.value.schedule_status = record?.schedule_status || 'saved_only';
+                    applyManualNotificationRecord(record);
                     manualNotificationPreview.value = res.data?.preview || null;
                     await loadManualNotificationHistory();
                     showToast(
@@ -22638,25 +22933,7 @@
             };
             const openManualNotificationRecord = (item) => {
                 if (!item) return;
-                manualNotificationForm.value = {
-                    ...manualNotificationForm.value,
-                    id: Number(item.id || 0),
-                    hotel_id: String(item.hotel_id || manualNotificationForm.value.hotel_id || ''),
-                    template_type: item.template_type || item.notification_type || 'blank_custom',
-                    notification_type: item.template_type || item.notification_type || 'blank_custom',
-                    business_date: item.business_date || operationToday,
-                    title: item.title || '',
-                    body: item.body || '',
-                    send_method: item.send_method || 'manual_preview',
-                    trigger_type: item.trigger_type || 'manual_test',
-                    target_robot_id: item.target_robot_id ? String(item.target_robot_id) : '',
-                    target_robot_name: item.target_robot_name || '',
-                    planned_send_at: item.planned_send_at
-                        ? String(item.planned_send_at).replace(' ', 'T').slice(0, 16)
-                        : '',
-                    enabled: item.enabled === true,
-                    schedule_status: item.schedule_status || 'saved_only',
-                };
+                applyManualNotificationRecord(item);
                 manualNotificationPreview.value = null;
                 manualNotificationEditing.value = true;
                 manualNotificationError.value = '';
@@ -22699,6 +22976,12 @@
                     }
                     await loadManualNotificationHistory();
                     await loadManualNotificationDispatchHistory();
+                    const refreshed = manualNotificationHistory.value.list.find(
+                        record => Number(record.id || 0) === Number(item.id || 0)
+                    );
+                    if (refreshed && Number(manualNotificationForm.value.id || 0) === Number(item.id || 0)) {
+                        applyManualNotificationRecord(refreshed);
+                    }
                 } catch (error) {
                     manualNotificationError.value = operationErrorMessage(error, '测试推送失败；正式群未触发。');
                     await Promise.all([
@@ -41375,9 +41658,10 @@
                 loadDingdandaoPmsIntegration, saveDingdandaoPmsIntegration, pushDingdandaoVerifiedCapture,
                 loadMeituanCloudPmsIntegration, saveMeituanCloudPmsIntegration,
                 manualNotificationMetadata, manualNotificationForm, manualNotificationHistory, manualNotificationDispatchHistory, manualNotificationPreview, manualNotificationEditing, manualNotificationError, manualNotificationLoading,
-                manualNotificationTemplateCards, manualNotificationFormalRobotOptions, manualNotificationBodyCount, manualNotificationDataStatus, manualNotificationLivePreview, manualNotificationAutomaticTaskRows,
-                manualNotificationTypeLabel, manualNotificationStatusText, manualNotificationStatusClass, manualNotificationTestAllowed,
-                loadManualNotificationCenter, loadManualNotificationMetadata, loadManualNotificationHistory, loadManualNotificationDispatchHistory, selectManualNotificationTemplate, syncManualNotificationTargetRobot,
+                manualNotificationTemplateCards, manualNotificationFormalRobotOptions, manualNotificationBodyCount, manualNotificationIsOperatingDaily, manualNotificationContentModeOptions, manualNotificationVariableOptions, manualNotificationDataStatus, manualNotificationDataScopeLabel, manualNotificationLivePreview, manualNotificationAutomaticTaskRows,
+                manualNotificationSchedulePanelBody, manualNotificationSchedulePanelProps, manualNotificationSchedulePanelEvents,
+                manualNotificationTypeLabel, manualNotificationStatusText, manualNotificationStatusClass, manualNotificationTestAllowed, handleManualNotificationAutomaticTaskClick,
+                loadManualNotificationCenter, loadManualNotificationMetadata, loadManualNotificationHistory, loadManualNotificationDispatchHistory, selectManualNotificationTemplate, selectManualNotificationContentMode, syncManualNotificationTargetRobot,
                 insertManualNotificationVariable, previewManualNotification, saveManualNotification, openManualNotificationRecord, testManualNotification, retryManualNotificationDispatch,
                 operationEvidenceModalOpen, operationEvidenceForm, closeOperationEvidenceModal, submitOperationExecutionEvidence,
                 operationReviewModalOpen, operationReviewForm, closeOperationReviewModal, submitOperationExecutionReview,

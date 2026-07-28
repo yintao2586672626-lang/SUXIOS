@@ -37,6 +37,10 @@ test('formal installer is disabled by default and requires explicit enablement',
   assert.match(installer, /systemctl disable --now "\$TIMER_NAME"/);
   assert.match(installer, /--preview --mode=formal --limit=100/);
   assert.match(installer, /20260728_t_track_manual_notification_schedule_scopes\.sql/);
+  assert.match(installer, /20260728_w_extend_manual_notification_schedule_rules\.sql/);
+  assert.match(installer, /20260728_x_extend_manual_notification_three_source_delivery\.sql/);
+  assert.match(installer, /ManualNotificationScheduleRuleService\.php/);
+  assert.match(installer, /OperatingDailyReportPayloadService\.php/);
 });
 
 test('formal installer pins the runtime unit to the exact preflighted release', () => {
@@ -62,6 +66,11 @@ test('formal preflight validates scope without reading webhooks or sending messa
   assert.match(verifier, /'formal'/);
   assert.match(verifier, /enabled_formal_schedule_missing/);
   assert.match(verifier, /manual_notification_schedule_run_scopes/);
+  assert.match(verifier, /business_date_rule/);
+  assert.match(verifier, /hourly_end_time/);
+  assert.match(verifier, /source_scope/);
+  assert.match(verifier, /content_sections/);
+  assert.match(verifier, /interval_minutes/);
   assert.match(verifier, /'webhook_read' => false/);
   assert.match(verifier, /'message_sent' => false/);
   assert.doesNotMatch(verifier, /deliverToPlanRobot|deliverToHotel|webhook`\s*FROM/);
