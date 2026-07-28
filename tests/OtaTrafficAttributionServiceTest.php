@@ -52,6 +52,21 @@ final class OtaTrafficAttributionServiceTest extends TestCase
         ], 'meituan'));
     }
 
+    public function testCtripOwnTrafficExcludesExplicitQunarFamilyDimension(): void
+    {
+        self::assertTrue(OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic([
+            'platform' => 'ctrip',
+            'dimension' => 'realtime:ctrip',
+            'compare_type' => '',
+        ], 'ctrip'));
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic([
+            'platform' => 'ctrip',
+            'dimension' => 'realtime:qunar',
+            'compare_type' => '',
+        ], 'ctrip'));
+    }
+
     public function testP0HotelScopeIncludesSourcesBindingsAndStoredOwnTraffic(): void
     {
         self::assertSame(
