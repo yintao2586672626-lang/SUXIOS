@@ -99,6 +99,11 @@ final class SingleHotelOperatingBriefPayloadServiceTest extends TestCase
 
     private function digest(string $businessDate): SingleHotelOperatingDigestService
     {
+        $clock = new DateTimeImmutable(
+            $businessDate . ' 02:00:00',
+            new DateTimeZone('Asia/Shanghai')
+        );
+
         return new SingleHotelOperatingDigestService(
             static fn(): array => [
                 'id' => 5,
@@ -131,7 +136,8 @@ final class SingleHotelOperatingBriefPayloadServiceTest extends TestCase
             ],
             static fn(): array => ['rows' => []],
             static fn(): array => [],
-            $this->scope()
+            $this->scope(),
+            static fn(): DateTimeImmutable => $clock
         );
     }
 
