@@ -6,6 +6,7 @@ namespace Tests;
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
 use app\service\ManualNotificationTestTargetService;
+use app\service\OperatingTargetNotificationPayloadService;
 use app\service\OperatingTargetService;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -247,7 +248,8 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
                     'sent_count' => 1,
                     'failed_count' => 0,
                 ];
-            }
+            },
+            $this->integratedPayloads()
         );
         $saved = $notifications->save(
             self::TENANT_ID,
@@ -257,7 +259,11 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             $this->notificationInput($today)
         );
         self::assertSame('awaiting_test', $saved['record']['schedule_status']);
-        self::assertStringContainsString('住宿房费实际额', $saved['preview']['payload']['markdown']['content']);
+        self::assertStringContainsString('房费：10135.29元', $saved['preview']['payload']['markdown']['content']);
+        self::assertStringContainsString('PMS 住宿经营事实', $saved['preview']['payload']['markdown']['content']);
+        self::assertStringContainsString('携程｜OTA 渠道', $saved['preview']['payload']['markdown']['content']);
+        self::assertStringContainsString('美团｜OTA 渠道', $saved['preview']['payload']['markdown']['content']);
+        self::assertStringContainsString('所需均价', $saved['preview']['payload']['markdown']['content']);
 
         $test = $notifications->testPush(
             self::TENANT_ID,
@@ -292,7 +298,8 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
                     'sent_count' => 1,
                     'failed_count' => 0,
                 ];
-            }
+            },
+            $this->integratedPayloads()
         );
         $run = $scheduler->runDue(
             new DateTimeImmutable($today . ' 18:01:00', new DateTimeZone('Asia/Shanghai')),
@@ -339,7 +346,8 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             static function () use (&$calls): array {
                 $calls[] = true;
                 return ['delivery_status' => 'sent'];
-            }
+            },
+            $this->integratedPayloads()
         );
         $saved = $service->save(
             self::TENANT_ID,
@@ -390,5 +398,94 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
     {
         return (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
             ->format('Y-m-d');
+    }
+
+    private function integratedPayloads(): OperatingTargetNotificationPayloadService
+    {
+        return new OperatingTargetNotificationPayloadService(
+            null,
+            null,
+            static function (int $tenantId, int $hotelId, string $date): array {
+                return [
+                    'status' => 'ready',
+                    'hotel' => [
+                        'id' => $hotelId,
+                        'tenant_id' => $tenantId,
+                        'name' => '敦煌漠蓝新',
+                    ],
+                    'business_date' => $date,
+                    'sections' => [
+                        'today_revenue_management' => [
+                            'ota_platforms' => [
+                                'ctrip' => [
+                                    'status' => 'readback_verified',
+                                    'metrics' => [
+                                        'revenue' => 800,
+                                        'orders' => 6,
+                                        'room_nights' => 7,
+                                    ],
+                                    'source' => [
+                                        'tenant_id' => $tenantId,
+                                        'system_hotel_id' => $hotelId,
+                                        'data_date' => $date,
+                                        'platform' => 'ctrip',
+                                        'readback_verified' => true,
+                                        'collected_at' => $date . ' 12:01:00',
+                                    ],
+                                ],
+                                'meituan' => [
+                                    'status' => 'readback_verified',
+                                    'metrics' => [
+                                        'revenue' => 500,
+                                        'orders' => 4,
+                                        'room_nights' => 5,
+                                    ],
+                                    'source' => [
+                                        'tenant_id' => $tenantId,
+                                        'system_hotel_id' => $hotelId,
+                                        'data_date' => $date,
+                                        'platform' => 'meituan',
+                                        'readback_verified' => true,
+                                        'collected_at' => $date . ' 12:02:00',
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ];
+            },
+            static function (int $tenantId, int $hotelId, string $date): array {
+                $row = Db::name('operating_target_daily_records')
+                    ->where('tenant_id', $tenantId)
+                    ->where('hotel_id', $hotelId)
+                    ->where('target_date', $date)
+                    ->find();
+                $reference = (string)($row['source_reference'] ?? '');
+                preg_match('/capture:(\d+)\s*$/', $reference, $match);
+                return [
+                    'status' => 'verified',
+                    'id' => (int)($match[1] ?? 0),
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'provider' => 'dingdandao_pms',
+                    'identity_status' => 'matched',
+                    'reconciliation_status' => 'matched',
+                    'capture_status' => 'verified',
+                    'quality_status' => 'verified',
+                    'readback_status' => 'readback_verified',
+                    'business_date' => $date,
+                    'captured_at' => (string)($row['fact_captured_at'] ?? $date . ' 12:00:00'),
+                    'summary' => [
+                        'total_room_fee' => $row['actual_revenue'] ?? null,
+                        'adr' => 633.46,
+                        'occupancy_rate_percent' => 100,
+                        'revpar' => 633.46,
+                        'sold_room_nights' => $row['sold_room_nights'] ?? null,
+                        'average_daily_room_nights' => $row['sold_room_nights'] ?? null,
+                        'derived_sellable_room_nights' => $row['sellable_room_nights'] ?? null,
+                    ],
+                ];
+            }
+        );
     }
 }

@@ -362,6 +362,10 @@ final class OperatingTargetReportGateService
                 'message' => '已售间夜大于可售房夜，事实口径冲突。',
             ];
         }
+        array_push(
+            $blockers,
+            ...$this->integratedSourceBlockers($operatingTargetPreview)
+        );
 
         if ($gaps !== []) {
             $blockers[] = [
@@ -401,6 +405,19 @@ final class OperatingTargetReportGateService
         $report = $this->mapToDailyReport($preview);
         $payload = ($this->renderer ?? new WechatRobotDeliveryService())
             ->buildDailyReportPayload($report, $hotelName);
+        $integrated = is_array($preview['integrated_sources'] ?? null)
+            ? $preview['integrated_sources']
+            : [];
+        if ($integrated !== []) {
+            $payload['markdown']['content'] = $this->renderIntegratedContent(
+                $preview,
+                $hotelName,
+                $mode,
+                $formalGate,
+                $integrated
+            );
+            return $payload;
+        }
         $content = (string)($payload['markdown']['content'] ?? '');
         $lines = explode("\n", $content);
         if ($lines === []) {
@@ -685,6 +702,9 @@ final class OperatingTargetReportGateService
             'reminders' => is_array($preview['reminders'] ?? null)
                 ? array_values($preview['reminders'])
                 : [],
+            'integrated_sources' => is_array($preview['integrated_sources'] ?? null)
+                ? $preview['integrated_sources']
+                : null,
         ];
         $encoded = json_encode(
             $canonical,
@@ -692,6 +712,201 @@ final class OperatingTargetReportGateService
         );
 
         return hash('sha256', $encoded === false ? '' : $encoded);
+    }
+
+    /**
+     * @param array<string,mixed> $preview
+     * @return array<int,array{code:string,message:string}>
+     */
+    private function integratedSourceBlockers(array $preview): array
+    {
+        $integrated = is_array($preview['integrated_sources'] ?? null)
+            ? $preview['integrated_sources']
+            : [];
+        if (($integrated['required_for_delivery'] ?? false) !== true) {
+            return [];
+        }
+        $blockers = [];
+        if (
+            (string)($integrated['contract_version'] ?? '')
+            !== OperatingTargetNotificationPayloadService::INTEGRATED_CONTRACT_VERSION
+        ) {
+            $blockers[] = [
+                'code' => 'integrated_digest_contract_invalid',
+                'message' => '单店综合日报契约缺失或版本不匹配。',
+            ];
+        }
+        if (
+            (int)($integrated['hotel_id'] ?? 0) !== (int)($preview['hotel_id'] ?? 0)
+            || (string)($integrated['business_date'] ?? '')
+                !== (string)($preview['target_date'] ?? '')
+        ) {
+            $blockers[] = [
+                'code' => 'integrated_digest_scope_mismatch',
+                'message' => '综合日报的酒店或经营日期与经营目标不一致。',
+            ];
+        }
+        $pms = is_array($integrated['pms'] ?? null) ? $integrated['pms'] : [];
+        if (($pms['status'] ?? '') !== 'verified') {
+            $blockers[] = [
+                'code' => 'integrated_pms_not_verified',
+                'message' => '订单来了 PMS 住宿事实尚未完成身份、日期、对账及回读验证。',
+            ];
+        }
+        $ota = is_array($integrated['ota_channel'] ?? null)
+            ? $integrated['ota_channel']
+            : [];
+        $platforms = is_array($ota['platforms'] ?? null) ? $ota['platforms'] : [];
+        foreach (['ctrip' => '携程', 'meituan' => '美团'] as $platform => $label) {
+            $row = is_array($platforms[$platform] ?? null)
+                ? $platforms[$platform]
+                : [];
+            if (($row['status'] ?? '') !== 'readback_verified') {
+                $blockers[] = [
+                    'code' => 'integrated_' . $platform . '_not_verified',
+                    'message' => $label . '同店同日 OTA 事实尚未完成数据库回读验证。',
+                ];
+            }
+        }
+
+        return $blockers;
+    }
+
+    /**
+     * @param array<string,mixed> $preview
+     * @param array<string,mixed> $formalGate
+     * @param array<string,mixed> $integrated
+     */
+    private function renderIntegratedContent(
+        array $preview,
+        string $hotelName,
+        string $mode,
+        array $formalGate,
+        array $integrated
+    ): string {
+        $modeLabel = match ($mode) {
+            'authorized_test' => '授权测试推送',
+            'immediate_test' => '企业微信测试群立即真实投递',
+            'scheduled_test' => '企业微信测试群定时真实投递',
+            default => '页面预览，未触发外部发送',
+        };
+        $formalAllowed = ($formalGate['allowed'] ?? false) === true;
+        $facts = is_array($preview['facts'] ?? null) ? $preview['facts'] : [];
+        $metrics = is_array($preview['metrics'] ?? null) ? $preview['metrics'] : [];
+        $pms = is_array($integrated['pms'] ?? null) ? $integrated['pms'] : [];
+        $pmsMetrics = is_array($pms['metrics'] ?? null) ? $pms['metrics'] : [];
+        $ota = is_array($integrated['ota_channel'] ?? null)
+            ? $integrated['ota_channel']
+            : [];
+        $platforms = is_array($ota['platforms'] ?? null) ? $ota['platforms'] : [];
+        $lines = [
+            '# 宿析OS｜' . $this->safeText($hotelName, 80) . '经营日报',
+            '> 当前模式：' . $modeLabel,
+            '> 经营日期：' . $this->safeText((string)($preview['target_date'] ?? ''), 24),
+            '> 综合门禁：' . ($formalAllowed ? '通过' : '阻断'),
+            '> 口径：订单来了为 PMS 住宿房费；携程、美团为各自 OTA 渠道。',
+            '',
+            '**PMS 住宿经营事实**',
+            '- 房费：' . $this->metricText($pmsMetrics['total_room_fee'] ?? null, '元')
+                . '｜已售/可售：'
+                . $this->metricText($pmsMetrics['sold_room_nights'] ?? null, '间夜')
+                . '/'
+                . $this->metricText($pmsMetrics['sellable_room_nights'] ?? null, '间夜'),
+            '- 入住率：' . $this->metricText($pmsMetrics['occupancy_rate_percent'] ?? null, '%')
+                . '｜ADR：' . $this->metricText($pmsMetrics['adr'] ?? null, '元')
+                . '｜RevPAR：' . $this->metricText($pmsMetrics['revpar'] ?? null, '元'),
+            '- 平均每日间夜：'
+                . $this->metricText($pmsMetrics['average_daily_room_nights'] ?? null, '间夜')
+                . '｜状态：' . $this->sourceStatusLabel((string)($pms['status'] ?? 'missing')),
+            '- 来源：' . $this->safeText(
+                (string)($pms['source_reference'] ?? '未取得'),
+                120
+            ) . '｜采集：'
+                . $this->safeText((string)($pms['captured_at'] ?? '未取得'), 32),
+            '',
+            '**经营目标**',
+            '- 目标：' . $this->metricText($facts['target_revenue'] ?? null, '元')
+                . '｜完成：' . $this->metricText($facts['actual_revenue'] ?? null, '元')
+                . '｜完成率：' . $this->metricText(
+                    $metrics['completion_rate_percent'] ?? null,
+                    '%'
+                ),
+            '- 剩余目标：' . $this->metricText($metrics['remaining_revenue'] ?? null, '元')
+                . '｜销售进度：' . $this->metricText(
+                    $metrics['selling_progress_percent'] ?? null,
+                    '%'
+                ),
+            '- 剩余可售：' . $this->metricText(
+                $metrics['remaining_sellable_room_nights'] ?? null,
+                '间夜'
+            ) . '｜所需均价：' . $this->metricText(
+                $metrics['required_average_rate'] ?? null,
+                '元'
+            ),
+        ];
+        foreach (['ctrip' => '携程', 'meituan' => '美团'] as $platform => $label) {
+            $row = is_array($platforms[$platform] ?? null)
+                ? $platforms[$platform]
+                : [];
+            $platformMetrics = is_array($row['metrics'] ?? null) ? $row['metrics'] : [];
+            $lines[] = '';
+            $lines[] = '**' . $label . '｜OTA 渠道**';
+            $lines[] = '- 渠道收入：'
+                . $this->metricText($platformMetrics['revenue'] ?? null, '元')
+                . '｜订单：' . $this->metricText($platformMetrics['orders'] ?? null, '单')
+                . '｜间夜：'
+                . $this->metricText($platformMetrics['room_nights'] ?? null, '间夜');
+            $lines[] = '- 状态：'
+                . $this->sourceStatusLabel((string)($row['status'] ?? 'missing'))
+                . '｜采集：'
+                . $this->safeText((string)($row['collected_at'] ?? '未取得'), 32);
+        }
+
+        $gaps = array_merge(
+            array_values(array_filter((array)($preview['gaps'] ?? []), 'is_array')),
+            array_values(array_filter((array)($integrated['gaps'] ?? []), 'is_array'))
+        );
+        if ($gaps !== []) {
+            $lines[] = '';
+            $lines[] = '**数据缺口（不以 0 或旧数据代替）**';
+            foreach (array_slice($gaps, 0, 4) as $gap) {
+                $lines[] = '- ' . $this->safeText(
+                    (string)($gap['message'] ?? $gap['code'] ?? '数据缺失'),
+                    72
+                );
+            }
+        }
+        $lines[] = '';
+        $lines[] = '> OTA 只代表对应渠道；PMS 当前只代表住宿房费口径。';
+        if (!$formalAllowed) {
+            $lines[] = '> 当前只可预览，禁止调用企业微信测试群发送器。';
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function metricText(mixed $value, string $unit): string
+    {
+        $number = $this->finiteNumber($value);
+        if ($number === null) {
+            return '未取得';
+        }
+        $formatted = floor($number) === $number
+            ? number_format($number, 0, '.', '')
+            : number_format($number, 2, '.', '');
+        return $formatted . $unit;
+    }
+
+    private function sourceStatusLabel(string $status): string
+    {
+        return match (strtolower(trim($status))) {
+            'verified', 'readback_verified' => '已验证并回读',
+            'partial', 'partial_readback_verified', 'metric_missing' => '部分可用',
+            'pending_readback' => '待回读验证',
+            'collection_failed', 'read_failed' => '采集/读取失败',
+            'identity_mismatch', 'target_fact_mismatch', 'blocked' => '身份或事实不匹配',
+            default => '缺失',
+        };
     }
 
     /**

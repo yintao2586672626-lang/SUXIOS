@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   EncryptedProfileVault,
+  GATEWAY_BUILD_SHA256,
   ReceiptChain,
   createGateway,
   decodeMasterKey,
@@ -44,6 +45,10 @@ test('gateway health starts on loopback without starting a browser', async () =>
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       status: 'ok',
+      protocol_version: 'suxios_cloud_browser_gateway.v2',
+      build_sha256: GATEWAY_BUILD_SHA256,
+      active_release_gateway_sha256: GATEWAY_BUILD_SHA256,
+      active_release_build_match: true,
       bind: '127.0.0.1',
       encrypted_profile_store: true,
       receipt_chain_valid: true,
@@ -55,6 +60,1013 @@ test('gateway health starts on loopback without starting a browser', async () =>
       browser_autostart: false,
       read_only_policy_runtime: typeof globalThis.WebSocket === 'function',
     });
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('gateway blocks every business route when opt build differs from active release', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-cloud-gateway-build-'));
+  let server;
+  let bridgeCalls = 0;
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    const activeGatewayPath = join(root, 'active-gateway.mjs');
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, 't'.repeat(48));
+    await writeFile(activeGatewayPath, '// intentionally different build\n');
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN:
+        join(root, 'receipts', 'chain.jsonl'),
+      SUXIOS_CLOUD_BROWSER_ACTIVE_GATEWAY_PATH: activeGatewayPath,
+    }, {
+      bridge: async () => {
+        bridgeCalls += 1;
+        throw new Error('bridge_must_not_run');
+      },
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const healthResponse = await fetch(`${base}/health`);
+    assert.equal(healthResponse.status, 503);
+    const health = await healthResponse.json();
+    assert.equal(health.status, 'blocked');
+    assert.equal(health.active_release_build_match, false);
+    assert.equal(health.build_sha256, GATEWAY_BUILD_SHA256);
+
+    const businessResponse = await fetch(`${base}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile_id: 'cbp_build_mismatch_123456789',
+        session_id: 'cbls_build_mismatch_123456789',
+        ticket: 'a'.repeat(48),
+        platform: 'dingdandao',
+      }),
+    });
+    assert.equal(businessResponse.status, 503);
+    assert.equal(
+      (await businessResponse.json()).reason,
+      'gateway_active_release_build_mismatch',
+    );
+    assert.equal(bridgeCalls, 0);
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Dingdandao login stays pending until exact identity is verified, then seals only its owned browser', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-cloud-login-life-'));
+  let server;
+  let identityAllowed = false;
+  let stopCount = 0;
+  const calls = [];
+  const profileId = 'cbp_login_profile_123456789';
+  const sessionId = 'cbls_login_session_123456789';
+  const ticket = 'a'.repeat(48);
+  const controlToken = 't'.repeat(48);
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, controlToken);
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: join(root, 'receipts', 'chain.jsonl'),
+    }, {
+      bridge: async (action, payload) => {
+        calls.push([action, payload]);
+        if (action === 'validate_login') {
+          return {
+            profile: {
+              profile_id: profileId,
+              hotel_id: 5,
+              platform: 'dingdandao',
+              authorization_status: 'awaiting_login',
+            },
+            login_entry: {
+              session_id: sessionId,
+              validated: true,
+              consumed: false,
+            },
+          };
+        }
+        if (action === 'verify_dingdandao_login_identity') {
+          if (!identityAllowed) throw new Error('identity_not_logged_in');
+          return {
+            validated: true,
+            profile_id: profileId,
+            session_id: sessionId,
+            platform: 'dingdandao',
+            hotel_id: 5,
+            provider_hotel_name: '敦煌漠蓝',
+            identity_status: 'matched',
+            source_api_path: '/v2/ntw/web/ntw/get',
+            capture_method: 'network_response',
+            request_count: 1,
+            captured_at: '2026-07-27T12:00:00.000Z',
+            binding_persisted: false,
+            session_material_exposed: false,
+            raw_response_exposed: false,
+            user_tabs_closed: false,
+          };
+        }
+        if (action === 'complete_login') {
+          return {
+            profile_id: profileId,
+            authorization_status: 'login_verified',
+            session_expires_at: payload.session_expires_at,
+          };
+        }
+        if (action === 'login_status') {
+          return {
+            profile_id: profileId,
+            session_id: sessionId,
+            platform: 'dingdandao',
+            status: 'login_verified',
+            login_session_status: 'verified',
+            authorization_status: 'login_verified',
+            expires_at: '2026-07-28 12:00:00',
+            identity_verified: true,
+            profile_encrypted_at_rest: true,
+            terminal: true,
+            sensitive_values_exposed: false,
+          };
+        }
+        throw new Error('unexpected_bridge_action');
+      },
+      startBrowser: async () => ({ pid: 12345, exitCode: null }),
+      waitForBrowserPage: async () => ({
+        type: 'page',
+        webSocketDebuggerUrl: 'ws://127.0.0.1/login-page',
+      }),
+      stopBrowser: async () => {
+        stopCount += 1;
+      },
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const loginBody = {
+      profile_id: profileId,
+      session_id: sessionId,
+      ticket,
+      platform: 'dingdandao',
+    };
+    const openResponse = await fetch(`${baseUrl}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(loginBody),
+    });
+    assert.equal(openResponse.status, 201);
+    const opened = await openResponse.json();
+    assert.equal(opened.status, 'awaiting_login');
+    assert.equal(
+      opened.protocol_version,
+      'suxios_cloud_browser_gateway.v2',
+    );
+    assert.equal(opened.platform, 'dingdandao');
+    assert.equal(opened.browser_started, true);
+    assert.equal(opened.owned_browser_only, true);
+    assert.equal(opened.user_browser_closed, false);
+
+    const unauthorizedStatus = await fetch(`${baseUrl}/v1/login/status`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(loginBody),
+    });
+    assert.equal(unauthorizedStatus.status, 401);
+
+    const statusResponse = await fetch(`${baseUrl}/v1/login/status`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${controlToken}`,
+      },
+      body: JSON.stringify(loginBody),
+    });
+    assert.equal(statusResponse.status, 200);
+    const active = await statusResponse.json();
+    assert.equal(active.status, 'awaiting_login');
+    assert.equal(active.browser_started, true);
+    assert.equal(active.identity_verified, false);
+    assert.equal(active.sensitive_values_exposed, false);
+
+    const blockedCompletion = await fetch(`${baseUrl}/v1/login/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${controlToken}`,
+      },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        platform: 'dingdandao',
+      }),
+    });
+    assert.equal(blockedCompletion.status, 422);
+    assert.equal(
+      (await blockedCompletion.json()).reason,
+      'dingdandao_login_identity_unverified',
+    );
+    assert.equal(stopCount, 0);
+
+    identityAllowed = true;
+    const completeResponse = await fetch(`${baseUrl}/v1/login/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${controlToken}`,
+      },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        platform: 'dingdandao',
+      }),
+    });
+    assert.equal(completeResponse.status, 200);
+    const completed = await completeResponse.json();
+    assert.equal(completed.status, 'login_verified');
+    assert.equal(completed.binding_required, true);
+    assert.equal(completed.identity_verified, true);
+    assert.equal(completed.owned_browser_closed, true);
+    assert.equal(completed.user_browser_closed, false);
+    assert.equal(completed.profile_encrypted_at_rest, true);
+    assert.equal(completed.sensitive_values_exposed, false);
+    assert.equal(stopCount, 1);
+    await access(join(root, 'profiles', `${profileId}.tar.gz.enc`));
+    await assert.rejects(
+      access(join(root, 'runtime', profileId)),
+      (error) => error?.code === 'ENOENT',
+    );
+
+    const terminalStatusResponse = await fetch(
+      `${baseUrl}/v1/login/status`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${controlToken}`,
+        },
+        body: JSON.stringify(loginBody),
+      },
+    );
+    assert.equal(terminalStatusResponse.status, 200);
+    const terminalStatus = await terminalStatusResponse.json();
+    assert.equal(terminalStatus.status, 'login_verified');
+    assert.equal(terminalStatus.browser_started, false);
+    assert.equal(terminalStatus.terminal, true);
+    assert.equal(terminalStatus.binding_required, true);
+    assert.equal(terminalStatus.receipt_id, completed.receipt_id);
+
+    const replay = await fetch(`${baseUrl}/v1/login/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${controlToken}`,
+      },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        platform: 'dingdandao',
+      }),
+    });
+    assert.equal(replay.status, 200);
+    const replayed = await replay.json();
+    assert.equal(replayed.status, 'login_verified');
+    assert.equal(replayed.idempotent_replay, true);
+    assert.equal(replayed.binding_required, true);
+    const actions = calls.map(([action]) => action);
+    assert.deepEqual(actions, [
+      'validate_login',
+      'verify_dingdandao_login_identity',
+      'verify_dingdandao_login_identity',
+      'complete_login',
+      'login_status',
+      'login_status',
+    ]);
+    const receipts = await gateway.receipts.records();
+    assert.equal(receipts.at(-1)?.kind, 'login_identity_verified');
+    assert.equal(
+      receipts.at(-1)?.payload?.identity_source_api_path,
+      '/v2/ntw/web/ntw/get',
+    );
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('durable prepared receipt recovers one terminal receipt after restart and READY replays it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-login-restart-recovery-'));
+  let server;
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    const receiptPath = join(root, 'receipts', 'chain.jsonl');
+    const token = 't'.repeat(48);
+    const profileId = 'cbp_restart_profile_123456789';
+    const sessionId = 'cbls_restart_session_123456789';
+    const expiresAt = '2026-07-28 10:00:00';
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, token);
+    const chain = new ReceiptChain(receiptPath);
+    const prepared = await chain.append('login_completion_prepared', {
+      profile_id: profileId,
+      session_id: sessionId,
+      platform: 'dingdandao',
+      authorization_status: 'login_verified',
+      encrypted_at_rest: true,
+      identity_verified: true,
+      identity_status: 'matched',
+      identity_source_api_path: '/v2/ntw/web/ntw/get',
+      session_expires_at: expiresAt,
+      binding_required: true,
+      gateway_build_sha256: GATEWAY_BUILD_SHA256,
+    });
+    let ready = false;
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: receiptPath,
+    }, {
+      bridge: async (action) => {
+        assert.equal(action, 'login_status');
+        return {
+          profile_id: profileId,
+          session_id: sessionId,
+          platform: 'dingdandao',
+          status: ready ? 'ready_to_collect' : 'login_verified',
+          login_session_status: 'verified',
+          authorization_status: ready
+            ? 'ready_to_collect'
+            : 'login_verified',
+          expires_at: expiresAt,
+          identity_verified: true,
+          profile_encrypted_at_rest: true,
+          terminal: true,
+          sensitive_values_exposed: false,
+        };
+      },
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const request = () => fetch(`${base}/v1/login/complete`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        platform: 'dingdandao',
+      }),
+    });
+    const recoveredResponse = await request();
+    assert.equal(recoveredResponse.status, 200);
+    const recovered = await recoveredResponse.json();
+    assert.equal(recovered.status, 'login_verified');
+    assert.equal(recovered.binding_required, true);
+    const recoveredReceiptId = recovered.receipt_id;
+
+    ready = true;
+    const readyResponse = await request();
+    assert.equal(readyResponse.status, 200);
+    const readyReplay = await readyResponse.json();
+    assert.equal(readyReplay.status, 'ready_to_collect');
+    assert.equal(readyReplay.binding_required, false);
+    assert.equal(readyReplay.receipt_id, recoveredReceiptId);
+    const records = await chain.records();
+    const terminal = records.filter(
+      (record) => record.kind === 'login_identity_verified',
+    );
+    assert.equal(terminal.length, 1);
+    assert.equal(
+      terminal[0].payload.prepared_receipt_id,
+      prepared.receipt_id,
+    );
+    assert.equal(
+      terminal[0].payload.prepared_receipt_hash,
+      prepared.receipt_hash,
+    );
+    assert.equal(terminal[0].payload.recovered_from_durable_state, true);
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('login browser start failure seals the restored Profile, expires DB state, and leaves no active session', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-cloud-login-fail-'));
+  let server;
+  const profileId = 'cbp_login_failure_123456789';
+  const sessionId = 'cbls_login_failure_123456789';
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, 't'.repeat(48));
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: join(root, 'receipts', 'chain.jsonl'),
+    }, {
+      bridge: async (action, payload) => {
+        if (action === 'validate_login') {
+          return {
+            profile: {
+              profile_id: profileId,
+              hotel_id: 5,
+              platform: 'dingdandao',
+              authorization_status: 'awaiting_login',
+            },
+            login_entry: {
+              session_id: sessionId,
+              validated: true,
+              consumed: false,
+            },
+          };
+        }
+        if (action === 'expire_login') {
+          assert.equal(payload.reason, 'gateway_login_open_failed');
+          return {
+            profile_id: profileId,
+            authorization_status: 'session_expired',
+          };
+        }
+        throw new Error('unexpected_bridge_action');
+      },
+      startBrowser: async () => {
+        throw new Error('browser_spawn_failed');
+      },
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const response = await fetch(`${baseUrl}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        ticket: 'a'.repeat(48),
+        platform: 'dingdandao',
+      }),
+    });
+    assert.equal(response.status, 422);
+    assert.equal((await response.json()).reason, 'browser_spawn_failed');
+    await access(join(root, 'profiles', `${profileId}.tar.gz.enc`));
+    await assert.rejects(
+      access(join(root, 'runtime', profileId)),
+      (error) => error?.code === 'ENOENT',
+    );
+    const health = await fetch(`${baseUrl}/health`).then((result) => result.json());
+    assert.equal(health.active_login_sessions, 0);
+    assert.equal(health.active_browser_sessions, 0);
+    const receipts = await gateway.receipts.records();
+    assert.equal(receipts.at(-1)?.kind, 'login_open_failed');
+    assert.equal(
+      receipts.at(-1)?.payload?.profile_encrypted_at_rest,
+      true,
+    );
+    assert.equal(
+      receipts.at(-1)?.payload?.database_login_expired,
+      true,
+    );
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('login open waits for CDP readiness and compensates a spawned-but-unready browser', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-cloud-login-cdp-fail-'));
+  let server;
+  let stopCount = 0;
+  let expiryCount = 0;
+  const profileId = 'cbp_login_cdp_failure_123456';
+  const sessionId = 'cbls_login_cdp_failure_123456';
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, 't'.repeat(48));
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN:
+        join(root, 'receipts', 'chain.jsonl'),
+    }, {
+      bridge: async (action, payload) => {
+        if (action === 'validate_login') {
+          return {
+            profile: {
+              profile_id: profileId,
+              platform: 'dingdandao',
+              authorization_status: 'awaiting_login',
+            },
+            login_entry: {
+              session_id: sessionId,
+              validated: true,
+              consumed: false,
+            },
+          };
+        }
+        if (action === 'expire_login') {
+          expiryCount += 1;
+          assert.equal(payload.reason, 'gateway_login_open_failed');
+          return {
+            profile_id: profileId,
+            authorization_status: 'session_expired',
+          };
+        }
+        throw new Error('unexpected_bridge_action');
+      },
+      startBrowser: async () => ({ pid: 34567, exitCode: null }),
+      waitForBrowserPage: async () => {
+        throw new Error('browser_cdp_not_ready');
+      },
+      stopBrowser: async () => {
+        stopCount += 1;
+      },
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const response = await fetch(`${baseUrl}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        ticket: 'a'.repeat(48),
+        platform: 'dingdandao',
+      }),
+    });
+    assert.equal(response.status, 422);
+    assert.equal((await response.json()).reason, 'browser_cdp_not_ready');
+    assert.equal(stopCount, 1);
+    assert.equal(expiryCount, 1);
+    const health = await fetch(`${baseUrl}/health`)
+      .then((result) => result.json());
+    assert.equal(health.active_login_sessions, 0);
+    assert.equal(health.active_browser_sessions, 0);
+    const receipts = await gateway.receipts.records();
+    assert.equal(receipts.at(-1)?.kind, 'login_open_failed');
+    assert.equal(
+      receipts.at(-1)?.payload?.database_login_expired,
+      true,
+    );
+  } finally {
+    if (server) {
+      await new Promise((resolvePromise) => server.close(resolvePromise));
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('login timeout seals the owned browser and durably expires the gateway session', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-cloud-login-timeout-'));
+  let server;
+  let timeoutCallback;
+  let stopCount = 0;
+  const actions = [];
+  const profileId = 'cbp_login_timeout_123456789';
+  const sessionId = 'cbls_login_timeout_123456789';
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, 't'.repeat(48));
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: join(root, 'receipts', 'chain.jsonl'),
+    }, {
+      bridge: async (action, payload) => {
+        actions.push(action);
+        if (action === 'validate_login') {
+          return {
+            profile: {
+              profile_id: profileId,
+              hotel_id: 5,
+              platform: 'dingdandao',
+              authorization_status: 'awaiting_login',
+            },
+            login_entry: {
+              session_id: sessionId,
+              validated: true,
+              consumed: false,
+            },
+          };
+        }
+        if (action === 'expire_login') {
+          assert.equal(payload.reason, 'gateway_login_timeout');
+          return {
+            profile_id: profileId,
+            authorization_status: 'session_expired',
+          };
+        }
+        throw new Error('unexpected_bridge_action');
+      },
+      startBrowser: async () => ({ pid: 23456, exitCode: null }),
+      waitForBrowserPage: async () => ({
+        type: 'page',
+        webSocketDebuggerUrl: 'ws://127.0.0.1/login-page',
+      }),
+      stopBrowser: async () => {
+        stopCount += 1;
+      },
+      setLoginTimeout: (callback) => {
+        timeoutCallback = callback;
+        return { unref() {} };
+      },
+      clearLoginTimeout: () => undefined,
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const response = await fetch(`${baseUrl}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        ticket: 'a'.repeat(48),
+        platform: 'dingdandao',
+      }),
+    });
+    assert.equal(response.status, 201);
+    assert.equal(typeof timeoutCallback, 'function');
+    await timeoutCallback();
+    assert.equal(stopCount, 1);
+    assert.deepEqual(actions, ['validate_login', 'expire_login']);
+    await access(join(root, 'profiles', `${profileId}.tar.gz.enc`));
+    await assert.rejects(
+      access(join(root, 'runtime', profileId)),
+      (error) => error?.code === 'ENOENT',
+    );
+    const health = await fetch(`${baseUrl}/health`).then((result) => result.json());
+    assert.equal(health.active_login_sessions, 0);
+    assert.equal(health.active_browser_sessions, 0);
+    const receipts = await gateway.receipts.records();
+    assert.equal(receipts.at(-1)?.kind, 'login_timeout');
+    assert.equal(
+      receipts.at(-1)?.payload?.status,
+      'session_expired',
+    );
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('concurrent login completes and timeout share one finalization and seal exactly once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-cloud-login-race-'));
+  let server;
+  let timeoutCallback;
+  let stopCount = 0;
+  let identityCalls = 0;
+  let completionCalls = 0;
+  let expiryCalls = 0;
+  let releaseIdentity;
+  let identityStartedResolve;
+  const identityGate = new Promise((resolvePromise) => {
+    releaseIdentity = resolvePromise;
+  });
+  const identityStarted = new Promise((resolvePromise) => {
+    identityStartedResolve = resolvePromise;
+  });
+  const profileId = 'cbp_login_race_profile_123456';
+  const sessionId = 'cbls_login_race_session_123456';
+  const controlToken = 't'.repeat(48);
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, controlToken);
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN:
+        join(root, 'receipts', 'chain.jsonl'),
+    }, {
+      bridge: async (action, payload) => {
+        if (action === 'validate_login') {
+          return {
+            profile: {
+              profile_id: profileId,
+              platform: 'dingdandao',
+              authorization_status: 'awaiting_login',
+            },
+            login_entry: {
+              session_id: sessionId,
+              validated: true,
+              consumed: false,
+            },
+          };
+        }
+        if (action === 'verify_dingdandao_login_identity') {
+          identityCalls += 1;
+          identityStartedResolve();
+          await identityGate;
+          return {
+            validated: true,
+            profile_id: profileId,
+            session_id: sessionId,
+            platform: 'dingdandao',
+            hotel_id: 5,
+            provider_hotel_name: '敦煌漠蓝',
+            identity_status: 'matched',
+            source_api_path: '/v2/ntw/web/ntw/get',
+            capture_method: 'network_response',
+            request_count: 1,
+            captured_at: '2026-07-27T12:00:00.000Z',
+            binding_persisted: false,
+            session_material_exposed: false,
+            raw_response_exposed: false,
+            user_tabs_closed: false,
+          };
+        }
+        if (action === 'complete_login') {
+          completionCalls += 1;
+          return {
+            profile_id: profileId,
+            authorization_status: 'login_verified',
+            session_expires_at: payload.session_expires_at,
+          };
+        }
+        if (action === 'expire_login') {
+          expiryCalls += 1;
+          return {
+            profile_id: profileId,
+            authorization_status: 'session_expired',
+          };
+        }
+        throw new Error('unexpected_bridge_action');
+      },
+      startBrowser: async () => ({ pid: 45678, exitCode: null }),
+      waitForBrowserPage: async () => ({
+        type: 'page',
+        webSocketDebuggerUrl: 'ws://127.0.0.1/login-page',
+      }),
+      stopBrowser: async () => {
+        stopCount += 1;
+      },
+      setLoginTimeout: (callback) => {
+        timeoutCallback = callback;
+        return { unref() {} };
+      },
+      clearLoginTimeout: () => undefined,
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const loginBody = {
+      profile_id: profileId,
+      session_id: sessionId,
+      ticket: 'a'.repeat(48),
+      platform: 'dingdandao',
+    };
+    const opened = await fetch(`${baseUrl}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(loginBody),
+    });
+    assert.equal(opened.status, 201);
+    const completeRequest = () => fetch(`${baseUrl}/v1/login/complete`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${controlToken}`,
+      },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        platform: 'dingdandao',
+      }),
+    });
+    const firstComplete = completeRequest();
+    await identityStarted;
+    const secondComplete = completeRequest();
+    const timeoutRace = timeoutCallback();
+    releaseIdentity();
+    const [firstResponse, secondResponse] = await Promise.all([
+      firstComplete,
+      secondComplete,
+      timeoutRace,
+    ]).then(([first, second]) => [first, second]);
+    assert.equal(firstResponse.status, 200);
+    assert.equal(secondResponse.status, 200);
+    assert.equal((await firstResponse.json()).status, 'login_verified');
+    assert.equal((await secondResponse.json()).status, 'login_verified');
+    assert.equal(identityCalls, 1);
+    assert.equal(completionCalls, 1);
+    assert.equal(expiryCalls, 0);
+    assert.equal(stopCount, 1);
+    const receipts = await gateway.receipts.records();
+    assert.equal(
+      receipts.filter((receipt) =>
+        receipt.kind === 'login_identity_verified').length,
+      1,
+    );
+  } finally {
+    if (server) {
+      await new Promise((resolvePromise) => server.close(resolvePromise));
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('failed identity completion releases the waiting timeout to expire and seal once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-login-failed-race-'));
+  let server;
+  let timeoutCallback;
+  let releaseIdentity;
+  let identityStartedResolve;
+  let stopCalls = 0;
+  let expiryCalls = 0;
+  const identityStarted = new Promise((resolvePromise) => {
+    identityStartedResolve = resolvePromise;
+  });
+  const identityGate = new Promise((resolvePromise) => {
+    releaseIdentity = resolvePromise;
+  });
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    const receiptPath = join(root, 'receipts', 'chain.jsonl');
+    const token = 't'.repeat(48);
+    const profileId = 'cbp_failed_race_profile_123456';
+    const sessionId = 'cbls_failed_race_session_123456';
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, token);
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: receiptPath,
+    }, {
+      bridge: async (action) => {
+        if (action === 'validate_login') {
+          return {
+            profile: {
+              profile_id: profileId,
+              platform: 'dingdandao',
+              authorization_status: 'awaiting_login',
+            },
+            login_entry: {
+              session_id: sessionId,
+              validated: true,
+              consumed: false,
+            },
+          };
+        }
+        if (action === 'verify_dingdandao_login_identity') {
+          identityStartedResolve();
+          await identityGate;
+          throw new Error('identity_mismatch');
+        }
+        if (action === 'expire_login') {
+          expiryCalls += 1;
+          return {
+            profile_id: profileId,
+            authorization_status: 'session_expired',
+          };
+        }
+        throw new Error('unexpected_bridge_action');
+      },
+      startBrowser: async () => ({ exitCode: null }),
+      waitForBrowserPage: async () => ({
+        type: 'page',
+        webSocketDebuggerUrl: 'ws://127.0.0.1/login-page',
+      }),
+      stopBrowser: async () => {
+        stopCalls += 1;
+      },
+      setLoginTimeout: (callback) => {
+        timeoutCallback = callback;
+        return { unref() {} };
+      },
+      clearLoginTimeout: () => undefined,
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const login = {
+      profile_id: profileId,
+      session_id: sessionId,
+      ticket: 'a'.repeat(48),
+      platform: 'dingdandao',
+    };
+    const opened = await fetch(`${base}/v1/login/open`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(login),
+    });
+    assert.equal(opened.status, 201);
+    const completing = fetch(`${base}/v1/login/complete`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        profile_id: profileId,
+        session_id: sessionId,
+        platform: 'dingdandao',
+      }),
+    });
+    await identityStarted;
+    const expiring = timeoutCallback();
+    releaseIdentity();
+    const completion = await completing;
+    await expiring;
+    assert.equal(completion.status, 422);
+    assert.equal(expiryCalls, 1);
+    assert.equal(stopCalls, 1);
+    const health = await fetch(`${base}/health`).then(
+      (response) => response.json(),
+    );
+    assert.equal(health.active_login_sessions, 0);
+    assert.equal(health.active_browser_sessions, 0);
+    const records = (await readFile(receiptPath, 'utf8'))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line));
+    assert.equal(
+      records.filter((record) => record.kind === 'login_timeout').length,
+      1,
+    );
   } finally {
     if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
     await rm(root, { recursive: true, force: true });
@@ -331,6 +1343,24 @@ test('gateway-owned Dingdandao Profile lease restores, guards, and seals only it
       access_mode: 'read_only',
     };
 
+    const wrongBuild = await fetch(`${base}/v1/profile-lease/open`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...body,
+        expected_gateway_build_sha256: '0'.repeat(64),
+      }),
+    });
+    assert.equal(wrongBuild.status, 409);
+    assert.equal(
+      (await wrongBuild.json()).reason,
+      'cloud_browser_gateway_build_mismatch',
+    );
+    assert.equal(calls.length, 0);
+
     const unauthorized = await fetch(`${base}/v1/profile-lease/open`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -406,6 +1436,314 @@ test('gateway-owned Dingdandao Profile lease restores, guards, and seals only it
     assert.equal(finalHealth.active_profile_leases, 0);
     assert.equal(finalHealth.active_browser_sessions, 0);
   } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('binding lease activates only from its sealed receipt and retries without a second close', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-binding-receipt-gate-'));
+  let server;
+  let activationCalls = 0;
+  let stopCalls = 0;
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    const receiptPath = join(root, 'receipts', 'chain.jsonl');
+    const token = 't'.repeat(48);
+    const now = new Date('2026-07-27T02:00:00.000Z');
+    const targetDate = shanghaiToday(now);
+    const fingerprint = 'a'.repeat(64);
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, token);
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: receiptPath,
+      SUXIOS_CLOUD_BROWSER_COLLECTION_TTL_SECONDS: '60',
+    }, {
+      now: () => now,
+      bridge: async (action, payload) => {
+        if (action === 'validate_dingdandao_binding_lease') {
+          return {
+            status: 'ready_for_identity_probe',
+            profile_id: payload.profile_id,
+            tenant_id: payload.tenant_id,
+            hotel_id: payload.hotel_id,
+            owner_user_id: payload.owner_user_id,
+            provider: 'dingdandao',
+            source_scope: 'current_authenticated_session_identity_only',
+            binding_persisted: false,
+          };
+        }
+        if (action === 'activate_dingdandao_binding') {
+          activationCalls += 1;
+          const records = (await readFile(receiptPath, 'utf8'))
+            .trim()
+            .split(/\r?\n/)
+            .map((line) => JSON.parse(line));
+          const receipt = records.at(-1);
+          assert.equal(receipt.kind, 'profile_lease_closed');
+          assert.equal(receipt.receipt_id, payload.receipt_id);
+          assert.equal(receipt.receipt_hash, payload.receipt_hash);
+          assert.equal(receipt.payload.activation_requested, true);
+          assert.equal(
+            receipt.payload.provider_hotel_id_fingerprint,
+            fingerprint,
+          );
+          if (activationCalls === 1) {
+            throw new Error('simulated_bridge_activation_failure');
+          }
+          return {
+            profile_id: payload.profile_id,
+            profile_lease_id: payload.profile_lease_id,
+            receipt_id: payload.receipt_id,
+            receipt_hash: payload.receipt_hash,
+            profile_authorization_status: 'ready_to_collect',
+            profile_ready_after_binding: true,
+            receipt_verified: true,
+            sensitive_values_exposed: false,
+          };
+        }
+        throw new Error('unexpected_bridge_action');
+      },
+      assertCdpPortAvailable: async () => undefined,
+      startBrowser: async () => ({ exitCode: null }),
+      stopBrowser: async () => {
+        stopCalls += 1;
+      },
+      installReadOnlyPolicy: async () => ({ close() {} }),
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const scope = {
+      profile_id: 'cbp_activation_profile_123456789',
+      platform: 'dingdandao',
+      tenant_id: 1,
+      hotel_id: 5,
+      owner_user_id: 7,
+      target_date: targetDate,
+      lease_kind: 'binding_identity',
+      access_mode: 'read_only',
+    };
+    const openedResponse = await fetch(`${base}/v1/profile-lease/open`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(scope),
+    });
+    assert.equal(openedResponse.status, 201);
+    const opened = await openedResponse.json();
+    const closeBody = {
+      profile_lease_id: opened.profile_lease_id,
+      profile_id: scope.profile_id,
+      platform: scope.platform,
+      outcome: 'completed',
+      activate_binding: true,
+      provider_hotel_id_fingerprint: fingerprint,
+    };
+
+    const failed = await fetch(`${base}/v1/profile-lease/close`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(closeBody),
+    });
+    assert.equal(failed.status, 500);
+    assert.equal(
+      (await failed.json()).reason,
+      'profile_lease_binding_activation_failed',
+    );
+    const retained = await fetch(`${base}/health`).then(
+      (response) => response.json(),
+    );
+    assert.equal(retained.active_profile_leases, 1);
+    assert.equal(retained.active_browser_sessions, 0);
+    assert.equal(stopCalls, 1);
+
+    const recovered = await fetch(`${base}/v1/profile-lease/close`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(closeBody),
+    });
+    assert.equal(recovered.status, 200);
+    const closed = await recovered.json();
+    assert.equal(closed.binding_activated, true);
+    assert.equal(closed.receipt_verified, true);
+    assert.equal(closed.profile_authorization_status, 'ready_to_collect');
+    assert.equal(activationCalls, 2);
+    assert.equal(stopCalls, 1);
+    const records = (await readFile(receiptPath, 'utf8'))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line));
+    assert.equal(
+      records.filter((record) => record.kind === 'profile_lease_closed')
+        .length,
+      1,
+    );
+    const health = await fetch(`${base}/health`).then(
+      (response) => response.json(),
+    );
+    assert.equal(health.active_profile_leases, 0);
+  } finally {
+    if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Profile lease timeout wins a concurrent explicit close exactly once and never activates', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'suxios-profile-lease-race-'));
+  let server;
+  let timeoutCallback;
+  let stopCalls = 0;
+  let activationCalls = 0;
+  let releaseStop;
+  let stopStartedResolve;
+  const stopGate = new Promise((resolvePromise) => {
+    releaseStop = resolvePromise;
+  });
+  const stopStarted = new Promise((resolvePromise) => {
+    stopStartedResolve = resolvePromise;
+  });
+  try {
+    const keyFile = join(root, 'profile.key');
+    const tokenFile = join(root, 'control.token');
+    const receiptPath = join(root, 'receipts', 'chain.jsonl');
+    const token = 't'.repeat(48);
+    const now = new Date('2026-07-27T02:00:00.000Z');
+    await writeFile(keyFile, randomBytes(32));
+    await writeFile(tokenFile, token);
+    const gateway = await createGateway({
+      SUXIOS_CLOUD_BROWSER_BIND: '127.0.0.1',
+      SUXIOS_CLOUD_BROWSER_PORT: '0',
+      SUXIOS_CLOUD_BROWSER_PROFILE_KEY_FILE: keyFile,
+      SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE: tokenFile,
+      SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT: join(root, 'profiles'),
+      SUXIOS_CLOUD_BROWSER_RUNTIME_ROOT: join(root, 'runtime'),
+      SUXIOS_CLOUD_BROWSER_RECEIPT_CHAIN: receiptPath,
+      SUXIOS_CLOUD_BROWSER_COLLECTION_TTL_SECONDS: '60',
+    }, {
+      now: () => now,
+      bridge: async (action, payload) => {
+        if (action === 'validate_dingdandao_binding_lease') {
+          return {
+            status: 'ready_for_identity_probe',
+            profile_id: payload.profile_id,
+            tenant_id: payload.tenant_id,
+            hotel_id: payload.hotel_id,
+            owner_user_id: payload.owner_user_id,
+            provider: 'dingdandao',
+            source_scope: 'current_authenticated_session_identity_only',
+            binding_persisted: false,
+          };
+        }
+        if (action === 'activate_dingdandao_binding') {
+          activationCalls += 1;
+        }
+        throw new Error('unexpected_bridge_action');
+      },
+      assertCdpPortAvailable: async () => undefined,
+      startBrowser: async () => ({ exitCode: null }),
+      stopBrowser: async () => {
+        stopCalls += 1;
+        stopStartedResolve();
+        await stopGate;
+      },
+      installReadOnlyPolicy: async () => ({ close() {} }),
+      setProfileLeaseTimeout: (callback) => {
+        timeoutCallback = callback;
+        return { unref() {} };
+      },
+      clearProfileLeaseTimeout: () => undefined,
+    });
+    server = gateway.server;
+    await new Promise((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const scope = {
+      profile_id: 'cbp_profile_lease_race_123456',
+      platform: 'dingdandao',
+      tenant_id: 1,
+      hotel_id: 5,
+      owner_user_id: 7,
+      target_date: shanghaiToday(now),
+      lease_kind: 'binding_identity',
+      access_mode: 'read_only',
+    };
+    const openedResponse = await fetch(`${base}/v1/profile-lease/open`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(scope),
+    });
+    assert.equal(openedResponse.status, 201);
+    const opened = await openedResponse.json();
+    const expiry = timeoutCallback();
+    await stopStarted;
+    const closeRequest = fetch(`${base}/v1/profile-lease/close`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        profile_lease_id: opened.profile_lease_id,
+        profile_id: scope.profile_id,
+        platform: scope.platform,
+        outcome: 'completed',
+        activate_binding: true,
+        provider_hotel_id_fingerprint: 'a'.repeat(64),
+      }),
+    });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    releaseStop();
+    await expiry;
+    const closeResponse = await closeRequest;
+    assert.equal(closeResponse.status, 409);
+    assert.equal(
+      (await closeResponse.json()).reason,
+      'profile_lease_already_finalized',
+    );
+    assert.equal(stopCalls, 1);
+    assert.equal(activationCalls, 0);
+    const records = await gateway.receipts.records();
+    assert.equal(
+      records.filter((record) => record.kind === 'profile_lease_timeout')
+        .length,
+      1,
+    );
+    assert.equal(
+      records.filter((record) => record.kind === 'profile_lease_closed')
+        .length,
+      0,
+    );
+    const health = await fetch(`${base}/health`).then(
+      (response) => response.json(),
+    );
+    assert.equal(health.active_profile_leases, 0);
+    assert.equal(health.active_browser_sessions, 0);
+  } finally {
+    releaseStop?.();
     if (server) await new Promise((resolvePromise) => server.close(resolvePromise));
     await rm(root, { recursive: true, force: true });
   }
@@ -1111,6 +2449,31 @@ test('receipt chain links records and detects silent tampering', async () => {
     });
     assert.equal(second.prev_hash, first.receipt_hash);
     assert.equal(await chain.verify(), true);
+    const [onceA, onceB] = await Promise.all([
+      chain.appendOnce(
+        'profile_lease_closed',
+        (record) => record?.payload?.profile_lease_id === 'cbpl_once_1234567890123456',
+        {
+          profile_lease_id: 'cbpl_once_1234567890123456',
+          profile_id: 'cbp_abcdefghijklmnop',
+        },
+      ),
+      chain.appendOnce(
+        'profile_lease_closed',
+        (record) => record?.payload?.profile_lease_id === 'cbpl_once_1234567890123456',
+        {
+          profile_lease_id: 'cbpl_once_1234567890123456',
+          profile_id: 'cbp_abcdefghijklmnop',
+        },
+      ),
+    ]);
+    assert.equal(onceA.receipt_id, onceB.receipt_id);
+    assert.equal(
+      (await chain.records()).filter(
+        (record) => record.kind === 'profile_lease_closed',
+      ).length,
+      1,
+    );
     await assert.rejects(
       chain.append('collection_result', { cookie: 'must-not-enter-receipt-chain' }),
       /receipt_sensitive_field_rejected/,
@@ -1124,7 +2487,20 @@ test('receipt chain links records and detects silent tampering', async () => {
 });
 
 test('deployment assets keep all listeners local and never autostart Chromium', async () => {
-  const [gateway, installer, verifier, gatewayUnit, novncUnit, vncUnit, envExample, bridge] =
+  const [
+    gateway,
+    installer,
+    verifier,
+    gatewayUnit,
+    novncUnit,
+    vncUnit,
+    envExample,
+    bridge,
+    loginStatusCli,
+    loginOpenCli,
+    loginCompleteCli,
+    bindingBootstrapCli,
+  ] =
     await Promise.all([
       readFile(new URL('../../deploy/remote-browser/cloud_browser_gateway.mjs', import.meta.url), 'utf8'),
       readFile(new URL('../../deploy/remote-browser/install_secure_remote_browser.sh', import.meta.url), 'utf8'),
@@ -1134,6 +2510,10 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
       readFile(new URL('../../deploy/remote-browser/systemd/suxios-cloud-browser-vnc.service', import.meta.url), 'utf8'),
       readFile(new URL('../../deploy/remote-browser/gateway.env.example', import.meta.url), 'utf8'),
       readFile(new URL('../../scripts/cloud_browser_gateway_bridge.php', import.meta.url), 'utf8'),
+      readFile(new URL('../../scripts/status_cloud_browser_login.php', import.meta.url), 'utf8'),
+      readFile(new URL('../../scripts/open_cloud_browser_login.php', import.meta.url), 'utf8'),
+      readFile(new URL('../../scripts/complete_cloud_browser_login.php', import.meta.url), 'utf8'),
+      readFile(new URL('../../scripts/run_dingdandao_binding_bootstrap.php', import.meta.url), 'utf8'),
     ]);
 
   assert.match(gateway, /bindAddress !== '127\.0\.0\.1'/);
@@ -1142,6 +2522,12 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /--accept-lang=zh-CN,zh;q=0\.9/);
   assert.match(gateway, /LANG: 'zh_CN\.UTF-8'/);
   assert.match(gateway, /browser_autostart: false/);
+  assert.match(
+    gateway,
+    /GATEWAY_PROTOCOL_VERSION = 'suxios_cloud_browser_gateway\.v2'/,
+  );
+  assert.match(gateway, /runExclusiveLoginFinalization/);
+  assert.match(gateway, /waitForBrowserPageCall\(config, browser, null\)/);
   assert.match(gateway, /dingdandao: DINGDANDAO_SOURCE_URL/);
   assert.match(gateway, /claim_dingdandao_collection/);
   assert.match(gateway, /complete_dingdandao_collection/);
@@ -1162,22 +2548,57 @@ test('deployment assets keep all listeners local and never autostart Chromium', 
   assert.match(gateway, /url\.pathname === '\/v1\/collection\/close'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /sessions\.size > 0[\s\S]{0,120}gateway_login_capacity_busy/);
   assert.match(gateway, /validate_login/);
+  assert.match(gateway, /verify_dingdandao_login_identity/);
   assert.match(gateway, /complete_login/);
+  assert.match(gateway, /expire_login/);
+  assert.match(gateway, /login_open_failed/);
+  assert.match(gateway, /login_timeout_failed_closed/);
+  assert.match(gateway, /url\.pathname === '\/v1\/login\/status'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /url\.pathname === '\/v1\/login\/complete'[\s\S]{0,220}!authorized\(request, controlToken\)/);
   assert.match(gateway, /receipt_chain_integrity_failed/);
   assert.match(gateway, /receipt_truth_gate_failed/);
+  assert.match(gateway, /active_release_build_match/);
+  assert.match(gateway, /expected_gateway_build_sha256/);
   assert.match(installer, /Chromium was not started/);
   assert.match(installer, /\/snap\/bin\/chromium/);
   assert.match(installer, /--experimental-websocket/);
   assert.doesNotMatch(installer, /suxios-cloud-browser-chromium\.service/);
   assert.match(verifier, /CDP is listening before a short-lived login session was opened/);
   assert.match(verifier, /read_only_policy_runtime/);
+  assert.match(verifier, /sha256sum "\$release_gateway"/);
+  assert.match(
+    verifier,
+    /protocol_version"\] \?\? ""\)[\s\S]{0,80}suxios_cloud_browser_gateway\.v2/,
+  );
   assert.match(gatewayUnit, /LoadCredential=profile-master-key/);
   assert.match(gatewayUnit, /LoadCredential=control-token/);
+  assert.match(gatewayUnit, /SUXIOS_CLOUD_BROWSER_ACTIVE_GATEWAY_PATH/);
+  assert.match(gatewayUnit, /ExecStartPre=\/usr\/bin\/cmp --silent/);
   assert.match(gatewayUnit, /ExecStart=@NODE_BIN@ --experimental-websocket/);
   assert.match(novncUnit, /127\.0\.0\.1:6080/);
   assert.match(vncUnit, /-listen 127\.0\.0\.1/);
   assert.match(envExample, /^SUXIOS_CLOUD_BROWSER_BIND=127\.0\.0\.1$/m);
   assert.match(bridge, /MAX_GATEWAY_INPUT_BYTES = 8192/);
+  assert.match(bridge, /loginIdentityScope/);
+  assert.match(bridge, /dingdandao_binding_probe\.mjs/);
+  assert.match(bridge, /activate_dingdandao_binding/);
+  assert.match(loginStatusCli, /\/v1\/login\/status/);
+  assert.match(
+    loginStatusCli,
+    /CLOUD_BROWSER_GATEWAY_PROTOCOL_VERSION/,
+  );
+  assert.match(
+    loginOpenCli,
+    /cloud_browser_gateway_build_mismatch/,
+  );
+  assert.match(
+    loginCompleteCli,
+    /run_verified_hotel_binding_bootstrap/,
+  );
+  assert.match(
+    bindingBootstrapCli,
+    /dingdandao_binding_gateway_build_mismatch/,
+  );
+  assert.match(loginStatusCli, /sensitive_values_exposed/);
   assert.doesNotMatch(bridge, /argv.*ticket/i);
 });

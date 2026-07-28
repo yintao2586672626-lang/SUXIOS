@@ -49,11 +49,116 @@ final class DingdandaoCloudCollectionService
 
     /** @var callable */
     private $clock;
+    private CloudBrowserReceiptChainVerifier $receiptVerifier;
 
-    public function __construct(?callable $clock = null)
-    {
+    public function __construct(
+        ?callable $clock = null,
+        ?CloudBrowserReceiptChainVerifier $receiptVerifier = null
+    ) {
         $this->clock = $clock ?? static fn(): DateTimeImmutable =>
             new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
+        $this->receiptVerifier = $receiptVerifier
+            ?? new CloudBrowserReceiptChainVerifier();
+    }
+
+    /**
+     * Read-only scope used while the gateway-owned login browser is still
+     * open. It proves the exact hotel/user/provider alias before an identity
+     * probe is allowed to promote the Profile to collectable state.
+     *
+     * @return array<string,mixed>
+     */
+    public function loginIdentityScope(string $profilePublicId): array
+    {
+        $profilePublicId = $this->opaqueId(
+            $profilePublicId,
+            'cbp_',
+            'dingdandao_profile_id_invalid'
+        );
+
+        return Db::transaction(function () use ($profilePublicId): array {
+            $profile = $this->lockProfile($profilePublicId);
+            $status = strtolower(trim((string)(
+                $profile['authorization_status'] ?? ''
+            )));
+            if (strtolower((string)($profile['platform'] ?? ''))
+                    !== self::PLATFORM
+                || !in_array($status, [
+                    CloudBrowserProfileService::AWAITING_LOGIN,
+                    CloudBrowserProfileService::AWAITING_RELOGIN,
+                ], true)
+            ) {
+                throw new RuntimeException(
+                    'dingdandao_login_identity_profile_not_pending'
+                );
+            }
+
+            $tenantId = (int)($profile['tenant_id'] ?? 0);
+            $hotelId = (int)($profile['system_hotel_id'] ?? 0);
+            $ownerUserId = (int)($profile['owner_user_id'] ?? 0);
+            if ($tenantId <= 0 || $hotelId <= 0 || $ownerUserId <= 0) {
+                throw new RuntimeException(
+                    'dingdandao_login_identity_scope_invalid'
+                );
+            }
+
+            $hotel = Db::name('hotels')
+                ->where('id', $hotelId)
+                ->lock(true)
+                ->find();
+            if (!is_array($hotel)
+                || (int)($hotel['tenant_id'] ?? 0) !== $tenantId
+                || (int)($hotel['status'] ?? 0) !== 1
+                || trim((string)($hotel['name'] ?? '')) === ''
+            ) {
+                throw new RuntimeException(
+                    'dingdandao_login_identity_hotel_scope_invalid'
+                );
+            }
+            $alias = $this->aliasRegistryEntry($tenantId, $hotelId);
+            if (!hash_equals(
+                (string)$alias['system_name'],
+                trim((string)$hotel['name'])
+            )) {
+                throw new RuntimeException(
+                    'dingdandao_login_identity_alias_mismatch'
+                );
+            }
+
+            $user = Db::name('users')
+                ->where('id', $ownerUserId)
+                ->lock(true)
+                ->find();
+            if (!is_array($user)
+                || !$this->userCanOperateTenant($user, $tenantId)
+            ) {
+                throw new RuntimeException(
+                    'dingdandao_login_identity_user_scope_invalid'
+                );
+            }
+            $this->assertCollectionPermission(
+                $user,
+                $hotel,
+                $tenantId,
+                $hotelId
+            );
+
+            return [
+                'status' => 'ready_for_login_identity_probe',
+                'profile_id' => $profilePublicId,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'owner_user_id' => $ownerUserId,
+                'provider' => self::PLATFORM,
+                'expected_provider_hotel_name' =>
+                    (string)$alias['provider_name'],
+                'alias_registry_version' =>
+                    (string)$alias['registry_version'],
+                'source_scope' =>
+                    'current_gateway_login_session_identity_only',
+                'binding_persisted' => false,
+            ];
+        });
     }
 
     /** @return array<string,mixed> */
@@ -199,7 +304,10 @@ final class DingdandaoCloudCollectionService
             )) {
                 throw new RuntimeException('dingdandao_binding_identity_mismatch');
             }
-            return $this->persistVerifiedBinding(
+            $profileStatusBeforeBinding = strtolower((string)(
+                $scope['profile']['authorization_status'] ?? ''
+            ));
+            $result = $this->persistVerifiedBinding(
                 $tenantId,
                 $hotelId,
                 $ownerUserId,
@@ -208,8 +316,13 @@ final class DingdandaoCloudCollectionService
                 $providerHotelName,
                 (string)$identity['captured_at'],
                 $scope['alias'],
-                $now
+                $now,
+                $profileStatusBeforeBinding
+                    === CloudBrowserProfileService::LOGIN_VERIFIED
             );
+            $result['_profile_authorization_status'] =
+                $profileStatusBeforeBinding;
+            return $result;
         });
         $postCommitAlias = $this->aliasRegistryEntry($tenantId, $hotelId);
         $postCommitReadback = $this->binding($tenantId, $hotelId, $postCommitAlias);
@@ -226,8 +339,330 @@ final class DingdandaoCloudCollectionService
         )) {
             throw new RuntimeException('dingdandao_collection_binding_post_commit_readback_failed');
         }
+        $profileStatusBeforeBinding = (string)(
+            $result['_profile_authorization_status'] ?? ''
+        );
+        unset($result['_profile_authorization_status']);
+        if (!in_array($profileStatusBeforeBinding, [
+            CloudBrowserProfileService::LOGIN_VERIFIED,
+            CloudBrowserProfileService::READY_TO_COLLECT,
+        ], true)) {
+            throw new RuntimeException(
+                'dingdandao_binding_profile_state_invalid'
+            );
+        }
         $result['post_commit_readback_status'] = 'readback_verified';
+        $result['profile_authorization_status'] =
+            $profileStatusBeforeBinding;
+        $result['profile_ready_after_binding'] =
+            $profileStatusBeforeBinding
+                === CloudBrowserProfileService::READY_TO_COLLECT;
         return $result;
+    }
+
+    /**
+     * Called only after the gateway has successfully closed and resealed the
+     * binding Profile lease.
+     *
+     * @return array<string,mixed>
+     */
+    public function activateVerifiedBinding(
+        string $profilePublicId,
+        string $profileLeaseId,
+        string $receiptId,
+        string $receiptHash,
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $targetDate,
+        string $providerHotelIdFingerprint
+    ): array {
+        $profilePublicId = $this->opaqueId(
+            $profilePublicId,
+            'cbp_',
+            'dingdandao_profile_id_invalid'
+        );
+        $profileLeaseId = $this->opaqueId(
+            $profileLeaseId,
+            'cbpl_',
+            'dingdandao_profile_lease_id_invalid'
+        );
+        if (preg_match('/^cbr_[A-Za-z0-9_-]{16,96}$/D', $receiptId) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $receiptHash) !== 1
+            || $tenantId <= 0
+            || $hotelId <= 0
+            || $ownerUserId <= 0
+            || !$this->validDate($targetDate)
+            || preg_match(
+                '/^[a-f0-9]{64}$/D',
+                $providerHotelIdFingerprint
+            ) !== 1
+        ) {
+            throw new RuntimeException(
+                'dingdandao_binding_activation_receipt_invalid'
+            );
+        }
+        $now = $this->now();
+        $targetDate = $this->today($targetDate, $now);
+
+        return Db::transaction(function () use (
+            $profilePublicId,
+            $profileLeaseId,
+            $receiptId,
+            $receiptHash,
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            $targetDate,
+            $providerHotelIdFingerprint,
+            $now
+        ): array {
+            $profile = $this->lockProfile($profilePublicId);
+            $authorizationStatus = strtolower(trim((string)(
+                $profile['authorization_status'] ?? ''
+            )));
+            if (strtolower((string)($profile['platform'] ?? ''))
+                    !== self::PLATFORM
+                || (int)($profile['tenant_id'] ?? 0) !== $tenantId
+                || (int)($profile['system_hotel_id'] ?? 0) !== $hotelId
+                || (int)($profile['owner_user_id'] ?? 0) !== $ownerUserId
+                || !in_array($authorizationStatus, [
+                    CloudBrowserProfileService::LOGIN_VERIFIED,
+                    CloudBrowserProfileService::READY_TO_COLLECT,
+                ], true)
+            ) {
+                throw new RuntimeException(
+                    'dingdandao_binding_profile_scope_mismatch'
+                );
+            }
+            $loginVerifiedAt = $this->localTime(
+                (string)($profile['login_verified_at'] ?? ''),
+                'dingdandao_binding_login_evidence_missing'
+            );
+            $sessionExpiresAt = $this->localTime(
+                (string)($profile['session_expires_at'] ?? ''),
+                'dingdandao_binding_profile_session_expired'
+            );
+            if ($sessionExpiresAt <= $now) {
+                throw new RuntimeException(
+                    'dingdandao_binding_profile_session_expired'
+                );
+            }
+
+            $configRow = Db::name('system_configs')
+                ->where('config_key', self::BINDING_CONFIG_KEY)
+                ->lock(true)
+                ->find();
+            if (!is_array($configRow)) {
+                throw new RuntimeException(
+                    'dingdandao_collection_binding_missing'
+                );
+            }
+            $decoded = $this->decodeBindingConfig(
+                (string)($configRow['config_value'] ?? '')
+            );
+            $rows = $decoded['bindings'];
+            $targetIndexes = [];
+            $providerOwners = [];
+            foreach ($rows as $index => $row) {
+                if (!is_array($row)) {
+                    throw new RuntimeException(
+                        'dingdandao_collection_binding_config_invalid'
+                    );
+                }
+                $rowTenantId = (int)($row['tenant_id'] ?? 0);
+                $rowHotelId = (int)($row['hotel_id'] ?? 0);
+                $providerId = trim((string)(
+                    $row['provider_hotel_id'] ?? ''
+                ));
+                if ($rowTenantId <= 0
+                    || $rowHotelId <= 0
+                    || $providerId === ''
+                ) {
+                    throw new RuntimeException(
+                        'dingdandao_collection_binding_config_invalid'
+                    );
+                }
+                $providerOwners[$providerId][
+                    $rowTenantId . ':' . $rowHotelId
+                ] = true;
+                if ($rowTenantId === $tenantId
+                    && $rowHotelId === $hotelId
+                ) {
+                    $targetIndexes[] = $index;
+                }
+            }
+            if (count($targetIndexes) !== 1) {
+                throw new RuntimeException(
+                    'dingdandao_collection_binding_readback_failed'
+                );
+            }
+            $targetIndex = $targetIndexes[0];
+            $binding = $rows[$targetIndex];
+            $providerHotelId = trim((string)(
+                $binding['provider_hotel_id'] ?? ''
+            ));
+            $expectedFingerprint = hash(
+                'sha256',
+                self::PLATFORM . ':' . $tenantId . ':' . $hotelId . ':'
+                    . $providerHotelId
+            );
+            if (strtolower(trim((string)($binding['status'] ?? '')))
+                    !== 'verified'
+                || !hash_equals(
+                    hash('sha256', $profilePublicId),
+                    trim((string)(
+                        $binding['profile_fingerprint'] ?? ''
+                    ))
+                )
+                || !hash_equals(
+                    $expectedFingerprint,
+                    $providerHotelIdFingerprint
+                )
+                || count($providerOwners[$providerHotelId] ?? []) !== 1
+            ) {
+                throw new RuntimeException(
+                    'dingdandao_collection_binding_readback_failed'
+                );
+            }
+
+            $this->receiptVerifier
+                ->verifyDingdandaoBindingLeaseClosed(
+                    $receiptId,
+                    $receiptHash,
+                    $profileLeaseId,
+                    $profilePublicId,
+                    $tenantId,
+                    $hotelId,
+                    $ownerUserId,
+                    $targetDate,
+                    $providerHotelIdFingerprint,
+                    $loginVerifiedAt,
+                    $now
+                );
+
+            $activation = [
+                'activation_profile_lease_id' => $profileLeaseId,
+                'activation_receipt_id' => $receiptId,
+                'activation_receipt_hash' => $receiptHash,
+            ];
+            $existingActivation = array_filter(
+                array_intersect_key($binding, $activation),
+                static fn(mixed $value): bool =>
+                    trim((string)$value) !== ''
+            );
+            $activationStatus = 'recorded';
+            if ($existingActivation !== []) {
+                foreach ($activation as $key => $value) {
+                    if (!hash_equals(
+                        $value,
+                        trim((string)($binding[$key] ?? ''))
+                    )) {
+                        throw new RuntimeException(
+                            'dingdandao_binding_activation_conflict'
+                        );
+                    }
+                }
+                if (trim((string)($binding['activated_at'] ?? '')) === '') {
+                    throw new RuntimeException(
+                        'dingdandao_binding_activation_conflict'
+                    );
+                }
+                $activationStatus = 'reused';
+            } else {
+                $binding = array_merge($binding, $activation, [
+                    'activated_at' => $now->format('Y-m-d H:i:s'),
+                ]);
+                $rows[$targetIndex] = $binding;
+                $payload = [
+                    'config_value' => $this->json([
+                        'version' => (string)$decoded['version'],
+                        'bindings' => $rows,
+                    ]),
+                ];
+                $fields = $this->tableFields('system_configs');
+                if (in_array('update_time', $fields, true)) {
+                    $payload['update_time'] =
+                        $now->format('Y-m-d H:i:s');
+                }
+                Db::name('system_configs')
+                    ->where('config_key', self::BINDING_CONFIG_KEY)
+                    ->update($payload);
+            }
+
+            if ($authorizationStatus
+                    === CloudBrowserProfileService::LOGIN_VERIFIED
+            ) {
+                $readyAt = $now->format('Y-m-d H:i:s');
+                Db::name('cloud_browser_profiles')
+                    ->where('id', (int)$profile['id'])
+                    ->update([
+                        'authorization_status' =>
+                            CloudBrowserProfileService::READY_TO_COLLECT,
+                        'status_reason' =>
+                            'dingdandao_profile_lease_receipt_verified',
+                        'ready_at' => $readyAt,
+                        'last_state_change_at' => $readyAt,
+                        'update_time' => $readyAt,
+                    ]);
+            }
+
+            $profileReadback = $this->lockProfile($profilePublicId);
+            $configReadback = Db::name('system_configs')
+                ->where('config_key', self::BINDING_CONFIG_KEY)
+                ->lock(true)
+                ->value('config_value');
+            $decodedReadback = $this->decodeBindingConfig(
+                (string)$configReadback
+            );
+            $bindingReadback = null;
+            foreach ($decodedReadback['bindings'] as $candidate) {
+                if (is_array($candidate)
+                    && (int)($candidate['tenant_id'] ?? 0) === $tenantId
+                    && (int)($candidate['hotel_id'] ?? 0) === $hotelId
+                ) {
+                    if ($bindingReadback !== null) {
+                        throw new RuntimeException(
+                            'dingdandao_binding_activation_readback_failed'
+                        );
+                    }
+                    $bindingReadback = $candidate;
+                }
+            }
+            if (!is_array($bindingReadback)
+                || (string)($profileReadback['authorization_status'] ?? '')
+                    !== CloudBrowserProfileService::READY_TO_COLLECT
+                || trim((string)($profileReadback['ready_at'] ?? '')) === ''
+            ) {
+                throw new RuntimeException(
+                    'dingdandao_binding_activation_readback_failed'
+                );
+            }
+            foreach ($activation as $key => $value) {
+                if (!hash_equals(
+                    $value,
+                    trim((string)($bindingReadback[$key] ?? ''))
+                )) {
+                    throw new RuntimeException(
+                        'dingdandao_binding_activation_readback_failed'
+                    );
+                }
+            }
+
+            return [
+                'profile_id' => $profilePublicId,
+                'profile_lease_id' => $profileLeaseId,
+                'receipt_id' => $receiptId,
+                'receipt_hash' => $receiptHash,
+                'profile_authorization_status' =>
+                    CloudBrowserProfileService::READY_TO_COLLECT,
+                'profile_ready_after_binding' => true,
+                'binding_readback_required' => false,
+                'receipt_verified' => true,
+                'activation_status' => $activationStatus,
+                'sensitive_values_exposed' => false,
+            ];
+        });
     }
 
     /**
@@ -824,6 +1259,8 @@ final class DingdandaoCloudCollectionService
         }
         if ((string)($profile['authorization_status'] ?? '')
             !== CloudBrowserProfileService::READY_TO_COLLECT
+            || (string)($profile['status_reason'] ?? '')
+                !== 'dingdandao_profile_lease_receipt_verified'
         ) {
             throw new RuntimeException('dingdandao_collection_profile_not_ready');
         }
@@ -861,12 +1298,39 @@ final class DingdandaoCloudCollectionService
             throw new RuntimeException('dingdandao_collection_user_scope_invalid');
         }
         $this->assertCollectionPermission($user, $hotel, $tenantId, $hotelId);
+        $binding = $this->binding(
+            $tenantId,
+            $hotelId,
+            $alias,
+            true,
+            $profilePublicId
+        );
+        $loginVerifiedAt = $this->localTime(
+            (string)($profile['login_verified_at'] ?? ''),
+            'dingdandao_collection_activation_evidence_missing'
+        );
+        $this->receiptVerifier->verifyDingdandaoBindingForCollection(
+            (string)$binding['activation_receipt_id'],
+            (string)$binding['activation_receipt_hash'],
+            (string)$binding['activation_profile_lease_id'],
+            $profilePublicId,
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            hash(
+                'sha256',
+                self::PLATFORM . ':' . $tenantId . ':' . $hotelId . ':'
+                    . (string)$binding['provider_hotel_id']
+            ),
+            $loginVerifiedAt,
+            $now
+        );
 
         return [
             'profile' => $profile,
             'hotel' => $hotel,
             'user' => $user,
-            'binding' => $this->binding($tenantId, $hotelId, $alias),
+            'binding' => $binding,
         ];
     }
 
@@ -899,14 +1363,21 @@ final class DingdandaoCloudCollectionService
         ) {
             throw new RuntimeException('dingdandao_collection_profile_scope_mismatch');
         }
-        if ((string)($profile['authorization_status'] ?? '')
-            !== CloudBrowserProfileService::READY_TO_COLLECT
-        ) {
+        $authorizationStatus = strtolower(trim((string)(
+            $profile['authorization_status'] ?? ''
+        )));
+        if (!in_array($authorizationStatus, [
+            CloudBrowserProfileService::LOGIN_VERIFIED,
+            CloudBrowserProfileService::READY_TO_COLLECT,
+        ], true)) {
             throw new RuntimeException('dingdandao_collection_profile_not_ready');
         }
-        $readyAt = strtotime(trim((string)($profile['ready_at'] ?? '')));
+        $evidenceAt = $authorizationStatus
+            === CloudBrowserProfileService::LOGIN_VERIFIED
+            ? strtotime(trim((string)($profile['login_verified_at'] ?? '')))
+            : strtotime(trim((string)($profile['ready_at'] ?? '')));
         $sessionExpiry = strtotime(trim((string)($profile['session_expires_at'] ?? '')));
-        if ($readyAt === false || $readyAt > $now->getTimestamp()) {
+        if ($evidenceAt === false || $evidenceAt > $now->getTimestamp()) {
             throw new RuntimeException('dingdandao_collection_ready_evidence_missing');
         }
         if ($sessionExpiry === false
@@ -1075,8 +1546,13 @@ final class DingdandaoCloudCollectionService
      * @param array<string,string> $alias
      * @return array<string,string>
      */
-    private function binding(int $tenantId, int $hotelId, array $alias): array
-    {
+    private function binding(
+        int $tenantId,
+        int $hotelId,
+        array $alias,
+        bool $requireActivation = false,
+        ?string $profilePublicId = null
+    ): array {
         if ($this->tableFields('system_configs') === []) {
             throw new RuntimeException('dingdandao_collection_binding_missing');
         }
@@ -1093,15 +1569,17 @@ final class DingdandaoCloudCollectionService
         $providerOwners = [];
         foreach ($rows as $row) {
             if (!is_array($row)
-                || strtolower(trim((string)($row['status'] ?? ''))) !== 'verified'
-                || (int)($row['tenant_id'] ?? 0) !== $tenantId
+                || strtolower(trim((string)($row['status'] ?? '')))
+                    !== 'verified'
             ) {
                 continue;
             }
+            $rowTenantId = (int)($row['tenant_id'] ?? 0);
             $providerHotelId = trim((string)($row['provider_hotel_id'] ?? ''));
             $providerHotelName = trim((string)($row['provider_hotel_name'] ?? ''));
             $rowHotelId = (int)($row['hotel_id'] ?? 0);
-            if ($providerHotelId === ''
+            if ($rowTenantId <= 0
+                || $providerHotelId === ''
                 || $providerHotelName === ''
                 || $rowHotelId <= 0
                 || strlen($providerHotelId) > 120
@@ -1109,8 +1587,10 @@ final class DingdandaoCloudCollectionService
             ) {
                 continue;
             }
-            $providerOwners[$providerHotelId][$rowHotelId] = true;
-            if ($rowHotelId !== $hotelId) {
+            $providerOwners[$providerHotelId][
+                $rowTenantId . ':' . $rowHotelId
+            ] = true;
+            if ($rowTenantId !== $tenantId || $rowHotelId !== $hotelId) {
                 continue;
             }
             $normalized = [
@@ -1123,6 +1603,21 @@ final class DingdandaoCloudCollectionService
                 'system_hotel_name' => (string)$alias['system_name'],
                 'alias_registry_version' => (string)$alias['registry_version'],
                 'alias_fingerprint' => (string)$alias['alias_fingerprint'],
+                'profile_fingerprint' => trim((string)(
+                    $row['profile_fingerprint'] ?? ''
+                )),
+                'activation_profile_lease_id' => trim((string)(
+                    $row['activation_profile_lease_id'] ?? ''
+                )),
+                'activation_receipt_id' => trim((string)(
+                    $row['activation_receipt_id'] ?? ''
+                )),
+                'activation_receipt_hash' => trim((string)(
+                    $row['activation_receipt_hash'] ?? ''
+                )),
+                'activated_at' => trim((string)(
+                    $row['activated_at'] ?? ''
+                )),
             ];
             $normalized['binding_id'] = trim((string)($row['binding_id'] ?? ''))
                 ?: 'ddb_' . substr(hash('sha256', $this->json($normalized)), 0, 24);
@@ -1145,6 +1640,30 @@ final class DingdandaoCloudCollectionService
         if (count($providerOwners[$binding['provider_hotel_id']] ?? []) !== 1) {
             throw new RuntimeException('dingdandao_collection_binding_ambiguous');
         }
+        if ($requireActivation
+            && ($profilePublicId === null
+                || !hash_equals(
+                    hash('sha256', $profilePublicId),
+                    (string)$binding['profile_fingerprint']
+                )
+                || preg_match(
+                    '/^cbpl_[A-Za-z0-9_-]{16,64}$/D',
+                    (string)$binding['activation_profile_lease_id']
+                ) !== 1
+                || preg_match(
+                    '/^cbr_[A-Za-z0-9_-]{16,96}$/D',
+                    (string)$binding['activation_receipt_id']
+                ) !== 1
+                || preg_match(
+                    '/^[a-f0-9]{64}$/D',
+                    (string)$binding['activation_receipt_hash']
+                ) !== 1
+                || trim((string)$binding['activated_at']) === '')
+        ) {
+            throw new RuntimeException(
+                'dingdandao_collection_activation_evidence_missing'
+            );
+        }
         $binding['binding_fingerprint'] = hash('sha256', $this->json($binding));
         return array_map('strval', $binding);
     }
@@ -1162,7 +1681,8 @@ final class DingdandaoCloudCollectionService
         string $providerHotelName,
         string $capturedAt,
         array $alias,
-        DateTimeImmutable $now
+        DateTimeImmutable $now,
+        bool $resetActivationEvidence
     ): array {
         $fields = $this->tableFields('system_configs');
         if (!in_array('config_key', $fields, true)
@@ -1267,8 +1787,29 @@ final class DingdandaoCloudCollectionService
             )) {
                 throw new RuntimeException('dingdandao_collection_binding_conflict');
             }
-            $status = 'reused';
-            $changed = false;
+            if ($resetActivationEvidence) {
+                foreach ([
+                    'activation_profile_lease_id',
+                    'activation_receipt_id',
+                    'activation_receipt_hash',
+                    'activated_at',
+                ] as $activationKey) {
+                    unset($existing[$activationKey]);
+                }
+                $existing['profile_fingerprint'] =
+                    hash('sha256', $profilePublicId);
+                $existing['verified_at'] = $capturedAt;
+                $existing['verified_by_user_id'] = $ownerUserId;
+                $existing['alias_registry_version'] =
+                    (string)$alias['registry_version'];
+                $existing['alias_fingerprint'] =
+                    (string)$alias['alias_fingerprint'];
+                $rows[$targetIndexes[0]] = $existing;
+                $status = 'reverified';
+            } else {
+                $status = 'reused';
+                $changed = false;
+            }
         } else {
             $bindingSeed = [
                 'tenant_id' => $tenantId,
@@ -1574,6 +2115,65 @@ final class DingdandaoCloudCollectionService
             throw new RuntimeException('dingdandao_collection_target_date_invalid');
         }
         return $value;
+    }
+
+    private function validDate(string $value): bool
+    {
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($value));
+        return $date instanceof DateTimeImmutable
+            && $date->format('Y-m-d') === trim($value);
+    }
+
+    private function localTime(string $value, string $reason): DateTimeImmutable
+    {
+        $value = trim($value);
+        $time = DateTimeImmutable::createFromFormat(
+            '!Y-m-d H:i:s',
+            $value,
+            new DateTimeZone('Asia/Shanghai')
+        );
+        if (!$time instanceof DateTimeImmutable
+            || $time->format('Y-m-d H:i:s') !== $value
+        ) {
+            throw new RuntimeException($reason);
+        }
+        return $time;
+    }
+
+    /** @return array{version:string,bindings:list<array<string,mixed>>} */
+    private function decodeBindingConfig(string $raw): array
+    {
+        try {
+            $decoded = json_decode(
+                trim($raw),
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            );
+        } catch (\Throwable) {
+            throw new RuntimeException(
+                'dingdandao_collection_binding_config_invalid'
+            );
+        }
+        if (!is_array($decoded)
+            || array_is_list($decoded)
+            || !is_array($decoded['bindings'] ?? null)
+            || !array_is_list($decoded['bindings'])
+        ) {
+            throw new RuntimeException(
+                'dingdandao_collection_binding_config_invalid'
+            );
+        }
+        $version = trim((string)($decoded['version'] ?? ''));
+        if ($version === '' || strlen($version) > 80) {
+            throw new RuntimeException(
+                'dingdandao_collection_binding_config_invalid'
+            );
+        }
+        return [
+            'version' => $version,
+            'bindings' => $decoded['bindings'],
+        ];
     }
 
     private function windowExpiry(string $value, DateTimeImmutable $now): string

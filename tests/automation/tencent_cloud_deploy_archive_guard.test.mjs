@@ -92,8 +92,12 @@ test('stage mode stops before backup and every database command', () => {
   assert.ok(backupRun > stageExit);
   assert.ok(databaseCheck > stageExit);
   assert.match(installer, /Automatic production migrations are disabled/);
-  assert.match(installer, /rollback_and_verify/);
-  assert.match(installer, /previous release restored and health verified/);
+  assert.match(installer, /rollback_both_and_verify/);
+  assert.match(installer, /application and gateway were both restored and verified/);
+  const gatewayBackup = installer.indexOf('GATEWAY_BACKUP=', stageExit);
+  const gatewayStop = installer.indexOf('systemctl stop "$GATEWAY_SERVICE"', stageExit);
+  assert.ok(gatewayBackup > stageExit);
+  assert.ok(gatewayStop > stageExit);
 });
 
 test('opt-in cloud OTA runtime is reproducible and refuses an unsupported Node version', () => {

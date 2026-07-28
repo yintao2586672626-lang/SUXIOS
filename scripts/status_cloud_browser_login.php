@@ -15,8 +15,13 @@ $options = getopt('', [
 $profileId = trim((string)($options['profile-id'] ?? ''));
 $sessionId = trim((string)($options['session-id'] ?? ''));
 $platform = strtolower(trim((string)($options['platform'] ?? '')));
-$gatewayUrl = rtrim(trim((string)($options['gateway-url'] ?? 'http://127.0.0.1:8787')), '/');
-$tokenFile = trim((string)($options['control-token-file'] ?? '/etc/suxios-cloud-browser/control-token'));
+$gatewayUrl = rtrim(trim((string)(
+    $options['gateway-url'] ?? 'http://127.0.0.1:8787'
+)), '/');
+$tokenFile = trim((string)(
+    $options['control-token-file']
+        ?? '/etc/suxios-cloud-browser/control-token'
+));
 
 if (preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', $profileId) !== 1
     || preg_match('/^cbls_[A-Za-z0-9_-]{16,64}$/D', $sessionId) !== 1
@@ -24,16 +29,16 @@ if (preg_match('/^cbp_[A-Za-z0-9_-]{16,64}$/D', $profileId) !== 1
     || $gatewayUrl !== 'http://127.0.0.1:8787'
     || !in_array($tokenFile, [
         '/etc/suxios-cloud-browser/control-token',
-        '/run/credentials/suxios-cloud-browser-login-complete.service/control-token',
+        '/run/credentials/suxios-cloud-browser-login-status.service/control-token',
     ], true)
 ) {
-    fail('cloud_browser_login_complete_arguments_invalid', 2);
+    statusFail('cloud_browser_login_status_arguments_invalid', 2);
 }
 
 $controlToken = @file_get_contents($tokenFile);
 $controlToken = is_string($controlToken) ? trim($controlToken) : '';
 if (strlen($controlToken) < 32) {
-    fail('cloud_browser_control_token_unavailable');
+    statusFail('cloud_browser_control_token_unavailable');
 }
 
 try {
@@ -47,76 +52,77 @@ try {
     $context = stream_context_create([
         'http' => [
             'method' => 'POST',
-            'header' => "Content-Type: application/json\r\nAuthorization: Bearer {$controlToken}\r\n",
+            'header' => "Content-Type: application/json\r\n"
+                . "Authorization: Bearer {$controlToken}\r\n",
             'content' => $body,
-            'timeout' => 30,
+            'timeout' => 10,
             'ignore_errors' => true,
         ],
     ]);
-    $raw = file_get_contents($gatewayUrl . '/v1/login/complete', false, $context);
+    $raw = file_get_contents(
+        $gatewayUrl . '/v1/login/status',
+        false,
+        $context
+    );
     $result = is_string($raw) ? json_decode($raw, true) : null;
-    $actualStatus = (string)($result['status'] ?? '');
-    $acceptedStatuses = $platform === 'dingdandao'
-        ? ['login_verified', 'ready_to_collect']
-        : ['ready_to_collect'];
     if (!is_array($result)
         || (string)($result['profile_id'] ?? '') !== $profileId
         || (string)($result['session_id'] ?? '') !== $sessionId
         || (string)($result['platform'] ?? '') !== $platform
-        || !in_array($actualStatus, $acceptedStatuses, true)
         || (string)($result['protocol_version'] ?? '')
             !== CLOUD_BROWSER_GATEWAY_PROTOCOL_VERSION
         || !hash_equals(
             $gatewayBuildSha256,
             (string)($result['build_sha256'] ?? '')
         )
-        || ($result['browser_started'] ?? null) !== false
-        || ($result['owned_browser_closed'] ?? null) !== true
-        || ($result['user_browser_closed'] ?? null) !== false
-        || ($result['profile_encrypted_at_rest'] ?? null) !== true
         || ($result['sensitive_values_exposed'] ?? null) !== false
-        || ($platform === 'dingdandao'
-            && (($result['identity_verified'] ?? null) !== true
-                || ($result['binding_required'] ?? null)
-                    !== ($actualStatus === 'login_verified')))
     ) {
-        $reason = is_array($result) ? (string)($result['reason'] ?? '') : '';
-        throw new RuntimeException($reason !== '' ? $reason : 'cloud_browser_login_complete_failed');
+        $reason = is_array($result)
+            ? (string)($result['reason'] ?? '')
+            : '';
+        throw new RuntimeException(
+            $reason !== ''
+                ? $reason
+                : 'cloud_browser_login_status_failed'
+        );
     }
+
     echo json_encode([
-        'status' => $actualStatus,
+        'status' => (string)($result['status'] ?? 'unknown'),
         'protocol_version' => CLOUD_BROWSER_GATEWAY_PROTOCOL_VERSION,
         'profile_id' => $profileId,
+        'session_id' => $sessionId,
         'platform' => $platform,
-        'browser_started' => false,
-        'profile_encrypted_at_rest' => true,
-        'identity_verified' => $platform === 'dingdandao'
-            ? true
-            : ($result['identity_verified'] ?? null),
-        'binding_required' => $platform === 'dingdandao'
-            && $actualStatus === 'login_verified',
-        'next_step' => $platform === 'dingdandao'
-            ? ($actualStatus === 'login_verified'
-                ? 'run_verified_hotel_binding_bootstrap'
-                : 'collection_ready')
-            : 'collection_ready',
-        'owned_browser_closed' => true,
-        'user_browser_closed' => false,
-        'receipt_id' => (string)($result['receipt_id'] ?? ''),
+        'expires_at' => $result['expires_at'] ?? null,
+        'browser_started' => $result['browser_started'] ?? null,
+        'identity_verified' => $result['identity_verified'] ?? null,
+        'binding_required' => $result['binding_required'] ?? null,
+        'terminal' => $result['terminal'] ?? null,
+        'profile_encrypted_at_rest' =>
+            $result['profile_encrypted_at_rest'] ?? null,
+        'owned_browser_only' => $result['owned_browser_only'] ?? null,
+        'user_browser_closed' => $result['user_browser_closed'] ?? null,
         'sensitive_values_exposed' => false,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
 } catch (Throwable $error) {
-    fail($error->getMessage() !== '' ? $error->getMessage() : 'cloud_browser_login_complete_failed');
+    statusFail(
+        $error->getMessage() !== ''
+            ? $error->getMessage()
+            : 'cloud_browser_login_status_failed'
+    );
 } finally {
     $controlToken = str_repeat("\0", strlen($controlToken));
 }
 
-function fail(string $reason, int $exitCode = 1): never
+function statusFail(string $reason, int $exitCode = 1): never
 {
     fwrite(STDERR, json_encode([
         'status' => 'blocked',
-        'reason' => preg_replace('/[^a-zA-Z0-9_-]+/', '_', $reason)
-            ?: 'cloud_browser_login_complete_failed',
+        'reason' => preg_replace(
+            '/[^a-zA-Z0-9_-]+/',
+            '_',
+            $reason
+        ) ?: 'cloud_browser_login_status_failed',
         'sensitive_values_exposed' => false,
     ], JSON_UNESCAPED_SLASHES) . PHP_EOL);
     exit($exitCode);

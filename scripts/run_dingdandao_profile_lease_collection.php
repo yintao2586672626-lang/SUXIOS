@@ -6,6 +6,8 @@ use think\App;
 use think\facade\Db;
 
 const PROFILE_LEASE_RUNNER_MAX_OUTPUT_BYTES = 2_000_000;
+const CLOUD_BROWSER_GATEWAY_PROTOCOL_VERSION =
+    'suxios_cloud_browser_gateway.v2';
 
 $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
@@ -98,6 +100,7 @@ $mainError = null;
 $result = null;
 $businessDataPersisted = false;
 try {
+    assertLeaseGatewayBuild($gatewayUrl);
     $opened = leaseGatewayRequest(
         $gatewayUrl,
         $controlToken,
@@ -221,6 +224,8 @@ function leaseGatewayRequest(
     string $path,
     array $body
 ): array {
+    $expectedBuild = expectedLeaseGatewayBuild();
+    $body['expected_gateway_build_sha256'] = $expectedBuild;
     $json = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $context = stream_context_create([
         'http' => [
@@ -234,13 +239,72 @@ function leaseGatewayRequest(
     ]);
     $raw = file_get_contents($baseUrl . $path, false, $context);
     $decoded = is_string($raw) ? json_decode($raw, true) : null;
-    if (!is_array($decoded) || ($decoded['status'] ?? '') === 'failed') {
+    if (!is_array($decoded)
+        || ($decoded['status'] ?? '') === 'failed'
+        || !hash_equals(
+            $expectedBuild,
+            (string)($decoded['build_sha256'] ?? '')
+        )
+    ) {
         $reason = is_array($decoded) ? (string)($decoded['reason'] ?? '') : '';
         throw new RuntimeException(
             $reason !== '' ? $reason : 'dingdandao_profile_lease_gateway_failed'
         );
     }
     return $decoded;
+}
+
+function assertLeaseGatewayBuild(string $gatewayUrl): void
+{
+    $expectedBuild = expectedLeaseGatewayBuild();
+    $raw = file_get_contents(
+        $gatewayUrl . '/health',
+        false,
+        stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => 5,
+                'ignore_errors' => true,
+            ],
+        ])
+    );
+    $health = is_string($raw) ? json_decode($raw, true) : null;
+    if (!is_array($health)
+        || ($health['status'] ?? '') !== 'ok'
+        || ($health['bind'] ?? '') !== '127.0.0.1'
+        || ($health['protocol_version'] ?? '')
+            !== CLOUD_BROWSER_GATEWAY_PROTOCOL_VERSION
+        || !hash_equals(
+            $expectedBuild,
+            (string)($health['build_sha256'] ?? '')
+        )
+        || !hash_equals(
+            $expectedBuild,
+            (string)(
+                $health['active_release_gateway_sha256'] ?? ''
+            )
+        )
+        || ($health['active_release_build_match'] ?? null) !== true
+    ) {
+        throw new RuntimeException(
+            'dingdandao_profile_lease_gateway_build_mismatch'
+        );
+    }
+}
+
+function expectedLeaseGatewayBuild(): string
+{
+    $path = dirname(__DIR__)
+        . '/deploy/remote-browser/cloud_browser_gateway.mjs';
+    $hash = is_file($path) ? hash_file('sha256', $path) : false;
+    if (!is_string($hash)
+        || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1
+    ) {
+        throw new RuntimeException(
+            'dingdandao_profile_lease_gateway_build_unavailable'
+        );
+    }
+    return $hash;
 }
 
 /** @return array<string,mixed> */

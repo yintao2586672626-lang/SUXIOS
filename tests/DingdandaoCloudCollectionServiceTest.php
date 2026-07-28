@@ -5,6 +5,7 @@ namespace tests;
 
 use app\model\Role;
 use app\service\CloudBrowserProfileService;
+use app\service\CloudBrowserReceiptChainVerifier;
 use app\service\CloudCollectionDispatchService;
 use app\service\DingdandaoCloudCollectionService;
 use app\service\DingdandaoOperatingTargetCaptureService;
@@ -22,6 +23,7 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
 
     private static array $databaseConfig;
     private static string $databasePath;
+    private string $receiptPath;
 
     public static function setUpBeforeClass(): void
     {
@@ -53,6 +55,10 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
 
     protected function setUp(): void
     {
+        $this->receiptPath = sys_get_temp_dir()
+            . '/dingdandao_binding_receipts_' . getmypid() . '_'
+            . spl_object_id($this) . '.jsonl';
+        @unlink($this->receiptPath);
         foreach ([
             'dingdandao_room_fee_capture_details',
             'dingdandao_operating_target_captures',
@@ -98,10 +104,22 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
             'platform' => 'dingdandao',
             'profile_public_id' => self::PROFILE_ID,
             'authorization_status' => CloudBrowserProfileService::READY_TO_COLLECT,
+            'status_reason' =>
+                'dingdandao_profile_lease_receipt_verified',
+            'login_verified_at' => '2026-07-27 09:59:00',
             'ready_at' => '2026-07-27 09:00:00',
             'session_expires_at' => '2026-07-27 11:00:00',
         ]);
         $this->seedBinding();
+        $this->writeBindingLeaseReceipt(hash(
+            'sha256',
+            'dingdandao:1:5:fixture-provider-hotel-5'
+        ));
+    }
+
+    protected function tearDown(): void
+    {
+        @unlink($this->receiptPath);
     }
 
     public function testClaimIsAtomicIdempotentAndBoundToOneWindow(): void
@@ -204,7 +222,9 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
     {
         $first = $this->claim($this->service());
         $replacementService = new DingdandaoCloudCollectionService(
-            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 10:10:01')
+            static fn(): DateTimeImmutable =>
+                new DateTimeImmutable('2026-07-27 10:10:01'),
+            new CloudBrowserReceiptChainVerifier($this->receiptPath)
         );
         $replacement = $replacementService->claim(
             self::PROFILE_ID,
@@ -285,6 +305,46 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
             self::assertSame('dingdandao_collection_permission_denied', $error->getMessage());
         }
         self::assertSame(0, (int)Db::name('cloud_collection_tasks')->count());
+    }
+
+    public function testLoginIdentityScopeRequiresExactPendingProfileAndAlias(): void
+    {
+        Db::name('cloud_browser_profiles')
+            ->where('profile_public_id', self::PROFILE_ID)
+            ->update([
+                'authorization_status' =>
+                    CloudBrowserProfileService::AWAITING_LOGIN,
+                'ready_at' => null,
+                'session_expires_at' => null,
+            ]);
+
+        $scope = $this->service()->loginIdentityScope(self::PROFILE_ID);
+        self::assertSame(
+            'ready_for_login_identity_probe',
+            $scope['status']
+        );
+        self::assertSame('dingdandao', $scope['provider']);
+        self::assertSame(1, $scope['tenant_id']);
+        self::assertSame(5, $scope['hotel_id']);
+        self::assertSame(7, $scope['owner_user_id']);
+        self::assertSame(
+            '敦煌漠蓝',
+            $scope['expected_provider_hotel_name']
+        );
+        self::assertFalse($scope['binding_persisted']);
+        self::assertSame(0, (int)Db::name('operation_logs')->count());
+
+        Db::name('cloud_browser_profiles')
+            ->where('profile_public_id', self::PROFILE_ID)
+            ->update([
+                'authorization_status' =>
+                    CloudBrowserProfileService::READY_TO_COLLECT,
+            ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'dingdandao_login_identity_profile_not_pending'
+        );
+        $this->service()->loginIdentityScope(self::PROFILE_ID);
     }
 
     public function testBindingBootstrapScopeWorksWithoutABindingAndDoesNotWrite(): void
@@ -469,6 +529,20 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
             json_encode($audit, JSON_UNESCAPED_SLASHES)
         );
 
+        $receipt = $this->writeBindingLeaseReceipt(
+            (string)$first['provider_hotel_id_fingerprint']
+        );
+        $service->activateVerifiedBinding(
+            self::PROFILE_ID,
+            (string)$receipt['profile_lease_id'],
+            (string)$receipt['receipt_id'],
+            (string)$receipt['receipt_hash'],
+            1,
+            5,
+            7,
+            '2026-07-27',
+            (string)$first['provider_hotel_id_fingerprint']
+        );
         $claim = $this->claim($service);
         self::assertTrue($claim['claimed']);
         $second = $service->registerVerifiedBinding(
@@ -493,6 +567,306 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
                 ->where('action', 'bootstrap_dingdandao_binding')
                 ->count()
         );
+    }
+
+    public function testVerifiedLoginBecomesCollectableOnlyAfterExactBindingReadback(): void
+    {
+        Db::name('system_configs')->delete(true);
+        Db::name('cloud_browser_profiles')
+            ->where('profile_public_id', self::PROFILE_ID)
+            ->update([
+                'authorization_status' =>
+                    CloudBrowserProfileService::LOGIN_VERIFIED,
+                'login_verified_at' => '2026-07-27 09:59:00',
+                'ready_at' => null,
+                'session_expires_at' => '2026-07-28 10:00:00',
+            ]);
+
+        $result = $this->service()->registerVerifiedBinding(
+            self::PROFILE_ID,
+            1,
+            5,
+            7,
+            $this->validBindingIdentity(),
+            'BIND DINGDANDAO HOTEL 5'
+        );
+
+        self::assertTrue($result['binding_persisted']);
+        self::assertSame(
+            CloudBrowserProfileService::LOGIN_VERIFIED,
+            $result['profile_authorization_status']
+        );
+        self::assertFalse($result['profile_ready_after_binding']);
+        $profile = Db::name('cloud_browser_profiles')
+            ->where('profile_public_id', self::PROFILE_ID)
+            ->find();
+        self::assertSame(
+            CloudBrowserProfileService::LOGIN_VERIFIED,
+            $profile['authorization_status']
+        );
+        self::assertEmpty($profile['ready_at']);
+
+        $receipt = $this->writeBindingLeaseReceipt(
+            (string)$result['provider_hotel_id_fingerprint']
+        );
+        $activated = $this->service()->activateVerifiedBinding(
+            self::PROFILE_ID,
+            (string)$receipt['profile_lease_id'],
+            (string)$receipt['receipt_id'],
+            (string)$receipt['receipt_hash'],
+            1,
+            5,
+            7,
+            '2026-07-27',
+            (string)$result['provider_hotel_id_fingerprint']
+        );
+        self::assertSame(
+            CloudBrowserProfileService::READY_TO_COLLECT,
+            $activated['profile_authorization_status']
+        );
+        self::assertTrue($activated['profile_ready_after_binding']);
+        $profile = Db::name('cloud_browser_profiles')
+            ->where('profile_public_id', self::PROFILE_ID)
+            ->find();
+        self::assertSame(
+            CloudBrowserProfileService::READY_TO_COLLECT,
+            $profile['authorization_status']
+        );
+        self::assertNotEmpty($profile['ready_at']);
+        self::assertSame(
+            'dingdandao_profile_lease_receipt_verified',
+            $profile['status_reason']
+        );
+        self::assertTrue($activated['receipt_verified']);
+        $stored = json_decode(
+            (string)Db::name('system_configs')
+                ->where('config_key', 'dingdandao_hotel_bindings')
+                ->value('config_value'),
+            true
+        );
+        self::assertSame(
+            $receipt['receipt_id'],
+            $stored['bindings'][0]['activation_receipt_id']
+        );
+        $replayed = $this->service()->activateVerifiedBinding(
+            self::PROFILE_ID,
+            (string)$receipt['profile_lease_id'],
+            (string)$receipt['receipt_id'],
+            (string)$receipt['receipt_hash'],
+            1,
+            5,
+            7,
+            '2026-07-27',
+            (string)$result['provider_hotel_id_fingerprint']
+        );
+        self::assertSame('reused', $replayed['activation_status']);
+        self::assertTrue($replayed['receipt_verified']);
+    }
+
+    public function testBindingWithoutGatewayReceiptCannotBecomeReady(): void
+    {
+        Db::name('system_configs')->delete(true);
+        Db::name('cloud_browser_profiles')
+            ->where('profile_public_id', self::PROFILE_ID)
+            ->update([
+                'authorization_status' =>
+                    CloudBrowserProfileService::LOGIN_VERIFIED,
+                'login_verified_at' => '2026-07-27 09:59:00',
+                'ready_at' => null,
+                'session_expires_at' => '2026-07-28 10:00:00',
+            ]);
+        $result = $this->service()->registerVerifiedBinding(
+            self::PROFILE_ID,
+            1,
+            5,
+            7,
+            $this->validBindingIdentity(),
+            'BIND DINGDANDAO HOTEL 5'
+        );
+        try {
+            $this->service()->activateVerifiedBinding(
+                self::PROFILE_ID,
+                'cbpl_missing_receipt_123456789',
+                'cbr_missing_receipt_123456789',
+                str_repeat('0', 64),
+                1,
+                5,
+                7,
+                '2026-07-27',
+                (string)$result['provider_hotel_id_fingerprint']
+            );
+            self::fail('missing gateway receipt must block READY');
+        } catch (RuntimeException $error) {
+            self::assertSame(
+                'dingdandao_binding_activation_receipt_invalid',
+                $error->getMessage()
+            );
+        }
+        self::assertSame(
+            CloudBrowserProfileService::LOGIN_VERIFIED,
+            Db::name('cloud_browser_profiles')
+                ->where('profile_public_id', self::PROFILE_ID)
+                ->value('authorization_status')
+        );
+    }
+
+    public function testLegacyReadyWithoutActivationReceiptCannotClaim(): void
+    {
+        $stored = json_decode(
+            (string)Db::name('system_configs')
+                ->where('config_key', 'dingdandao_hotel_bindings')
+                ->value('config_value'),
+            true
+        );
+        foreach ([
+            'activation_profile_lease_id',
+            'activation_receipt_id',
+            'activation_receipt_hash',
+            'activated_at',
+        ] as $key) {
+            unset($stored['bindings'][0][$key]);
+        }
+        Db::name('system_configs')
+            ->where('config_key', 'dingdandao_hotel_bindings')
+            ->update([
+                'config_value' => json_encode(
+                    $stored,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                ),
+            ]);
+
+        try {
+            $this->claim($this->service());
+            self::fail('legacy READY must not bypass activation evidence');
+        } catch (RuntimeException $error) {
+            self::assertSame(
+                'dingdandao_collection_activation_evidence_missing',
+                $error->getMessage()
+            );
+        }
+        self::assertSame(
+            0,
+            (int)Db::name('cloud_collection_tasks')->count()
+        );
+    }
+
+    public function testCollectionRejectsCrossTenantProviderReuse(): void
+    {
+        $stored = json_decode(
+            (string)Db::name('system_configs')
+                ->where('config_key', 'dingdandao_hotel_bindings')
+                ->value('config_value'),
+            true
+        );
+        $stored['bindings'][] = [
+            'binding_id' => 'binding-other-tenant-6',
+            'tenant_id' => 2,
+            'hotel_id' => 6,
+            'provider_hotel_id' => 'fixture-provider-hotel-5',
+            'provider_hotel_name' => '其他租户酒店',
+            'status' => 'verified',
+        ];
+        Db::name('system_configs')
+            ->where('config_key', 'dingdandao_hotel_bindings')
+            ->update([
+                'config_value' => json_encode(
+                    $stored,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                ),
+            ]);
+
+        try {
+            $this->claim($this->service());
+            self::fail('provider hotel ID reuse across tenants must fail');
+        } catch (RuntimeException $error) {
+            self::assertSame(
+                'dingdandao_collection_binding_ambiguous',
+                $error->getMessage()
+            );
+        }
+        self::assertSame(
+            0,
+            (int)Db::name('cloud_collection_tasks')->count()
+        );
+    }
+
+    public function testCollectionRevalidatesReceiptChainBeforeClaim(): void
+    {
+        file_put_contents(
+            $this->receiptPath,
+            '{"receipt_id":"tampered"}' . PHP_EOL
+        );
+
+        try {
+            $this->claim($this->service());
+            self::fail('tampered receipt chain must block collection');
+        } catch (RuntimeException $error) {
+            self::assertSame(
+                'cloud_browser_receipt_chain_integrity_failed',
+                $error->getMessage()
+            );
+        }
+        self::assertSame(
+            0,
+            (int)Db::name('cloud_collection_tasks')->count()
+        );
+    }
+
+    public function testReloginReplacesOldActivationEvidence(): void
+    {
+        Db::name('cloud_browser_profiles')
+            ->where('profile_public_id', self::PROFILE_ID)
+            ->update([
+                'authorization_status' =>
+                    CloudBrowserProfileService::LOGIN_VERIFIED,
+                'status_reason' => 'dingdandao_login_identity_verified',
+                'login_verified_at' => '2026-07-27 10:00:00',
+                'ready_at' => null,
+                'session_expires_at' => '2026-07-28 10:00:00',
+            ]);
+        $identity = array_replace($this->validBindingIdentity(), [
+            'provider_hotel_id' => 'fixture-provider-hotel-5',
+            'captured_at' => '2026-07-27T02:00:30.000Z',
+        ]);
+        $binding = $this->service()->registerVerifiedBinding(
+            self::PROFILE_ID,
+            1,
+            5,
+            7,
+            $identity,
+            'BIND DINGDANDAO HOTEL 5'
+        );
+        self::assertSame('reverified', $binding['status']);
+        $stored = json_decode(
+            (string)Db::name('system_configs')
+                ->where('config_key', 'dingdandao_hotel_bindings')
+                ->value('config_value'),
+            true
+        );
+        self::assertArrayNotHasKey(
+            'activation_receipt_id',
+            $stored['bindings'][0]
+        );
+
+        $receipt = $this->writeBindingLeaseReceipt(
+            (string)$binding['provider_hotel_id_fingerprint'],
+            'cbr_relogin_receipt_123456789',
+            'cbpl_relogin_lease_123456789',
+            '2026-07-27T02:01:00.000Z'
+        );
+        $activated = $this->service()->activateVerifiedBinding(
+            self::PROFILE_ID,
+            (string)$receipt['profile_lease_id'],
+            (string)$receipt['receipt_id'],
+            (string)$receipt['receipt_hash'],
+            1,
+            5,
+            7,
+            '2026-07-27',
+            (string)$binding['provider_hotel_id_fingerprint']
+        );
+        self::assertSame('recorded', $activated['activation_status']);
+        self::assertTrue($this->claim($this->service())['claimed']);
     }
 
     public function testBindingBootstrapRejectsUntrustedIdentityWithoutWriting(): void
@@ -1224,13 +1598,112 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
             $probe
         );
         self::assertStringContainsString('user_tabs_closed: false', $probe);
+        self::assertStringNotContainsString(
+            'activateVerifiedBinding(',
+            $runner
+        );
+        self::assertStringContainsString(
+            "'activate_binding' => \$activateBinding",
+            $runner
+        );
+        self::assertStringContainsString(
+            "'receipt_verified'",
+            $runner
+        );
     }
 
     private function service(): DingdandaoCloudCollectionService
     {
         return new DingdandaoCloudCollectionService(
-            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 10:00:00')
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 10:00:00'),
+            new CloudBrowserReceiptChainVerifier($this->receiptPath)
         );
+    }
+
+    /** @return array<string,string> */
+    private function writeBindingLeaseReceipt(
+        string $providerHotelIdFingerprint,
+        string $receiptId = 'cbr_binding_receipt_123456789',
+        string $profileLeaseId = 'cbpl_binding_lease_123456789',
+        string $occurredAt = '2026-07-27T02:00:00.000Z'
+    ): array {
+        $unsigned = [
+            'receipt_id' => $receiptId,
+            'kind' => 'profile_lease_closed',
+            'occurred_at' => $occurredAt,
+            'prev_hash' => null,
+            'payload' => [
+                'profile_lease_id' => $profileLeaseId,
+                'profile_id' => self::PROFILE_ID,
+                'platform' => 'dingdandao',
+                'tenant_id' => 1,
+                'hotel_id' => 5,
+                'owner_user_id' => 7,
+                'target_date' => '2026-07-27',
+                'lease_kind' => 'binding_identity',
+                'access_mode' => 'read_only',
+                'outcome' => 'completed',
+                'session_owner' => 'gateway_profile_lease',
+                'owned_browser_closed' => true,
+                'user_browser_closed' => false,
+                'profile_encrypted_at_rest' => true,
+                'sensitive_values_exposed' => false,
+                'activation_requested' => true,
+                'provider_hotel_id_fingerprint' =>
+                    $providerHotelIdFingerprint,
+            ],
+        ];
+        $record = $unsigned + [
+            'receipt_hash' => hash(
+                'sha256',
+                $this->receiptCanonical($unsigned)
+            ),
+        ];
+        file_put_contents(
+            $this->receiptPath,
+            json_encode(
+                $record,
+                JSON_UNESCAPED_UNICODE
+                    | JSON_UNESCAPED_SLASHES
+                    | JSON_THROW_ON_ERROR
+            ) . PHP_EOL
+        );
+        return [
+            'profile_lease_id' =>
+                (string)$unsigned['payload']['profile_lease_id'],
+            'receipt_id' => (string)$record['receipt_id'],
+            'receipt_hash' => (string)$record['receipt_hash'],
+        ];
+    }
+
+    private function receiptCanonical(mixed $value): string
+    {
+        if (!is_array($value)) {
+            return (string)json_encode(
+                $value,
+                JSON_UNESCAPED_UNICODE
+                    | JSON_UNESCAPED_SLASHES
+                    | JSON_THROW_ON_ERROR
+            );
+        }
+        if (array_is_list($value)) {
+            return '[' . implode(',', array_map(
+                fn(mixed $entry): string =>
+                    $this->receiptCanonical($entry),
+                $value
+            )) . ']';
+        }
+        ksort($value, SORT_STRING);
+        $parts = [];
+        foreach ($value as $key => $entry) {
+            $parts[] = json_encode(
+                (string)$key,
+                JSON_UNESCAPED_UNICODE
+                    | JSON_UNESCAPED_SLASHES
+                    | JSON_THROW_ON_ERROR
+            ) . ':' . $this->receiptCanonical($entry);
+        }
+        return '{' . implode(',', $parts) . '}';
     }
 
     /** @return array<string,mixed> */
@@ -1262,9 +1735,53 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
                     'provider_hotel_id' => 'fixture-provider-hotel-5',
                     'provider_hotel_name' => '敦煌漠蓝',
                     'status' => 'verified',
+                    'profile_fingerprint' =>
+                        hash('sha256', self::PROFILE_ID),
+                    'activation_profile_lease_id' =>
+                        'cbpl_binding_lease_123456789',
+                    'activation_receipt_id' =>
+                        'cbr_binding_receipt_123456789',
+                    'activation_receipt_hash' =>
+                        $this->fixtureBindingReceiptHash(),
+                    'activated_at' => '2026-07-27 10:00:00',
                 ]],
             ], JSON_UNESCAPED_SLASHES),
         ]);
+    }
+
+    private function fixtureBindingReceiptHash(): string
+    {
+        $fingerprint = hash(
+            'sha256',
+            'dingdandao:1:5:fixture-provider-hotel-5'
+        );
+        $unsigned = [
+            'receipt_id' => 'cbr_binding_receipt_123456789',
+            'kind' => 'profile_lease_closed',
+            'occurred_at' => '2026-07-27T02:00:00.000Z',
+            'prev_hash' => null,
+            'payload' => [
+                'profile_lease_id' =>
+                    'cbpl_binding_lease_123456789',
+                'profile_id' => self::PROFILE_ID,
+                'platform' => 'dingdandao',
+                'tenant_id' => 1,
+                'hotel_id' => 5,
+                'owner_user_id' => 7,
+                'target_date' => '2026-07-27',
+                'lease_kind' => 'binding_identity',
+                'access_mode' => 'read_only',
+                'outcome' => 'completed',
+                'session_owner' => 'gateway_profile_lease',
+                'owned_browser_closed' => true,
+                'user_browser_closed' => false,
+                'profile_encrypted_at_rest' => true,
+                'sensitive_values_exposed' => false,
+                'activation_requested' => true,
+                'provider_hotel_id_fingerprint' => $fingerprint,
+            ],
+        ];
+        return hash('sha256', $this->receiptCanonical($unsigned));
     }
 
     /** @return array<string,mixed> */
@@ -1394,7 +1911,8 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
             'CREATE TABLE cloud_browser_profiles ('
             . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, system_hotel_id INTEGER, '
             . 'owner_user_id INTEGER, platform TEXT, profile_public_id TEXT UNIQUE, '
-            . 'authorization_status TEXT, status_reason TEXT NULL, ready_at TEXT NULL, '
+            . 'authorization_status TEXT, status_reason TEXT NULL, '
+            . 'login_verified_at TEXT NULL, ready_at TEXT NULL, '
             . 'session_expires_at TEXT NULL, last_state_change_at TEXT NULL, update_time TEXT NULL)'
         );
         Db::execute(

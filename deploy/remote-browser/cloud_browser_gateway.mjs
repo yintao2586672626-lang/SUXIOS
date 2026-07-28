@@ -6,9 +6,13 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import {
-  appendFile,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readFileSync,
+} from 'node:fs';
+import {
   chmod,
   mkdir,
   open,
@@ -50,6 +54,11 @@ const DINGDANDAO_DETAIL_QUERY_TYPES = new Set([0, 1, 2, 3]);
 const DINGDANDAO_TREND_QUERY_TYPES = new Set([0, 1, 2, 3, 5]);
 const SENSITIVE_KEY_PATTERN =
   /(cookie|password|authorization(?!_status)|(^|_)(token|secret|headers?|raw|html|har)(_|$)|profile[_-]?path|localstorage|sessionstorage)/i;
+export const GATEWAY_PROTOCOL_VERSION = 'suxios_cloud_browser_gateway.v2';
+export const GATEWAY_SOURCE_PATH = fileURLToPath(import.meta.url);
+export const GATEWAY_BUILD_SHA256 = createHash('sha256')
+  .update(readFileSync(GATEWAY_SOURCE_PATH))
+  .digest('hex');
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -297,8 +306,20 @@ export class ReceiptChain {
     return await pending;
   }
 
+  async appendOnce(kind, predicate, payload) {
+    const pending = this.appendQueue.then(async () => {
+      const existing = await this.findLatest(kind, predicate);
+      return existing || await this.appendNow(kind, payload);
+    });
+    this.appendQueue = pending.catch(() => undefined);
+    return await pending;
+  }
+
   async appendNow(kind, payload) {
     assertNoSensitiveMaterial(payload);
+    if (!await this.verify()) {
+      throw new Error('receipt_chain_integrity_invalid');
+    }
     const records = await this.records();
     const previous = records.at(-1);
     const record = {
@@ -310,13 +331,28 @@ export class ReceiptChain {
     };
     record.receipt_hash = sha256(canonical(record));
     await mkdir(dirname(this.chainPath), { recursive: true, mode: 0o700 });
-    await appendFile(this.chainPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await chmod(this.chainPath, 0o600);
+    const handle = await open(this.chainPath, 'a', 0o600);
+    try {
+      await handle.chmod(0o600);
+      await handle.write(`${JSON.stringify(record)}\n`, null, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     return record;
   }
 
   async find(receiptId) {
     return (await this.records()).find((record) => record.receipt_id === receiptId) || null;
+  }
+
+  async findLatest(kind, predicate = () => true) {
+    const records = await this.records();
+    for (let index = records.length - 1; index >= 0; index -= 1) {
+      const record = records[index];
+      if (record?.kind === kind && predicate(record)) return record;
+    }
+    return null;
   }
 
   async verify() {
@@ -339,6 +375,10 @@ function loadConfig(env = process.env) {
   if (bindAddress !== '127.0.0.1') throw new Error('gateway_bind_must_be_loopback');
   return {
     projectRoot,
+    activeGatewayPath: env.SUXIOS_CLOUD_BROWSER_ACTIVE_GATEWAY_PATH
+      || (process.platform === 'win32'
+        ? GATEWAY_SOURCE_PATH
+        : '/var/www/suxios/current/deploy/remote-browser/cloud_browser_gateway.mjs'),
     bindAddress,
     port: Number.parseInt(env.SUXIOS_CLOUD_BROWSER_PORT || '8787', 10),
     encryptedRoot: env.SUXIOS_CLOUD_BROWSER_ENCRYPTED_ROOT || '/var/lib/suxios-cloud-browser/profiles',
@@ -373,7 +413,17 @@ async function readSecret(path, reason) {
 }
 
 function jsonResponse(response, status, payload) {
-  const body = JSON.stringify(payload);
+  const publicPayload = payload
+    && typeof payload === 'object'
+    && !Array.isArray(payload)
+    && payload.status !== 'failed'
+    ? {
+      protocol_version: GATEWAY_PROTOCOL_VERSION,
+      build_sha256: GATEWAY_BUILD_SHA256,
+      ...payload,
+    }
+    : payload;
+  const body = JSON.stringify(publicPayload);
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -393,6 +443,12 @@ async function jsonBody(request) {
   }
   const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('request_body_invalid');
+  if (Object.prototype.hasOwnProperty.call(
+    parsed,
+    'expected_gateway_build_sha256',
+  ) && parsed.expected_gateway_build_sha256 !== GATEWAY_BUILD_SHA256) {
+    throw new GatewayError('cloud_browser_gateway_build_mismatch', 409);
+  }
   return parsed;
 }
 
@@ -419,6 +475,14 @@ function validateLoginCompletionRequest(body) {
     ticket: body.ticket == null || String(body.ticket).trim() === ''
       ? null
       : assertOpaque(body.ticket, TICKET_PATTERN, 'ticket_invalid'),
+    platform: assertOpaque(body.platform, LOGIN_PLATFORM_PATTERN, 'platform_invalid'),
+  };
+}
+
+function validateLoginStatusRequest(body) {
+  return {
+    profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
+    sessionId: assertOpaque(body.session_id, SESSION_ID_PATTERN, 'session_id_invalid'),
     platform: assertOpaque(body.platform, LOGIN_PLATFORM_PATTERN, 'platform_invalid'),
   };
 }
@@ -466,6 +530,22 @@ function validateProfileLeaseOpenRequest(body) {
 }
 
 function validateProfileLeaseCloseRequest(body) {
+  if (Object.prototype.hasOwnProperty.call(body, 'activate_binding')
+    && typeof body.activate_binding !== 'boolean'
+  ) {
+    throw new Error('profile_lease_binding_activation_invalid');
+  }
+  const activateBinding = body.activate_binding === true;
+  const providerHotelIdFingerprint = Object.prototype.hasOwnProperty.call(
+    body,
+    'provider_hotel_id_fingerprint',
+  )
+    ? assertOpaque(
+      body.provider_hotel_id_fingerprint,
+      /^[a-f0-9]{64}$/,
+      'profile_lease_binding_fingerprint_invalid',
+    )
+    : null;
   return {
     profileLeaseId: assertOpaque(
       body.profile_lease_id,
@@ -479,6 +559,8 @@ function validateProfileLeaseCloseRequest(body) {
       /^(completed|cancelled|failed|session_expired|policy_blocked|window_expired)$/,
       'profile_lease_outcome_invalid',
     ),
+    activateBinding,
+    providerHotelIdFingerprint,
   };
 }
 
@@ -884,6 +966,24 @@ function publicError(error) {
   return safeReason(error?.message || error);
 }
 
+function activeGatewayBuildStatus(config) {
+  try {
+    const activeReleaseGatewaySha256 = createHash('sha256')
+      .update(readFileSync(config.activeGatewayPath))
+      .digest('hex');
+    return {
+      active_release_gateway_sha256: activeReleaseGatewaySha256,
+      active_release_build_match:
+        activeReleaseGatewaySha256 === GATEWAY_BUILD_SHA256,
+    };
+  } catch {
+    return {
+      active_release_gateway_sha256: null,
+      active_release_build_match: false,
+    };
+  }
+}
+
 class GatewayError extends Error {
   constructor(message, statusCode = 422) {
     super(message);
@@ -897,11 +997,19 @@ export async function createGateway(env = process.env, dependencies = {}) {
     || ((action, payload) => bridge(config, action, payload));
   const startBrowserCall = dependencies.startBrowser || startBrowser;
   const stopBrowserCall = dependencies.stopBrowser || stopBrowser;
+  const waitForBrowserPageCall = dependencies.waitForBrowserPage
+    || waitForBrowserPage;
   const installReadOnlyPolicyCall = dependencies.installReadOnlyPolicy
     || installDingdandaoReadOnlyPolicy;
   const assertCdpPortAvailableCall = dependencies.assertCdpPortAvailable
     || assertCdpPortAvailable;
   const nowCall = dependencies.now || (() => new Date());
+  const setLoginTimeoutCall = dependencies.setLoginTimeout || setTimeout;
+  const clearLoginTimeoutCall = dependencies.clearLoginTimeout || clearTimeout;
+  const setProfileLeaseTimeoutCall =
+    dependencies.setProfileLeaseTimeout || setTimeout;
+  const clearProfileLeaseTimeoutCall =
+    dependencies.clearProfileLeaseTimeout || clearTimeout;
   const [key, controlToken] = await Promise.all([
     readFile(config.keyFile).then(decodeMasterKey),
     readSecret(config.controlTokenFile, 'gateway_control_token_invalid'),
@@ -915,13 +1023,314 @@ export async function createGateway(env = process.env, dependencies = {}) {
   if (!(await receipts.verify())) throw new Error('receipt_chain_integrity_failed');
   const sessions = new Map();
   const profileLeases = new Map();
+  const profileLeaseRecoveries = new Map();
 
-  async function closeSession(session, { seal = true } = {}) {
-    clearTimeout(session.timeout);
+  function browserAlive(browser) {
+    return Boolean(browser) && browser.exitCode === null;
+  }
+
+  function runExclusiveLoginFinalization(
+    session,
+    operation,
+    initialState,
+    callback,
+  ) {
+    if (session.finalizationPromise) return session.finalizationPromise;
+    if (initialState !== null && session.state === 'awaiting_login') {
+      session.state = initialState;
+    }
+    session.finalizationOperation = operation;
+    let operationPromise;
+    operationPromise = Promise.resolve()
+      .then(callback)
+      .finally(() => {
+        if (session.finalizationPromise === operationPromise) {
+          session.finalizationPromise = null;
+          session.finalizationOperation = null;
+        }
+      });
+    session.finalizationPromise = operationPromise;
+    return operationPromise;
+  }
+
+  function runExclusiveProfileLeaseFinalization(
+    session,
+    operation,
+    callback,
+  ) {
+    if (session.finalizationPromise) return session.finalizationPromise;
+    session.finalizationOperation = operation;
+    let operationPromise;
+    operationPromise = Promise.resolve()
+      .then(callback)
+      .finally(() => {
+        if (session.finalizationPromise === operationPromise) {
+          session.finalizationPromise = null;
+          session.finalizationOperation = null;
+        }
+      });
+    session.finalizationPromise = operationPromise;
+    return operationPromise;
+  }
+
+  async function durableLoginStatus(login) {
+    const status = await bridgeCall('login_status', {
+      profile_id: login.profileId,
+      session_id: login.sessionId,
+      platform: login.platform,
+    });
+    if (status?.profile_id !== login.profileId
+      || status?.session_id !== login.sessionId
+      || status?.platform !== login.platform
+      || status?.sensitive_values_exposed !== false
+    ) {
+      throw new Error('login_status_bridge_invalid');
+    }
+    return status;
+  }
+
+  async function latestLoginReceipt(profileId, sessionId, kind) {
+    return await receipts.findLatest(
+      kind,
+      (record) => record?.payload?.profile_id === profileId
+        && record?.payload?.session_id === sessionId,
+    );
+  }
+
+  async function latestPreparedLoginReceipt(profileId, sessionId) {
+    return await receipts.findLatest(
+      'login_completion_prepared',
+      (record) => record?.payload?.profile_id === profileId
+        && record?.payload?.session_id === sessionId,
+    );
+  }
+
+  function validatePreparedLoginReceipt(
+    receipt,
+    login,
+    expectedAuthorizationStatus,
+    sessionExpiresAt,
+  ) {
+    const payload = receipt?.payload;
+    if (!receipt
+      || payload?.profile_id !== login.profileId
+      || payload?.session_id !== login.sessionId
+      || payload?.platform !== login.platform
+      || payload?.authorization_status !== expectedAuthorizationStatus
+      || payload?.encrypted_at_rest !== true
+      || payload?.session_expires_at !== sessionExpiresAt
+      || payload?.binding_required !== (login.platform === 'dingdandao')
+      || payload?.gateway_build_sha256 !== GATEWAY_BUILD_SHA256
+      || (login.platform === 'dingdandao'
+        && (payload?.identity_verified !== true
+          || payload?.identity_status !== 'matched'
+          || payload?.identity_source_api_path
+            !== DINGDANDAO_IDENTITY_QUERY_PATH))
+    ) {
+      throw new Error('gateway_login_prepared_receipt_invalid');
+    }
+    return receipt;
+  }
+
+  async function prepareLoginCompletion(
+    login,
+    identityEvidence,
+    expectedAuthorizationStatus,
+    sessionExpiresAt,
+  ) {
+    const receipt = await receipts.appendOnce(
+      'login_completion_prepared',
+      (record) => record?.payload?.profile_id === login.profileId
+        && record?.payload?.session_id === login.sessionId,
+      {
+        profile_id: login.profileId,
+        session_id: login.sessionId,
+        platform: login.platform,
+        authorization_status: expectedAuthorizationStatus,
+        encrypted_at_rest: true,
+        identity_verified: identityEvidence?.validated === true,
+        identity_status: identityEvidence?.identity_status || 'unknown',
+        identity_source_api_path:
+          identityEvidence?.source_api_path || null,
+        session_expires_at: sessionExpiresAt,
+        binding_required: login.platform === 'dingdandao',
+        gateway_build_sha256: GATEWAY_BUILD_SHA256,
+      },
+    );
+    return validatePreparedLoginReceipt(
+      receipt,
+      login,
+      expectedAuthorizationStatus,
+      sessionExpiresAt,
+    );
+  }
+
+  async function appendTerminalLoginReceipt(
+    login,
+    completedProfile,
+    preparedReceipt,
+    recoveredFromDurableState = false,
+  ) {
+    const receiptKind = login.platform === 'dingdandao'
+      ? 'login_identity_verified'
+      : 'login_profile_ready';
+    const receipt = await receipts.appendOnce(
+      receiptKind,
+      (record) => record?.payload?.profile_id === login.profileId
+        && record?.payload?.session_id === login.sessionId,
+      {
+        profile_id: login.profileId,
+        session_id: login.sessionId,
+        platform: login.platform,
+        authorization_status: completedProfile.authorization_status,
+        encrypted_at_rest: true,
+        identity_verified:
+          preparedReceipt.payload.identity_verified === true,
+        identity_status: preparedReceipt.payload.identity_status,
+        identity_source_api_path:
+          preparedReceipt.payload.identity_source_api_path,
+        session_expires_at: completedProfile.session_expires_at,
+        binding_required: login.platform === 'dingdandao',
+        prepared_receipt_id: preparedReceipt.receipt_id,
+        prepared_receipt_hash: preparedReceipt.receipt_hash,
+        recovered_from_durable_state: recoveredFromDurableState,
+        gateway_build_sha256: GATEWAY_BUILD_SHA256,
+      },
+    );
+    const payload = receipt?.payload;
+    if (payload?.profile_id !== login.profileId
+      || payload?.session_id !== login.sessionId
+      || payload?.platform !== login.platform
+      || payload?.authorization_status
+        !== completedProfile.authorization_status
+      || payload?.encrypted_at_rest !== true
+      || payload?.identity_verified
+        !== (preparedReceipt.payload.identity_verified === true)
+      || payload?.identity_status !== preparedReceipt.payload.identity_status
+      || payload?.identity_source_api_path
+        !== preparedReceipt.payload.identity_source_api_path
+      || payload?.session_expires_at
+        !== completedProfile.session_expires_at
+      || payload?.binding_required !== (login.platform === 'dingdandao')
+      || payload?.prepared_receipt_id !== preparedReceipt.receipt_id
+      || payload?.prepared_receipt_hash !== preparedReceipt.receipt_hash
+      || payload?.gateway_build_sha256 !== GATEWAY_BUILD_SHA256
+    ) {
+      throw new Error('gateway_login_terminal_receipt_invalid');
+    }
+    return receipt;
+  }
+
+  async function recoverDurableLoginReceipt(login, durable) {
+    const expectedAuthorizationStatus = login.platform === 'dingdandao'
+      ? 'login_verified'
+      : 'ready_to_collect';
+    if (durable?.login_session_status !== 'verified'
+      || durable?.profile_encrypted_at_rest !== true
+      || durable?.terminal !== true
+      || durable?.identity_verified !== true
+      || !durable?.expires_at
+      || ![expectedAuthorizationStatus, 'ready_to_collect']
+        .includes(durable.authorization_status)
+    ) {
+      throw new Error('gateway_login_receipt_recovery_state_invalid');
+    }
+    const preparedReceipt = validatePreparedLoginReceipt(
+      await latestPreparedLoginReceipt(login.profileId, login.sessionId),
+      login,
+      expectedAuthorizationStatus,
+      durable.expires_at,
+    );
+    return await appendTerminalLoginReceipt(
+      login,
+      {
+        authorization_status: expectedAuthorizationStatus,
+        session_expires_at: durable.expires_at,
+      },
+      preparedReceipt,
+      true,
+    );
+  }
+
+  async function sealLoginSession(session, nextState) {
+    clearLoginTimeoutCall(session.timeout);
     session.guard?.close();
-    await stopBrowserCall(session.browser);
-    if (seal) await vault.seal(session.profileId);
-    sessions.delete(session.key);
+    session.state = 'sealing_profile';
+    if (session.browser) {
+      await stopBrowserCall(session.browser);
+      session.browser = null;
+    }
+    await vault.seal(session.profileId);
+    session.state = nextState;
+  }
+
+  async function expireLoginSession(session, reason) {
+    if (session.finalizationPromise) {
+      const concurrentOperation = session.finalizationOperation;
+      try {
+        return await session.finalizationPromise;
+      } catch (error) {
+        if (concurrentOperation !== 'complete'
+          || session.state !== 'awaiting_login'
+        ) {
+          throw error;
+        }
+      }
+    }
+    return await runExclusiveLoginFinalization(
+      session,
+      'expiry',
+      'expiring',
+      async () => {
+        try {
+          if (session.state === 'expiring') {
+            await sealLoginSession(session, 'sealed_pending_expiry');
+          }
+          if (session.state !== 'sealed_pending_expiry') {
+            throw new Error('login_session_expiry_state_invalid');
+          }
+          const profile = await bridgeCall('expire_login', {
+            profile_id: session.profileId,
+            session_id: session.sessionId,
+            ticket: session.ticket,
+            reason,
+          });
+          if (profile?.profile_id !== session.profileId
+            || profile?.authorization_status !== 'session_expired'
+          ) {
+            throw new Error('login_session_expiry_bridge_invalid');
+          }
+          const receipt = await receipts.append('login_timeout', {
+            profile_id: session.profileId,
+            session_id: session.sessionId,
+            platform: session.platform,
+            status: 'session_expired',
+            owned_browser_closed: true,
+            profile_encrypted_at_rest: true,
+          });
+          sessions.delete(session.key);
+          return {
+            operation: 'expiry',
+            status: 'session_expired',
+            receipt,
+          };
+        } catch (error) {
+          session.state = 'quarantined';
+          try {
+            await receipts.append('login_timeout_failed_closed', {
+              profile_id: session.profileId,
+              session_id: session.sessionId,
+              platform: session.platform,
+              status: 'quarantined',
+              browser_started: browserAlive(session.browser),
+            });
+          } catch {
+            // Retain the in-memory quarantine so capacity stays fail-closed.
+          }
+          throw error;
+        }
+      },
+    );
   }
 
   async function closeCollectionLease(session) {
@@ -935,20 +1344,29 @@ export async function createGateway(env = process.env, dependencies = {}) {
     session,
     outcome,
     receiptKind = 'profile_lease_closed',
+    activation = null,
   ) {
-    clearTimeout(session.timeout);
-    session.state = 'closing';
-    try {
-      session.guard?.close();
-      await stopBrowserCall(session.browser);
-      await vault.seal(session.profileId);
-      session.state = 'closed';
-    } catch (error) {
-      session.state = 'quarantined';
-      throw error;
+    clearProfileLeaseTimeoutCall(session.timeout);
+    if (session.state !== 'closed'
+      && session.state !== 'activation_failed_closed'
+    ) {
+      session.state = 'closing';
+      try {
+        session.guard?.close();
+        await stopBrowserCall(session.browser);
+        session.browser = null;
+        await vault.seal(session.profileId);
+        session.state = 'closed';
+      } catch (error) {
+        session.state = 'quarantined';
+        throw error;
+      }
     }
-    try {
-      return await receipts.append(receiptKind, {
+    const receipt = await receipts.appendOnce(
+      receiptKind,
+      (record) => record?.payload?.profile_lease_id
+        === session.profileLeaseId,
+      {
         profile_lease_id: session.profileLeaseId,
         profile_id: session.profileId,
         platform: session.platform,
@@ -963,28 +1381,267 @@ export async function createGateway(env = process.env, dependencies = {}) {
         owned_browser_closed: true,
         user_browser_closed: false,
         profile_encrypted_at_rest: true,
-      });
-    } finally {
+        sensitive_values_exposed: false,
+        activation_requested: activation?.requested === true,
+        provider_hotel_id_fingerprint:
+          activation?.requested === true
+            ? activation.providerHotelIdFingerprint
+            : null,
+      },
+    );
+    if (activation?.requested !== true) {
       profileLeases.delete(session.profileLeaseId);
     }
+    return receipt;
   }
 
   async function expireProfileLease(session) {
-    const nestedCollections = [...sessions.values()]
-      .filter((candidate) => candidate.kind === 'dingdandao_collection'
-        && candidate.profileLeaseId === session.profileLeaseId);
-    for (const collection of nestedCollections) {
-      try {
-        await finalizeCollectionSession(
-          collection,
+    return await runExclusiveProfileLeaseFinalization(
+      session,
+      'expiry',
+      async () => {
+        const nestedCollections = [...sessions.values()]
+          .filter((candidate) => candidate.kind === 'dingdandao_collection'
+            && candidate.profileLeaseId === session.profileLeaseId);
+        for (const collection of nestedCollections) {
+          try {
+            await finalizeCollectionSession(
+              collection,
+              'window_expired',
+              'collection_window_timeout',
+            );
+          } catch {
+            sessions.delete(collection.key);
+          }
+        }
+        const receipt = await closeProfileLease(
+          session,
           'window_expired',
-          'collection_window_timeout',
+          'profile_lease_timeout',
         );
-      } catch {
-        sessions.delete(collection.key);
-      }
+        return {
+          operation: 'expiry',
+          outcome: 'window_expired',
+          activateBinding: false,
+          providerHotelIdFingerprint: null,
+          receipt,
+          activation: null,
+        };
+      },
+    );
+  }
+
+  function validateProfileLeaseCloseReceipt(receipt, session, lease) {
+    const payload = receipt?.payload;
+    if (payload?.profile_lease_id !== lease.profileLeaseId
+      || payload?.profile_id !== lease.profileId
+      || payload?.platform !== lease.platform
+      || payload?.tenant_id !== session.tenantId
+      || payload?.hotel_id !== session.hotelId
+      || payload?.owner_user_id !== session.ownerUserId
+      || payload?.target_date !== session.targetDate
+      || payload?.lease_kind !== session.leaseKind
+      || payload?.access_mode !== 'read_only'
+      || payload?.outcome !== lease.outcome
+      || payload?.owned_browser_closed !== true
+      || payload?.user_browser_closed !== false
+      || payload?.profile_encrypted_at_rest !== true
+      || payload?.sensitive_values_exposed !== false
+      || payload?.activation_requested !== lease.activateBinding
+      || payload?.provider_hotel_id_fingerprint
+        !== lease.providerHotelIdFingerprint
+    ) {
+      throw new Error('profile_lease_receipt_invalid');
     }
-    await closeProfileLease(session, 'window_expired', 'profile_lease_timeout');
+    return receipt;
+  }
+
+  async function activateProfileLeaseBinding(session, lease, receipt) {
+    let activation;
+    try {
+      activation = await bridgeCall(
+        'activate_dingdandao_binding',
+        {
+          profile_id: session.profileId,
+          profile_lease_id: session.profileLeaseId,
+          receipt_id: receipt.receipt_id,
+          receipt_hash: receipt.receipt_hash,
+          tenant_id: session.tenantId,
+          hotel_id: session.hotelId,
+          owner_user_id: session.ownerUserId,
+          target_date: session.targetDate,
+          provider_hotel_id_fingerprint:
+            lease.providerHotelIdFingerprint,
+        },
+      );
+    } catch {
+      session.state = 'activation_failed_closed';
+      throw new Error('profile_lease_binding_activation_failed');
+    }
+    if (activation?.profile_id !== session.profileId
+      || activation?.profile_lease_id !== session.profileLeaseId
+      || activation?.receipt_id !== receipt.receipt_id
+      || activation?.receipt_hash !== receipt.receipt_hash
+      || activation?.profile_authorization_status !== 'ready_to_collect'
+      || activation?.profile_ready_after_binding !== true
+      || activation?.receipt_verified !== true
+      || activation?.sensitive_values_exposed !== false
+    ) {
+      session.state = 'activation_failed_closed';
+      throw new Error('profile_lease_binding_activation_invalid');
+    }
+    return activation;
+  }
+
+  async function finalizeExplicitProfileLease(session, lease) {
+    const result = await runExclusiveProfileLeaseFinalization(
+      session,
+      'close',
+      async () => {
+        let receipt;
+        try {
+          receipt = validateProfileLeaseCloseReceipt(
+            await closeProfileLease(
+              session,
+              lease.outcome,
+              'profile_lease_closed',
+              lease.activateBinding
+                ? {
+                  requested: true,
+                  providerHotelIdFingerprint:
+                    lease.providerHotelIdFingerprint,
+                }
+                : null,
+            ),
+            session,
+            lease,
+          );
+        } catch (error) {
+          if (session.state === 'closed') {
+            session.state = 'activation_failed_closed';
+          }
+          throw error;
+        }
+        const activation = lease.activateBinding
+          ? await activateProfileLeaseBinding(session, lease, receipt)
+          : null;
+        if (lease.activateBinding) {
+          profileLeases.delete(session.profileLeaseId);
+        }
+        return {
+          operation: 'close',
+          outcome: lease.outcome,
+          activateBinding: lease.activateBinding,
+          providerHotelIdFingerprint:
+            lease.providerHotelIdFingerprint,
+          receipt,
+          activation,
+        };
+      },
+    );
+    if (result?.operation !== 'close'
+      || result?.outcome !== lease.outcome
+      || result?.activateBinding !== lease.activateBinding
+      || result?.providerHotelIdFingerprint
+        !== lease.providerHotelIdFingerprint
+    ) {
+      throw new GatewayError('profile_lease_already_finalized', 409);
+    }
+    return result;
+  }
+
+  async function recoverProfileLeaseBindingClose(lease) {
+    if (!lease.activateBinding
+      || lease.outcome !== 'completed'
+      || lease.providerHotelIdFingerprint === null
+    ) {
+      throw new GatewayError('active_profile_lease_not_found', 404);
+    }
+    if (profileLeaseRecoveries.has(lease.profileLeaseId)) {
+      return await profileLeaseRecoveries.get(lease.profileLeaseId);
+    }
+    let recoveryPromise;
+    recoveryPromise = Promise.resolve().then(async () => {
+      const receipt = await receipts.findLatest(
+        'profile_lease_closed',
+        (record) => record?.payload?.profile_lease_id
+          === lease.profileLeaseId
+          && record?.payload?.profile_id === lease.profileId,
+      );
+      const payload = receipt?.payload;
+      if (!receipt
+        || payload?.platform !== lease.platform
+        || payload?.lease_kind !== 'binding_identity'
+      ) {
+        throw new GatewayError('active_profile_lease_not_found', 404);
+      }
+      const recoveredSession = {
+        profileLeaseId: lease.profileLeaseId,
+        profileId: lease.profileId,
+        platform: lease.platform,
+        tenantId: payload.tenant_id,
+        hotelId: payload.hotel_id,
+        ownerUserId: payload.owner_user_id,
+        targetDate: payload.target_date,
+        leaseKind: payload.lease_kind,
+        accessMode: payload.access_mode,
+        state: 'activation_failed_closed',
+      };
+      try {
+        validateProfileLeaseCloseReceipt(
+          receipt,
+          recoveredSession,
+          lease,
+        );
+        const activation = await activateProfileLeaseBinding(
+          recoveredSession,
+          lease,
+          receipt,
+        );
+        return {
+          operation: 'close',
+          outcome: lease.outcome,
+          activateBinding: true,
+          providerHotelIdFingerprint:
+            lease.providerHotelIdFingerprint,
+          receipt,
+          activation,
+          recoveredFromReceipt: true,
+        };
+      } catch (error) {
+        if (error instanceof GatewayError) throw error;
+        throw new GatewayError(publicError(error), 500);
+      }
+    }).finally(() => {
+      if (profileLeaseRecoveries.get(lease.profileLeaseId)
+        === recoveryPromise
+      ) {
+        profileLeaseRecoveries.delete(lease.profileLeaseId);
+      }
+    });
+    profileLeaseRecoveries.set(lease.profileLeaseId, recoveryPromise);
+    return await recoveryPromise;
+  }
+
+  function profileLeaseClosePayload(lease, result) {
+    return {
+      status: 'profile_lease_closed',
+      profile_lease_id: lease.profileLeaseId,
+      profile_id: lease.profileId,
+      platform: lease.platform,
+      owned_browser_closed: true,
+      profile_encrypted_at_rest: true,
+      user_browser_closed: false,
+      sensitive_values_exposed: false,
+      receipt_id: result.receipt.receipt_id,
+      receipt_hash: result.receipt.receipt_hash,
+      binding_activated: lease.activateBinding,
+      profile_authorization_status:
+        result.activation?.profile_authorization_status ?? null,
+      receipt_verified: result.activation?.receipt_verified === true,
+      recovered_from_receipt:
+        result.recoveredFromReceipt === true,
+    };
   }
 
   async function completeCollectionLifecycle(session, outcome, receiptKind = 'collection_profile_closed') {
@@ -1032,16 +1689,25 @@ export async function createGateway(env = process.env, dependencies = {}) {
     const url = new URL(request.url || '/', `http://${config.bindAddress}:${config.port}`);
     try {
       if (request.method === 'GET' && url.pathname === '/health') {
+        const buildStatus = activeGatewayBuildStatus(config);
         const activeLoginSessions = [...sessions.values()]
           .filter((session) => session.kind === 'login').length;
         const activeCollectionSessions = [...sessions.values()]
           .filter((session) => session.kind === 'dingdandao_collection').length;
         const activeBrowserSessions = [...sessions.values()]
-          .filter((session) => session.kind === 'login' && session.browser).length
+          .filter((session) => session.kind === 'login'
+            && browserAlive(session.browser)).length
           + [...profileLeases.values()]
-            .filter((session) => session.browser).length;
-        jsonResponse(response, 200, {
-          status: 'ok',
+            .filter((session) => browserAlive(session.browser)).length;
+        jsonResponse(
+          response,
+          buildStatus.active_release_build_match ? 200 : 503,
+          {
+          status: buildStatus.active_release_build_match
+            ? 'ok'
+            : 'blocked',
+          protocol_version: GATEWAY_PROTOCOL_VERSION,
+          ...buildStatus,
           bind: config.bindAddress,
           encrypted_profile_store: true,
           receipt_chain_valid: await receipts.verify(),
@@ -1052,6 +1718,17 @@ export async function createGateway(env = process.env, dependencies = {}) {
           profile_lease_contract: 'dingdandao_profile_lease.v1',
           browser_autostart: false,
           read_only_policy_runtime: typeof WebSocket === 'function',
+          },
+        );
+        return;
+      }
+
+      const buildStatus = activeGatewayBuildStatus(config);
+      if (!buildStatus.active_release_build_match) {
+        jsonResponse(response, 503, {
+          status: 'blocked',
+          reason: 'gateway_active_release_build_mismatch',
+          ...buildStatus,
         });
         return;
       }
@@ -1069,39 +1746,209 @@ export async function createGateway(env = process.env, dependencies = {}) {
         if (validated?.profile?.platform !== login.platform || validated?.login_entry?.validated !== true) {
           throw new Error('login_entry_scope_mismatch');
         }
-        const profilePath = await vault.restore(login.profileId);
-        const browser = await startBrowserCall(config, profilePath, login.platform);
+        let profilePath = null;
+        let browser = null;
+        try {
+          profilePath = await vault.restore(login.profileId);
+          browser = await startBrowserCall(
+            config,
+            profilePath,
+            login.platform,
+          );
+          await waitForBrowserPageCall(config, browser, null);
+          if (!browserAlive(browser)) {
+            throw new Error('browser_exited_before_login_ready');
+          }
+        } catch (error) {
+          let cleanupError = null;
+          let databaseLoginExpired = false;
+          if (browser) {
+            try {
+              await stopBrowserCall(browser);
+              browser = null;
+            } catch (stopError) {
+              cleanupError = stopError;
+            }
+          }
+          if (profilePath !== null && browser === null) {
+            try {
+              await vault.seal(login.profileId);
+            } catch (sealError) {
+              cleanupError = cleanupError || sealError;
+            }
+          }
+          if (cleanupError === null) {
+            try {
+              const expired = await bridgeCall('expire_login', {
+                profile_id: login.profileId,
+                session_id: login.sessionId,
+                ticket: login.ticket,
+                reason: 'gateway_login_open_failed',
+              });
+              if (expired?.profile_id !== login.profileId
+                || expired?.authorization_status !== 'session_expired'
+              ) {
+                throw new Error('login_open_expiry_bridge_invalid');
+              }
+              databaseLoginExpired = true;
+            } catch (expiryError) {
+              cleanupError = expiryError;
+            }
+          }
+          if (cleanupError !== null) {
+            sessions.set(login.sessionId, {
+              ...login,
+              kind: 'login',
+              key: login.sessionId,
+              ticketHash: sha256(login.ticket),
+              browser,
+              state: 'quarantined',
+              identityEvidence: null,
+              completedProfile: null,
+              openedAt: new Date().toISOString(),
+              expiresAt: null,
+              timeout: null,
+              finalizationPromise: null,
+              finalizationOperation: null,
+            });
+          }
+          try {
+            await receipts.append(
+              cleanupError === null
+                ? 'login_open_failed'
+                : 'login_open_quarantined',
+              {
+                profile_id: login.profileId,
+                session_id: login.sessionId,
+                platform: login.platform,
+                status: cleanupError === null
+                  ? 'cleanup_completed'
+                  : 'quarantined',
+                browser_started: browserAlive(browser),
+                profile_encrypted_at_rest:
+                  cleanupError === null,
+                database_login_expired: databaseLoginExpired,
+              },
+            );
+          } catch {
+            // The response still fails closed; no sensitive material is emitted.
+          }
+          throw new GatewayError(
+            cleanupError === null
+              ? publicError(error)
+              : 'gateway_login_start_cleanup_failed',
+            cleanupError === null ? 422 : 500,
+          );
+        }
         const session = {
           ...login,
           kind: 'login',
           key: login.sessionId,
           ticketHash: sha256(login.ticket),
           browser,
+          state: 'awaiting_login',
+          identityEvidence: null,
+          completedProfile: null,
           openedAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + config.loginTtlSeconds * 1000).toISOString(),
+          finalizationPromise: null,
+          finalizationOperation: null,
         };
-        session.timeout = setTimeout(async () => {
+        session.timeout = setLoginTimeoutCall(async () => {
           try {
-            await closeSession(session);
-            await receipts.append('login_timeout', {
-              profile_id: session.profileId,
-              session_id: session.sessionId,
-              platform: session.platform,
-              status: 'expired',
-            });
+            await expireLoginSession(session, 'gateway_login_timeout');
           } catch {
-            // Keep capacity fail-closed if the Profile could not be sealed.
+            // The session remains quarantined and keeps capacity fail-closed.
           }
         }, config.loginTtlSeconds * 1000);
         session.timeout.unref();
         sessions.set(login.sessionId, session);
         jsonResponse(response, 201, {
           status: 'awaiting_login',
+          protocol_version: GATEWAY_PROTOCOL_VERSION,
           profile_id: login.profileId,
           session_id: login.sessionId,
+          platform: login.platform,
           expires_at: session.expiresAt,
           viewer_url: config.viewerUrl,
           browser_started: true,
+          owned_browser_only: true,
+          user_browser_closed: false,
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/login/status') {
+        if (!authorized(request, controlToken)) {
+          jsonResponse(response, 401, {
+            status: 'failed',
+            reason: 'gateway_control_auth_required',
+          });
+          return;
+        }
+        const login = validateLoginStatusRequest(await jsonBody(request));
+        const session = sessions.get(login.sessionId);
+        if (!session
+          || session.kind !== 'login'
+          || session.profileId !== login.profileId
+          || session.platform !== login.platform
+        ) {
+          let durable;
+          try {
+            durable = await durableLoginStatus(login);
+          } catch {
+            throw new GatewayError('login_session_status_not_found', 404);
+          }
+          const receiptKind = durable.login_session_status === 'verified'
+            ? (login.platform === 'dingdandao'
+              ? 'login_identity_verified'
+              : 'login_profile_ready')
+            : 'login_timeout';
+          const receipt = await latestLoginReceipt(
+            login.profileId,
+            login.sessionId,
+            receiptKind,
+          );
+          jsonResponse(response, 200, {
+            status: durable.status,
+            protocol_version: GATEWAY_PROTOCOL_VERSION,
+            profile_id: login.profileId,
+            session_id: login.sessionId,
+            platform: login.platform,
+            expires_at: durable.expires_at ?? null,
+            browser_started: false,
+            identity_verified: durable.identity_verified === true,
+            profile_encrypted_at_rest:
+              durable.profile_encrypted_at_rest === true,
+            terminal: durable.terminal === true,
+            binding_required: login.platform === 'dingdandao'
+              && durable.authorization_status === 'login_verified',
+            owned_browser_only: true,
+            user_browser_closed: false,
+            sensitive_values_exposed: false,
+            receipt_id: receipt?.receipt_id || null,
+            receipt_hash: receipt?.receipt_hash || null,
+          });
+          return;
+        }
+        jsonResponse(response, 200, {
+          status: session.state,
+          protocol_version: GATEWAY_PROTOCOL_VERSION,
+          profile_id: session.profileId,
+          session_id: session.sessionId,
+          platform: session.platform,
+          expires_at: session.expiresAt,
+          browser_started: browserAlive(session.browser)
+            && ['awaiting_login', 'verifying_identity'].includes(session.state),
+          identity_verified: session.identityEvidence?.validated === true,
+          profile_encrypted_at_rest: [
+            'sealed_pending_complete',
+            'prepared_pending_db',
+            'db_completed_pending_receipt',
+          ].includes(session.state),
+          owned_browser_only: true,
+          user_browser_closed: false,
+          sensitive_values_exposed: false,
         });
         return;
       }
@@ -1210,7 +2057,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
           expiresAt,
           timeout: null,
         };
-        session.timeout = setTimeout(async () => {
+        session.timeout = setProfileLeaseTimeoutCall(async () => {
           try {
             await expireProfileLease(session);
           } catch {
@@ -1279,8 +2126,32 @@ export async function createGateway(env = process.env, dependencies = {}) {
         assertNoSensitiveMaterial(body);
         const lease = validateProfileLeaseCloseRequest(body);
         const session = profileLeases.get(lease.profileLeaseId);
-        if (!session
-          || session.profileId !== lease.profileId
+        if (lease.activateBinding) {
+          if (lease.outcome !== 'completed'
+            || lease.providerHotelIdFingerprint === null
+            || (session && session.leaseKind !== 'binding_identity')
+          ) {
+            throw new GatewayError(
+              'profile_lease_binding_activation_invalid',
+              422,
+            );
+          }
+        } else if (lease.providerHotelIdFingerprint !== null) {
+          throw new GatewayError(
+            'profile_lease_binding_activation_invalid',
+            422,
+          );
+        }
+        if (!session) {
+          const recovered = await recoverProfileLeaseBindingClose(lease);
+          jsonResponse(
+            response,
+            200,
+            profileLeaseClosePayload(lease, recovered),
+          );
+          return;
+        }
+        if (session.profileId !== lease.profileId
           || session.platform !== lease.platform
         ) {
           throw new GatewayError('active_profile_lease_not_found', 404);
@@ -1291,24 +2162,28 @@ export async function createGateway(env = process.env, dependencies = {}) {
         if (nestedCollectionActive) {
           throw new GatewayError('profile_lease_collection_active', 409);
         }
-        let receipt;
+        let result;
         try {
-          receipt = await closeProfileLease(session, lease.outcome);
-        } catch {
-          throw new GatewayError('profile_lease_close_failed', 500);
+          result = await finalizeExplicitProfileLease(session, lease);
+        } catch (error) {
+          if (error instanceof GatewayError) throw error;
+          const reason = publicError(error);
+          throw new GatewayError(
+            [
+              'profile_lease_receipt_invalid',
+              'profile_lease_binding_activation_failed',
+              'profile_lease_binding_activation_invalid',
+            ].includes(reason)
+              ? reason
+              : 'profile_lease_close_failed',
+            500,
+          );
         }
-        jsonResponse(response, 200, {
-          status: 'profile_lease_closed',
-          profile_lease_id: lease.profileLeaseId,
-          profile_id: lease.profileId,
-          platform: lease.platform,
-          owned_browser_closed: true,
-          profile_encrypted_at_rest: true,
-          user_browser_closed: false,
-          sensitive_values_exposed: false,
-          receipt_id: receipt.receipt_id,
-          receipt_hash: receipt.receipt_hash,
-        });
+        jsonResponse(
+          response,
+          200,
+          profileLeaseClosePayload(lease, result),
+        );
         return;
       }
 
@@ -1323,35 +2198,261 @@ export async function createGateway(env = process.env, dependencies = {}) {
           || session.kind !== 'login'
           || session.profileId !== login.profileId
           || session.platform !== login.platform
-          || (login.ticket !== null && session.ticketHash !== sha256(login.ticket))) {
+        ) {
+          let durable;
+          try {
+            durable = await durableLoginStatus(login);
+          } catch {
+            throw new GatewayError('active_login_session_not_found', 404);
+          }
+          const expectedStatus = login.platform === 'dingdandao'
+            ? 'login_verified'
+            : 'ready_to_collect';
+          if (durable.login_session_status !== 'verified'
+            || !['login_verified', 'ready_to_collect']
+              .includes(durable.authorization_status)
+          ) {
+            throw new GatewayError(
+              durable.status === 'session_expired'
+                ? 'login_session_expired'
+                : 'active_login_session_not_found',
+              durable.status === 'session_expired' ? 409 : 404,
+            );
+          }
+          if (durable.authorization_status !== expectedStatus
+            && !(login.platform === 'dingdandao'
+              && durable.authorization_status === 'ready_to_collect')
+          ) {
+            throw new GatewayError('gateway_login_database_completion_invalid', 500);
+          }
+          const receiptKind = login.platform === 'dingdandao'
+            ? 'login_identity_verified'
+            : 'login_profile_ready';
+          let receipt = await latestLoginReceipt(
+            login.profileId,
+            login.sessionId,
+            receiptKind,
+          );
+          if (!receipt) {
+            try {
+              receipt = await recoverDurableLoginReceipt(login, durable);
+            } catch {
+              throw new GatewayError('gateway_login_receipt_missing', 409);
+            }
+          }
+          jsonResponse(response, 200, {
+            status: durable.authorization_status,
+            protocol_version: GATEWAY_PROTOCOL_VERSION,
+            profile_id: login.profileId,
+            session_id: login.sessionId,
+            platform: login.platform,
+            receipt_id: receipt.receipt_id,
+            receipt_hash: receipt.receipt_hash,
+            browser_started: false,
+            owned_browser_closed: true,
+            user_browser_closed: false,
+            profile_encrypted_at_rest: true,
+            identity_verified: durable.identity_verified === true,
+            binding_required: login.platform === 'dingdandao'
+              && durable.authorization_status === 'login_verified',
+            idempotent_replay: true,
+            sensitive_values_exposed: false,
+          });
+          return;
+        }
+        if (login.ticket !== null
+          && session.ticketHash !== sha256(login.ticket)
+        ) {
           throw new GatewayError('active_login_session_not_found', 404);
         }
-        await closeSession(session);
-        const sessionExpiresAt = new Date(Date.now() + config.profileSessionTtlSeconds * 1000)
-          .toISOString()
-          .slice(0, 19)
-          .replace('T', ' ');
-        const profile = await bridgeCall('complete_login', {
-          profile_id: login.profileId,
-          session_id: login.sessionId,
-          ticket: session.ticket,
-          session_expires_at: sessionExpiresAt,
-        });
-        const receipt = await receipts.append('login_profile_ready', {
-          profile_id: login.profileId,
-          session_id: login.sessionId,
-          platform: login.platform,
-          authorization_status: profile.authorization_status,
-          encrypted_at_rest: true,
-          session_expires_at: profile.session_expires_at,
-        });
-        jsonResponse(response, 200, {
-          status: profile.authorization_status,
-          profile_id: login.profileId,
-          receipt_id: receipt.receipt_id,
-          receipt_hash: receipt.receipt_hash,
-          browser_started: false,
-        });
+
+        const finalized = await runExclusiveLoginFinalization(
+          session,
+          'complete',
+          'verifying_identity',
+          async () => {
+            if (session.state === 'verifying_identity') {
+              try {
+                if (login.platform === 'dingdandao') {
+                  const identity = await bridgeCall(
+                    'verify_dingdandao_login_identity',
+                    {
+                      profile_id: login.profileId,
+                      session_id: login.sessionId,
+                      ticket: session.ticket,
+                    },
+                  );
+                  if (identity?.validated !== true
+                    || identity?.profile_id !== login.profileId
+                    || identity?.session_id !== login.sessionId
+                    || identity?.platform !== login.platform
+                    || identity?.identity_status !== 'matched'
+                    || identity?.source_api_path
+                      !== DINGDANDAO_IDENTITY_QUERY_PATH
+                    || identity?.request_count !== 1
+                    || identity?.session_material_exposed !== false
+                    || identity?.raw_response_exposed !== false
+                    || identity?.user_tabs_closed !== false
+                  ) {
+                    throw new Error(
+                      'dingdandao_login_identity_unverified',
+                    );
+                  }
+                  session.identityEvidence = identity;
+                } else {
+                  session.identityEvidence = {
+                    validated: true,
+                    platform: login.platform,
+                    identity_status: 'not_required_for_platform',
+                  };
+                }
+              } catch {
+                session.state = 'awaiting_login';
+                throw new GatewayError(
+                  'dingdandao_login_identity_unverified',
+                  422,
+                );
+              }
+              try {
+                await sealLoginSession(
+                  session,
+                  'sealed_pending_complete',
+                );
+              } catch {
+                session.state = 'quarantined';
+                throw new GatewayError(
+                  'gateway_login_profile_seal_failed',
+                  500,
+                );
+              }
+            }
+            const expectedStatus = login.platform === 'dingdandao'
+              ? 'login_verified'
+              : 'ready_to_collect';
+            if (session.state === 'sealed_pending_complete') {
+              try {
+                const existingPrepared = await latestPreparedLoginReceipt(
+                  login.profileId,
+                  login.sessionId,
+                );
+                session.sessionExpiresAt = existingPrepared?.payload
+                  ?.session_expires_at
+                  || new Date(
+                    Date.now()
+                      + config.profileSessionTtlSeconds * 1000,
+                  )
+                    .toISOString()
+                    .slice(0, 19)
+                    .replace('T', ' ');
+                session.preparedReceipt = await prepareLoginCompletion(
+                  login,
+                  session.identityEvidence,
+                  expectedStatus,
+                  session.sessionExpiresAt,
+                );
+              } catch {
+                throw new GatewayError(
+                  'gateway_login_prepared_receipt_write_failed',
+                  500,
+                );
+              }
+              session.state = 'prepared_pending_db';
+            }
+            if (session.state === 'prepared_pending_db') {
+              let profile;
+              try {
+                profile = await bridgeCall('complete_login', {
+                  profile_id: login.profileId,
+                  session_id: login.sessionId,
+                  ticket: session.ticket,
+                  session_expires_at: session.sessionExpiresAt,
+                });
+              } catch {
+                try {
+                  const durable = await durableLoginStatus(login);
+                  if (durable.login_session_status === 'verified'
+                    && durable.expires_at === session.sessionExpiresAt
+                  ) {
+                    profile = {
+                      profile_id: durable.profile_id,
+                      authorization_status:
+                        durable.authorization_status,
+                      session_expires_at: durable.expires_at,
+                    };
+                  }
+                } catch {
+                  // Keep the sealed Profile retryable when DB completion is
+                  // not durably observable.
+                }
+                if (!profile) {
+                  throw new GatewayError(
+                    'gateway_login_database_completion_failed',
+                    500,
+                  );
+                }
+              }
+              if (profile?.profile_id !== login.profileId
+                || profile?.authorization_status !== expectedStatus
+                || profile?.session_expires_at !== session.sessionExpiresAt
+              ) {
+                throw new GatewayError(
+                  'gateway_login_database_completion_invalid',
+                  500,
+                );
+              }
+              session.completedProfile = profile;
+              session.state = 'db_completed_pending_receipt';
+            }
+            if (session.state !== 'db_completed_pending_receipt'
+              || !session.completedProfile
+              || !session.preparedReceipt
+            ) {
+              throw new GatewayError(
+                'gateway_login_completion_state_invalid',
+                409,
+              );
+            }
+            let receipt;
+            try {
+              receipt = await appendTerminalLoginReceipt(
+                login,
+                session.completedProfile,
+                session.preparedReceipt,
+              );
+            } catch {
+              throw new GatewayError(
+                'gateway_login_receipt_write_failed',
+                500,
+              );
+            }
+            sessions.delete(session.key);
+            return {
+              operation: 'complete',
+              response: {
+                status: session.completedProfile.authorization_status,
+                protocol_version: GATEWAY_PROTOCOL_VERSION,
+                profile_id: login.profileId,
+                session_id: login.sessionId,
+                platform: login.platform,
+                receipt_id: receipt.receipt_id,
+                receipt_hash: receipt.receipt_hash,
+                browser_started: false,
+                owned_browser_closed: true,
+                user_browser_closed: false,
+                profile_encrypted_at_rest: true,
+                identity_verified:
+                  session.identityEvidence?.validated === true,
+                binding_required: login.platform === 'dingdandao',
+                idempotent_replay: false,
+                sensitive_values_exposed: false,
+              },
+            };
+          },
+        );
+        if (finalized?.operation !== 'complete') {
+          throw new GatewayError('login_session_expired', 409);
+        }
+        jsonResponse(response, 200, finalized.response);
         return;
       }
 

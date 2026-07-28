@@ -7,6 +7,8 @@ use think\App;
 use think\facade\Db;
 
 const MAX_BINDING_PROBE_OUTPUT_BYTES = 65_536;
+const CLOUD_BROWSER_GATEWAY_PROTOCOL_VERSION =
+    'suxios_cloud_browser_gateway.v2';
 
 $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
@@ -95,6 +97,7 @@ if (strlen($controlToken) < 32) {
     fail('dingdandao_binding_control_token_unavailable');
 }
 try {
+    assertBindingGatewayProtocol($gatewayUrl);
     $opened = bindingLeaseGatewayRequest(
         $gatewayUrl,
         $controlToken,
@@ -255,26 +258,52 @@ try {
     }
     if ($profileLeaseId !== null) {
         try {
+            $activateBinding = $execute
+                && $mainError === null
+                && $bindingPersistenceStatus === true
+                && isset($providerHotelIdFingerprint)
+                && is_string($providerHotelIdFingerprint);
+            $closePayload = [
+                'profile_lease_id' => $profileLeaseId,
+                'profile_id' => $profileId,
+                'platform' => 'dingdandao',
+                'outcome' => $mainError === null ? 'completed' : 'failed',
+                'activate_binding' => $activateBinding,
+            ];
+            if ($activateBinding) {
+                $closePayload['provider_hotel_id_fingerprint'] =
+                    $providerHotelIdFingerprint;
+            }
             $closed = bindingLeaseGatewayRequest(
                 $gatewayUrl,
                 $controlToken,
                 '/v1/profile-lease/close',
-                [
-                    'profile_lease_id' => $profileLeaseId,
-                    'profile_id' => $profileId,
-                    'platform' => 'dingdandao',
-                    'outcome' => $mainError === null ? 'completed' : 'failed',
-                ]
+                $closePayload
             );
             if (($closed['status'] ?? '') !== 'profile_lease_closed'
                 || ($closed['owned_browser_closed'] ?? null) !== true
                 || ($closed['profile_encrypted_at_rest'] ?? null) !== true
                 || ($closed['user_browser_closed'] ?? null) !== false
                 || ($closed['sensitive_values_exposed'] ?? null) !== false
+                || ($activateBinding
+                    && (($closed['binding_activated'] ?? null) !== true
+                        || ($closed['receipt_verified'] ?? null) !== true
+                        || ($closed['profile_authorization_status'] ?? '')
+                            !== 'ready_to_collect'))
             ) {
                 throw new RuntimeException(
                     'dingdandao_binding_profile_lease_close_unverified'
                 );
+            }
+            if ($activateBinding && is_array($result)) {
+                $result['profile_authorization_status'] =
+                    'ready_to_collect';
+                $result['profile_ready_after_binding'] = true;
+                $result['receipt_verified'] = true;
+                $result['activation_receipt_id'] =
+                    (string)($closed['receipt_id'] ?? '');
+                $result['activation_receipt_hash'] =
+                    (string)($closed['receipt_hash'] ?? '');
             }
         } catch (Throwable $closeError) {
             $mainError = safeReason(
@@ -295,6 +324,13 @@ if ($mainError !== null || !is_array($result)) {
         1,
         $bindingPersistenceStatus
     );
+}
+if ($execute
+    && (($result['profile_authorization_status'] ?? '')
+            !== 'ready_to_collect'
+        || ($result['profile_ready_after_binding'] ?? null) !== true)
+) {
+    fail('dingdandao_binding_profile_promotion_failed', 1, true);
 }
 $result['profile_lease_status'] = 'closed';
 $result['owned_browser_closed'] = true;
@@ -389,6 +425,8 @@ function bindingLeaseGatewayRequest(
     string $path,
     array $body
 ): array {
+    $expectedBuild = expectedBindingGatewayBuild();
+    $body['expected_gateway_build_sha256'] = $expectedBuild;
     $json = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $context = stream_context_create([
         'http' => [
@@ -402,13 +440,69 @@ function bindingLeaseGatewayRequest(
     ]);
     $raw = file_get_contents($baseUrl . $path, false, $context);
     $decoded = is_string($raw) ? json_decode($raw, true) : null;
-    if (!is_array($decoded) || ($decoded['status'] ?? '') === 'failed') {
+    if (!is_array($decoded)
+        || ($decoded['status'] ?? '') === 'failed'
+        || !hash_equals(
+            $expectedBuild,
+            (string)($decoded['build_sha256'] ?? '')
+        )
+    ) {
         $reason = is_array($decoded) ? (string)($decoded['reason'] ?? '') : '';
         throw new RuntimeException(
             $reason !== '' ? $reason : 'dingdandao_binding_gateway_failed'
         );
     }
     return $decoded;
+}
+
+function assertBindingGatewayProtocol(string $gatewayUrl): void
+{
+    $expectedBuild = expectedBindingGatewayBuild();
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'timeout' => 5,
+            'ignore_errors' => true,
+        ],
+    ]);
+    $raw = file_get_contents($gatewayUrl . '/health', false, $context);
+    $health = is_string($raw) ? json_decode($raw, true) : null;
+    if (!is_array($health)
+        || ($health['status'] ?? '') !== 'ok'
+        || ($health['bind'] ?? '') !== '127.0.0.1'
+        || ($health['protocol_version'] ?? '')
+            !== CLOUD_BROWSER_GATEWAY_PROTOCOL_VERSION
+        || !hash_equals(
+            $expectedBuild,
+            (string)($health['build_sha256'] ?? '')
+        )
+        || !hash_equals(
+            $expectedBuild,
+            (string)(
+                $health['active_release_gateway_sha256'] ?? ''
+            )
+        )
+        || ($health['active_release_build_match'] ?? null) !== true
+    ) {
+        throw new RuntimeException(
+            'dingdandao_binding_gateway_build_mismatch'
+        );
+    }
+}
+
+function expectedBindingGatewayBuild(): string
+{
+    $path = dirname(__DIR__)
+        . '/deploy/remote-browser/cloud_browser_gateway.mjs';
+    $hash = is_file($path) ? hash_file('sha256', $path) : false;
+    if (!is_string($hash)
+        || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1
+    ) {
+        throw new RuntimeException(
+            'dingdandao_binding_gateway_build_unavailable'
+        );
+    }
+    return $hash;
 }
 
 function positiveInt(mixed $value, string $reason): int

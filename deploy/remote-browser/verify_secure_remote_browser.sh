@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+app_root="${1:-/var/www/suxios/current}"
+release_gateway="$app_root/deploy/remote-browser/cloud_browser_gateway.mjs"
+installed_gateway="/opt/suxios-cloud-browser/cloud_browser_gateway.mjs"
+
+if [[ ! -f "$release_gateway" || ! -f "$installed_gateway" ]]; then
+  echo "Release or installed cloud-browser gateway is missing." >&2
+  exit 1
+fi
+if [[ "$(sha256sum "$release_gateway" | awk '{print $1}')" \
+  != "$(sha256sum "$installed_gateway" | awk '{print $1}')" ]]; then
+  echo "Installed /opt gateway does not match the active release." >&2
+  exit 1
+fi
+
 services=(
   suxios-cloud-browser-display
   suxios-cloud-browser-vnc
@@ -29,11 +43,24 @@ if ss -H -ltn "sport = :9223" | grep -q .; then
   exit 1
 fi
 
+expected_gateway_hash="$(sha256sum "$release_gateway" | awk '{print $1}')"
 health="$(curl --silent --fail http://127.0.0.1:8787/health)"
-grep -q '"encrypted_profile_store":true' <<<"$health"
-grep -q '"receipt_chain_valid":true' <<<"$health"
-grep -q '"browser_autostart":false' <<<"$health"
-grep -q '"read_only_policy_runtime":true' <<<"$health"
+EXPECTED_GATEWAY_SHA256="$expected_gateway_hash" php -r '
+  $health = json_decode(stream_get_contents(STDIN), true);
+  $expected = getenv("EXPECTED_GATEWAY_SHA256");
+  $ok = is_array($health)
+    && ($health["status"] ?? "") === "ok"
+    && ($health["protocol_version"] ?? "")
+      === "suxios_cloud_browser_gateway.v2"
+    && ($health["build_sha256"] ?? "") === $expected
+    && ($health["active_release_gateway_sha256"] ?? "") === $expected
+    && ($health["active_release_build_match"] ?? null) === true
+    && ($health["encrypted_profile_store"] ?? null) === true
+    && ($health["receipt_chain_valid"] ?? null) === true
+    && ($health["browser_autostart"] ?? null) === false
+    && ($health["read_only_policy_runtime"] ?? null) === true;
+  exit($ok ? 0 : 1);
+' <<<"$health"
 
 find /var/lib/suxios-cloud-browser/profiles -maxdepth 1 -type f \
   ! -name '*.tar.gz.enc' -print -quit | grep -q . && {
@@ -41,4 +68,4 @@ find /var/lib/suxios-cloud-browser/profiles -maxdepth 1 -type f \
     exit 1
   }
 
-echo "Verified: loopback-only gateway/viewer, no browser autostart, encrypted Profile store, valid receipt chain."
+echo "Verified: active release, /opt file, and running gateway build match; protocol v2 is live, listeners are loopback-only, no browser autostart, encrypted Profile store, valid receipt chain."

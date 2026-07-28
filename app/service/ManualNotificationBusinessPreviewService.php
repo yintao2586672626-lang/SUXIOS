@@ -256,6 +256,7 @@ final class ManualNotificationBusinessPreviewService
             $todayGaps
         );
         $today['ota_collection'] = $otaToday['collection'];
+        $today['ota_platforms'] = $otaToday['platforms'];
 
         $sections = [
             'today_revenue_management' => $today,
@@ -360,7 +361,8 @@ final class ManualNotificationBusinessPreviewService
      * @return array{
      *   facts:array<int,array<string,mixed>>,
      *   gaps:array<int,array<string,mixed>>,
-     *   collection:array<string,mixed>
+     *   collection:array<string,mixed>,
+     *   platforms:array<string,array<string,mixed>>
      * }
      */
     private static function otaTodayFacts(
@@ -430,6 +432,51 @@ final class ManualNotificationBusinessPreviewService
             $hotelId,
             $businessDate
         );
+        $platformFacts = [];
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $platformRows = array_values(array_filter(
+                $trustedRows,
+                static fn(array $row): bool => ($row['source'] ?? '') === $platform
+            ));
+            $platformState = is_array($collection['platforms'][$platform] ?? null)
+                ? $collection['platforms'][$platform]
+                : [];
+            $status = (string)($platformState['status'] ?? 'pending_collection');
+            $readbackVerified = $status === 'readback_verified' && $platformRows !== [];
+            $platformFacts[$platform] = [
+                'platform' => $platform,
+                'platform_label' => self::platformLabel($platform),
+                'status' => $status,
+                'status_label' => self::collectionStatusLabel($status),
+                'scope' => 'ota_channel',
+                'business_date' => $businessDate,
+                'metrics' => [
+                    'revenue' => $readbackVerified
+                        ? self::sumMetric($platformRows, 'amount')
+                        : null,
+                    'orders' => $readbackVerified
+                        ? self::sumMetric($platformRows, 'book_order_num')
+                        : null,
+                    'room_nights' => $readbackVerified
+                        ? self::sumMetric($platformRows, 'quantity')
+                        : null,
+                ],
+                'source' => [
+                    'table' => 'online_daily_data',
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $hotelId,
+                    'data_date' => $businessDate,
+                    'platform' => $platform,
+                    'metric_scope' => 'ota_channel',
+                    'readback_verified' => $readbackVerified,
+                    'readback_policy' => $sourcePolicy['readback_policy'] ?? 'not_verified',
+                    'trusted_row_count' => count($platformRows),
+                    'collected_at' => $readbackVerified
+                        ? self::latestCollectedAt($platformRows)
+                        : null,
+                ],
+            ];
+        }
         $gaps = [];
         foreach ((array)($collection['platforms'] ?? []) as $platform => $state) {
             if (!is_array($state) || ($state['status'] ?? '') === 'readback_verified') {
@@ -466,7 +513,25 @@ final class ManualNotificationBusinessPreviewService
             'facts' => $facts,
             'gaps' => $gaps,
             'collection' => $collection,
+            'platforms' => $platformFacts,
         ];
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    private static function latestCollectedAt(array $rows): ?string
+    {
+        $observed = [];
+        foreach ($rows as $row) {
+            $value = trim((string)($row['collected_at'] ?? ''));
+            if ($value !== '') {
+                $observed[] = $value;
+            }
+        }
+        if ($observed === []) {
+            return null;
+        }
+        sort($observed);
+        return end($observed) ?: null;
     }
 
     /** @param array<string, mixed> $temporal @return array<string, mixed> */

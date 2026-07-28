@@ -186,12 +186,22 @@ class TrustedOtaFactRepository
         [$trustedRows, $suppressedMixedTypeRows] = $this->preferSummaryFactsPerSourceDate($trustedRows);
         $rows = [];
         foreach ($trustedRows as $row) {
+            $raw = $this->decodeRaw($row['raw_data'] ?? null);
             $rows[] = [
                 'data_date' => (string)($row['data_date'] ?? ''),
                 'amount' => $this->metricValue($row, 'amount', $dataGaps),
                 'quantity' => $this->metricValue($row, 'quantity', $dataGaps),
                 'book_order_num' => $this->metricValue($row, 'book_order_num', $dataGaps),
-                'source' => $this->normalizedSource($this->firstText($row, $this->decodeRaw($row['raw_data'] ?? null), ['source', 'platform'])),
+                'source' => $this->normalizedSource(
+                    $this->firstText($row, $raw, ['source', 'platform'])
+                ),
+                'collected_at' => $this->firstText($row, $raw, [
+                    'snapshot_time',
+                    'update_time',
+                    'updated_at',
+                    'create_time',
+                    'created_at',
+                ]) ?: null,
                 'metric_scope' => 'ota_channel',
             ];
         }

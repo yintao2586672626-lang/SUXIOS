@@ -236,6 +236,68 @@ final class OperatingTargetReportGateServiceTest extends TestCase
         );
     }
 
+    public function testIntegratedSingleHotelDigestRendersPmsCtripMeituanAndAllTargetMetrics(): void
+    {
+        $service = new OperatingTargetReportGateService();
+        $preview = $this->integratedPreview();
+
+        $result = $service->pagePreview($preview, '敦煌漠蓝新');
+        $content = $result['payload']['markdown']['content'];
+
+        self::assertTrue($result['formal_send_gate']['allowed']);
+        self::assertStringContainsString('PMS 住宿经营事实', $content);
+        self::assertStringContainsString('房费：6450.14元', $content);
+        self::assertStringContainsString('入住率：66.67%', $content);
+        self::assertStringContainsString('所需均价：2709.97元', $content);
+        self::assertStringContainsString('携程｜OTA 渠道', $content);
+        self::assertStringContainsString('渠道收入：1200元｜订单：6单｜间夜：7间夜', $content);
+        self::assertStringContainsString('美团｜OTA 渠道', $content);
+        self::assertStringContainsString('渠道收入：800元｜订单：4单｜间夜：3间夜', $content);
+        self::assertStringContainsString(
+            'OTA 只代表对应渠道；PMS 当前只代表住宿房费口径',
+            $content
+        );
+        self::assertLessThanOrEqual(4096, strlen($content));
+    }
+
+    public function testIntegratedDigestBlocksWhenEitherOtaPlatformIsNotReadbackVerified(): void
+    {
+        $service = new OperatingTargetReportGateService();
+        $preview = $this->integratedPreview();
+        $readyFingerprint = $service->pagePreview($preview, '敦煌漠蓝新')['preview_fingerprint'];
+        $preview['integrated_sources']['status'] = 'partial';
+        $preview['integrated_sources']['ota_channel']['status'] = 'partial';
+        $preview['integrated_sources']['ota_channel']['platforms']['meituan']['status']
+            = 'collection_failed';
+        $preview['integrated_sources']['ota_channel']['platforms']['meituan']['metrics'] = [
+            'revenue' => null,
+            'orders' => null,
+            'room_nights' => null,
+        ];
+        $preview['integrated_sources']['gaps'][] = [
+            'code' => 'meituan_collection_failed',
+            'message' => '美团当日采集失败。',
+        ];
+
+        $result = $service->pagePreview($preview, '敦煌漠蓝新');
+
+        self::assertFalse($result['formal_send_gate']['allowed']);
+        self::assertContains(
+            'integrated_meituan_not_verified',
+            array_column($result['formal_send_gate']['blockers'], 'code')
+        );
+        self::assertNotSame($readyFingerprint, $result['preview_fingerprint']);
+        self::assertStringContainsString('美团｜OTA 渠道', $result['payload']['markdown']['content']);
+        self::assertStringContainsString(
+            '渠道收入：未取得｜订单：未取得｜间夜：未取得',
+            $result['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
+            '当前只可预览，禁止调用企业微信测试群发送器',
+            $result['payload']['markdown']['content']
+        );
+    }
+
     public function testAdapterHasNoNetworkDatabaseOrSessionAccess(): void
     {
         $source = (string)file_get_contents(
@@ -293,5 +355,92 @@ final class OperatingTargetReportGateServiceTest extends TestCase
             ],
             'delivery_status' => 'preview_only',
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function integratedPreview(): array
+    {
+        $preview = $this->readyPreview();
+        $preview['target_date'] = '2026-07-27';
+        $preview['facts'] = [
+            'target_revenue' => 20000,
+            'actual_revenue' => 6450.14,
+            'sold_room_nights' => 10,
+            'sellable_room_nights' => 15,
+            'fact_scope' => 'accommodation_room_fee',
+            'source_type' => 'pms',
+            'source_reference' => '订单来了住宿数据中心 / capture:77',
+            'quality_status' => 'verified',
+            'quality_reason' => '门店、日期、汇总明细及数据库回读已验证。',
+            'fact_captured_at' => '2026-07-27 14:30:00',
+        ];
+        $preview['metrics'] = [
+            'completion_rate_percent' => 32.25,
+            'remaining_revenue' => 13549.86,
+            'selling_progress_percent' => 66.67,
+            'remaining_sellable_room_nights' => 5,
+            'required_average_rate' => 2709.97,
+        ];
+        $preview['integrated_sources'] = [
+            'contract_version' => 'suxios.single_hotel_operating_digest.v1',
+            'required_for_delivery' => true,
+            'hotel_id' => self::HOTEL_ID,
+            'hotel_name' => '敦煌漠蓝新',
+            'business_date' => '2026-07-27',
+            'status' => 'ready',
+            'pms' => [
+                'status' => 'verified',
+                'provider' => 'dingdandao_pms',
+                'provider_label' => '订单来了',
+                'scope' => 'accommodation_room_fee',
+                'business_date' => '2026-07-27',
+                'capture_id' => 77,
+                'source_reference' => '订单来了住宿数据中心 / capture:77',
+                'captured_at' => '2026-07-27 14:30:00',
+                'quality_status' => 'verified',
+                'readback_status' => 'readback_verified',
+                'identity_status' => 'matched',
+                'reconciliation_status' => 'matched',
+                'metrics' => [
+                    'total_room_fee' => 6450.14,
+                    'adr' => 645.01,
+                    'occupancy_rate_percent' => 66.67,
+                    'revpar' => 430.01,
+                    'sold_room_nights' => 10,
+                    'average_daily_room_nights' => 10,
+                    'sellable_room_nights' => 15,
+                ],
+                'gaps' => [],
+            ],
+            'ota_channel' => [
+                'status' => 'readback_verified',
+                'scope' => 'ota_channel',
+                'business_date' => '2026-07-27',
+                'platforms' => [
+                    'ctrip' => [
+                        'platform' => 'ctrip',
+                        'platform_label' => '携程',
+                        'status' => 'readback_verified',
+                        'scope' => 'ota_channel',
+                        'business_date' => '2026-07-27',
+                        'collected_at' => '2026-07-27 14:31:00',
+                        'metrics' => ['revenue' => 1200, 'orders' => 6, 'room_nights' => 7],
+                    ],
+                    'meituan' => [
+                        'platform' => 'meituan',
+                        'platform_label' => '美团',
+                        'status' => 'readback_verified',
+                        'scope' => 'ota_channel',
+                        'business_date' => '2026-07-27',
+                        'collected_at' => '2026-07-27 14:32:00',
+                        'metrics' => ['revenue' => 800, 'orders' => 4, 'room_nights' => 3],
+                    ],
+                ],
+                'gaps' => [],
+            ],
+            'gaps' => [],
+            'scope_note' => '订单来了仅代表 PMS 住宿房费；OTA 仅代表各自渠道。',
+        ];
+        return $preview;
     }
 }

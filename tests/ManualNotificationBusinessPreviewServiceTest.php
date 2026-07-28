@@ -122,6 +122,22 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
         self::assertTrue($otaRevenue['source']['readback_verified']);
         self::assertSame(['ctrip', 'meituan'], $otaRevenue['source']['platforms']);
         self::assertSame('readback_verified', $today['ota_collection']['status']);
+        self::assertSame('readback_verified', $today['ota_platforms']['ctrip']['status']);
+        self::assertSame(800, $today['ota_platforms']['ctrip']['metrics']['revenue']);
+        self::assertSame(6, $today['ota_platforms']['ctrip']['metrics']['orders']);
+        self::assertSame(7, $today['ota_platforms']['ctrip']['metrics']['room_nights']);
+        self::assertSame(
+            '2026-07-26 18:31:00',
+            $today['ota_platforms']['ctrip']['source']['collected_at']
+        );
+        self::assertSame('readback_verified', $today['ota_platforms']['meituan']['status']);
+        self::assertSame(500, $today['ota_platforms']['meituan']['metrics']['revenue']);
+        self::assertSame(4, $today['ota_platforms']['meituan']['metrics']['orders']);
+        self::assertSame(5, $today['ota_platforms']['meituan']['metrics']['room_nights']);
+        self::assertSame(
+            '2026-07-26 18:32:00',
+            $today['ota_platforms']['meituan']['source']['collected_at']
+        );
 
         $future = $preview['sections']['future_room_status'];
         self::assertSame('partial', $future['status']);
@@ -344,6 +360,14 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
         self::assertNull($this->field($today['facts'], 'ota_revenue')['value']);
         self::assertNull($this->field($today['facts'], 'ota_orders')['value']);
         self::assertNull($this->field($today['facts'], 'ota_room_nights')['value']);
+        self::assertSame(
+            ['revenue' => null, 'orders' => null, 'room_nights' => null],
+            $today['ota_platforms']['ctrip']['metrics']
+        );
+        self::assertSame(
+            ['revenue' => null, 'orders' => null, 'room_nights' => null],
+            $today['ota_platforms']['meituan']['metrics']
+        );
     }
 
     public function testExplicitCollectionFailureIsNotCollapsedIntoMissingData(): void
@@ -495,6 +519,7 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                     'amount' => 800,
                     'quantity' => 7,
                     'book_order_num' => 6,
+                    'collected_at' => '2026-07-26 18:31:00',
                 ],
                 [
                     'data_date' => '2026-07-26',
@@ -502,6 +527,7 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                     'amount' => 500,
                     'quantity' => 5,
                     'book_order_num' => 4,
+                    'collected_at' => '2026-07-26 18:32:00',
                 ],
             ],
             'source_policy' => [

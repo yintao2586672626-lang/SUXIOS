@@ -167,8 +167,9 @@ final class CloudBrowserProfileService
     }
 
     /**
-     * Atomic trusted-gateway completion: consume the ticket, record verified
-     * login, and make the encrypted Profile eligible for collection.
+     * Atomic trusted-gateway completion: consume the ticket and record the
+     * verified encrypted session. Dingdandao still requires an exact provider
+     * hotel-ID binding/readback before it may become collectable.
      *
      * @return array<string,mixed>
      */
@@ -194,7 +195,13 @@ final class CloudBrowserProfileService
             ]);
 
             $profile = $this->transitionLocked($profile, self::LOGIN_VERIFIED, 'gateway_login_verified');
-            $profile = $this->transitionLocked($profile, self::READY_TO_COLLECT, 'gateway_profile_encrypted');
+            if (strtolower((string)$profile['platform']) !== 'dingdandao') {
+                $profile = $this->transitionLocked(
+                    $profile,
+                    self::READY_TO_COLLECT,
+                    'gateway_profile_encrypted'
+                );
+            }
             $normalizedExpiry = date('Y-m-d H:i:s', $expiresAt);
             Db::name('cloud_browser_profiles')->where('id', (int)$profile['id'])->update([
                 'session_expires_at' => $normalizedExpiry,
@@ -203,6 +210,129 @@ final class CloudBrowserProfileService
             $profile['session_expires_at'] = $normalizedExpiry;
 
             return $this->publicProfile($profile);
+        });
+    }
+
+    /**
+     * Durable, sanitized login state used when the gateway no longer has the
+     * in-memory session (for example after a successful close or restart).
+     *
+     * @return array<string,mixed>
+     */
+    public function loginSessionStatus(
+        string $profilePublicId,
+        string $sessionPublicId,
+        string $platform
+    ): array {
+        $platform = $this->platform($platform);
+        $profile = $this->profileByPublicId($profilePublicId, false);
+        if (strtolower((string)$profile['platform']) !== $platform) {
+            throw new RuntimeException('cloud_browser_login_status_scope_mismatch');
+        }
+        $session = Db::name('cloud_browser_login_sessions')
+            ->where('profile_id', (int)$profile['id'])
+            ->where('session_public_id', trim($sessionPublicId))
+            ->find();
+        if (!is_array($session)) {
+            throw new RuntimeException('cloud_browser_login_status_not_found');
+        }
+
+        $sessionStatus = strtolower(trim((string)($session['session_status'] ?? '')));
+        $authorizationStatus = strtolower(trim((string)(
+            $profile['authorization_status'] ?? self::UNAUTHORIZED
+        )));
+        $ticketExpiresAt = strtotime((string)($session['expires_at'] ?? ''));
+        if ($sessionStatus === 'issued'
+            && $ticketExpiresAt !== false
+            && $ticketExpiresAt <= time()
+        ) {
+            $sessionStatus = 'expired';
+        }
+        $status = match ($sessionStatus) {
+            'verified' => $authorizationStatus,
+            'expired' => self::SESSION_EXPIRED,
+            'superseded' => 'superseded',
+            'issued' => 'session_not_active',
+            default => 'unverified',
+        };
+        $terminal = in_array($sessionStatus, ['verified', 'expired', 'superseded'], true);
+        $profileEncryptedAtRest = $terminal
+            && !in_array($authorizationStatus, [
+                self::AWAITING_LOGIN,
+                self::AWAITING_RELOGIN,
+            ], true);
+
+        return [
+            'profile_id' => (string)$profile['profile_public_id'],
+            'session_id' => (string)$session['session_public_id'],
+            'platform' => $platform,
+            'status' => $status,
+            'login_session_status' => $sessionStatus,
+            'authorization_status' => $authorizationStatus,
+            'expires_at' => $sessionStatus === 'issued'
+                ? ($session['expires_at'] ?? null)
+                : ($profile['session_expires_at'] ?? null),
+            'identity_verified' => $sessionStatus === 'verified'
+                && !empty($profile['login_verified_at']),
+            'profile_encrypted_at_rest' => $profileEncryptedAtRest,
+            'terminal' => $terminal,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /**
+     * Trusted-gateway timeout/failure closure. The issued ticket is consumed
+     * as expired so database state cannot keep claiming that a browser login
+     * window is still active after the gateway has sealed the Profile.
+     *
+     * @return array<string,mixed>
+     */
+    public function expireGatewayLogin(
+        string $profilePublicId,
+        string $sessionPublicId,
+        string $ticket,
+        string $reason = 'gateway_login_timeout'
+    ): array {
+        return Db::transaction(function () use (
+            $profilePublicId,
+            $sessionPublicId,
+            $ticket,
+            $reason
+        ): array {
+            $profile = $this->profileByPublicId($profilePublicId, true);
+            $session = Db::name('cloud_browser_login_sessions')
+                ->where('profile_id', (int)$profile['id'])
+                ->where('session_public_id', trim($sessionPublicId))
+                ->lock(true)
+                ->find();
+            if (!is_array($session)
+                || (string)($session['session_status'] ?? '') !== 'issued'
+            ) {
+                throw new RuntimeException(
+                    'cloud_browser_login_entry_not_available'
+                );
+            }
+            if (!hash_equals(
+                (string)$session['ticket_hash'],
+                hash('sha256', trim($ticket))
+            )) {
+                throw new RuntimeException(
+                    'cloud_browser_login_entry_invalid'
+                );
+            }
+            $now = date('Y-m-d H:i:s');
+            Db::name('cloud_browser_login_sessions')
+                ->where('id', (int)$session['id'])
+                ->update([
+                    'session_status' => 'expired',
+                    'update_time' => $now,
+                ]);
+
+            return $this->publicProfile($this->transitionLocked(
+                $profile,
+                self::SESSION_EXPIRED,
+                $this->reason($reason)
+            ));
         });
     }
 
@@ -292,6 +422,11 @@ final class CloudBrowserProfileService
             $profile = $this->profileByPublicId($profilePublicId, true);
             if ((string)$profile['authorization_status'] !== self::LOGIN_VERIFIED) {
                 throw new RuntimeException('cloud_browser_login_verification_required');
+            }
+            if (strtolower((string)$profile['platform']) === 'dingdandao') {
+                throw new RuntimeException(
+                    'cloud_browser_provider_binding_required'
+                );
             }
             $sessionExpiresAt = $this->sessionExpiry($sessionExpiresAt);
             $profile = $this->transitionLocked($profile, self::READY_TO_COLLECT, 'gateway_collection_ready');
@@ -436,11 +571,11 @@ final class CloudBrowserProfileService
         $from = strtolower(trim((string)($profile['authorization_status'] ?? self::UNAUTHORIZED)));
         $allowed = [
             self::UNAUTHORIZED => [self::AWAITING_LOGIN],
-            self::AWAITING_LOGIN => [self::LOGIN_VERIFIED],
+            self::AWAITING_LOGIN => [self::LOGIN_VERIFIED, self::SESSION_EXPIRED],
             self::LOGIN_VERIFIED => [self::READY_TO_COLLECT, self::SESSION_EXPIRED, self::AWAITING_RELOGIN],
             self::READY_TO_COLLECT => [self::SESSION_EXPIRED, self::AWAITING_RELOGIN],
             self::SESSION_EXPIRED => [self::AWAITING_RELOGIN],
-            self::AWAITING_RELOGIN => [self::LOGIN_VERIFIED],
+            self::AWAITING_RELOGIN => [self::LOGIN_VERIFIED, self::SESSION_EXPIRED],
         ];
         if ($from !== $next && !in_array($next, $allowed[$from] ?? [], true)) {
             throw new RuntimeException('cloud_browser_invalid_state_transition');
@@ -457,6 +592,9 @@ final class CloudBrowserProfileService
         }
         if ($next === self::READY_TO_COLLECT) {
             $update['ready_at'] = $now;
+        }
+        if ($next === self::SESSION_EXPIRED) {
+            $update['session_expires_at'] = null;
         }
         Db::name('cloud_browser_profiles')->where('id', (int)$profile['id'])->update($update);
         return array_merge($profile, $update);

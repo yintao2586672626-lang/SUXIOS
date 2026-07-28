@@ -10,6 +10,10 @@ ARCHIVE=""
 RELEASE_NAME=""
 EXPECTED_SHA256=""
 HEALTH_HOST=""
+GATEWAY_INSTALL_ROOT="/opt/suxios-cloud-browser"
+GATEWAY_FILE="$GATEWAY_INSTALL_ROOT/cloud_browser_gateway.mjs"
+GATEWAY_SERVICE="suxios-cloud-browser-gateway.service"
+GATEWAY_BACKUP_ROOT="/var/backups/suxios/cloud-browser"
 
 while (($#)); do
   case "$1" in
@@ -148,39 +152,157 @@ reload_services() {
   nginx -t && systemctl reload php8.3-fpm && systemctl reload nginx
 }
 
-ROLLBACK_LINK="$APP_ROOT/.current-${RELEASE_NAME}"
-ln -s "$RELEASE_DIR" "$ROLLBACK_LINK"
-mv -Tf "$ROLLBACK_LINK" "$CURRENT_LINK"
+CANDIDATE_GATEWAY="$RELEASE_DIR/deploy/remote-browser/cloud_browser_gateway.mjs"
+test -f "$CANDIDATE_GATEWAY"
+node --check "$CANDIDATE_GATEWAY"
+CANDIDATE_GATEWAY_SHA256="$(sha256sum "$CANDIDATE_GATEWAY" | awk '{print $1}')"
+GATEWAY_INSTALLED=0
+GATEWAY_BACKUP=""
+PREVIOUS_GATEWAY_SHA256=""
 
-rollback_and_verify() {
-  if [[ -z "$PREVIOUS_RELEASE" || ! -d "$PREVIOUS_RELEASE" ]]; then
-    rm -f "$CURRENT_LINK"
-    reload_services || true
-    return 1
-  fi
-
-  ln -sfn "$PREVIOUS_RELEASE" "$CURRENT_LINK"
-  reload_services && verify_health
+verify_gateway_health() {
+  local expected_hash="$1"
+  local protocol="${2:-strict}"
+  local gateway_json
+  gateway_json="$(curl -fsS http://127.0.0.1:8787/health)" || return 1
+  EXPECTED_GATEWAY_SHA256="$expected_hash" \
+    GATEWAY_HEALTH_PROTOCOL="$protocol" php -r '
+    $health = json_decode(stream_get_contents(STDIN), true);
+    $expected = getenv("EXPECTED_GATEWAY_SHA256");
+    $protocol = getenv("GATEWAY_HEALTH_PROTOCOL");
+    $common = is_array($health)
+      && ($health["status"] ?? "") === "ok"
+      && ($health["bind"] ?? "") === "127.0.0.1"
+      && ($health["encrypted_profile_store"] ?? null) === true
+      && ($health["receipt_chain_valid"] ?? null) === true
+      && ($health["browser_autostart"] ?? null) === false
+      && (int)($health["active_login_sessions"] ?? -1) === 0
+      && (int)($health["active_collection_sessions"] ?? -1) === 0
+      && (int)($health["active_profile_leases"] ?? -1) === 0
+      && (int)($health["active_browser_sessions"] ?? -1) === 0;
+    $strictBuild = ($health["build_sha256"] ?? "") === $expected
+      && ($health["active_release_gateway_sha256"] ?? "") === $expected
+      && ($health["active_release_build_match"] ?? null) === true;
+    $legacyBuild = !array_key_exists("build_sha256", $health)
+      && !array_key_exists("active_release_gateway_sha256", $health)
+      && !array_key_exists("active_release_build_match", $health);
+    $ok = $common
+      && ($protocol === "strict"
+        ? $strictBuild
+        : ($strictBuild || $legacyBuild));
+    exit($ok ? 0 : 1);
+  ' <<<"$gateway_json"
 }
 
-if ! reload_services; then
-  if rollback_and_verify; then
-    echo "Release activation failed; previous release restored and health verified." >&2
-  else
-    echo "Release activation failed and no healthy previous release could be restored." >&2
-    exit 81
-  fi
-  exit 79
+if [[ -e "$GATEWAY_FILE" ]] \
+  || systemctl cat "$GATEWAY_SERVICE" >/dev/null 2>&1; then
+  test -f "$GATEWAY_FILE"
+  systemctl cat "$GATEWAY_SERVICE" >/dev/null
+  test -n "$PREVIOUS_RELEASE"
+  PREVIOUS_RELEASE_GATEWAY="$PREVIOUS_RELEASE/deploy/remote-browser/cloud_browser_gateway.mjs"
+  test -f "$PREVIOUS_RELEASE_GATEWAY"
+  PREVIOUS_GATEWAY_SHA256="$(sha256sum "$GATEWAY_FILE" | awk '{print $1}')"
+  [[ "$PREVIOUS_GATEWAY_SHA256" == \
+    "$(sha256sum "$PREVIOUS_RELEASE_GATEWAY" | awk '{print $1}')" ]]
+  verify_gateway_health "$PREVIOUS_GATEWAY_SHA256" legacy
+  install -d -o root -g root -m 0700 "$GATEWAY_BACKUP_ROOT"
+  GATEWAY_BACKUP="$GATEWAY_BACKUP_ROOT/${RELEASE_NAME}-$(date +%Y%m%d-%H%M%S).mjs"
+  install -o root -g root -m 0600 "$GATEWAY_FILE" "$GATEWAY_BACKUP"
+  printf '%s  %s\n' "$PREVIOUS_GATEWAY_SHA256" \
+    "$(basename "$GATEWAY_BACKUP")" >"${GATEWAY_BACKUP}.sha256"
+  (
+    cd "$GATEWAY_BACKUP_ROOT"
+    sha256sum -c "$(basename "${GATEWAY_BACKUP}.sha256")"
+  )
+  GATEWAY_INSTALLED=1
 fi
 
-if ! verify_health; then
-  if rollback_and_verify; then
-    echo "New release failed health verification; previous release restored and health verified." >&2
-  else
-    echo "New release failed health verification and no healthy previous release could be restored." >&2
-    exit 81
+switch_current() {
+  local target="$1"
+  local temporary="$APP_ROOT/.current-${RELEASE_NAME}-$$"
+  rm -f "$temporary"
+  ln -s "$target" "$temporary" || return 1
+  if ! mv -Tf "$temporary" "$CURRENT_LINK"; then
+    rm -f "$temporary"
+    return 1
   fi
-  exit 80
+}
+
+install_gateway_atomically() {
+  local source="$1"
+  local temporary="$GATEWAY_INSTALL_ROOT/.cloud_browser_gateway.mjs.${RELEASE_NAME}.$$"
+  install -o root -g root -m 0755 "$source" "$temporary" || return 1
+  mv -Tf "$temporary" "$GATEWAY_FILE" || return 1
+}
+
+activate_release() {
+  if [[ $GATEWAY_INSTALLED -eq 1 ]]; then
+    systemctl stop "$GATEWAY_SERVICE" || return 1
+    install_gateway_atomically "$CANDIDATE_GATEWAY" || return 1
+  fi
+  switch_current "$RELEASE_DIR" || return 1
+  reload_services || return 1
+  if [[ $GATEWAY_INSTALLED -eq 1 ]]; then
+    systemctl start "$GATEWAY_SERVICE" || return 1
+  fi
+  [[ "$(readlink -f "$CURRENT_LINK")" == "$RELEASE_DIR" ]] || return 1
+  verify_health || return 1
+  if [[ $GATEWAY_INSTALLED -eq 1 ]]; then
+    [[ "$(sha256sum "$GATEWAY_FILE" | awk '{print $1}')" == \
+      "$CANDIDATE_GATEWAY_SHA256" ]] || return 1
+    verify_gateway_health "$CANDIDATE_GATEWAY_SHA256" || return 1
+  fi
+}
+
+rollback_both_and_verify() {
+  local failed=0
+  set +e
+  if [[ $GATEWAY_INSTALLED -eq 1 ]]; then
+    systemctl stop "$GATEWAY_SERVICE"
+    [[ $? -eq 0 ]] || failed=1
+  fi
+  if [[ -n "$PREVIOUS_RELEASE" && -d "$PREVIOUS_RELEASE" ]]; then
+    switch_current "$PREVIOUS_RELEASE"
+    [[ $? -eq 0 ]] || failed=1
+  else
+    failed=1
+  fi
+  if [[ $GATEWAY_INSTALLED -eq 1 ]]; then
+    if [[ -n "$GATEWAY_BACKUP" && -s "$GATEWAY_BACKUP" ]]; then
+      install_gateway_atomically "$GATEWAY_BACKUP"
+      [[ $? -eq 0 ]] || failed=1
+    else
+      failed=1
+    fi
+  fi
+  reload_services
+  [[ $? -eq 0 ]] || failed=1
+  if [[ $GATEWAY_INSTALLED -eq 1 ]]; then
+    systemctl start "$GATEWAY_SERVICE"
+    [[ $? -eq 0 ]] || failed=1
+  fi
+  [[ "$(readlink -f "$CURRENT_LINK" 2>/dev/null)" == "$PREVIOUS_RELEASE" ]]
+  [[ $? -eq 0 ]] || failed=1
+  verify_health
+  [[ $? -eq 0 ]] || failed=1
+  if [[ $GATEWAY_INSTALLED -eq 1 ]]; then
+    [[ "$(sha256sum "$GATEWAY_FILE" | awk '{print $1}')" == \
+      "$PREVIOUS_GATEWAY_SHA256" ]]
+    [[ $? -eq 0 ]] || failed=1
+    verify_gateway_health "$PREVIOUS_GATEWAY_SHA256" legacy
+    [[ $? -eq 0 ]] || failed=1
+  fi
+  set -e
+  [[ $failed -eq 0 ]]
+}
+
+if ! activate_release; then
+  if rollback_both_and_verify; then
+    echo "Release activation failed; application and gateway were both restored and verified." >&2
+    exit 80
+  fi
+  echo "Release activation failed and double rollback verification failed." >&2
+  exit 81
 fi
 
 printf 'DEPLOYED release=%s sha256=%s previous=%s\n' \

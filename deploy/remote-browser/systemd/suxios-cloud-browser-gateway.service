@@ -11,6 +11,8 @@ Group=suxios-browser
 SupplementaryGroups=www-data
 WorkingDirectory=@APP_ROOT@
 EnvironmentFile=-/etc/suxios-cloud-browser/gateway.env
+Environment=SUXIOS_CLOUD_BROWSER_ACTIVE_GATEWAY_PATH=@APP_ROOT@/deploy/remote-browser/cloud_browser_gateway.mjs
+ExecStartPre=/usr/bin/cmp --silent @INSTALL_ROOT@/cloud_browser_gateway.mjs @APP_ROOT@/deploy/remote-browser/cloud_browser_gateway.mjs
 ExecStart=@NODE_BIN@ --experimental-websocket @INSTALL_ROOT@/cloud_browser_gateway.mjs
 LoadCredential=profile-master-key:/etc/suxios-cloud-browser/profile-master-key
 LoadCredential=control-token:/etc/suxios-cloud-browser/control-token

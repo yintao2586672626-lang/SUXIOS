@@ -22,6 +22,21 @@ test('release activation requires a fresh verified backup artifact', () => {
   assert.ok(installer.indexOf('backup_file=') < installer.indexOf('php think db:check'));
 });
 
+test('release activation treats current and the opt gateway as one rollback unit', () => {
+  assert.match(installer, /CANDIDATE_GATEWAY_SHA256/);
+  assert.match(installer, /verify_gateway_health/);
+  assert.match(installer, /active_release_build_match/);
+  assert.match(installer, /install_gateway_atomically/);
+  assert.match(installer, /rollback_both_and_verify/);
+  assert.match(installer, /PREVIOUS_GATEWAY_SHA256/);
+  assert.match(installer, /systemctl stop "\$GATEWAY_SERVICE"/);
+  assert.match(installer, /systemctl start "\$GATEWAY_SERVICE"/);
+  assert.ok(
+    installer.indexOf('if [[ $NO_SWITCH -eq 1 ]]')
+      < installer.indexOf('GATEWAY_BACKUP='),
+  );
+});
+
 test('restore verification checks users and hotels only inside the temporary restore database', () => {
   assert.match(restore, /table_name IN \('users', 'hotels'\)/);
   assert.ok(restore.includes('FROM \\`${verify_database}\\`.users'));
