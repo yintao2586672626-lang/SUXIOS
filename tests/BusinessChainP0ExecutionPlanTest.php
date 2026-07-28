@@ -108,14 +108,14 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
         ]];
         $plan = [
             'scope' => [
-                'system_hotel_id' => 5,
+                'system_hotel_id' => 80,
                 'system_hotel_identity' => [
                     'status' => 'ready',
-                    'system_hotel_id' => 5,
+                    'system_hotel_id' => 80,
                     'system_hotel_name' => '敦煌漠蓝新',
                     'expected_hotel_name' => '敦煌漠蓝新',
                     'expected_name_status' => 'matched',
-                    'same_name_system_hotel_ids' => [5],
+                    'same_name_system_hotel_ids' => [80],
                 ],
             ],
             'platform_summaries' => [[
@@ -144,7 +144,7 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
         self::assertSame('blocked', $contract['status']);
         self::assertFalse($contract['claim_allowed']);
         self::assertSame('2026-07-28', $contract['target_date']);
-        self::assertSame(5, $contract['system_hotel_id']);
+        self::assertSame(80, $contract['system_hotel_id']);
         self::assertSame('敦煌漠蓝新', $contract['system_hotel_name']);
         self::assertSame('敦煌漠蓝新', $contract['expected_hotel_name']);
         self::assertSame('matched', $contract['evidence']['expected_name_status']);

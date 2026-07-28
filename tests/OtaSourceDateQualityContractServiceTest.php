@@ -99,7 +99,7 @@ final class OtaSourceDateQualityContractServiceTest extends TestCase
     private function context(): array
     {
         return [
-            'system_hotel_id' => 5,
+            'system_hotel_id' => 80,
             'system_hotel_name' => '敦煌漠蓝新',
             'expected_hotel_name' => '敦煌漠蓝新',
             'target_date' => '2026-07-28',
