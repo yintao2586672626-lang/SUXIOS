@@ -306,6 +306,7 @@ function runCollector(
         '--cdp-url=' . $cdpUrl,
         '--target-date=' . $targetDate,
         '--expected-hotel-name=' . $hotelName,
+        '--collection-mode=full_diagnostic',
         '--timeout-ms=15000',
     ];
     $pipes = [];

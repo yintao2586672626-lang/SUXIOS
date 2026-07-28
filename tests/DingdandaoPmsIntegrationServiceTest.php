@@ -501,6 +501,22 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             '订单来了 PMS 经营事实',
             $calls[0]['payload']['markdown']['content']
         );
+        self::assertStringContainsString(
+            '区域参考（甘肃省/酒泉市/敦煌市）',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
+            '门店平均总房费：¥6,053.86（本店较区域 ↑36.70%）',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
+            '经营指标趋势（07-27 至 07-28）',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
+            '平均房价 ADR：07-27 ¥636.59 → 07-28 ¥583.04',
+            $calls[0]['payload']['markdown']['content']
+        );
         self::assertSame(1, (int)Db::name('dingdandao_pms_push_dispatches')->count());
         self::assertSame(
             'sent',
@@ -900,6 +916,44 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             ],
             'detail_row_count' => 25,
             'detail_room_fee_total' => 8275.67,
+            'trend' => [
+                'total_room_fee' => [
+                    ['date' => '2026-07-27', 'value' => 8275.67],
+                    ['date' => '2026-07-28', 'value' => 8745.66],
+                ],
+                'adr' => [
+                    ['date' => '2026-07-27', 'value' => 636.59],
+                    ['date' => '2026-07-28', 'value' => 583.04],
+                ],
+                'occupancy_rate_percent' => [
+                    ['date' => '2026-07-27', 'value' => 86.67],
+                    ['date' => '2026-07-28', 'value' => 100],
+                ],
+                'revpar' => [
+                    ['date' => '2026-07-27', 'value' => 551.71],
+                    ['date' => '2026-07-28', 'value' => 583.04],
+                ],
+                'sold_room_nights' => [
+                    ['date' => '2026-07-27', 'value' => 13],
+                    ['date' => '2026-07-28', 'value' => 15],
+                ],
+            ],
+            'county_context' => [
+                'fact_scope' => 'county_diagnostic_only',
+                'data_status' => 'readable_separate',
+                'region_name' => '甘肃省/酒泉市/敦煌市',
+                'bool_city' => false,
+                'summary' => [
+                    'total_room_fee' => 6053.86,
+                    'adr' => 396.87,
+                    'occupancy_rate_percent' => 60.96,
+                    'revpar' => 241.93,
+                    'sold_room_nights' => 15.25,
+                    'average_daily_room_nights' => 15.25,
+                ],
+                'trend' => [],
+                'field_trace' => [],
+            ],
             'captured_at' => '2026-07-28 00:30:00',
         ];
     }

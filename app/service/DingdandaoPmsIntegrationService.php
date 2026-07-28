@@ -1030,31 +1030,123 @@ final class DingdandaoPmsIntegrationService
     private function buildPayload(array $capture, string $hotelName): array
     {
         $summary = is_array($capture['summary'] ?? null) ? $capture['summary'] : [];
-        $metric = static fn(mixed $value, string $suffix = ''): string =>
-            $value === null || $value === '' ? '未取得' : (string)$value . $suffix;
+        $region = is_array($capture['county_context'] ?? null)
+            ? $capture['county_context']
+            : [];
+        $regionSummary = is_array($region['summary'] ?? null)
+            ? $region['summary']
+            : [];
+        $trend = is_array($capture['trend'] ?? null) ? $capture['trend'] : [];
+        $number = static function (mixed $value, int $decimals = 2): string {
+            if ($value === null || $value === '' || is_bool($value) || !is_numeric($value)) {
+                return '未取得';
+            }
+            $value = (float)$value;
+            if (!is_finite($value) || $value < 0) {
+                return '未取得';
+            }
+            return number_format($value, $decimals, '.', ',');
+        };
+        $comparison = static function (mixed $hotelValue, mixed $regionValue): string {
+            if (!is_numeric($hotelValue) || !is_numeric($regionValue)
+                || (float)$regionValue <= 0
+            ) {
+                return '暂无法比较';
+            }
+            $delta = (((float)$hotelValue / (float)$regionValue) - 1) * 100;
+            return '本店较区域 ' . ($delta >= 0 ? '↑' : '↓')
+                . number_format(abs($delta), 2, '.', ',') . '%';
+        };
+        $trendDefinitions = [
+            'total_room_fee' => ['总房费', '¥', ''],
+            'adr' => ['平均房价 ADR', '¥', ''],
+            'occupancy_rate_percent' => ['入住率 OCC', '', '%'],
+            'revpar' => ['平均客房收益 RevPAR', '¥', ''],
+            'sold_room_nights' => ['间夜数', '', ' 间夜'],
+        ];
+        $trendLines = [];
+        $trendDates = [];
+        foreach ($trendDefinitions as $key => [$label, $prefix, $suffix]) {
+            $points = is_array($trend[$key] ?? null)
+                ? array_slice($trend[$key], -7)
+                : [];
+            $values = [];
+            foreach ($points as $point) {
+                $date = trim((string)($point['date'] ?? ''));
+                $value = $point['value'] ?? null;
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)
+                    || !is_numeric($value)
+                    || (float)$value < 0
+                ) {
+                    continue;
+                }
+                $trendDates[] = $date;
+                $values[] = mb_substr($date, 5, 5)
+                    . ' ' . $prefix . $number($value) . $suffix;
+            }
+            $trendLines[] = '- ' . $label . '：'
+                . ($values === [] ? '未取得（不补 0）' : implode(' → ', $values));
+        }
+        sort($trendDates);
+        $trendRange = $trendDates === []
+            ? '日期未取得'
+            : mb_substr($trendDates[0], 5, 5)
+                . ' 至 ' . mb_substr($trendDates[count($trendDates) - 1], 5, 5);
         $lines = [
             '# 宿析OS 订单来了 PMS 经营事实',
             '> 门店：' . $this->safeText($hotelName, 80),
             '> 经营日期：' . $this->safeText((string)($capture['business_date'] ?? '未取得'), 20),
+            '> 来源：订单来了住宿数据中心；区域数据仅作诊断参考',
             '> 数据状态：身份、明细对账与数据库回读均已验证',
             '',
             '**住宿经营事实**',
-            '- 客房收入：¥' . $metric($summary['total_room_fee'] ?? null),
-            '- 已售间夜：' . $metric($summary['sold_room_nights'] ?? null, ' 间夜'),
-            '- ADR：¥' . $metric($summary['adr'] ?? null),
-            '- OCC：' . $metric($summary['occupancy_rate_percent'] ?? null, '%'),
-            '- RevPAR：¥' . $metric($summary['revpar'] ?? null),
-            '- 可售房夜：' . $metric($summary['derived_sellable_room_nights'] ?? null, ' 间夜'),
+            '- 客房收入：¥' . $number($summary['total_room_fee'] ?? null),
+            '- 已售间夜：' . $number($summary['sold_room_nights'] ?? null) . ' 间夜',
+            '- ADR：¥' . $number($summary['adr'] ?? null),
+            '- OCC：' . $number($summary['occupancy_rate_percent'] ?? null) . '%',
+            '- RevPAR：¥' . $number($summary['revpar'] ?? null),
+            '- 可售房夜：' . $number($summary['derived_sellable_room_nights'] ?? null) . ' 间夜',
             '',
-            '**核验依据**',
-            '- 订单来了门店：' . $this->safeText((string)($capture['provider_hotel_name'] ?? '未取得'), 100),
-            '- 房费明细：' . (int)($capture['detail_row_count'] ?? 0) . ' 行；合计 ¥'
-                . $metric($capture['detail_room_fee_total'] ?? null),
-            '- 采集时间：' . $this->safeText((string)($capture['captured_at'] ?? '未取得'), 30),
-            '',
-            '> 口径：订单来了住宿数据中心客房收入；不包含未返回的餐饮、会议等非房收入。',
-            '> 本消息只读取已保存并回读的数据，不重新采集、不修改 PMS 或 OTA。',
         ];
+        $regionName = $this->safeText((string)($region['region_name'] ?? '区域未取得'), 120);
+        $lines[] = '**区域参考（' . $regionName . '）**';
+        $lines[] = '> 区域均值是诊断基准，不是本店经营事实。';
+        if (($region['fact_scope'] ?? '') === 'county_diagnostic_only'
+            && ($region['data_status'] ?? '') === 'readable_separate'
+        ) {
+            $regionalMetrics = [
+                ['门店平均总房费', 'total_room_fee', '¥', ''],
+                ['平均房价 ADR', 'adr', '¥', ''],
+                ['入住率 OCC', 'occupancy_rate_percent', '', '%'],
+                ['平均客房收益 RevPAR', 'revpar', '¥', ''],
+                ['门店平均累计出租间夜数', 'sold_room_nights', '', ' 间夜'],
+                ['门店平均每日间夜数', 'average_daily_room_nights', '', ' 间夜'],
+            ];
+            foreach ($regionalMetrics as [$label, $key, $prefix, $suffix]) {
+                $lines[] = '- ' . $label . '：' . $prefix
+                    . $number($regionSummary[$key] ?? null) . $suffix
+                    . '（' . $comparison(
+                        $summary[$key] ?? null,
+                        $regionSummary[$key] ?? null
+                    ) . '）';
+            }
+        } else {
+            $lines[] = '- 状态：区域数据未取得或不完整（不补 0）';
+        }
+        $lines[] = '';
+        $lines[] = '**经营指标趋势（' . $trendRange . '）**';
+        array_push($lines, ...$trendLines);
+        $lines[] = '';
+        $lines[] = '**核验依据**';
+        $lines[] = '- 订单来了门店：'
+            . $this->safeText((string)($capture['provider_hotel_name'] ?? '未取得'), 100);
+        $lines[] = '- 房费明细：' . (int)($capture['detail_row_count'] ?? 0)
+            . ' 行；合计 ¥' . $number($capture['detail_room_fee_total'] ?? null);
+        $lines[] = '- 采集时间：'
+            . $this->safeText((string)($capture['captured_at'] ?? '未取得'), 30);
+        $lines[] = '';
+        $lines[] = '> 口径：订单来了住宿数据中心客房收入；不包含未返回的餐饮、会议等非房收入。';
+        $lines[] = '> 本消息只读取已保存并回读的数据，不重新采集、不修改 PMS 或 OTA。';
         return [
             'msgtype' => 'markdown',
             'markdown' => [

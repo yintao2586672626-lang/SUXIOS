@@ -155,6 +155,20 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertSame('verified', $first['capture_status']);
         self::assertSame('verified', $first['quality_status']);
         self::assertSame('readback_verified', $first['readback_status']);
+        self::assertSame(
+            'readable_separate',
+            $first['county_context']['data_status']
+        );
+        self::assertSame(
+            '甘肃省/酒泉市/敦煌市',
+            $first['county_context']['region_name']
+        );
+        self::assertSame(5, count($first['trend']));
+        self::assertSame(5, count($first['county_context']['trend']));
+        self::assertSame(
+            633.46,
+            $first['trend']['adr'][1]['value']
+        );
         self::assertSame($first['id'], $second['id']);
         self::assertSame(1, (int)Db::name('dingdandao_operating_target_captures')->count());
         self::assertSame(17, (int)Db::name('dingdandao_room_fee_capture_details')->count());
@@ -230,7 +244,79 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             'identity_evidence_type' => 'verified_api_store_identity',
             'summary' => $summary,
             'room_fee_details' => $details,
-            'trend' => [],
+            'trend' => [
+                'total_room_fee' => [
+                    ['date' => '2026-07-26', 'value' => 9000],
+                    ['date' => '2026-07-27', 'value' => 10135.29],
+                ],
+                'adr' => [
+                    ['date' => '2026-07-26', 'value' => 600],
+                    ['date' => '2026-07-27', 'value' => 633.46],
+                ],
+                'occupancy_rate_percent' => [
+                    ['date' => '2026-07-26', 'value' => 95],
+                    ['date' => '2026-07-27', 'value' => 100],
+                ],
+                'revpar' => [
+                    ['date' => '2026-07-26', 'value' => 570],
+                    ['date' => '2026-07-27', 'value' => 633.46],
+                ],
+                'sold_room_nights' => [
+                    ['date' => '2026-07-26', 'value' => 15],
+                    ['date' => '2026-07-27', 'value' => 16],
+                ],
+            ],
+            'county_context' => [
+                'fact_scope' => 'county_diagnostic_only',
+                'data_status' => 'readable_separate',
+                'region_name' => '甘肃省/酒泉市/敦煌市',
+                'bool_city' => false,
+                'summary' => [
+                    'total_room_fee' => 6053.86,
+                    'adr' => 396.87,
+                    'occupancy_rate_percent' => 60.96,
+                    'revpar' => 241.93,
+                    'sold_room_nights' => 15.25,
+                    'average_daily_room_nights' => 15.25,
+                ],
+                'trend' => [
+                    'total_room_fee' => [
+                        ['date' => '2026-07-26', 'value' => 5887.06],
+                        ['date' => '2026-07-27', 'value' => 6053.86],
+                    ],
+                    'adr' => [
+                        ['date' => '2026-07-26', 'value' => 366.18],
+                        ['date' => '2026-07-27', 'value' => 396.87],
+                    ],
+                    'occupancy_rate_percent' => [
+                        ['date' => '2026-07-26', 'value' => 66.5],
+                        ['date' => '2026-07-27', 'value' => 60.96],
+                    ],
+                    'revpar' => [
+                        ['date' => '2026-07-26', 'value' => 243.5],
+                        ['date' => '2026-07-27', 'value' => 241.93],
+                    ],
+                    'sold_room_nights' => [
+                        ['date' => '2026-07-26', 'value' => 16.08],
+                        ['date' => '2026-07-27', 'value' => 15.25],
+                    ],
+                ],
+                'field_trace' => [
+                    'summary' =>
+                        'API:/v2/um-b/web/pro/data/businessIndicatorsTotal/county#data',
+                    'region_name' => 'DOM:当前区域指标',
+                    'total_room_fee' =>
+                        'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=5#data.list[]',
+                    'adr' =>
+                        'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=0#data.list[]',
+                    'occupancy_rate_percent' =>
+                        'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=1#data.list[]',
+                    'revpar' =>
+                        'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=2#data.list[]',
+                    'sold_room_nights' =>
+                        'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=3#data.list[]',
+                ],
+            ],
             'field_trace' => array_fill_keys(array_keys($summary), 'API:/api/verified-read'),
         ];
     }

@@ -35,6 +35,25 @@ final class DingdandaoOperatingTargetCaptureService
         'sold_room_nights',
         'average_daily_room_nights',
     ];
+    private const AUXILIARY_API_PATHS = [
+        '/v2/um-b/web/pro/data/businessIndicatorsSumDetail',
+        '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+    ];
+    private const COUNTY_SUMMARY_TRACE =
+        'API:/v2/um-b/web/pro/data/businessIndicatorsTotal/county#data';
+    private const COUNTY_REGION_TRACE = 'DOM:当前区域指标';
+    private const COUNTY_TREND_TRACES = [
+        'total_room_fee' =>
+            'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=5#data.list[]',
+        'adr' =>
+            'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=0#data.list[]',
+        'occupancy_rate_percent' =>
+            'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=1#data.list[]',
+        'revpar' =>
+            'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=2#data.list[]',
+        'sold_room_nights' =>
+            'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=3#data.list[]',
+    ];
     private const ROW_KINDS = ['room', 'unassigned', 'room_type_total', 'grand_total'];
 
     /** @var callable */
@@ -87,6 +106,13 @@ final class DingdandaoOperatingTargetCaptureService
         $details = $this->details((array)($input['room_fee_details'] ?? []));
         $trend = $this->trend((array)($input['trend'] ?? []), $businessDate);
         $fieldTrace = $this->fieldTrace((array)($input['field_trace'] ?? []));
+        $auxiliaryQueryStatus = $this->auxiliaryQueryStatus(
+            $input['auxiliary_query_status'] ?? []
+        );
+        $countyContext = $this->countyContext(
+            $input['county_context'] ?? null,
+            $businessDate
+        );
         $observedNow = ($this->clock)()->setTimezone(new DateTimeZone('Asia/Shanghai'));
         $dateMatchesToday = $businessDate === $observedNow->format('Y-m-d');
 
@@ -114,8 +140,8 @@ final class DingdandaoOperatingTargetCaptureService
                 || $assessment['capture_status'] !== 'verified'
                 || $assessment['reconciliation_status'] !== 'matched'
                 || $providerHotelId === null
-                || ($expectedProviderHotelId !== null
-                    && !hash_equals($expectedProviderHotelId, $providerHotelId))
+                || $expectedProviderHotelId === null
+                || !hash_equals($expectedProviderHotelId, $providerHotelId)
                 || $capturedTimestamp === false
                 || $captureAgeSeconds < -300
                 || $captureAgeSeconds > 1800
@@ -125,7 +151,7 @@ final class DingdandaoOperatingTargetCaptureService
             }
         }
         $snapshot = [
-            'contract_version' => 'dingdandao_operating_target_capture.v1',
+            'contract_version' => 'dingdandao_operating_target_capture.v2',
             'provider' => self::PROVIDER,
             'hotel_id' => $hotelId,
             'business_date' => $businessDate,
@@ -141,8 +167,11 @@ final class DingdandaoOperatingTargetCaptureService
             'summary' => $summary,
             'detail_row_count' => count($details),
             'detail_room_fee_total' => $assessment['detail_room_fee_total'],
+            'detail_fingerprint' => hash('sha256', $this->json($details)),
             'reconciliation_status' => $assessment['reconciliation_status'],
             'trend' => $trend,
+            'auxiliary_query_status' => $auxiliaryQueryStatus,
+            'county_context' => $countyContext,
             'field_trace' => $fieldTrace,
             'capture_status' => $assessment['capture_status'],
             'quality_status' => $assessment['quality_status'],
@@ -189,6 +218,46 @@ final class DingdandaoOperatingTargetCaptureService
                     ->lock(true)
                     ->find();
                 if (is_array($existing)) {
+                    $reusedSnapshot = $snapshot;
+                    $reusedSnapshot['captured_at'] = (string)($existing['captured_at'] ?? '');
+                    $existingDetails = Db::name('dingdandao_room_fee_capture_details')
+                        ->where('capture_id', (int)$existing['id'])
+                        ->order('source_row_index', 'asc')
+                        ->field(
+                            'tenant_id,hotel_id,business_date,row_kind,room_type,room_number,room_fee,source_row_index'
+                        )
+                        ->select()
+                        ->toArray();
+                    if (!$this->detailReadbackMatches(
+                        $existingDetails,
+                        $details,
+                        $tenantId,
+                        $hotelId,
+                        $businessDate
+                    ) || !$this->mainReadbackMatches(
+                        $existing,
+                        $tenantId,
+                        $hotelId,
+                        $businessDate,
+                        $providerHotelId,
+                        $providerHotelName,
+                        $expectedHotelName,
+                        $identityEvidenceType,
+                        $identityStatus,
+                        $sourceUrl,
+                        $sourceApiPath,
+                        $captureMethod,
+                        $summary,
+                        $assessment,
+                        $trend,
+                        $fieldTrace,
+                        $reusedSnapshot,
+                        $fingerprint,
+                        (string)($existing['captured_at'] ?? ''),
+                        $userId
+                    )) {
+                        throw new \RuntimeException('dingdandao_capture_readback_failed');
+                    }
                     return $this->read($tenantId, $hotelId, (int)$existing['id']);
                 }
             }
@@ -257,12 +326,27 @@ final class DingdandaoOperatingTargetCaptureService
                 ->where('capture_id', $captureId)
                 ->whereIn('row_kind', ['room', 'unassigned'])
                 ->sum('room_fee');
+            $storedDetails = Db::name('dingdandao_room_fee_capture_details')
+                ->where('capture_id', $captureId)
+                ->order('source_row_index', 'asc')
+                ->field(
+                    'tenant_id,hotel_id,business_date,row_kind,room_type,room_number,room_fee,source_row_index'
+                )
+                ->select()
+                ->toArray();
             $storedCapture = Db::name('dingdandao_operating_target_captures')
                 ->where('id', $captureId)
                 ->find();
             $readbackVerified = is_array($storedCapture)
                 && $storedCount === count($details)
-                && abs($storedRoomTotal - (float)$assessment['detail_room_fee_total']) <= 0.01;
+                && abs($storedRoomTotal - (float)$assessment['detail_room_fee_total']) <= 0.01
+                && $this->detailReadbackMatches(
+                    $storedDetails,
+                    $details,
+                    $tenantId,
+                    $hotelId,
+                    $businessDate
+                );
             if ($readbackVerified) {
                 $readbackVerified = $this->mainReadbackMatches(
                     $storedCapture,
@@ -271,9 +355,20 @@ final class DingdandaoOperatingTargetCaptureService
                     $businessDate,
                     $providerHotelId,
                     $providerHotelName,
+                    $expectedHotelName,
+                    $identityEvidenceType,
+                    $identityStatus,
                     $sourceUrl,
+                    $sourceApiPath,
+                    $captureMethod,
                     $summary,
-                    $fingerprint
+                    $assessment,
+                    $trend,
+                    $fieldTrace,
+                    $snapshot,
+                    $fingerprint,
+                    $capturedAt,
+                    $userId
                 );
             }
             if ($verifiedOnly && !$readbackVerified) {
@@ -308,20 +403,61 @@ final class DingdandaoOperatingTargetCaptureService
         string $businessDate,
         ?string $providerHotelId,
         ?string $providerHotelName,
+        string $expectedHotelName,
+        string $identityEvidenceType,
+        string $identityStatus,
         string $sourceUrl,
+        ?string $sourceApiPath,
+        string $captureMethod,
         array $summary,
-        string $fingerprint
+        array $assessment,
+        array $trend,
+        array $fieldTrace,
+        array $snapshot,
+        string $fingerprint,
+        string $capturedAt,
+        int $userId
     ): bool {
         if ((int)($row['tenant_id'] ?? 0) !== $tenantId
             || (int)($row['hotel_id'] ?? 0) !== $hotelId
             || (string)($row['provider'] ?? '') !== self::PROVIDER
             || (string)($row['business_date'] ?? '') !== $businessDate
             || (string)($row['source_url'] ?? '') !== $sourceUrl
+            || (string)($row['source_api_path'] ?? '') !== (string)$sourceApiPath
             || (string)($row['source_scope'] ?? '') !== self::SOURCE_SCOPE
+            || (string)($row['capture_method'] ?? '') !== $captureMethod
             || (string)($row['provider_hotel_id'] ?? '') !== (string)$providerHotelId
             || (string)($row['provider_hotel_name'] ?? '') !== (string)$providerHotelName
+            || (string)($row['expected_hotel_name'] ?? '') !== $expectedHotelName
+            || (string)($row['identity_evidence_type'] ?? '') !== $identityEvidenceType
+            || (string)($row['identity_status'] ?? '') !== $identityStatus
+            || (int)($row['detail_row_count'] ?? -1) !== (int)($snapshot['detail_row_count'] ?? -2)
+            || abs((float)($row['detail_room_fee_total'] ?? -1)
+                - (float)($assessment['detail_room_fee_total'] ?? -2)) > 0.01
+            || (string)($row['reconciliation_status'] ?? '')
+                !== (string)($assessment['reconciliation_status'] ?? '')
+            || (string)($row['capture_status'] ?? '')
+                !== (string)($assessment['capture_status'] ?? '')
+            || (string)($row['quality_status'] ?? '')
+                !== (string)($assessment['quality_status'] ?? '')
+            || (string)($row['quality_reason'] ?? '')
+                !== (string)($assessment['quality_reason'] ?? '')
+            || (string)($row['captured_at'] ?? '') !== $capturedAt
+            || (int)($row['captured_by'] ?? 0) !== $userId
             || (string)($row['source_fingerprint'] ?? '') !== $fingerprint
+            || !$this->jsonReadbackMatches($row['gap_codes_json'] ?? null, array_column(
+                (array)($assessment['gaps'] ?? []),
+                'code'
+            ))
+            || !$this->jsonReadbackMatches($row['trend_json'] ?? null, $trend)
+            || !$this->jsonReadbackMatches($row['field_trace_json'] ?? null, $fieldTrace)
+            || !$this->jsonReadbackMatches($row['snapshot_json'] ?? null, $snapshot)
         ) {
+            return false;
+        }
+        $expectedSellable = $assessment['derived_sellable_room_nights'] ?? null;
+        $storedSellable = $row['derived_sellable_room_nights'] ?? null;
+        if ($expectedSellable === null ? $storedSellable !== null : (int)$storedSellable !== (int)$expectedSellable) {
             return false;
         }
         foreach (self::SUMMARY_FIELDS as $field) {
@@ -332,6 +468,44 @@ final class DingdandaoOperatingTargetCaptureService
             }
         }
         return true;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $stored
+     * @param array<int,array<string,mixed>> $expected
+     */
+    private function detailReadbackMatches(
+        array $stored,
+        array $expected,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): bool {
+        if (count($stored) !== count($expected)) {
+            return false;
+        }
+        foreach ($expected as $index => $expectedRow) {
+            $storedRow = $stored[$index] ?? null;
+            if (!is_array($storedRow)
+                || (int)($storedRow['tenant_id'] ?? 0) !== $tenantId
+                || (int)($storedRow['hotel_id'] ?? 0) !== $hotelId
+                || (string)($storedRow['business_date'] ?? '') !== $businessDate
+                || (int)($storedRow['source_row_index'] ?? 0) !== $index + 1
+                || (string)($storedRow['row_kind'] ?? '') !== (string)$expectedRow['row_kind']
+                || (string)($storedRow['room_type'] ?? '') !== (string)($expectedRow['room_type'] ?? '')
+                || (string)($storedRow['room_number'] ?? '') !== (string)($expectedRow['room_number'] ?? '')
+                || abs((float)($storedRow['room_fee'] ?? -1) - (float)$expectedRow['room_fee']) > 0.01
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @param array<mixed> $expected */
+    private function jsonReadbackMatches(mixed $stored, array $expected): bool
+    {
+        return $this->json($this->decodeJson($stored)) === $this->json($expected);
     }
 
     /** @return array<string, mixed> */
@@ -345,6 +519,7 @@ final class DingdandaoOperatingTargetCaptureService
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('business_date', $businessDate)
+            ->order('captured_at', 'desc')
             ->order('id', 'desc')
             ->find();
         if (!is_array($row)) {
@@ -366,6 +541,7 @@ final class DingdandaoOperatingTargetCaptureService
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('business_date', $businessDate)
+            ->order('captured_at', 'desc')
             ->order('id', 'desc')
             ->limit(max(1, min($limit, 20)))
             ->select()
@@ -455,6 +631,14 @@ final class DingdandaoOperatingTargetCaptureService
                 'source_row_index' => (int)$detail['source_row_index'],
             ], $details);
         }
+        $snapshot = $this->decodeJson($row['snapshot_json'] ?? null);
+        $auxiliaryQueryStatus = $this->auxiliaryQueryStatus(
+            $snapshot['auxiliary_query_status'] ?? []
+        );
+        $countyContext = $this->countyContext(
+            $snapshot['county_context'] ?? null,
+            (string)$row['business_date']
+        );
 
         return [
             'status' => (string)($row['capture_status'] ?? 'unverified'),
@@ -491,6 +675,8 @@ final class DingdandaoOperatingTargetCaptureService
             'quality_reason' => $row['quality_reason'] ?? null,
             'gaps' => $gaps,
             'trend' => $this->decodeJson($row['trend_json'] ?? null),
+            'auxiliary_query_status' => $auxiliaryQueryStatus,
+            'county_context' => $countyContext,
             'field_trace' => $this->decodeJson($row['field_trace_json'] ?? null),
             'source_fingerprint' => (string)$row['source_fingerprint'],
             'captured_at' => (string)$row['captured_at'],
@@ -577,10 +763,6 @@ final class DingdandaoOperatingTargetCaptureService
             $details,
             static fn(array $row): bool => in_array($row['row_kind'], ['room', 'unassigned'], true)
         ));
-        $soldRoomRows = array_values(array_filter(
-            $details,
-            static fn(array $row): bool => $row['row_kind'] === 'room'
-        ));
         $grandTotals = array_values(array_filter(
             $details,
             static fn(array $row): bool => $row['row_kind'] === 'grand_total'
@@ -599,11 +781,6 @@ final class DingdandaoOperatingTargetCaptureService
             }
         }
 
-        if ($summary['sold_room_nights'] !== null
-            && count($soldRoomRows) !== $summary['sold_room_nights']
-        ) {
-            $gaps[] = $this->gap('dingdandao_sold_room_nights_detail_count_mismatch');
-        }
         if ($summaryTotal !== null && $summary['sold_room_nights'] !== null
             && $summary['sold_room_nights'] > 0 && $summary['adr'] !== null
             && abs(round($summaryTotal / $summary['sold_room_nights'], 2) - $summary['adr']) > 0.02
@@ -696,7 +873,18 @@ final class DingdandaoOperatingTargetCaptureService
     private function fieldTrace(array $trace): array
     {
         $result = [];
-        foreach (self::SUMMARY_FIELDS as $field) {
+        $allowed = array_merge(self::SUMMARY_FIELDS, [
+            'provider_hotel_identity',
+            'room_type_names',
+            'room_fee_details',
+            'trend',
+            'trend_total_room_fee',
+            'trend_adr',
+            'trend_occupancy_rate_percent',
+            'trend_revpar',
+            'trend_sold_room_nights',
+        ]);
+        foreach ($allowed as $field) {
             $value = $this->textOrNull($trace[$field] ?? null, 255);
             if ($value !== null) {
                 $result[$field] = $value;
@@ -705,23 +893,191 @@ final class DingdandaoOperatingTargetCaptureService
         return $result;
     }
 
+    /** @return array<int,array{api_path:string,type:int,fact_scope:string,status:string}> */
+    private function auxiliaryQueryStatus(mixed $input): array
+    {
+        if ($input === null || $input === []) {
+            return [];
+        }
+        if (!is_array($input) || !array_is_list($input) || count($input) > 6) {
+            throw new \InvalidArgumentException('dingdandao_capture_auxiliary_invalid');
+        }
+        $normalized = [];
+        foreach ($input as $row) {
+            if (!is_array($row)) {
+                throw new \InvalidArgumentException('dingdandao_capture_auxiliary_invalid');
+            }
+            $path = trim((string)($row['api_path'] ?? ''));
+            $type = $row['type'] ?? null;
+            if (!in_array($path, self::AUXILIARY_API_PATHS, true)
+                || !is_int($type)
+                || $type < 1
+                || $type > 3
+                || trim((string)($row['fact_scope'] ?? '')) !== 'auxiliary_metric_only'
+                || trim((string)($row['status'] ?? '')) !== 'readable_not_promoted'
+            ) {
+                throw new \InvalidArgumentException('dingdandao_capture_auxiliary_invalid');
+            }
+            $key = $type . '|' . $path;
+            if (isset($normalized[$key])) {
+                throw new \InvalidArgumentException('dingdandao_capture_auxiliary_invalid');
+            }
+            $normalized[$key] = [
+                'api_path' => $path,
+                'type' => $type,
+                'fact_scope' => 'auxiliary_metric_only',
+                'status' => 'readable_not_promoted',
+            ];
+        }
+        ksort($normalized);
+        return array_values($normalized);
+    }
+
+    /** @return array<string,mixed> */
+    private function countyContext(mixed $input, string $businessDate): array
+    {
+        if ($input === null || $input === []) {
+            return $this->partialCountyContext();
+        }
+        if (!is_array($input)
+            || trim((string)($input['fact_scope'] ?? '')) !== 'county_diagnostic_only'
+        ) {
+            throw new \InvalidArgumentException('dingdandao_capture_county_invalid');
+        }
+        $inputStatus = trim((string)($input['data_status'] ?? 'partial'));
+        if (!in_array($inputStatus, ['readable_separate', 'partial'], true)) {
+            throw new \InvalidArgumentException('dingdandao_capture_county_invalid');
+        }
+        $boolCity = $input['bool_city'] ?? null;
+        if ($boolCity !== null && !is_bool($boolCity)) {
+            throw new \InvalidArgumentException('dingdandao_capture_county_invalid');
+        }
+        $regionName = $this->textOrNull($input['region_name'] ?? null, 120);
+        $summaryInput = $input['summary'] ?? [];
+        if (!is_array($summaryInput)) {
+            throw new \InvalidArgumentException('dingdandao_capture_county_invalid');
+        }
+        $summary = [
+            'total_room_fee' => $this->decimalOrNull($summaryInput['total_room_fee'] ?? null),
+            'adr' => $this->decimalOrNull($summaryInput['adr'] ?? null),
+            'occupancy_rate_percent' => $this->percentOrNull(
+                $summaryInput['occupancy_rate_percent'] ?? null
+            ),
+            'revpar' => $this->decimalOrNull($summaryInput['revpar'] ?? null),
+            'sold_room_nights' => $this->decimalOrNull(
+                $summaryInput['sold_room_nights'] ?? null
+            ),
+            'average_daily_room_nights' => $this->decimalOrNull(
+                $summaryInput['average_daily_room_nights'] ?? null
+            ),
+        ];
+        $trendInput = $input['trend'] ?? [];
+        if (!is_array($trendInput)) {
+            throw new \InvalidArgumentException('dingdandao_capture_county_invalid');
+        }
+        $trend = $this->trend($trendInput, $businessDate);
+        $fieldTraceInput = $input['field_trace'] ?? [];
+        $allowedTraceKeys = [
+            'summary',
+            'region_name',
+            'trend',
+            ...array_keys(self::COUNTY_TREND_TRACES),
+        ];
+        if (!is_array($fieldTraceInput)
+            || array_diff(array_keys($fieldTraceInput), $allowedTraceKeys) !== []
+        ) {
+            throw new \InvalidArgumentException('dingdandao_capture_county_invalid');
+        }
+        if (isset($fieldTraceInput['trend'])
+            && !isset($fieldTraceInput['total_room_fee'])
+        ) {
+            $fieldTraceInput['total_room_fee'] = $fieldTraceInput['trend'];
+        }
+        unset($fieldTraceInput['trend']);
+        $fieldTrace = [];
+        foreach ([
+            'summary' => self::COUNTY_SUMMARY_TRACE,
+            'region_name' => self::COUNTY_REGION_TRACE,
+            ...self::COUNTY_TREND_TRACES,
+        ] as $key => $expected) {
+            $value = trim((string)($fieldTraceInput[$key] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            if (!hash_equals($expected, $value)) {
+                throw new \InvalidArgumentException('dingdandao_capture_county_invalid');
+            }
+            $fieldTrace[$key] = $expected;
+        }
+        $complete = !in_array(null, array_values($summary), true)
+            && $regionName !== null
+            && isset($fieldTrace['summary'], $fieldTrace['region_name']);
+        foreach (self::COUNTY_TREND_TRACES as $metric => $_trace) {
+            $complete = $complete
+                && ($trend[$metric] ?? []) !== []
+                && isset($fieldTrace[$metric]);
+        }
+
+        return [
+            'fact_scope' => 'county_diagnostic_only',
+            'data_status' => $inputStatus === 'readable_separate' && $complete
+                ? 'readable_separate'
+                : 'partial',
+            'region_name' => $regionName,
+            'bool_city' => $boolCity,
+            'summary' => $summary,
+            'trend' => $trend,
+            'field_trace' => $fieldTrace,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function partialCountyContext(): array
+    {
+        return [
+            'fact_scope' => 'county_diagnostic_only',
+            'data_status' => 'partial',
+            'region_name' => null,
+            'bool_city' => null,
+            'summary' => array_fill_keys(self::SUMMARY_FIELDS, null),
+            'trend' => [],
+            'field_trace' => [],
+        ];
+    }
+
     /** @return array<string, array<int, array<string, mixed>>> */
     private function trend(array $trend, string $businessDate): array
     {
         $allowed = ['total_room_fee', 'adr', 'occupancy_rate_percent', 'revpar', 'sold_room_nights'];
+        $businessDay = DateTimeImmutable::createFromFormat('!Y-m-d', $businessDate);
+        if (!$businessDay instanceof DateTimeImmutable) {
+            return [];
+        }
+        $minimumDay = $businessDay->modify('-30 days');
         $result = [];
         foreach ($allowed as $key) {
             $points = is_array($trend[$key] ?? null) ? $trend[$key] : [];
-            $normalized = [];
-            foreach (array_slice($points, 0, 31) as $point) {
-                if (!is_array($point) || (string)($point['date'] ?? '') !== $businessDate) {
+            $byDate = [];
+            foreach (array_slice($points, 0, 100) as $point) {
+                if (!is_array($point)) {
+                    continue;
+                }
+                $date = trim((string)($point['date'] ?? ''));
+                $pointDay = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+                if (!$pointDay instanceof DateTimeImmutable
+                    || $pointDay->format('Y-m-d') !== $date
+                    || $pointDay < $minimumDay
+                    || $pointDay > $businessDay
+                ) {
                     continue;
                 }
                 $value = $this->decimalOrNull($point['value'] ?? null);
                 if ($value !== null) {
-                    $normalized[] = ['date' => $businessDate, 'value' => $value];
+                    $byDate[$date] = ['date' => $date, 'value' => $value];
                 }
             }
+            ksort($byDate);
+            $normalized = array_slice(array_values($byDate), -31);
             if ($normalized !== []) {
                 $result[$key] = $normalized;
             }
@@ -870,7 +1226,6 @@ final class DingdandaoOperatingTargetCaptureService
             $code === 'dingdandao_today_only_date_mismatch' => '当前试用范围只允许读取今日数据，页面日期与当前日期不一致。',
             $code === 'dingdandao_room_fee_details_missing' => '未取得房型/房间房费明细，不能核对汇总总房费。',
             $code === 'dingdandao_room_fee_reconciliation_mismatch' => '房费明细合计与经营指标总房费不一致。',
-            $code === 'dingdandao_sold_room_nights_detail_count_mismatch' => '房间明细数量与累计售出间夜不一致。',
             $code === 'dingdandao_adr_reconciliation_mismatch' => '总房费除以售出间夜与页面 ADR 不一致。',
             $code === 'dingdandao_average_daily_room_nights_mismatch' => '今日平均每日间夜与累计售出间夜不一致。',
             $code === 'dingdandao_sellable_room_nights_not_integral' => '按已售间夜与入住率反推的可售房夜不是整数。',
