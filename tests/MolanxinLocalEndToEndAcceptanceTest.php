@@ -19,8 +19,8 @@ use think\facade\Db;
 
 final class MolanxinLocalEndToEndAcceptanceTest extends TestCase
 {
-    private const TENANT_ID = 1;
-    private const HOTEL_ID = 5;
+    private const TENANT_ID = 80;
+    private const HOTEL_ID = 80;
     private const USER_ID = 7;
     private const ROBOT_ID = 2;
     private const HOTEL_NAME = '敦煌漠蓝新';

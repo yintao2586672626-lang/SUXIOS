@@ -10,16 +10,16 @@ declare(strict_types=1);
  */
 return [
     'schema_version' => 'suxios_hotel_provider_alias_registry.v1',
-    'version' => '2026-07-27.1',
+    'version' => '2026-07-28.1',
     'aliases' => [
         [
-            'tenant_id' => 1,
-            'hotel_id' => 5,
+            'tenant_id' => 80,
+            'hotel_id' => 80,
             'system_name' => '敦煌漠蓝新',
             'provider' => 'dingdandao',
             'provider_name' => '敦煌漠蓝',
             'status' => 'user_confirmed',
-            'confirmed_date' => '2026-07-27',
+            'confirmed_date' => '2026-07-28',
             'source_reference' => 'user_explicit_confirmation',
         ],
     ],

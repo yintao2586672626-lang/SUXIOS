@@ -21,6 +21,7 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
     private const SESSION_ID = 'cbcs_collection_session_123456';
 
     private static array $databaseConfig;
+    private static array $aliasRegistryConfig;
     private static string $databasePath;
 
     public static function setUpBeforeClass(): void
@@ -28,6 +29,7 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
         $app = new App(dirname(__DIR__));
         $app->initialize();
         self::$databaseConfig = Config::get('database');
+        self::$aliasRegistryConfig = Config::get('dingdandao_hotel_alias_registry', []);
         self::$databasePath = sys_get_temp_dir()
             . '/dingdandao_cloud_collection_' . getmypid() . '.sqlite';
         @unlink(self::$databasePath);
@@ -47,12 +49,28 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
     public static function tearDownAfterClass(): void
     {
         Config::set(self::$databaseConfig, 'database');
+        Config::set(self::$aliasRegistryConfig, 'dingdandao_hotel_alias_registry');
         Db::connect(null, true);
         @unlink(self::$databasePath);
     }
 
     protected function setUp(): void
     {
+        Config::set([
+            'schema_version' => 'suxios_hotel_provider_alias_registry.v1',
+            'version' => 'fixture.1',
+            'aliases' => [[
+                'tenant_id' => 1,
+                'hotel_id' => 5,
+                'system_name' => '敦煌漠蓝新',
+                'provider' => 'dingdandao',
+                'provider_name' => '敦煌漠蓝',
+                'status' => 'user_confirmed',
+                'confirmed_date' => '2026-07-27',
+                'source_reference' => 'user_explicit_confirmation',
+            ]],
+        ], 'dingdandao_hotel_alias_registry');
+
         foreach ([
             'dingdandao_room_fee_capture_details',
             'dingdandao_operating_target_captures',
@@ -645,20 +663,20 @@ final class DingdandaoCloudCollectionServiceTest extends TestCase
         }
     }
 
-    public function testHotelFiveAliasRegistryIsVersionedAuditableAndContainsNoProviderId(): void
+    public function testHotelEightyAliasRegistryIsVersionedAuditableAndContainsNoProviderId(): void
     {
-        $registry = Config::get('dingdandao_hotel_alias_registry', []);
+        $registry = require dirname(__DIR__) . '/config/dingdandao_hotel_alias_registry.php';
 
         self::assertSame('suxios_hotel_provider_alias_registry.v1', $registry['schema_version']);
-        self::assertSame('2026-07-27.1', $registry['version']);
+        self::assertSame('2026-07-28.1', $registry['version']);
         self::assertSame([[
-            'tenant_id' => 1,
-            'hotel_id' => 5,
+            'tenant_id' => 80,
+            'hotel_id' => 80,
             'system_name' => '敦煌漠蓝新',
             'provider' => 'dingdandao',
             'provider_name' => '敦煌漠蓝',
             'status' => 'user_confirmed',
-            'confirmed_date' => '2026-07-27',
+            'confirmed_date' => '2026-07-28',
             'source_reference' => 'user_explicit_confirmation',
         ]], $registry['aliases']);
         $encoded = json_encode($registry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
