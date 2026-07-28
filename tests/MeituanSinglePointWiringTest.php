@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\OtaP0ScopeProjectionService;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 
 final class MeituanSinglePointWiringTest extends TestCase
 {
@@ -63,5 +65,34 @@ final class MeituanSinglePointWiringTest extends TestCase
         self::assertStringNotContainsString('dingdandao', $source);
         self::assertStringNotContainsString('cloud-browser', $source);
         self::assertStringNotContainsString('cloud_browser', $source);
+    }
+
+    public function testRefreshTimestampCannotStandInForMeituanBusinessDate(): void
+    {
+        $service = new OtaP0ScopeProjectionService();
+        $method = (new ReflectionClass($service))->getMethod('rowDateScopeIsAuthoritative');
+        $method->setAccessible(true);
+
+        self::assertFalse($method->invoke($service, [
+            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+        ], 'meituan'));
+        self::assertTrue($method->invoke($service, [
+            'raw_data' => json_encode(['date_source' => 'page.traffic_period_selection.readback']),
+        ], 'meituan'));
+        self::assertTrue($method->invoke($service, [
+            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+        ], 'ctrip'));
+
+        $importer = (string)file_get_contents(
+            dirname(__DIR__) . '/scripts/import_p0_ota_traffic_payload.php'
+        );
+        self::assertStringContainsString('refresh_timestamp_not_business_date_evidence', $importer);
+        self::assertStringContainsString('p0_import_row_date_source_is_refresh_timestamp', $importer);
+
+        $verifier = (string)file_get_contents(
+            dirname(__DIR__) . '/scripts/verify_p0_ota_field_loop_closure.php'
+        );
+        self::assertStringContainsString('p0_traffic_row_date_scope_is_authoritative', $verifier);
+        self::assertStringContainsString('meituan_refresh_timestamp_not_business_date_evidence', $verifier);
     }
 }

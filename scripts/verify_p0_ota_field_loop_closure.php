@@ -4998,12 +4998,43 @@ function p0_traffic_row_endpoint_id(array $row): string
 
 /**
  * @param array<string, mixed> $row
+ */
+function p0_traffic_row_date_scope_is_authoritative(array $row, string $platform): bool
+{
+    if (strtolower(trim($platform)) !== 'meituan') {
+        return true;
+    }
+
+    $raw = $row['raw_data'] ?? null;
+    if (is_string($raw) && trim($raw) !== '') {
+        $decoded = json_decode($raw, true);
+        $raw = is_array($decoded) ? $decoded : [];
+    }
+    if (!is_array($raw)) {
+        return true;
+    }
+
+    $dateSource = strtolower(trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? '')));
+    return $dateSource !== 'response.rtdataupdatetime'
+        && $dateSource !== 'page.visible_update_time'
+        && preg_match('/(?:^|\.)cards\.rtdataupdatetime$/', $dateSource) !== 1;
+}
+
+/**
+ * @param array<string, mixed> $row
  * @return array{authoritative: bool, endpoint_id: string, reason: string}
  */
 function p0_traffic_row_scope(array $row, string $platform): array
 {
     $normalizedPlatform = strtolower(trim($platform));
     $endpointId = p0_traffic_row_endpoint_id($row);
+    if (!p0_traffic_row_date_scope_is_authoritative($row, $normalizedPlatform)) {
+        return [
+            'authoritative' => false,
+            'endpoint_id' => $endpointId,
+            'reason' => 'meituan_refresh_timestamp_not_business_date_evidence',
+        ];
+    }
     if ($normalizedPlatform !== 'ctrip') {
         return [
             'authoritative' => true,

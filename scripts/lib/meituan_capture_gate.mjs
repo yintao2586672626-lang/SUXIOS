@@ -111,7 +111,7 @@ export function evaluateMeituanCaptureGate(data, requestedSections = [], options
 }
 
 export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
-  const next = applyMeituanYesterdaySelectionDateEvidence(data, targetDate);
+  const next = applyMeituanTrafficSelectionDateEvidence(data, targetDate);
   const normalizedTargetDate = normalizeDate(targetDate);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)) {
     return next;
@@ -120,7 +120,7 @@ export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
   const droppedCounts = {};
   for (const key of CUMULATIVE_PAYLOAD_KEYS) {
     // Read the evidence-reclassified rows.  Reading from `data` here would
-    // silently overwrite the verified yesterday date assigned just above.
+    // silently overwrite the verified selected relative date assigned above.
     if (!Array.isArray(next?.[key])) continue;
     const rows = next[key];
     next[key] = rows.filter(row => isVerifiedTargetDateRow(row, normalizedTargetDate));
@@ -137,47 +137,57 @@ export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
 }
 
 // `rtDataUpdateTime` is a refresh timestamp, not necessarily the business day
-// selected in the merchant page.  Reclassify it only after a visible “昨日”
-// selector has been read back; rows with an explicit business date are intact.
-export function applyMeituanYesterdaySelectionDateEvidence(data, targetDate) {
+// selected in the merchant page. Reclassify it only after the target relative
+// range has been selected again and visibly read back.
+export function applyMeituanTrafficSelectionDateEvidence(data, targetDate) {
   const next = { ...(data || {}) };
   const normalizedTargetDate = normalizeDate(targetDate);
   const evidence = next?.section_evidence?.traffic || next?.sectionEvidence?.traffic || {};
+  const relativeRange = String(evidence.relative_range || evidence.relativeRange || '').trim();
+  const expectedMarker = {
+    '\u4eca\u65e5\u5b9e\u65f6': 'meituan_traffic_today_realtime_tab',
+    '\u6628\u65e5': 'meituan_traffic_yesterday_tab',
+  }[relativeRange] || '';
   const selectionVerified = /^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)
     && String(evidence.status || '').trim() === 'target_date_relative_range_selected'
     && normalizeDate(evidence.target_date || evidence.targetDate) === normalizedTargetDate
-    && String(evidence.relative_range || evidence.relativeRange || '').trim() === '昨日'
+    && expectedMarker !== ''
     && String(evidence.evidence_source || evidence.evidenceSource || '').trim() === 'page.traffic_period_selection.readback'
-    && String(evidence.marker || '').trim() === 'meituan_traffic_yesterday_tab';
+    && String(evidence.marker || '').trim() === expectedMarker;
   if (!selectionVerified) return next;
 
-  // A single merchant-page period selector governs every cumulative traffic
-  // payload emitted by this capture, including the separately normalized
-  // forecast-card array.  Keep the allow-list aligned with the target-date
-  // filter below so a verified yesterday selection cannot be dropped on a
-  // parallel payload path.
-  for (const key of [...CUMULATIVE_PAYLOAD_KEYS, 'trafficForecast', 'traffic_forecast']) {
+  // This evidence belongs only to the top traffic funnel. Lower traffic
+  // modules and peer ranking have independent period controls, even when
+  // their buttons use the same visible labels.
+  for (const key of ['traffic']) {
     if (!Array.isArray(next[key])) continue;
     next[key] = next[key].map(row => {
       if (!row || typeof row !== 'object') return row;
       const source = String(row.date_source || row.dateSource || '').trim();
+      const normalizedSource = source.toLowerCase();
       const rowDate = normalizeDate(firstValue(row, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date', 'reportDate', 'day']));
-      const refreshTimestampSource = source === 'response.rtDataUpdateTime'
-        || source === 'page.visible_update_time'
-        || /(?:^|\.)cards\.rtDataUpdateTime$/.test(source);
-      if (rowDate === '' || rowDate === normalizedTargetDate || !refreshTimestampSource) {
+      const refreshTimestampSource = normalizedSource === 'response.rtdataupdatetime'
+        || normalizedSource === 'page.visible_update_time'
+        || /(?:^|\.)cards\.rtdataupdatetime$/.test(normalizedSource);
+      const undatedDomRow = rowDate === '' && source === '' && /^dom:traffic:/.test(String(row._capture_source || ''));
+      if (!refreshTimestampSource && !undatedDomRow) {
         return row;
       }
       return {
         ...row,
-        data_updated_at: rowDate,
+        ...(rowDate ? { data_updated_at: rowDate } : {}),
+        ...(Object.prototype.hasOwnProperty.call(row, 'data_date') ? { data_date: normalizedTargetDate } : {}),
         dataDate: normalizedTargetDate,
         date_source: 'page.traffic_period_selection.readback',
-        date_scope_evidence: 'meituan_traffic_yesterday_tab',
+        date_scope_evidence: expectedMarker,
       };
     });
   }
   return next;
+}
+
+export function applyMeituanYesterdaySelectionDateEvidence(data, targetDate) {
+  return applyMeituanTrafficSelectionDateEvidence(data, targetDate);
 }
 
 export function filterMeituanEventRowsByTargetDate(data, targetDate, requestedSections = []) {
@@ -415,6 +425,12 @@ function isVerifiedTargetDateRow(row, targetDate) {
 
 function isAuthoritativeDateSource(source) {
   const value = String(source || '').trim().toLowerCase();
+  if (value === 'response.rtdataupdatetime'
+    || value === 'page.visible_update_time'
+    || /(?:^|\.)cards\.rtdataupdatetime$/.test(value)
+  ) {
+    return false;
+  }
   return value === 'row'
     || value.startsWith('row.')
     || value.startsWith('request.')

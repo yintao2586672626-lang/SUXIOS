@@ -483,7 +483,11 @@ final class P0FieldLoopVerifierContractTest extends TestCase
     public function testCtripTrafficClosureSeparatesCanonicalSnapshotsFromAuxiliaryEndpoints(): void
     {
         $verifier = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'verify_p0_ota_field_loop_closure.php');
-        foreach (['p0_traffic_row_endpoint_id', 'p0_traffic_row_scope'] as $functionName) {
+        foreach ([
+            'p0_traffic_row_endpoint_id',
+            'p0_traffic_row_date_scope_is_authoritative',
+            'p0_traffic_row_scope',
+        ] as $functionName) {
             if (function_exists(__NAMESPACE__ . '\\' . $functionName) || function_exists($functionName)) {
                 continue;
             }
@@ -516,6 +520,16 @@ final class P0FieldLoopVerifierContractTest extends TestCase
 
         $meituan = p0_traffic_row_scope(['dimension' => 'flow_conversion'], 'meituan');
         self::assertTrue($meituan['authoritative']);
+
+        $meituanRefreshTimestamp = p0_traffic_row_scope([
+            'dimension' => 'flow_conversion',
+            'raw_data' => json_encode(['date_source' => 'response.rtDataUpdateTime']),
+        ], 'meituan');
+        self::assertFalse($meituanRefreshTimestamp['authoritative']);
+        self::assertSame(
+            'meituan_refresh_timestamp_not_business_date_evidence',
+            $meituanRefreshTimestamp['reason']
+        );
     }
 
     public function testStoredTrafficIdentifierMatchesTheAuthoritativeProfileSourceWithoutRawOutput(): void

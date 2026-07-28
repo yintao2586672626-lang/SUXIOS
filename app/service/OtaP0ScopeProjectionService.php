@@ -121,7 +121,7 @@ final class OtaP0ScopeProjectionService
 
         try {
             $trafficRows = Db::name('online_daily_data')
-                ->field('platform,compare_type,system_hotel_id')
+                ->field('platform,compare_type,system_hotel_id,raw_data')
                 ->where('source', $platform)
                 ->where('data_date', $targetDate)
                 ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
@@ -134,7 +134,8 @@ final class OtaP0ScopeProjectionService
                 ->toArray();
             $ownTrafficRows = array_values(array_filter(
                 $trafficRows,
-                static fn(array $row): bool => OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
+                fn(array $row): bool => OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
+                    && $this->rowDateScopeIsAuthoritative($row, $platform)
             ));
             $storedTrafficHotelIds = array_values(array_unique(array_filter(array_map(
                 static fn(array $row): int => (int)($row['system_hotel_id'] ?? 0),
@@ -172,6 +173,26 @@ final class OtaP0ScopeProjectionService
         } catch (Throwable) {
             return $this->emptyProjection('projection_unavailable');
         }
+    }
+
+    /** @param array<string, mixed> $row */
+    private function rowDateScopeIsAuthoritative(array $row, string $platform): bool
+    {
+        if ($platform !== 'meituan') {
+            return true;
+        }
+        $raw = $row['raw_data'] ?? null;
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($raw)) {
+            return true;
+        }
+        $source = strtolower(trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? '')));
+        return $source !== 'response.rtdataupdatetime'
+            && $source !== 'page.visible_update_time'
+            && preg_match('/(?:^|\.)cards\.rtdataupdatetime$/', $source) !== 1;
     }
 
     /** @return array{status:string,own_traffic_row_count:int,stored_traffic_hotel_ids:array<int,int>,profile_binding_hotel_ids:array<int,int>,sensitive_values_exposed:bool} */

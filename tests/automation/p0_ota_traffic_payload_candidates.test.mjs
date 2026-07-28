@@ -124,6 +124,45 @@ test('P0 OTA traffic payload scanner finds ready dry-run candidates without expo
   }
 });
 
+test('P0 OTA traffic payload scanner blocks refresh timestamps used as business-date evidence', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'p0-traffic-refresh-date-'));
+  try {
+    const payloadPath = path.join(dir, 'refresh-timestamp-traffic.json');
+    writeFileSync(payloadPath, JSON.stringify({
+      traffic: [{
+        poiId: 'meituan-platform-1001',
+        dataDate: targetDate,
+        date_source: 'response.rtDataUpdateTime',
+        _source_path: 'dom.traffic.flow_funnel',
+        capture_evidence: {
+          source_trace_id: 'meituan:test-refresh-time',
+          source_url_hash: 'c'.repeat(64),
+        },
+        listExposure: 471,
+        detailExposure: 77,
+        flowRate: 16.35,
+        orderFillingNum: 1,
+        orderSubmitNum: 1,
+      }],
+    }), 'utf8');
+
+    const result = runScanner([
+      `--date=${targetDate}`,
+      `--system-hotel-id=${systemHotelId}`,
+      '--platform=meituan',
+      `--input=${payloadPath}`,
+      '--format=json',
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const json = JSON.parse(result.stdout);
+    assert.equal(json.summary.ready_candidate_count, 0);
+    assert.equal(json.summary.blocked_candidate_count, 1);
+    assert.ok(json.blocked_candidates[0].issue_codes.includes('refresh_timestamp_not_business_date_evidence'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('P0 OTA traffic payload scanner infers platform and system hotel from P0 payload filename', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'p0-traffic-candidates-inferred-'));
   try {

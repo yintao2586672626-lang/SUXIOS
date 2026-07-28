@@ -521,9 +521,24 @@ async function detectMeituanAdsSectionEvidence(page) {
 
 async function runMeituanTrafficInteractionPlan(page) {
   const results = [];
+  const shanghaiDateKey = (offsetDays = 0) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date(Date.now() + offsetDays * 86400000));
+    const values = Object.fromEntries(parts.map(item => [item.type, item.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  };
+  const targetDateIsToday = /^\d{4}-\d{2}-\d{2}$/.test(defaultDataDate)
+    && defaultDataDate === shanghaiDateKey();
   const targetDateIsYesterday = /^\d{4}-\d{2}-\d{2}$/.test(defaultDataDate)
-    && defaultDataDate === new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    && defaultDataDate === shanghaiDateKey(-1);
   const historicalTargetedRun = dataPeriod === 'historical_daily' && targetDateIsYesterday;
+  const targetRelativeRange = targetDateIsToday
+    ? '\u4eca\u65e5\u5b9e\u65f6'
+    : (targetDateIsYesterday ? '\u6628\u65e5' : '');
   const periods = historicalTargetedRun
     ? ['\u6628\u65e5']
     : ['\u4eca\u65e5\u5b9e\u65f6', '\u6628\u65e5', '\u8fd17\u5929', '\u8fd130\u5929'];
@@ -540,36 +555,119 @@ async function runMeituanTrafficInteractionPlan(page) {
   for (const period of periods) {
     await clickMeituanTrafficStep(page, results, period, `select traffic period ${period}`, 1800);
   }
-  if (historicalTargetedRun) {
-    const selected = await readMeituanTrafficPeriodSelection(page, '\u6628\u65e5');
+  for (const tab of ['\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08PV\uff09', '\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08UV\uff09', '\u63d0\u524d\u8ba2\u8ba2\u5355\u91cf']) {
+    await clickMeituanTrafficStep(page, results, tab, `select traffic forecast ${tab}`, 1500);
+  }
+  if (targetRelativeRange) {
+    await clickMeituanTrafficFunnelPeriod(
+      page,
+      results,
+      targetRelativeRange,
+      `restore target traffic period ${targetRelativeRange}`,
+      1800,
+    );
+    const selected = await readMeituanTrafficPeriodSelection(page, targetRelativeRange);
+    const marker = targetDateIsToday
+      ? 'meituan_traffic_today_realtime_tab'
+      : 'meituan_traffic_yesterday_tab';
     payload.section_evidence.traffic = {
       status: selected ? 'target_date_relative_range_selected' : 'target_date_relative_range_not_selected',
       target_date: defaultDataDate,
-      relative_range: '\u6628\u65e5',
+      relative_range: targetRelativeRange,
       evidence_source: 'page.traffic_period_selection.readback',
-      marker: 'meituan_traffic_yesterday_tab',
-      date_scope_policy: 'relative_yesterday_only_not_a_substitute_for_response_date_evidence',
+      marker,
+      date_scope_policy: 'selected_relative_range_readback_not_refresh_timestamp',
     };
-  }
-  for (const tab of ['\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08PV\uff09', '\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08UV\uff09', '\u63d0\u524d\u8ba2\u8ba2\u5355\u91cf']) {
-    await clickMeituanTrafficStep(page, results, tab, `select traffic forecast ${tab}`, 1500);
   }
 
   return results;
 }
 
+async function locateMeituanTrafficFunnelPeriod(page, label) {
+  const heading = page.getByText('\u6d41\u91cf\u8f6c\u5316\u6f0f\u6597', { exact: false }).first();
+  const headingVisible = await heading.isVisible({ timeout: 1500 }).catch(() => false);
+  if (!headingVisible) return null;
+
+  // The traffic page repeats the same period labels in several independent
+  // cards. Scope the target-date click and readback to the funnel containing
+  // the three exact funnel stages shown to the merchant.
+  const root = heading.locator(
+    'xpath=ancestor::*['
+      + 'contains(normalize-space(.), "\u66dd\u5149\u4eba\u6570")'
+      + ' and contains(normalize-space(.), "\u6d4f\u89c8\u4eba\u6570")'
+      + ' and contains(normalize-space(.), "\u652f\u4ed8\u8ba2\u5355\u6570")'
+      + '][1]',
+  );
+  const rootVisible = await root.isVisible({ timeout: 1500 }).catch(() => false);
+  if (!rootVisible) return null;
+
+  const labelNode = root.getByText(label, { exact: true }).first();
+  const labelVisible = await labelNode.isVisible({ timeout: 1500 }).catch(() => false);
+  if (!labelVisible) return null;
+
+  const clickable = labelNode.locator(
+    'xpath=ancestor-or-self::*['
+      + 'self::button or self::label or self::li'
+      + ' or @role="tab" or @role="button"'
+      + '][1]',
+  );
+  const clickableVisible = await clickable.isVisible({ timeout: 500 }).catch(() => false);
+  return clickableVisible ? clickable : labelNode;
+}
+
+async function clickMeituanTrafficFunnelPeriod(page, results, label, reason, waitMs = 1200) {
+  await dismissMeituanOverlays(page);
+  const locator = await locateMeituanTrafficFunnelPeriod(page, label);
+  let clicked = false;
+  let error = '';
+  if (locator) {
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => null);
+      await locator.click({ timeout: 2500 });
+      clicked = true;
+    } catch (clickError) {
+      error = String(clickError?.message || clickError || 'click_failed');
+    }
+  }
+  results.push({
+    action: 'click_traffic_funnel_period',
+    text: label,
+    reason,
+    clicked,
+    skipped: locator ? '' : 'traffic_funnel_period_not_found',
+    ...(error ? { error } : {}),
+  });
+  if (clicked) {
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
+    await page.waitForTimeout(waitMs);
+  }
+}
+
 async function readMeituanTrafficPeriodSelection(page, label) {
-  return page.locator('button,[role="tab"],[role="button"],label,span')
-    .evaluateAll((nodes, expectedLabel) => nodes.some(node => {
-      const text = String(node.textContent || '').trim().replace(/\s+/g, ' ');
-      if (text !== expectedLabel) return false;
-      const style = window.getComputedStyle(node);
+  const locator = await locateMeituanTrafficFunnelPeriod(page, label);
+  if (!locator) return false;
+  return locator.evaluate(node => {
+    let current = node;
+    for (let depth = 0; current && depth < 4; depth += 1, current = current.parentElement) {
+      const style = window.getComputedStyle(current);
       if (style.display === 'none' || style.visibility === 'hidden') return false;
-      const className = String(node.className || '');
-      const ariaSelected = node.getAttribute('aria-selected') === 'true' || node.getAttribute('aria-pressed') === 'true';
-      return ariaSelected || /(?:^|[-_\s])(active|selected|checked|primary|current)(?:[-_\s]|$)/i.test(className);
-    }), label)
-    .catch(() => false);
+      const className = String(current.className || '');
+      const ariaSelected = current.getAttribute('aria-selected') === 'true'
+        || current.getAttribute('aria-pressed') === 'true';
+      if (ariaSelected || /(?:^|[-_\s])(active|selected|checked|primary|current)(?:[-_\s]|$)/i.test(className)) {
+        return true;
+      }
+
+      const background = style.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      const foreground = style.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (background && foreground && Number(background[4] ?? 1) > 0) {
+        const backgroundLuminance = (Number(background[1]) + Number(background[2]) + Number(background[3])) / 3;
+        const foregroundLuminance = (Number(foreground[1]) + Number(foreground[2]) + Number(foreground[3])) / 3;
+        if (backgroundLuminance < 170 && foregroundLuminance > 190) return true;
+      }
+    }
+    return false;
+  }).catch(() => false);
 }
 
 async function runMeituanOrderFlowInteractionPlan(page) {

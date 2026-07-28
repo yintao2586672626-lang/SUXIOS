@@ -702,6 +702,20 @@ function p0_import_row_date_source_is_context_default(array $row): bool
 }
 
 /**
+ * `rtDataUpdateTime` and the visible update label are refresh timestamps.
+ * They do not prove which independently controlled traffic period was selected.
+ *
+ * @param array<string, mixed> $row
+ */
+function p0_import_row_date_source_is_refresh_timestamp(array $row): bool
+{
+    $source = p0_import_row_date_source($row);
+    return $source === 'response.rtdataupdatetime'
+        || $source === 'page.visible_update_time'
+        || preg_match('/(?:^|\.)cards\.rtdataupdatetime$/', $source) === 1;
+}
+
+/**
  * @param array<string, mixed> $row
  */
 function p0_import_row_date_source(array $row): string
@@ -721,7 +735,9 @@ function p0_import_row_date_source(array $row): string
  */
 function p0_import_explicit_row_date(array $row): string
 {
-    if (p0_import_row_date_source_is_context_default($row)) {
+    if (p0_import_row_date_source_is_context_default($row)
+        || p0_import_row_date_source_is_refresh_timestamp($row)
+    ) {
         return '';
     }
     $value = $row['date'] ?? $row['dataDate'] ?? $row['statDate'] ?? $row['stat_date'] ?? $row['data_date'] ?? $row['reportDate'] ?? $row['day'] ?? '';
@@ -1159,6 +1175,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
     $rowsWithRowLevelCompleteDesensitizedCaptureEvidence = 0;
     $rowsWithBrowserResponseEvidence = 0;
     $rowsWithBrowserDateSourceEvidence = 0;
+    $rowsWithRefreshTimestampDateSource = 0;
     $rowsWithExplicitSourcePath = 0;
     $rowsWithPlatformHotelIdentifier = 0;
     $targetDateNonzeroRequiredMetricRows = 0;
@@ -1181,7 +1198,13 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
             $defaultedDateRows++;
         }
         $dateSource = p0_import_row_date_source($row);
-        $dateSourceProven = $dateSource !== '' && !p0_import_row_date_source_is_context_default($row);
+        $refreshTimestampDateSource = p0_import_row_date_source_is_refresh_timestamp($row);
+        if ($refreshTimestampDateSource) {
+            $rowsWithRefreshTimestampDateSource++;
+        }
+        $dateSourceProven = $dateSource !== ''
+            && !p0_import_row_date_source_is_context_default($row)
+            && !$refreshTimestampDateSource;
         if ($dateSourceProven) {
             $rowsWithBrowserDateSourceEvidence++;
         }
@@ -1240,6 +1263,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
                 'browser_response_evidence_present' => $browserResponseEvidencePresent,
                 'date_source' => $dateSource,
                 'browser_date_source_evidence_present' => $dateSourceProven,
+                'refresh_timestamp_date_source' => $refreshTimestampDateSource,
                 'metrics' => $metrics,
                 'field_fact_preview' => $preview,
             ];
@@ -1265,6 +1289,7 @@ function p0_import_summarize_rows(array $rows, string $platform, int $systemHote
         'missing_browser_response_evidence_rows' => max(0, $targetRows - $rowsWithBrowserResponseEvidence),
         'browser_date_source_evidence_rows' => $rowsWithBrowserDateSourceEvidence,
         'missing_browser_date_source_evidence_rows' => max(0, $targetRows - $rowsWithBrowserDateSourceEvidence),
+        'refresh_timestamp_date_source_rows' => $rowsWithRefreshTimestampDateSource,
         'explicit_source_path_rows' => $rowsWithExplicitSourcePath,
         'missing_source_path_rows' => max(0, $targetRows - $rowsWithExplicitSourcePath),
         'platform_hotel_identifier_rows' => $rowsWithPlatformHotelIdentifier,
@@ -2029,6 +2054,13 @@ try {
             'code' => 'browser_capture_row_date_source_missing',
             'message' => 'Browser capture traffic rows must carry row-level date_source evidence from the response row or request URL/payload; capture_context.default_data_date is not accepted.',
             'missing_browser_date_source_evidence_rows' => (int)$summary['missing_browser_date_source_evidence_rows'],
+        ];
+    }
+    if ((int)($summary['refresh_timestamp_date_source_rows'] ?? 0) > 0) {
+        $issues[] = [
+            'code' => 'refresh_timestamp_not_business_date_evidence',
+            'message' => 'Meituan refresh timestamps do not prove the selected business date; require row/request date evidence or a scoped traffic-period selector readback.',
+            'refresh_timestamp_date_source_rows' => (int)$summary['refresh_timestamp_date_source_rows'],
         ];
     }
     if (p0_import_payload_is_browser_capture($payload)

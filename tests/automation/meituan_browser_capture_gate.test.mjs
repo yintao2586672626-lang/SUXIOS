@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  applyMeituanTrafficSelectionDateEvidence,
   applyMeituanYesterdaySelectionDateEvidence,
   evaluateMeituanCaptureGate,
   filterMeituanCumulativeRowsByTargetDate,
@@ -70,7 +71,15 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /runMeituanReviewInteractionPlan/);
   assert.match(source, /dataPeriod === 'historical_daily'/);
   assert.match(source, /target_date_relative_range_selected/);
-  assert.match(source, /relative_yesterday_only_not_a_substitute_for_response_date_evidence/);
+  assert.match(source, /restore target traffic period/);
+  assert.match(source, /meituan_traffic_today_realtime_tab/);
+  assert.match(source, /selected_relative_range_readback_not_refresh_timestamp/);
+  assert.match(source, /locateMeituanTrafficFunnelPeriod/);
+  assert.match(source, /\\u6d41\\u91cf\\u8f6c\\u5316\\u6f0f\\u6597/);
+  assert.ok(
+    source.indexOf('restore target traffic period') > source.indexOf('select traffic forecast'),
+    'target funnel period must be restored after all traffic interactions',
+  );
   assert.match(source, /\['data', 'results'\]/);
   assert.match(source, /meituan_orders_purchase_date_query/);
   assert.match(source, /payload\.responses = payload\.responses\.filter/);
@@ -133,8 +142,37 @@ test('uses yesterday selector readback, not refresh time, for historical traffic
   assert.equal(result.traffic[0].dataDate, '2026-07-24');
   assert.equal(result.traffic[0].data_updated_at, '2026-07-25');
   assert.equal(result.traffic[0].date_source, 'page.traffic_period_selection.readback');
-  assert.equal(result.trafficForecast[0].dataDate, '2026-07-24');
-  assert.equal(result.trafficForecast[0].data_updated_at, '2026-07-25');
+  assert.equal(result.trafficForecast[0].dataDate, '2026-07-25');
+  assert.equal(result.trafficForecast[0].data_updated_at, undefined);
+});
+
+test('uses today realtime selector readback, not refresh time, for same-day traffic scope', () => {
+  const result = applyMeituanTrafficSelectionDateEvidence({
+    section_evidence: {
+      traffic: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-07-28',
+        relative_range: '\u4eca\u65e5\u5b9e\u65f6',
+        evidence_source: 'page.traffic_period_selection.readback',
+        marker: 'meituan_traffic_today_realtime_tab',
+      },
+    },
+    traffic: [{
+      data_date: '2026-07-28',
+      date_source: 'response.rtDataUpdateTime',
+      listExposure: 471,
+      detailExposure: 77,
+      flowRate: 16.35,
+    }],
+  }, '2026-07-28');
+
+  assert.equal(result.traffic[0].dataDate, '2026-07-28');
+  assert.equal(result.traffic[0].data_date, '2026-07-28');
+  assert.equal(result.traffic[0].data_updated_at, '2026-07-28');
+  assert.equal(result.traffic[0].date_source, 'page.traffic_period_selection.readback');
+  assert.equal(result.traffic[0].date_scope_evidence, 'meituan_traffic_today_realtime_tab');
+  const filtered = filterMeituanCumulativeRowsByTargetDate(result, '2026-07-28');
+  assert.equal(filtered.traffic.length, 1);
 });
 
 test('retains yesterday-selected traffic after the target-date filter runs', () => {
@@ -492,12 +530,13 @@ test('keeps only authoritative target-date cumulative rows while preserving futu
     ],
   }, '2026-07-12');
 
-  assert.equal(payload.traffic.length, 1);
+  assert.equal(payload.traffic.length, 0);
   assert.equal(payload.peerRank.length, 1);
   assert.equal(payload.peerRank[0].rank, 3);
   assert.equal(payload.searchKeywords.length, 0);
   assert.equal(payload.trafficForecast.length, 1);
   assert.deepEqual(payload.target_date_filter.dropped_counts, {
+    traffic: 1,
     peerRank: 2,
     searchKeywords: 1,
   });
