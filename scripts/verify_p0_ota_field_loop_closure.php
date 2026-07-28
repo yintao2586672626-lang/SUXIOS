@@ -5052,6 +5052,10 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         'authoritative_traffic_row_count' => 0,
         'auxiliary_traffic_row_count' => 0,
         'auxiliary_traffic_endpoint_counts' => [],
+        'readback_check_supported' => false,
+        'readback_verified_rows' => 0,
+        'readback_unverified_rows' => 0,
+        'readback_status' => 'not_loaded',
         'authoritative_traffic_row_policy' => 'Ctrip P0 uses canonical flow-transform snapshots plus strict legacy dimensionless compatibility rows; auxiliary traffic endpoints remain visible but cannot satisfy or fail the canonical gate.',
         'rows_with_field_facts' => 0,
         'nonzero_required_metric_rows' => 0,
@@ -5096,6 +5100,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     }
 
     $columns = p0_table_columns('online_daily_data');
+    $base['readback_check_supported'] = isset($columns['readback_verified']);
     foreach (['source', 'data_date', 'data_type', 'raw_data'] as $column) {
         if (!isset($columns[$column])) {
             $base['status'] = 'required_column_missing';
@@ -5139,6 +5144,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         isset($columns['order_submit_num']) ? 'order_submit_num' : '',
         isset($columns['source_trace_id']) ? 'source_trace_id' : '',
         isset($columns['sync_task_id']) ? 'sync_task_id' : '',
+        isset($columns['readback_verified']) ? 'readback_verified' : '',
     ], static fn(string $field): bool => $field !== ''));
     $sourceRows = array_values(array_filter(
         $query->field(implode(',', $fieldList))->select()->toArray(),
@@ -5176,6 +5182,13 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     foreach ($rows as $row) {
         $decodedRaw = json_decode((string)($row['raw_data'] ?? ''), true);
         $raw = is_array($decodedRaw) ? $decodedRaw : [];
+        if (($base['readback_check_supported'] ?? false) === true) {
+            if ((int)($row['readback_verified'] ?? 0) === 1) {
+                $base['readback_verified_rows']++;
+            } else {
+                $base['readback_unverified_rows']++;
+            }
+        }
         $rowSystemHotelId = (int)($row['system_hotel_id'] ?? 0);
         if ($rowSystemHotelId > 0) {
             $base['system_hotel_row_counts'][(string)$rowSystemHotelId] = (int)($base['system_hotel_row_counts'][(string)$rowSystemHotelId] ?? 0) + 1;
@@ -5343,6 +5356,15 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $base['system_hotel_ids'] = array_values(array_map('intval', array_keys((array)$base['system_hotel_row_counts'])));
     $base['ui_statuses'] = array_values(array_keys((array)$base['ui_statuses']));
     $base['required_metric_value_status'] = (int)$base['nonzero_required_metric_rows'] > 0 ? 'ready' : 'zero_value_unverified';
+    $base['readback_status'] = ($base['readback_check_supported'] ?? false) !== true
+        ? 'schema_missing'
+        : (
+            (int)$base['traffic_row_count'] > 0
+            && (int)$base['readback_verified_rows'] === (int)$base['traffic_row_count']
+            && (int)$base['readback_unverified_rows'] === 0
+                ? 'ready'
+                : 'unverified'
+        );
     ksort($base['platform_hotel_identifier_match_reason_counts']);
     $allIdentifiersMatched = (int)$base['traffic_row_count'] > 0
         && $base['platform_hotel_identifier_matched_rows'] === (int)$base['traffic_row_count']
@@ -5364,6 +5386,7 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         && (int)$base['nonzero_required_metric_rows'] > 0
         && $uiClosureReady
         && (string)$base['platform_hotel_identifier_status'] === 'ready'
+        && ($platform !== 'meituan' || (string)$base['readback_status'] === 'ready')
         ? 'ready'
         : 'incomplete';
     if ((int)$base['rows_with_field_facts'] === 0) {
@@ -5376,6 +5399,8 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         } else {
             $base['status'] = 'platform_hotel_identifier_missing';
         }
+    } elseif ($platform === 'meituan' && (string)$base['readback_status'] !== 'ready') {
+        $base['status'] = 'readback_unverified';
     } elseif ((int)$base['nonzero_required_metric_rows'] === 0) {
         $base['status'] = 'zero_value_unverified';
         $base['standard_fact_status'] = 'zero_value_unverified';
@@ -5403,6 +5428,10 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
                 'authoritative_traffic_row_count' => (int)($hotelClosure['authoritative_traffic_row_count'] ?? 0),
                 'auxiliary_traffic_row_count' => (int)($hotelClosure['auxiliary_traffic_row_count'] ?? 0),
                 'auxiliary_traffic_endpoint_counts' => p0_array($hotelClosure['auxiliary_traffic_endpoint_counts'] ?? null),
+                'readback_check_supported' => (bool)($hotelClosure['readback_check_supported'] ?? false),
+                'readback_verified_rows' => (int)($hotelClosure['readback_verified_rows'] ?? 0),
+                'readback_unverified_rows' => (int)($hotelClosure['readback_unverified_rows'] ?? 0),
+                'readback_status' => (string)($hotelClosure['readback_status'] ?? 'not_loaded'),
                 'complete_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['complete_metric_keys'] ?? []))),
                 'missing_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['missing_metric_keys'] ?? []))),
                 'incomplete_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['incomplete_metric_keys'] ?? []))),
@@ -5911,6 +5940,7 @@ function p0_external_evidence_db_scope(array $externalEvidence, array $trafficFi
  */
 function p0_platform_traffic_gate(array $traffic): array
 {
+    $platform = strtolower(trim((string)($traffic['platform'] ?? '')));
     $targetDate = p0_array($traffic['target_date'] ?? null);
     $trafficFieldFacts = p0_array($traffic['traffic_field_fact_closure'] ?? null);
     $profileScopeTrafficClosure = p0_array($traffic['profile_scope_traffic_closure'] ?? null);
@@ -5936,6 +5966,11 @@ function p0_platform_traffic_gate(array $traffic): array
     $zeroRequiredMetricRows = (int)($trafficFieldFacts['zero_required_metric_rows'] ?? 0);
     $requiredMetricValueStatus = (string)($trafficFieldFacts['required_metric_value_status'] ?? 'not_loaded');
     $requiredMetricValuePolicy = (string)($trafficFieldFacts['required_metric_value_policy'] ?? 'P0 traffic closure requires non-zero target-date core traffic metric evidence or explicit zero confirmation.');
+    $readbackCheckSupported = (bool)($trafficFieldFacts['readback_check_supported'] ?? false);
+    $readbackVerifiedRows = (int)($trafficFieldFacts['readback_verified_rows'] ?? 0);
+    $readbackUnverifiedRows = (int)($trafficFieldFacts['readback_unverified_rows'] ?? 0);
+    $readbackStatus = (string)($trafficFieldFacts['readback_status'] ?? 'not_loaded');
+    $readbackReady = $platform !== 'meituan' || $readbackStatus === 'ready';
     $fieldLoopMatrix = array_values(array_filter(p0_array($trafficFieldFacts['field_loop_matrix'] ?? null), 'is_array'));
     $requiredMetricKeys = array_values(array_map('strval', (array)($trafficFieldFacts['required_metric_keys'] ?? [])));
     $requiredMetricCount = count($requiredMetricKeys);
@@ -6004,6 +6039,7 @@ function p0_platform_traffic_gate(array $traffic): array
         && $fieldFactStatus === 'ready'
         && (string)($profileScopeTrafficClosure['status'] ?? '') === 'ready'
         && $requiredMetricValuesReady
+        && $readbackReady
         && $trafficRows > 0
         && (bool)($traffic['sensitive_values_exposed'] ?? false) === false;
 
@@ -6020,6 +6056,8 @@ function p0_platform_traffic_gate(array $traffic): array
         $status = 'traffic_field_fact_closure_incomplete';
     } elseif ((string)($profileScopeTrafficClosure['status'] ?? '') !== 'ready') {
         $status = 'profile_scope_traffic_closure_incomplete';
+    } elseif (!$readbackReady) {
+        $status = 'readback_unverified';
     }
 
     return [
@@ -6062,6 +6100,13 @@ function p0_platform_traffic_gate(array $traffic): array
         'zero_required_metric_rows' => $zeroRequiredMetricRows,
         'required_metric_value_status' => $requiredMetricValueStatus,
         'required_metric_value_policy' => $requiredMetricValuePolicy,
+        'readback_check_supported' => $readbackCheckSupported,
+        'readback_verified_rows' => $readbackVerifiedRows,
+        'readback_unverified_rows' => $readbackUnverifiedRows,
+        'readback_status' => $readbackStatus,
+        'readback_policy' => $platform === 'meituan'
+            ? 'all_authoritative_target_date_meituan_traffic_rows_must_have_readback_verified=1'
+            : 'reported_not_newly_enforced_by_this_meituan_single_point_gate',
         'external_evidence_status' => $externalEvidenceStatus,
         'external_evidence_validated_desensitized_source_proof' => $externalEvidenceValid,
         'external_evidence_rows' => $externalEvidenceRows,

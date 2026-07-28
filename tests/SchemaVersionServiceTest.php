@@ -419,6 +419,10 @@ final class SchemaVersionServiceTest extends TestCase
                 '43875cfe53bff7f97cd68a787232a121c0c620e39795449fe23f7a9c45ff5b19',
                 '6440cc5549990223d4857bfc1c80b81ab8b096f490be60e33405c319c0a876d7',
             ],
+            '20260726_extend_manual_notification_schedule_runs_scope_robot.sql' => [
+                '0a579e36892ff2585a658cb6877ffb6c20dfbeb3474033a78398642c6acfc4e2',
+                '774a2e32a1bb61ce7cef9f1a15591374fc0ce50febd23897e965bcbf10379fb9',
+            ],
         ];
         $insert = $this->pdo->prepare(
             'INSERT INTO schema_versions '

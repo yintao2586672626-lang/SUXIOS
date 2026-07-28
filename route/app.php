@@ -456,6 +456,7 @@ Route::group('api/ota-standard', function () {
     Route::get('/analysis', 'OtaStandard/analysis');
     Route::post('/analysis', 'OtaStandard/analysis');
     Route::get('/operation-optimizer', 'OtaStandard/operationOptimizer');
+    Route::post('/operation-optimizer/execution-intent', 'OtaStandard/createOperationOptimizerExecutionIntent');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== Revenue AI 首页只读总览 API ====================

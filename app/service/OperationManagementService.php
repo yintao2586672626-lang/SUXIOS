@@ -15,6 +15,7 @@ class OperationManagementService
     private RevenuePricingRecommendationService $pricingRecommendationService;
     private ExecutionOutcomeService $executionOutcomeService;
     private ExecutionFlowReadService $executionFlowReadService;
+    private OperationOptimizationReviewService $operationOptimizationReviewService;
 
     private const EXECUTION_CREDENTIAL_KEYS = [
         'authorization' => true,
@@ -48,13 +49,16 @@ class OperationManagementService
     public function __construct(
         ?RevenuePricingRecommendationService $pricingRecommendationService = null,
         ?ExecutionOutcomeService $executionOutcomeService = null,
-        ?ExecutionFlowReadService $executionFlowReadService = null
+        ?ExecutionFlowReadService $executionFlowReadService = null,
+        ?OperationOptimizationReviewService $operationOptimizationReviewService = null
     )
     {
         $this->pricingRecommendationService = $pricingRecommendationService ?? new RevenuePricingRecommendationService();
         $this->executionOutcomeService = $executionOutcomeService ?? new ExecutionOutcomeService();
         $this->executionFlowReadService = $executionFlowReadService
             ?? new ExecutionFlowReadService($this->executionOutcomeService);
+        $this->operationOptimizationReviewService = $operationOptimizationReviewService
+            ?? new OperationOptimizationReviewService();
     }
 
     public function fullData(array $hotelIds, ?int $hotelId, string $date): array
@@ -583,7 +587,7 @@ class OperationManagementService
         if ($intentId > 0) {
             $query->where('id', $intentId);
         }
-        foreach (['platform', 'object_type', 'action_type', 'status'] as $field) {
+        foreach (['source_module', 'platform', 'object_type', 'action_type', 'status'] as $field) {
             $value = trim((string)($filters[$field] ?? ''));
             if ($value !== '') {
                 $query->where($field, $value);
@@ -1125,6 +1129,7 @@ class OperationManagementService
             'daily_workbench_patrol',
             'operation_alert',
             'operating_target',
+            OperationOptimizationExecutionBridgeService::SOURCE_MODULE,
         ];
         if (in_array((string)$payload['source_module'], $reservedSources, true) && !$trustedReservedSource) {
             throw new \InvalidArgumentException('reserved execution source must be created from its scoped source endpoint');
@@ -2157,7 +2162,9 @@ class OperationManagementService
 
         $normalizedIntent = $this->normalizeExecutionIntentRow($intentRow);
         $normalizedTask = $this->normalizeExecutionTaskRow($task);
-        if (in_array($manualResultStatus, ['success', 'near_success'], true)) {
+        $isOperationOptimizer = strtolower(trim((string)($normalizedIntent['source_module'] ?? '')))
+            === OperationOptimizationExecutionBridgeService::SOURCE_MODULE;
+        if (in_array($manualResultStatus, ['success', 'near_success'], true) || $isOperationOptimizer) {
             $this->syncSourceVerifiedMetricReadback($normalizedTask, $normalizedIntent);
             $evidenceRows = Db::name('operation_execution_evidence')
                 ->where('task_id', $taskId)
@@ -2177,6 +2184,22 @@ class OperationManagementService
             array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows)
         );
         $hasSourceVerifiedReviewEvidence = ($reviewEvidenceTruth['source_verified'] ?? false) === true;
+        if ($isOperationOptimizer
+            && in_array($manualResultStatus, ['success', 'near_success', 'failed'], true)
+            && !$hasSourceVerifiedReviewEvidence
+        ) {
+            throw new \InvalidArgumentException(
+                'same-hotel, same-platform and same-object next-day OTA readback is required before terminal review'
+            );
+        }
+        if ($isOperationOptimizer
+            && $manualResultStatus === 'failed'
+            && !in_array((string)($reviewOutcomeTruth['status'] ?? ''), ['adverse', 'missed'], true)
+        ) {
+            throw new \InvalidArgumentException(
+                'failed review requires a source-verified metric outcome that did not improve'
+            );
+        }
         $actionTrackId = (int)($task['action_track_id'] ?? 0);
 
         Db::transaction(function () use (
@@ -2316,6 +2339,11 @@ class OperationManagementService
             || $executedTimestamp === false
         ) {
             return null;
+        }
+
+        if ($sourceModule === OperationOptimizationExecutionBridgeService::SOURCE_MODULE) {
+            return $this->operationOptimizationReviewService
+                ->buildSourceVerifiedMetricReadbackPayload($task, $intent);
         }
 
         if ($sourceModule === 'ota_diagnosis'
@@ -3264,6 +3292,12 @@ class OperationManagementService
                     $reasons[] = $field . ' missing';
                 }
             }
+        } elseif ($objectType === 'room_product') {
+            foreach (['room_type_key', 'target_metric'] as $field) {
+                if (trim((string)($targetValue[$field] ?? '')) === '') {
+                    $reasons[] = $field . ' missing';
+                }
+            }
         } elseif ($objectType === 'data_collection') {
             if (trim((string)($targetValue['collection_scope'] ?? '')) === '' && trim((string)($targetValue['target_date'] ?? '')) === '') {
                 $reasons[] = 'collection_scope or target_date missing';
@@ -3570,7 +3604,7 @@ class OperationManagementService
             return null;
         }
         $value = trim($value);
-        if (preg_match('/^(?:ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*|operation_alert_[a-f0-9]{32}|operating_target_[a-f0-9]{32})$/D', $value) !== 1) {
+        if (preg_match('/^(?:ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*|operation_alert_[a-f0-9]{32}|operating_target_[a-f0-9]{32}|operation_optimizer_[a-f0-9]{32})$/D', $value) !== 1) {
             throw new \InvalidArgumentException('trusted execution-intent idempotency key is invalid');
         }
         return $value;

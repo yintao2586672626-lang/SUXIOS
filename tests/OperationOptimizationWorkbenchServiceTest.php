@@ -102,8 +102,15 @@ final class OperationOptimizationWorkbenchServiceTest extends TestCase
         self::assertSame('高级大床房', $keywords['商务酒店']['landing_room_type']);
         self::assertSame('pause_review', $keywords['近地铁酒店']['recommendation']['code']);
         self::assertTrue($keywords['近地铁酒店']['recommendation']['can_create_task']);
-        self::assertSame('draft', $keywords['近地铁酒店']['recommendation']['task_payload']['status']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $keywords['近地铁酒店']['recommendation']['id']);
+        self::assertSame('pending_approval', $keywords['近地铁酒店']['recommendation']['task_payload']['status']);
+        self::assertSame('operation_optimizer', $keywords['近地铁酒店']['recommendation']['task_payload']['source_module']);
+        self::assertSame(
+            $keywords['近地铁酒店']['recommendation']['id'],
+            $keywords['近地铁酒店']['recommendation']['task_payload']['evidence']['optimizer_action_id']
+        );
         self::assertFalse($keywords['近地铁酒店']['recommendation']['task_payload']['evidence']['auto_write_ota']);
+        self::assertSame(0.01, $keywords['近地铁酒店']['recommendation']['task_payload']['expected_delta']);
 
         $rooms = $this->indexBy($result['room_product_mix']['rows'], 'room_type');
         self::assertSame(60.0, $rooms['高级大床房']['revenue_share']);
@@ -111,6 +118,20 @@ final class OperationOptimizationWorkbenchServiceTest extends TestCase
         self::assertSame(200.0, $rooms['高级大床房']['adr']);
         self::assertSame('price_review', $rooms['高级大床房']['recommendation']['code']);
         self::assertSame('room_product', $rooms['高级大床房']['recommendation']['task_payload']['object_type']);
+        self::assertSame('competitor_price_gap', $rooms['高级大床房']['recommendation']['task_payload']['expected_metric']);
+        self::assertSame('decrease', $rooms['高级大床房']['recommendation']['task_payload']['target_value']['expected_direction']);
+
+        $differentScope = (new OperationOptimizationWorkbenchService())->build($dataset, [
+            'hotel_id' => 78,
+            'start_date' => '2026-07-20',
+            'end_date' => '2026-07-26',
+        ]);
+        $differentKeywords = $this->indexBy($differentScope['keyword_workbench']['rows'], 'keyword');
+        self::assertNotSame(
+            $keywords['近地铁酒店']['recommendation']['id'],
+            $differentKeywords['近地铁酒店']['recommendation']['id'],
+            'Recommendation identity must include hotel and date scope.'
+        );
 
         $channels = $this->indexBy($result['channel_views'], 'platform');
         self::assertSame(1200.0, $channels['ctrip']['questions'][0]['value']);
@@ -151,6 +172,37 @@ final class OperationOptimizationWorkbenchServiceTest extends TestCase
         self::assertSame('采集美团广告与搜索词', $result['keyword_workbench']['recovery']['action_label']);
         self::assertTrue($result['truth_policy']['missing_is_not_zero']);
         self::assertNull($result['channel_views'][0]['questions'][0]['value']);
+    }
+
+    public function testOneAvailableModuleKeepsWorkbenchPartial(): void
+    {
+        $dataset = [
+            'fact_ota_search_keyword' => [],
+            'fact_ota_advertising' => [
+                $this->trusted([
+                    'date_key' => '2026-07-26',
+                    'platform_key' => 'meituan',
+                    'impressions' => 200,
+                    'clicks' => 10,
+                    'bookings' => 1,
+                    'spend' => 20,
+                    'order_amount' => 100,
+                    'raw_data' => ['keyword' => '敦煌酒店'],
+                ], 41),
+            ],
+            'fact_ota_daily' => [],
+            'fact_ota_traffic' => [],
+        ];
+
+        $result = (new OperationOptimizationWorkbenchService())->build($dataset, [
+            'hotel_id' => 77,
+            'start_date' => '2026-07-26',
+            'end_date' => '2026-07-26',
+        ]);
+
+        self::assertSame('partial', $result['status']);
+        self::assertSame('ready', $result['keyword_workbench']['status']);
+        self::assertSame('blocked', $result['room_product_mix']['status']);
     }
 
     /** @param array<string, mixed> $row @return array<string, mixed> */

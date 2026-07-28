@@ -61,10 +61,21 @@ final class ExecutionFlowReadService
         ) {
             $displayReviewStatus = 'unverified';
         }
-        $reviewAvailableOn = $this->reviewAvailableOn($taskEvidence);
-        $stage = $this->stage($intent, $task, $evidenceTruth, $reviewStatus, $outcomeTruth);
         $sourceModule = (string)($intent['source_module'] ?? 'manual');
         $sourceRecordId = (int)($intent['source_record_id'] ?? 0);
+        $reviewAvailableOn = $this->reviewAvailableOn($taskEvidence);
+        if (strtolower(trim($sourceModule)) === 'operation_optimizer'
+            && trim((string)($task['executed_at'] ?? '')) !== ''
+        ) {
+            $executedAt = strtotime((string)$task['executed_at']);
+            if ($executedAt !== false) {
+                $nextDay = date('Y-m-d', strtotime('+1 day', $executedAt));
+                if ($reviewAvailableOn === '' || $nextDay > $reviewAvailableOn) {
+                    $reviewAvailableOn = $nextDay;
+                }
+            }
+        }
+        $stage = $this->stage($intent, $task, $evidenceTruth, $reviewStatus, $outcomeTruth);
 
         return [
             'id' => (int)$intent['id'],

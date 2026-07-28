@@ -84,6 +84,10 @@ final class OtaCollectionQualityStateService
         $profileSessionProofRequired = $this->truthy($input['profile_session_proof_required'] ?? false);
         $profileSessionVerified = $this->truthy($input['profile_session_verified'] ?? false);
         $profileSessionSameSource = $this->truthy($input['profile_session_same_source'] ?? false);
+        $readbackCheckRequired = $this->truthy($input['readback_check_required'] ?? false);
+        $readbackCheckSupported = $this->truthy($input['readback_check_supported'] ?? false);
+        $readbackVerifiedRows = $this->nonNegativeInt($input['readback_verified_rows'] ?? 0);
+        $readbackUnverifiedRows = $this->nonNegativeInt($input['readback_unverified_rows'] ?? 0);
         $hasStoredData = array_key_exists('has_stored_data', $input)
             ? $this->truthy($input['has_stored_data'])
             : ($collectionStatus === 'collected' || $targetDateRows > 0 || $targetDateTrafficRows > 0);
@@ -138,6 +142,18 @@ final class OtaCollectionQualityStateService
             $flags[] = 'current_session_proof_missing';
             $state = 'unverified';
             $nextAction = 'verify_platform_login_state';
+        } elseif ($readbackCheckRequired
+            && $targetDateRows > 0
+            && (
+                !$readbackCheckSupported
+                || $readbackVerifiedRows !== $targetDateRows
+                || $readbackUnverifiedRows > 0
+            )) {
+            $flags[] = $readbackCheckSupported
+                ? 'target_date_readback_unverified'
+                : 'readback_verification_schema_missing';
+            $state = 'unverified';
+            $nextAction = 'verify_persistence_readback';
         } elseif ($targetDateTrafficRows > 0 && in_array($fieldFactStatus, ['missing', 'not_loaded', ''], true)) {
             $flags[] = 'target_date_field_facts_missing';
             $state = 'unverified';
@@ -220,6 +236,10 @@ final class OtaCollectionQualityStateService
                 'profile_session_proof_required' => $profileSessionProofRequired,
                 'profile_session_verified' => $profileSessionVerified,
                 'profile_session_same_source' => $profileSessionSameSource,
+                'readback_check_required' => $readbackCheckRequired,
+                'readback_check_supported' => $readbackCheckSupported,
+                'readback_verified_rows' => $readbackVerifiedRows,
+                'readback_unverified_rows' => $readbackUnverifiedRows,
                 'has_stored_data' => $hasStoredData,
                 'source_count' => $sourceCount,
             ],

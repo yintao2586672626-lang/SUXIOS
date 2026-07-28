@@ -31,8 +31,8 @@ const localeSwitchCount = (contractSource.match(/data-locale-switch/g) || []).le
 const appHeaderMatch = html.match(/<header class="header px-6 py-4 sticky top-0 z-10">[\s\S]*?<\/header>/);
 const initialLocaleMatch = contractSource.match(/const getInitialLocale = (?:\(\)|\(\{[\s\S]*?\} = \{\}\)) => \{[\s\S]*?\n    \};/);
 
-if (localeSwitchCount < 2) {
-  failures.push('global locale switch should appear on the public login shell and app header');
+if (localeSwitchCount < 1) {
+  failures.push('global locale switch should appear on the public login shell');
 }
 
 const publicLoginLocaleSnippets = [

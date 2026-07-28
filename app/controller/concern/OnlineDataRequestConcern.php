@@ -655,6 +655,11 @@ trait OnlineDataRequestConcern
         if (empty($rows)) {
             if (BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
                 return $this->success(array_merge([
+                    'source' => 'meituan',
+                    'target_date' => $targetDataDate,
+                    'metric_scope' => 'ota_channel',
+                    'quality_status' => 'authoritative_empty_no_rows',
+                    'claim_allowed' => false,
                     'auth_status' => $payload['auth_status'] ?? null,
                     'capture_gate' => $gate,
                     'saved_count' => 0,
@@ -707,9 +712,17 @@ trait OnlineDataRequestConcern
         }
 
         $responsePayload = [
+            'source' => 'meituan',
+            'target_date' => $targetDataDate,
+            'metric_scope' => 'ota_channel',
             'saved_count' => $savedCount,
             'row_count' => count($rows),
             'persistence_status' => $savedCount === count($rows) ? 'readback_verified' : 'readback_not_verified',
+            'quality_status' => $savedCount === count($rows) && count($rows) > 0
+                ? 'readback_verified'
+                : 'unverified',
+            'claim_allowed' => false,
+            'quality_policy' => 'Capture response proves persistence readback only; unified availability still requires collection-status source/date/quality gates.',
             'auth_status' => $payload['auth_status'] ?? null,
             'capture_gate' => $gate,
             'counts' => $this->summarizeMeituanCapturedRows($rows),

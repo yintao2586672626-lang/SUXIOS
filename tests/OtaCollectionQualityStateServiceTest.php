@@ -180,6 +180,37 @@ final class OtaCollectionQualityStateServiceTest extends TestCase
         self::assertSame(0, $quality['evidence']['missing_traffic_metric_count']);
     }
 
+    public function testMeituanReadbackRequirementFailsClosedWhenTargetRowsAreNotVerified(): void
+    {
+        $input = [
+            'platform' => 'meituan',
+            'binding_check_status' => 'complete',
+            'profile_status' => 'logged_in',
+            'collection_status' => 'collected',
+            'target_date' => '2026-07-09',
+            'latest_data_date' => '2026-07-09',
+            'target_date_rows' => 2,
+            'target_date_traffic_rows' => 1,
+            'field_fact_status' => 'ready',
+            'verified_traffic_metric_keys' => ['list_exposure', 'detail_exposure', 'flow_rate'],
+            'readback_check_required' => true,
+            'readback_check_supported' => true,
+            'readback_verified_rows' => 1,
+            'readback_unverified_rows' => 1,
+            'has_stored_data' => true,
+        ];
+
+        $unverified = (new OtaCollectionQualityStateService())->evaluate($input);
+        self::assertSame('unverified', $unverified['primary_quality_state']);
+        self::assertContains('target_date_readback_unverified', $unverified['quality_flags']);
+        self::assertSame('verify_persistence_readback', $unverified['next_action']);
+
+        $input['readback_verified_rows'] = 2;
+        $input['readback_unverified_rows'] = 0;
+        $verified = (new OtaCollectionQualityStateService())->evaluate($input);
+        self::assertSame('available', $verified['primary_quality_state']);
+    }
+
     public function testReadyLabelWithoutAllFiveCanonicalTrafficMetricsIsNotAvailable(): void
     {
         $quality = (new OtaCollectionQualityStateService())->evaluate([

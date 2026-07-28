@@ -53,7 +53,16 @@ final class OperationOptimizationWorkbenchService
             ),
             static fn(array $row): bool => ($row['recommendation']['can_create_task'] ?? false) === true
         ));
-        $status = $availableModules === 2 ? 'ready' : ($availableModules > 0 ? 'partial' : 'blocked');
+        $moduleStatuses = [
+            (string)($keywordWorkbench['status'] ?? 'blocked'),
+            (string)($roomProductMix['status'] ?? 'blocked'),
+        ];
+        $status = count(array_filter(
+            $moduleStatuses,
+            static fn(string $moduleStatus): bool => $moduleStatus === 'ready'
+        )) === 2
+            ? 'ready'
+            : ($availableModules > 0 ? 'partial' : 'blocked');
 
         return [
             'status' => $status,
@@ -82,6 +91,29 @@ final class OperationOptimizationWorkbenchService
                 : null,
             'data_quality' => is_array($dataset['data_quality'] ?? null) ? $dataset['data_quality'] : [],
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $workbench
+     * @return array<string, mixed>|null
+     */
+    public function findRecommendation(array $workbench, string $recommendationId): ?array
+    {
+        $recommendationId = trim($recommendationId);
+        if ($recommendationId === '') {
+            return null;
+        }
+
+        foreach (['keyword_workbench', 'room_product_mix'] as $moduleKey) {
+            foreach ($this->rows($workbench[$moduleKey]['rows'] ?? []) as $row) {
+                $recommendation = is_array($row['recommendation'] ?? null) ? $row['recommendation'] : [];
+                if (hash_equals((string)($recommendation['id'] ?? ''), $recommendationId)) {
+                    return $recommendation;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -629,14 +661,19 @@ final class OperationOptimizationWorkbenchService
                     'recommendation' => $code,
                     'landing_room_type' => (string)$row['landing_room_type'],
                     'target_metric' => $expectedMetric,
+                    'expected_direction' => 'increase',
+                    'expected_delta_status' => 'system_quantified',
                 ],
                 'evidence' => [
                     'metric_scope' => 'ota_channel',
                     'evidence_refs' => $row['evidence_refs'],
                     'rule_basis' => $reason,
                     'auto_write_ota' => false,
+                    'expected_direction' => 'increase',
+                    'expected_delta_status' => 'system_quantified',
                 ],
                 'expected_metric' => $expectedMetric,
+                'expected_delta' => 0.01,
                 'risk_level' => in_array($code, ['pause_review', 'lower_bid'], true) ? 'medium' : 'low',
             ]
         );
@@ -660,7 +697,7 @@ final class OperationOptimizationWorkbenchService
             $code = 'price_review';
             $title = '复核房型价差与权益';
             $reason = '本店同房型可比价高于竞对；只创建人工复核任务，不直接给出目标价。';
-            $expectedMetric = 'room_type_conversion';
+            $expectedMetric = 'competitor_price_gap';
             $canCreate = true;
         } elseif ($row['cancel_rate'] !== null && ($benchmark['cancel_rate'] ?? null) !== null && (float)$row['cancel_rate'] > (float)$benchmark['cancel_rate'] * 1.3) {
             $code = 'benefit_review';
@@ -675,6 +712,9 @@ final class OperationOptimizationWorkbenchService
             $expectedMetric = 'room_type_conversion';
             $canCreate = true;
         }
+        $expectedDirection = $expectedMetric === 'room_type_cancel_rate' || $expectedMetric === 'competitor_price_gap'
+            ? 'decrease'
+            : 'increase';
 
         return $this->recommendation(
             'room_type',
@@ -703,6 +743,8 @@ final class OperationOptimizationWorkbenchService
                     'room_type_key' => (string)$row['room_type'],
                     'recommendation' => $code,
                     'target_metric' => $expectedMetric,
+                    'expected_direction' => $expectedDirection,
+                    'expected_delta_status' => 'system_quantified',
                     'manual_review_required' => true,
                 ],
                 'evidence' => [
@@ -710,8 +752,11 @@ final class OperationOptimizationWorkbenchService
                     'evidence_refs' => $row['evidence_refs'],
                     'rule_basis' => $reason,
                     'auto_write_ota' => false,
+                    'expected_direction' => $expectedDirection,
+                    'expected_delta_status' => 'system_quantified',
                 ],
                 'expected_metric' => $expectedMetric,
+                'expected_delta' => 0.01,
                 'risk_level' => $code === 'price_review' ? 'medium' : 'low',
             ]
         );
@@ -729,13 +774,40 @@ final class OperationOptimizationWorkbenchService
         bool $canCreateTask,
         array $payload
     ): array {
+        $targetValue = is_array($payload['target_value'] ?? null) ? $payload['target_value'] : [];
+        $evidence = is_array($payload['evidence'] ?? null) ? $payload['evidence'] : [];
+        $subject = (string)($targetValue['keyword'] ?? $targetValue['room_type_key'] ?? '');
+        $actionId = substr(hash('sha256', implode('|', [
+            'operation_optimizer_v1',
+            (string)($payload['hotel_id'] ?? ''),
+            (string)($payload['date_start'] ?? ''),
+            (string)($payload['date_end'] ?? ''),
+            $module,
+            (string)($payload['platform'] ?? ''),
+            (string)($payload['object_type'] ?? ''),
+            $subject,
+            $code,
+        ])), 0, 32);
+        $targetValue['optimizer_action_id'] = $actionId;
+        $evidence['optimizer_action_id'] = $actionId;
+        $evidence['optimizer_contract_version'] = 'operation_optimizer_v1';
+        $evidence['review_policy'] = [
+            'baseline_window' => [
+                'start_date' => (string)($payload['date_start'] ?? ''),
+                'end_date' => (string)($payload['date_end'] ?? ''),
+            ],
+            'review_window' => 'first_calendar_day_after_manual_execution',
+            'required_scope_keys' => ['hotel_id', 'platform', 'object_type', 'subject', 'expected_metric'],
+            'causality_claimed' => false,
+        ];
+        $payload['source_module'] = 'operation_optimizer';
+        $payload['source_record_id'] = 0;
+        $payload['status'] = 'pending_approval';
+        $payload['target_value'] = $targetValue;
+        $payload['evidence'] = $evidence;
+
         return [
-            'id' => substr(hash('sha256', implode('|', [
-                $module,
-                (string)($payload['platform'] ?? ''),
-                (string)($payload['target_value']['keyword'] ?? $payload['target_value']['room_type_key'] ?? ''),
-                $code,
-            ])), 0, 20),
+            'id' => $actionId,
             'code' => $code,
             'title' => $title,
             'reason' => $reason,

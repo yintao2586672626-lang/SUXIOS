@@ -20,6 +20,7 @@ function parse_business_chain_args(array $argv): array
     $options = [
         'date' => date('Y-m-d'),
         'system_hotel_id' => null,
+        'expected_hotel_name' => '',
         'limit' => 5000,
         'platforms' => ['ctrip', 'meituan'],
         'skip_p0' => false,
@@ -41,6 +42,8 @@ function parse_business_chain_args(array $argv): array
             $options['date'] = $value;
         } elseif ($key === 'system-hotel-id' || $key === 'system_hotel_id') {
             $options['system_hotel_id'] = $value !== '' ? (int)$value : null;
+        } elseif ($key === 'expected-hotel-name' || $key === 'expected_hotel_name') {
+            $options['expected_hotel_name'] = $value;
         } elseif ($key === 'limit') {
             $options['limit'] = max(1, min(5000, (int)$value));
         } elseif ($key === 'platform' || $key === 'platforms') {
@@ -140,6 +143,82 @@ function business_chain_table_exists(string $table): bool
     } catch (Throwable) {
         return false;
     }
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function business_chain_system_hotel_identity(?int $systemHotelId, string $expectedHotelName = ''): array
+{
+    $expectedHotelName = trim($expectedHotelName);
+    if ($systemHotelId === null || $systemHotelId <= 0) {
+        return [
+            'status' => 'not_scoped',
+            'system_hotel_id' => null,
+            'system_hotel_name' => null,
+            'expected_hotel_name' => $expectedHotelName !== '' ? $expectedHotelName : null,
+            'expected_name_status' => $expectedHotelName !== '' ? 'system_hotel_id_missing' : 'not_requested',
+            'same_name_system_hotel_ids' => [],
+        ];
+    }
+    if (!business_chain_table_exists('hotels')) {
+        return [
+            'status' => 'table_missing',
+            'system_hotel_id' => $systemHotelId,
+            'system_hotel_name' => null,
+            'expected_hotel_name' => $expectedHotelName !== '' ? $expectedHotelName : null,
+            'expected_name_status' => 'not_verified',
+            'same_name_system_hotel_ids' => [],
+        ];
+    }
+    try {
+        $hotel = Db::name('hotels')
+            ->field('id,name')
+            ->where('id', $systemHotelId)
+            ->find();
+    } catch (Throwable) {
+        $hotel = null;
+    }
+    $sameNameSystemHotelIds = [];
+    if ($expectedHotelName !== '') {
+        try {
+            $sameNameSystemHotelIds = array_values(array_map(
+                'intval',
+                Db::name('hotels')
+                    ->where('name', $expectedHotelName)
+                    ->order('id', 'asc')
+                    ->limit(20)
+                    ->column('id')
+            ));
+        } catch (Throwable) {
+            $sameNameSystemHotelIds = [];
+        }
+    }
+    if (is_array($hotel)) {
+        $systemHotelName = trim((string)($hotel['name'] ?? ''));
+        $expectedNameMatches = $expectedHotelName === '' || $systemHotelName === $expectedHotelName;
+        return [
+            'status' => $expectedNameMatches ? 'ready' : 'mismatch',
+            'system_hotel_id' => (int)($hotel['id'] ?? $systemHotelId),
+            'system_hotel_name' => $systemHotelName !== '' ? $systemHotelName : null,
+            'expected_hotel_name' => $expectedHotelName !== '' ? $expectedHotelName : null,
+            'expected_name_status' => $expectedHotelName === ''
+                ? 'not_requested'
+                : ($expectedNameMatches ? 'matched' : 'mismatch'),
+            'same_name_system_hotel_ids' => $sameNameSystemHotelIds,
+        ];
+    }
+
+    return [
+        'status' => 'missing',
+        'system_hotel_id' => $systemHotelId,
+        'system_hotel_name' => null,
+        'expected_hotel_name' => $expectedHotelName !== '' ? $expectedHotelName : null,
+        'expected_name_status' => $sameNameSystemHotelIds !== []
+            ? 'name_exists_on_other_system_hotel'
+            : ($expectedHotelName !== '' ? 'name_not_found' : 'not_requested'),
+        'same_name_system_hotel_ids' => $sameNameSystemHotelIds,
+    ];
 }
 
 function business_chain_latest_date(string $source, ?int $systemHotelId): string
@@ -742,6 +821,10 @@ function business_chain_compact_p0_execution_plan(
             'field_fact_status' => (string)($platformPayload['field_fact_status'] ?? ''),
             'traffic_gate_status' => (string)($gate['status'] ?? ''),
             'traffic_rows' => (int)($gate['traffic_rows'] ?? 0),
+            'readback_check_supported' => (bool)($gate['readback_check_supported'] ?? false),
+            'readback_verified_rows' => (int)($gate['readback_verified_rows'] ?? 0),
+            'readback_unverified_rows' => (int)($gate['readback_unverified_rows'] ?? 0),
+            'readback_status' => (string)($gate['readback_status'] ?? 'not_loaded'),
             'action_entry' => $operatorSkipActive ? '' : (string)($gate['action_entry'] ?? ''),
             'action_status' => $operatorSkipActive ? 'skipped_by_operator_no_capture' : (string)($gate['action_status'] ?? ''),
             'platform_ready' => $platformReady,
@@ -792,6 +875,171 @@ function business_chain_compact_p0_execution_plan(
             'current_status' => (string)($payload['status'] ?? 'unknown'),
         ],
     ];
+}
+
+/**
+ * Add the stable source/date/quality contract required by the unified report.
+ * Missing rows, bindings, and readback evidence remain explicit and never
+ * become zero-valued business facts.
+ *
+ * @param array<int, array<string, mixed>> $sourceRows
+ * @param array<string, mixed> $p0ExecutionPlan
+ * @return array<int, array<string, mixed>>
+ */
+function business_chain_attach_source_date_quality(array $sourceRows, array $p0ExecutionPlan): array
+{
+    $scope = is_array($p0ExecutionPlan['scope'] ?? null) ? $p0ExecutionPlan['scope'] : [];
+    $systemHotelId = isset($scope['system_hotel_id']) && (int)$scope['system_hotel_id'] > 0
+        ? (int)$scope['system_hotel_id']
+        : null;
+    $hotelIdentity = is_array($scope['system_hotel_identity'] ?? null)
+        ? $scope['system_hotel_identity']
+        : business_chain_system_hotel_identity($systemHotelId);
+    $hotelIdentityStatus = (string)($hotelIdentity['status'] ?? 'missing');
+    $hotelIdentityReady = $hotelIdentityStatus === 'ready';
+    $systemHotelName = trim((string)($hotelIdentity['system_hotel_name'] ?? ''));
+    $expectedHotelName = trim((string)($hotelIdentity['expected_hotel_name'] ?? ''));
+    $summaries = [];
+    foreach (business_chain_list($p0ExecutionPlan['platform_summaries'] ?? []) as $summary) {
+        if (!is_array($summary)) {
+            continue;
+        }
+        $platform = strtolower(trim((string)($summary['platform'] ?? '')));
+        if ($platform !== '') {
+            $summaries[$platform] = $summary;
+        }
+    }
+
+    foreach ($sourceRows as &$row) {
+        $source = strtolower(trim((string)($row['source'] ?? '')));
+        $summary = is_array($summaries[$source] ?? null) ? $summaries[$source] : [];
+        $missingInputs = array_values(array_unique(array_map(
+            'strval',
+            (array)($summary['missing_inputs'] ?? [])
+        )));
+        $trafficGateStatus = (string)($summary['traffic_gate_status'] ?? 'not_loaded');
+        $fieldFactStatus = (string)($summary['field_fact_status'] ?? 'not_loaded');
+        $targetDateRows = (int)($summary['target_date_rows'] ?? $row['target_counts']['accepted'] ?? 0);
+        $trafficRows = (int)($summary['traffic_rows'] ?? $row['target_counts']['traffic'] ?? 0);
+        $readbackStatus = (string)($summary['readback_status'] ?? 'not_loaded');
+        $platformReady = $hotelIdentityReady
+            && ($summary['platform_ready'] ?? false) === true
+            && (string)($row['target_status'] ?? '') === 'ready';
+        $bindingMissing = array_values(array_filter(
+            $missingInputs,
+            static function (string $item): bool {
+                $item = strtolower(trim($item));
+                foreach ([
+                    'data_source',
+                    'profile_dir',
+                    'platform_hotel',
+                    'poi_id',
+                    'profile_binding',
+                    'same_source_profile',
+                ] as $marker) {
+                    if (str_contains($item, $marker)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        )) !== [];
+        $permissionDenied = str_contains(strtolower($trafficGateStatus), 'permission')
+            || array_values(array_filter(
+                $missingInputs,
+                static fn(string $item): bool => str_contains(strtolower($item), 'permission')
+            )) !== [];
+
+        $qualityStatus = 'unverified';
+        if (!$hotelIdentityReady) {
+            $qualityStatus = 'binding_missing';
+        } elseif ($platformReady) {
+            $qualityStatus = 'available';
+        } elseif ($bindingMissing) {
+            $qualityStatus = 'binding_missing';
+        } elseif ($permissionDenied) {
+            $qualityStatus = 'permission_denied';
+        } elseif ($targetDateRows > 0 || $trafficRows > 0) {
+            $qualityStatus = $fieldFactStatus === 'partial' ? 'partial' : 'unverified';
+        }
+
+        $qualityFlags = $missingInputs;
+        if (!$hotelIdentityReady) {
+            array_unshift($qualityFlags, 'system_hotel_identity_' . $hotelIdentityStatus);
+        }
+        if ($trafficGateStatus !== '' && $trafficGateStatus !== 'ready') {
+            $qualityFlags[] = $trafficGateStatus;
+        }
+        if ($source === 'meituan' && $readbackStatus !== 'ready') {
+            $qualityFlags[] = $readbackStatus === 'not_loaded'
+                ? 'target_date_readback_not_loaded'
+                : 'target_date_' . $readbackStatus;
+        }
+        $qualityFlags = array_values(array_unique(array_filter(array_map(
+            static fn(string $item): string => strtolower(trim($item)),
+            $qualityFlags
+        ), static fn(string $item): bool => $item !== '')));
+        $status = $platformReady
+            ? 'ready'
+            : (!$hotelIdentityReady || ($targetDateRows <= 0 && $trafficRows <= 0) ? 'blocked' : 'partial');
+
+        $contract = [
+            'contract_version' => 'ota-source-date-quality-v1',
+            'source' => $source,
+            'target_date' => (string)($row['target_date'] ?? ''),
+            'system_hotel_id' => $systemHotelId,
+            'system_hotel_name' => $systemHotelName !== '' ? $systemHotelName : null,
+            'expected_hotel_name' => $expectedHotelName !== '' ? $expectedHotelName : null,
+            'metric_scope' => 'ota_channel',
+            'status' => $status,
+            'quality_status' => $qualityStatus,
+            'quality_flags' => $qualityFlags,
+            'claim_allowed' => $platformReady,
+            'evidence' => [
+                'target_date_rows' => $targetDateRows,
+                'traffic_rows' => $trafficRows,
+                'system_hotel_identity_status' => $hotelIdentityStatus,
+                'expected_name_status' => (string)($hotelIdentity['expected_name_status'] ?? 'not_requested'),
+                'same_name_system_hotel_ids' => array_values(array_map(
+                    'intval',
+                    (array)($hotelIdentity['same_name_system_hotel_ids'] ?? [])
+                )),
+                'field_fact_status' => $fieldFactStatus,
+                'readback_check_supported' => (bool)($summary['readback_check_supported'] ?? false),
+                'readback_verified_rows' => (int)($summary['readback_verified_rows'] ?? 0),
+                'readback_unverified_rows' => (int)($summary['readback_unverified_rows'] ?? 0),
+                'readback_status' => $readbackStatus,
+                'p0_traffic_gate_status' => $trafficGateStatus,
+            ],
+            'next_action' => [
+                'entry' => $platformReady || !$hotelIdentityReady
+                    ? ''
+                    : (string)($summary['action_entry'] ?? ''),
+                'missing_inputs' => $platformReady
+                    ? []
+                    : array_values(array_unique(array_merge(
+                        $hotelIdentityReady ? [] : ['system_hotel_identity'],
+                        $missingInputs
+                    ))),
+            ],
+            'forbidden_fallbacks' => [
+                'zero_as_missing_data',
+                'historical_date_as_target_date',
+                'cross_hotel_profile_reuse',
+                'cross_platform_data_substitution',
+            ],
+            'sensitive_values_exposed' => false,
+        ];
+        $row['quality_status'] = $qualityStatus;
+        $row['quality_flags'] = $qualityFlags;
+        $row['system_hotel_id'] = $systemHotelId;
+        $row['system_hotel_name'] = $systemHotelName !== '' ? $systemHotelName : null;
+        $row['expected_hotel_name'] = $expectedHotelName !== '' ? $expectedHotelName : null;
+        $row['source_date_quality'] = $contract;
+    }
+    unset($row);
+
+    return $sourceRows;
 }
 
 /**
@@ -2044,6 +2292,7 @@ function business_chain_report(array $options): array
 {
     $targetDate = (string)$options['date'];
     $systemHotelId = $options['system_hotel_id'];
+    $expectedHotelName = trim((string)($options['expected_hotel_name'] ?? ''));
     $limit = (int)$options['limit'];
     $skipP0 = (bool)$options['skip_p0'];
     $sources = $options['platforms'];
@@ -2090,7 +2339,11 @@ function business_chain_report(array $options): array
     $referenceDataset = business_chain_filter_dataset_platforms($referenceDataset, $sources);
     $skipActive = $skipP0 && $targetDataset['status'] !== 'ready' && $referenceDataset['status'] === 'ready';
     $p0ExecutionPlan = business_chain_p0_execution_plan($targetDate, $systemHotelId, $options['skip_platforms'], $sources);
-    $p0Ready = business_chain_p0_execution_plan_ready($p0ExecutionPlan);
+    $systemHotelIdentity = business_chain_system_hotel_identity($systemHotelId, $expectedHotelName);
+    $p0ExecutionPlan['scope']['system_hotel_identity'] = $systemHotelIdentity;
+    $p0Ready = business_chain_p0_execution_plan_ready($p0ExecutionPlan)
+        && (string)($systemHotelIdentity['status'] ?? '') === 'ready';
+    $sourceRows = business_chain_attach_source_date_quality($sourceRows, $p0ExecutionPlan);
     $p0Gate = business_chain_gate($targetDate, $systemHotelId, $skipActive, $options['skip_platforms'], $sources, $p0Ready);
     $downstreamReferenceScope = business_chain_downstream_reference_scope($sourceRows, $options['skip_platforms']);
     $diagnosisPlatforms = business_chain_list($downstreamReferenceScope['target_ready_platforms'] ?? []);

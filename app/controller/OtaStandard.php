@@ -4,11 +4,13 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\OtaInsightAnalysisService;
+use app\service\OperationOptimizationExecutionBridgeService;
 use app\service\OperationOptimizationWorkbenchService;
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
 use RuntimeException;
 use think\Response;
+use Throwable;
 
 class OtaStandard extends Base
 {
@@ -67,8 +69,51 @@ class OtaStandard extends Base
                 'start_date' => (string)($filters['start_date'] ?? ''),
                 'end_date' => (string)($filters['end_date'] ?? ''),
             ]);
+            $hotelId = (int)($filters['system_hotel_id'] ?? 0);
+            $workbench = (new OperationOptimizationExecutionBridgeService())
+                ->hydrate($workbench, [$hotelId], $hotelId);
             return $this->success($workbench, 'success');
-        } catch (RuntimeException $e) {
+        } catch (Throwable $e) {
+            return $this->error($e->getMessage(), $this->httpCode($e));
+        }
+    }
+
+    public function createOperationOptimizerExecutionIntent(): Response
+    {
+        try {
+            $input = $this->requestData();
+            $filters = $this->filters();
+            $hotelId = (int)($filters['system_hotel_id'] ?? 0);
+            if ($hotelId <= 0) {
+                throw new RuntimeException('system_hotel_id is required', 422);
+            }
+            if (!$this->currentUser
+                || $this->currentUser->hasHotelPermission($hotelId, 'operation.execute') !== true
+            ) {
+                throw new RuntimeException('operation.execute permission is required', 403);
+            }
+
+            $dataset = (new OtaStandardEtlService())->buildDataset($filters);
+            $workbench = (new OperationOptimizationWorkbenchService())->build($dataset, [
+                'hotel_id' => $hotelId,
+                'start_date' => (string)($filters['start_date'] ?? ''),
+                'end_date' => (string)($filters['end_date'] ?? ''),
+            ]);
+            $recommendationId = trim((string)($input['recommendation_id'] ?? ''));
+            $intent = (new OperationOptimizationExecutionBridgeService())->createFromWorkbench(
+                $workbench,
+                $recommendationId,
+                [$hotelId],
+                $hotelId,
+                (int)($this->currentUser->id ?? 0)
+            );
+
+            return $this->success([
+                'recommendation_id' => $recommendationId,
+                'execution_intent' => $intent,
+                'readback_status' => 'readback_verified',
+            ], 'operation optimizer execution intent created');
+        } catch (Throwable $e) {
             return $this->error($e->getMessage(), $this->httpCode($e));
         }
     }
@@ -155,7 +200,7 @@ class OtaStandard extends Base
         return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
     }
 
-    private function httpCode(RuntimeException $e): int
+    private function httpCode(Throwable $e): int
     {
         $code = $e->getCode();
         return $code >= 400 && $code <= 599 ? $code : 500;

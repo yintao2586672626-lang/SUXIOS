@@ -6011,6 +6011,7 @@ aside.sidebar:not(.collapsed) {
     --sx-page-glow-rgb: 8, 145, 178;
 }
 
+.suxi-app-shell main[data-current-page="operation-optimizer"],
 .suxi-app-shell main[data-current-page="ops-source"],
 .suxi-app-shell main[data-current-page="ops-analysis"],
 .suxi-app-shell main[data-current-page="ops-insight"],
@@ -6038,6 +6039,7 @@ aside.sidebar:not(.collapsed) {
     --sx-page-glow-rgb: 180, 83, 9;
 }
 
+.suxi-app-shell main[data-current-page="pms-operating-data"],
 .suxi-app-shell main[data-current-page="online-data"],
 .suxi-app-shell main[data-current-page="data-config"],
 .suxi-app-shell main[data-current-page="operating-targets"],

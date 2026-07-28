@@ -37,6 +37,10 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
                     'traffic_field_fact_status' => 'ready',
                     'p0_standard_fact_status' => 'ready',
                     'required_metric_value_status' => 'ready',
+                    'readback_check_supported' => true,
+                    'readback_verified_rows' => 3,
+                    'readback_unverified_rows' => 0,
+                    'readback_status' => 'ready',
                     'platform_hotel_identifier_status' => 'ready',
                     'system_hotel_row_counts' => ['80' => 3],
                     'profile_scope_system_hotel_ids' => [77, 80, 219],
@@ -63,6 +67,8 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
         );
 
         self::assertFalse($plan['platform_summaries'][0]['platform_ready']);
+        self::assertSame('ready', $plan['platform_summaries'][0]['readback_status']);
+        self::assertSame(3, $plan['platform_summaries'][0]['readback_verified_rows']);
         self::assertSame(
             [77, 80, 219],
             array_column($plan['platform_summaries'][0]['next_steps'], 'system_hotel_id')
@@ -90,6 +96,62 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
             ['manual_login', 'after_login_sync', 'single_scope_verifier'],
             $typesByHotel[219]
         );
+    }
+
+    public function testUnifiedSourceQualityKeepsMissingMeituanBindingAndReadbackExplicit(): void
+    {
+        $rows = [[
+            'source' => 'meituan',
+            'target_date' => '2026-07-28',
+            'target_status' => 'empty',
+            'target_counts' => ['accepted' => 0, 'traffic' => 0],
+        ]];
+        $plan = [
+            'scope' => [
+                'system_hotel_id' => 5,
+                'system_hotel_identity' => [
+                    'status' => 'ready',
+                    'system_hotel_id' => 5,
+                    'system_hotel_name' => '敦煌漠蓝新',
+                    'expected_hotel_name' => '敦煌漠蓝新',
+                    'expected_name_status' => 'matched',
+                    'same_name_system_hotel_ids' => [5],
+                ],
+            ],
+            'platform_summaries' => [[
+                'platform' => 'meituan',
+                'target_date_rows' => 0,
+                'traffic_rows' => 0,
+                'field_fact_status' => 'not_loaded',
+                'traffic_gate_status' => 'missing_target_date_traffic_rows',
+                'platform_ready' => false,
+                'readback_check_supported' => true,
+                'readback_verified_rows' => 0,
+                'readback_unverified_rows' => 0,
+                'readback_status' => 'not_loaded',
+                'action_entry' => '/api/online-data/capture-meituan-browser',
+                'missing_inputs' => [
+                    'registered_browser_profile_data_source',
+                    'active_hotel_scoped_profile_binding',
+                ],
+            ]],
+        ];
+
+        $qualityRows = \business_chain_attach_source_date_quality($rows, $plan);
+        $contract = $qualityRows[0]['source_date_quality'];
+
+        self::assertSame('binding_missing', $qualityRows[0]['quality_status']);
+        self::assertSame('blocked', $contract['status']);
+        self::assertFalse($contract['claim_allowed']);
+        self::assertSame('2026-07-28', $contract['target_date']);
+        self::assertSame(5, $contract['system_hotel_id']);
+        self::assertSame('敦煌漠蓝新', $contract['system_hotel_name']);
+        self::assertSame('敦煌漠蓝新', $contract['expected_hotel_name']);
+        self::assertSame('matched', $contract['evidence']['expected_name_status']);
+        self::assertSame('ready', $contract['evidence']['system_hotel_identity_status']);
+        self::assertSame('not_loaded', $contract['evidence']['readback_status']);
+        self::assertContains('registered_browser_profile_data_source', $contract['quality_flags']);
+        self::assertContains('target_date_readback_not_loaded', $contract['quality_flags']);
     }
 
     /**

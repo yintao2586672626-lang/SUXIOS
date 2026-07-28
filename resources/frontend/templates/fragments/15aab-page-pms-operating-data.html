@@ -3,7 +3,7 @@
     <h2 class="text-xl font-bold">PMS 经营事实与差值分析</h2>
     <p class="text-sm">美团云 PMS 与订单来了分别保存；差值只作诊断，不自动选择真值。</p>
     <div class="mt-3 flex flex-wrap items-end gap-2">
-      <label><span class="block text-xs">门店</span><select v-model="operatingTargetForm.hotel_id" data-testid="pms-operating-data-hotel" class="rounded border p-2"><option value="">请选择门店</option><option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option></select></label>
+      <label><span class="block text-xs">门店</span><select v-model="operatingTargetForm.hotel_id" data-testid="pms-operating-data-hotel" class="rounded border p-2"><option value="">请选择门店</option><option v-for="hotel in pmsHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option></select></label>
       <label><span class="block text-xs">经营日期</span><input v-model="operatingTargetForm.target_date" data-testid="pms-operating-data-date" type="date" class="rounded border p-2"></label>
       <button data-testid="pms-operating-data-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded bg-emerald-800 px-4 py-2 text-white">{{ operatingTargetLoading.current ? '读取中...' : '读取 PMS 数据' }}</button>
     </div>

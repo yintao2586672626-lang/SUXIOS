@@ -8,6 +8,7 @@ const analysisPage = read('resources/frontend/templates/fragments/15b-page-ops-a
 const insightPage = read('resources/frontend/templates/fragments/15c-page-ops-insight.html');
 const trackPage = read('resources/frontend/templates/fragments/17-page-ops-track.html');
 const researchPage = read('resources/frontend/templates/fragments/19-page-revenue-research-center.html');
+const optimizerPage = read('resources/frontend/templates/fragments/19a-page-operation-optimizer.html');
 const appMain = read('public/app-main.js');
 const routes = read('route/app.php');
 const manifest = JSON.parse(read('resources/frontend/templates/manifest.json'));
@@ -45,6 +46,30 @@ test('operation fragments are registered in both manifest and source definitions
     assert.equal(fragments.get(id)?.path, path);
     assert.ok(templateSource.includes(`id: '${id}', domain: 'operations', path: '${path}'`));
   }
+});
+
+test('operation optimizer surfaces the persisted task lifecycle and truthful next action', () => {
+  assert.match(optimizerPage, /operationOptimizerLoopText/);
+  assert.match(optimizerPage, /operationOptimizerModules/);
+  assert.match(optimizerPage, /operationOptimizerActionText\(row\.recommendation\)/);
+  assert.match(optimizerPage, /row\.latest_date \|\| '日期未取得'/);
+  assert.match(optimizerPage, /operationOptimizerStatusText\(row\.quality_status\)/);
+  assert.doesNotMatch(optimizerPage, /形成草稿任务|草稿 #/);
+});
+
+test('operation optimizer creates a scoped pending task then opens execution tracking', () => {
+  assert.match(routes, /Route::post\('\/operation-optimizer\/execution-intent', 'OtaStandard\/createOperationOptimizerExecutionIntent'\)/);
+  const start = appMain.indexOf('const createOperationOptimizerTask = async');
+  const end = appMain.indexOf('const revenueResearchStaticScript', start);
+  assert.ok(start > 0 && end > start, 'operation optimizer bridge function must be present');
+  const bridge = appMain.slice(start, end);
+
+  assert.match(bridge, /request\('\/ota-standard\/operation-optimizer\/execution-intent'/);
+  assert.match(bridge, /recommendation_id: actionId/);
+  assert.match(bridge, /String\(readback\.source_module \|\| ''\) !== 'operation_optimizer'/);
+  assert.match(bridge, /\['pending_approval', 'approved', 'rejected'\]/);
+  assert.match(bridge, /await openOperationOptimizerExecution/);
+  assert.doesNotMatch(bridge, /\/approve|\/execute|price-update|inventory-update/i);
 });
 
 test('revenue research execution bridge is single-hotel and ready-only', () => {

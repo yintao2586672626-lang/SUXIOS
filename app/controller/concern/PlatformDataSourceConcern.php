@@ -8,6 +8,7 @@ use app\service\OtaBrowserAssistImportService;
 use app\service\OtaCapabilityStateService;
 use app\service\OtaCollectionQualityStateService;
 use app\service\OtaProfileSessionProofService;
+use app\service\OtaSourceDateQualityContractService;
 use app\service\PlatformDataSyncService;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -110,6 +111,16 @@ trait PlatformDataSourceConcern
             $profileStatus = $this->buildPlatformProfileStatus((int)$systemHotelId);
             $hotel = Db::name('hotels')->where('id', (int)$systemHotelId)->find() ?: [];
             $platforms = in_array($platform, ['ctrip', 'meituan'], true) ? [$platform] : ['ctrip', 'meituan'];
+            $sourceContractContext = [
+                'system_hotel_id' => (int)$systemHotelId,
+                'system_hotel_name' => (string)($hotel['name'] ?? ''),
+                'expected_hotel_name' => trim((string)(
+                    $requestData['expected_hotel_name']
+                    ?? $requestData['expectedHotelName']
+                    ?? ''
+                )),
+                'target_date' => $targetDate,
+            ];
             $platformRows = [];
             foreach ($platforms as $itemPlatform) {
                 $platformRows[$itemPlatform] = $this->buildCollectionStatusPlatformRow(
@@ -118,7 +129,8 @@ trait PlatformDataSourceConcern
                     $sources,
                     $tasks,
                     $dailySummary[$itemPlatform] ?? [],
-                    $profileStatus
+                    $profileStatus,
+                    $sourceContractContext
                 );
             }
 
@@ -451,6 +463,9 @@ trait PlatformDataSourceConcern
                 'target_date_traffic_verified_metric_keys' => [],
                 'target_date_traffic_missing_metric_keys' => $this->collectionStatusRequiredTrafficMetrics($itemPlatform),
                 'target_date_traffic_ready_data_source_ids' => [],
+                'target_date_readback_check_supported' => isset($columns['readback_verified']),
+                'target_date_readback_verified_rows' => 0,
+                'target_date_readback_unverified_rows' => 0,
             ]);
         }
         foreach ($rows as $row) {
@@ -492,6 +507,9 @@ trait PlatformDataSourceConcern
                 'target_date_traffic_verified_metric_keys' => [],
                 'target_date_traffic_missing_metric_keys' => $this->collectionStatusRequiredTrafficMetrics((string)$platform),
                 'target_date_traffic_ready_data_source_ids' => [],
+                'target_date_readback_check_supported' => isset($columns['readback_verified']),
+                'target_date_readback_verified_rows' => 0,
+                'target_date_readback_unverified_rows' => 0,
             ];
         }
         if ($targetDate === '' || !isset($columns['data_date'], $columns['system_hotel_id'])) {
@@ -504,6 +522,7 @@ trait PlatformDataSourceConcern
         $fields[] = isset($columns['data_period']) ? 'data_period' : "'' AS data_period";
         $fields[] = isset($columns['data_source_id']) ? 'data_source_id' : '0 AS data_source_id';
         $fields[] = isset($columns['raw_data']) ? 'raw_data' : "'' AS raw_data";
+        $fields[] = isset($columns['readback_verified']) ? 'readback_verified' : '-1 AS readback_verified';
         try {
             $query = Db::name('online_daily_data')
                 ->field(implode(',', $fields))
@@ -527,6 +546,13 @@ trait PlatformDataSourceConcern
             }
             $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
             $stats[$platform]['target_date_rows']++;
+            if (($stats[$platform]['target_date_readback_check_supported'] ?? false) === true) {
+                if ((int)($row['readback_verified'] ?? 0) === 1) {
+                    $stats[$platform]['target_date_readback_verified_rows']++;
+                } else {
+                    $stats[$platform]['target_date_readback_unverified_rows']++;
+                }
+            }
             if ($dataType !== '') {
                 $stats[$platform]['target_date_data_types'][$dataType] = true;
             }
@@ -775,9 +801,18 @@ trait PlatformDataSourceConcern
      * @param array<int, array<string, mixed>> $tasks
      * @param array<string, mixed> $dailySummary
      * @param array<string, mixed> $profileStatus
+     * @param array<string, mixed> $sourceContractContext
      * @return array<string, mixed>
      */
-    private function buildCollectionStatusPlatformRow(string $platform, array $catalog, array $sources, array $tasks, array $dailySummary, array $profileStatus): array
+    private function buildCollectionStatusPlatformRow(
+        string $platform,
+        array $catalog,
+        array $sources,
+        array $tasks,
+        array $dailySummary,
+        array $profileStatus,
+        array $sourceContractContext = []
+    ): array
     {
         $requiredTrafficMetrics = $this->collectionStatusRequiredTrafficMetrics($platform);
         $platformSources = array_values(array_filter($sources, static fn(array $source): bool => strtolower((string)($source['platform'] ?? '')) === $platform));
@@ -827,6 +862,13 @@ trait PlatformDataSourceConcern
         $collectionStatus = $this->resolveCollectionStatus($dataCollected, $hasStoredData, $latestTask, $resourceStatuses, $effectiveDailySummary, $profileRow);
         $failureReason = $this->collectionStatusFailureReason($collectionStatus, $latestTask, $latestSource, $profileRow, $resourceStatuses, $dataCollected, $effectiveDailySummary, $publicSyncDiagnostics);
         $bindingContract = is_array($profileRow['binding_contract'] ?? null) ? $profileRow['binding_contract'] : [];
+        $profileBinding = is_array($profileRow['binding'] ?? null) ? $profileRow['binding'] : [];
+        $platformIdentityConfigured = $platform === 'meituan'
+            ? (
+                trim((string)($profileBinding['store_id'] ?? '')) !== ''
+                || trim((string)($profileBinding['poi_id'] ?? '')) !== ''
+            )
+            : trim((string)($profileBinding['hotel_id'] ?? '')) !== '';
         $quality = (new OtaCollectionQualityStateService())->evaluate([
             'platform' => $platform,
             'binding_contract_status' => $bindingContract['status'] ?? '',
@@ -844,12 +886,16 @@ trait PlatformDataSourceConcern
             'profile_session_proof_required' => $profileSession['required'] ?? false,
             'profile_session_verified' => $profileSession['verified'] ?? false,
             'profile_session_same_source' => $profileSession['same_source_verified'] ?? false,
+            'readback_check_required' => $platform === 'meituan',
+            'readback_check_supported' => $dailySummary['target_date_readback_check_supported'] ?? false,
+            'readback_verified_rows' => $dailySummary['target_date_readback_verified_rows'] ?? 0,
+            'readback_unverified_rows' => $dailySummary['target_date_readback_unverified_rows'] ?? 0,
             'has_stored_data' => $hasStoredData,
             'source_count' => count($platformSources),
             'failure_reason' => $failureReason,
         ]);
 
-        return [
+        $row = [
             'platform' => $platform,
             'platformName' => $platform === 'meituan' ? '美团' : '携程',
             'platformLoginStatus' => (string)($profileRow['status_code'] ?? 'unconfigured'),
@@ -866,6 +912,9 @@ trait PlatformDataSourceConcern
             'targetDateRows' => $targetDateRows,
             'targetDateTrafficRows' => $targetDateTrafficRows,
             'targetDateDataTypes' => array_values((array)($dailySummary['target_date_data_types'] ?? [])),
+            'targetDateReadbackCheckSupported' => (bool)($dailySummary['target_date_readback_check_supported'] ?? false),
+            'targetDateReadbackVerifiedRows' => (int)($dailySummary['target_date_readback_verified_rows'] ?? 0),
+            'targetDateReadbackUnverifiedRows' => (int)($dailySummary['target_date_readback_unverified_rows'] ?? 0),
             'fieldFactsReady' => (int)($dailySummary['target_date_traffic_field_fact_ready_count'] ?? 0),
             'fieldFactsMissing' => (int)($dailySummary['target_date_traffic_field_fact_missing_count'] ?? 0),
             'fieldFactStatus' => $fieldFactStatus,
@@ -888,6 +937,12 @@ trait PlatformDataSourceConcern
                 'nextAction' => (string)($profileRow['next_action'] ?? ''),
                 'dataSourceId' => isset($profileRow['data_source_id']) ? (int)$profileRow['data_source_id'] : null,
                 'profileExists' => (bool)($profileRow['profile_exists'] ?? false),
+                'platformIdentityConfigured' => $platformIdentityConfigured,
+                'bindingContractStatus' => (string)($bindingContract['status'] ?? 'missing'),
+                'bindingMissingRequirements' => array_values(array_map(
+                    'strval',
+                    (array)($bindingContract['missing_requirements'] ?? [])
+                )),
                 'bindingCheckStatus' => (string)($profileRow['binding_check_status'] ?? 'unknown'),
                 'currentSessionProofRequired' => (bool)($profileSession['required'] ?? false),
                 'currentSessionVerified' => (bool)($profileSession['verified'] ?? false),
@@ -916,6 +971,13 @@ trait PlatformDataSourceConcern
             ] : null,
             'resourceStatuses' => $resourceStatuses,
         ];
+
+        $row['sourceDateQuality'] = (new OtaSourceDateQualityContractService())->build(
+            array_merge($sourceContractContext, ['source' => $platform, 'target_date' => $targetDate]),
+            $row
+        );
+
+        return $row;
     }
 
     /**

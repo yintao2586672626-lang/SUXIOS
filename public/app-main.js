@@ -21481,9 +21481,65 @@
                 const message = error?.message || '';
                 return /[\u4e00-\u9fa5]/.test(message) ? message : fallback;
             };
+            const pmsHotelUsageStorageKey = () => `suxios_pms_hotel_usage_${user.value?.id || 'guest'}_v1`;
+            const normalizePmsHotelUsageStats = (value = {}) => {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+                return Object.fromEntries(Object.entries(value)
+                    .slice(0, 500)
+                    .map(([hotelId, stats]) => {
+                        const key = String(hotelId || '').trim();
+                        const count = Math.min(9999, Math.max(0, Math.floor(Number(stats?.count || 0))));
+                        const lastUsedAt = Math.max(0, Number(stats?.last_used_at || 0));
+                        return [key, { count, last_used_at: lastUsedAt }];
+                    })
+                    .filter(([hotelId, stats]) => hotelId && stats.count > 0));
+            };
+            const readPmsHotelUsageStats = () => {
+                try {
+                    const parsed = JSON.parse(localStorage.getItem(pmsHotelUsageStorageKey()) || '{}');
+                    return normalizePmsHotelUsageStats(parsed);
+                } catch (error) {
+                    return {};
+                }
+            };
+            const pmsHotelUsageStats = ref(readPmsHotelUsageStats());
+            const persistPmsHotelUsageStats = () => {
+                try {
+                    localStorage.setItem(
+                        pmsHotelUsageStorageKey(),
+                        JSON.stringify(normalizePmsHotelUsageStats(pmsHotelUsageStats.value))
+                    );
+                    return true;
+                } catch (error) {
+                    console.warn('保存 PMS 常用门店记录失败:', error);
+                    return false;
+                }
+            };
+            const reloadPmsHotelUsageStats = () => {
+                pmsHotelUsageStats.value = readPmsHotelUsageStats();
+            };
             const operationHotelOptions = computed(() => {
                 const source = permittedHotels.value.length ? permittedHotels.value : hotels.value;
                 return (source || []).filter(hotel => hotel && hotel.id);
+            });
+            const pmsHotelOptions = computed(() => {
+                const usage = pmsHotelUsageStats.value || {};
+                const rows = operationHotelOptions.value.map((hotel, index) => ({
+                    hotel,
+                    index,
+                    id: String(hotel?.id || '').trim(),
+                    name: String(hotel?.name || `酒店 ${hotel?.id || ''}`).trim(),
+                    count: Number(usage[String(hotel?.id || '')]?.count || 0),
+                    lastUsedAt: Number(usage[String(hotel?.id || '')]?.last_used_at || 0),
+                }));
+                rows.sort((a, b) => {
+                    return (b.count - a.count)
+                        || (b.lastUsedAt - a.lastUsedAt)
+                        || a.name.localeCompare(b.name, 'zh-CN', { numeric: true, sensitivity: 'base' })
+                        || a.id.localeCompare(b.id, 'zh-CN', { numeric: true })
+                        || (a.index - b.index);
+                });
+                return rows.map(item => item.hotel);
             });
             const coreOperationsHasAccessibleHotel = computed(() => (
                 operationHotelOptions.value.length > 0
@@ -21516,6 +21572,19 @@
                 const value = String(hotelId || '').trim();
                 if (!value) return true;
                 return operationHotelOptions.value.some(hotel => String(hotel.id) === value);
+            };
+            const recordPmsHotelUsage = (hotelId) => {
+                const key = String(hotelId || '').trim();
+                if (!key || !isOperationHotelPermitted(key)) return;
+                const current = pmsHotelUsageStats.value?.[key] || {};
+                pmsHotelUsageStats.value = {
+                    ...(pmsHotelUsageStats.value || {}),
+                    [key]: {
+                        count: Math.min(Number(current.count || 0) + 1, 9999),
+                        last_used_at: Date.now(),
+                    },
+                };
+                persistPmsHotelUsageStats();
             };
             const normalizeOperationHotelSelection = (formRef, options = {}) => {
                 const {
@@ -22033,6 +22102,9 @@
                 try {
                     const res = await apiRequest(`/operating-targets/current?hotel_id=${encodeURIComponent(context.hotelId)}&target_date=${encodeURIComponent(context.targetDate)}`);
                     if (res.code !== 200) throw new Error(res.message || '经营目标读取失败');
+                    if (currentPage.value === 'pms-operating-data') {
+                        recordPmsHotelUsage(context.hotelId);
+                    }
                     operatingTargetResult.value = res.data?.record || null;
                     operatingTargetPreview.value = res.data?.report_preview || null;
                     operatingTargetPmsStatus.value = res.data?.pms_source_status || null;
@@ -32014,20 +32086,48 @@
                     ? operationOptimizerData.value.room_product_mix.rows
                     : []
             ));
+            const operationOptimizerModules = computed(() => ([
+                {
+                    key: 'keyword',
+                    title: '广告关键词优化台',
+                    data: operationOptimizerData.value?.keyword_workbench,
+                    rows: operationOptimizerKeywordRows.value,
+                },
+                {
+                    key: 'room',
+                    title: '房型产品组合经营',
+                    data: operationOptimizerData.value?.room_product_mix,
+                    rows: operationOptimizerRoomRows.value,
+                },
+            ]));
             const operationOptimizerChannelRows = computed(() => (
                 Array.isArray(operationOptimizerData.value?.channel_views)
                     ? operationOptimizerData.value.channel_views
                     : []
             ));
+            const operationOptimizerLoopSummary = computed(() => (
+                operationOptimizerData.value?.loop_summary && typeof operationOptimizerData.value.loop_summary === 'object'
+                    ? operationOptimizerData.value.loop_summary
+                    : {}
+            ));
+            const operationOptimizerLoopText = computed(() => {
+                const summary = operationOptimizerLoopSummary.value;
+                if (!operationOptimizerData.value) return '缺字段不补零、渠道不合并';
+                return `可信建议 ${Number(summary.actionable_recommendation_count || 0)} · 任务 ${Number(summary.linked_intent_count || 0)} · 执行 ${Number(summary.executed_task_count || 0)} · 次日来源复盘 ${Number(summary.source_verified_review_count || 0)}｜${summary.next_action || ''}`;
+            });
             const operationOptimizerStatusText = (status) => ({
                 ready: '可运营',
                 partial: '部分可用',
                 blocked: '待恢复',
                 verified: '已验证',
+                ready_for_task: '可转任务',
+                closed: '已闭环',
             }[String(status || '')] || '未取得');
             const operationOptimizerStatusClass = (status) => ({
                 ready: 'border-green-200 bg-green-50 text-green-700',
                 verified: 'border-green-200 bg-green-50 text-green-700',
+                ready_for_task: 'border-blue-200 bg-blue-50 text-blue-700',
+                closed: 'border-green-200 bg-green-50 text-green-700',
                 partial: 'border-yellow-200 bg-yellow-50 text-yellow-700',
                 blocked: 'border-red-200 bg-red-50 text-red-700',
             }[String(status || '')] || 'border-gray-200 bg-gray-50 text-gray-600');
@@ -32069,9 +32169,48 @@
                 '',
                 question.unit === '次曝光' ? ' 次' : question.unit
             );
-            const operationOptimizerCreatedIntentId = (actionId) => (
-                Number(operationOptimizerCreatedIntents.value?.[String(actionId || '')] || 0)
+            const operationOptimizerExecutionFlow = (recommendation = {}) => (
+                recommendation?.execution_flow && typeof recommendation.execution_flow === 'object'
+                    ? recommendation.execution_flow
+                    : null
             );
+            const operationOptimizerCreatedIntentId = (recommendationOrActionId) => {
+                const recommendation = recommendationOrActionId && typeof recommendationOrActionId === 'object'
+                    ? recommendationOrActionId
+                    : null;
+                const flowId = Number(operationOptimizerExecutionFlow(recommendation)?.id || 0);
+                if (Number.isInteger(flowId) && flowId > 0) return flowId;
+                const actionId = recommendation
+                    ? String(recommendation?.id || '')
+                    : String(recommendationOrActionId || '');
+                return Number(operationOptimizerCreatedIntents.value?.[actionId] || 0);
+            };
+            const operationOptimizerStageText = (recommendation = {}) => ({
+                approval: '待审批',
+                execution: '待执行',
+                evidence: '待来源回读',
+                review: '待次日复盘',
+                reviewed: '已复盘',
+                failed: '复盘未达成',
+                blocked: '执行受阻',
+                rejected: '已驳回',
+            }[String(operationOptimizerExecutionFlow(recommendation)?.stage || '')] || '未转任务');
+            const operationOptimizerActionDisabled = (recommendation = {}) => (
+                !recommendation?.can_create_task
+                || operationOptimizerCreatingActionId.value === recommendation?.id
+            );
+            const operationOptimizerActionClass = (recommendation = {}) => {
+                if (operationOptimizerCreatedIntentId(recommendation) > 0) return 'bg-blue-800 text-white';
+                return recommendation?.can_create_task
+                    ? 'bg-green-800 text-white'
+                    : 'border bg-gray-50 text-gray-400';
+            };
+            const operationOptimizerActionText = (recommendation = {}) => {
+                if (operationOptimizerCreatedIntentId(recommendation) > 0) {
+                    return `进入${operationOptimizerStageText(recommendation)}`;
+                }
+                return recommendation?.can_create_task ? '生成待审批任务' : '证据不足';
+            };
             const loadOperationOptimizer = async (options = {}) => {
                 const requestSeq = ++operationOptimizerRequestSeq;
                 operationOptimizerLoading.value = true;
@@ -32131,42 +32270,78 @@
                 showToast('恢复入口暂不可用，请刷新后重试', 'error');
                 return null;
             };
+            const openOperationOptimizerExecution = async (recommendation = {}) => {
+                const intentId = operationOptimizerCreatedIntentId(recommendation);
+                const flow = operationOptimizerExecutionFlow(recommendation) || {};
+                const hotelId = Number(flow.hotel_id || operationOptimizerFilter.value.hotel_id || 0);
+                if (!Number.isInteger(intentId) || intentId <= 0 || !Number.isInteger(hotelId) || hotelId <= 0) {
+                    showToast('待审批任务尚未完成持久化回读', 'warning');
+                    return false;
+                }
+                operationFilters.value.hotel_id = String(hotelId);
+                revenueAiExecutionFocus.value = { intentId };
+                currentPage.value = 'ops-track';
+                await loadOperationActions({ focusIntentId: intentId });
+                await nextTick();
+                const row = document.querySelector(`[data-operation-execution-intent-id="${intentId}"]`);
+                if (!row) {
+                    showToast('任务已持久化，但执行池未返回对应记录，请刷新后重试', 'warning');
+                    return false;
+                }
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return true;
+            };
             const createOperationOptimizerTask = async (recommendation = {}) => {
                 const actionId = String(recommendation?.id || '');
-                const payload = recommendation?.task_payload;
-                if (!actionId || recommendation?.can_create_task !== true || !payload) {
+                if (!actionId || recommendation?.can_create_task !== true || !recommendation?.task_payload) {
                     showToast(recommendation?.blocked_reason || '当前证据不足，暂不能生成任务', 'warning');
                     return null;
                 }
-                if (operationOptimizerCreatedIntentId(actionId) > 0) {
-                    showToast(`草稿任务 #${operationOptimizerCreatedIntentId(actionId)} 已生成`);
-                    return operationOptimizerCreatedIntentId(actionId);
+                if (operationOptimizerCreatedIntentId(recommendation) > 0) {
+                    await openOperationOptimizerExecution(recommendation);
+                    return operationOptimizerCreatedIntentId(recommendation);
                 }
                 operationOptimizerCreatingActionId.value = actionId;
                 try {
-                    const res = await request('/operation/execution-intents', {
+                    const hotelId = Number(operationOptimizerFilter.value.hotel_id || 0);
+                    const res = await request('/ota-standard/operation-optimizer/execution-intent', {
                         method: 'POST',
-                        body: JSON.stringify(payload),
+                        body: JSON.stringify({
+                            system_hotel_id: hotelId,
+                            start_date: String(operationOptimizerFilter.value.start_date || ''),
+                            end_date: String(operationOptimizerFilter.value.end_date || ''),
+                            recommendation_id: actionId,
+                        }),
                     });
-                    if (res.code !== 200) throw new Error(res.message || '草稿任务创建失败');
-                    const intentId = Number(res.data?.id || 0);
+                    if (res.code !== 200) throw new Error(res.message || '待审批任务创建失败');
+                    const responseIntent = res.data?.execution_intent || {};
+                    const intentId = Number(responseIntent.id || 0);
                     if (!Number.isInteger(intentId) || intentId <= 0) {
-                        throw new Error('草稿任务已提交，但返回的任务编号无效');
+                        throw new Error('待审批任务已提交，但返回的任务编号无效');
                     }
                     const readback = await readOperationExecutionIntent(intentId);
-                    if (Number(readback.hotel_id || 0) !== Number(payload.hotel_id || 0)
-                        || String(readback.platform || '') !== String(payload.platform || '')
-                        || String(readback.status || '') !== 'draft') {
-                        throw new Error('草稿任务回读范围或状态不一致');
+                    if (Number(readback.hotel_id || 0) !== hotelId
+                        || String(readback.source_module || '') !== 'operation_optimizer'
+                        || !['pending_approval', 'approved', 'rejected'].includes(String(readback.status || ''))) {
+                        throw new Error('待审批任务回读范围、来源或状态不一致');
                     }
                     operationOptimizerCreatedIntents.value = {
                         ...operationOptimizerCreatedIntents.value,
                         [actionId]: intentId,
                     };
-                    showToast(`已生成草稿任务 #${intentId}，完成回读确认`);
+                    await loadOperationOptimizer();
+                    showToast(`已生成待审批任务 #${intentId}，进入执行与次日复盘`);
+                    const refreshedRecommendation = [
+                        ...operationOptimizerKeywordRows.value,
+                        ...operationOptimizerRoomRows.value,
+                    ].map(item => item?.recommendation).find(item => String(item?.id || '') === actionId);
+                    await openOperationOptimizerExecution(refreshedRecommendation || {
+                        id: actionId,
+                        execution_flow: { id: intentId, hotel_id: hotelId },
+                    });
                     return intentId;
                 } catch (error) {
-                    showToast(String(error?.message || '草稿任务创建失败'), 'error');
+                    showToast(String(error?.message || '待审批任务创建失败'), 'error');
                     return null;
                 } finally {
                     operationOptimizerCreatingActionId.value = '';
@@ -34566,6 +34741,7 @@
                 dualOtaHotelSearchCounts.value = readDualOtaHotelSearchCounts();
                 dualOtaHotelOrderIds.value = readDualOtaHotelOrderIds();
                 closeDualOtaHotelOrder();
+                reloadPmsHotelUsageStats();
             });
 
             watch(filterReportHotel, (newHotelId, previousHotelId) => {
@@ -41191,7 +41367,7 @@
                 transferRecordTypeLabel, transferReadinessBadgeClass, transferReadinessMissingText, transferExecutionIntentId, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, createTransferExecutionIntent, archiveTransferRecord,
                 operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationClosureOverview, operationEffectValidation,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
-                operatingTargetForm, operatingTargetResult, operatingTargetPmsStatus, operatingTargetMeituanCloudPmsStatus, operatingTargetPmsReconciliation, operatingTargetPreview, operatingTargetHistory, operatingTargetSnapshots, operatingTargetSelectedSnapshot, operatingTargetReportGate, operatingTargetTestFirstConfirmed, operatingTargetTestResult, operatingTargetError, operatingTargetLoading,
+                operatingTargetForm, pmsHotelOptions, operatingTargetResult, operatingTargetPmsStatus, operatingTargetMeituanCloudPmsStatus, operatingTargetPmsReconciliation, operatingTargetPreview, operatingTargetHistory, operatingTargetSnapshots, operatingTargetSelectedSnapshot, operatingTargetReportGate, operatingTargetTestFirstConfirmed, operatingTargetTestResult, operatingTargetError, operatingTargetLoading,
                 operatingTargetTaskDraft, operatingTargetTaskDraftError, operatingTargetTaskDraftLoading,
                 dingdandaoPmsIntegration, dingdandaoPmsConfigForm, dingdandaoPmsLastAction, dingdandaoPmsError, dingdandaoPmsLoading, dingdandaoPmsPushReady, dingdandaoPmsProfileText,
                 meituanCloudPmsIntegration, meituanCloudPmsConfigForm, meituanCloudPmsError, meituanCloudPmsLoading, meituanCloudPmsFactReady, meituanCloudPmsProfileText,
@@ -41262,10 +41438,12 @@
                 strongOtaReminderAutoDismissSeconds, strongOtaReminderSnoozeHours, strongOtaReminderAutoDismissSecondsRemaining,
                 showStrongOtaReminder, deferStrongOtaReminder, snoozeStrongOtaReminder24Hours, openStrongOtaReminderItem, restartStrongOtaReminderAutoDismissCountdown,
                 operationOptimizerFilter, operationOptimizerData, operationOptimizerLoading, operationOptimizerError, operationOptimizerCreatingActionId,
-                operationOptimizerHotelOptions, operationOptimizerKeywordRows, operationOptimizerRoomRows, operationOptimizerChannelRows,
+                operationOptimizerHotelOptions, operationOptimizerKeywordRows, operationOptimizerRoomRows, operationOptimizerModules, operationOptimizerChannelRows, operationOptimizerLoopSummary, operationOptimizerLoopText,
                 operationOptimizerStatusText, operationOptimizerStatusClass, operationOptimizerRecommendationClass, operationOptimizerNumber,
                 operationOptimizerKeywordMetrics, operationOptimizerRoomMetrics, operationOptimizerChannelValue,
-                operationOptimizerCreatedIntentId, loadOperationOptimizer, openOperationOptimizerRecovery, createOperationOptimizerTask,
+                operationOptimizerExecutionFlow, operationOptimizerCreatedIntentId, operationOptimizerStageText,
+                operationOptimizerActionDisabled, operationOptimizerActionClass, operationOptimizerActionText,
+                loadOperationOptimizer, openOperationOptimizerRecovery, openOperationOptimizerExecution, createOperationOptimizerTask,
                 revenueResearchProducts, revenueResearchStatusClass, revenueResearchRuns, revenueResearchHotelId, revenueResearchHotelOptions, revenueResearchSteps, revenueResearchRunFor,
                 revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass, revenueResearchReadinessClass, revenueResearchMissingText,
                 revenueResearchExecutionBlockedText, revenueResearchCanCreateExecutionIntent, createRevenueResearchExecutionIntent, openRevenueResearchExecutionIntent,
