@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use app\service\CloudBrowserProfileService;
-use app\service\DingdandaoCloudCollectionService;
 use think\App;
 
 const MAX_GATEWAY_INPUT_BYTES = 8192;
@@ -28,7 +27,6 @@ require $autoload;
 
 $action = strtolower(trim((string)($input['action'] ?? '')));
 $service = new CloudBrowserProfileService();
-$dingdandaoCollection = new DingdandaoCloudCollectionService();
 
 try {
     $result = match ($action) {
@@ -54,28 +52,13 @@ try {
             requiredPositiveInt($input, 'owner_user_id'),
             requiredDate($input, 'target_date')
         ),
-        'validate_dingdandao_binding_lease' => $dingdandaoCollection->bindingBootstrapScope(
+        'validate_pms_collection' => $service->validatePmsCollectionProfile(
             requiredId($input, 'profile_id', 'cbp_'),
-            requiredPositiveInt($input, 'tenant_id'),
-            requiredPositiveInt($input, 'hotel_id'),
-            requiredPositiveInt($input, 'owner_user_id')
-        ),
-        'claim_dingdandao_collection' => $dingdandaoCollection->claim(
-            requiredId($input, 'profile_id', 'cbp_'),
-            requiredId($input, 'collection_session_id', 'cbcs_'),
             requiredPositiveInt($input, 'tenant_id'),
             requiredPositiveInt($input, 'hotel_id'),
             requiredPositiveInt($input, 'owner_user_id'),
             requiredDate($input, 'target_date'),
-            requiredText($input, 'collection_kind', 40),
-            requiredText($input, 'access_mode', 20),
-            requiredText($input, 'window_expires_at', 40)
-        ),
-        'complete_dingdandao_collection' => $dingdandaoCollection->completeLifecycle(
-            requiredId($input, 'claim_id', 'cct_'),
-            requiredId($input, 'collection_session_id', 'cbcs_'),
-            requiredId($input, 'profile_id', 'cbp_'),
-            requiredText($input, 'outcome', 32)
+            requiredPmsPlatform($input)
         ),
         default => throw new RuntimeException('gateway_action_unsupported'),
     };
@@ -135,6 +118,16 @@ function requiredDate(array $input, string $key): string
     $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
     if (!$date instanceof DateTimeImmutable || $date->format('Y-m-d') !== $value) {
         throw new RuntimeException('gateway_' . $key . '_invalid');
+    }
+    return $value;
+}
+
+/** @param array<string,mixed> $input */
+function requiredPmsPlatform(array $input): string
+{
+    $value = strtolower(trim((string)($input['platform'] ?? '')));
+    if (!in_array($value, ['dingdandao', 'meituan_cloud_pms'], true)) {
+        throw new RuntimeException('gateway_platform_invalid');
     }
     return $value;
 }

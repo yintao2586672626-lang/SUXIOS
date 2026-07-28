@@ -242,17 +242,6 @@
                             <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
                         </div>
                         <div class="header-utility-cluster flex flex-wrap items-center justify-end gap-3" role="group" aria-label="顶栏工具">
-                            <div data-locale-switch="" data-testid="header-locale-switch" class="locale-switch header-locale-switch header-language-control" role="group" :aria-label="aiModelConfigText('global.languageLabel')">
-                                <span class="header-utility-label">
-                                    <i class="fas fa-globe-asia" aria-hidden="true"></i>
-                                    <span>{{ aiModelConfigText('global.languageLabel') }}</span>
-                                </span>
-                                <span class="header-language-options">
-                                    <button v-for="option in languageOptions" :key="option.value" type="button" @click="switchLocale(option.value)" :aria-pressed="currentLocale === option.value" :title="option.label" :data-testid="'header-locale-' + option.value" :class="['header-language-option', currentLocale === option.value ? 'is-active' : '']">
-                                        {{ option.value === 'en-US' ? 'EN' : option.label }}
-                                    </button>
-                                </span>
-                            </div>
                             <div class="relative header-notification-control">
                                 <button type="button" data-testid="header-notification-trigger" @click="toggleGlobalNotifications" @keydown.esc.stop="globalNotificationOpen = false" class="header-notification-button" :class="globalNotificationOpen ? 'is-open' : ''" :aria-expanded="globalNotificationOpen ? 'true' : 'false'" aria-controls="global-notification-panel" :aria-label="globalNotificationUnreadCount ? `通知中心，${globalNotificationUnreadCount} 条未读` : '通知中心，无未读提醒'">
                                     <span class="header-utility-icon"><i class="fas fa-bell" aria-hidden="true"></i></span>
@@ -3185,18 +3174,18 @@
                         </template>
                         <div v-else="" data-testid="ops-source-empty" class="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">选择门店和日期后读取数据；系统不会用旧数据或默认值代替本次结果。</div>
                     </div>
-                    <div v-if="currentPage === 'operating-targets'" class="max-w-7xl mx-auto space-y-6" data-testid="operating-target-page">
-                        <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                            <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                    <div v-if="currentPage === 'operating-targets'" class="mx-auto max-w-7xl space-y-4" data-testid="operating-target-page">
+                        <section class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+                            <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
                                 <div>
                                     <div class="mb-1 text-sm font-medium text-emerald-700">酒店经营目标（明确口径）</div>
-                                    <h2 class="text-2xl font-bold text-gray-900">每天目标、事实与剩余经营压力</h2>
-                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">支持全酒店经营或订单来了住宿房费口径，目标与实际必须一致。携程、美团等 OTA 渠道数据不能替代酒店经营事实；缺数据时保留缺口，不显示伪造的 0。</p>
+                                    <h2 class="text-xl font-bold text-gray-900 sm:text-2xl">每天目标、事实与剩余经营压力</h2>
+                                    <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-500">支持全酒店经营，也支持订单来了、美团云 PMS 两个独立真实数据源的住宿房费口径；目标与实际必须一致。携程、美团 OTA 渠道数据不能替代酒店经营事实；缺数据时保留缺口，不显示伪造的 0。</p>
                                 </div>
-                                <div class="flex flex-wrap items-end gap-2">
+                                <div class="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(190px,1fr)_auto_auto]">
                                     <label class="block">
                                         <span class="mb-1 block text-xs text-gray-500">门店</span>
-                                        <select v-model="operatingTargetForm.hotel_id" data-testid="operating-target-hotel" class="min-w-[190px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                                        <select v-model="operatingTargetForm.hotel_id" data-testid="operating-target-hotel" class="w-full min-w-[190px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
                                             <option value="">请选择门店</option>
                                             <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option>
                                         </select>
@@ -3218,110 +3207,124 @@
                             <button type="button" @click="loadOperatingTarget" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新读取</button>
                         </div>
 
-                        <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="operating-target-pms-status">
-                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                    <h3 class="font-bold text-gray-900">订单来了 PMS 事实状态</h3>
-                                    <p class="mt-1 text-xs leading-5 text-gray-500">这里只回显当前门店、当前日期已保存并回读的事实。页面可见、历史记录或其他门店数据都不能替代身份、日期和质量校验。</p>
-                                </div>
-                                <span
-                                    class="inline-flex self-start rounded-full border px-3 py-1 text-xs font-medium"
-                                    :class="operatingTargetPmsStatus?.quality_status === 'verified' && operatingTargetPmsStatus?.readback_status === 'readback_verified'
-                                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                        : operatingTargetPmsStatus
-                                            ? 'border-amber-200 bg-amber-50 text-amber-700'
-                                            : 'border-gray-200 bg-gray-50 text-gray-600'"
-                                >
-                                    {{ operatingTargetPmsStatus
-                                        ? operatingTargetQualityText(operatingTargetPmsStatus?.quality_status)
-                                        : '未取得已回读 PMS 事实' }}
-                                </span>
-                            </div>
-                            <div v-if="operatingTargetPmsStatus" class="mt-4 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
-                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                    <div class="text-xs text-gray-500">业务日期</div>
-                                    <div class="mt-1 font-medium text-gray-800">{{ operatingTargetPmsStatus.business_date || '未取得' }}</div>
-                                </div>
-                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                    <div class="text-xs text-gray-500">身份 / 对账 / 回读</div>
-                                    <div class="mt-1 font-medium text-gray-800">{{ operatingTargetPmsStatus.identity_status || '未验证' }} / {{ operatingTargetPmsStatus.reconciliation_status || '未验证' }} / {{ operatingTargetPmsStatus.readback_status || '未验证' }}</div>
-                                </div>
-                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                    <div class="text-xs text-gray-500">采集 / 核对时间</div>
-                                    <div class="mt-1 font-medium text-gray-800">{{ operatingTargetPmsStatus.captured_at || '未取得' }}</div>
-                                </div>
-                                <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                    <div class="text-xs text-gray-500">房费汇总 / 明细合计</div>
-                                    <div class="mt-1 break-words font-medium text-gray-800">{{ operatingTargetPmsStatus.summary?.total_room_fee ?? '未取得' }} / {{ operatingTargetPmsStatus.detail_room_fee_total ?? '未取得' }}</div>
-                                </div>
-                            </div>
-                            <div v-else class="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
-                                当前记录没有订单来了 PMS 来源证据。请先完成同门店、同日期、明细对账和数据库回读；在此之前报告与企业微信发送门禁应保持阻断。
-                            </div>
-                        </section>
-
-                        <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                            <div class="flex flex-col gap-3 border-b border-gray-100 pb-4 md:flex-row md:items-start md:justify-between">
-                                <div>
-                                    <h3 class="font-bold text-gray-900">录入或核对当日经营事实</h3>
-                                    <p class="mt-1 text-xs leading-5 text-gray-500">可先从同门店、同日期的经营日报预填。预填仅供核对，未经确认不会产出正式完成结论。</p>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <button type="button" data-testid="operating-target-prefill" @click="prefillOperatingTargetFromDailyReport" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">
-                                        <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-file-import', 'mr-1.5']"></i>从经营日报预填
-                                    </button>
-                                    <button type="button" data-testid="operating-target-prefill-dingdandao" @click="prefillOperatingTargetFromDingdandao" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60">
-                                        <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-hotel', 'mr-1.5']"></i>从订单来了预填
-                                    </button>
-                                    <button type="button" data-testid="operating-target-save" @click="saveOperatingTarget" :disabled="operatingTargetLoading.save" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
-                                        <i :class="[operatingTargetLoading.save ? 'fas fa-spinner fa-spin' : 'fas fa-save', 'mr-1.5']"></i>{{ operatingTargetLoading.save ? '保存并回读中...' : '保存并回读' }}
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                                <label class="block"><span class="mb-1 block text-xs text-gray-500">{{ operatingTargetForm.fact_scope === 'accommodation_room_fee' ? '当日住宿房费目标（元）' : '当日全酒店营收目标（元）' }}</span><input v-model="operatingTargetForm.target_revenue" data-testid="operating-target-revenue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="例如 10000" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                <label class="block"><span class="mb-1 block text-xs text-gray-500">{{ operatingTargetForm.fact_scope === 'accommodation_room_fee' ? '住宿房费实际额（元）' : '全酒店实际营收（元）' }}</span><input v-model="operatingTargetForm.actual_revenue" data-testid="operating-target-actual" inputmode="decimal" type="number" min="0" step="0.01" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                <label class="block"><span class="mb-1 block text-xs text-gray-500">已售间夜</span><input v-model="operatingTargetForm.sold_room_nights" data-testid="operating-target-sold" inputmode="numeric" type="number" min="0" step="1" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                <label class="block"><span class="mb-1 block text-xs text-gray-500">可售房夜</span><input v-model="operatingTargetForm.sellable_room_nights" data-testid="operating-target-sellable" inputmode="numeric" type="number" min="0" step="1" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                <label class="block"><span class="mb-1 block text-xs text-gray-500">目标与事实口径</span><select v-model="operatingTargetForm.fact_scope" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="whole_hotel">全酒店经营</option><option value="accommodation_room_fee">住宿房费</option></select></label>
-                                <label class="block"><span class="mb-1 block text-xs text-gray-500">事实来源</span><select v-model="operatingTargetForm.source_type" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="manual">人工录入</option><option value="daily_report">经营日报</option><option value="pms">PMS</option><option value="import">导入文件</option></select></label>
-                                <label class="block"><span class="mb-1 block text-xs text-gray-500">确认状态</span><select v-model="operatingTargetForm.quality_status" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="manual_confirmed">已人工确认</option><option value="verified">已验证</option><option value="unverified">未验证，仅保留输入</option></select></label>
-                                <label class="block md:col-span-2"><span class="mb-1 block text-xs text-gray-500">来源说明 / 核对依据</span><input v-model="operatingTargetForm.source_reference" type="text" maxlength="255" placeholder="例如 PMS 日结单、日报编号或导入文件名" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                <label class="block md:col-span-2 xl:col-span-4"><span class="mb-1 block text-xs text-gray-500">本次调整说明（可选）</span><input v-model="operatingTargetForm.change_reason" type="text" maxlength="500" placeholder="例如：更正日结口径、补齐可售房夜" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                            </div>
-                        </section>
-
-                        <template v-if="operatingTargetPreview">
-                            <section :class="['rounded-xl border p-4 text-sm', operatingTargetStatusClass(operatingTargetPreview.status)]" data-testid="operating-target-status">
-                                <div class="font-semibold">{{ operatingTargetStatusText(operatingTargetPreview.status) }}</div>
-                                <div class="mt-1 leading-6">{{ operatingTargetPreview.delivery_note || '当前为页面预览；不会自动向企业微信或其他外部渠道发送。' }}</div>
-                            </section>
-
-                            <section v-if="operatingTargetResult" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5" data-testid="operating-target-metrics">
-                                <div v-for="item in operatingTargetMetricRows" :key="item.key" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                                    <div class="text-xs text-gray-500">{{ item.label }}</div>
-                                    <div class="mt-2 text-2xl font-bold text-gray-900">{{ item.value }}</div>
-                                </div>
-                            </section>
-
-                            <section class="grid grid-cols-1 gap-5 xl:grid-cols-2">
-                                <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                                    <h3 class="font-bold text-gray-900">数据缺口与一致性检查</h3>
-                                    <div v-if="(operatingTargetPreview.gaps || []).length" class="mt-3 space-y-2">
-                                        <div v-for="gap in operatingTargetPreview.gaps" :key="gap.code" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ gap.message }}</div>
+                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.75fr)] xl:items-start">
+                            <div class="space-y-4">
+                                <section class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+                                    <div class="flex flex-col gap-3 border-b border-gray-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">录入或核对当日经营事实</h3>
+                                            <p class="mt-1 text-xs leading-5 text-gray-500">可先从同门店、同日期的经营日报预填。预填仅供核对，未经确认不会产出正式完成结论。</p>
+                                        </div>
+                                        <div class="flex flex-wrap gap-2">
+                                            <button type="button" data-testid="operating-target-prefill" @click="prefillOperatingTargetFromDailyReport" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">
+                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-file-import', 'mr-1.5']"></i>从经营日报预填
+                                            </button>
+                                            <button type="button" data-testid="operating-target-prefill-dingdandao" @click="prefillOperatingTargetFromDingdandao" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60">
+                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-hotel', 'mr-1.5']"></i>从订单来了预填
+                                            </button>
+                                            <button type="button" data-testid="operating-target-prefill-meituan-cloud" @click="prefillOperatingTargetFromMeituanCloud" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">
+                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-cloud', 'mr-1.5']"></i>从美团云 PMS 预填
+                                            </button>
+                                            <button type="button" data-testid="operating-target-save" @click="saveOperatingTarget" :disabled="operatingTargetLoading.save" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
+                                                <i :class="[operatingTargetLoading.save ? 'fas fa-spinner fa-spin' : 'fas fa-save', 'mr-1.5']"></i>{{ operatingTargetLoading.save ? '保存并回读中...' : '保存并回读' }}
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div v-else class="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">已取得本页计算所需的目标和确认后的经营事实。</div>
-                                </div>
-                                <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                                    <h3 class="font-bold text-gray-900">经营提醒</h3>
-                                    <div v-if="(operatingTargetPreview.reminders || []).length" class="mt-3 space-y-2">
-                                        <div v-for="item in operatingTargetPreview.reminders" :key="item.code" :class="['rounded-lg border px-3 py-2 text-sm', item.level === 'danger' ? 'border-red-100 bg-red-50 text-red-700' : 'border-blue-100 bg-blue-50 text-blue-700']">{{ item.message }}</div>
+
+                                    <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">{{ operatingTargetForm.fact_scope === 'accommodation_room_fee' ? '当日住宿房费目标（元）' : '当日全酒店营收目标（元）' }}</span><input v-model="operatingTargetForm.target_revenue" data-testid="operating-target-revenue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="例如 10000" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">目标入住率（%）</span><input v-model="operatingTargetForm.target_occupancy_rate_percent" data-testid="operating-target-occupancy-rate" inputmode="decimal" type="number" min="0" max="100" step="0.01" placeholder="例如 80" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">目标 RevPAR（元）</span><input v-model="operatingTargetForm.target_revpar" data-testid="operating-target-revpar" inputmode="decimal" type="number" min="0" step="0.01" placeholder="例如 300" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">{{ operatingTargetForm.fact_scope === 'accommodation_room_fee' ? '住宿房费实际额（元）' : '全酒店实际营收（元）' }}</span><input v-model="operatingTargetForm.actual_revenue" data-testid="operating-target-actual" inputmode="decimal" type="number" min="0" step="0.01" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">已售间夜</span><input v-model="operatingTargetForm.sold_room_nights" data-testid="operating-target-sold" inputmode="numeric" type="number" min="0" step="1" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">可售房夜</span><input v-model="operatingTargetForm.sellable_room_nights" data-testid="operating-target-sellable" inputmode="numeric" type="number" min="0" step="1" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">目标与事实口径</span><select v-model="operatingTargetForm.fact_scope" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="whole_hotel">全酒店经营</option><option value="accommodation_room_fee">住宿房费</option></select></label>
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">事实来源</span><select v-model="operatingTargetForm.source_type" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="manual">人工录入</option><option value="daily_report">经营日报</option><option value="pms">PMS</option><option value="import">导入文件</option></select></label>
+                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">确认状态</span><select v-model="operatingTargetForm.quality_status" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="manual_confirmed">已人工确认</option><option value="verified">已验证</option><option value="unverified">未验证，仅保留输入</option></select></label>
+                                        <label class="block sm:col-span-2"><span class="mb-1 block text-xs text-gray-500">来源说明 / 核对依据</span><input v-model="operatingTargetForm.source_reference" type="text" maxlength="255" placeholder="例如 PMS 日结单、日报编号或导入文件名" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
+                                        <label class="block sm:col-span-2"><span class="mb-1 block text-xs text-gray-500">本次调整说明（可选）</span><input v-model="operatingTargetForm.change_reason" type="text" maxlength="500" placeholder="例如：更正日结口径、补齐可售房夜" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
                                     </div>
-                                    <div v-else class="mt-3 text-sm text-gray-500">尚未形成需要提示的经营提醒。</div>
-                                </div>
-                            </section>
-                        </template>
+                                </section>
+
+                                <template v-if="operatingTargetPreview">
+                                    <section :class="['rounded-xl border p-4 text-sm', operatingTargetStatusClass(operatingTargetPreview.status)]" data-testid="operating-target-status">
+                                        <div class="font-semibold">{{ operatingTargetStatusText(operatingTargetPreview.status) }}</div>
+                                        <div class="mt-1 leading-6">{{ operatingTargetPreview.delivery_note || '当前为页面预览；不会自动向企业微信或其他外部渠道发送。' }}</div>
+                                    </section>
+
+                                    <section v-if="operatingTargetResult" class="grid grid-cols-2 gap-3 md:grid-cols-3" data-testid="operating-target-metrics">
+                                        <div v-for="item in operatingTargetMetricRows" :key="item.key" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                                            <div class="text-xs text-gray-500">{{ item.label }}</div>
+                                            <div class="mt-2 text-2xl font-bold text-gray-900">{{ item.value }}</div>
+                                        </div>
+                                    </section>
+                                </template>
+
+                                <section v-if="operatingTargetResult" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5" data-testid="operating-target-pms-comparison">
+                                    <div class="flex flex-col gap-3 border-b border-gray-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">目标入住率 / RevPAR 与 PMS 事实偏差</h3>
+                                            <p class="mt-1 text-xs leading-5 text-gray-500">实际入住率和 RevPAR 只回显当前保存记录中的 PMS 事实。不是 PMS、字段缺失或尚未验证时保持空白，并明确标记未验证。</p>
+                                        </div>
+                                        <span class="inline-flex self-start rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
+                                            {{ operatingTargetSourceText(operatingTargetResult?.facts?.source_type) }} / {{ operatingTargetQualityText(operatingTargetResult?.facts?.quality_status) }}
+                                        </span>
+                                    </div>
+                                    <div class="mt-4 grid gap-3 md:grid-cols-2">
+                                        <article v-for="item in operatingTargetPmsComparisonRows" :key="item.key" class="rounded-xl border border-gray-100 bg-gray-50/60 p-4" :data-testid="`operating-target-${item.key}-comparison`">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <h4 class="font-semibold text-gray-900">{{ item.label }}</h4>
+                                                <span :class="['rounded-full border px-2 py-0.5 text-xs font-medium', item.verified ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700']">{{ item.actualStatus }}</span>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+                                                <div class="rounded-lg border border-white bg-white p-3">
+                                                    <div class="text-xs text-gray-500">目标</div>
+                                                    <div class="mt-1 font-semibold text-gray-900">{{ item.target || '未设置' }}</div>
+                                                </div>
+                                                <div class="rounded-lg border border-white bg-white p-3">
+                                                    <div class="text-xs text-gray-500">PMS 实际</div>
+                                                    <div class="mt-1 min-h-5 font-semibold text-gray-900">{{ item.actual || '—' }}</div>
+                                                </div>
+                                            </div>
+                                            <div :class="['mt-3 rounded-lg border px-3 py-2 text-sm leading-6', item.deviationClass]">{{ item.deviationText }}</div>
+                                            <p v-if="item.actual &amp;&amp; !item.verified" class="mt-2 text-xs leading-5 text-amber-700">PMS 事实尚未验证，当前偏差仅供核对，不能据此生成自动执行结论。</p>
+                                        </article>
+                                    </div>
+                                    <div class="mt-4 border-t border-gray-100 pt-4" data-testid="operating-target-task-draft-actions">
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                            <p class="text-xs leading-5 text-gray-500">仅把已保存、可执行的负向偏差生成待人工审批任务；不会自动修改 OTA 或直接执行经营动作。</p>
+                                            <button type="button" data-testid="operating-target-create-task-draft" @click="createOperatingTargetTaskDraft" :disabled="operatingTargetTaskDraftLoading" class="shrink-0 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
+                                                <i :class="[operatingTargetTaskDraftLoading ? 'fas fa-spinner fa-spin' : 'fas fa-tasks', 'mr-1.5']"></i>{{ operatingTargetTaskDraftLoading ? '生成中...' : '生成待审批任务' }}
+                                            </button>
+                                        </div>
+                                        <div v-if="operatingTargetTaskDraftError" data-testid="operating-target-task-draft-error" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">{{ operatingTargetTaskDraftError }}</div>
+                                        <div v-if="operatingTargetTaskDraft" data-testid="operating-target-task-draft-success" class="mt-3 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800 sm:flex-row sm:items-center sm:justify-between">
+                                            <span>{{ operatingTargetTaskDraft.reused_existing_intent ? '已回读同一目标版本的待审批任务' : '待审批任务已生成' }} #{{ operatingTargetTaskDraft.execution_intent?.id || '未取得编号' }}</span>
+                                            <button type="button" @click="openOperatingTargetTaskDraft" class="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100">进入任务执行与复盘</button>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            <aside class="space-y-4">
+                                <section v-if="operatingTargetPreview" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                                    <div>
+                                        <h3 class="font-bold text-gray-900">数据缺口与一致性检查</h3>
+                                        <div v-if="(operatingTargetPreview.gaps || []).length" class="mt-3 space-y-2">
+                                            <div v-for="gap in operatingTargetPreview.gaps" :key="gap.code" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ gap.message }}</div>
+                                        </div>
+                                        <div v-else class="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">已取得本页计算所需的目标和确认后的经营事实。</div>
+                                    </div>
+                                    <div class="mt-4 border-t border-gray-100 pt-4">
+                                        <h3 class="font-bold text-gray-900">经营提醒</h3>
+                                        <div v-if="(operatingTargetPreview.reminders || []).length" class="mt-3 space-y-2">
+                                            <div v-for="item in operatingTargetPreview.reminders" :key="item.code" :class="['rounded-lg border px-3 py-2 text-sm', item.level === 'danger' ? 'border-red-100 bg-red-50 text-red-700' : 'border-blue-100 bg-blue-50 text-blue-700']">{{ item.message }}</div>
+                                        </div>
+                                        <div v-else class="mt-3 text-sm text-gray-500">尚未形成需要提示的经营提醒。</div>
+                                    </div>
+                                </section>
+                            </aside>
+                        </div>
 
                         <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="operating-target-report-preview">
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3375,25 +3378,92 @@
                             <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-sm text-gray-500">该门店暂未保存经营目标历史。</div>
                         </section>
                     </div>
-                <div v-if="currentPage === 'manual-notifications'" class="max-w-7xl mx-auto space-y-6" data-testid="page-manual-notifications">
+<div v-if="currentPage === 'pms-operating-data'" class="suxi-dashboard-scope mx-auto max-w-7xl space-y-3" data-testid="pms-operating-data-page">
+  <section class="suxi-panel p-4">
+    <h2 class="text-xl font-bold">PMS 经营事实与差值分析</h2>
+    <p class="text-sm">美团云 PMS 与订单来了分别保存；差值只作诊断，不自动选择真值。</p>
+    <div class="mt-3 flex flex-wrap items-end gap-2">
+      <label><span class="block text-xs">门店</span><select v-model="operatingTargetForm.hotel_id" data-testid="pms-operating-data-hotel" class="rounded border p-2"><option value="">请选择门店</option><option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option></select></label>
+      <label><span class="block text-xs">经营日期</span><input v-model="operatingTargetForm.target_date" data-testid="pms-operating-data-date" type="date" class="rounded border p-2"></label>
+      <button data-testid="pms-operating-data-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded bg-emerald-800 px-4 py-2 text-white">{{ operatingTargetLoading.current ? '读取中...' : '读取 PMS 数据' }}</button>
+    </div>
+  </section>
+  <p v-if="operatingTargetError" data-testid="pms-operating-data-error" class="bg-red-50 p-3 text-sm text-red-700">{{ operatingTargetError }}</p>
+
+  <section v-if="operatingTargetPmsReconciliation" class="suxi-panel p-4" data-testid="pms-unified-reconciliation">
+    <div data-testid="pms-reconciliation-thinking"><b>宿析统一判定 · {{ operatingTargetPmsReconciliation.decision?.status_label || '待判断' }}</b><p class="text-xs">{{ operatingTargetPmsReconciliation.decision?.summary }}；不自动选择真值。</p></div>
+    <div class="text-xs" data-testid="pms-source-snapshot-deltas"><p v-for="d in operatingTargetPmsReconciliation.source_deltas" :key="d.provider"><b>{{ d.provider_label }} · 同源相邻快照 · {{ d.status_label }}</b>；净拾取不等于毛预订：{{ pmsDeltaText(d.delta_vector?.net_pickup) }}，房费 {{ pmsDeltaText(d.delta_vector?.room_revenue, 'money') }}，OCC {{ pmsDeltaText(d.delta_vector?.occupancy_rate_points, 'percent') }}。{{ d.judgment }}</p></div>
+    <p class="text-xs" data-testid="pms-cross-source-metrics"><span v-for="m in operatingTargetPmsReconciliation.comparison?.metrics" :key="m.key">{{ m.label }}：{{ m.status_label }}；</span>{{ operatingTargetPmsReconciliation.decision?.next_action }}</p>
+  </section>
+
+  <section class="rounded-xl border border-blue-100 bg-white p-4 shadow-sm" data-testid="meituan-cloud-pms-integration">
+    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-3">
+      <div><div class="text-sm font-medium text-blue-700">独立真实 PMS 数据源</div><h3 class="font-bold text-gray-900">美团云 PMS → 宿析经营事实</h3><p class="mt-1 text-xs text-gray-500">与订单来了平级；独立绑定、采集、验真和回读，不保存登录凭证、客人或订单明细。</p></div>
+      <span :class="['rounded-full border px-2 py-1 text-xs', meituanCloudPmsFactReady ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700']">{{ meituanCloudPmsFactReady ? '事实可用' : '事实阻断' }}</span>
+    </div>
+    <div v-if="meituanCloudPmsLoading.status" class="py-5 text-center text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>读取中...</div>
+    <template v-else>
+      <div v-if="meituanCloudPmsError" class="mt-3 rounded-lg bg-red-50 p-2 text-sm text-red-700" data-testid="meituan-cloud-pms-error">{{ meituanCloudPmsError }}</div>
+      <div class="mt-3 grid gap-4 lg:grid-cols-2">
+        <div class="space-y-3">
+          <div class="grid gap-3 sm:grid-cols-2"><label class="text-xs text-gray-500">门店ID<input v-model="meituanCloudPmsConfigForm.provider_hotel_id" data-testid="meituan-cloud-provider-hotel-id" maxlength="120" placeholder="接口返回后可自动固化" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label><label class="text-xs text-gray-500">门店名称<input v-model="meituanCloudPmsConfigForm.provider_hotel_name" data-testid="meituan-cloud-provider-hotel-name" maxlength="160" placeholder="与登录会话门店一致" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label></div>
+          <label class="flex gap-2 text-sm"><input v-model="meituanCloudPmsConfigForm.status" data-testid="meituan-cloud-pms-enabled" type="checkbox"><span>启用美团云 PMS 独立数据源</span></label>
+          <button type="button" data-testid="meituan-cloud-pms-save" @click="saveMeituanCloudPmsIntegration" :disabled="meituanCloudPmsLoading.save" class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">{{ meituanCloudPmsLoading.save ? '保存中...' : '保存并回读绑定' }}</button>
+          <p class="text-xs text-gray-500">只读来源：{{ meituanCloudPmsIntegration?.source_url || 'https://pms.meituan.com/#qk-workbench' }}</p>
+        </div>
+        <aside class="space-y-2 text-sm">
+          <p>登录：<b>{{ meituanCloudPmsProfileText }}</b>　回读：<b>{{ meituanCloudPmsIntegration?.capture?.readback_status || '未取得' }}</b></p>
+          <p>身份 / 日期：<b>{{ meituanCloudPmsIntegration?.capture?.identity_status || '未验证' }} / {{ meituanCloudPmsIntegration?.capture?.date_status || '未验证' }}</b></p>
+          <p>首页 / 房型可售差值：<b>{{ meituanCloudPmsIntegration?.capture?.availability_difference ?? '未取得' }} / 容差 {{ meituanCloudPmsIntegration?.capture?.availability_tolerance ?? '未取得' }}</b></p>
+          <div v-if="(meituanCloudPmsIntegration?.fact_gate?.blockers || []).length" class="space-y-1" data-testid="meituan-cloud-pms-blockers"><p v-for="blocker in meituanCloudPmsIntegration.fact_gate.blockers" :key="blocker.code" class="rounded bg-amber-50 p-2 text-amber-800">{{ blocker.message }}</p></div>
+          <p v-else class="rounded bg-emerald-50 p-2 text-emerald-800">身份、日期、差值和数据库回读均已通过。</p>
+          <p class="text-xs text-gray-500">缺失字段保持为空，不用0、历史记录、OTA或另一家PMS替代。</p>
+        </aside>
+      </div>
+    </template>
+  </section>
+
+  <section class="suxi-panel p-4" data-testid="dingdandao-pms-integration">
+    <b>订单来了 → 已验证经营事实 → 企业微信</b><span class="ml-2 text-xs">{{ dingdandaoPmsPushReady ? '可推送' : '推送阻断' }}</span>
+    <p class="text-xs">独立保存；不保存 Cookie、密码或 Webhook。</p>
+    <p v-if="dingdandaoPmsLoading.status" class="p-3 text-center">读取中...</p>
+    <template v-else>
+      <p v-if="dingdandaoPmsError" data-testid="dingdandao-pms-error" class="bg-red-50 p-2 text-red-700">{{ dingdandaoPmsError }}</p>
+      <div v-if="dingdandaoPmsIntegration?.stable_master_data" class="mt-2 suxi-panel-muted p-2" data-testid="dingdandao-stable-master-data">
+        <b>稳定主数据 · 自动带出</b><span class="ml-2 text-xs text-amber-700">不覆盖每日动态房态</span>
+        <p class="mt-1 text-xs"><span v-for="item in dingdandaoPmsIntegration.stable_master_data.items" :key="item.key" class="mr-3">{{ item.label }}：<b>{{ item.value === null || item.value === '' ? '待补' : item.value }}{{ item.value === null || item.value === '' ? '' : item.unit }}</b>（{{ item.status_label }}）</span></p>
+      </div>
+      <div class="mt-2 grid gap-2 md:grid-cols-2">
+        <label class="text-xs">门店 ID<input v-model="dingdandaoPmsConfigForm.provider_hotel_id" data-testid="dingdandao-provider-hotel-id" class="block w-full border p-2"></label>
+        <label class="text-xs">门店名称<input v-model="dingdandaoPmsConfigForm.provider_hotel_name" class="block w-full border p-2"></label>
+        <label class="text-xs md:col-span-2">共享机器人<select v-model="dingdandaoPmsConfigForm.robot_id" data-testid="dingdandao-pms-robot" class="block w-full border p-2"><option value="">请选择</option><option v-for="robot in (dingdandaoPmsIntegration?.robots || [])" :key="robot.id" :value="String(robot.id)">{{ robot.name }}{{ ['success', 'sent'].includes(robot.last_test_status) ? '（已测试）' : '（未验证）' }}</option></select></label>
+        <label><input v-model="dingdandaoPmsConfigForm.status" data-testid="dingdandao-pms-enabled" type="checkbox" @change="!dingdandaoPmsConfigForm.status && (dingdandaoPmsConfigForm.auto_push_enabled = false)"> 启用门店绑定</label>
+        <label><input v-model="dingdandaoPmsConfigForm.auto_push_enabled" data-testid="dingdandao-pms-auto-push" type="checkbox" :disabled="!dingdandaoPmsConfigForm.status || !dingdandaoPmsConfigForm.robot_id || !['success', 'sent'].includes((dingdandaoPmsIntegration?.robots || []).find(robot => String(robot.id) === String(dingdandaoPmsConfigForm.robot_id))?.last_test_status)"> 验真后自动推送</label>
+      </div>
+      <div class="mt-2 flex flex-wrap gap-2"><button data-testid="dingdandao-pms-save" @click="saveDingdandaoPmsIntegration" :disabled="dingdandaoPmsLoading.save" class="bg-emerald-800 px-3 py-2 text-white">{{ dingdandaoPmsLoading.save ? '保存中...' : '保存配置' }}</button><button data-testid="dingdandao-pms-push" @click="pushDingdandaoVerifiedCapture" :disabled="dingdandaoPmsLoading.push || !dingdandaoPmsPushReady" class="border px-3 py-2">{{ dingdandaoPmsLoading.push ? '发送中...' : '推送当前已验证数据' }}</button><button v-if="!(dingdandaoPmsIntegration?.robots || []).length" @click="currentPage = 'wechat-notification'" class="border px-3">配置机器人</button></div>
+      <div v-if="(dingdandaoPmsIntegration?.push_gate?.blockers || []).length" class="mt-2" data-testid="dingdandao-pms-blockers"><p v-for="blocker in dingdandaoPmsIntegration.push_gate.blockers" :key="blocker.code" class="text-xs text-amber-700">{{ blocker.message }}（{{ blocker.code }}）</p></div>
+    </template>
+  </section>
+</div>
+                <div v-if="['manual-notifications', 'wechat-notification'].includes(currentPage)" class="max-w-7xl mx-auto space-y-6" data-testid="page-manual-notifications">
                     <section class="rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-6 shadow-sm">
                         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                             <div>
-                                <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">通知中心</p>
-                                <h1 class="mt-2 text-2xl font-semibold text-slate-900">定时消息</h1>
-                                <p class="mt-2 text-sm text-slate-600">配置宿析企业微信经营播报；经营目标报告按门店、日期和质量门禁动态生成，当前仅允许测试群投递，不向正式群发送。</p>
+                                <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心</p>
+                                <h1 class="mt-2 text-2xl font-semibold text-slate-900">企业微信推送</h1>
+                                <p class="mt-2 text-sm text-slate-600">个人通知群与管理员共享机器人保持分开记录；同页维护模板、定时计划和真实推送回执。</p>
                                 <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
                                     <span
                                         class="rounded-full border px-2.5 py-1 font-medium"
-                                        :class="['test_scope_ready', 'schedule_enabled', 'connected'].includes(manualNotificationMetadata.scheduler_status)
+                                        :class="['test_scope_ready', 'formal_scope_ready', 'schedule_enabled', 'connected'].includes(manualNotificationMetadata.scheduler_status)
                                             ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                             : manualNotificationMetadata.scheduler_status === 'not_connected'
                                                 ? 'border-amber-200 bg-amber-50 text-amber-700'
                                                 : 'border-slate-200 bg-white text-slate-600'"
                                         data-testid="manual-notification-scheduler-status"
                                     >
-                                        {{ ['test_scope_ready', 'schedule_enabled', 'connected'].includes(manualNotificationMetadata.scheduler_status)
-                                            ? '测试群调度已接入'
+                                        {{ ['test_scope_ready', 'formal_scope_ready', 'schedule_enabled', 'connected'].includes(manualNotificationMetadata.scheduler_status)
+                                            ? (manualNotificationMetadata.scheduler_status === 'formal_scope_ready' ? '正式自动调度已接入' : '自动调度已接入')
                                             : manualNotificationMetadata.scheduler_status === 'not_connected'
                                                 ? '自动调度未接入'
                                                 : '调度状态待验证' }}
@@ -3414,6 +3484,125 @@
                                 </select>
                             </label>
                         </div>
+                    </section>
+
+                    <component
+                        v-if="['manual-notifications', 'wechat-notification'].includes(currentPage)"
+                        :is="wechatNotificationPanelBody"
+                        v-bind="wechatNotificationPanelProps"
+                        v-on="wechatNotificationPanelEvents"
+                        data-testid="wechat-notification-page"
+                    ></component>
+
+                    <div v-if="['manual-notifications', 'wechat-notification'].includes(currentPage) &amp;&amp; user &amp;&amp; user.is_super_admin" class="mx-auto mt-5 max-w-5xl">
+                        <section data-testid="wecom-robot-management" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                            <div class="flex flex-col gap-4 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">管理员配置</span>
+                                        <h3 class="font-semibold text-slate-900">门店共享机器人</h3>
+                                        <span class="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">{{ competitorRobots.length }} 个</span>
+                                    </div>
+                                    <p class="mt-2 text-sm leading-6 text-slate-500">面向门店统一通知和 AI 经营日报手动发送；与上方每个账户自己的“我的通知群”分开保存、分开管理。</p>
+                                </div>
+                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                    <select v-model="competitorRobotFilter.store_id" @change="loadCompetitorRobots" class="min-w-[180px] rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                        <option value="">全部门店</option>
+                                        <option v-for="store in competitorStores" :key="store.id" :value="store.id">{{ store.name }}</option>
+                                    </select>
+                                    <button type="button" @click="loadCompetitorRobots" :disabled="competitorRobotsLoading" class="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                                        <i :class="competitorRobotsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ competitorRobotsLoading ? '刷新中' : '刷新' }}
+                                    </button>
+                                    <button type="button" @click="openCompetitorRobotModal()" class="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800">
+                                        <i class="fas fa-plus mr-2"></i>绑定共享机器人
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="p-5">
+                                <div v-if="competitorRobotsError" data-testid="wecom-robot-error" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                    <div class="font-medium">{{ competitorRobotsError }}</div>
+                                    <button type="button" @click="loadCompetitorRobots" class="mt-2 underline">重新加载</button>
+                                </div>
+                                <div v-if="competitorRobotsLoading &amp;&amp; !competitorRobots.length" class="py-10 text-center text-sm text-slate-500">正在读取门店共享机器人配置</div>
+                                <div v-else-if="!competitorRobots.length" data-testid="wecom-robot-binding-missing" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-800">
+                                    <div class="font-medium">binding_missing：当前筛选范围没有门店共享机器人</div>
+                                    <p class="mt-1">请在企业微信群添加群机器人并复制 Webhook，再由管理员按门店绑定；账号自己的通知群请使用上方“我的通知群”。</p>
+                                </div>
+                                <div v-else class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="bg-slate-50 text-slate-500">
+                                            <tr>
+                                                <th class="px-3 py-2 text-left font-medium">门店</th>
+                                                <th class="px-3 py-2 text-left font-medium">机器人</th>
+                                                <th class="px-3 py-2 text-left font-medium">配置范围</th>
+                                                <th class="px-3 py-2 text-left font-medium">Webhook</th>
+                                                <th class="px-3 py-2 text-left font-medium">状态</th>
+                                                <th class="px-3 py-2 text-right font-medium">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            <tr v-for="item in competitorRobots" :key="item.id">
+                                                <td class="px-3 py-3 text-slate-800">{{ getCompetitorStoreName(item.store_id) }}</td>
+                                                <td class="px-3 py-3 font-medium text-slate-900">{{ item.name }}</td>
+                                                <td class="px-3 py-3">
+                                                    <span class="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">{{ item.scope_label || '门店共享' }}</span>
+                                                </td>
+                                                <td class="px-3 py-3 font-mono text-xs text-slate-500">{{ item.webhook_masked || '未配置' }}</td>
+                                                <td class="px-3 py-3">
+                                                    <span :class="Number(item.status) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'" class="inline-flex rounded-full px-2 py-1 text-xs">{{ Number(item.status) === 1 ? '启用' : '停用' }}</span>
+                                                </td>
+                                                <td class="whitespace-nowrap px-3 py-3 text-right">
+                                                    <button type="button" @click="openCompetitorRobotModal(item)" :disabled="competitorRobotActionId !== 0" class="rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50">编辑</button>
+                                                    <button type="button" @click="testCompetitorRobot(item.store_id)" :disabled="competitorRobotActionId !== 0 || Number(item.status) !== 1" class="ml-1 rounded px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">测试共享群</button>
+                                                    <button type="button" @click="deleteCompetitorRobot(item)" :disabled="competitorRobotActionId !== 0" class="ml-1 rounded px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">删除</button>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div v-if="showCompetitorRobotModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4" data-testid="wecom-robot-modal">
+                            <form @submit.prevent="saveCompetitorRobot" class="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl">
+                                <div class="flex items-start justify-between border-b border-slate-200 p-5">
+                                    <div>
+                                        <h3 class="font-semibold text-slate-900">{{ competitorRobotForm.id ? '编辑门店共享机器人' : '绑定门店共享机器人' }}</h3>
+                                        <p class="mt-1 text-xs text-slate-500">仅管理门店级共享配置，不会覆盖任何账户的“我的通知群”；Webhook 加密保存且只回显掩码。</p>
+                                    </div>
+                                    <button type="button" @click="closeCompetitorRobotModal" :disabled="competitorRobotSaving" class="text-sm text-slate-500 disabled:opacity-50">关闭</button>
+                                </div>
+                                <div class="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
+                                    <label class="text-sm text-slate-700">门店
+                                        <select v-model="competitorRobotForm.store_id" required class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">
+                                            <option value="" disabled>请选择门店</option>
+                                            <option v-for="store in competitorStores" :key="store.id" :value="store.id">{{ store.name }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="text-sm text-slate-700">机器人名称
+                                        <input v-model.trim="competitorRobotForm.name" required maxlength="120" placeholder="例如：西安天诚经营群" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">
+                                    </label>
+                                    <label class="text-sm text-slate-700 md:col-span-2">企业微信群机器人 Webhook
+                                        <input v-model.trim="competitorRobotForm.webhook" :required="!competitorRobotForm.id" type="url" autocomplete="off" :placeholder="competitorRobotForm.webhook_placeholder || 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm">
+                                        <span class="mt-1 block text-xs text-slate-500">编辑时留空会保留原 Webhook；系统不会把完整 key 回显到页面。</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
+                                        <input v-model.number="competitorRobotForm.status" :true-value="1" :false-value="0" type="checkbox" class="rounded border-slate-300 text-emerald-600">
+                                        <span>启用这个门店共享机器人</span>
+                                    </label>
+                                </div>
+                                <div class="flex justify-end gap-2 border-t border-slate-200 p-5">
+                                    <button type="button" @click="closeCompetitorRobotModal" :disabled="competitorRobotSaving" class="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50">取消</button>
+                                    <button type="submit" :disabled="competitorRobotSaving" class="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">{{ competitorRobotSaving ? '正在保存' : '保存共享配置' }}</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <section class="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" data-testid="manual-notification-automatic-tasks">
+                        <button type="button" @click="loadManualNotificationMetadata" :disabled="manualNotificationLoading.metadata" class="absolute right-5 top-5 z-10 rounded-lg border bg-white px-3 py-1.5 text-xs">刷新</button>
+                        <div v-html="manualNotificationAutomaticTaskRows"></div>
                     </section>
 
                     <section class="rounded-3xl border border-slate-200 bg-[#f7f9f8] p-6 shadow-sm" data-testid="manual-notification-new-message">
@@ -3545,6 +3734,19 @@
                                             <option v-for="option in manualNotificationMetadata.send_methods" :key="option.key" :value="option.key">{{ option.label }}</option>
                                         </select>
                                     </label>
+                                    <label v-if="['wecom_test', 'wecom_formal'].includes(manualNotificationForm.send_method)" class="block md:col-span-2">
+                                        <span class="mb-2 block text-sm font-medium text-slate-700">{{ manualNotificationForm.send_method === 'wecom_formal' ? '正式计划目标机器人' : '测试计划目标机器人' }}</span>
+                                        <select
+                                            v-model="manualNotificationForm.target_robot_id"
+                                            @change="syncManualNotificationTargetRobot"
+                                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15"
+                                            data-testid="manual-notification-formal-robot"
+                                        >
+                                            <option value="">请选择当前酒店有权使用的机器人</option>
+                                            <option v-for="robot in manualNotificationFormalRobotOptions" :key="robot.id" :value="String(robot.id)">{{ robot.name }} · {{ robot.scope_label || '个人通知群' }}{{ ['success', 'sent'].includes(robot.last_test_status) ? '（已测试）' : '（送达未验证）' }}</option>
+                                        </select>
+                                        <span class="mt-2 block text-xs leading-5 text-slate-500">个人通知群只对当前账号可见；管理员共享机器人只对管理员可见。两类绑定、权限和发送记录保持分开。</span>
+                                    </label>
                                 </div>
 
                                 <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -3559,8 +3761,8 @@
                                 </div>
 
                                 <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" data-testid="manual-notification-data-gate">
-                                    <p class="font-semibold"><i class="fas fa-shield-alt mr-2"></i>经营数据与测试群门禁</p>
-                                    <p class="mt-2 leading-6">没有同门店、同日期、来源、范围、质量和回读证据时，调度必须记录阻断且不发送；禁止用零值、旧日数据或静态正文绕过。当前目标仅为漠蓝测试群，正式群不在本次授权范围。</p>
+                                    <p class="font-semibold"><i class="fas fa-shield-alt mr-2"></i>经营数据与推送门禁</p>
+                                    <p class="mt-2 leading-6">没有同门店、同日期、来源、范围、质量和回读证据时，调度必须记录阻断且不发送；禁止用零值、旧日数据或静态正文绕过。选择“企业微信正式计划机器人”并绑定当前酒店共享机器人后，可保存正式自动推送计划；保存不等于已执行或已送达。</p>
                                 </div>
 
                                 <p v-if="manualNotificationError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ manualNotificationError }}</p>
@@ -3719,7 +3921,7 @@
                                             <p class="mt-1 text-xs text-slate-400">{{ item.request_kind || item.trigger_type || '触发方式未取得' }}</p>
                                         </td>
                                         <td class="px-6 py-4 text-sm text-slate-600">
-                                            <p>{{ item.robot_name || '测试机器人待核验' }}</p>
+                                            <p>{{ item.robot_name || '目标机器人待核验' }}</p>
                                             <p class="mt-1 text-xs text-slate-400">酒店 {{ item.hotel_id || '未取得' }} / 机器人 {{ item.robot_id || '未取得' }}</p>
                                         </td>
                                         <td class="px-6 py-4">
@@ -5471,14 +5673,6 @@
                         </div>
                     </div>
 
-                    <component
-                        v-if="currentPage === 'wechat-notification'"
-                        :is="wechatNotificationPanelBody"
-                        v-bind="wechatNotificationPanelProps"
-                        v-on="wechatNotificationPanelEvents"
-                        data-testid="wechat-notification-page"
-                    ></component>
-
                     <!-- 收益分析 -->
                     <div v-if="currentPage === 'revenue-research-center'" class="max-w-7xl mx-auto space-y-4">
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
@@ -5658,6 +5852,47 @@
                     </div>
 
                     <!-- 智能知识中枢 -->
+                        <div v-if="currentPage === 'operation-optimizer'" class="space-y-5" data-testid="page-operation-optimizer">
+                            <section class="rounded-2xl bg-green-900 p-5 text-white">
+                                <div class="flex flex-wrap items-end justify-between gap-5">
+                                    <h2 class="text-2xl" style="color:#fff">运营优化台<small class="ml-3 text-sm font-normal text-green-100">缺字段不补零、渠道不合并，只生成草稿任务</small></h2>
+                                    <div class="grid min-w-[440px] grid-cols-2 gap-2 rounded-xl bg-green-800 p-3">
+                                        <select v-model="operationOptimizerFilter.hotel_id" class="col-span-2 rounded-lg px-3 py-2 text-sm text-gray-800"><option value="">请选择门店</option><option v-for="hotel in operationOptimizerHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || hotel.hotel_name || ('门店 #' + hotel.id) }}</option></select>
+                                        <input v-model="operationOptimizerFilter.start_date" type="date" class="rounded-lg px-3 py-2 text-sm text-gray-800">
+                                        <input v-model="operationOptimizerFilter.end_date" type="date" class="rounded-lg px-3 py-2 text-sm text-gray-800">
+                                        <button @click="loadOperationOptimizer({ showSuccess: true })" :disabled="operationOptimizerLoading" class="col-span-2 rounded-lg bg-yellow-300 px-4 py-2 text-sm font-semibold text-green-900" data-testid="operation-optimizer-refresh"><i :class="operationOptimizerLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ operationOptimizerLoading ? '读取中' : '刷新运营建议' }}</button>
+                                    </div>
+                                </div>
+                            </section>
+                            <button v-if="operationOptimizerError" @click="loadOperationOptimizer()" class="w-full rounded-xl bg-red-50 p-4 text-sm text-red-800" data-testid="operation-optimizer-error">暂不可用：{{ operationOptimizerError }} · 重新读取</button>
+                            <template v-else-if="operationOptimizerData">
+                                <section v-for="module in [
+                                    { key: 'keyword', title: '广告关键词优化台', data: operationOptimizerData.keyword_workbench, rows: operationOptimizerKeywordRows },
+                                    { key: 'room', title: '房型产品组合经营', data: operationOptimizerData.room_product_mix, rows: operationOptimizerRoomRows }
+                                ]" :key="module.key" class="overflow-hidden rounded-xl border bg-white" :data-testid="'operation-optimizer-' + module.key">
+                                    <header class="flex justify-between border-b p-3"><b>{{ module.title }}</b><span :class="operationOptimizerStatusClass(module.data?.status)" class="rounded-full border px-2 text-xs">{{ operationOptimizerStatusText(module.data?.status) }}</span></header>
+                                    <div v-if="module.data?.reason" class="m-3 flex items-center justify-between gap-3 rounded-lg bg-yellow-50 p-3 text-xs text-yellow-900">为什么不可用：{{ module.data.reason }}<button v-if="module.data?.recovery" @click="openOperationOptimizerRecovery(module.data.recovery)" class="shrink-0 rounded bg-yellow-700 px-3 py-2 text-white" :data-testid="'operation-optimizer-' + module.key + '-recovery'">{{ module.data.recovery.action_label }}</button></div>
+                                    <article v-for="row in module.rows" :key="row.platform + ':' + (row.keyword || row.room_type)" class="grid gap-3 border-b p-4 last:border-0 lg:grid-cols-[190px_1fr_270px_120px] lg:items-center">
+                                        <div :class="row.platform === 'meituan' ? 'text-yellow-700' : 'text-blue-700'" class="text-sm">{{ row.platform_name }} · <b>{{ row.keyword || row.room_type }}</b><template v-if="row.landing_room_type"> · {{ row.landing_room_type }}</template></div>
+                                        <dl class="grid grid-cols-3 gap-1 sm:grid-cols-6"><div v-for="metric in (module.key === 'keyword' ? operationOptimizerKeywordMetrics(row) : operationOptimizerRoomMetrics(row))" :key="metric[0]" class="rounded bg-gray-50 p-2 text-center text-xs">{{ metric[0] }} <b>{{ metric[1] }}</b></div></dl>
+                                        <div :class="operationOptimizerRecommendationClass(row.recommendation?.code)" class="rounded border p-2 text-xs"><b>{{ row.recommendation?.title }}：</b>{{ row.recommendation?.reason }}</div>
+                                        <button @click="createOperationOptimizerTask(row.recommendation)" :disabled="!row.recommendation?.can_create_task || operationOptimizerCreatingActionId === row.recommendation?.id || operationOptimizerCreatedIntentId(row.recommendation?.id) &gt; 0" :class="row.recommendation?.can_create_task ? 'bg-green-800 text-white' : 'border bg-gray-50 text-gray-400'" class="rounded px-3 py-2 text-xs disabled:opacity-70">{{ operationOptimizerCreatedIntentId(row.recommendation?.id) &gt; 0 ? ('草稿 #' + operationOptimizerCreatedIntentId(row.recommendation?.id)) : (row.recommendation?.can_create_task ? '形成草稿任务' : '证据不足') }}</button>
+                                    </article>
+                                    <div v-if="!module.rows.length" class="p-6 text-center text-sm text-gray-500">没有可展示的已验证事实</div>
+                                </section>
+
+                                <section class="rounded-xl border bg-white p-4" data-testid="operation-optimizer-channel-split">
+                                    <b>同一问题，分渠道口径</b>
+                                    <div class="mt-3 grid gap-3 lg:grid-cols-2">
+                                        <article v-for="channel in operationOptimizerChannelRows" :key="channel.platform" class="rounded-lg bg-gray-50 p-3">
+                                            <b>{{ channel.platform_name }}原始口径 · {{ operationOptimizerStatusText(channel.status) }}</b>
+                                            <div class="mt-2 grid grid-cols-3 gap-2"><div v-for="question in channel.questions" :key="question.key" :title="question.definition" class="rounded bg-white p-2 text-sm">{{ question.label }} <b>{{ operationOptimizerChannelValue(question) }}</b></div></div>
+                                            <button v-if="channel.recovery" :title="channel.recovery.reason" @click="openOperationOptimizerRecovery(channel.recovery)" class="mt-2 rounded bg-yellow-700 px-2 py-1 text-xs text-white">{{ channel.recovery.action_label }}</button>
+                                        </article>
+                                    </div>
+                                </section>
+                            </template>
+                        </div>
                     <div v-if="currentPage === 'knowledge-center'" class="max-w-6xl mx-auto space-y-4">
                         <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -6022,16 +6257,16 @@
 
                         <div v-if="filteredUsers.length &gt; 0" class="hidden xl:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="overflow-x-auto">
-                                <table data-testid="employee-desktop-table" class="w-full min-w-[1080px] table-fixed">
+                                <table data-testid="employee-desktop-table" class="w-full table-fixed" style="min-width: 1180px">
                                     <colgroup>
                                         <col style="width: 6%">
+                                        <col data-testid="employee-username-column" style="width: 14%">
+                                        <col style="width: 10%">
                                         <col style="width: 8%">
+                                        <col data-testid="employee-hotel-scope-column" style="width: 17%">
                                         <col style="width: 7%">
-                                        <col style="width: 7%">
-                                        <col data-testid="employee-hotel-scope-column" style="width: 20%">
-                                        <col style="width: 7%">
-                                        <col style="width: 14%">
-                                        <col data-testid="employee-actions-column" style="width: 31%">
+                                        <col style="width: 13%">
+                                        <col data-testid="employee-actions-column" style="width: 25%">
                                     </colgroup>
                                     <thead class="sticky top-0 z-10">
                                         <tr class="bg-gradient-to-b from-gray-50 to-gray-100/80">
@@ -6053,8 +6288,8 @@
                                     <tbody>
                                         <tr v-for="(u, index) in filteredUsers" :key="u?.id || index" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
                                             <td class="px-6 py-4 text-sm text-gray-500"><div class="flex items-center gap-2"><input v-if="user?.is_super_admin &amp;&amp; u.id !== user?.id" v-model="selectedUserIds" :value="String(u.id)" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择账号 ${u.username}`"><span>{{ userDisplaySequence(index) }}</span></div></td>
-                                            <td class="px-6 py-4 text-sm font-semibold text-gray-800">{{ u?.username || '-' }}</td>
-                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u?.realname || '-' }}</td>
+                                            <td class="px-4 py-4 align-top text-sm font-semibold leading-5 text-gray-800 break-all whitespace-normal" :title="u?.username || '-'">{{ u?.username || '-' }}</td>
+                                            <td class="px-4 py-4 align-top text-sm leading-5 text-gray-600 break-words whitespace-normal" :title="u?.realname || '-'">{{ u?.realname || '-' }}</td>
                                             <td class="px-6 py-4">
                                                 <div class="space-y-1">
                                                     <span :class="userRoleBadgeClass(u)" class="inline-flex items-center px-2.5 py-0.5 rounded-full border text-xs font-medium">
@@ -6077,7 +6312,7 @@
                                             </td>
                                             <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{{ userLastLoginText(u) }}</td>
                                             <td class="px-6 py-4">
-                                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                                <div class="flex flex-wrap items-center gap-2">
                                                     <button v-if="u &amp;&amp; String(u?.status) !== '1' &amp;&amp; (user?.is_super_admin)" @click="activateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-xs font-medium" title="启用账号">
                                                         <i class="fas fa-check text-xs"></i>
                                                         <span>启用账号</span>
@@ -6178,8 +6413,8 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr v-for="r in rolesList" :key="r.id">
-                                            <td class="px-6 py-4 text-gray-500">#{{ r.id }}</td>
+                                        <tr v-for="(r, index) in rolesList" :key="r.id">
+                                            <td class="px-6 py-4 text-gray-500">#{{ index + 1 }}</td>
                                             <td class="px-6 py-4 font-semibold text-gray-800">{{ r.display_name }}</td>
                                             <td class="px-6 py-4 min-w-[16rem]">
                                                 <div class="text-sm font-medium text-slate-700">{{ roleIssueProfile(r).audience }}</div>
@@ -7402,6 +7637,9 @@
                                     <button @click="openCtripManualTab('ctrip-ranking')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         竞争圈数据
                                     </button>
+                                    <button data-testid="ctrip-market-competition-tab" @click="openCtripManualTab('ctrip-market-competition')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-market-competition' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
+                                        市场与竞对
+                                    </button>
                                     <button data-testid="ctrip-public-profile-tab" @click="openCtripManualTab('ctrip-public-profiles')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-public-profiles' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
                                         公开档案
                                     </button>
@@ -8109,114 +8347,58 @@
                                 </div>
 
                                 <!-- 携程公开酒店档案 -->
-                                <div v-if="onlineDataTab === 'ctrip-public-profiles'" data-testid="ctrip-public-profile-panel" class="space-y-5">
-                                    <section class="overflow-hidden rounded-xl border border-emerald-950 bg-gray-900 text-white shadow-sm">
-                                        <div class="p-5 sm:p-6">
-                                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                                                <div class="max-w-3xl">
-                                                    <div class="text-xs font-semibold tracking-widest text-amber-200">CTRIP PUBLIC PROFILE</div>
-                                                    <h4 class="mt-2 text-xl font-semibold">输入携程公开酒店 ID，自动建立档案</h4>
-                                                    <p class="mt-2 text-sm leading-6 text-gray-300">支持本店绑定与竞品连续添加。系统会从携程公开酒店页补全名称、地址、星钻级、评分、设施、开业装修和客房总数等静态资料。</p>
-                                                </div>
-                                                <button type="button" data-testid="ctrip-public-profile-refresh" @click="refreshCtripPublicProfiles" :disabled="!selectedCtripHotelId || ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing || !canMaintainOtaConfig()" class="inline-flex shrink-0 items-center justify-center rounded-lg border border-amber-200/40 bg-amber-100 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50">
-                                                    <i :class="ctripPublicProfileRefreshing ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ ctripPublicProfileRefreshing ? '更新中' : '更新当前档案（最多30家）' }}
-                                                </button>
-                                            </div>
-                                            <div class="mt-4 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-gray-300">
-                                                <i class="fas fa-info-circle mr-1 text-amber-200"></i>客房总数是酒店静态资料，不等于任一日期的可售库存；本页不采集动态价格、订单、流量或 PMS 数据。
-                                            </div>
+                                <div v-if="['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab)" class="space-y-5">
+                                    <div v-if="onlineDataTab === 'ctrip-public-profiles'" data-testid="ctrip-public-profile-panel" class="space-y-5">
+                                    <section data-testid="ctrip-public-profile-hero" class="suxi-cpp-hero">
+                                        <div><small>CTRIP PUBLIC PROFILE</small><h4>本店—竞品静态档案</h4><p>核对平台身份、静态规模、公开评分、等级、位置与设施差异，为竞争圈和后续诊断提供可追溯底座。</p></div>
+                                        <div class="suxi-cpp-actions">
+                                            <button type="button" data-testid="ctrip-public-profile-maintenance-toggle" @click="ctripPublicProfileMaintenanceOpen = !ctripPublicProfileMaintenanceOpen"><i class="fas fa-sliders-h"></i>{{ ctripPublicProfileMaintenanceOpen ? '收起档案维护' : '管理公开档案' }}</button>
+                                            <button type="button" data-testid="ctrip-public-profile-refresh" @click="refreshCtripPublicProfiles" :disabled="!selectedCtripHotelId || ctripPublicProfileBusy || !canMaintainOtaConfig()" class="is-primary"><i :class="ctripPublicProfileRefreshing ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'"></i>{{ ctripPublicProfileRefreshing ? '更新中' : '更新全部（' + ctripPublicProfilesSorted.length + '家）' }}</button>
+                                        </div>
+                                        <p class="suxi-cpp-scope"><i class="fas fa-info-circle"></i>公开页展示房量只作静态参考，不等于物理房量或任一日期的可售库存；本页不采集动态价格、订单、流量或 PMS 数据。</p>
+                                    </section>
+
+                                    <section v-if="ctripPublicProfileMaintenanceOpen" data-testid="ctrip-public-profile-maintenance" class="suxi-cpp-panel">
+                                        <header class="suxi-cpp-section-head"><div><h5>档案维护</h5><p>本店只保留一个主绑定；竞品可连续添加。同一 ID 只更新，不重复建档。</p></div><span v-if="ctripPublicProfileOwnBinding?.status === 'bound'" class="suxi-cpp-binding is-bound">本店携程 ID {{ ctripPublicProfileOwnBinding.ota_hotel_id }}</span><span v-else-if="selectedCtripHotelId" class="suxi-cpp-binding">本店携程 ID 待绑定</span></header>
+                                        <div class="suxi-cpp-form">
+                                            <label>系统门店 *<select v-model="selectedCtripHotelId" @change="handleCtripPublicProfileHotelChange" data-testid="ctrip-public-profile-hotel-select" :disabled="ctripPublicProfileBusy || otaPublicPageDiagnosisExecutionLoading"><option value="">请选择门店</option><option v-for="hotel in ctripPublicProfileHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option></select></label>
+                                            <label>档案角色<select v-model="ctripPublicProfileForm.role" data-testid="ctrip-public-profile-role" :disabled="ctripPublicProfileBusy"><option value="competitor">竞品酒店</option><option value="self">本店</option></select></label>
+                                            <label class="is-wide">携程公开酒店 ID 或公开页链接 *<input v-model.trim="ctripPublicProfileForm.ota_hotel_id" @keyup.enter="addCtripPublicProfileById" data-testid="ctrip-public-profile-id-input" type="text" inputmode="numeric" autocomplete="off" :disabled="ctripPublicProfileBusy" placeholder="例如 3456814，或携程公开页链接"></label>
+                                            <button type="button" data-testid="ctrip-public-profile-add" @click="addCtripPublicProfileById" :disabled="!selectedCtripHotelId || ctripPublicProfileBusy || !canMaintainOtaConfig()" class="suxi-cpp-dark-button"><i :class="ctripPublicProfileSaving ? 'fas fa-spinner fa-spin' : 'fas fa-plus'"></i>{{ ctripPublicProfileSaving ? '添加并抓取中' : '添加并自动补全' }}</button>
                                         </div>
                                     </section>
 
-                                    <section class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-                                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:items-end">
-                                            <div class="xl:col-span-3">
-                                                <label class="mb-1 block text-sm font-medium text-gray-700">系统门店 <span class="text-red-500">*</span></label>
-                                                <select v-model="selectedCtripHotelId" @change="handleCtripPublicProfileHotelChange" data-testid="ctrip-public-profile-hotel-select" :disabled="ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing || otaPublicPageDiagnosisExecutionLoading" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-gray-100">
-                                                    <option value="">请选择门店</option>
-                                                    <option v-for="hotel in ctripPublicProfileHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                            </div>
-                                            <div class="xl:col-span-2">
-                                                <label class="mb-1 block text-sm font-medium text-gray-700">档案角色</label>
-                                                <select v-model="ctripPublicProfileForm.role" data-testid="ctrip-public-profile-role" :disabled="ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-gray-100">
-                                                    <option value="competitor">竞品酒店</option>
-                                                    <option value="self">本店</option>
-                                                </select>
-                                            </div>
-                                            <div class="xl:col-span-5">
-                                                <label class="mb-1 block text-sm font-medium text-gray-700">携程公开酒店 ID 或公开页链接 <span class="text-red-500">*</span></label>
-                                                <input v-model.trim="ctripPublicProfileForm.ota_hotel_id" @keyup.enter="addCtripPublicProfileById" data-testid="ctrip-public-profile-id-input" type="text" inputmode="numeric" autocomplete="off" :disabled="ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing" placeholder="例如 3456814，或 https://hotels.ctrip.com/hotels/3456814.html" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-gray-100">
-                                            </div>
-                                            <div class="xl:col-span-2">
-                                                <button type="button" data-testid="ctrip-public-profile-add" @click="addCtripPublicProfileById" :disabled="!selectedCtripHotelId || ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing || !canMaintainOtaConfig()" class="inline-flex w-full items-center justify-center rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300">
-                                                    <i :class="ctripPublicProfileSaving ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-plus mr-2'"></i>{{ ctripPublicProfileSaving ? '添加并抓取中' : '添加并自动补全' }}
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div class="mt-3 flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
-                                            <div class="text-gray-500">本店只能有一个主绑定；竞品可连续添加。同一 ID 重复添加会更新公开档案。</div>
-                                            <div v-if="ctripPublicProfileOwnBinding?.status === 'bound'" class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-medium text-emerald-700">本店已绑定携程 ID {{ ctripPublicProfileOwnBinding.ota_hotel_id }}</div>
-                                            <div v-else-if="selectedCtripHotelId" class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-medium text-amber-700">本店携程 ID 待绑定</div>
-                                        </div>
+                                    <div v-if="ctripPublicProfileError" data-testid="ctrip-public-profile-error" class="suxi-cpp-error"><i class="fas fa-exclamation-triangle"></i><span>{{ ctripPublicProfileError }}</span><button type="button" @click="loadCtripPublicProfiles">重试读取</button></div>
+
+                                    <div v-if="selectedCtripHotelId" class="suxi-cpp-summary"><div v-for="card in ctripPublicProfileSummaryCards" :key="card.key" :class="['suxi-cpp-stat', card.className]"><small>{{ card.label }}</small><b>{{ card.value }}</b></div></div>
+
+                                    <section v-if="ctripPublicProfileMasterData &amp;&amp; ctripPublicProfileSelf" data-testid="ctrip-public-profile-master-compare" class="suxi-cpp-panel">
+                                        <header class="suxi-cpp-section-head"><div><h5>宿析主档核对 <span>{{ ctripPublicProfileMasterDifferences.length ? ctripPublicProfileMasterDifferences.length + ' 项待确认' : '可比字段一致' }}</span></h5><p>携程公开值只作核对候选，差异不会自动覆盖宿析主档。</p></div><button v-if="ctripPublicProfileMasterDifferences.length" type="button" @click="openHotelManagementForOta">到酒店管理确认</button></header>
+                                        <div v-if="ctripPublicProfileMasterDifferences.length" class="suxi-cpp-master-list"><div v-for="item in ctripPublicProfileMasterDifferences" :key="item.key"><b>{{ item.label }}</b><small>{{ item.reason }}</small><p>宿析：{{ item.master_value }}<br>携程：{{ item.public_value }}</p></div></div>
                                     </section>
 
-                                    <div v-if="ctripPublicProfileError" data-testid="ctrip-public-profile-error" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                                        <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
-                                        <div class="flex-1">{{ ctripPublicProfileError }}</div>
-                                        <button type="button" @click="loadCtripPublicProfiles" class="shrink-0 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs hover:bg-red-100">重试读取</button>
-                                    </div>
+                                    <div v-if="ctripPublicProfileLoading" data-testid="ctrip-public-profile-loading" class="suxi-cpp-empty"><i class="fas fa-spinner fa-spin"></i>正在读取公开档案，当前状态不会被占位数据覆盖</div>
+                                    <div v-else-if="!selectedCtripHotelId" class="suxi-cpp-empty">请选择系统门店后查看或添加携程公开档案。</div>
+                                    <div v-else-if="!ctripPublicProfilesSorted.length" data-testid="ctrip-public-profile-empty" class="suxi-cpp-empty"><b>还没有公开酒店档案</b><p>请在“档案维护”中输入本店或竞品携程 ID，系统会抓取静态资料并完成数据库回读。</p></div>
 
-                                    <div v-if="selectedCtripHotelId" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                                        <div v-for="card in ctripPublicProfileSummaryCards" :key="card.key" :class="['rounded-xl border p-4', card.className]"><div class="text-xs opacity-70">{{ card.label }}</div><div class="mt-1 text-2xl font-semibold">{{ card.value }}</div></div>
-                                    </div>
-
-                                    <div v-if="ctripPublicProfileLoading" data-testid="ctrip-public-profile-loading" class="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500 shadow-sm">
-                                        <i class="fas fa-spinner fa-spin mr-2 text-emerald-700"></i>正在读取公开档案，当前状态不会被占位数据覆盖
-                                    </div>
-                                    <div v-else-if="!selectedCtripHotelId" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-500">请选择系统门店后查看或添加携程公开档案。</div>
-                                    <div v-else-if="!ctripPublicProfilesSorted.length" data-testid="ctrip-public-profile-empty" class="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center shadow-sm">
-                                        <div class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-amber-50 text-amber-700"><i class="fas fa-hotel"></i></div>
-                                        <div class="mt-3 font-medium text-gray-900">还没有公开酒店档案</div>
-                                        <div class="mt-1 text-sm text-gray-500">先输入本店或任一竞品的携程公开酒店 ID，系统会立即保存 ID 并尝试自动补全。</div>
-                                    </div>
-
-                                    <div v-else class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                                        <article v-for="profile in ctripPublicProfilesSorted" :key="profile.ota_hotel_id" data-testid="ctrip-public-profile-card" class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                                            <div class="border-b border-gray-100 p-4 sm:p-5">
-                                                <div class="flex items-start justify-between gap-3">
-                                                    <div class="min-w-0">
-                                                        <div class="flex flex-wrap items-center gap-2">
-                                                            <span :class="['rounded-full border px-2 py-0.5 text-xs font-semibold', profile.role === 'self' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-blue-200 bg-blue-50 text-blue-700']">{{ ctripPublicProfileRoleText(profile.role) }}</span>
-                                                            <span :class="['rounded-full border px-2 py-0.5 text-xs font-medium', ctripPublicProfileStatusClass(profile.capture_status)]">{{ ctripPublicProfileStatusText(profile.capture_status) }}</span>
-                                                        </div>
-                                                        <h5 class="mt-2 truncate text-base font-semibold text-gray-900">{{ ctripPublicProfileDisplayName(profile) }}</h5>
-                                                        <div class="mt-1 font-mono text-xs text-gray-500">携程 ID {{ profile.ota_hotel_id }}</div>
-                                                    </div>
-                                                    <a v-if="ctripPublicProfileSourceUrl(profile)" :href="ctripPublicProfileSourceUrl(profile)" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-amber-300 hover:text-amber-800">公开页 <i class="fas fa-external-link-alt ml-1"></i></a>
+                                    <section v-else data-testid="ctrip-public-profile-comparison" class="suxi-cpp-compare">
+                                        <header class="suxi-cpp-compare-head"><div><h5>静态竞争位置对比</h5><p>差值以本店公开页为基准；无同口径字段时保持“不可比”。</p></div><div class="suxi-cpp-filters"><label>搜索档案<input v-model.trim="ctripPublicProfileSearch" data-testid="ctrip-public-profile-search" type="search" placeholder="名称、ID、地址"></label><label>状态筛选<select v-model="ctripPublicProfileQualityFilter" data-testid="ctrip-public-profile-quality-filter"><option value="all">全部档案</option><option value="attention">仅待处理</option><option value="ready">资料可用</option><option value="self">仅本店</option><option value="competitor">仅竞品</option></select></label></div></header>
+                                        <div v-if="!ctripPublicProfilesFiltered.length" class="suxi-cpp-empty">没有符合当前筛选条件的档案。</div>
+                                        <div v-else class="suxi-cpp-profile-grid">
+                                            <article v-for="profile in ctripPublicProfilesFiltered" :key="profile.ota_hotel_id" data-testid="ctrip-public-profile-card" :class="['suxi-cpp-profile', profile.role === 'self' ? 'is-self' : '']">
+                                                <header><div class="suxi-cpp-chips"><span :class="profile.role === 'self' ? 'is-self' : 'is-competitor'">{{ ctripPublicProfileRoleText(profile.role) }}</span><span :class="ctripPublicProfileStatusClass(profile.capture_status)">{{ ctripPublicProfileStatusText(profile.capture_status) }}</span></div><h6>{{ ctripPublicProfileDisplayName(profile) }}</h6><small>携程 ID {{ profile.ota_hotel_id }}</small></header>
+                                                <div class="suxi-cpp-proof"><span :class="ctripPublicProfileEvidenceStatusClass(profile.source_validation_status)">{{ ctripPublicProfileSourceStatusText(profile) }}</span><span :class="ctripPublicProfileEvidenceStatusClass(ctripPublicProfileReadbackStatus(profile))">{{ ctripPublicProfileReadbackStatusText(profile) }}</span><b>{{ ctripPublicProfileDistanceText(profile) }}</b><small>公开坐标推算 · 更新 {{ formatConfigDate(profile.last_seen_at || profile.collected_at) || '未记录' }}</small></div>
+                                                <div class="suxi-cpp-metrics">
+                                                    <div><small>公开页展示房量</small><b>{{ profile.fields?.room_count ?? '未获取' }}</b><em>{{ ctripPublicProfileDeltaText(profile, 'room_count') }} · 静态参考</em></div>
+                                                    <div><small>等级 / 评分</small><b>{{ ctripPublicProfileGradeText(profile) }} / {{ profile.fields?.rating ?? '未获取' }}</b><em>{{ ctripPublicProfileDeltaText(profile, 'rating') }}</em></div>
+                                                    <div><small>开业 / 装修</small><b>{{ profile.fields?.opening_year || '未获取' }} / {{ profile.fields?.renovation_year || '未获取' }}</b></div>
+                                                    <div><small>设施 / 完整度</small><b>{{ ctripPublicProfileFacilityCount(profile) || '未获取' }} / {{ ctripPublicProfileCompletenessText(profile) }}</b><em>{{ ctripPublicProfileDeltaText(profile, 'facilities') }}</em></div>
                                                 </div>
-                                            </div>
-                                            <div class="p-4 sm:p-5">
-                                                <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                                                    <div v-for="metric in ctripPublicProfileMetricCards(profile)" :key="metric[0]" class="rounded-lg bg-gray-50 p-3"><div class="text-[11px] text-gray-500">{{ metric[1] }}</div><div class="mt-1 text-lg font-semibold text-gray-900">{{ metric[2] }}</div><div v-if="metric[3]" class="text-[10px] text-gray-400">{{ metric[3] }}</div></div>
-                                                </div>
-                                                <dl class="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                                                    <div v-for="row in ctripPublicProfileDetailRows(profile)" :key="row[0]" :class="row[3] ? 'sm:col-span-2' : ''"><dt class="text-xs text-gray-400">{{ row[1] }}</dt><dd class="mt-0.5 leading-5 text-gray-700">{{ row[2] }}</dd></div>
-                                                </dl>
-                                                <div v-if="ctripPublicProfileHighlights(profile).length" class="mt-4 flex flex-wrap gap-1.5">
-                                                    <span v-for="item in ctripPublicProfileHighlights(profile)" :key="'highlight-' + item" class="rounded-full border border-amber-100 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">{{ item }}</span>
-                                                </div>
-                                                <div v-if="ctripPublicProfileFacilities(profile).length" class="mt-3 flex flex-wrap gap-1.5">
-                                                    <span v-for="item in ctripPublicProfileFacilities(profile)" :key="'facility-' + item" class="rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] text-gray-600">{{ item }}</span>
-                                                </div>
-                                                <div class="mt-4 flex flex-col gap-1 border-t border-gray-100 pt-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
-                                                    <span>{{ ctripPublicProfileCompletenessText(profile) }}<span v-if="ctripPublicProfileMissingFieldsText(profile)"> · {{ ctripPublicProfileMissingFieldsText(profile) }}</span></span>
-                                                    <span class="shrink-0">更新 {{ formatConfigDate(profile.last_seen_at || profile.collected_at) || '未记录' }}</span>
-                                                </div>
-                                                <div v-if="profile.capture_status === 'collection_failed'" class="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">采集失败原因：{{ profile.failure_reason || '公开页未返回可解析资料' }}。ID 已保留，可稍后点“从公开页更新全部”重试。</div>
-                                            </div>
-                                        </article>
-                                    </div>
+                                                <div class="suxi-cpp-row-actions"><a v-if="ctripPublicProfileSourceUrl(profile)" :href="ctripPublicProfileSourceUrl(profile)" target="_blank" rel="noopener noreferrer">公开页</a><button type="button" @click="refreshCtripPublicProfile(profile)" :disabled="ctripPublicProfileBusy || !canMaintainOtaConfig()">{{ ctripPublicProfileSingleRefreshingId === String(profile.ota_hotel_id) ? '刷新中' : '刷新' }}</button><button v-if="profile.role === 'competitor'" type="button" @click="archiveCtripPublicProfile(profile)" :disabled="ctripPublicProfileBusy || !canMaintainOtaConfig()">{{ ctripPublicProfileArchivingId === String(profile.ota_hotel_id) ? '归档中' : '归档' }}</button></div>
+                                                <div data-testid="ctrip-public-profile-details" class="suxi-cpp-compact-detail"><p>{{ profile.fields?.brand_name || '品牌未获取' }} / {{ profile.fields?.hotel_type || '类型未获取' }} · {{ profile.fields?.address || '地址未获取' }}</p><p v-if="ctripPublicProfileMissingFieldsText(profile)">{{ ctripPublicProfileMissingFieldsText(profile) }}</p><p v-if="profile.capture_status === 'collection_failed'" class="is-error">采集失败：{{ profile.failure_reason || '公开页未返回可解析资料' }}。可单独刷新重试。</p></div>
+                                            </article>
+                                        </div>
+                                    </section>
 
                                     <section data-testid="ota-public-page-diagnosis-panel" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                                         <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -8269,6 +8451,31 @@
                                             </div>
                                         </div>
                                         <div v-else data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">选择平台和业务日期后读取 12 维公开页证据。</div>
+                                    </section>
+                                    </div>
+
+                                    <div v-if="onlineDataTab === 'ctrip-market-competition'" data-testid="ctrip-market-competition-panel" class="space-y-5">
+                                    <section data-testid="ctrip-market-competition-hero" class="overflow-hidden rounded-xl border border-[#3c3324] bg-[#06110d] text-white shadow-sm">
+                                        <div class="p-5 sm:p-6">
+                                            <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                                                <div class="max-w-3xl">
+                                                    <div class="text-xs font-semibold tracking-[0.2em] text-[#dcc591]">CTRIP MARKET &amp; COMPETITOR</div>
+                                                    <h4 class="mt-2 text-xl font-semibold">市场与竞对</h4>
+                                                    <p class="mt-2 text-sm leading-6 text-slate-300">用已入库的携程竞争圈经营、流量、排名和价格事件，回答“本店与竞圈差在哪里、哪些变化需要今天核对”。不把竞品库存变化推算成真实销量，不把 OTA 渠道证据扩大为全酒店事实。</p>
+                                                </div>
+                                                <div class="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-[220px_auto]">
+                                                    <label class="text-xs text-slate-300">系统门店
+                                                        <select v-model="selectedCtripHotelId" data-testid="ctrip-market-competition-hotel" :disabled="ctripCompetitiveOperationsLoading || competitorEventFeedLoading" class="mt-1 w-full rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60">
+                                                            <option value="">请选择门店</option>
+                                                            <option v-for="hotel in ctripPublicProfileHotelOptions" :key="'market-competitor-' + hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                        </select>
+                                                    </label>
+                                                    <button type="button" @click="openCtripManualTab('ctrip-public-profiles')" class="self-end rounded-lg border border-[#dcc591]/60 bg-white/5 px-4 py-2 text-sm font-medium text-[#f4e7c6] hover:bg-white/10">
+                                                        管理竞对档案
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </section>
 
                                     <section data-testid="ctrip-competitive-operations-panel" class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
@@ -8326,7 +8533,8 @@
                                         <div v-if="competitorEventFeed?.truncated" data-testid="ctrip-competitor-event-feed-truncated" class="mt-2 text-xs text-amber-800">仅返回最新事件，当前按部分证据处理。</div>
                                     </section>
 
-                                    <div v-if="ctripPublicProfilePayload?.scope_notice" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-500">数据边界：{{ ctripPublicProfilePayload.scope_notice }}</div>
+                                    <div class="rounded-lg border border-[#e5dcc8] bg-[#fcfaf5] px-3 py-2 text-xs leading-5 text-[#6f572f]">数据边界：仅使用已保存且质量可用的携程 OTA 证据；缺失、未验证、非同口径价格和无回读事件不进入经营判断。</div>
+                                    </div>
                                 </div>
 
                                 <!-- 流量概要 -->
@@ -14985,105 +15193,6 @@
                         </div>
 
                         <competitor-device-management v-if="user && user.is_super_admin" :ctx="$root"></competitor-device-management>
-
-                        <section v-if="user &amp;&amp; user.is_super_admin" data-testid="wecom-robot-management" class="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                            <div class="flex flex-col gap-4 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
-                                <div>
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <h3 class="font-semibold text-slate-900">企业微信通知</h3>
-                                        <span class="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">当前列表 {{ competitorRobots.length }} 个机器人</span>
-                                    </div>
-                                    <p class="mt-1 text-sm leading-6 text-slate-500">按门店安全保存群机器人 Webhook；支持测试消息和 AI经营日报手动发送。第一版不自动定时推送。</p>
-                                </div>
-                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                    <select v-model="competitorRobotFilter.store_id" @change="loadCompetitorRobots" class="min-w-[180px] rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                                        <option value="">全部门店</option>
-                                        <option v-for="store in competitorStores" :key="store.id" :value="store.id">{{ store.name }}</option>
-                                    </select>
-                                    <button type="button" @click="loadCompetitorRobots" :disabled="competitorRobotsLoading" class="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-                                        <i :class="competitorRobotsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ competitorRobotsLoading ? '刷新中' : '刷新' }}
-                                    </button>
-                                    <button type="button" @click="openCompetitorRobotModal()" class="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800">
-                                        <i class="fas fa-plus mr-2"></i>绑定群机器人
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="p-5">
-                                <div v-if="competitorRobotsError" data-testid="wecom-robot-error" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                                    <div class="font-medium">{{ competitorRobotsError }}</div>
-                                    <button type="button" @click="loadCompetitorRobots" class="mt-2 underline">重新加载</button>
-                                </div>
-                                <div v-if="competitorRobotsLoading &amp;&amp; !competitorRobots.length" class="py-10 text-center text-sm text-slate-500">正在读取企业微信机器人配置</div>
-                                <div v-else-if="!competitorRobots.length" data-testid="wecom-robot-binding-missing" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-800">
-                                    <div class="font-medium">binding_missing：当前筛选范围没有企业微信机器人</div>
-                                    <p class="mt-1">请在企业微信群添加群机器人并复制 Webhook，再在这里按门店绑定；未完成真实测试发送前不标记为已联通。</p>
-                                </div>
-                                <div v-else class="overflow-x-auto">
-                                    <table class="min-w-full text-sm">
-                                        <thead class="bg-slate-50 text-slate-500">
-                                            <tr>
-                                                <th class="px-3 py-2 text-left font-medium">门店</th>
-                                                <th class="px-3 py-2 text-left font-medium">机器人</th>
-                                                <th class="px-3 py-2 text-left font-medium">Webhook</th>
-                                                <th class="px-3 py-2 text-left font-medium">状态</th>
-                                                <th class="px-3 py-2 text-right font-medium">操作</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody class="divide-y divide-slate-100">
-                                            <tr v-for="item in competitorRobots" :key="item.id">
-                                                <td class="px-3 py-3 text-slate-800">{{ getCompetitorStoreName(item.store_id) }}</td>
-                                                <td class="px-3 py-3 font-medium text-slate-900">{{ item.name }}</td>
-                                                <td class="px-3 py-3 font-mono text-xs text-slate-500">{{ item.webhook_masked || '未配置' }}</td>
-                                                <td class="px-3 py-3">
-                                                    <span :class="Number(item.status) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'" class="inline-flex rounded-full px-2 py-1 text-xs">{{ Number(item.status) === 1 ? '启用' : '停用' }}</span>
-                                                </td>
-                                                <td class="whitespace-nowrap px-3 py-3 text-right">
-                                                    <button type="button" @click="openCompetitorRobotModal(item)" :disabled="competitorRobotActionId !== 0" class="rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50">编辑</button>
-                                                    <button type="button" @click="testCompetitorRobot(item.store_id)" :disabled="competitorRobotActionId !== 0 || Number(item.status) !== 1" class="ml-1 rounded px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">测试门店群</button>
-                                                    <button type="button" @click="deleteCompetitorRobot(item)" :disabled="competitorRobotActionId !== 0" class="ml-1 rounded px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">删除</button>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </section>
-
-                        <div v-if="showCompetitorRobotModal &amp;&amp; user &amp;&amp; user.is_super_admin" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4" data-testid="wecom-robot-modal">
-                            <form @submit.prevent="saveCompetitorRobot" class="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl">
-                                <div class="flex items-start justify-between border-b border-slate-200 p-5">
-                                    <div>
-                                        <h3 class="font-semibold text-slate-900">{{ competitorRobotForm.id ? '编辑企业微信机器人' : '绑定企业微信机器人' }}</h3>
-                                        <p class="mt-1 text-xs text-slate-500">Webhook 加密保存，保存后页面只回显掩码。</p>
-                                    </div>
-                                    <button type="button" @click="closeCompetitorRobotModal" :disabled="competitorRobotSaving" class="text-sm text-slate-500 disabled:opacity-50">关闭</button>
-                                </div>
-                                <div class="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
-                                    <label class="text-sm text-slate-700">门店
-                                        <select v-model="competitorRobotForm.store_id" required class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">
-                                            <option value="" disabled>请选择门店</option>
-                                            <option v-for="store in competitorStores" :key="store.id" :value="store.id">{{ store.name }}</option>
-                                        </select>
-                                    </label>
-                                    <label class="text-sm text-slate-700">机器人名称
-                                        <input v-model.trim="competitorRobotForm.name" required maxlength="120" placeholder="例如：西安天诚经营群" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">
-                                    </label>
-                                    <label class="text-sm text-slate-700 md:col-span-2">企业微信群机器人 Webhook
-                                        <input v-model.trim="competitorRobotForm.webhook" :required="!competitorRobotForm.id" type="url" autocomplete="off" :placeholder="competitorRobotForm.webhook_placeholder || 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm">
-                                        <span class="mt-1 block text-xs text-slate-500">编辑时留空会保留原 Webhook；系统不会把完整 key 回显到页面。</span>
-                                    </label>
-                                    <label class="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
-                                        <input v-model.number="competitorRobotForm.status" :true-value="1" :false-value="0" type="checkbox" class="rounded border-slate-300 text-emerald-600">
-                                        <span>启用这个机器人</span>
-                                    </label>
-                                </div>
-                                <div class="flex justify-end gap-2 border-t border-slate-200 p-5">
-                                    <button type="button" @click="closeCompetitorRobotModal" :disabled="competitorRobotSaving" class="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50">取消</button>
-                                    <button type="submit" :disabled="competitorRobotSaving" class="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">{{ competitorRobotSaving ? '正在保存' : '保存绑定' }}</button>
-                                </div>
-                            </form>
-                        </div>
                     </div>
 
                     <!-- 线上数据获取 -->

@@ -4053,6 +4053,11 @@ final class PlatformDataSyncService
             && (int)$evidence['hotel_id'] === (int)($required['hotel_id'] ?? 0)
             && (string)$evidence['platform']
                 === strtolower(trim((string)($required['platform'] ?? '')))
+            && (string)$evidence['platform_hotel_id'] !== ''
+            && hash_equals(
+                (string)$evidence['platform_hotel_id'],
+                trim((string)($required['platform_hotel_id'] ?? ''))
+            )
         ) {
             return;
         }
@@ -4080,6 +4085,7 @@ final class PlatformDataSyncService
         $userId = (int)($config['collector_user_id'] ?? 0);
         $hotelId = (int)($config['collector_hotel_id'] ?? 0);
         $platform = strtolower(trim((string)($config['collector_platform'] ?? '')));
+        $platformHotelId = trim((string)($config['platform_hotel_id'] ?? ''));
         $boundAt = trim((string)($config['collector_bound_at'] ?? ''));
         if ($mode !== 'single_user_local'
             || $bindingMode !== 'single_user_local'
@@ -4094,6 +4100,7 @@ final class PlatformDataSyncService
             || $hotelId !== (int)($source['system_hotel_id'] ?? 0)
             || !in_array($platform, ['ctrip', 'meituan'], true)
             || $platform !== strtolower(trim((string)($source['platform'] ?? '')))
+            || $platformHotelId === ''
             || $boundAt === ''
         ) {
             return [];
@@ -4107,6 +4114,7 @@ final class PlatformDataSyncService
             'device_id_hash' => $deviceIdHash,
             'hotel_id' => $hotelId,
             'platform' => $platform,
+            'platform_hotel_id' => $platformHotelId,
             'bound_at' => $boundAt,
             'sensitive_values_exposed' => false,
         ];
@@ -4139,10 +4147,18 @@ final class PlatformDataSyncService
             ? $payload['platform_identity_validation']
             : [];
         $identityStatus = strtolower(trim((string)($identity['status'] ?? '')));
+        $validatedPlatformHotelId = trim((string)($identity['validated_identifier'] ?? ''));
+        $requiredBinding = is_array($options['required_collector_binding'] ?? null)
+            ? $options['required_collector_binding']
+            : [];
+        $requiredPlatformHotelId = trim((string)($requiredBinding['platform_hotel_id'] ?? ''));
         if (($result['status'] ?? '') === 'success'
             && ($authStatus['ok'] ?? null) === true
             && in_array($authCode, ['logged_in', 'authorized'], true)
             && $identityStatus === 'matched'
+            && $validatedPlatformHotelId !== ''
+            && $requiredPlatformHotelId !== ''
+            && hash_equals($requiredPlatformHotelId, $validatedPlatformHotelId)
         ) {
             return;
         }

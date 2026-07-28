@@ -6,16 +6,16 @@ import vm from 'node:vm';
 const systemStaticSource = fs.readFileSync('public/system-static.js', 'utf8');
 const appMainSource = fs.readFileSync('public/app-main.js', 'utf8');
 const serviceSource = fs.readFileSync('app/service/ManualNotificationService.php', 'utf8');
-const testTargetResolverSource = fs.readFileSync(
-  'app/service/ManualNotificationTestTargetService.php',
-  'utf8',
-);
 const fragmentSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15ab-page-manual-notifications.html',
   'utf8',
 );
 const operatingTargetFragmentSource = fs.readFileSync(
   'resources/frontend/templates/fragments/15aa-page-operating-targets.html',
+  'utf8',
+);
+const pmsOperatingDataFragmentSource = fs.readFileSync(
+  'resources/frontend/templates/fragments/15aab-page-pms-operating-data.html',
   'utf8',
 );
 
@@ -30,6 +30,8 @@ test('operating target missing-record reset preserves new context and clears sta
     hotel_id: '9',
     target_date: '2026-07-25',
     target_revenue: '8888',
+    target_occupancy_rate_percent: '82',
+    target_revpar: '320',
     actual_revenue: '7777',
     sold_room_nights: '22',
     sellable_room_nights: '30',
@@ -43,6 +45,8 @@ test('operating target missing-record reset preserves new context and clears sta
   assert.equal(result.hotel_id, '80');
   assert.equal(result.target_date, '2026-07-26');
   assert.equal(result.target_revenue, '');
+  assert.equal(result.target_occupancy_rate_percent, '');
+  assert.equal(result.target_revpar, '');
   assert.equal(result.actual_revenue, '');
   assert.equal(result.sold_room_nights, '');
   assert.equal(result.sellable_room_nights, '');
@@ -86,18 +90,27 @@ test('notification center follows the required cards, editor, preview and histor
   assert.match(fragmentSource, /我的通知消息/);
   assert.doesNotMatch(fragmentSource, /我的模板消息/);
   assert.match(fragmentSource, /实时渲染/);
-  assert.match(fragmentSource, /经营数据与测试群门禁/);
+  assert.match(fragmentSource, /经营数据与推送门禁/);
   assert.match(fragmentSource, /manualNotificationBodyCount/);
   assert.match(fragmentSource, /manualNotificationTestAllowed\(item\)/);
   assert.doesNotMatch(fragmentSource, /手机号|客户短信/);
 });
 
-test('operating target page exposes truthful PMS evidence and report blockers', () => {
-  assert.match(operatingTargetFragmentSource, /data-testid="operating-target-pms-status"/);
-  assert.match(operatingTargetFragmentSource, /订单来了 PMS 事实状态/);
-  assert.match(operatingTargetFragmentSource, /operatingTargetPmsStatus\?\.quality_status === 'verified'/);
-  assert.match(operatingTargetFragmentSource, /captured_at/);
-  assert.match(operatingTargetFragmentSource, /detail_room_fee_total/);
+test('PMS operating data page owns unified PMS deltas without duplicating source configuration', () => {
+  assert.match(pmsOperatingDataFragmentSource, /data-testid="pms-operating-data-page"/);
+  assert.match(pmsOperatingDataFragmentSource, /data-testid="pms-unified-reconciliation"/);
+  assert.match(pmsOperatingDataFragmentSource, /data-testid="pms-source-snapshot-deltas"/);
+  assert.match(pmsOperatingDataFragmentSource, /同源相邻快照/);
+  assert.match(pmsOperatingDataFragmentSource, /不自动选择真值/);
+  assert.doesNotMatch(pmsOperatingDataFragmentSource, /data-testid="operating-target-pms-status"/);
+  assert.match(pmsOperatingDataFragmentSource, /data-testid="dingdandao-pms-integration"/);
+  assert.match(pmsOperatingDataFragmentSource, /data-testid="meituan-cloud-pms-integration"/);
+  assert.doesNotMatch(operatingTargetFragmentSource, /data-testid="operating-target-pms-status"/);
+  assert.doesNotMatch(operatingTargetFragmentSource, /data-testid="dingdandao-pms-integration"/);
+  assert.doesNotMatch(operatingTargetFragmentSource, /data-testid="meituan-cloud-pms-integration"/);
+});
+
+test('operating target page keeps PMS prefill and truthful report blockers', () => {
   assert.match(operatingTargetFragmentSource, /operating-target-prefill-dingdandao/);
   assert.match(operatingTargetFragmentSource, /accommodation_room_fee/);
   assert.match(operatingTargetFragmentSource, /data-testid="operating-target-report-preview"/);
@@ -106,6 +119,46 @@ test('operating target page exposes truthful PMS evidence and report blockers', 
   assert.match(operatingTargetFragmentSource, /数据门禁通过，尚未发送/);
   assert.match(operatingTargetFragmentSource, /发送已阻断/);
   assert.doesNotMatch(operatingTargetFragmentSource, /PMS[^<\n]{0,20}(?:发送成功|采集成功)/);
+});
+
+test('operating target desktop layout prioritizes entry with a compact evidence rail', () => {
+  assert.match(
+    operatingTargetFragmentSource,
+    /xl:grid-cols-\[minmax\(0,1\.55fr\)_minmax\(320px,0\.75fr\)\]/,
+  );
+  assert.match(
+    operatingTargetFragmentSource,
+    /录入或核对当日经营事实[\s\S]*data-testid="operating-target-pms-comparison"[\s\S]*<aside class="space-y-4">/,
+  );
+  assert.match(
+    operatingTargetFragmentSource,
+    /数据缺口与一致性检查[\s\S]*border-t border-gray-100 pt-4[\s\S]*经营提醒/,
+  );
+  assert.match(
+    operatingTargetFragmentSource,
+    /class="grid grid-cols-2 gap-3 md:grid-cols-3" data-testid="operating-target-metrics"/,
+  );
+});
+
+test('operating targets bind occupancy and RevPAR goals to PMS-only actuals and task drafts', () => {
+  assert.match(operatingTargetFragmentSource, /v-model="operatingTargetForm\.target_occupancy_rate_percent"/);
+  assert.match(operatingTargetFragmentSource, /v-model="operatingTargetForm\.target_revpar"/);
+  assert.match(operatingTargetFragmentSource, /data-testid="operating-target-pms-comparison"/);
+  assert.match(operatingTargetFragmentSource, /item\.actual \|\| '—'/);
+  assert.match(appMainSource, /actualStatus: isVerified && item\.actual !== '' \? '已验证' : '未验证'/);
+  assert.match(operatingTargetFragmentSource, /data-testid="operating-target-create-task-draft"/);
+  assert.match(operatingTargetFragmentSource, /data-testid="operating-target-task-draft-error"/);
+  assert.match(operatingTargetFragmentSource, /进入任务执行与复盘/);
+
+  assert.match(appMainSource, /target_occupancy_rate_percent: facts\.target_occupancy_rate_percent \?\? ''/);
+  assert.match(appMainSource, /target_revpar: facts\.target_revpar \?\? ''/);
+  assert.match(appMainSource, /String\(facts\.source_type \|\| ''\) === 'pms'/);
+  assert.match(appMainSource, /metrics\.actual_occupancy_rate_percent/);
+  assert.match(appMainSource, /metrics\.actual_revpar/);
+  assert.match(appMainSource, /apiRequest\('\/operating-targets\/task-draft'/);
+  assert.match(appMainSource, /operatingTargetTaskDraftError\.value = operationErrorMessage/);
+  assert.match(appMainSource, /currentPage\.value = 'ops-track'/);
+  assert.doesNotMatch(appMainSource, /actual_occupancy_rate_percent\s*\|\|\s*0|actual_revpar\s*\|\|\s*0/);
 });
 
 test('dynamic operating-target template supports save then immediate test without preview-as-success', () => {
@@ -131,14 +184,14 @@ test('dispatch history is independent and never treats missing receipts as deliv
   assert.match(appMainSource, /\/manual-notifications\/dispatch-history/);
 });
 
-test('test push remains explicit and scoped to the verified metadata binding', () => {
-  assert.match(appMainSource, /binding_status \|\| ''\)\s*\.startsWith\('verified_'\)/);
-  assert.match(appMainSource, /formal_group_delivery_allowed === false/);
-  assert.match(appMainSource, /const targetName = manualNotificationMetadata/);
+test('test push remains explicit and uses the persisted authorized plan robot', () => {
+  assert.match(appMainSource, /将向“\$\{targetRobotName\}”发送一次真实测试消息/);
   assert.match(appMainSource, /confirmed:\s*true/);
-  assert.match(appMainSource, /target_robot_id:\s*Number/);
-  assert.match(serviceSource, /ManualNotificationTestTargetService/);
-  assert.match(testTargetResolverSource, /TEST_SCOPE\s*=\s*'operating_target_test'/);
-  assert.doesNotMatch(testTargetResolverSource, /field\('webhook/);
+  assert.match(appMainSource, /target_robot_id:\s*targetRobotId/);
+  assert.match(appMainSource, /target_robot_name:\s*targetRobotName/);
+  assert.match(appMainSource, /\['wecom_test', 'wecom_formal'\]\.includes/);
+  assert.match(appMainSource, /scope_label: '个人通知群'/);
+  assert.match(fragmentSource, /formal_scope_ready/);
   assert.match(appMainSource, /manualNotificationTestAllowed/);
+  assert.doesNotMatch(appMainSource, /测试推送仅允许酒店80绑定的1号漠蓝测试机器人/);
 });

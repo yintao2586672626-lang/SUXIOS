@@ -405,6 +405,53 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertSame(['database/base.sql'], $status['baseline_checksum_mismatches']);
     }
 
+    public function testKnownIdempotencyGuardRevisionsUpgradeExactRegisteredChecksums(): void
+    {
+        $this->service->initializeFreshFromInitFull();
+        $projectRoot = realpath(__DIR__ . '/..');
+        self::assertIsString($projectRoot);
+        $revisions = [
+            '20260725_add_account_wechat_notification_binding.sql' => [
+                '1d257f3d35e9c8edfe020e1ecc665a583ace97232a8218c1f081ab5c1097ee0f',
+                'df3165a834beac6b067ee134199314cca722c3e1dead9407c82fe500f07b91e6',
+            ],
+            '20260726_extend_manual_notification_dispatch_attempts.sql' => [
+                '43875cfe53bff7f97cd68a787232a121c0c620e39795449fe23f7a9c45ff5b19',
+                '6440cc5549990223d4857bfc1c80b81ab8b096f490be60e33405c319c0a876d7',
+            ],
+        ];
+        $insert = $this->pdo->prepare(
+            'INSERT INTO schema_versions '
+            . '(migration, version, checksum, execution_kind, executed_at) '
+            . 'VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)'
+        );
+        foreach ($revisions as $migration => [$registeredChecksum, $requiredChecksum]) {
+            $source = $projectRoot . '/database/migrations/' . $migration;
+            $target = $this->root . '/database/migrations/' . $migration;
+            self::assertSame($requiredChecksum, hash_file('sha256', $source));
+            self::assertNotFalse(file_put_contents($target, (string)file_get_contents($source)));
+            $insert->execute([
+                $migration,
+                substr($migration, 0, -4),
+                $registeredChecksum,
+                'executed',
+            ]);
+        }
+
+        $before = $this->service->status();
+        self::assertTrue($before['ready']);
+        self::assertSame([], $before['checksum_mismatches']);
+
+        $result = $this->service->migrate();
+        self::assertSame(array_keys($revisions), $result['checksum_upgrades']);
+        self::assertTrue($result['status']['ready']);
+        $select = $this->pdo->prepare('SELECT checksum FROM schema_versions WHERE migration = ?');
+        foreach ($revisions as $migration => [, $requiredChecksum]) {
+            $select->execute([$migration]);
+            self::assertSame($requiredChecksum, $select->fetchColumn());
+        }
+    }
+
     public function testUnknownRegistrationKeepsDatabaseOutOfReadyState(): void
     {
         $this->service->initializeFreshFromInitFull();
@@ -455,6 +502,12 @@ SQL;
         self::assertContains('20260722_repair_remaining_tenant_history_scope.sql', $names);
         self::assertContains('20260722_harden_schema_version_governance.sql', $names);
         self::assertContains('20260722_track_frozen_baseline_sources.sql', $names);
+        self::assertContains('20260728_u_grant_role2_wechat_notification_access.sql', $names);
+        self::assertContains('20260728_v_restrict_role2_wechat_notification_access.sql', $names);
+        self::assertLessThan(
+            array_search('20260728_v_restrict_role2_wechat_notification_access.sql', $names, true),
+            array_search('20260728_u_grant_role2_wechat_notification_access.sql', $names, true)
+        );
         self::assertLessThan(
             array_search('20260722_repair_remaining_tenant_history_scope.sql', $names, true),
             array_search('20260722_pre_repair_batched_tenant_history_scope.sql', $names, true)

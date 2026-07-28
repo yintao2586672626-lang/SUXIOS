@@ -99,16 +99,18 @@ test('Ctrip current data page keeps target-date truth separate from stored histo
   assert.doesNotMatch(latestStatus, /已展示最近已抓取快照/);
 });
 
-test('dual-OTA current hotel and connection state use verified system bindings only', () => {
+test('dual-OTA current hotel requires both the system binding and an explicit self identity', () => {
   const api = loadWindowApi(dualOtaStaticSource, 'SUXI_DUAL_OTA_HOME', 'public/dual-ota-home-static.js');
   const rows = [
-    { hotelId: 'B', hotelName: '本店', amount: 999 },
-    { systemHotelId: 'A', hotelName: 'A酒店', amount: 100 },
-    { system_hotel_id: 'B', hotelName: 'B酒店', amount: 200 },
+    { systemHotelId: 'B', hotelId: 'COMPETITOR-B', hotelName: '竞圈第一', compareType: 'competitor', isSelf: false, amount: 999 },
+    { systemHotelId: 'A', hotelId: 'SELF-A', hotelName: 'A酒店', compareType: 'self', isSelf: true, amount: 100 },
+    { system_hotel_id: 'B', hotelId: 'SELF-B', hotelName: 'B酒店', compare_type: 'self', isSelf: true, amount: 200 },
   ];
 
   assert.equal(api.resolveDualOtaBoundHotelRow(rows, 'B').amount, 200);
-  assert.equal(api.resolveDualOtaBoundHotelRow([{ hotelId: 'B', hotelName: '本店' }], 'B'), null);
+  assert.equal(api.resolveDualOtaBoundHotelRow([rows[0]], 'B'), null);
+  assert.equal(api.resolveDualOtaBoundHotelRow([{ systemHotelId: 'B', hotelName: '身份未标记' }], 'B'), null);
+  assert.equal(api.resolveDualOtaBoundHotelRow([{ hotelId: 'B', hotelName: '本店', compareType: 'self', isSelf: true }], 'B'), null);
   assert.equal(api.resolveDualOtaBoundHotelRow(rows, ''), null);
 
   const disconnected = api.buildDualOtaConnectionRows([]);

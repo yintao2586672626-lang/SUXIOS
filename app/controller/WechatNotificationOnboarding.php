@@ -57,7 +57,7 @@ final class WechatNotificationOnboarding extends Base
             abort(422, '请选择要绑定的门店');
         }
         if (!$this->currentUser->isSuperAdmin()
-            && !$this->currentUser->hasHotelPermission($hotelId, 'can_fetch_online_data')) {
+            && !$this->currentUser->hasHotelPermission($hotelId, 'can_fill_daily_report')) {
             abort(403, '无权绑定该门店的企业微信通知');
         }
         return [$hotelId, (int)$this->currentUser->id];

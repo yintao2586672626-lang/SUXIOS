@@ -567,6 +567,56 @@ window.SUXI_CTRIP_STATIC = (() => {
         const count = Number(text);
         return Number.isSafeInteger(count) && count <= 1000000 ? count : null;
     };
+    const buildCtripConfigFormForHotel = ({
+        hotelId = '',
+        hotelName = '',
+        configs = [],
+    } = {}) => {
+        const targetHotelId = String(hotelId || '').trim();
+        const matchingConfigs = (Array.isArray(configs) ? configs : []).filter(config => (
+            String(config?.hotel_id || config?.system_hotel_id || '').trim() === targetHotelId
+            && String(config?.config_status || 'active').toLowerCase() !== 'history'
+            && !String(config?.deleted_at || '').trim()
+        ));
+        const config = matchingConfigs.find(item => String(item?.config_status || 'active').toLowerCase() === 'active')
+            || matchingConfigs[0]
+            || null;
+        const defaultName = targetHotelId && String(hotelName || '').trim()
+            ? `${String(hotelName).trim()}携程数据源`
+            : '';
+        if (!config) {
+            return createCtripConfigForm({
+                name: defaultName,
+                hotel_id: targetHotelId,
+            });
+        }
+
+        const hotelRoomCount = normalizeCtripRoomCount(config.hotel_room_count ?? config.hotelRoomCount);
+        const competitorRoomCount = normalizeCtripRoomCount(config.competitor_room_count ?? config.competitorRoomCount);
+        return createCtripConfigForm({
+            id: config.config_id || config.id || null,
+            name: config.name || defaultName,
+            hotel_id: targetHotelId,
+            ctrip_hotel_id: firstCtripConfigText(
+                config.ctrip_hotel_id,
+                config.ctripHotelId,
+                config.ota_hotel_id,
+                config.otaHotelId
+            ),
+            url: firstCtripConfigText(config.url) || defaultCtripConfigUrl,
+            node_id: firstCtripConfigText(config.node_id, config.nodeId),
+            hotel_room_count: hotelRoomCount ?? '',
+            competitor_room_count: competitorRoomCount ?? '',
+            approved_mappings_path: firstCtripConfigText(
+                config.approved_mappings_path,
+                config.approved_mapping_path,
+                config.p3_mappings_path
+            ),
+            cookies: '',
+            has_cookies: config.has_cookies === true,
+            credential_status: config.credential_status || '',
+        });
+    };
     const validateCtripConfigSaveInput = (form = {}) => {
         const canKeepExisting = Boolean(form.id)
             && form.has_cookies === true
@@ -3430,6 +3480,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         normalizeCtripAdsApiType,
         createCtripFetchForm,
         createCtripConfigForm,
+        buildCtripConfigFormForHotel,
         buildCtripBookmarkletSuccessState,
         buildCtripBookmarkletFailureState,
         buildCtripBatchDeleteConfigResultState,

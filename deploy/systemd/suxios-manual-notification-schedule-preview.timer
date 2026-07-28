@@ -1,5 +1,5 @@
 [Unit]
-Description=Verify SUXIOS manual notification test scope every minute without writes
+Description=Check SUXIOS manual notification schedule every minute in preview mode
 
 [Timer]
 OnCalendar=*-*-* *:*:00

@@ -152,7 +152,7 @@ test('Ctrip eBooking competition view binds the current hotel and end date to a 
     '\n            const handleCtripPublicProfileHotelChange',
   );
   const tabOpen = sliceFrom(
-    "if (tab === 'ctrip-public-profiles') {",
+    "if (tab === 'ctrip-market-competition') {",
     "\n                if (tab === 'ctrip-traffic') {",
   );
 
@@ -164,7 +164,14 @@ test('Ctrip eBooking competition view binds the current hotel and end date to a 
   assert.match(workspace, /onlineDataFilter\.value\.start_date = stayDate/);
   assert.match(workspace, /onlineDataFilter\.value\.end_date = stayDate/);
   assert.match(workspace, /openOnlineDataEntryTab\('analysis', \{ force: true \}\)/);
+  assert.match(tabOpen, /ensureCtripPublicProfileHotelSelected\(\)/);
   assert.match(tabOpen, /loadCtripCompetitionWorkspace\(\)/);
+  assert.match(ctripTemplate, /data-testid="ctrip-market-competition-tab"/);
+  assert.match(ctripTemplate, /openCtripManualTab\('ctrip-market-competition'\)/);
+  assert.match(ctripTemplate, /data-testid="ctrip-market-competition-panel"/);
+  assert.match(ctripTemplate, /data-testid="ctrip-market-competition-hotel"/);
+  assert.match(ctripTemplate, /管理竞对档案/);
+  assert.match(ctripTemplate, /不把竞品库存变化推算成真实销量/);
   assert.match(ctripTemplate, /data-testid="ctrip-competitor-event-feed-panel"/);
   assert.match(ctripTemplate, /@click="loadCtripCompetitionWorkspace"/);
   assert.match(ctripTemplate, /@click="openCtripCompetitorEventWorkspace"/);

@@ -485,8 +485,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     vm.runInNewContext(systemStaticContent, sandbox, { filename: 'public/system-static.js' });
     const staticApi = sandbox.window.SUXI_SYSTEM_STATIC || {};
     const topLevelNames = (staticApi.menuItemDefinitions || []).map((item) => item.name);
-    if (topLevelNames.join('|') !== '经营工作台|线上数据|运营执行|系统设置') {
-      failures.push(`public/system-static.js top-level navigation must be 经营工作台 / 线上数据 / 运营执行 / 系统设置, got: ${topLevelNames.join(' / ') || '(empty)'}.`);
+    if (topLevelNames.join('|') !== '经营工作台|线上数据|运营自动化中心|系统设置') {
+      failures.push(`public/system-static.js top-level navigation must be 经营工作台 / 线上数据 / 运营自动化中心 / 系统设置, got: ${topLevelNames.join(' / ') || '(empty)'}.`);
     }
     const managerMenu = staticApi.filterVisibleMenuItems(staticApi.menuItemDefinitions, {
       role_id: 2,

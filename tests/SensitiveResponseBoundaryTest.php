@@ -34,7 +34,20 @@ final class SensitiveResponseBoundaryTest extends TestCase
         self::assertStringNotContainsString("'webhook' => \$webhook", $source);
         self::assertStringNotContainsString("postJson((string)\$robot['webhook']", $source);
         self::assertGreaterThanOrEqual(3, substr_count($source, 'revealRobotWebhook('));
-        self::assertGreaterThanOrEqual(2, substr_count($source, 'postJson($webhook, $payload)'));
+        self::assertStringContainsString('$this->postJson($url, $body)', $source);
+
+        $deliveryBoundary = new ReflectionMethod(
+            CompetitorWechatRobotController::class,
+            'testAdminManagedRobot'
+        );
+        $deliveryBoundarySource = implode("\n", array_slice(
+            file($deliveryBoundary->getFileName(), FILE_IGNORE_NEW_LINES),
+            $deliveryBoundary->getStartLine() - 1,
+            $deliveryBoundary->getEndLine() - $deliveryBoundary->getStartLine() + 1
+        ));
+        self::assertStringContainsString('revealRobotWebhook($storedWebhook, $robotId)', $deliveryBoundarySource);
+        self::assertStringContainsString('$sender($webhook, $payload, $robot)', $deliveryBoundarySource);
+        self::assertStringContainsString('$this->postJson($url, $body)', $deliveryBoundarySource);
 
         $method = new ReflectionMethod(CompetitorWechatRobotController::class, 'formatRobotListRow');
         $methodSource = implode("\n", array_slice(

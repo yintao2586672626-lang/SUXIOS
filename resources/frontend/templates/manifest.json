@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "370b7dae751fb7c08b378322326eefd11740547b05e021e60562503f4fccbd33",
-  "source_snapshot_bytes": 2152965,
+  "source_snapshot_sha256": "ee28a91c4fc803de0a148250d885b98925f7165470c937c8cbf2116abac40bc0",
+  "source_snapshot_bytes": 2175888,
   "fragments": [
     {
       "id": "app-shell",
@@ -104,13 +104,19 @@
       "id": "page-operating-targets",
       "domain": "operations",
       "path": "fragments/15aa-page-operating-targets.html",
-      "anchor": "<div v-if=\"currentPage === 'operating-targets'\" class=\"max-w-7xl mx-auto space-y-6\">"
+      "anchor": "<div v-if=\"currentPage === 'operating-targets'\" class=\"mx-auto max-w-7xl space-y-4\" data-testid=\"operating-target-page\">"
+    },
+    {
+      "id": "page-pms-operating-data",
+      "domain": "operations",
+      "path": "fragments/15aab-page-pms-operating-data.html",
+      "anchor": "<div v-if=\"currentPage === 'pms-operating-data'\" class=\"mx-auto max-w-7xl space-y-4\" data-testid=\"pms-operating-data-page\">"
     },
     {
       "id": "page-manual-notifications",
       "domain": "operations",
       "path": "fragments/15ab-page-manual-notifications.html",
-      "anchor": "<div v-if=\"currentPage === 'manual-notifications'\" class=\"max-w-7xl mx-auto space-y-6\" data-testid=\"page-manual-notifications\">"
+      "anchor": "<div v-if=\"['manual-notifications', 'wechat-notification'].includes(currentPage)\" class=\"max-w-7xl mx-auto space-y-6\" data-testid=\"page-manual-notifications\">"
     },
     {
       "id": "page-ops-analysis",
@@ -153,6 +159,12 @@
       "domain": "revenue",
       "path": "fragments/19-page-revenue-research-center.html",
       "anchor": "<div v-if=\"currentPage === 'revenue-research-center'\" class=\"max-w-7xl mx-auto space-y-4\">"
+    },
+    {
+      "id": "page-operation-optimizer",
+      "domain": "revenue",
+      "path": "fragments/19a-page-operation-optimizer.html",
+      "anchor": "<div v-if=\"currentPage === 'operation-optimizer'\" class=\"max-w-7xl mx-auto space-y-5\" data-testid=\"page-operation-optimizer\">"
     },
     {
       "id": "page-knowledge-center",

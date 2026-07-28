@@ -12,6 +12,9 @@
                                     <button @click="openCtripManualTab('ctrip-ranking')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         竞争圈数据
                                     </button>
+                                    <button data-testid="ctrip-market-competition-tab" @click="openCtripManualTab('ctrip-market-competition')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-market-competition' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
+                                        市场与竞对
+                                    </button>
                                     <button data-testid="ctrip-public-profile-tab" @click="openCtripManualTab('ctrip-public-profiles')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-public-profiles' ? 'text-amber-700 border-b-2 border-amber-600' : 'text-gray-500']">
                                         公开档案
                                     </button>
@@ -719,114 +722,58 @@
                                 </div>
 
                                 <!-- 携程公开酒店档案 -->
-                                <div v-if="onlineDataTab === 'ctrip-public-profiles'" data-testid="ctrip-public-profile-panel" class="space-y-5">
-                                    <section class="overflow-hidden rounded-xl border border-emerald-950 bg-gray-900 text-white shadow-sm">
-                                        <div class="p-5 sm:p-6">
-                                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                                                <div class="max-w-3xl">
-                                                    <div class="text-xs font-semibold tracking-widest text-amber-200">CTRIP PUBLIC PROFILE</div>
-                                                    <h4 class="mt-2 text-xl font-semibold">输入携程公开酒店 ID，自动建立档案</h4>
-                                                    <p class="mt-2 text-sm leading-6 text-gray-300">支持本店绑定与竞品连续添加。系统会从携程公开酒店页补全名称、地址、星钻级、评分、设施、开业装修和客房总数等静态资料。</p>
-                                                </div>
-                                                <button type="button" data-testid="ctrip-public-profile-refresh" @click="refreshCtripPublicProfiles" :disabled="!selectedCtripHotelId || ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing || !canMaintainOtaConfig()" class="inline-flex shrink-0 items-center justify-center rounded-lg border border-amber-200/40 bg-amber-100 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50">
-                                                    <i :class="ctripPublicProfileRefreshing ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ ctripPublicProfileRefreshing ? '更新中' : '更新当前档案（最多30家）' }}
-                                                </button>
-                                            </div>
-                                            <div class="mt-4 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs leading-5 text-gray-300">
-                                                <i class="fas fa-info-circle mr-1 text-amber-200"></i>客房总数是酒店静态资料，不等于任一日期的可售库存；本页不采集动态价格、订单、流量或 PMS 数据。
-                                            </div>
+                                <div v-if="['ctrip-public-profiles', 'ctrip-market-competition'].includes(onlineDataTab)" class="space-y-5">
+                                    <div v-if="onlineDataTab === 'ctrip-public-profiles'" data-testid="ctrip-public-profile-panel" class="space-y-5">
+                                    <section data-testid="ctrip-public-profile-hero" class="suxi-cpp-hero">
+                                        <div><small>CTRIP PUBLIC PROFILE</small><h4>本店—竞品静态档案</h4><p>核对平台身份、静态规模、公开评分、等级、位置与设施差异，为竞争圈和后续诊断提供可追溯底座。</p></div>
+                                        <div class="suxi-cpp-actions">
+                                            <button type="button" data-testid="ctrip-public-profile-maintenance-toggle" @click="ctripPublicProfileMaintenanceOpen = !ctripPublicProfileMaintenanceOpen"><i class="fas fa-sliders-h"></i>{{ ctripPublicProfileMaintenanceOpen ? '收起档案维护' : '管理公开档案' }}</button>
+                                            <button type="button" data-testid="ctrip-public-profile-refresh" @click="refreshCtripPublicProfiles" :disabled="!selectedCtripHotelId || ctripPublicProfileBusy || !canMaintainOtaConfig()" class="is-primary"><i :class="ctripPublicProfileRefreshing ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'"></i>{{ ctripPublicProfileRefreshing ? '更新中' : '更新全部（' + ctripPublicProfilesSorted.length + '家）' }}</button>
+                                        </div>
+                                        <p class="suxi-cpp-scope"><i class="fas fa-info-circle"></i>公开页展示房量只作静态参考，不等于物理房量或任一日期的可售库存；本页不采集动态价格、订单、流量或 PMS 数据。</p>
+                                    </section>
+
+                                    <section v-if="ctripPublicProfileMaintenanceOpen" data-testid="ctrip-public-profile-maintenance" class="suxi-cpp-panel">
+                                        <header class="suxi-cpp-section-head"><div><h5>档案维护</h5><p>本店只保留一个主绑定；竞品可连续添加。同一 ID 只更新，不重复建档。</p></div><span v-if="ctripPublicProfileOwnBinding?.status === 'bound'" class="suxi-cpp-binding is-bound">本店携程 ID {{ ctripPublicProfileOwnBinding.ota_hotel_id }}</span><span v-else-if="selectedCtripHotelId" class="suxi-cpp-binding">本店携程 ID 待绑定</span></header>
+                                        <div class="suxi-cpp-form">
+                                            <label>系统门店 *<select v-model="selectedCtripHotelId" @change="handleCtripPublicProfileHotelChange" data-testid="ctrip-public-profile-hotel-select" :disabled="ctripPublicProfileBusy || otaPublicPageDiagnosisExecutionLoading"><option value="">请选择门店</option><option v-for="hotel in ctripPublicProfileHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option></select></label>
+                                            <label>档案角色<select v-model="ctripPublicProfileForm.role" data-testid="ctrip-public-profile-role" :disabled="ctripPublicProfileBusy"><option value="competitor">竞品酒店</option><option value="self">本店</option></select></label>
+                                            <label class="is-wide">携程公开酒店 ID 或公开页链接 *<input v-model.trim="ctripPublicProfileForm.ota_hotel_id" @keyup.enter="addCtripPublicProfileById" data-testid="ctrip-public-profile-id-input" type="text" inputmode="numeric" autocomplete="off" :disabled="ctripPublicProfileBusy" placeholder="例如 3456814，或携程公开页链接"></label>
+                                            <button type="button" data-testid="ctrip-public-profile-add" @click="addCtripPublicProfileById" :disabled="!selectedCtripHotelId || ctripPublicProfileBusy || !canMaintainOtaConfig()" class="suxi-cpp-dark-button"><i :class="ctripPublicProfileSaving ? 'fas fa-spinner fa-spin' : 'fas fa-plus'"></i>{{ ctripPublicProfileSaving ? '添加并抓取中' : '添加并自动补全' }}</button>
                                         </div>
                                     </section>
 
-                                    <section class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-                                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:items-end">
-                                            <div class="xl:col-span-3">
-                                                <label class="mb-1 block text-sm font-medium text-gray-700">系统门店 <span class="text-red-500">*</span></label>
-                                                <select v-model="selectedCtripHotelId" @change="handleCtripPublicProfileHotelChange" data-testid="ctrip-public-profile-hotel-select" :disabled="ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing || otaPublicPageDiagnosisExecutionLoading" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-gray-100">
-                                                    <option value="">请选择门店</option>
-                                                    <option v-for="hotel in ctripPublicProfileHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                            </div>
-                                            <div class="xl:col-span-2">
-                                                <label class="mb-1 block text-sm font-medium text-gray-700">档案角色</label>
-                                                <select v-model="ctripPublicProfileForm.role" data-testid="ctrip-public-profile-role" :disabled="ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-gray-100">
-                                                    <option value="competitor">竞品酒店</option>
-                                                    <option value="self">本店</option>
-                                                </select>
-                                            </div>
-                                            <div class="xl:col-span-5">
-                                                <label class="mb-1 block text-sm font-medium text-gray-700">携程公开酒店 ID 或公开页链接 <span class="text-red-500">*</span></label>
-                                                <input v-model.trim="ctripPublicProfileForm.ota_hotel_id" @keyup.enter="addCtripPublicProfileById" data-testid="ctrip-public-profile-id-input" type="text" inputmode="numeric" autocomplete="off" :disabled="ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing" placeholder="例如 3456814，或 https://hotels.ctrip.com/hotels/3456814.html" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-gray-100">
-                                            </div>
-                                            <div class="xl:col-span-2">
-                                                <button type="button" data-testid="ctrip-public-profile-add" @click="addCtripPublicProfileById" :disabled="!selectedCtripHotelId || ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing || !canMaintainOtaConfig()" class="inline-flex w-full items-center justify-center rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300">
-                                                    <i :class="ctripPublicProfileSaving ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-plus mr-2'"></i>{{ ctripPublicProfileSaving ? '添加并抓取中' : '添加并自动补全' }}
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div class="mt-3 flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
-                                            <div class="text-gray-500">本店只能有一个主绑定；竞品可连续添加。同一 ID 重复添加会更新公开档案。</div>
-                                            <div v-if="ctripPublicProfileOwnBinding?.status === 'bound'" class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-medium text-emerald-700">本店已绑定携程 ID {{ ctripPublicProfileOwnBinding.ota_hotel_id }}</div>
-                                            <div v-else-if="selectedCtripHotelId" class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-medium text-amber-700">本店携程 ID 待绑定</div>
-                                        </div>
+                                    <div v-if="ctripPublicProfileError" data-testid="ctrip-public-profile-error" class="suxi-cpp-error"><i class="fas fa-exclamation-triangle"></i><span>{{ ctripPublicProfileError }}</span><button type="button" @click="loadCtripPublicProfiles">重试读取</button></div>
+
+                                    <div v-if="selectedCtripHotelId" class="suxi-cpp-summary"><div v-for="card in ctripPublicProfileSummaryCards" :key="card.key" :class="['suxi-cpp-stat', card.className]"><small>{{ card.label }}</small><b>{{ card.value }}</b></div></div>
+
+                                    <section v-if="ctripPublicProfileMasterData &amp;&amp; ctripPublicProfileSelf" data-testid="ctrip-public-profile-master-compare" class="suxi-cpp-panel">
+                                        <header class="suxi-cpp-section-head"><div><h5>宿析主档核对 <span>{{ ctripPublicProfileMasterDifferences.length ? ctripPublicProfileMasterDifferences.length + ' 项待确认' : '可比字段一致' }}</span></h5><p>携程公开值只作核对候选，差异不会自动覆盖宿析主档。</p></div><button v-if="ctripPublicProfileMasterDifferences.length" type="button" @click="openHotelManagementForOta">到酒店管理确认</button></header>
+                                        <div v-if="ctripPublicProfileMasterDifferences.length" class="suxi-cpp-master-list"><div v-for="item in ctripPublicProfileMasterDifferences" :key="item.key"><b>{{ item.label }}</b><small>{{ item.reason }}</small><p>宿析：{{ item.master_value }}<br>携程：{{ item.public_value }}</p></div></div>
                                     </section>
 
-                                    <div v-if="ctripPublicProfileError" data-testid="ctrip-public-profile-error" class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                                        <i class="fas fa-exclamation-triangle mt-0.5 text-red-500"></i>
-                                        <div class="flex-1">{{ ctripPublicProfileError }}</div>
-                                        <button type="button" @click="loadCtripPublicProfiles" class="shrink-0 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs hover:bg-red-100">重试读取</button>
-                                    </div>
+                                    <div v-if="ctripPublicProfileLoading" data-testid="ctrip-public-profile-loading" class="suxi-cpp-empty"><i class="fas fa-spinner fa-spin"></i>正在读取公开档案，当前状态不会被占位数据覆盖</div>
+                                    <div v-else-if="!selectedCtripHotelId" class="suxi-cpp-empty">请选择系统门店后查看或添加携程公开档案。</div>
+                                    <div v-else-if="!ctripPublicProfilesSorted.length" data-testid="ctrip-public-profile-empty" class="suxi-cpp-empty"><b>还没有公开酒店档案</b><p>请在“档案维护”中输入本店或竞品携程 ID，系统会抓取静态资料并完成数据库回读。</p></div>
 
-                                    <div v-if="selectedCtripHotelId" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                                        <div v-for="card in ctripPublicProfileSummaryCards" :key="card.key" :class="['rounded-xl border p-4', card.className]"><div class="text-xs opacity-70">{{ card.label }}</div><div class="mt-1 text-2xl font-semibold">{{ card.value }}</div></div>
-                                    </div>
-
-                                    <div v-if="ctripPublicProfileLoading" data-testid="ctrip-public-profile-loading" class="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500 shadow-sm">
-                                        <i class="fas fa-spinner fa-spin mr-2 text-emerald-700"></i>正在读取公开档案，当前状态不会被占位数据覆盖
-                                    </div>
-                                    <div v-else-if="!selectedCtripHotelId" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-500">请选择系统门店后查看或添加携程公开档案。</div>
-                                    <div v-else-if="!ctripPublicProfilesSorted.length" data-testid="ctrip-public-profile-empty" class="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center shadow-sm">
-                                        <div class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-amber-50 text-amber-700"><i class="fas fa-hotel"></i></div>
-                                        <div class="mt-3 font-medium text-gray-900">还没有公开酒店档案</div>
-                                        <div class="mt-1 text-sm text-gray-500">先输入本店或任一竞品的携程公开酒店 ID，系统会立即保存 ID 并尝试自动补全。</div>
-                                    </div>
-
-                                    <div v-else class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                                        <article v-for="profile in ctripPublicProfilesSorted" :key="profile.ota_hotel_id" data-testid="ctrip-public-profile-card" class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                                            <div class="border-b border-gray-100 p-4 sm:p-5">
-                                                <div class="flex items-start justify-between gap-3">
-                                                    <div class="min-w-0">
-                                                        <div class="flex flex-wrap items-center gap-2">
-                                                            <span :class="['rounded-full border px-2 py-0.5 text-xs font-semibold', profile.role === 'self' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-blue-200 bg-blue-50 text-blue-700']">{{ ctripPublicProfileRoleText(profile.role) }}</span>
-                                                            <span :class="['rounded-full border px-2 py-0.5 text-xs font-medium', ctripPublicProfileStatusClass(profile.capture_status)]">{{ ctripPublicProfileStatusText(profile.capture_status) }}</span>
-                                                        </div>
-                                                        <h5 class="mt-2 truncate text-base font-semibold text-gray-900">{{ ctripPublicProfileDisplayName(profile) }}</h5>
-                                                        <div class="mt-1 font-mono text-xs text-gray-500">携程 ID {{ profile.ota_hotel_id }}</div>
-                                                    </div>
-                                                    <a v-if="ctripPublicProfileSourceUrl(profile)" :href="ctripPublicProfileSourceUrl(profile)" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-amber-300 hover:text-amber-800">公开页 <i class="fas fa-external-link-alt ml-1"></i></a>
+                                    <section v-else data-testid="ctrip-public-profile-comparison" class="suxi-cpp-compare">
+                                        <header class="suxi-cpp-compare-head"><div><h5>静态竞争位置对比</h5><p>差值以本店公开页为基准；无同口径字段时保持“不可比”。</p></div><div class="suxi-cpp-filters"><label>搜索档案<input v-model.trim="ctripPublicProfileSearch" data-testid="ctrip-public-profile-search" type="search" placeholder="名称、ID、地址"></label><label>状态筛选<select v-model="ctripPublicProfileQualityFilter" data-testid="ctrip-public-profile-quality-filter"><option value="all">全部档案</option><option value="attention">仅待处理</option><option value="ready">资料可用</option><option value="self">仅本店</option><option value="competitor">仅竞品</option></select></label></div></header>
+                                        <div v-if="!ctripPublicProfilesFiltered.length" class="suxi-cpp-empty">没有符合当前筛选条件的档案。</div>
+                                        <div v-else class="suxi-cpp-profile-grid">
+                                            <article v-for="profile in ctripPublicProfilesFiltered" :key="profile.ota_hotel_id" data-testid="ctrip-public-profile-card" :class="['suxi-cpp-profile', profile.role === 'self' ? 'is-self' : '']">
+                                                <header><div class="suxi-cpp-chips"><span :class="profile.role === 'self' ? 'is-self' : 'is-competitor'">{{ ctripPublicProfileRoleText(profile.role) }}</span><span :class="ctripPublicProfileStatusClass(profile.capture_status)">{{ ctripPublicProfileStatusText(profile.capture_status) }}</span></div><h6>{{ ctripPublicProfileDisplayName(profile) }}</h6><small>携程 ID {{ profile.ota_hotel_id }}</small></header>
+                                                <div class="suxi-cpp-proof"><span :class="ctripPublicProfileEvidenceStatusClass(profile.source_validation_status)">{{ ctripPublicProfileSourceStatusText(profile) }}</span><span :class="ctripPublicProfileEvidenceStatusClass(ctripPublicProfileReadbackStatus(profile))">{{ ctripPublicProfileReadbackStatusText(profile) }}</span><b>{{ ctripPublicProfileDistanceText(profile) }}</b><small>公开坐标推算 · 更新 {{ formatConfigDate(profile.last_seen_at || profile.collected_at) || '未记录' }}</small></div>
+                                                <div class="suxi-cpp-metrics">
+                                                    <div><small>公开页展示房量</small><b>{{ profile.fields?.room_count ?? '未获取' }}</b><em>{{ ctripPublicProfileDeltaText(profile, 'room_count') }} · 静态参考</em></div>
+                                                    <div><small>等级 / 评分</small><b>{{ ctripPublicProfileGradeText(profile) }} / {{ profile.fields?.rating ?? '未获取' }}</b><em>{{ ctripPublicProfileDeltaText(profile, 'rating') }}</em></div>
+                                                    <div><small>开业 / 装修</small><b>{{ profile.fields?.opening_year || '未获取' }} / {{ profile.fields?.renovation_year || '未获取' }}</b></div>
+                                                    <div><small>设施 / 完整度</small><b>{{ ctripPublicProfileFacilityCount(profile) || '未获取' }} / {{ ctripPublicProfileCompletenessText(profile) }}</b><em>{{ ctripPublicProfileDeltaText(profile, 'facilities') }}</em></div>
                                                 </div>
-                                            </div>
-                                            <div class="p-4 sm:p-5">
-                                                <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                                                    <div v-for="metric in ctripPublicProfileMetricCards(profile)" :key="metric[0]" class="rounded-lg bg-gray-50 p-3"><div class="text-[11px] text-gray-500">{{ metric[1] }}</div><div class="mt-1 text-lg font-semibold text-gray-900">{{ metric[2] }}</div><div v-if="metric[3]" class="text-[10px] text-gray-400">{{ metric[3] }}</div></div>
-                                                </div>
-                                                <dl class="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                                                    <div v-for="row in ctripPublicProfileDetailRows(profile)" :key="row[0]" :class="row[3] ? 'sm:col-span-2' : ''"><dt class="text-xs text-gray-400">{{ row[1] }}</dt><dd class="mt-0.5 leading-5 text-gray-700">{{ row[2] }}</dd></div>
-                                                </dl>
-                                                <div v-if="ctripPublicProfileHighlights(profile).length" class="mt-4 flex flex-wrap gap-1.5">
-                                                    <span v-for="item in ctripPublicProfileHighlights(profile)" :key="'highlight-' + item" class="rounded-full border border-amber-100 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">{{ item }}</span>
-                                                </div>
-                                                <div v-if="ctripPublicProfileFacilities(profile).length" class="mt-3 flex flex-wrap gap-1.5">
-                                                    <span v-for="item in ctripPublicProfileFacilities(profile)" :key="'facility-' + item" class="rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] text-gray-600">{{ item }}</span>
-                                                </div>
-                                                <div class="mt-4 flex flex-col gap-1 border-t border-gray-100 pt-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
-                                                    <span>{{ ctripPublicProfileCompletenessText(profile) }}<span v-if="ctripPublicProfileMissingFieldsText(profile)"> · {{ ctripPublicProfileMissingFieldsText(profile) }}</span></span>
-                                                    <span class="shrink-0">更新 {{ formatConfigDate(profile.last_seen_at || profile.collected_at) || '未记录' }}</span>
-                                                </div>
-                                                <div v-if="profile.capture_status === 'collection_failed'" class="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">采集失败原因：{{ profile.failure_reason || '公开页未返回可解析资料' }}。ID 已保留，可稍后点“从公开页更新全部”重试。</div>
-                                            </div>
-                                        </article>
-                                    </div>
+                                                <div class="suxi-cpp-row-actions"><a v-if="ctripPublicProfileSourceUrl(profile)" :href="ctripPublicProfileSourceUrl(profile)" target="_blank" rel="noopener noreferrer">公开页</a><button type="button" @click="refreshCtripPublicProfile(profile)" :disabled="ctripPublicProfileBusy || !canMaintainOtaConfig()">{{ ctripPublicProfileSingleRefreshingId === String(profile.ota_hotel_id) ? '刷新中' : '刷新' }}</button><button v-if="profile.role === 'competitor'" type="button" @click="archiveCtripPublicProfile(profile)" :disabled="ctripPublicProfileBusy || !canMaintainOtaConfig()">{{ ctripPublicProfileArchivingId === String(profile.ota_hotel_id) ? '归档中' : '归档' }}</button></div>
+                                                <div data-testid="ctrip-public-profile-details" class="suxi-cpp-compact-detail"><p>{{ profile.fields?.brand_name || '品牌未获取' }} / {{ profile.fields?.hotel_type || '类型未获取' }} · {{ profile.fields?.address || '地址未获取' }}</p><p v-if="ctripPublicProfileMissingFieldsText(profile)">{{ ctripPublicProfileMissingFieldsText(profile) }}</p><p v-if="profile.capture_status === 'collection_failed'" class="is-error">采集失败：{{ profile.failure_reason || '公开页未返回可解析资料' }}。可单独刷新重试。</p></div>
+                                            </article>
+                                        </div>
+                                    </section>
 
                                     <section data-testid="ota-public-page-diagnosis-panel" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                                         <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -879,6 +826,31 @@
                                             </div>
                                         </div>
                                         <div v-else data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">选择平台和业务日期后读取 12 维公开页证据。</div>
+                                    </section>
+                                    </div>
+
+                                    <div v-if="onlineDataTab === 'ctrip-market-competition'" data-testid="ctrip-market-competition-panel" class="space-y-5">
+                                    <section data-testid="ctrip-market-competition-hero" class="overflow-hidden rounded-xl border border-[#3c3324] bg-[#06110d] text-white shadow-sm">
+                                        <div class="p-5 sm:p-6">
+                                            <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+                                                <div class="max-w-3xl">
+                                                    <div class="text-xs font-semibold tracking-[0.2em] text-[#dcc591]">CTRIP MARKET &amp; COMPETITOR</div>
+                                                    <h4 class="mt-2 text-xl font-semibold">市场与竞对</h4>
+                                                    <p class="mt-2 text-sm leading-6 text-slate-300">用已入库的携程竞争圈经营、流量、排名和价格事件，回答“本店与竞圈差在哪里、哪些变化需要今天核对”。不把竞品库存变化推算成真实销量，不把 OTA 渠道证据扩大为全酒店事实。</p>
+                                                </div>
+                                                <div class="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-[220px_auto]">
+                                                    <label class="text-xs text-slate-300">系统门店
+                                                        <select v-model="selectedCtripHotelId" data-testid="ctrip-market-competition-hotel" :disabled="ctripCompetitiveOperationsLoading || competitorEventFeedLoading" class="mt-1 w-full rounded-lg border border-white/20 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60">
+                                                            <option value="">请选择门店</option>
+                                                            <option v-for="hotel in ctripPublicProfileHotelOptions" :key="'market-competitor-' + hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                        </select>
+                                                    </label>
+                                                    <button type="button" @click="openCtripManualTab('ctrip-public-profiles')" class="self-end rounded-lg border border-[#dcc591]/60 bg-white/5 px-4 py-2 text-sm font-medium text-[#f4e7c6] hover:bg-white/10">
+                                                        管理竞对档案
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </section>
 
                                     <section data-testid="ctrip-competitive-operations-panel" class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
@@ -936,7 +908,8 @@
                                         <div v-if="competitorEventFeed?.truncated" data-testid="ctrip-competitor-event-feed-truncated" class="mt-2 text-xs text-amber-800">仅返回最新事件，当前按部分证据处理。</div>
                                     </section>
 
-                                    <div v-if="ctripPublicProfilePayload?.scope_notice" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-500">数据边界：{{ ctripPublicProfilePayload.scope_notice }}</div>
+                                    <div class="rounded-lg border border-[#e5dcc8] bg-[#fcfaf5] px-3 py-2 text-xs leading-5 text-[#6f572f]">数据边界：仅使用已保存且质量可用的携程 OTA 证据；缺失、未验证、非同口径价格和无回读事件不进入经营判断。</div>
+                                    </div>
                                 </div>
 
                                 <!-- 流量概要 -->

@@ -236,6 +236,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
             children: [
                 { name: '今日经营工作台', path: 'compass', icon: 'fas fa-tachometer-alt', requireSuper: false, permissions: [] },
                 { name: '收益分析中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', permissions: [] },
+                { name: '运营优化台', path: 'operation-optimizer', icon: 'fas fa-sliders-h', testid: 'nav-operation-optimizer', permissions: [] },
+                { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
             ],
         },
         {
@@ -251,20 +253,16 @@ window.SUXI_SYSTEM_STATIC = (() => {
             ],
         },
         {
-            name: '运营执行',
+            name: '运营自动化中心',
             testid: 'nav-operation-execution',
             icon: 'fas fa-tasks',
             requireSuper: false,
             permissions: [],
             children: [
-                { name: '经营数据总览', path: 'ops-source', icon: 'fas fa-search' },
+                { name: 'PMS经营数据', path: 'pms-operating-data', icon: 'fas fa-database' },
+                { name: '企业微信推送', path: 'wechat-notification', icon: 'fas fa-comment-dots', requireSuper: false, permissions: ['can_fill_daily_report'] },
                 { name: '经营目标', path: 'operating-targets', icon: 'fas fa-bullseye' },
-                { name: '定时消息', path: 'manual-notifications', icon: 'fas fa-paper-plane', testid: 'nav-manual-notifications' },
-                { name: '可能影响因素分析', path: 'ops-analysis', icon: 'fas fa-microscope' },
-                { name: '风险预警', path: 'ops-insight', icon: 'fas fa-bell' },
-                { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
-                { name: '策略模拟', path: 'ops-plan', icon: 'fas fa-lightbulb' },
-                { name: '执行跟踪', path: 'ops-track', icon: 'fas fa-play-circle' },
+                { name: '任务执行与复盘', path: 'ops-track', icon: 'fas fa-play-circle' },
             ],
         },
         {
@@ -274,7 +272,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
             permissions: [],
             children: [
                 { name: '门店管理', path: 'hotels', icon: 'fas fa-hotel', configKey: 'menu_hotel_name', requireSuper: false, permissions: ['can_manage_own_hotels'] },
-                { name: '企业微信通知', path: 'wechat-notification', icon: 'fab fa-weixin', requireSuper: false, permissions: ['can_fetch_online_data'] },
                 { name: '智能知识中枢', path: 'knowledge-center', icon: 'fas fa-brain', requireManager: true, permissions: [] },
                 { name: '酒店AI工具箱', path: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true, permissions: [] },
                 {
@@ -300,6 +297,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         hotel_id: String(hotelId || ''),
         target_date: String(targetDate || ''),
         target_revenue: '',
+        target_occupancy_rate_percent: '',
+        target_revpar: '',
         actual_revenue: '',
         sold_room_nights: '',
         sellable_room_nights: '',
@@ -329,7 +328,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         '收益管理': 'revenue-management',
         '收益管理智能体总览': 'revenue-ai-overview',
         '线上数据': 'online-data',
-        '运营执行': 'operation-execution',
+        '运营自动化中心': 'operation-execution',
         '全生命周期服务': 'lifecycle',
         '全生命周期辅助': 'lifecycle',
         'P4·投决辅助': 'investment-decision',

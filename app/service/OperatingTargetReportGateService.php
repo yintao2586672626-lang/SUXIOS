@@ -14,6 +14,9 @@ namespace app\service;
 final class OperatingTargetReportGateService
 {
     public const TEST_PUSH_PURPOSE = 'operating_target_report_test_push';
+    public const TEST_HOTEL_ID = 80;
+    public const TEST_ROBOT_ID = 1;
+    public const TEST_ROBOT_NAME = '漠蓝测试';
     public const TEST_ONLY_REQUEST_STATUS = 'test_push_request_accepted_not_sent';
 
     /** @var callable|null */
@@ -21,8 +24,7 @@ final class OperatingTargetReportGateService
 
     public function __construct(
         private readonly ?WechatRobotDeliveryService $renderer = null,
-        ?callable $isolatedTestDispatcher = null,
-        private readonly ?ManualNotificationTestTargetService $testTargets = null
+        ?callable $isolatedTestDispatcher = null
     ) {
         $this->isolatedTestDispatcher = $isolatedTestDispatcher;
     }
@@ -48,9 +50,7 @@ final class OperatingTargetReportGateService
                 'status' => 'authorization_required',
                 'purpose' => self::TEST_PUSH_PURPOSE,
                 'required_preview_fingerprint' => $previewFingerprint,
-                'test_target' => $this->testTargetForHotel(
-                    (int)($operatingTargetPreview['hotel_id'] ?? 0)
-                ),
+                'test_target' => self::testTarget(),
                 'required_confirmations' => [
                     'first' => '已核对本页来源、日期、质量与正式发送门禁。',
                     'second' => '确认仅发起测试请求；本轮不读取 Webhook、不向企业微信外发。',
@@ -542,21 +542,25 @@ final class OperatingTargetReportGateService
                 'message' => '尚未明确授权测试推送。',
             ];
         }
+        if ((int)($preview['hotel_id'] ?? 0) !== self::TEST_HOTEL_ID) {
+            $blockers[] = [
+                'code' => 'test_hotel_forbidden',
+                'message' => '经营目标测试请求仅允许酒店80（敦煌漠蓝新）。',
+            ];
+        }
         if (($authorization['test_only'] ?? false) !== true) {
             $blockers[] = [
                 'code' => 'test_only_required',
                 'message' => '必须明确标记为 test_only，禁止借测试入口进入正式发送。',
             ];
         }
-        $target = $this->testTargetResolver()->resolve(
-            (int)($preview['hotel_id'] ?? 0),
-            (int)($authorization['target_robot_id'] ?? 0),
-            trim((string)($authorization['target_robot_name'] ?? ''))
-        );
-        if ($target === null) {
+        if (
+            (int)($authorization['target_robot_id'] ?? 0) !== self::TEST_ROBOT_ID
+            || trim((string)($authorization['target_robot_name'] ?? '')) !== self::TEST_ROBOT_NAME
+        ) {
             $blockers[] = [
                 'code' => 'test_robot_forbidden',
-                'message' => '经营目标测试请求仅允许当前酒店已验证并明确标记为测试群的机器人。',
+                'message' => '经营目标测试请求仅允许1号漠蓝测试机器人。',
             ];
         }
         if (($authorization['first_confirmation'] ?? false) !== true) {
@@ -619,24 +623,16 @@ final class OperatingTargetReportGateService
             && strtolower(trim((string)($preview['status'] ?? 'missing'))) !== 'missing';
     }
 
-    /** @return array<string, mixed> */
-    private function testTargetForHotel(int $hotelId): array
+    /** @return array{test_only: bool, hotel_id: int, robot_id: int, robot_name: string, delivery_attempted: bool} */
+    public static function testTarget(): array
     {
-        $target = $this->testTargetResolver()->resolve($hotelId);
         return [
             'test_only' => true,
-            'hotel_id' => $hotelId,
-            'robot_id' => (int)($target['robot_id'] ?? 0),
-            'robot_name' => (string)($target['robot_name'] ?? ''),
-            'binding_status' => (string)($target['binding_status'] ?? 'test_binding_missing'),
+            'hotel_id' => self::TEST_HOTEL_ID,
+            'robot_id' => self::TEST_ROBOT_ID,
+            'robot_name' => self::TEST_ROBOT_NAME,
             'delivery_attempted' => false,
-            'formal_group_delivery_allowed' => false,
         ];
-    }
-
-    private function testTargetResolver(): ManualNotificationTestTargetService
-    {
-        return $this->testTargets ?? new ManualNotificationTestTargetService();
     }
 
     /** @return array<string, string> */

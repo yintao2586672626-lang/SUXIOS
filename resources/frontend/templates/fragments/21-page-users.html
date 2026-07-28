@@ -194,16 +194,16 @@
 
                         <div v-if="filteredUsers.length &gt; 0" class="hidden xl:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="overflow-x-auto">
-                                <table data-testid="employee-desktop-table" class="w-full min-w-[1080px] table-fixed">
+                                <table data-testid="employee-desktop-table" class="w-full table-fixed" style="min-width: 1180px">
                                     <colgroup>
                                         <col style="width: 6%">
+                                        <col data-testid="employee-username-column" style="width: 14%">
+                                        <col style="width: 10%">
                                         <col style="width: 8%">
+                                        <col data-testid="employee-hotel-scope-column" style="width: 17%">
                                         <col style="width: 7%">
-                                        <col style="width: 7%">
-                                        <col data-testid="employee-hotel-scope-column" style="width: 20%">
-                                        <col style="width: 7%">
-                                        <col style="width: 14%">
-                                        <col data-testid="employee-actions-column" style="width: 31%">
+                                        <col style="width: 13%">
+                                        <col data-testid="employee-actions-column" style="width: 25%">
                                     </colgroup>
                                     <thead class="sticky top-0 z-10">
                                         <tr class="bg-gradient-to-b from-gray-50 to-gray-100/80">
@@ -225,8 +225,8 @@
                                     <tbody>
                                         <tr v-for="(u, index) in filteredUsers" :key="u?.id || index" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
                                             <td class="px-6 py-4 text-sm text-gray-500"><div class="flex items-center gap-2"><input v-if="user?.is_super_admin &amp;&amp; u.id !== user?.id" v-model="selectedUserIds" :value="String(u.id)" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择账号 ${u.username}`"><span>{{ userDisplaySequence(index) }}</span></div></td>
-                                            <td class="px-6 py-4 text-sm font-semibold text-gray-800">{{ u?.username || '-' }}</td>
-                                            <td class="px-6 py-4 text-sm text-gray-600">{{ u?.realname || '-' }}</td>
+                                            <td class="px-4 py-4 align-top text-sm font-semibold leading-5 text-gray-800 break-all whitespace-normal" :title="u?.username || '-'">{{ u?.username || '-' }}</td>
+                                            <td class="px-4 py-4 align-top text-sm leading-5 text-gray-600 break-words whitespace-normal" :title="u?.realname || '-'">{{ u?.realname || '-' }}</td>
                                             <td class="px-6 py-4">
                                                 <div class="space-y-1">
                                                     <span :class="userRoleBadgeClass(u)" class="inline-flex items-center px-2.5 py-0.5 rounded-full border text-xs font-medium">
@@ -249,7 +249,7 @@
                                             </td>
                                             <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{{ userLastLoginText(u) }}</td>
                                             <td class="px-6 py-4">
-                                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                                <div class="flex flex-wrap items-center gap-2">
                                                     <button v-if="u &amp;&amp; String(u?.status) !== '1' &amp;&amp; (user?.is_super_admin)" @click="activateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-xs font-medium" title="启用账号">
                                                         <i class="fas fa-check text-xs"></i>
                                                         <span>启用账号</span>

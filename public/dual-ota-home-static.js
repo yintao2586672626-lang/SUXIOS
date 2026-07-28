@@ -44,14 +44,23 @@ window.SUXI_DUAL_OTA_HOME = (() => {
         )));
     };
 
+    const hasExplicitDualOtaSelfIdentity = (row = {}) => {
+        if (row?.isSelf === false) return false;
+        const compareType = normalizeDualOtaContextValue(row?.compareType ?? row?.compare_type).toLowerCase();
+        return row?.isSelf === true || compareType === 'self';
+    };
+
     const resolveDualOtaBoundHotelRow = (rows = [], systemHotelId = '') => {
         const selectedId = normalizeDualOtaContextValue(systemHotelId);
         if (!selectedId) return null;
-        return (Array.isArray(rows) ? rows : []).find(row => [
-            row?.systemHotelId,
-            row?.system_hotel_id,
-            row?.system_hotel_id_text,
-        ].some(value => normalizeDualOtaContextValue(value) === selectedId)) || null;
+        return (Array.isArray(rows) ? rows : []).find(row => {
+            if (!hasExplicitDualOtaSelfIdentity(row)) return false;
+            return [
+                row?.systemHotelId,
+                row?.system_hotel_id,
+                row?.system_hotel_id_text,
+            ].some(value => normalizeDualOtaContextValue(value) === selectedId);
+        }) || null;
     };
 
     const isDualOtaWorkbenchRequestCurrent = (requestContext = {}, currentContext = {}) => (

@@ -56,6 +56,7 @@ trait CtripCompetitiveOperationsConcern
             return $this->success([
                 'system_hotel_id' => $systemHotelId,
                 'binding' => $service->resolveOwnHotelBinding($systemHotelId),
+                'master_data' => $service->systemHotelMasterData($systemHotelId),
                 'profiles' => $service->listProfiles($systemHotelId),
                 'profile_schema_version' => CtripPublicHotelProfileService::PROFILE_SCHEMA_VERSION,
                 'room_count_semantics' => CtripPublicHotelProfileService::ROOM_COUNT_SEMANTICS,
@@ -405,12 +406,11 @@ trait CtripCompetitiveOperationsConcern
             $scope = strtolower(trim((string)($data['scope'] ?? 'own')));
             $limit = is_numeric($data['limit'] ?? null) ? (int)$data['limit'] : 10;
             $force = filter_var($data['force'] ?? false, FILTER_VALIDATE_BOOLEAN);
-            $result = (new CtripPublicHotelProfileService())->syncForHotel(
-                $systemHotelId,
-                $scope,
-                $limit,
-                $force
-            );
+            $otaHotelId = trim((string)($data['ota_hotel_id'] ?? ''));
+            $service = new CtripPublicHotelProfileService();
+            $result = $otaHotelId !== ''
+                ? $service->syncOneForHotel($systemHotelId, $otaHotelId, $force)
+                : $service->syncForHotel($systemHotelId, $scope, $limit, $force);
 
             if (($result['status'] ?? '') === 'binding_missing') {
                 return $this->error('未找到本店携程酒店ID绑定，未发起公开页采集', 409, $result);
@@ -512,6 +512,39 @@ trait CtripCompetitiveOperationsConcern
             ]);
             return $this->error('携程公开酒店ID添加失败', 500, [
                 'reason' => 'ctrip_public_profile_add_failed',
+            ]);
+        }
+    }
+
+    public function archiveCtripPublicProfile(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $data = $this->requestData();
+            $systemHotelId = $this->ctripCompetitiveSystemHotelId($data['system_hotel_id'] ?? $data['hotel_id'] ?? null);
+            if (!$this->currentUserCanMaintainOtaConfig($systemHotelId)) {
+                return $this->error('无权归档此门店的携程竞品档案', 403);
+            }
+            $otaHotelId = trim((string)($data['ota_hotel_id'] ?? $data['ctrip_hotel_id'] ?? ''));
+            $result = (new CtripPublicHotelProfileService())->archiveCompetitor(
+                $systemHotelId,
+                $otaHotelId,
+                (int)($this->currentUser->id ?? 0)
+            );
+
+            return $this->success($result, '携程竞品档案已软归档并完成回读');
+        } catch (\InvalidArgumentException $exception) {
+            return $this->error($exception->getMessage(), 422);
+        } catch (\RuntimeException $exception) {
+            return $this->error($exception->getMessage(), 409);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('Ctrip public profile archive failed.', [
+                'exception_type' => get_debug_type($exception),
+            ]);
+            return $this->error('携程竞品档案归档失败', 500, [
+                'reason' => 'ctrip_public_profile_archive_failed',
             ]);
         }
     }

@@ -55,6 +55,11 @@ final class CtripController extends OtaController
         return $this->service()->execute(__FUNCTION__);
     }
 
+    public function archiveCtripPublicProfile(): Response
+    {
+        return $this->service()->execute(__FUNCTION__);
+    }
+
     public function fetchCtripTraffic(): Response
     {
         return $this->service()->execute(__FUNCTION__);

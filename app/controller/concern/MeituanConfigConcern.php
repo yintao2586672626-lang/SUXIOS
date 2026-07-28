@@ -95,9 +95,6 @@ trait MeituanConfigConcern
         if ($id !== '' && !$isUpdate && !$allowCreateWithProvidedId) {
             throw new \InvalidArgumentException('美团配置不存在');
         }
-        if ($id === '') {
-            $id = 'meituan_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
-        }
 
         $requestedHotelId = $this->meituanRequestedHotelId($requestData);
         if ($isUpdate) {
@@ -115,6 +112,21 @@ trait MeituanConfigConcern
                 throw new \InvalidArgumentException('请选择系统酒店');
             }
             $this->checkOtaConfigMaintenancePermission($systemHotelId);
+            if ($id === '') {
+                $primaryConfig = $this->selectExistingMeituanConfigForHotel($list, $systemHotelId);
+                $primaryConfigId = trim((string)($primaryConfig['config_id'] ?? $primaryConfig['id'] ?? ''));
+                if ($primaryConfigId !== ''
+                    && isset($list[$primaryConfigId])
+                    && is_array($list[$primaryConfigId])
+                    && $this->isOtaConfigVisibleToCurrentUser($list[$primaryConfigId])
+                    && $this->currentUserCanMaintainOtaConfigItem($list[$primaryConfigId], $systemHotelId)) {
+                    $id = $primaryConfigId;
+                    $isUpdate = true;
+                    $originalConfig = $list[$primaryConfigId];
+                } else {
+                    $id = 'meituan_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
+                }
+            }
         }
 
         $safeOriginal = $this->sanitizeSecretConfig($originalConfig);
@@ -139,10 +151,32 @@ trait MeituanConfigConcern
             throw new \InvalidArgumentException('Meituan config scope is not allowed.');
         }
         unset($requestMetadata['scope']);
-        $name = trim((string)($requestMetadata['name'] ?? $safeOriginal['name'] ?? ''));
+        $name = trim((string)($requestMetadata['name'] ?? ''));
         if ($name === '') {
-            $poi = trim((string)($requestMetadata['poi_id'] ?? $requestMetadata['poiId'] ?? $safeOriginal['poi_id'] ?? $safeOriginal['poiId'] ?? ''));
-            $name = $poi === '' ? '美团配置 ' . date('Y-m-d') : '美团' . $poi . '配置';
+            $name = trim((string)($safeOriginal['name'] ?? ''));
+        }
+        $partnerId = trim((string)$this->resolveMeituanStableConfigInput(
+            $requestMetadata,
+            $safeOriginal,
+            ['partner_id', 'partnerId']
+        ));
+        $poiId = trim((string)$this->resolveMeituanStableConfigInput(
+            $requestMetadata,
+            $safeOriginal,
+            ['poi_id', 'poiId', 'store_id', 'storeId']
+        ));
+        $hotelRoomCount = $this->resolveMeituanStableConfigInput(
+            $requestMetadata,
+            $safeOriginal,
+            ['hotel_room_count', 'hotelRoomCount']
+        );
+        $competitorRoomCount = $this->resolveMeituanStableConfigInput(
+            $requestMetadata,
+            $safeOriginal,
+            ['competitor_room_count', 'competitorRoomCount']
+        );
+        if ($name === '') {
+            $name = $poiId === '' ? '美团配置 ' . date('Y-m-d') : '美团' . $poiId . '配置';
         }
 
         $config = array_merge($safeOriginal, $requestMetadata, [
@@ -151,8 +185,10 @@ trait MeituanConfigConcern
             'name' => $name,
             'hotel_id' => (string)$systemHotelId,
             'system_hotel_id' => $systemHotelId,
-            'partner_id' => trim((string)($requestMetadata['partner_id'] ?? $requestMetadata['partnerId'] ?? $safeOriginal['partner_id'] ?? $safeOriginal['partnerId'] ?? '')),
-            'poi_id' => trim((string)($requestMetadata['poi_id'] ?? $requestMetadata['poiId'] ?? $safeOriginal['poi_id'] ?? $safeOriginal['poiId'] ?? '')),
+            'partner_id' => $partnerId,
+            'poi_id' => $poiId,
+            'hotel_room_count' => $hotelRoomCount ?? '',
+            'competitor_room_count' => $competitorRoomCount ?? '',
             'scope' => $scope,
             'update_time' => date('Y-m-d H:i:s'),
             'created_at' => $safeOriginal['created_at'] ?? date('Y-m-d H:i:s'),
@@ -183,6 +219,64 @@ trait MeituanConfigConcern
         ]);
 
         return $saved;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $list
+     * @return array<string, mixed>
+     */
+    private function selectExistingMeituanConfigForHotel(array $list, int $hotelId): array
+    {
+        $matches = [];
+        foreach ($list as $config) {
+            if (!is_array($config)
+                || $this->isMeituanCommentConfigMetadata($config)
+                || !$this->isCurrentOtaConfig($config)
+                || $this->otaConfigHasHotelBindingConflict($config)
+                || $this->otaConfigBoundSystemHotelId($config) !== $hotelId) {
+                continue;
+            }
+            $matches[] = $config;
+        }
+        if ($matches === []) {
+            return [];
+        }
+
+        $primary = $this->selectLatestSuccessfulMeituanConfig($matches);
+        if ($primary !== []) {
+            return $primary;
+        }
+        $this->sortOtaConfigsNewestFirst($matches);
+        return $matches[0] ?? [];
+    }
+
+    /**
+     * Reuse stable hotel metadata when an authorization refresh omits it.
+     * Explicit non-empty request values always win.
+     *
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $originalConfig
+     * @param array<int, string> $aliases
+     */
+    private function resolveMeituanStableConfigInput(
+        array $requestData,
+        array $originalConfig,
+        array $aliases
+    ): mixed {
+        foreach ([$requestData, $originalConfig] as $source) {
+            foreach ($aliases as $field) {
+                if (!array_key_exists($field, $source)) {
+                    continue;
+                }
+                $value = $source[$field];
+                if ($value === null || (is_string($value) && trim($value) === '')) {
+                    continue;
+                }
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     public function getMeituanConfigList(): Response

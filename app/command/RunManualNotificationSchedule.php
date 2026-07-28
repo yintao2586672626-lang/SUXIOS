@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\ManualNotificationScheduleService;
-use app\service\ManualNotificationTestTargetService;
 use app\service\WechatRobotDeliveryService;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -12,7 +11,6 @@ use think\console\Command;
 use think\console\Input;
 use think\console\Output;
 use think\console\input\Option;
-use think\facade\Db;
 
 final class RunManualNotificationSchedule extends Command
 {
@@ -22,16 +20,10 @@ final class RunManualNotificationSchedule extends Command
             ->addOption('preview', null, Option::VALUE_NONE, 'Preview due notifications without sending (default)')
             ->addOption('dispatch', null, Option::VALUE_NONE, 'Send due notifications; preview is the default')
             ->addOption('mode', null, Option::VALUE_REQUIRED, 'test|formal; identities never cross modes', 'test')
-            ->addOption('hotel-id', null, Option::VALUE_REQUIRED, 'Optional exact hotel scope for a test-only deployment')
-            ->addOption('robot-id', null, Option::VALUE_REQUIRED, 'Optional exact robot scope for a test-only deployment')
+            ->addOption('hotel-id', null, Option::VALUE_REQUIRED, 'Optional exact persisted-plan hotel scope')
+            ->addOption('robot-id', null, Option::VALUE_REQUIRED, 'Optional exact persisted-plan robot scope')
             ->addOption('at', null, Option::VALUE_REQUIRED, 'Asia/Shanghai time, YYYY-MM-DD HH:ii:ss')
-            ->addOption(
-                'limit',
-                null,
-                Option::VALUE_REQUIRED,
-                'Maximum external delivery attempts per dispatch run, 1-500',
-                '100'
-            )
+            ->addOption('limit', null, Option::VALUE_REQUIRED, 'Maximum due records to process, 1-500', '100')
             ->setDescription('Preview or explicitly dispatch due saved manual WeCom notifications.');
     }
 
@@ -54,33 +46,18 @@ final class RunManualNotificationSchedule extends Command
             return 1;
         }
         $mode = strtolower(trim((string)$input->getOption('mode')));
+        if (!in_array($mode, [
+            ManualNotificationScheduleService::MODE_TEST,
+            ManualNotificationScheduleService::MODE_FORMAL,
+        ], true)) {
+            $output->writeln('--mode must be test or formal.');
+            return 1;
+        }
         $scopeHotelId = max(0, (int)$input->getOption('hotel-id'));
         $scopeRobotId = max(0, (int)$input->getOption('robot-id'));
         if (($scopeHotelId > 0) !== ($scopeRobotId > 0)) {
             $output->writeln('--hotel-id and --robot-id must be provided together.');
             return 1;
-        }
-        if ($dispatch
-            && ($mode !== ManualNotificationScheduleService::MODE_TEST
-                || $scopeHotelId <= 0
-                || $scopeRobotId <= 0)
-        ) {
-            $output->writeln(
-                'Dispatch requires --mode=test with one explicit --hotel-id/--robot-id pair.'
-            );
-            return 1;
-        }
-        if ($scopeHotelId > 0) {
-            if ($mode !== ManualNotificationScheduleService::MODE_TEST) {
-                $output->writeln('Scoped dispatch is restricted to --mode=test.');
-                return 1;
-            }
-            try {
-                $this->assertTestOnlyScope($scopeHotelId, $scopeRobotId);
-            } catch (\Throwable $exception) {
-                $output->writeln('Test-only scope check failed: ' . mb_substr($exception->getMessage(), 0, 180, 'UTF-8'));
-                return 1;
-            }
         }
         $sender = null;
         if ($dispatch) {
@@ -96,10 +73,18 @@ final class RunManualNotificationSchedule extends Command
                 ) {
                     return [
                         'delivery_status' => 'failed',
-                        'error' => 'test_only_target_scope_mismatch',
+                        'error' => 'persisted_plan_target_scope_mismatch',
                     ];
                 }
-                return $delivery->deliverToHotel($targetHotelId, $payload, [$targetRobotId]);
+                return $delivery->deliverToPlanRobot(
+                    (int)($context['tenant_id'] ?? 0),
+                    $targetHotelId,
+                    $targetRobotId,
+                    (string)($context['robot_name'] ?? ''),
+                    (int)($context['owner_user_id'] ?? 0),
+                    (string)($context['mode'] ?? ''),
+                    $payload
+                );
             };
         }
 
@@ -132,36 +117,4 @@ final class RunManualNotificationSchedule extends Command
         }
     }
 
-    private function assertTestOnlyScope(int $hotelId, int $robotId): void
-    {
-        $robot = (new ManualNotificationTestTargetService())->resolve($hotelId, $robotId);
-        if ($robot === null) {
-            throw new \RuntimeException('verified_test_robot_identity_missing');
-        }
-        $robotName = (string)$robot['robot_name'];
-
-        $records = Db::name('manual_notifications')
-            ->where('enabled', 1)
-            ->where('schedule_status', 'schedule_enabled')
-            ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour'])
-            ->where('send_method', 'wecom_test')
-            ->where('hotel_id', $hotelId)
-            ->field('id,hotel_id,template_type,test_robot_id,test_robot_name')
-            ->select()
-            ->toArray();
-        foreach ($records as $record) {
-            if ((int)($record['hotel_id'] ?? 0) !== $hotelId
-                || (int)($record['test_robot_id'] ?? 0) !== $robotId
-                || trim((string)($record['test_robot_name'] ?? ''))
-                    !== $robotName
-                || trim((string)($record['template_type'] ?? ''))
-                    !== \app\service\ManualNotificationService::DYNAMIC_REPORT_TYPE
-            ) {
-                throw new \RuntimeException(
-                    'enabled_test_schedule_outside_verified_scope notification_id='
-                    . (int)($record['id'] ?? 0)
-                );
-            }
-        }
-    }
 }

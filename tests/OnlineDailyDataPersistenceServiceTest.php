@@ -203,6 +203,40 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         self::assertArrayNotHasKey('readback_verified_at', $withoutMigration);
     }
 
+    public function testEveryWriteRecomputesPersistenceIdentityFromFinalDestinationScope(): void
+    {
+        $columns = [
+            'persistence_identity_hash' => true,
+            'readback_verified' => true,
+            'readback_verified_at' => true,
+        ];
+        $row = [
+            'tenant_id' => 80,
+            'system_hotel_id' => 80,
+            'data_source_id' => 12,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'hotel_id' => '832085',
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-27',
+            'data_period' => 'historical_daily',
+            'snapshot_bucket' => '',
+            'dimension' => 'Ctrip:self',
+            'compare_type' => 'self',
+            'persistence_identity_hash' => str_repeat('a', 64),
+        ];
+
+        $first = OnlineDailyDataPersistenceService::resetReadbackVerification($row, $columns);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $first['persistence_identity_hash']);
+        self::assertNotSame(str_repeat('a', 64), $first['persistence_identity_hash']);
+
+        $rebound = OnlineDailyDataPersistenceService::resetReadbackVerification(
+            array_merge($row, ['tenant_id' => 81, 'system_hotel_id' => 81]),
+            $columns
+        );
+        self::assertNotSame($first['persistence_identity_hash'], $rebound['persistence_identity_hash']);
+    }
+
     public function testBusinessReadbackMustMatchIdentityAndActualMetricValuesBeforeTrust(): void
     {
         $expected = [
@@ -244,6 +278,7 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             'app/service/OnlineDailyDataPersistenceService.php',
             'app/service/PlatformNormalizedRowPersistenceService.php',
             'app/service/MeituanOnlineDataPersistenceService.php',
+            'app/service/MeituanPublicPageEvidenceService.php',
             'app/service/CtripCompetitionCirclePersistenceService.php',
             'app/controller/concern/BusinessDisplayConcern.php',
             'app/controller/concern/MeituanCapturedDataConcern.php',
@@ -272,5 +307,7 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         self::assertStringNotContainsString('markRowsReadbackVerified(', $scheduled);
         self::assertStringContainsString('normalizedRowPersistence->save(', $platformSync);
         self::assertStringContainsString("Db::name('online_daily_data')", $normalizedPersistence);
+        $cloudImport = (string)file_get_contents($root . '/app/service/CloudOtaBundleImportService.php');
+        self::assertStringContainsString('resetReadbackVerification(', $cloudImport);
     }
 }

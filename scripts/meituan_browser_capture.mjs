@@ -11,6 +11,11 @@ import {
   normalizeCaptureSections as normalizeStandardCaptureSections,
   sanitizeOtaPayloadForStorage,
 } from './lib/ota_capture_standard.mjs';
+import {
+  buildOtaEndpointDiscoveryCandidate,
+  classifyOtaEndpointDiscoveryResponse,
+  upsertOtaEndpointDiscoveryCandidate,
+} from './lib/ota_endpoint_discovery.mjs';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 import {
   buildMeituanOrderFlowReplayUrls,
@@ -94,6 +99,9 @@ const payload = {
   section_evidence: {},
   pages: [],
   responses: [],
+  unmatched_xhr_urls: [],
+  endpoint_discovery_candidates: [],
+  auto_discovered_response_count: 0,
   reviews: [],
   traffic: [],
   flowAnalysis: [],
@@ -895,39 +903,92 @@ function sanitizeObservedPageUrl(value) {
 async function captureMeituanResponse(response, target) {
     const url = response.url();
     const request = response.request();
+    const status = response.status();
+    const requestType = request.resourceType();
     const queryEvidence = requestQueryEvidence.get(request) || null;
     const requestPayload = request?.postData?.() || '';
     const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const contentType = response.headers()['content-type'] || '';
     const classified = classifyStandardOtaResponse('meituan', url, {
-      status: response.status(),
-      resourceType: response.request().resourceType(),
+      status,
+      resourceType: requestType,
       contentType,
     });
-    const section = classified.capture ? classified.section : '';
-    if (!section || !wantsSection(section)) {
+    let section = classified.capture ? classified.section : '';
+    const discoveryEligibility = section
+      ? null
+      : classifyOtaEndpointDiscoveryResponse('meituan', {
+          url,
+          status,
+          resourceType: requestType,
+          contentType,
+        });
+    if ((section && !wantsSection(section)) || (!section && !discoveryEligibility?.eligible)) {
       return;
     }
-    if (section === 'order_flow') {
-      observedOrderFlowRequestUrls.add(url);
-    }
 
-    const status = response.status();
     let body = null;
     try {
       const text = await response.text();
       body = parseResponseBody(text, contentType);
     } catch (error) {
-      const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
+      const responseEvidence = buildOtaCaptureEvidence('meituan', {
+        url,
+        section: section || 'unknown',
+        captureSource: `xhr:${section || 'unknown'}`,
+      });
       target.responses.push({
         url_hash: responseEvidence.source_url_hash || '',
         source_trace_id: responseEvidence.source_trace_id || '',
-        section,
+        section: section || 'unknown',
         status,
         error: error.message,
         ...(queryEvidence || {}),
       });
       return;
+    }
+
+    let discoveryCandidate = null;
+    let autoDiscovered = false;
+    if (!section) {
+      discoveryCandidate = buildOtaEndpointDiscoveryCandidate('meituan', {
+        url,
+        body,
+        status,
+        method: request?.method?.() || '',
+        resourceType: requestType,
+        contentType,
+        requestedSections: Array.from(captureSections),
+      });
+      if (!discoveryCandidate) {
+        return;
+      }
+      target.endpoint_discovery_candidates = upsertOtaEndpointDiscoveryCandidate(
+        target.endpoint_discovery_candidates,
+        discoveryCandidate,
+      );
+      if (
+        target.unmatched_xhr_urls.length < 100
+        && !target.unmatched_xhr_urls.some(item => item?.source_url_hash === discoveryCandidate.source_url_hash)
+      ) {
+        target.unmatched_xhr_urls.push({
+          safe_route: discoveryCandidate.safe_route,
+          source_url_hash: discoveryCandidate.source_url_hash,
+          status: discoveryCandidate.status,
+          request_type: discoveryCandidate.request_type,
+          candidate_section: discoveryCandidate.candidate_section,
+          confidence: discoveryCandidate.confidence,
+          sensitive_values_exposed: false,
+        });
+      }
+      if (!discoveryCandidate.auto_capture || !wantsSection(discoveryCandidate.candidate_section)) {
+        return;
+      }
+      section = discoveryCandidate.candidate_section;
+      autoDiscovered = true;
+    }
+    if (section === 'order_flow') {
+      observedOrderFlowRequestUrls.add(url);
     }
 
     const safeBody = sanitizeOtaPayloadForStorage(body, section);
@@ -943,12 +1004,22 @@ async function captureMeituanResponse(response, target) {
     }
     const normalizedRows = normalizeCapturedList(safeBody, section, '', requestDateEvidence);
     const rows = meituanRowsForPayloadKey(targetPayloadKey, safeBody, normalizedRows, supplementalMeta);
-    const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
+    if (autoDiscovered && rows.length === 0) {
+      return;
+    }
+    const captureSource = autoDiscovered ? `xhr:auto_discovered:${section}` : `xhr:${section}`;
+    const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource });
     target.responses.push({
       url_hash: responseEvidence.source_url_hash || '',
       source_trace_id: responseEvidence.source_trace_id || '',
       section,
       payload_key: targetPayloadKey,
+      auto_discovered: autoDiscovered,
+      ...(autoDiscovered ? {
+        discovery_confidence: discoveryCandidate.confidence,
+        discovery_reason_ids: discoveryCandidate.reason_ids,
+        safe_route: discoveryCandidate.safe_route,
+      } : {}),
       status,
       row_count: rows.length,
       request_data_date: requestDateEvidence.date || '',
@@ -959,6 +1030,12 @@ async function captureMeituanResponse(response, target) {
       data: safeBody,
       ...(queryEvidence || {}),
     });
+    if (autoDiscovered) {
+      target.auto_discovered_response_count = Math.min(
+        1000,
+        Number(target.auto_discovered_response_count || 0) + 1,
+      );
+    }
     if (!Array.isArray(target[targetPayloadKey])) {
       target[targetPayloadKey] = [];
     }
@@ -967,7 +1044,7 @@ async function captureMeituanResponse(response, target) {
       return attachOtaCaptureEvidence(row, 'meituan', {
         url,
         section,
-        captureSource: row._capture_source || `xhr:${section}`,
+        captureSource: row._capture_source || captureSource,
       });
     }));
 }
@@ -1654,6 +1731,8 @@ function summarize(data) {
     room_types: data.room_types.length,
     orders: data.orders.length,
     responses: data.responses.length,
+    endpoint_discovery_candidates: data.endpoint_discovery_candidates.length,
+    auto_discovered_responses: Number(data.auto_discovered_response_count || 0),
   };
 }
 

@@ -421,6 +421,97 @@ final class CtripPublicHotelProfileService
     }
 
     /**
+     * Return current SUXIOS hotel master values for read-only comparison.
+     *
+     * Public-page facts never overwrite these values from this read path.
+     *
+     * @return array<string,mixed>
+     */
+    public function systemHotelMasterData(int $systemHotelId): array
+    {
+        if ($systemHotelId <= 0) {
+            throw new \InvalidArgumentException('System hotel ID must be positive.');
+        }
+
+        $hotel = Db::name('hotels')->where('id', $systemHotelId)->find();
+        if (!is_array($hotel)) {
+            throw new RuntimeException('System hotel not found.');
+        }
+
+        $text = static function (mixed $value): ?string {
+            $value = trim((string)$value);
+            return $value === '' ? null : $value;
+        };
+        $positiveInt = static function (mixed $value): ?int {
+            if (!is_numeric($value)) {
+                return null;
+            }
+            $value = (int)$value;
+            return $value > 0 ? $value : null;
+        };
+
+        $roomCount = null;
+        $roomCountSource = 'missing';
+        foreach (['room_count', 'rooms_total'] as $field) {
+            $candidate = $positiveInt($hotel[$field] ?? null);
+            if ($candidate !== null) {
+                $roomCount = $candidate;
+                $roomCountSource = 'hotels';
+                break;
+            }
+        }
+        if ($roomCount === null) {
+            $roomTypeColumns = $this->tableColumns('room_types');
+            if (isset($roomTypeColumns['hotel_id'], $roomTypeColumns['room_count'])) {
+                $roomQuery = Db::name('room_types')
+                    ->where('hotel_id', $systemHotelId)
+                    ->where('room_count', '>', 0);
+                $tenantId = (int)($hotel['tenant_id'] ?? 0);
+                if (isset($roomTypeColumns['tenant_id']) && $tenantId > 0) {
+                    $roomQuery->where('tenant_id', $tenantId);
+                }
+                if (isset($roomTypeColumns['is_enabled'])) {
+                    $roomQuery->where('is_enabled', 1);
+                }
+                $configuredRoomCount = (int)$roomQuery->sum('room_count');
+                if ($configuredRoomCount > 0) {
+                    $roomCount = $configuredRoomCount;
+                    $roomCountSource = 'room_types';
+                }
+            }
+        }
+
+        $fields = [
+            'system_hotel_id' => $systemHotelId,
+            'code' => $text($hotel['code'] ?? $hotel['hotel_code'] ?? null),
+            'name' => $text($hotel['name'] ?? $hotel['hotel_name'] ?? null),
+            'city' => $text($hotel['city'] ?? null),
+            'address' => $text($hotel['address'] ?? null),
+            'physical_room_count' => $roomCount,
+        ];
+        $fieldSources = [
+            'system_hotel_id' => 'system_scope',
+            'code' => $fields['code'] === null ? 'missing' : 'hotels',
+            'name' => $fields['name'] === null ? 'missing' : 'hotels',
+            'city' => $fields['city'] === null ? 'missing' : 'hotels',
+            'address' => $fields['address'] === null ? 'missing' : 'hotels',
+            'physical_room_count' => $roomCountSource,
+        ];
+
+        return [
+            'source_scope' => 'suxios_hotel_master',
+            'readback_status' => 'readback_verified',
+            'fields' => $fields,
+            'field_sources' => $fieldSources,
+            'field_statuses' => array_map(
+                static fn(mixed $value): string => $value === null ? 'missing' : 'master',
+                $fields
+            ),
+            'scope_notice' => '宿析主档仅用于与携程公开页静态资料核对；差异只提示，不自动覆盖主档。',
+        ];
+    }
+
+    /**
      * Bind a public Ctrip hotel ID and immediately collect its static profile.
      *
      * @return array<string,mixed>
@@ -602,6 +693,199 @@ final class CtripPublicHotelProfileService
     }
 
     /**
+     * Refresh exactly one visible profile that already belongs to the selected
+     * system hotel. This prevents a crafted request from attaching a new hotel.
+     *
+     * @return array<string,mixed>
+     */
+    public function syncOneForHotel(
+        int $systemHotelId,
+        string $otaHotelId,
+        bool $force = true
+    ): array {
+        if ($systemHotelId <= 0) {
+            throw new \InvalidArgumentException('System hotel ID must be positive.');
+        }
+        $otaHotelId = self::normalizePublicHotelReference($otaHotelId);
+        if ($otaHotelId === '') {
+            throw new \InvalidArgumentException('携程公开酒店ID必须是正整数');
+        }
+
+        $hotel = Db::name('hotels')->where('id', $systemHotelId)->find();
+        if (!is_array($hotel)) {
+            throw new RuntimeException('System hotel not found.');
+        }
+        $visibleProfile = null;
+        foreach ($this->listProfiles($systemHotelId) as $profile) {
+            if (hash_equals((string)($profile['ota_hotel_id'] ?? ''), $otaHotelId)) {
+                $visibleProfile = $profile;
+                break;
+            }
+        }
+        if (!is_array($visibleProfile)) {
+            throw new RuntimeException('该携程公开档案不属于当前系统门店');
+        }
+
+        $role = strtolower(trim((string)($visibleProfile['role'] ?? '')));
+        if (!in_array($role, ['self', 'competitor'], true)) {
+            throw new RuntimeException('该携程公开档案角色不可刷新');
+        }
+        $binding = $this->resolveOwnHotelBinding($systemHotelId);
+        if ($role === 'self'
+            && !hash_equals((string)($binding['ota_hotel_id'] ?? ''), $otaHotelId)
+        ) {
+            throw new RuntimeException('本店公开档案与当前携程绑定不一致');
+        }
+
+        $cached = !$force ? $this->freshProfile($systemHotelId, $otaHotelId) : null;
+        if ($cached !== null) {
+            $cached['sync_action'] = 'cached';
+            return [
+                'status' => (string)($cached['capture_status'] ?? 'partial'),
+                'system_hotel_id' => $systemHotelId,
+                'binding' => $binding,
+                'scope' => 'selected',
+                'requested_count' => 1,
+                'fetched_count' => 0,
+                'cached_count' => 1,
+                'saved_count' => 0,
+                'failed_count' => 0,
+                'partial_count' => (string)($cached['capture_status'] ?? '') === 'partial' ? 1 : 0,
+                'profiles' => [$cached],
+                'profile_schema_version' => self::PROFILE_SCHEMA_VERSION,
+                'room_count_semantics' => self::ROOM_COUNT_SEMANTICS,
+                'scope_notice' => '仅刷新已归属当前系统门店的单家公开静态档案。',
+            ];
+        }
+
+        $profile = $this->fetchProfile($otaHotelId);
+        $profile['role'] = $role;
+        $profile['known_name'] = $role === 'self'
+            ? trim((string)($hotel['name'] ?? ''))
+            : trim((string)($visibleProfile['entity_name'] ?? $visibleProfile['fields']['name'] ?? ''));
+        $persistence = $this->persistProfile($systemHotelId, $profile, $role);
+        $profile['persistence'] = $persistence;
+        $profile['sync_action'] = 'fetched';
+        $captureStatus = (string)($profile['capture_status'] ?? 'collection_failed');
+
+        return [
+            'status' => $captureStatus,
+            'system_hotel_id' => $systemHotelId,
+            'binding' => $binding,
+            'scope' => 'selected',
+            'requested_count' => 1,
+            'fetched_count' => 1,
+            'cached_count' => 0,
+            'saved_count' => !empty($persistence['readback_verified']) ? 1 : 0,
+            'failed_count' => $captureStatus === 'collection_failed' ? 1 : 0,
+            'partial_count' => $captureStatus === 'partial' ? 1 : 0,
+            'profiles' => [$profile],
+            'profile_schema_version' => self::PROFILE_SCHEMA_VERSION,
+            'room_count_semantics' => self::ROOM_COUNT_SEMANTICS,
+            'scope_notice' => '仅刷新已归属当前系统门店的单家公开静态档案。',
+        ];
+    }
+
+    /**
+     * Soft-archive one competitor binding and its visible profile snapshots.
+     * Historical rows remain stored and the same official Ctrip ID can be
+     * reactivated later by adding it again.
+     *
+     * @return array<string,mixed>
+     */
+    public function archiveCompetitor(
+        int $systemHotelId,
+        string $otaHotelId,
+        int $actorId = 0
+    ): array {
+        if ($systemHotelId <= 0) {
+            throw new \InvalidArgumentException('System hotel ID must be positive.');
+        }
+        $otaHotelId = self::normalizePublicHotelReference($otaHotelId);
+        if ($otaHotelId === '') {
+            throw new \InvalidArgumentException('携程公开酒店ID必须是正整数');
+        }
+
+        $target = null;
+        foreach ($this->listProfiles($systemHotelId) as $profile) {
+            if (hash_equals((string)($profile['ota_hotel_id'] ?? ''), $otaHotelId)) {
+                $target = $profile;
+                break;
+            }
+        }
+        if (!is_array($target) || (string)($target['role'] ?? '') !== 'competitor') {
+            throw new RuntimeException('只能归档当前门店已保存的竞品档案');
+        }
+
+        $now = $this->now();
+        Db::transaction(function () use ($systemHotelId, $otaHotelId, $actorId, $now): void {
+            $competitorColumns = $this->tableColumns('competitor_hotel');
+            if (isset($competitorColumns['store_id'], $competitorColumns['platform'], $competitorColumns['hotel_code'])) {
+                $indexUpdate = array_intersect_key([
+                    'status' => 0,
+                    'update_time' => $now,
+                    'updated_at' => $now,
+                ], $competitorColumns);
+                if ($indexUpdate !== []) {
+                    Db::name('competitor_hotel')
+                        ->where('store_id', $systemHotelId)
+                        ->where('platform', 'xc')
+                        ->where('hotel_code', $otaHotelId)
+                        ->update($indexUpdate);
+                }
+            }
+
+            $rows = Db::name('ota_ctrip_entity_snapshots')
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('source', 'ctrip')
+                ->where('entity_type', self::ENTITY_TYPE)
+                ->where('entity_key', $otaHotelId)
+                ->select()
+                ->toArray();
+            foreach ($rows as $row) {
+                $attributes = json_decode((string)($row['attributes_json'] ?? ''), true);
+                if (!is_array($attributes) || (string)($attributes['role'] ?? '') !== 'competitor') {
+                    continue;
+                }
+                $attributes['role'] = 'archived_competitor';
+                $attributes['archived_at'] = $now;
+                if ($actorId > 0) {
+                    $attributes['archived_by'] = $actorId;
+                }
+                Db::name('ota_ctrip_entity_snapshots')
+                    ->where('id', (int)$row['id'])
+                    ->update([
+                        'attributes_json' => json_encode(
+                            $attributes,
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                        ),
+                        'update_time' => $now,
+                    ]);
+            }
+        });
+
+        $profiles = $this->listProfiles($systemHotelId);
+        $stillVisible = array_filter(
+            $profiles,
+            static fn(array $profile): bool => (string)($profile['ota_hotel_id'] ?? '') === $otaHotelId
+        );
+        if ($stillVisible !== []) {
+            throw new RuntimeException('竞品档案归档回读不一致');
+        }
+
+        return [
+            'status' => 'archived',
+            'system_hotel_id' => $systemHotelId,
+            'ota_hotel_id' => $otaHotelId,
+            'role' => 'archived_competitor',
+            'archived_at' => $now,
+            'readback_verified' => true,
+            'profiles' => $profiles,
+            'scope_notice' => '竞品已从当前对比范围软归档；历史公开档案仍保留。',
+        ];
+    }
+
+    /**
      * @return array<int,array<string,mixed>>
      */
     public function listProfiles(int $systemHotelId, bool $includeHistory = false): array
@@ -631,7 +915,11 @@ final class CtripPublicHotelProfileService
                 continue;
             }
             $attributes = $this->profileFromSnapshotRow($systemHotelId, $row);
-            if ($attributes === null || ($attributes['role'] ?? '') === 'archived_self') {
+            if ($attributes === null || in_array(
+                (string)($attributes['role'] ?? ''),
+                ['archived_self', 'archived_competitor'],
+                true
+            )) {
                 continue;
             }
             $profiles[$includeHistory ? (string)$attributes['snapshot_id'] : $otaHotelId] = $attributes;

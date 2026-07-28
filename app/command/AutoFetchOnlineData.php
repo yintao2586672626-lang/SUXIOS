@@ -5,6 +5,7 @@ namespace app\command;
 
 use app\model\User;
 use app\service\PlatformDataSyncService;
+use app\service\CloudOtaCollectionScopeService;
 use app\service\OtaFailureNotificationService;
 use app\service\OtaOrderedCollectionPlanner;
 use app\service\P0OtaFieldLoopVerifierRunner;
@@ -20,11 +21,15 @@ use think\facade\Log;
 class AutoFetchOnlineData extends Command
 {
     private const PROFILE_LOCK_STALE_SECONDS = 300;
+    private const CLOUD_SINGLE_USER_LOCAL_HOTEL_IDS = [80];
 
     /** @var array<string, mixed> */
     private array $cloudCollectorScope = [];
 
     private ?User $cloudCollectorUser = null;
+
+    /** @var array<string, mixed> */
+    private array $cloudCollectorPreflight = [];
 
     protected function configure()
     {
@@ -36,6 +41,7 @@ class AutoFetchOnlineData extends Command
             ->addOption('collector-mode', null, Option::VALUE_REQUIRED, 'Cloud collector mode; only single_user_local is supported')
             ->addOption('collector-user-id', null, Option::VALUE_REQUIRED, 'Explicit cloud collector owner user id')
             ->addOption('collector-device-id', null, Option::VALUE_REQUIRED, 'Explicit non-secret cloud collector device id')
+            ->addOption('platform-hotel-anchors', null, Option::VALUE_REQUIRED, 'Explicit source_id=platform_hotel_id pairs for scope binding')
             ->addOption('bind-cloud-scope', null, Option::VALUE_NONE, 'Preview or bind the explicit cloud collector scope without OTA requests')
             ->addOption('confirm-cloud-scope-binding', null, Option::VALUE_NONE, 'Confirm writing the explicit cloud collector binding')
             ->addOption('rotate-cloud-device-binding', null, Option::VALUE_NONE, 'Allow replacing a different existing collector device binding')
@@ -103,6 +109,15 @@ class AutoFetchOnlineData extends Command
             }
         }
 
+        $platformHotelAnchorsOption = $input->getOption('platform-hotel-anchors');
+        $platformHotelAnchors = $platformHotelAnchorsOption === null
+            ? []
+            : $this->normalizePlatformHotelAnchors((string)$platformHotelAnchorsOption);
+        if ($platformHotelAnchorsOption !== null && $platformHotelAnchors === []) {
+            $output->writeln('platform-hotel-anchors must contain source_id=platform_hotel_id pairs.');
+            return 1;
+        }
+
         $forceRerun = (bool)$input->getOption('force-rerun');
         if ($forceRerun && ($hotelId === null || $targetDate === null || $sourceIds === [])) {
             $output->writeln('force-rerun requires explicit hotel-id, target-date, and source-ids.');
@@ -126,6 +141,18 @@ class AutoFetchOnlineData extends Command
         $unbindCloudScope = (bool)$input->getOption('unbind-cloud-scope');
         $confirmCloudScopeUnbind = (bool)$input->getOption('confirm-cloud-scope-unbind');
         $validateCloudScope = (bool)$input->getOption('validate-cloud-scope');
+        if ($platformHotelAnchors !== [] && !$bindCloudScope) {
+            $output->writeln('platform-hotel-anchors requires bind-cloud-scope.');
+            return 1;
+        }
+        if ($bindCloudScope
+            && array_keys($platformHotelAnchors) !== $sourceIds
+        ) {
+            $output->writeln(
+                'bind-cloud-scope requires one explicit platform-hotel anchor for every source-id.'
+            );
+            return 1;
+        }
         $cloudCollectorEnabled = $this->truthy(getenv('SUXIOS_OTA_CLOUD_COLLECTOR'));
         if (($validateCloudScope || $bindCloudScope || $unbindCloudScope) && !$cloudCollectorEnabled) {
             $output->writeln(
@@ -191,6 +218,8 @@ class AutoFetchOnlineData extends Command
                 $output->writeln('Cloud OTA collector blocked: ' . $e->getMessage());
                 return 78;
             }
+            $this->cloudCollectorPreflight = (new CloudOtaCollectionScopeService())
+                ->evaluate($sources, $this->cloudCollectorScope);
             if ($bindCloudScope) {
                 if (!$confirmCloudScopeBinding) {
                     $output->writeln(
@@ -209,15 +238,18 @@ class AutoFetchOnlineData extends Command
                     $this->bindCloudCollectorSources(
                         $sources,
                         $this->cloudCollectorScope,
-                        $rotateCloudDeviceBinding
+                        $rotateCloudDeviceBinding,
+                        $platformHotelAnchors
                     );
-                    $this->initializeCloudCollectorScope(
+                    $sources = $this->initializeCloudCollectorScope(
                         $collectorUserId,
                         $collectorDeviceId,
                         $hotelId,
                         $sourceIds,
                         $platforms
                     );
+                    $this->cloudCollectorPreflight = (new CloudOtaCollectionScopeService())
+                        ->evaluate($sources, $this->cloudCollectorScope);
                 } catch (\Throwable $e) {
                     $output->writeln('Cloud OTA collector binding blocked: ' . $e->getMessage());
                     return 78;
@@ -271,7 +303,17 @@ class AutoFetchOnlineData extends Command
                         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
                     )
                 );
-                return 0;
+                return ($this->cloudCollectorPreflight['collection_allowed'] ?? false) ? 0 : 78;
+            }
+            if (!($this->cloudCollectorPreflight['collection_allowed'] ?? false)) {
+                $output->writeln(
+                    'SUXIOS_OTA_CLOUD_SCOPE='
+                    . json_encode(
+                        $this->cloudCollectorScopeValidationReceipt(),
+                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                    )
+                );
+                return 78;
             }
         }
         $runMode = $dailyOnly ? 'daily' : ($realtimeOnly ? 'realtime' : '');
@@ -691,6 +733,33 @@ class AutoFetchOnlineData extends Command
         return array_values($platforms);
     }
 
+    /** @return array<int, string> */
+    private function normalizePlatformHotelAnchors(string $value): array
+    {
+        $anchors = [];
+        foreach (explode(',', trim($value)) as $part) {
+            $pair = explode('=', trim($part), 2);
+            if (count($pair) !== 2
+                || !ctype_digit(trim($pair[0]))
+                || (int)trim($pair[0]) <= 0
+            ) {
+                return [];
+            }
+            $sourceId = (int)trim($pair[0]);
+            $platformHotelId = trim($pair[1]);
+            if ($platformHotelId === ''
+                || strlen($platformHotelId) > 120
+                || preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]*$/D', $platformHotelId) !== 1
+                || isset($anchors[$sourceId])
+            ) {
+                return [];
+            }
+            $anchors[$sourceId] = $platformHotelId;
+        }
+        ksort($anchors, SORT_NUMERIC);
+        return $anchors;
+    }
+
     private function normalizePositiveIntegerOption(mixed $value): ?int
     {
         $value = trim((string)$value);
@@ -702,6 +771,13 @@ class AutoFetchOnlineData extends Command
     private function validCollectorDeviceId(string $value): bool
     {
         return preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/D', $value) === 1;
+    }
+
+    /** @param array<string, mixed> $source */
+    private function cloudCollectorPlatformHotelId(array $source): string
+    {
+        $config = json_decode((string)($source['config_json'] ?? ''), true);
+        return is_array($config) ? trim((string)($config['platform_hotel_id'] ?? '')) : '';
     }
 
     /**
@@ -716,6 +792,11 @@ class AutoFetchOnlineData extends Command
         array $platforms,
         bool $requireExistingBinding = true
     ): array {
+        if (!in_array($hotelId, self::CLOUD_SINGLE_USER_LOCAL_HOTEL_IDS, true)) {
+            throw new \RuntimeException(
+                'single_user_local cloud compatibility is allowlisted only for system hotel 80.'
+            );
+        }
         $user = User::where('id', $userId)->where('status', User::STATUS_ENABLED)->find();
         if (!$user instanceof User) {
             throw new \RuntimeException('collector user is missing or disabled.');
@@ -832,10 +913,22 @@ class AutoFetchOnlineData extends Command
     private function bindCloudCollectorSources(
         array $sources,
         array $scope,
-        bool $allowDeviceRotation
+        bool $allowDeviceRotation,
+        array $platformHotelAnchors = []
     ): void {
+        $this->assertNoConflictingCloudPlatformHotelIdentity(
+            $sources,
+            $scope,
+            $platformHotelAnchors
+        );
         $boundAt = date('Y-m-d H:i:s');
-        Db::transaction(function () use ($sources, $scope, $allowDeviceRotation, $boundAt): void {
+        Db::transaction(function () use (
+            $sources,
+            $scope,
+            $allowDeviceRotation,
+            $platformHotelAnchors,
+            $boundAt
+        ): void {
             foreach ($sources as $source) {
                 $sourceId = (int)($source['id'] ?? 0);
                 $config = json_decode((string)($source['config_json'] ?? ''), true);
@@ -857,7 +950,13 @@ class AutoFetchOnlineData extends Command
                     );
                 }
 
-                $boundConfig = $this->cloudCollectorBoundSourceConfig($source, $config, $scope, $boundAt);
+                $boundConfig = $this->cloudCollectorBoundSourceConfig(
+                    $source,
+                    $config,
+                    $scope,
+                    $boundAt,
+                    (string)($platformHotelAnchors[$sourceId] ?? '')
+                );
                 Db::name('platform_data_sources')
                     ->where('id', $sourceId)
                     ->update([
@@ -869,6 +968,72 @@ class AutoFetchOnlineData extends Command
                     ]);
             }
         });
+    }
+
+    /**
+     * The canonical platform hotel identity may not be shared with another
+     * system hotel. Legacy aliases are deliberately ignored here.
+     *
+     * @param array<int, array<string, mixed>> $sources
+     * @param array<string, mixed> $scope
+     * @param array<int, string> $platformHotelAnchors
+     */
+    private function assertNoConflictingCloudPlatformHotelIdentity(
+        array $sources,
+        array $scope,
+        array $platformHotelAnchors
+    ): void {
+        $proposed = [];
+        $sourceIds = [];
+        $platforms = [];
+        foreach ($sources as $source) {
+            $sourceId = (int)($source['id'] ?? 0);
+            $platform = strtolower(trim((string)($source['platform'] ?? '')));
+            $config = json_decode((string)($source['config_json'] ?? ''), true);
+            $config = is_array($config) ? $config : [];
+            $anchor = trim((string)($platformHotelAnchors[$sourceId] ?? $config['platform_hotel_id'] ?? ''));
+            if ($sourceId <= 0 || $anchor === '') {
+                throw new \RuntimeException(
+                    'platform_hotel_id is required for every cloud collector source.'
+                );
+            }
+            $proposed[$platform . "\0" . $anchor] = [
+                'tenant_id' => (int)($scope['tenant_id'] ?? 0),
+                'hotel_id' => (int)($scope['hotel_id'] ?? 0),
+            ];
+            $sourceIds[] = $sourceId;
+            $platforms[$platform] = $platform;
+        }
+
+        $query = Db::name('platform_data_sources')
+            ->field('id,tenant_id,system_hotel_id,platform,config_json')
+            ->whereIn('platform', array_values($platforms))
+            ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
+            ->where('enabled', 1)
+            ->where('status', '<>', 'disabled');
+        if ($sourceIds !== []) {
+            $query->whereNotIn('id', $sourceIds);
+        }
+        foreach ($query->select()->toArray() as $row) {
+            $config = json_decode((string)($row['config_json'] ?? ''), true);
+            $anchor = is_array($config)
+                ? trim((string)($config['platform_hotel_id'] ?? ''))
+                : '';
+            if ($anchor === '') {
+                continue;
+            }
+            $key = strtolower(trim((string)($row['platform'] ?? ''))) . "\0" . $anchor;
+            if (!isset($proposed[$key])) {
+                continue;
+            }
+            if ((int)($row['tenant_id'] ?? 0) !== (int)$proposed[$key]['tenant_id']
+                || (int)($row['system_hotel_id'] ?? 0) !== (int)$proposed[$key]['hotel_id']
+            ) {
+                throw new \RuntimeException(
+                    'platform_hotel_id is already bound to another tenant or system hotel.'
+                );
+            }
+        }
     }
 
     /** @param array<int, array<string, mixed>> $sources */
@@ -927,8 +1092,17 @@ class AutoFetchOnlineData extends Command
         array $source,
         array $config,
         array $scope,
-        string $boundAt
+        string $boundAt,
+        string $platformHotelId = ''
     ): array {
+        $platformHotelId = trim($platformHotelId) !== ''
+            ? trim($platformHotelId)
+            : trim((string)($config['platform_hotel_id'] ?? ''));
+        if ($platformHotelId === '') {
+            throw new \RuntimeException(
+                'platform_hotel_id is required for every cloud collector source.'
+            );
+        }
         $config['source_method'] = 'single_user_local';
         $config['collector_binding_mode'] = 'single_user_local';
         $config['collector_device_id'] = (string)$scope['device_id'];
@@ -938,6 +1112,12 @@ class AutoFetchOnlineData extends Command
         $config['collector_hotel_id'] = (int)$scope['hotel_id'];
         $config['collector_platform'] = strtolower(trim((string)($source['platform'] ?? '')));
         $config['collector_bound_at'] = $boundAt;
+        $config['platform_hotel_id'] = $platformHotelId;
+        foreach (array_keys($config) as $key) {
+            if (str_starts_with((string)$key, 'current_session_')) {
+                unset($config[$key]);
+            }
+        }
         return $config;
     }
 
@@ -954,6 +1134,8 @@ class AutoFetchOnlineData extends Command
             'hotel_id' => (int)($this->cloudCollectorScope['hotel_id'] ?? 0),
             'source_ids' => array_values((array)($this->cloudCollectorScope['source_ids'] ?? [])),
             'platforms' => array_values((array)($this->cloudCollectorScope['platforms'] ?? [])),
+            'scope_status' => (string)($this->cloudCollectorPreflight['status'] ?? 'blocked'),
+            'collection_allowed' => (bool)($this->cloudCollectorPreflight['collection_allowed'] ?? false),
             'database_write_performed' => $databaseWritePerformed,
             'current_session_probe_performed' => false,
             'collection_performed' => false,
@@ -965,21 +1147,28 @@ class AutoFetchOnlineData extends Command
     /** @return array<string, mixed> */
     private function cloudCollectorScopeValidationReceipt(): array
     {
-        return [
-            'status' => 'scope_ready_for_current_session_probe',
-            'mode' => (string)($this->cloudCollectorScope['mode'] ?? ''),
-            'authorization_mode' => (string)($this->cloudCollectorScope['authorization_mode'] ?? ''),
-            'tenant_id' => (int)($this->cloudCollectorScope['tenant_id'] ?? 0),
-            'user_id' => (int)($this->cloudCollectorScope['user_id'] ?? 0),
-            'collector_device_id' => (string)($this->cloudCollectorScope['device_id'] ?? ''),
-            'hotel_id' => (int)($this->cloudCollectorScope['hotel_id'] ?? 0),
-            'source_ids' => array_values((array)($this->cloudCollectorScope['source_ids'] ?? [])),
-            'platforms' => array_values((array)($this->cloudCollectorScope['platforms'] ?? [])),
-            'current_session_probe_performed' => false,
-            'collection_performed' => false,
-            'persistence_performed' => false,
-            'sensitive_values_exposed' => false,
-        ];
+        $receipt = $this->cloudCollectorPreflight;
+        if ($receipt === []) {
+            $receipt = [
+                'status' => 'blocked',
+                'collection_allowed' => false,
+                'message' => '采集范围尚未完成预检，已阻止采集。',
+                'mode' => (string)($this->cloudCollectorScope['mode'] ?? ''),
+                'authorization_mode' => (string)($this->cloudCollectorScope['authorization_mode'] ?? ''),
+                'tenant_id' => (int)($this->cloudCollectorScope['tenant_id'] ?? 0),
+                'user_id' => (int)($this->cloudCollectorScope['user_id'] ?? 0),
+                'hotel_id' => (int)($this->cloudCollectorScope['hotel_id'] ?? 0),
+                'source_ids' => array_values((array)($this->cloudCollectorScope['source_ids'] ?? [])),
+                'platforms' => array_values((array)($this->cloudCollectorScope['platforms'] ?? [])),
+                'sources' => [],
+            ];
+        }
+        $receipt['collector_device_id'] = (string)($this->cloudCollectorScope['device_id'] ?? '');
+        $receipt['current_session_probe_performed'] = false;
+        $receipt['collection_performed'] = false;
+        $receipt['persistence_performed'] = false;
+        $receipt['sensitive_values_exposed'] = false;
+        return $receipt;
     }
 
     /** @param array<string, mixed> $source @param array<string, mixed> $scope */
@@ -1343,6 +1532,7 @@ class AutoFetchOnlineData extends Command
                             'device_id_hash' => (string)$this->cloudCollectorScope['device_id_hash'],
                             'hotel_id' => (int)$this->cloudCollectorScope['hotel_id'],
                             'platform' => $platform,
+                            'platform_hotel_id' => $this->cloudCollectorPlatformHotelId($source),
                         ],
                 ]);
             } catch (\Throwable $e) {

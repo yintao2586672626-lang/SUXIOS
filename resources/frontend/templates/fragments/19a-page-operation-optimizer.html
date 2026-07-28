@@ -1,0 +1,41 @@
+                        <div v-if="currentPage === 'operation-optimizer'" class="space-y-5" data-testid="page-operation-optimizer">
+                            <section class="rounded-2xl bg-green-900 p-5 text-white">
+                                <div class="flex flex-wrap items-end justify-between gap-5">
+                                    <h2 class="text-2xl" style="color:#fff">运营优化台<small class="ml-3 text-sm font-normal text-green-100">缺字段不补零、渠道不合并，只生成草稿任务</small></h2>
+                                    <div class="grid min-w-[440px] grid-cols-2 gap-2 rounded-xl bg-green-800 p-3">
+                                        <select v-model="operationOptimizerFilter.hotel_id" class="col-span-2 rounded-lg px-3 py-2 text-sm text-gray-800"><option value="">请选择门店</option><option v-for="hotel in operationOptimizerHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || hotel.hotel_name || ('门店 #' + hotel.id) }}</option></select>
+                                        <input v-model="operationOptimizerFilter.start_date" type="date" class="rounded-lg px-3 py-2 text-sm text-gray-800">
+                                        <input v-model="operationOptimizerFilter.end_date" type="date" class="rounded-lg px-3 py-2 text-sm text-gray-800">
+                                        <button @click="loadOperationOptimizer({ showSuccess: true })" :disabled="operationOptimizerLoading" class="col-span-2 rounded-lg bg-yellow-300 px-4 py-2 text-sm font-semibold text-green-900" data-testid="operation-optimizer-refresh"><i :class="operationOptimizerLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ operationOptimizerLoading ? '读取中' : '刷新运营建议' }}</button>
+                                    </div>
+                                </div>
+                            </section>
+                            <button v-if="operationOptimizerError" @click="loadOperationOptimizer()" class="w-full rounded-xl bg-red-50 p-4 text-sm text-red-800" data-testid="operation-optimizer-error">暂不可用：{{ operationOptimizerError }} · 重新读取</button>
+                            <template v-else-if="operationOptimizerData">
+                                <section v-for="module in [
+                                    { key: 'keyword', title: '广告关键词优化台', data: operationOptimizerData.keyword_workbench, rows: operationOptimizerKeywordRows },
+                                    { key: 'room', title: '房型产品组合经营', data: operationOptimizerData.room_product_mix, rows: operationOptimizerRoomRows }
+                                ]" :key="module.key" class="overflow-hidden rounded-xl border bg-white" :data-testid="'operation-optimizer-' + module.key">
+                                    <header class="flex justify-between border-b p-3"><b>{{ module.title }}</b><span :class="operationOptimizerStatusClass(module.data?.status)" class="rounded-full border px-2 text-xs">{{ operationOptimizerStatusText(module.data?.status) }}</span></header>
+                                    <div v-if="module.data?.reason" class="m-3 flex items-center justify-between gap-3 rounded-lg bg-yellow-50 p-3 text-xs text-yellow-900">为什么不可用：{{ module.data.reason }}<button v-if="module.data?.recovery" @click="openOperationOptimizerRecovery(module.data.recovery)" class="shrink-0 rounded bg-yellow-700 px-3 py-2 text-white" :data-testid="'operation-optimizer-' + module.key + '-recovery'">{{ module.data.recovery.action_label }}</button></div>
+                                    <article v-for="row in module.rows" :key="row.platform + ':' + (row.keyword || row.room_type)" class="grid gap-3 border-b p-4 last:border-0 lg:grid-cols-[190px_1fr_270px_120px] lg:items-center">
+                                        <div :class="row.platform === 'meituan' ? 'text-yellow-700' : 'text-blue-700'" class="text-sm">{{ row.platform_name }} · <b>{{ row.keyword || row.room_type }}</b><template v-if="row.landing_room_type"> · {{ row.landing_room_type }}</template></div>
+                                        <dl class="grid grid-cols-3 gap-1 sm:grid-cols-6"><div v-for="metric in (module.key === 'keyword' ? operationOptimizerKeywordMetrics(row) : operationOptimizerRoomMetrics(row))" :key="metric[0]" class="rounded bg-gray-50 p-2 text-center text-xs">{{ metric[0] }} <b>{{ metric[1] }}</b></div></dl>
+                                        <div :class="operationOptimizerRecommendationClass(row.recommendation?.code)" class="rounded border p-2 text-xs"><b>{{ row.recommendation?.title }}：</b>{{ row.recommendation?.reason }}</div>
+                                        <button @click="createOperationOptimizerTask(row.recommendation)" :disabled="!row.recommendation?.can_create_task || operationOptimizerCreatingActionId === row.recommendation?.id || operationOptimizerCreatedIntentId(row.recommendation?.id) &gt; 0" :class="row.recommendation?.can_create_task ? 'bg-green-800 text-white' : 'border bg-gray-50 text-gray-400'" class="rounded px-3 py-2 text-xs disabled:opacity-70">{{ operationOptimizerCreatedIntentId(row.recommendation?.id) &gt; 0 ? ('草稿 #' + operationOptimizerCreatedIntentId(row.recommendation?.id)) : (row.recommendation?.can_create_task ? '形成草稿任务' : '证据不足') }}</button>
+                                    </article>
+                                    <div v-if="!module.rows.length" class="p-6 text-center text-sm text-gray-500">没有可展示的已验证事实</div>
+                                </section>
+
+                                <section class="rounded-xl border bg-white p-4" data-testid="operation-optimizer-channel-split">
+                                    <b>同一问题，分渠道口径</b>
+                                    <div class="mt-3 grid gap-3 lg:grid-cols-2">
+                                        <article v-for="channel in operationOptimizerChannelRows" :key="channel.platform" class="rounded-lg bg-gray-50 p-3">
+                                            <b>{{ channel.platform_name }}原始口径 · {{ operationOptimizerStatusText(channel.status) }}</b>
+                                            <div class="mt-2 grid grid-cols-3 gap-2"><div v-for="question in channel.questions" :key="question.key" :title="question.definition" class="rounded bg-white p-2 text-sm">{{ question.label }} <b>{{ operationOptimizerChannelValue(question) }}</b></div></div>
+                                            <button v-if="channel.recovery" :title="channel.recovery.reason" @click="openOperationOptimizerRecovery(channel.recovery)" class="mt-2 rounded bg-yellow-700 px-2 py-1 text-xs text-white">{{ channel.recovery.action_label }}</button>
+                                        </article>
+                                    </div>
+                                </section>
+                            </template>
+                        </div>

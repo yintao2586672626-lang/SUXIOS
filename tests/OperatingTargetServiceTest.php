@@ -42,7 +42,7 @@ final class OperatingTargetServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        Db::execute('CREATE TABLE IF NOT EXISTS operating_target_daily_records (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, target_date VARCHAR(10) NOT NULL, target_revenue NUMERIC NULL, actual_revenue NUMERIC NULL, sold_room_nights INTEGER NULL, sellable_room_nights INTEGER NULL, fact_scope VARCHAR(32) NOT NULL, source_type VARCHAR(32) NOT NULL, source_reference VARCHAR(255) NULL, quality_status VARCHAR(32) NOT NULL, quality_reason VARCHAR(255) NULL, fact_captured_at DATETIME NULL, calculation_status VARCHAR(32) NOT NULL, gap_codes_json TEXT NULL, calculation_json TEXT NULL, report_status VARCHAR(32) NOT NULL, created_by INTEGER NULL, updated_by INTEGER NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL)');
+        Db::execute('CREATE TABLE IF NOT EXISTS operating_target_daily_records (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, target_date VARCHAR(10) NOT NULL, target_revenue NUMERIC NULL, target_occupancy_rate_percent NUMERIC NULL, target_revpar NUMERIC NULL, actual_revenue NUMERIC NULL, sold_room_nights INTEGER NULL, sellable_room_nights INTEGER NULL, fact_scope VARCHAR(32) NOT NULL, source_type VARCHAR(32) NOT NULL, source_reference VARCHAR(255) NULL, quality_status VARCHAR(32) NOT NULL, quality_reason VARCHAR(255) NULL, fact_captured_at DATETIME NULL, calculation_status VARCHAR(32) NOT NULL, gap_codes_json TEXT NULL, calculation_json TEXT NULL, report_status VARCHAR(32) NOT NULL, created_by INTEGER NULL, updated_by INTEGER NULL, create_time DATETIME NOT NULL, update_time DATETIME NOT NULL)');
         Db::execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_operating_target_test ON operating_target_daily_records (tenant_id, hotel_id, target_date)');
         Db::execute('CREATE TABLE IF NOT EXISTS operating_target_daily_snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT, record_id INTEGER NOT NULL, tenant_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL, target_date VARCHAR(10) NOT NULL, revision_no INTEGER NOT NULL, change_reason VARCHAR(500) NULL, snapshot_json TEXT NOT NULL, created_by INTEGER NULL, create_time DATETIME NOT NULL)');
         Db::execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_operating_target_snapshot_test ON operating_target_daily_snapshots (record_id, revision_no)');
@@ -138,6 +138,37 @@ final class OperatingTargetServiceTest extends TestCase
         self::assertSame('blocked', $saved['status']);
         self::assertNull($saved['record']['calculation']['metrics']['selling_progress_percent']);
         self::assertContains('input_inconsistent', array_column($saved['record']['calculation']['gaps'], 'code'));
+    }
+
+    public function testOccupancyAndRevparTargetsProduceTruthfulDeviations(): void
+    {
+        $saved = (new OperatingTargetService())->save(9, 80, 7, [
+            'target_date' => '2026-07-31',
+            'target_revenue' => 10000,
+            'target_occupancy_rate_percent' => 80,
+            'target_revpar' => 300,
+            'actual_revenue' => 8000,
+            'sold_room_nights' => 30,
+            'sellable_room_nights' => 40,
+            'fact_scope' => 'accommodation_room_fee',
+            'source_type' => 'pms',
+            'quality_status' => 'verified',
+        ]);
+
+        self::assertSame(80.0, $saved['record']['facts']['target_occupancy_rate_percent']);
+        self::assertSame(300.0, $saved['record']['facts']['target_revpar']);
+        self::assertSame(75.0, $saved['record']['calculation']['metrics']['actual_occupancy_rate_percent']);
+        self::assertSame(-5.0, $saved['record']['calculation']['metrics']['occupancy_gap_points']);
+        self::assertSame(200.0, $saved['record']['calculation']['metrics']['actual_revpar']);
+        self::assertSame(-100.0, $saved['record']['calculation']['metrics']['revpar_gap']);
+        self::assertContains(
+            'occupancy_target_below',
+            array_column($saved['record']['calculation']['reminders'], 'code')
+        );
+        self::assertContains(
+            'revpar_target_below',
+            array_column($saved['record']['calculation']['reminders'], 'code')
+        );
     }
 
     public function testPrefillReadsOnlySameHotelSameDateDailyReportAsUnverified(): void

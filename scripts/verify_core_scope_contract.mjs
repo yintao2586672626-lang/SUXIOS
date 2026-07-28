@@ -51,8 +51,8 @@ const menuItems = systemStatic.menuItemDefinitions || [];
 const topLevelNames = menuItems.map((item) => item.name);
 
 assertContract(
-  topLevelNames.join('|') === '经营工作台|线上数据|运营执行|系统设置',
-  `top-level navigation must be 经营工作台 / 线上数据 / 运营执行 / 系统设置, got ${topLevelNames.join(' / ') || '(empty)'}`
+  topLevelNames.join('|') === '经营工作台|线上数据|运营自动化中心|系统设置',
+  `top-level navigation must be 经营工作台 / 线上数据 / 运营自动化中心 / 系统设置, got ${topLevelNames.join(' / ') || '(empty)'}`
 );
 
 const revenueMenu = menuItems.find((item) => item.name === '经营工作台') || {};

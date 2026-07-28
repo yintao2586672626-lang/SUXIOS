@@ -19,6 +19,7 @@ final class OtaActionCatalog
             'createOtaPublicPageDiagnosisExecutionIntent',
             'addCtripPublicProfile',
             'syncCtripPublicProfiles',
+            'archiveCtripPublicProfile',
             'fetchCtripTraffic',
             'ctripLatest',
             'ctripSearchOpportunity',

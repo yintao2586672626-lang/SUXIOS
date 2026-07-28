@@ -42,9 +42,23 @@ final class BroadcastHourlyHotelMonitor extends Command
                 $testOnly
             );
             if ((bool)$input->getOption('with-visual-card')) {
-                $result['visual_card'] = (bool)$input->getOption('no-push')
-                    ? ['status' => 'skipped_no_push']
-                    : $this->sendVisualCard($hotelId, $robotId, $testOnly);
+                $primaryStatus = strtolower(trim((string)($result['status'] ?? '')));
+                $primaryDeliveryStatus = strtolower(trim((string)($result['delivery_status'] ?? '')));
+                $primaryDeliveryReady = in_array($primaryStatus, ['sent', 'partial'], true)
+                    && ($primaryDeliveryStatus === ''
+                        || in_array($primaryDeliveryStatus, ['sent', 'partial'], true));
+                if ((bool)$input->getOption('no-push')) {
+                    $result['visual_card'] = ['status' => 'skipped_no_push'];
+                } elseif ($primaryDeliveryReady) {
+                    $result['visual_card'] = $this->sendVisualCard($hotelId, $robotId, $testOnly);
+                } else {
+                    $result['visual_card'] = [
+                        'status' => 'skipped_primary_delivery_not_sent',
+                        'primary_status' => $primaryDeliveryStatus !== ''
+                            ? $primaryStatus . '/' . $primaryDeliveryStatus
+                            : $primaryStatus,
+                    ];
+                }
             }
             $output->writeln((string)json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
             return in_array((string)($result['status'] ?? ''), ['sent', 'dry_run', 'partial'], true) ? 0 : 2;

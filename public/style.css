@@ -6039,7 +6039,10 @@ aside.sidebar:not(.collapsed) {
 }
 
 .suxi-app-shell main[data-current-page="online-data"],
-.suxi-app-shell main[data-current-page="data-config"] {
+.suxi-app-shell main[data-current-page="data-config"],
+.suxi-app-shell main[data-current-page="operating-targets"],
+.suxi-app-shell main[data-current-page="manual-notifications"],
+.suxi-app-shell main[data-current-page="wechat-notification"] {
     --sx-page-accent: #0f766e;
     --sx-page-accent-dark: #115e59;
     --sx-page-accent-soft: #ccfbf1;
@@ -13510,4 +13513,530 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
         grid-column: 1 / -1;
         width: 100%;
     }
+}
+
+/* SUXIOS Ctrip public-profile comparison */
+.suxi-cpp-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 18px;
+    padding: 22px;
+    border: 1px solid #3c3324;
+    border-radius: 14px;
+    background: #06110d;
+    color: #fff;
+    box-shadow: 0 10px 28px rgba(6, 17, 13, .1);
+}
+
+.suxi-cpp-hero small {
+    color: #dcc591;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .18em;
+}
+
+.suxi-cpp-hero h4,
+.suxi-cpp-panel h5,
+.suxi-cpp-compare h5,
+.suxi-cpp-profile h6 {
+    margin: 0;
+    font-weight: 700;
+}
+
+.suxi-cpp-hero h4 {
+    margin-top: 7px;
+    font-size: 20px;
+}
+
+.suxi-cpp-hero > div:first-child > p {
+    max-width: 760px;
+    margin: 7px 0 0;
+    color: #cbd5e1;
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+.suxi-cpp-actions,
+.suxi-cpp-row-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.suxi-cpp-actions button,
+.suxi-cpp-row-actions button,
+.suxi-cpp-row-actions a,
+.suxi-cpp-section-head button,
+.suxi-cpp-error button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid #d8dee8;
+    border-radius: 8px;
+    background: #fff;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.suxi-cpp-actions button {
+    min-height: 38px;
+    padding: 8px 13px;
+    border-color: rgba(255, 255, 255, .2);
+    background: rgba(255, 255, 255, .06);
+    color: #f8fafc;
+}
+
+.suxi-cpp-actions button.is-primary {
+    border-color: #dcc591;
+    background: #dcc591;
+    color: #17201b;
+}
+
+.suxi-cpp-actions button:disabled,
+.suxi-cpp-row-actions button:disabled,
+.suxi-cpp-dark-button:disabled {
+    cursor: not-allowed;
+    opacity: .45;
+}
+
+.suxi-cpp-scope {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 9px 11px;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .05);
+    color: #cbd5e1;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.suxi-cpp-scope i {
+    margin-right: 6px;
+    color: #dcc591;
+}
+
+.suxi-cpp-panel,
+.suxi-cpp-compare {
+    padding: 18px;
+    border: 1px solid #dfe4ea;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 5px 18px rgba(15, 23, 42, .04);
+}
+
+.suxi-cpp-section-head,
+.suxi-cpp-compare-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.suxi-cpp-section-head h5,
+.suxi-cpp-compare-head h5 {
+    color: #17201b;
+    font-size: 15px;
+}
+
+.suxi-cpp-section-head h5 span {
+    margin-left: 7px;
+    color: #9a651d;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.suxi-cpp-section-head p,
+.suxi-cpp-compare-head p {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.suxi-cpp-section-head button,
+.suxi-cpp-error button {
+    flex: none;
+    padding: 7px 10px;
+}
+
+.suxi-cpp-binding {
+    flex: none;
+    padding: 5px 10px;
+    border: 1px solid #f1d6a6;
+    border-radius: 999px;
+    background: #fffbeb;
+    color: #9a651d;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.suxi-cpp-binding.is-bound {
+    border-color: #b7dfce;
+    background: #ecfdf5;
+    color: #08745f;
+}
+
+.suxi-cpp-form {
+    display: grid;
+    grid-template-columns: minmax(180px, .8fr) minmax(130px, .55fr) minmax(280px, 1.6fr) auto;
+    gap: 12px;
+    align-items: end;
+    margin-top: 16px;
+}
+
+.suxi-cpp-form label,
+.suxi-cpp-filters label {
+    display: grid;
+    gap: 5px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.suxi-cpp-form input,
+.suxi-cpp-form select,
+.suxi-cpp-filters input,
+.suxi-cpp-filters select {
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 1px solid #d8dee8;
+    border-radius: 8px;
+    background: #fff;
+    color: #1e293b;
+    font-size: 13px;
+    font-weight: 400;
+}
+
+.suxi-cpp-form input:focus,
+.suxi-cpp-form select:focus,
+.suxi-cpp-filters input:focus,
+.suxi-cpp-filters select:focus {
+    border-color: #9a7b3f;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(220, 197, 145, .22);
+}
+
+.suxi-cpp-dark-button {
+    min-height: 38px;
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 8px;
+    background: #17201b;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.suxi-cpp-dark-button i {
+    margin-right: 6px;
+}
+
+.suxi-cpp-error {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid #fecaca;
+    border-radius: 12px;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-size: 12px;
+}
+
+.suxi-cpp-error span {
+    flex: 1;
+}
+
+.suxi-cpp-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 11px;
+}
+
+.suxi-cpp-stat {
+    padding: 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+}
+
+.suxi-cpp-stat small,
+.suxi-cpp-stat b {
+    display: block;
+}
+
+.suxi-cpp-stat small {
+    font-size: 11px;
+    opacity: .72;
+}
+
+.suxi-cpp-stat b {
+    margin-top: 5px;
+    font-size: 20px;
+}
+
+.suxi-cpp-master-list,
+.suxi-cpp-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.suxi-cpp-master-list > div {
+    padding: 11px;
+    border: 1px solid #f4dfb9;
+    border-radius: 9px;
+    background: #fffbeb;
+}
+
+.suxi-cpp-master-list b,
+.suxi-cpp-master-list small {
+    display: inline-block;
+}
+
+.suxi-cpp-master-list b {
+    color: #783f13;
+    font-size: 12px;
+}
+
+.suxi-cpp-master-list small {
+    margin-left: 7px;
+    color: #a16207;
+    font-size: 10px;
+}
+
+.suxi-cpp-master-list p {
+    margin: 7px 0 0;
+    color: #475569;
+    font-size: 11px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.suxi-cpp-empty {
+    padding: 28px 16px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    color: #64748b;
+    font-size: 13px;
+    text-align: center;
+}
+
+.suxi-cpp-empty b {
+    display: block;
+    color: #1e293b;
+}
+
+.suxi-cpp-empty p {
+    margin: 5px 0 0;
+}
+
+.suxi-cpp-compare {
+    padding: 0;
+    overflow: hidden;
+}
+
+.suxi-cpp-compare-head {
+    align-items: flex-end;
+    padding: 18px;
+    border-bottom: 1px solid #eef1f5;
+}
+
+.suxi-cpp-filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) 150px;
+    gap: 8px;
+}
+
+.suxi-cpp-profile-grid {
+    margin: 0;
+    padding: 14px;
+    background: #f8fafc;
+}
+
+.suxi-cpp-profile {
+    min-width: 0;
+    padding: 15px;
+    border: 1px solid #dfe4ea;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.suxi-cpp-profile.is-self {
+    border-color: #b7dfce;
+    box-shadow: inset 3px 0 0 #0b6f62;
+}
+
+.suxi-cpp-profile header > small {
+    color: #94a3b8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+}
+
+.suxi-cpp-profile h6 {
+    margin-top: 7px;
+    color: #17201b;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+}
+
+.suxi-cpp-chips,
+.suxi-cpp-proof {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.suxi-cpp-chips span,
+.suxi-cpp-proof > span {
+    padding: 3px 7px;
+    border: 1px solid #d8dee8;
+    border-radius: 999px;
+    font-size: 10px;
+    line-height: 1.2;
+}
+
+.suxi-cpp-chips span.is-self {
+    border-color: #b7dfce;
+    background: #ecfdf5;
+    color: #08745f;
+}
+
+.suxi-cpp-chips span.is-competitor {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.suxi-cpp-proof {
+    align-items: center;
+    margin-top: 11px;
+    padding-top: 10px;
+    border-top: 1px solid #eef1f5;
+}
+
+.suxi-cpp-proof b {
+    margin-left: auto;
+    color: #334155;
+    font-size: 11px;
+}
+
+.suxi-cpp-proof > small {
+    width: 100%;
+    color: #94a3b8;
+    font-size: 10px;
+}
+
+.suxi-cpp-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 10px;
+}
+
+.suxi-cpp-metrics > div {
+    min-width: 0;
+    padding: 9px;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.suxi-cpp-metrics small,
+.suxi-cpp-metrics b,
+.suxi-cpp-metrics em {
+    display: block;
+}
+
+.suxi-cpp-metrics small {
+    color: #94a3b8;
+    font-size: 10px;
+}
+
+.suxi-cpp-metrics b {
+    margin-top: 4px;
+    color: #1e293b;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.suxi-cpp-metrics em {
+    margin-top: 3px;
+    color: #9a651d;
+    font-size: 9px;
+    font-style: normal;
+}
+
+.suxi-cpp-row-actions {
+    justify-content: flex-end;
+    margin-top: 11px;
+}
+
+.suxi-cpp-row-actions button,
+.suxi-cpp-row-actions a {
+    min-height: 29px;
+    padding: 5px 9px;
+}
+
+.suxi-cpp-compact-detail {
+    margin-top: 11px;
+    padding-top: 9px;
+    border-top: 1px solid #eef1f5;
+    color: #475569;
+    font-size: 11px;
+}
+
+.suxi-cpp-compact-detail p {
+    margin: 4px 0 0;
+    overflow-wrap: anywhere;
+}
+
+.suxi-cpp-compact-detail p.is-error {
+    padding: 8px;
+    border-radius: 7px;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+@media (max-width: 980px) {
+    .suxi-cpp-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .suxi-cpp-form .is-wide {
+        grid-column: 1 / -1;
+    }
+
+    .suxi-cpp-profile-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .suxi-cpp-hero,
+    .suxi-cpp-form,
+    .suxi-cpp-filters,
+    .suxi-cpp-master-list {
+        grid-template-columns: 1fr;
+    }
+
+    .suxi-cpp-actions,
+    .suxi-cpp-section-head,
+    .suxi-cpp-compare-head {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .suxi-cpp-actions button,
+    .suxi-cpp-dark-button {
+        width: 100%;
+    }
+
+    .suxi-cpp-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
 }

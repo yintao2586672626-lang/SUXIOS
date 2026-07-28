@@ -7,12 +7,303 @@ use think\facade\Db;
 
 final class WechatRobotDeliveryService
 {
+    private const ADMIN_NOTIFICATION_SCOPE = 'admin_shared';
+    private const ACCOUNT_NOTIFICATION_SCOPE = 'account_onboarding';
+
     /** @var callable|null */
     private $transport;
 
     public function __construct(?callable $transport = null)
     {
         $this->transport = $transport;
+    }
+
+    /**
+     * Resolve one persisted notification-plan robot without reading or
+     * returning its webhook. Formal delivery additionally requires a verified
+     * tenant/hotel relationship and an explicit supported robot scope.
+     *
+     * @return array<string, mixed>
+     */
+    public function resolvePlanRobot(
+        int $tenantId,
+        int $hotelId,
+        int $robotId,
+        string $expectedRobotName,
+        int $planOwnerUserId,
+        string $mode,
+        bool $lockForDelivery = false
+    ): array {
+        $mode = strtolower(trim($mode));
+        $expectedRobotName = trim($expectedRobotName);
+        if ($tenantId <= 0 || $hotelId <= 0 || $robotId <= 0 || $expectedRobotName === '') {
+            return ['eligible' => false, 'reason_code' => 'target_binding_missing'];
+        }
+        if (!in_array($mode, ['test', 'formal'], true)) {
+            return ['eligible' => false, 'reason_code' => 'delivery_mode_invalid'];
+        }
+        if (!$this->tableExists('competitor_wechat_robot')) {
+            return ['eligible' => false, 'reason_code' => 'robot_table_missing'];
+        }
+
+        if ($this->tableExists('hotels')) {
+            $hotel = Db::name('hotels')->where('id', $hotelId)->find();
+            if (!is_array($hotel)) {
+                return ['eligible' => false, 'reason_code' => 'hotel_scope_missing'];
+            }
+            if (array_key_exists('tenant_id', $hotel)) {
+                $persistedTenantId = (int)($hotel['tenant_id'] ?? 0);
+                if ($persistedTenantId <= 0) {
+                    return ['eligible' => false, 'reason_code' => 'hotel_tenant_scope_missing'];
+                }
+                if ($persistedTenantId !== $tenantId) {
+                    return ['eligible' => false, 'reason_code' => 'hotel_tenant_scope_mismatch'];
+                }
+            } elseif ($mode === 'formal') {
+                return ['eligible' => false, 'reason_code' => 'hotel_tenant_scope_unavailable'];
+            }
+        } elseif ($mode === 'formal') {
+            return ['eligible' => false, 'reason_code' => 'hotel_table_missing'];
+        }
+
+        $robotQuery = Db::name('competitor_wechat_robot')->where('id', $robotId);
+        if ($lockForDelivery) {
+            $robotQuery->lock(true);
+        }
+        $robot = $robotQuery->find();
+        if (!is_array($robot)
+            || (int)($robot['store_id'] ?? 0) !== $hotelId
+            || (int)($robot['status'] ?? 0) !== 1
+            || trim((string)($robot['name'] ?? '')) !== $expectedRobotName
+        ) {
+            return ['eligible' => false, 'reason_code' => 'target_robot_identity_mismatch'];
+        }
+        $robotHasTenantScope = array_key_exists('tenant_id', $robot);
+        if ($mode === 'formal' && $robotHasTenantScope) {
+            $robotTenantId = (int)($robot['tenant_id'] ?? 0);
+            if ($robotTenantId <= 0) {
+                return ['eligible' => false, 'reason_code' => 'target_robot_tenant_scope_missing'];
+            }
+            if ($robotTenantId !== $tenantId) {
+                return ['eligible' => false, 'reason_code' => 'target_robot_tenant_scope_mismatch'];
+            }
+        }
+        if ($mode === 'formal'
+            && array_key_exists('last_test_status', $robot)
+            && !in_array(
+                strtolower(trim((string)($robot['last_test_status'] ?? ''))),
+                ['success', 'sent'],
+                true
+            )
+        ) {
+            return ['eligible' => false, 'reason_code' => 'target_robot_test_required'];
+        }
+
+        $hasOwnerScope = array_key_exists('owner_user_id', $robot)
+            && array_key_exists('notification_scope', $robot);
+        if ($mode === 'formal' && !$hasOwnerScope) {
+            return ['eligible' => false, 'reason_code' => 'target_robot_scope_unavailable'];
+        }
+        $ownerUserId = (int)($robot['owner_user_id'] ?? 0);
+        $notificationScope = trim((string)($robot['notification_scope'] ?? ''));
+        if ($hasOwnerScope) {
+            $legacyShared = $notificationScope === '' && $ownerUserId === 0;
+            $adminShared = $notificationScope === self::ADMIN_NOTIFICATION_SCOPE
+                && $ownerUserId === 0;
+            $accountOwned = $notificationScope === self::ACCOUNT_NOTIFICATION_SCOPE
+                && $ownerUserId > 0
+                && $ownerUserId === $planOwnerUserId;
+            if (!$legacyShared && !$adminShared && !$accountOwned) {
+                return ['eligible' => false, 'reason_code' => 'target_robot_scope_mismatch'];
+            }
+        }
+
+        return [
+            'eligible' => true,
+            'reason_code' => 'target_robot_ready',
+            'robot_id' => $robotId,
+            'robot_name' => $expectedRobotName,
+            'tenant_id' => $robotHasTenantScope ? (int)($robot['tenant_id'] ?? 0) : null,
+            'notification_scope' => $notificationScope === ''
+                ? self::ADMIN_NOTIFICATION_SCOPE
+                : $notificationScope,
+            'owner_user_id' => $ownerUserId,
+        ];
+    }
+
+    /**
+     * Deliver only after rechecking the exact persisted plan identity.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    public function deliverToPlanRobot(
+        int $tenantId,
+        int $hotelId,
+        int $robotId,
+        string $expectedRobotName,
+        int $planOwnerUserId,
+        string $mode,
+        array $payload,
+        ?string $expectedNotificationScope = null
+    ): array {
+        return Db::transaction(function () use (
+            $tenantId,
+            $hotelId,
+            $robotId,
+            $expectedRobotName,
+            $planOwnerUserId,
+            $mode,
+            $payload,
+            $expectedNotificationScope
+        ): array {
+            $binding = $this->resolvePlanRobot(
+                $tenantId,
+                $hotelId,
+                $robotId,
+                $expectedRobotName,
+                $planOwnerUserId,
+                $mode,
+                true
+            );
+            if (($binding['eligible'] ?? false) !== true) {
+                return $this->emptyDelivery(
+                    'binding_missing',
+                    $hotelId,
+                    (string)($binding['reason_code'] ?? 'target_binding_missing')
+                );
+            }
+            if ($expectedNotificationScope !== null
+                && (string)($binding['notification_scope'] ?? '') !== $expectedNotificationScope
+            ) {
+                return $this->emptyDelivery(
+                    'binding_missing',
+                    $hotelId,
+                    'target_robot_scope_mismatch'
+                );
+            }
+            return $this->deliverToHotel($hotelId, $payload, [$robotId]) + [
+                'validated_tenant_id' => $tenantId,
+                'validated_robot_id' => $robotId,
+                'validated_delivery_mode' => $mode,
+            ];
+        });
+    }
+
+    /**
+     * Deliver a formal account-policy side effect only after locking and
+     * re-reading both the saved policy and its exact account-owned robot.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    public function deliverToAccountPolicyRobot(
+        int $policyId,
+        int $hotelId,
+        string $purpose,
+        int $expectedRobotId,
+        array $payload,
+        array $expectedPolicy = []
+    ): array {
+        $purpose = strtolower(trim($purpose));
+        $purposeConfig = [
+            'hourly_monitor' => ['robot_column' => 'robot_id', 'enabled_column' => null],
+            'visual_card' => ['robot_column' => 'robot_id', 'enabled_column' => 'visual_card_enabled'],
+            'failure_alert' => ['robot_column' => 'failure_robot_id', 'enabled_column' => 'failure_alert_enabled'],
+        ][$purpose] ?? null;
+        if ($policyId <= 0 || $hotelId <= 0 || $expectedRobotId <= 0 || !is_array($purposeConfig)) {
+            return $this->emptyDelivery('binding_missing', $hotelId, 'account_policy_target_invalid');
+        }
+        if (!$this->tableExists('account_wechat_push_policies')) {
+            return $this->emptyDelivery('binding_missing', $hotelId, 'account_policy_table_missing');
+        }
+
+        return Db::transaction(function () use (
+            $policyId,
+            $hotelId,
+            $purpose,
+            $purposeConfig,
+            $expectedRobotId,
+            $payload,
+            $expectedPolicy
+        ): array {
+            $policy = Db::name('account_wechat_push_policies')
+                ->where('id', $policyId)
+                ->lock(true)
+                ->find();
+            $robotColumn = (string)$purposeConfig['robot_column'];
+            $enabledColumn = $purposeConfig['enabled_column'] ?? null;
+            if (!is_array($policy)
+                || (int)($policy['hotel_id'] ?? 0) !== $hotelId
+                || (int)($policy['status'] ?? 0) !== 1
+                || (is_string($enabledColumn)
+                    && $enabledColumn !== ''
+                    && (int)($policy[$enabledColumn] ?? 0) !== 1)
+            ) {
+                return $this->emptyDelivery('binding_missing', $hotelId, 'account_policy_not_enabled');
+            }
+
+            $tenantId = (int)($policy['tenant_id'] ?? 0);
+            $ownerUserId = (int)($policy['owner_user_id'] ?? 0);
+            $robotId = (int)($policy[$robotColumn] ?? 0);
+            $expectedTenantId = (int)($expectedPolicy['tenant_id'] ?? 0);
+            $expectedOwnerUserId = (int)($expectedPolicy['owner_user_id'] ?? 0);
+            $expectedFrequency = strtolower(trim((string)($expectedPolicy['frequency'] ?? '')));
+            $expectedTemplateKey = strtolower(trim((string)($expectedPolicy['template_key'] ?? '')));
+            $dispatchWindow = trim((string)($expectedPolicy['dispatch_window'] ?? ''));
+            if ($tenantId <= 0
+                || $ownerUserId <= 0
+                || $robotId <= 0
+                || $robotId !== $expectedRobotId
+                || ($expectedTenantId > 0 && $tenantId !== $expectedTenantId)
+                || ($expectedOwnerUserId > 0 && $ownerUserId !== $expectedOwnerUserId)
+                || ($expectedFrequency !== ''
+                    && strtolower(trim((string)($policy['frequency'] ?? ''))) !== $expectedFrequency)
+                || ($expectedTemplateKey !== ''
+                    && strtolower(trim((string)($policy['template_key'] ?? ''))) !== $expectedTemplateKey)
+                || ($dispatchWindow !== ''
+                    && trim((string)($policy['last_dispatch_window'] ?? '')) === $dispatchWindow)
+            ) {
+                return $this->emptyDelivery('binding_missing', $hotelId, 'account_policy_scope_missing');
+            }
+
+            $robot = Db::name('competitor_wechat_robot')
+                ->where('id', $robotId)
+                ->where('store_id', $hotelId)
+                ->lock(true)
+                ->find();
+            if (!is_array($robot)) {
+                return $this->emptyDelivery('binding_missing', $hotelId, 'target_robot_identity_mismatch');
+            }
+
+            $binding = $this->resolvePlanRobot(
+                $tenantId,
+                $hotelId,
+                $robotId,
+                trim((string)($robot['name'] ?? '')),
+                $ownerUserId,
+                'formal',
+                true
+            );
+            if (($binding['eligible'] ?? false) !== true
+                || (int)($binding['owner_user_id'] ?? 0) !== $ownerUserId
+                || (string)($binding['notification_scope'] ?? '') !== self::ACCOUNT_NOTIFICATION_SCOPE
+            ) {
+                return $this->emptyDelivery(
+                    'binding_missing',
+                    $hotelId,
+                    (string)($binding['reason_code'] ?? 'target_robot_scope_mismatch')
+                );
+            }
+
+            return $this->deliverToHotel($hotelId, $payload, [$robotId]) + [
+                'validated_policy_id' => $policyId,
+                'validated_tenant_id' => $tenantId,
+                'validated_robot_id' => $robotId,
+                'validated_delivery_mode' => 'formal',
+                'validated_purpose' => $purpose,
+            ];
+        });
     }
 
     /**
@@ -39,6 +330,20 @@ final class WechatRobotDeliveryService
         )));
         if ($onlyRobotIds !== []) {
             $query->whereIn('id', $onlyRobotIds);
+        } else {
+            // Calls without explicit robot IDs are hotel-level shared sends.
+            // Account-owned bindings are reachable only through an explicitly
+            // selected robot ID after the caller has checked that account scope.
+            $query
+                ->where(function ($scopeQuery): void {
+                    $scopeQuery->whereNull('owner_user_id')
+                        ->whereOr('owner_user_id', 0);
+                })
+                ->where(function ($scopeQuery): void {
+                    $scopeQuery->whereNull('notification_scope')
+                        ->whereOr('notification_scope', '')
+                        ->whereOr('notification_scope', self::ADMIN_NOTIFICATION_SCOPE);
+                });
         }
         $robots = $query->select()->toArray();
         if ($robots === []) {
@@ -95,6 +400,9 @@ final class WechatRobotDeliveryService
             'sent_count' => $sentCount,
             'failed_count' => $failedCount,
             'failures' => $failures,
+            'response_reference' => $status === 'sent'
+                ? 'wecom:errcode=0;robots=' . $sentCount
+                : null,
         ];
     }
 
@@ -526,7 +834,8 @@ final class WechatRobotDeliveryService
             return false;
         }
         try {
-            return !empty(Db::query("SHOW TABLES LIKE '" . $table . "'"));
+            Db::query('SELECT 1 FROM `' . $table . '` WHERE 1 = 0');
+            return true;
         } catch (\Throwable) {
             return false;
         }

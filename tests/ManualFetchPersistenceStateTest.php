@@ -127,6 +127,40 @@ final class ManualFetchPersistenceStateTest extends TestCase
         self::assertStringContainsString("(int)(\$stored['readback_verified'] ?? 0) !== 1", $adsSource);
     }
 
+    public function testCtripSynchronousVerifiedReadbackResolvesScopedAuthReminder(): void
+    {
+        $source = $this->methodSource($this->harness(), 'executeCtripManualFetch');
+        $verifiedGate = strpos($source, "if (\$systemHotelId > 0 && \$persistenceState['persisted'])");
+        $resolutionCall = strpos($source, '(new OtaFailureNotificationService())->recordCollectionOutcome([');
+        $backgroundGate = strpos(
+            $source,
+            "if (\$this->isTruthyRequestValue(\$requestData['background_task'] ?? false) && \$systemHotelId)"
+        );
+
+        self::assertNotFalse($verifiedGate, 'Ctrip manual fetch must retain the verified persistence gate.');
+        self::assertNotFalse($resolutionCall, 'Synchronous Ctrip success must call the OTA reminder resolver.');
+        self::assertNotFalse($backgroundGate, 'Background notification handling must remain available.');
+        self::assertGreaterThan($verifiedGate, $resolutionCall);
+        self::assertLessThan($backgroundGate, $resolutionCall);
+
+        $resolutionSource = substr(
+            $source,
+            (int)$verifiedGate,
+            (int)$backgroundGate - (int)$verifiedGate
+        );
+        self::assertStringContainsString(
+            "if (!\$this->isTruthyRequestValue(\$requestData['background_task'] ?? false))",
+            $resolutionSource
+        );
+        self::assertStringContainsString("'hotel_id' => (int)\$systemHotelId", $resolutionSource);
+        self::assertStringContainsString("'platform' => 'ctrip'", $resolutionSource);
+        self::assertStringContainsString("'success' => true", $resolutionSource);
+        self::assertStringContainsString(
+            "'saved_count' => (int)\$persistenceState['saved_count']",
+            $resolutionSource
+        );
+    }
+
     public function testCtripTrafficReadbackHashIgnoresGeneratedFieldFactsOnly(): void
     {
         $harness = $this->harness();

@@ -2458,23 +2458,25 @@ trait OnlineDataRequestConcern
             throw new \InvalidArgumentException('临时 Cookie/API 辅助内容不能为空');
         }
 
-        $ctripHotelId = trim((string)(
-            $requestData['ctrip_hotel_id']
-            ?? $requestData['ctripHotelId']
-            ?? $requestData['ota_hotel_id']
-            ?? $requestData['otaHotelId']
-            ?? $originalConfig['ctrip_hotel_id']
-            ?? $originalConfig['ctripHotelId']
-            ?? $originalConfig['ota_hotel_id']
-            ?? $originalConfig['otaHotelId']
-            ?? ''
+        $ctripHotelId = trim((string)$this->resolveCtripStableConfigInput(
+            $requestData,
+            $originalConfig,
+            ['ctrip_hotel_id', 'ctripHotelId', 'ota_hotel_id', 'otaHotelId']
         ));
         $hotelRoomCount = $this->requiredPositiveCtripRoomCount(
-            $requestData['hotel_room_count'] ?? $requestData['hotelRoomCount'] ?? null,
+            $this->resolveCtripStableConfigInput(
+                $requestData,
+                $originalConfig,
+                ['hotel_room_count', 'hotelRoomCount']
+            ),
             '酒店实际房量'
         );
         $competitorRoomCount = $this->requiredPositiveCtripRoomCount(
-            $requestData['competitor_room_count'] ?? $requestData['competitorRoomCount'] ?? null,
+            $this->resolveCtripStableConfigInput(
+                $requestData,
+                $originalConfig,
+                ['competitor_room_count', 'competitorRoomCount']
+            ),
             '竞争圈总房量'
         );
         $captureOptions = $this->buildCtripProfileCaptureConfigOptions($requestData, $originalConfig);
@@ -2511,6 +2513,36 @@ trait OnlineDataRequestConcern
         ], $captureOptions, $secretPayload);
 
         return $this->persistCtripConfigMetadata($config, (int)$this->currentUser->id, $isUpdate);
+    }
+
+    /**
+     * Reuse stable hotel metadata when a credential refresh omits the field.
+     * Explicit non-empty request values always win; invalid values still reach
+     * the field validator instead of being hidden by stored metadata.
+     *
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $originalConfig
+     * @param array<int, string> $aliases
+     */
+    private function resolveCtripStableConfigInput(
+        array $requestData,
+        array $originalConfig,
+        array $aliases
+    ): mixed {
+        foreach ([$requestData, $originalConfig] as $source) {
+            foreach ($aliases as $field) {
+                if (!array_key_exists($field, $source)) {
+                    continue;
+                }
+                $value = $source[$field];
+                if ($value === null || (is_string($value) && trim($value) === '')) {
+                    continue;
+                }
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private function requiredPositiveCtripRoomCount(mixed $value, string $label): int

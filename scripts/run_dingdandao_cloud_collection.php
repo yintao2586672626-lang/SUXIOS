@@ -2,9 +2,8 @@
 <?php
 declare(strict_types=1);
 
-use app\service\DingdandaoCloudCollectionService;
 use app\service\DingdandaoOperatingTargetCaptureService;
-use app\service\DingdandaoOperatingTargetSyncService;
+use app\service\DingdandaoPmsIntegrationService;
 use think\App;
 use think\facade\Db;
 
@@ -42,7 +41,6 @@ if (!validDate($targetDate)
     || !preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{1,4}$#D', $cdpUrl)
     || !in_array($tokenFile, [
         '/run/credentials/suxios-dingdandao-collection.service/control-token',
-        '/run/credentials/suxios-dingdandao-notification-pipeline.service/control-token',
         '/etc/suxios-cloud-browser/control-token',
     ], true)
     || $nodeBinary !== '/usr/bin/node'
@@ -62,6 +60,16 @@ if (!is_array($hotel)
     fail('dingdandao_collection_hotel_scope_invalid');
 }
 $tenantId = (int)$hotel['tenant_id'];
+$hotelName = (string)$hotel['name'];
+$integrationService = new DingdandaoPmsIntegrationService();
+$captureExpectation = $integrationService->captureExpectation(
+    $tenantId,
+    $hotelId,
+    $hotelName
+);
+$expectedProviderHotelName = (string)$captureExpectation['expected_provider_hotel_name'];
+$expectedProviderHotelId = $captureExpectation['expected_provider_hotel_id']
+    ?? latestProviderHotelId($tenantId, $hotelId);
 
 $lockPath = '/run/suxios-dingdandao-collection/hotel-' . $hotelId . '.lock';
 if (!is_dir(dirname($lockPath))) {
@@ -79,7 +87,6 @@ if (strlen($controlToken) < 32) {
 }
 
 $collectionSessionId = null;
-$claimId = null;
 $closeOutcome = 'cancelled';
 $mainError = null;
 $result = null;
@@ -97,10 +104,7 @@ try {
     ]);
     if (($opened['status'] ?? '') !== 'collection_open'
         || ($opened['read_only_enforced'] ?? null) !== true
-        || ($opened['browser_started'] ?? null) !== false
-        || ($opened['collection_transport'] ?? '') !== 'existing_session_direct_post'
-        || ($opened['existing_session_required'] ?? null) !== true
-        || ($opened['profile_mutated'] ?? null) !== false
+        || ($opened['browser_started'] ?? null) !== true
         || (int)($opened['tenant_id'] ?? 0) !== $tenantId
         || (int)($opened['hotel_id'] ?? 0) !== $hotelId
         || (int)($opened['owner_user_id'] ?? 0) !== $ownerUserId
@@ -113,34 +117,13 @@ try {
         'cbcs_',
         'dingdandao_collection_session_invalid'
     );
-    $claimId = opaqueId(
-        (string)($opened['claim_id'] ?? ''),
-        'cct_',
-        'dingdandao_collection_claim_invalid'
-    );
-    $collectionService = new DingdandaoCloudCollectionService();
-    $collectorScope = $collectionService->trustedCollectorScope(
-        $claimId,
-        $collectionSessionId,
-        $profileId
-    );
-    $providerHotelName = trim((string)($collectorScope['provider_hotel_name'] ?? ''));
-    if ((int)($collectorScope['tenant_id'] ?? 0) !== $tenantId
-        || (int)($collectorScope['hotel_id'] ?? 0) !== $hotelId
-        || (int)($collectorScope['owner_user_id'] ?? 0) !== $ownerUserId
-        || (string)($collectorScope['target_date'] ?? '') !== $targetDate
-        || $providerHotelName === ''
-        || mb_strlen($providerHotelName) > 160
-    ) {
-        throw new RuntimeException('dingdandao_collection_claim_scope_unverified');
-    }
 
     $collector = runCollector(
         $nodeBinary,
         $root . '/scripts/dingdandao_cloud_capture.mjs',
         $cdpUrl,
         $targetDate,
-        $providerHotelName
+        $expectedProviderHotelName
     );
     if (($collector['status'] ?? '') !== 'captured_unverified'
         || !is_array($collector['capture'] ?? null)
@@ -150,21 +133,17 @@ try {
         throw new RuntimeException('dingdandao_collection_payload_invalid');
     }
     $captureInput = $collector['capture'];
-    $trustedCompletion = $collectionService->completeTrustedCapture(
-        $claimId,
-        $collectionSessionId,
-        $profileId,
-        $captureInput
+    $capture = (new DingdandaoOperatingTargetCaptureService())->save(
+        $tenantId,
+        $hotelId,
+        $ownerUserId,
+        $expectedProviderHotelName,
+        $captureInput,
+        true,
+        $expectedProviderHotelId
     );
-    $capture = is_array($trustedCompletion['capture'] ?? null)
-        ? $trustedCompletion['capture']
-        : [];
     $businessDataPersisted = true;
-    if (($trustedCompletion['data_status'] ?? '') !== 'verified'
-        || ($trustedCompletion['truth_gate_status'] ?? '')
-            !== 'waiting_for_operating_target_sync'
-        || ($trustedCompletion['formal_message_allowed'] ?? null) !== false
-        || ($capture['quality_status'] ?? '') !== 'verified'
+    if (($capture['quality_status'] ?? '') !== 'verified'
         || ($capture['capture_status'] ?? '') !== 'verified'
         || ($capture['readback_status'] ?? '') !== 'readback_verified'
         || ($capture['identity_status'] ?? '') !== 'matched'
@@ -174,56 +153,81 @@ try {
     ) {
         throw new RuntimeException('dingdandao_collection_readback_not_verified');
     }
-    $prefill = (new DingdandaoOperatingTargetCaptureService())
-        ->prefill($tenantId, $hotelId, $targetDate);
+    $prefill = $integrationService->prefill(
+        $tenantId,
+        $hotelId,
+        $ownerUserId,
+        $targetDate
+    );
     if (($prefill['status'] ?? '') !== 'verified'
         || (int)($prefill['capture']['id'] ?? 0) !== (int)$capture['id']
     ) {
         throw new RuntimeException('dingdandao_collection_prefill_readback_failed');
     }
-    $targetSync = (new DingdandaoOperatingTargetSyncService())->syncVerifiedCapture(
-        $tenantId,
-        $hotelId,
-        $ownerUserId,
-        (int)$capture['id']
-    );
-    if ((int)($targetSync['capture_id'] ?? 0) !== (int)$capture['id']
-        || (int)($targetSync['record_id'] ?? 0) <= 0
-        || (string)($targetSync['target_date'] ?? '') !== $targetDate
-        || (string)($targetSync['fact_scope'] ?? '') !== 'accommodation_room_fee'
-        || (string)($targetSync['source_type'] ?? '') !== 'pms'
-        || (string)($targetSync['quality_status'] ?? '') !== 'verified'
-    ) {
-        throw new RuntimeException('dingdandao_target_sync_readback_failed');
+    $targetSync = $integrationService
+        ->syncVerifiedCapture(
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            (int)$capture['id']
+        );
+    if (($targetSync['sync_status'] ?? '') === 'blocked') {
+        throw new RuntimeException('dingdandao_collection_target_sync_blocked');
     }
 
-    $reportSendEligible = ($targetSync['send_eligible'] ?? false) === true;
-    $closeOutcome = $reportSendEligible ? 'completed' : 'report_blocked';
+    try {
+        $push = $integrationService->dispatchVerifiedCapture(
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            $hotelName,
+            $capture,
+            'capture'
+        );
+    } catch (Throwable $pushError) {
+        $push = [
+            'delivery_status' => 'orchestration_failed',
+            'delivery_attempted' => false,
+            'error_summary' => safeReason($pushError->getMessage()),
+        ];
+    }
+    $closeOutcome = 'completed';
     $result = [
-        'status' => $reportSendEligible
-            ? 'saved_synced_and_report_ready'
-            : 'saved_synced_but_report_blocked',
+        'status' => 'saved_and_readback_verified',
         'hotel_id' => $hotelId,
         'target_date' => $targetDate,
         'capture_id' => (int)$capture['id'],
-        'operating_target_record_id' => (int)$targetSync['record_id'],
-        'operating_target_revision_no' => (int)$targetSync['revision_no'],
-        'operating_target_status' => (string)$targetSync['status'],
-        'operating_target_sync_status' => (string)$targetSync['sync_status'],
-        'report_send_eligible' => $reportSendEligible,
-        'report_gap_codes' => array_values(array_filter(array_map(
-            static fn(array $gap): string => trim((string)($gap['code'] ?? '')),
-            is_array($targetSync['gaps'] ?? null) ? $targetSync['gaps'] : []
-        ))),
         'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
         'identity_status' => 'matched',
         'reconciliation_status' => 'matched',
         'quality_status' => 'verified',
         'readback_status' => 'readback_verified',
+        'operating_target_sync' => [
+            'status' => (string)($targetSync['status'] ?? 'partial'),
+            'sync_status' => (string)($targetSync['sync_status'] ?? 'unknown'),
+            'record_id' => (int)($targetSync['record_id'] ?? 0),
+            'revision_no' => (int)($targetSync['revision_no'] ?? 0),
+            'send_eligible' => ($targetSync['send_eligible'] ?? false) === true,
+        ],
         'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
         'detail_row_count' => (int)($capture['detail_row_count'] ?? 0),
         'sensitive_values_exposed' => false,
-        'message_sent' => false,
+        'message_sent' => in_array(
+            (string)($push['delivery_status'] ?? ''),
+            ['sent', 'already_sent'],
+            true
+        ),
+        'push_orchestration' => [
+            'delivery_status' => (string)($push['delivery_status'] ?? 'blocked'),
+            'delivery_attempted' => ($push['delivery_attempted'] ?? false) === true,
+            'dispatch_id' => (int)($push['id'] ?? 0),
+            'robot_id' => (int)($push['robot_id'] ?? 0),
+            'error_summary' => $push['error_summary'] ?? null,
+            'blocker_codes' => array_values(array_filter(array_map(
+                static fn(array $blocker): string => trim((string)($blocker['code'] ?? '')),
+                array_values(array_filter((array)($push['blockers'] ?? []), 'is_array'))
+            ))),
+        ],
     ];
 } catch (Throwable $error) {
     $reason = safeReason($error->getMessage());
@@ -245,9 +249,8 @@ try {
                 'outcome' => $closeOutcome,
             ]);
             if (($closed['status'] ?? '') !== 'collection_closed'
-                || ($closed['existing_browser_closed'] ?? null) !== false
-                || ($closed['profile_mutated'] ?? null) !== false
-                || ($closed['data_status'] ?? '') !== 'unverified'
+                || ($closed['profile_sealed'] ?? null) !== true
+                || ($closed['browser_started'] ?? null) !== false
             ) {
                 throw new RuntimeException('dingdandao_collection_profile_close_unverified');
             }
@@ -299,7 +302,6 @@ function runCollector(
 ): array {
     $command = [
         $nodeBinary,
-        '--experimental-websocket',
         $script,
         '--cdp-url=' . $cdpUrl,
         '--target-date=' . $targetDate,
@@ -337,6 +339,21 @@ function runCollector(
         throw new RuntimeException('dingdandao_collector_output_invalid');
     }
     return $decoded;
+}
+
+function latestProviderHotelId(int $tenantId, int $hotelId): ?string
+{
+    $value = Db::name('dingdandao_operating_target_captures')
+        ->where('tenant_id', $tenantId)
+        ->where('hotel_id', $hotelId)
+        ->where('provider', DingdandaoOperatingTargetCaptureService::PROVIDER)
+        ->where('identity_status', 'matched')
+        ->where('quality_status', 'verified')
+        ->where('readback_status', 'readback_verified')
+        ->order('id', 'desc')
+        ->value('provider_hotel_id');
+    $value = trim((string)($value ?? ''));
+    return $value !== '' ? $value : null;
 }
 
 function positiveInt(mixed $value, string $reason): int

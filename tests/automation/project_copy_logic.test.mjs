@@ -31,6 +31,6 @@ test('project copy keeps the OTA evidence to action review logic explicit', () =
   assert.match(systemStatic, /name: '线上数据'/);
   assert.match(systemStatic, /name: '收益分析中心'/);
   assert.match(systemStatic, /name: 'AI经营日报'/);
-  assert.match(systemStatic, /name: '运营执行'/);
+  assert.match(systemStatic, /name: '运营自动化中心'/);
   assert.doesNotMatch(systemStatic, /name: 'P4·投决辅助'/);
 });

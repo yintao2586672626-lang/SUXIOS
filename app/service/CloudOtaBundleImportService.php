@@ -440,13 +440,10 @@ final class CloudOtaBundleImportService
         if ((string)($data['validation_status'] ?? '') === 'abnormal') {
             throw new RuntimeException('cloud_bundle_destination_row_validation_failed');
         }
-        if (isset($columns['readback_verified'])) {
-            $data['readback_verified'] = 0;
-        }
-        if (isset($columns['readback_verified_at'])) {
-            $data['readback_verified_at'] = null;
-        }
-        return array_intersect_key($data, $columns);
+        return OnlineDailyDataPersistenceService::resetReadbackVerification(
+            array_intersect_key($data, $columns),
+            $columns
+        );
     }
 
     /** @param array<string, mixed> $row */

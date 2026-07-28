@@ -24,7 +24,7 @@ final class CloudBrowserProfileService
     public const SESSION_EXPIRED = 'session_expired';
     public const AWAITING_RELOGIN = 'awaiting_relogin';
 
-    private const PLATFORMS = ['ctrip', 'meituan', 'dingdandao'];
+    private const PLATFORMS = ['ctrip', 'meituan', 'dingdandao', 'meituan_cloud_pms'];
     private const LOGIN_TTL_SECONDS = 900;
 
     /** @return array<string,mixed> */
@@ -220,8 +220,37 @@ final class CloudBrowserProfileService
         int $ownerUserId,
         string $targetDate
     ): array {
+        return $this->validatePmsCollectionProfile(
+            $profilePublicId,
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            $targetDate,
+            'dingdandao'
+        );
+    }
+
+    /**
+     * Shared read-only preflight for independent PMS providers. Provider
+     * differences stop at the profile/source boundary; hotel, user and date
+     * ownership gates remain identical.
+     *
+     * @return array<string,mixed>
+     */
+    public function validatePmsCollectionProfile(
+        string $profilePublicId,
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $targetDate,
+        string $platform
+    ): array {
         if ($tenantId <= 0 || $hotelId <= 0 || $ownerUserId <= 0) {
             throw new RuntimeException('cloud_browser_collection_scope_invalid');
+        }
+        $platform = $this->platform($platform);
+        if (!in_array($platform, ['dingdandao', 'meituan_cloud_pms'], true)) {
+            throw new RuntimeException('cloud_browser_collection_platform_unsupported');
         }
         $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($targetDate), new DateTimeZone('Asia/Shanghai'));
@@ -236,7 +265,7 @@ final class CloudBrowserProfileService
         if ((int)$profile['tenant_id'] !== $tenantId
             || (int)$profile['system_hotel_id'] !== $hotelId
             || (int)$profile['owner_user_id'] !== $ownerUserId
-            || strtolower((string)$profile['platform']) !== 'dingdandao'
+            || strtolower((string)$profile['platform']) !== $platform
         ) {
             throw new RuntimeException('cloud_browser_collection_scope_mismatch');
         }
@@ -270,12 +299,26 @@ final class CloudBrowserProfileService
             throw new RuntimeException('cloud_browser_collection_hotel_scope_invalid');
         }
 
+        $source = $platform === 'dingdandao'
+            ? [
+                'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+                'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+                'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
+            ]
+            : [
+                'provider' => MeituanCloudPmsCaptureService::PROVIDER,
+                'source_scope' => MeituanCloudPmsCaptureService::SOURCE_SCOPE,
+                'source_url' => MeituanCloudPmsCaptureService::SOURCE_URL,
+            ];
+
         return [
             'validated' => true,
             'collection_kind' => 'operating_target_today',
             'access_mode' => 'read_only',
-            'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
-            'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
+            'platform' => $platform,
+            'provider' => $source['provider'],
+            'source_scope' => $source['source_scope'],
+            'source_url' => $source['source_url'],
             'target_date' => $date->format('Y-m-d'),
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,

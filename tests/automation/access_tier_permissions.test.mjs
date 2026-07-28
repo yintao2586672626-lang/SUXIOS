@@ -622,6 +622,7 @@ const userDeleteActionSlice = indexHtml.slice(
   indexHtml.indexOf('// 角色操作')
 );
 assert.match(userDeleteActionSlice, /body:\s*JSON\.stringify\(\{\s*force:\s*true\s*\}\)/, 'user deletion must expose force delete for associated records');
+assert.match(userDeleteActionSlice, /closeUserDeleteModal\(true\)/, 'successful user deletion must close the modal even while the request is finalizing');
 assert.doesNotMatch(userDeleteActionSlice, /confirm\(/, 'user deletion must not use the native browser confirm dialog');
 
 assert.match(

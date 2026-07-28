@@ -28,7 +28,7 @@ final class ManualNotificationScheduleService
         ?callable $sender = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
         private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
-        private readonly ?ManualNotificationTestTargetService $testTargets = null
+        private readonly ?WechatRobotDeliveryService $deliveries = null
     ) {
         $this->sender = $sender;
     }
@@ -50,41 +50,35 @@ final class ManualNotificationScheduleService
         $limit = max(1, min(500, $limit));
         $scopeHotelId = max(0, $scopeHotelId);
         $scopeRobotId = max(0, $scopeRobotId);
-        if (($scopeHotelId > 0) !== ($scopeRobotId > 0)) {
+        if ($scopeRobotId > 0 && $scopeHotelId <= 0) {
             throw new \InvalidArgumentException('manual_notification_schedule_scope_pair_required');
-        }
-        if ($dispatch
-            && ($mode !== self::MODE_TEST || $scopeHotelId <= 0 || $scopeRobotId <= 0)
-        ) {
-            throw new \InvalidArgumentException('manual_notification_dispatch_scope_required');
         }
         $runId = $this->startRun($mode, $dispatch, $scopeHotelId, $scopeRobotId, $now);
 
         try {
-            $staleSendingOutcomeUnknownCount = $dispatch
-                ? $this->dispatchLedger()->markStaleSendingAsOutcomeUnknown(
-                    $scopeHotelId,
-                    $scopeRobotId,
-                    $now
+            $recoveredUnknownCount = $dispatch
+                ? $this->dispatchLedger()->recoverExpiredSending(
+                    $now,
+                    $mode,
+                    $scopeHotelId
                 )
                 : 0;
             $query = Db::name('manual_notifications')
                 ->where('enabled', 1)
                 ->where('schedule_status', 'schedule_enabled')
+                ->where('send_method', $mode === self::MODE_FORMAL ? 'wecom_formal' : 'wecom_test')
                 ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour'])
                 ->order('id', 'asc');
             if ($scopeHotelId > 0) {
                 $query->where('hotel_id', $scopeHotelId);
             }
-            if (!$dispatch && $scopeHotelId <= 0) {
-                $query->limit($limit);
+            if ($scopeRobotId > 0) {
+                $query->where('test_robot_id', $scopeRobotId);
             }
             $rows = $query->select()->toArray();
 
             $results = [];
             $dueCount = 0;
-            $deferredCount = 0;
-            $deliveryAttemptCount = 0;
             $sentCount = 0;
             $failedCount = 0;
             $blockedCount = 0;
@@ -93,33 +87,19 @@ final class ManualNotificationScheduleService
                 if ($window === null) {
                     continue;
                 }
-                $dueCount++;
-                if ($dispatch && $deliveryAttemptCount >= $limit) {
-                    $deferredCount++;
-                    $results[] = [
-                        'notification_id' => (int)($row['id'] ?? 0),
-                        'hotel_id' => (int)($row['hotel_id'] ?? 0),
-                        'business_date' => $now->format('Y-m-d'),
-                        'trigger_type' => (string)($row['trigger_type'] ?? ''),
-                        'dispatch_window' => $window,
-                        'mode' => $mode,
-                        'status' => 'deferred',
-                        'reason_code' => 'dispatch_run_limit_reached',
-                        'delivery_attempted' => false,
-                    ];
-                    continue;
+                if ($dueCount >= $limit) {
+                    break;
                 }
+                $dueCount++;
                 $result = $this->processDueRecord(
                     $row,
                     $window,
                     $now,
                     $dispatch,
                     $mode,
-                    $scopeRobotId
+                    $scopeRobotId,
+                    $runId
                 );
-                if (($result['delivery_attempted'] ?? false) === true) {
-                    $deliveryAttemptCount++;
-                }
                 $status = (string)($result['status'] ?? '');
                 if ($status === 'sent') {
                     $sentCount++;
@@ -131,13 +111,9 @@ final class ManualNotificationScheduleService
                 $results[] = $result;
             }
 
-            $runStatus = $failedCount > 0
+            $runStatus = $failedCount > 0 || $recoveredUnknownCount > 0
                 ? 'failed'
-                : (($blockedCount > 0
-                    || $deferredCount > 0
-                    || $staleSendingOutcomeUnknownCount > 0)
-                    ? 'blocked'
-                    : 'completed');
+                : ($blockedCount > 0 ? 'blocked' : 'completed');
             $summary = [
                 'status' => !$dispatch
                     ? 'preview'
@@ -150,15 +126,14 @@ final class ManualNotificationScheduleService
                 'observed_at' => $now->format('Y-m-d H:i:s'),
                 'candidate_count' => count($rows),
                 'due_count' => $dueCount,
-                'deferred_count' => $deferredCount,
-                'delivery_attempt_count' => $deliveryAttemptCount,
                 'sent_count' => $sentCount,
                 'failed_count' => $failedCount,
                 'blocked_count' => $blockedCount,
-                'stale_sending_outcome_unknown_count' => $staleSendingOutcomeUnknownCount,
+                'recovered_unknown_count' => $recoveredUnknownCount,
                 'schedule_run_id' => $runId,
                 'results' => $results,
             ];
+            $this->recordScopeObservations($runId, $rows, $results, $mode, $dispatch, $now);
             $this->finishRun($runId, $runStatus, $summary, $now);
             return $summary;
         } catch (\Throwable $exception) {
@@ -177,7 +152,8 @@ final class ManualNotificationScheduleService
         DateTimeImmutable $now,
         bool $dispatch,
         string $mode,
-        int $scopeRobotId
+        int $scopeRobotId,
+        ?int $scheduleRunId
     ): array {
         $notificationId = (int)($row['id'] ?? 0);
         $hotelId = (int)($row['hotel_id'] ?? 0);
@@ -190,6 +166,7 @@ final class ManualNotificationScheduleService
             'trigger_type' => (string)($row['trigger_type'] ?? ''),
             'dispatch_window' => $window,
             'mode' => $mode,
+            'schedule_run_id' => $scheduleRunId,
         ];
 
         $identity = $this->resolveTargetIdentity($row, $mode);
@@ -205,7 +182,7 @@ final class ManualNotificationScheduleService
         $candidate = $this->deliveryCandidate(
             $row,
             $businessDate,
-            $mode === self::MODE_TEST ? 'scheduled_test' : 'scheduled_test'
+            $mode
         );
         if (!$dispatch) {
             if (($identity['eligible'] ?? false) !== true) {
@@ -236,7 +213,7 @@ final class ManualNotificationScheduleService
         $blockedMessage = null;
         if (($identity['eligible'] ?? false) !== true) {
             $blockedReason = (string)($identity['reason_code'] ?? 'target_binding_missing');
-            $blockedMessage = '测试群机器人身份或酒店绑定未通过校验。';
+            $blockedMessage = '企业微信机器人身份、作用域或酒店归属未通过校验。';
         } elseif (($candidate['status'] ?? '') !== 'ready' || !is_array($candidate['payload'] ?? null)) {
             $blockedReason = (string)($candidate['reason_code'] ?? 'report_gate_blocked');
             $blockedMessage = $this->candidateBlockerMessage($candidate);
@@ -245,15 +222,8 @@ final class ManualNotificationScheduleService
             $blockedMessage = '云端调度未注入真实发送器。';
         }
 
-        $configuredRobotId = (int)($row['test_robot_id'] ?? 0);
-        $robotId = (int)(
-            $identity['robot_id']
-            ?? ($configuredRobotId > 0 ? $configuredRobotId : $scopeRobotId)
-        );
+        $robotId = (int)($identity['robot_id'] ?? $row['test_robot_id'] ?? 0);
         $robotName = trim((string)($identity['robot_name'] ?? $row['test_robot_name'] ?? ''));
-        if ($robotId <= 0) {
-            throw new \RuntimeException('manual_notification_dispatch_robot_identity_missing');
-        }
         $claim = $this->dispatchLedger()->claim(
             $notificationId,
             $tenantId,
@@ -269,31 +239,27 @@ final class ManualNotificationScheduleService
             $now,
             $blockedReason === null ? 'claimed' : 'blocked',
             $blockedReason ?? 'dispatch_claimed',
-            $blockedMessage
+            $blockedMessage,
+            $scheduleRunId
         );
         $claimedDispatch = $claim['dispatch'];
         if ($claim['claimed'] === false) {
             $existingStatus = (string)($claimedDispatch['status'] ?? 'unknown');
-            if ($existingStatus !== 'sent') {
+            if (in_array($existingStatus, ['failed', 'outcome_unknown', 'blocked'], true)) {
                 return $base + [
-                    'status' => in_array(
-                        $existingStatus,
-                        ['failed', 'outcome_unknown'],
-                        true
-                    ) ? $existingStatus : 'blocked',
-                    'reason_code' => (string)(
-                        $claimedDispatch['result_code']
-                        ?? ('dispatch_status_' . $existingStatus)
-                    ),
+                    'status' => $existingStatus,
+                    'reason_code' => (string)($claimedDispatch['result_code'] ?? ('dispatch_status_' . $existingStatus)),
                     'dispatch_id' => (int)$claimedDispatch['id'],
                     'existing_status' => $existingStatus,
+                    'delivery_attempted' => false,
                 ];
             }
             return $base + [
                 'status' => 'skipped',
                 'reason_code' => 'dispatch_window_already_claimed',
                 'dispatch_id' => (int)$claimedDispatch['id'],
-                'existing_status' => (string)$claimedDispatch['status'],
+                'existing_status' => $existingStatus,
+                'delivery_attempted' => false,
             ];
         }
         if ($blockedReason !== null) {
@@ -332,6 +298,9 @@ final class ManualNotificationScheduleService
                     'business_date' => $businessDate,
                     'mode' => $mode,
                     'request_kind' => 'scheduled',
+                    'tenant_id' => $tenantId,
+                    'robot_name' => $robotName,
+                    'owner_user_id' => (int)($row['created_by'] ?? 0),
                 ]
             );
             $delivery = is_array($delivery) ? $delivery : [];
@@ -395,60 +364,62 @@ final class ManualNotificationScheduleService
      */
     private function resolveTargetIdentity(array $row, string $mode): array
     {
+        $tenantId = (int)($row['tenant_id'] ?? 0);
         $hotelId = (int)($row['hotel_id'] ?? 0);
         $sendMethod = trim((string)($row['send_method'] ?? ''));
-        if ($mode === self::MODE_TEST) {
-            if ($sendMethod !== 'wecom_test') {
-                return ['eligible' => false, 'reason_code' => 'test_mode_send_method_mismatch'];
-            }
-            $robotId = (int)($row['test_robot_id'] ?? 0);
-            $robotName = trim((string)($row['test_robot_name'] ?? ''));
-            if ($robotId <= 0 || $robotName === '') {
-                return ['eligible' => false, 'reason_code' => 'test_target_binding_missing'];
-            }
-        } else {
-            return ['eligible' => false, 'reason_code' => 'formal_delivery_not_authorized'];
+        $expectedSendMethod = $mode === self::MODE_FORMAL ? 'wecom_formal' : 'wecom_test';
+        if ($sendMethod !== $expectedSendMethod) {
+            return [
+                'eligible' => false,
+                'reason_code' => $mode === self::MODE_FORMAL
+                    ? 'formal_mode_send_method_mismatch'
+                    : 'test_mode_send_method_mismatch',
+            ];
         }
-        $target = $this->testTargetResolver()->resolve($hotelId, $robotId, $robotName);
-        if ($target === null) {
-            return ['eligible' => false, 'reason_code' => 'target_robot_identity_mismatch'];
+        $robotId = (int)($row['test_robot_id'] ?? 0);
+        $robotName = trim((string)($row['test_robot_name'] ?? ''));
+        if ($robotId <= 0 || $robotName === '') {
+            return ['eligible' => false, 'reason_code' => 'target_binding_missing'];
         }
-        return [
-            'eligible' => true,
-            'robot_id' => (int)$target['robot_id'],
-            'robot_name' => (string)$target['robot_name'],
-        ];
-    }
-
-    private function testTargetResolver(): ManualNotificationTestTargetService
-    {
-        return $this->testTargets ?? new ManualNotificationTestTargetService();
+        return $this->deliveryService()->resolvePlanRobot(
+            $tenantId,
+            $hotelId,
+            $robotId,
+            $robotName,
+            (int)($row['created_by'] ?? 0),
+            $mode
+        );
     }
 
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private function deliveryCandidate(
         array $row,
         string $businessDate,
-        string $deliveryMode
+        string $mode
     ): array {
         $hotelId = (int)($row['hotel_id'] ?? 0);
         $tenantId = (int)($row['tenant_id'] ?? 0);
         $hotelName = $this->hotelName($hotelId);
-        if ((string)($row['template_type'] ?? '') === ManualNotificationService::DYNAMIC_REPORT_TYPE) {
-            return $this->targetPayloads()->build(
+        if (ManualNotificationService::isDynamicReportType(
+            (string)($row['template_type'] ?? '')
+        )) {
+            $candidate = $this->targetPayloads()->build(
                 $tenantId,
                 $hotelId,
                 $hotelName,
                 $businessDate,
-                $deliveryMode
+                'scheduled_test'
             );
+            return $mode === self::MODE_FORMAL
+                ? $this->formalizeDynamicCandidate($candidate)
+                : $candidate;
         }
-        $payload = $this->buildStaticPayload($row, $businessDate, $hotelName);
+        $payload = $this->buildStaticPayload($row, $businessDate, $hotelName, $mode);
         return [
             'status' => 'ready',
             'reason_code' => 'static_notification_ready',
             'business_date' => $businessDate,
-            'preview_fingerprint' => hash('sha256', $this->json($payload)),
+            'payload_fingerprint' => hash('sha256', $this->json($payload)),
             'operating_target_record_id' => 0,
             'snapshot_revision_no' => 0,
             'formal_send_gate' => null,
@@ -456,12 +427,41 @@ final class ManualNotificationScheduleService
         ];
     }
 
+    /** @param array<string, mixed> $candidate @return array<string, mixed> */
+    private function formalizeDynamicCandidate(array $candidate): array
+    {
+        if (!is_array($candidate['payload'] ?? null)) {
+            return $candidate;
+        }
+        $payload = $candidate['payload'];
+        $content = (string)($payload['markdown']['content'] ?? '');
+        $content = str_replace(
+            [
+                '> 当前模式：企业微信测试群定时真实投递',
+                '> 正式发送门禁：允许（仍需另行取得正式发送授权）',
+            ],
+            [
+                '> 当前模式：企业微信正式群定时真实投递',
+                '> 正式发送门禁：已通过，且本次由持久化正式计划授权',
+            ],
+            $content
+        );
+        $payload['markdown']['content'] = $content;
+        $candidate['payload'] = $payload;
+        $candidate['payload_fingerprint'] = hash('sha256', $this->json($payload));
+        return $candidate;
+    }
+
     /**
      * @param array<string, mixed> $row
      * @return array{msgtype:string,markdown:array{content:string}}
      */
-    private function buildStaticPayload(array $row, string $businessDate, string $hotelName): array
-    {
+    private function buildStaticPayload(
+        array $row,
+        string $businessDate,
+        string $hotelName,
+        string $mode
+    ): array {
         $variables = [
             '{酒店名称}' => $hotelName,
             '{经营日期}' => $businessDate,
@@ -470,17 +470,23 @@ final class ManualNotificationScheduleService
         ];
         $title = strtr(trim((string)($row['title'] ?? '')), $variables);
         $body = strtr(trim((string)($row['body'] ?? '')), $variables);
+        $modeLabel = $mode === self::MODE_FORMAL
+            ? '企业微信正式群定时真实投递'
+            : '企业微信测试群定时真实投递';
+        $scopeNote = $mode === self::MODE_FORMAL
+            ? '本次仅发送已保存正文；调度层未补写或推导业务事实。'
+            : '未取得的数据未使用0或旧日数据补齐；本次仅发送测试群。';
         return [
             'msgtype' => 'markdown',
             'markdown' => ['content' => implode("\n", [
                 '# 宿析OS｜' . $this->safeText($title, 120),
-                '> 调度模式：企业微信测试群定时真实投递',
+                '> 调度模式：' . $modeLabel,
                 '> 酒店：' . $this->safeText($hotelName, 80) . '（ID ' . (int)$row['hotel_id'] . '）',
                 '> 业务日期：' . $businessDate,
                 '',
                 $this->safeMultiline($body, 5000),
                 '',
-                '> 未取得的数据未使用0或旧日数据补齐；正式群未授权。',
+                '> ' . $scopeNote,
             ])],
         ];
     }
@@ -519,11 +525,10 @@ final class ManualNotificationScheduleService
             return null;
         }
         $timestamp = $now->format('Y-m-d H:i:s');
-        $id = (int)Db::name('manual_notification_schedule_runs')->insertGetId([
+        $values = [
             'runner_mode' => $mode,
             'dispatch_requested' => $dispatch ? 1 : 0,
             'scope_hotel_id' => $scopeHotelId > 0 ? $scopeHotelId : null,
-            'scope_robot_id' => $scopeRobotId > 0 ? $scopeRobotId : null,
             'observed_at' => $timestamp,
             'status' => 'running',
             'candidate_count' => 0,
@@ -536,7 +541,17 @@ final class ManualNotificationScheduleService
             'finished_at' => null,
             'create_time' => $timestamp,
             'update_time' => $timestamp,
-        ]);
+        ];
+        if ($this->tableHasColumn('manual_notification_schedule_runs', 'scope_robot_id')) {
+            $values['scope_robot_id'] = $scopeRobotId > 0 ? $scopeRobotId : null;
+        }
+        if ($this->tableHasColumn('manual_notification_schedule_runs', 'scope_tenant_id')) {
+            $scopeTenantId = $scopeHotelId > 0 && $this->tableExists('hotels')
+                ? (int)(Db::name('hotels')->where('id', $scopeHotelId)->value('tenant_id') ?? 0)
+                : 0;
+            $values['scope_tenant_id'] = $scopeTenantId > 0 ? $scopeTenantId : null;
+        }
+        $id = (int)Db::name('manual_notification_schedule_runs')->insertGetId($values);
         return $id > 0 ? $id : null;
     }
 
@@ -568,11 +583,7 @@ final class ManualNotificationScheduleService
         $resultSummary = [
             'error_code' => (string)($summary['error_code'] ?? ''),
             'error_message' => (string)($summary['error_message'] ?? ''),
-            'stale_sending_outcome_unknown_count' => (int)(
-                $summary['stale_sending_outcome_unknown_count'] ?? 0
-            ),
-            'deferred_count' => (int)($summary['deferred_count'] ?? 0),
-            'delivery_attempt_count' => (int)($summary['delivery_attempt_count'] ?? 0),
+            'recovered_unknown_count' => (int)($summary['recovered_unknown_count'] ?? 0),
             'results' => $publicResults,
         ];
         Db::name('manual_notification_schedule_runs')->where('id', $runId)->update([
@@ -588,6 +599,104 @@ final class ManualNotificationScheduleService
         ]);
     }
 
+    /**
+     * Preserve a per-run heartbeat for every exact saved plan scope, including
+     * the many timer minutes where no notification is due. Dispatch rows remain
+     * immutable delivery provenance and are not reused as health heartbeats.
+     *
+     * @param array<int, array<string,mixed>> $rows
+     * @param array<int, array<string,mixed>> $results
+     */
+    private function recordScopeObservations(
+        ?int $runId,
+        array $rows,
+        array $results,
+        string $mode,
+        bool $dispatch,
+        DateTimeImmutable $now
+    ): void {
+        if ($runId === null
+            || $runId <= 0
+            || !$this->tableExists('manual_notification_schedule_run_scopes')
+        ) {
+            return;
+        }
+
+        $groups = [];
+        $notificationScopes = [];
+        foreach ($rows as $row) {
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            $robotId = (int)($row['test_robot_id'] ?? 0);
+            $notificationId = (int)($row['id'] ?? 0);
+            if ($tenantId <= 0 || $hotelId <= 0 || $robotId <= 0 || $notificationId <= 0) {
+                continue;
+            }
+            $key = $tenantId . ':' . $hotelId . ':' . $robotId;
+            $notificationScopes[$notificationId] = $key;
+            if (!isset($groups[$key])) {
+                $groups[$key] = [
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'robot_id' => $robotId,
+                    'candidate_count' => 0,
+                    'due_count' => 0,
+                    'sent_count' => 0,
+                    'failed_count' => 0,
+                    'blocked_count' => 0,
+                ];
+            }
+            $groups[$key]['candidate_count']++;
+        }
+
+        foreach ($results as $result) {
+            $notificationId = (int)($result['notification_id'] ?? 0);
+            $key = $notificationScopes[$notificationId] ?? null;
+            if (!is_string($key) || !isset($groups[$key])) {
+                continue;
+            }
+            $groups[$key]['due_count']++;
+            $status = strtolower(trim((string)($result['status'] ?? '')));
+            if ($status === 'sent') {
+                $groups[$key]['sent_count']++;
+            } elseif (in_array($status, ['failed', 'outcome_unknown'], true)) {
+                $groups[$key]['failed_count']++;
+            } elseif ($status === 'blocked') {
+                $groups[$key]['blocked_count']++;
+            } elseif ($dispatch && !in_array($status, ['preview', 'skipped'], true)) {
+                $groups[$key]['failed_count']++;
+            }
+        }
+
+        $timestamp = $now->format('Y-m-d H:i:s');
+        $values = [];
+        foreach ($groups as $group) {
+            $status = $group['failed_count'] > 0
+                ? 'failed'
+                : ($group['blocked_count'] > 0 ? 'blocked' : 'completed');
+            $values[] = [
+                'schedule_run_id' => $runId,
+                'tenant_id' => (int)$group['tenant_id'],
+                'hotel_id' => (int)$group['hotel_id'],
+                'robot_id' => (int)$group['robot_id'],
+                'runner_mode' => $mode,
+                'dispatch_requested' => $dispatch ? 1 : 0,
+                'observed_at' => $timestamp,
+                'status' => $status,
+                'candidate_count' => (int)$group['candidate_count'],
+                'due_count' => (int)$group['due_count'],
+                'sent_count' => (int)$group['sent_count'],
+                'failed_count' => (int)$group['failed_count'],
+                'blocked_count' => (int)$group['blocked_count'],
+                'create_time' => $timestamp,
+                'update_time' => $timestamp,
+            ];
+        }
+        if ($values !== []) {
+            Db::name('manual_notification_schedule_run_scopes')->insertAll($values);
+        }
+    }
+
     private function targetPayloads(): OperatingTargetNotificationPayloadService
     {
         return $this->operatingTargetPayloads ?? new OperatingTargetNotificationPayloadService();
@@ -598,6 +707,11 @@ final class ManualNotificationScheduleService
         return $this->ledger ?? new ManualNotificationDispatchLedgerService();
     }
 
+    private function deliveryService(): WechatRobotDeliveryService
+    {
+        return $this->deliveries ?? new WechatRobotDeliveryService();
+    }
+
     private function tableExists(string $table): bool
     {
         if (preg_match('/^[a-z0-9_]+$/', $table) !== 1) {
@@ -606,6 +720,15 @@ final class ManualNotificationScheduleService
         try {
             Db::query('SELECT 1 FROM `' . $table . '` WHERE 1 = 0');
             return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        try {
+            return in_array($column, Db::getTableInfo($table, 'fields'), true);
         } catch (\Throwable) {
             return false;
         }

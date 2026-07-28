@@ -190,9 +190,13 @@ test('employee hotel scope uses ellipsis while preserving the full list', () => 
   const usersPage = sliceFrom('<!-- 用户管理 -->', '<!-- 角色管理 -->');
   assert.match(usersPage, /userHotelScopeSummary\(u\)\.full/);
   assert.match(usersPage, /user-hotel-scope-compact/);
-  assert.match(usersPage, /data-testid="employee-desktop-table"[^>]*table-fixed/);
-  assert.match(usersPage, /data-testid="employee-hotel-scope-column"[^>]*width:\s*20%/);
-  assert.match(usersPage, /data-testid="employee-actions-column"[^>]*width:\s*31%/);
+  assert.match(usersPage, /data-testid="employee-desktop-table"[^>]*class="[^"]*table-fixed[^"]*"[^>]*style="min-width:\s*1180px"/);
+  assert.match(usersPage, /data-testid="employee-username-column"[^>]*width:\s*14%/);
+  assert.match(usersPage, /data-testid="employee-hotel-scope-column"[^>]*width:\s*17%/);
+  assert.match(usersPage, /data-testid="employee-actions-column"[^>]*width:\s*25%/);
+  assert.match(usersPage, /u\?\.username[^<]*<\/td>/);
+  assert.match(usersPage, /font-semibold[^"]*break-all[^"]*whitespace-normal/);
+  assert.match(usersPage, /flex flex-wrap items-center gap-2/);
   assert.match(usersPage, /truncate/);
   assert.doesNotMatch(usersPage, /userHotelScopeSummary\(u\)\.hiddenCount/);
   assert.doesNotMatch(usersPage, />\+\{\{ userHotelScopeSummary\(u\)\.hiddenCount \}\}家</);

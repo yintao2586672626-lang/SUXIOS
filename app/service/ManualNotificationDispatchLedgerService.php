@@ -16,6 +16,7 @@ use think\facade\Db;
 final class ManualNotificationDispatchLedgerService
 {
     public const RENDER_CONTRACT_VERSION = 'operating_target_wecom.v1';
+    public const SENDING_LEASE_SECONDS = 180;
 
     /**
      * @param array<string, mixed> $candidate
@@ -36,21 +37,24 @@ final class ManualNotificationDispatchLedgerService
         DateTimeImmutable $now,
         string $initialStatus = 'claimed',
         string $resultCode = 'dispatch_claimed',
-        ?string $resultMessage = null
+        ?string $resultMessage = null,
+        ?int $scheduleRunId = null
     ): array {
         $this->assertTables();
-        if ($notificationId <= 0 || $tenantId <= 0 || $hotelId <= 0 || $robotId <= 0) {
+        if ($notificationId <= 0 || $tenantId <= 0 || $hotelId <= 0) {
             throw new \InvalidArgumentException('manual_notification_dispatch_scope_invalid');
+        }
+        if ($robotId <= 0 && $initialStatus !== 'blocked') {
+            throw new \InvalidArgumentException('manual_notification_dispatch_robot_invalid');
         }
         $dispatchWindow = $this->dispatchWindow($dispatchWindow);
         $deliveryMode = $this->token($deliveryMode, 16, 'manual_notification_delivery_mode_invalid');
         $requestKind = $this->token($requestKind, 32, 'manual_notification_request_kind_invalid');
         $timestamp = $now->format('Y-m-d H:i:s');
         $payload = is_array($candidate['payload'] ?? null) ? $candidate['payload'] : null;
-        $payloadFingerprint = trim((string)($candidate['preview_fingerprint'] ?? ''));
-        if ($payload !== null && preg_match('/^[a-f0-9]{64}$/', $payloadFingerprint) !== 1) {
-            $payloadFingerprint = hash('sha256', $this->json($payload));
-        }
+        $payloadFingerprint = $payload === null
+            ? trim((string)($candidate['payload_fingerprint'] ?? $candidate['preview_fingerprint'] ?? ''))
+            : hash('sha256', $this->json($payload));
         if ($payload === null) {
             $payloadFingerprint = preg_match('/^[a-f0-9]{64}$/', $payloadFingerprint) === 1
                 ? $payloadFingerprint
@@ -90,6 +94,12 @@ final class ManualNotificationDispatchLedgerService
             'create_time' => $timestamp,
             'update_time' => $timestamp,
         ];
+        if ($this->tableHasColumn(
+            'manual_notification_schedule_dispatches',
+            'schedule_run_id'
+        )) {
+            $data['schedule_run_id'] = $this->positiveOrNull($scheduleRunId);
+        }
 
         try {
             $dispatchId = (int)Db::name('manual_notification_schedule_dispatches')
@@ -100,21 +110,14 @@ final class ManualNotificationDispatchLedgerService
             $row = $this->findDispatch($dispatchId);
             return ['claimed' => true, 'dispatch' => $this->present($row)];
         } catch (\Throwable $exception) {
-            if (!$this->isUniqueConstraintViolation($exception)) {
-                throw $exception;
-            }
             $existing = Db::name('manual_notification_schedule_dispatches')
                 ->where('notification_id', $notificationId)
                 ->where('dispatch_window', $dispatchWindow)
                 ->where('delivery_mode', $deliveryMode)
                 ->find();
             if (is_array($existing)) {
-                if ($initialStatus === 'claimed') {
-                    $reopened = $this->reopenBlockedDispatch((int)$existing['id'], $data);
-                    if ($reopened !== null) {
-                        return ['claimed' => true, 'dispatch' => $this->present($reopened)];
-                    }
-                }
+                $this->recoverExpiredSendingDispatch((int)$existing['id'], $now);
+                $existing = $this->findDispatch((int)$existing['id']);
                 return ['claimed' => false, 'dispatch' => $this->present($existing)];
             }
             throw $exception;
@@ -126,10 +129,24 @@ final class ManualNotificationDispatchLedgerService
      *
      * @return array{allowed: bool, reason_code: string, attempt_id?: int, attempt_no?: int}
      */
-    public function beginAttempt(int $dispatchId, DateTimeImmutable $now): array
-    {
+    public function beginAttempt(
+        int $dispatchId,
+        DateTimeImmutable $now,
+        ?string $requestKindOverride = null,
+        bool $allowOutcomeUnknownRetry = false
+    ): array {
         $this->assertTables();
-        return Db::transaction(function () use ($dispatchId, $now): array {
+        if ($allowOutcomeUnknownRetry && $requestKindOverride !== 'explicit_retry') {
+            throw new \InvalidArgumentException(
+                'manual_notification_outcome_unknown_retry_context_invalid'
+            );
+        }
+        return Db::transaction(function () use (
+            $dispatchId,
+            $now,
+            $requestKindOverride,
+            $allowOutcomeUnknownRetry
+        ): array {
             $row = Db::name('manual_notification_schedule_dispatches')
                 ->where('id', $dispatchId)
                 ->lock(true)
@@ -138,9 +155,19 @@ final class ManualNotificationDispatchLedgerService
                 throw new \RuntimeException('manual_notification_dispatch_not_found');
             }
             $status = strtolower(trim((string)($row['status'] ?? '')));
-            if (in_array($status, ['sent', 'sending', 'outcome_unknown', 'blocked'], true)) {
+            if ($status === 'outcome_unknown' && !$allowOutcomeUnknownRetry) {
+                return ['allowed' => false, 'reason_code' => 'dispatch_status_outcome_unknown'];
+            }
+            if (in_array($status, ['sent', 'sending', 'blocked'], true)) {
                 return ['allowed' => false, 'reason_code' => 'dispatch_status_' . $status];
             }
+            $requestKind = $requestKindOverride === null
+                ? (string)($row['request_kind'] ?? 'scheduled')
+                : $this->token(
+                    $requestKindOverride,
+                    32,
+                    'manual_notification_request_kind_invalid'
+                );
             $attemptNo = (int)($row['attempt_count'] ?? 0) + 1;
             $maxAttempts = max(1, (int)($row['max_attempts'] ?? 3));
             if ($attemptNo > $maxAttempts) {
@@ -148,11 +175,14 @@ final class ManualNotificationDispatchLedgerService
             }
 
             $timestamp = $now->format('Y-m-d H:i:s');
+            $startCode = $status === 'outcome_unknown'
+                ? 'explicit_retry_after_outcome_unknown_started'
+                : 'delivery_attempt_started';
             Db::name('manual_notification_schedule_dispatches')
                 ->where('id', $dispatchId)
                 ->update([
                     'status' => 'sending',
-                    'result_code' => 'delivery_attempt_started',
+                    'result_code' => $startCode,
                     'result_message' => null,
                     'attempt_count' => $attemptNo,
                     'last_attempt_at' => $timestamp,
@@ -165,9 +195,9 @@ final class ManualNotificationDispatchLedgerService
                 'tenant_id' => (int)$row['tenant_id'],
                 'hotel_id' => (int)$row['hotel_id'],
                 'attempt_no' => $attemptNo,
-                'request_kind' => (string)($row['request_kind'] ?? 'scheduled'),
+                'request_kind' => $requestKind,
                 'status' => 'sending',
-                'result_code' => 'delivery_attempt_started',
+                'result_code' => $startCode,
                 'result_message' => null,
                 'payload_fingerprint' => $row['payload_fingerprint'] ?? null,
                 'response_reference' => null,
@@ -179,7 +209,7 @@ final class ManualNotificationDispatchLedgerService
             }
             return [
                 'allowed' => true,
-                'reason_code' => 'delivery_attempt_started',
+                'reason_code' => $startCode,
                 'attempt_id' => $attemptId,
                 'attempt_no' => $attemptNo,
             ];
@@ -200,7 +230,33 @@ final class ManualNotificationDispatchLedgerService
         $this->assertTables();
         $outcome = $this->deliveryOutcome($delivery, $exception);
         $timestamp = $now->format('Y-m-d H:i:s');
-        Db::transaction(function () use ($dispatchId, $attemptId, $outcome, $timestamp): void {
+        Db::transaction(function () use ($dispatchId, $attemptId, $outcome, $timestamp, $now): void {
+            $dispatch = Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->lock(true)
+                ->find();
+            if (!is_array($dispatch)) {
+                throw new \RuntimeException('manual_notification_dispatch_not_found');
+            }
+            $attempt = Db::name('manual_notification_dispatch_attempts')
+                ->where('id', $attemptId)
+                ->where('dispatch_id', $dispatchId)
+                ->lock(true)
+                ->find();
+            if (!is_array($attempt)) {
+                throw new \RuntimeException('manual_notification_dispatch_attempt_not_found');
+            }
+            $isCurrentAttempt = strtolower(trim((string)($dispatch['status'] ?? ''))) === 'sending'
+                && strtolower(trim((string)($attempt['status'] ?? ''))) === 'sending'
+                && (int)($attempt['attempt_no'] ?? 0) === (int)($dispatch['attempt_count'] ?? 0);
+            if (!$isCurrentAttempt) {
+                return;
+            }
+            $attemptCount = max(0, (int)($dispatch['attempt_count'] ?? 0));
+            $maxAttempts = max(1, (int)($dispatch['max_attempts'] ?? 3));
+            $nextRetryAt = $outcome['status'] === 'failed' && $attemptCount < $maxAttempts
+                ? $now->modify('+5 minutes')->format('Y-m-d H:i:s')
+                : null;
             Db::name('manual_notification_dispatch_attempts')
                 ->where('id', $attemptId)
                 ->where('dispatch_id', $dispatchId)
@@ -217,7 +273,7 @@ final class ManualNotificationDispatchLedgerService
                     'result_code' => $outcome['result_code'],
                     'result_message' => $outcome['result_message'],
                     'response_reference' => $outcome['response_reference'],
-                    'next_retry_at' => null,
+                    'next_retry_at' => $nextRetryAt,
                     'dispatched_at' => $timestamp,
                     'update_time' => $timestamp,
                 ]);
@@ -227,8 +283,12 @@ final class ManualNotificationDispatchLedgerService
     }
 
     /** @return array<string, mixed> */
-    public function dispatchForRetry(int $tenantId, int $hotelId, int $dispatchId): array
-    {
+    public function dispatchForRetry(
+        int $tenantId,
+        int $hotelId,
+        int $dispatchId,
+        DateTimeImmutable $now
+    ): array {
         $this->assertTables();
         $row = Db::name('manual_notification_schedule_dispatches')
             ->where('id', $dispatchId)
@@ -238,7 +298,17 @@ final class ManualNotificationDispatchLedgerService
         if (!is_array($row)) {
             throw new \RuntimeException('manual_notification_dispatch_not_found');
         }
-        if ((string)($row['status'] ?? '') !== 'failed') {
+        $this->recoverExpiredSendingDispatch($dispatchId, $now);
+        $row = Db::name('manual_notification_schedule_dispatches')
+            ->where('id', $dispatchId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->find();
+        if (!is_array($row)) {
+            throw new \RuntimeException('manual_notification_dispatch_not_found');
+        }
+        $status = strtolower(trim((string)($row['status'] ?? '')));
+        if (!in_array($status, ['failed', 'outcome_unknown'], true)) {
             throw new \InvalidArgumentException('manual_notification_retry_status_forbidden');
         }
         if ((int)($row['attempt_count'] ?? 0) >= max(1, (int)($row['max_attempts'] ?? 3))) {
@@ -248,76 +318,66 @@ final class ManualNotificationDispatchLedgerService
         if ($payload === null) {
             throw new \RuntimeException('manual_notification_retry_payload_missing');
         }
+        $expectedFingerprint = trim((string)($row['payload_fingerprint'] ?? ''));
+        $actualFingerprint = hash('sha256', $this->json($payload));
+        if (preg_match('/^[a-f0-9]{64}$/', $expectedFingerprint) !== 1
+            || !hash_equals($expectedFingerprint, $actualFingerprint)
+        ) {
+            throw new \RuntimeException('manual_notification_retry_payload_integrity_failed');
+        }
         return [
             'dispatch' => $this->present($row),
             'payload' => $payload,
             'robot_id' => (int)$row['robot_id'],
             'robot_name' => (string)$row['robot_name'],
             'notification_id' => (int)$row['notification_id'],
+            'delivery_mode' => (string)$row['delivery_mode'],
+            'tenant_id' => (int)$row['tenant_id'],
+            'hotel_id' => (int)$row['hotel_id'],
+            'previous_status' => $status,
         ];
     }
 
-    public function markStaleSendingAsOutcomeUnknown(
-        int $hotelId,
-        int $robotId,
+    /**
+     * Convert expired in-flight attempts to an explicit ambiguous outcome.
+     *
+     * This reconciliation never calls the sender and never creates a new
+     * attempt. A retry remains an operator-confirmed action.
+     */
+    public function recoverExpiredSending(
         DateTimeImmutable $now,
-        int $staleAfterSeconds = 300
+        string $deliveryMode = '',
+        int $hotelId = 0,
+        int $limit = 500
     ): int {
         $this->assertTables();
-        if ($hotelId <= 0 || $robotId <= 0) {
-            throw new \InvalidArgumentException('manual_notification_dispatch_scope_invalid');
-        }
-        $staleAfterSeconds = max(180, min(3600, $staleAfterSeconds));
-        $cutoff = $now->modify('-' . $staleAfterSeconds . ' seconds')->format('Y-m-d H:i:s');
-        $ids = Db::name('manual_notification_schedule_dispatches')
-            ->where('hotel_id', $hotelId)
-            ->where('robot_id', $robotId)
-            ->where('status', 'sending')
-            ->where('last_attempt_at', '<=', $cutoff)
-            ->order('id', 'asc')
-            ->column('id');
-        $marked = 0;
-        foreach ($ids as $id) {
-            $marked += Db::transaction(
-                function () use ($id, $hotelId, $robotId, $cutoff, $now): int {
-                    $row = Db::name('manual_notification_schedule_dispatches')
-                        ->where('id', (int)$id)
-                        ->where('hotel_id', $hotelId)
-                        ->where('robot_id', $robotId)
-                        ->lock(true)
-                        ->find();
-                    if (!is_array($row)
-                        || (string)($row['status'] ?? '') !== 'sending'
-                        || trim((string)($row['last_attempt_at'] ?? '')) === ''
-                        || (string)$row['last_attempt_at'] > $cutoff
-                    ) {
-                        return 0;
-                    }
-                    $timestamp = $now->format('Y-m-d H:i:s');
-                    $message = '发送进程中断且未取得企业微信业务回执；结果标记为未知，禁止自动重发。';
-                    Db::name('manual_notification_dispatch_attempts')
-                        ->where('dispatch_id', (int)$id)
-                        ->where('status', 'sending')
-                        ->update([
-                            'status' => 'outcome_unknown',
-                            'result_code' => 'delivery_process_interrupted_outcome_unknown',
-                            'result_message' => $message,
-                        ]);
-                    $updated = Db::name('manual_notification_schedule_dispatches')
-                        ->where('id', (int)$id)
-                        ->where('status', 'sending')
-                        ->update([
-                            'status' => 'outcome_unknown',
-                            'result_code' => 'delivery_process_interrupted_outcome_unknown',
-                            'result_message' => $message,
-                            'next_retry_at' => null,
-                            'update_time' => $timestamp,
-                        ]);
-                    return $updated > 0 ? 1 : 0;
-                }
+        $deliveryMode = strtolower(trim($deliveryMode));
+        if ($deliveryMode !== '') {
+            $deliveryMode = $this->token(
+                $deliveryMode,
+                16,
+                'manual_notification_delivery_mode_invalid'
             );
         }
-        return $marked;
+        $hotelId = max(0, $hotelId);
+        $limit = max(1, min(500, $limit));
+        $query = Db::name('manual_notification_schedule_dispatches')
+            ->where('status', 'sending')
+            ->order('id', 'asc');
+        if ($deliveryMode !== '') {
+            $query->where('delivery_mode', $deliveryMode);
+        }
+        if ($hotelId > 0) {
+            $query->where('hotel_id', $hotelId);
+        }
+        $rows = $query->limit($limit)->select()->toArray();
+        $recovered = 0;
+        foreach ($rows as $row) {
+            if ($this->recoverExpiredSendingDispatch((int)($row['id'] ?? 0), $now)) {
+                $recovered++;
+            }
+        }
+        return $recovered;
     }
 
     /** @return array<string, mixed> */
@@ -356,63 +416,206 @@ final class ManualNotificationDispatchLedgerService
     }
 
     /** @return array<string, mixed> */
-    public function latestScheduleRun(int $hotelId, int $robotId): array
+    public function latestScheduleRun(
+        int $tenantId = 0,
+        int $hotelId = 0,
+        int $robotId = 0
+    ): array
     {
-        if ($hotelId <= 0 || $robotId <= 0) {
-            return [
-                'status' => 'scope_missing',
-                'message' => '缺少已验证的酒店和测试群机器人范围，未读取云端调度运行记录。',
-            ];
-        }
         if (!$this->tableExists('manual_notification_schedule_runs')) {
             return [
                 'status' => 'not_deployed',
                 'message' => '尚未取得云端调度运行记录。',
             ];
         }
-        $row = Db::name('manual_notification_schedule_runs')
-            ->where('scope_hotel_id', $hotelId)
-            ->where('scope_robot_id', $robotId)
-            ->order('id', 'desc')
-            ->find();
+        $query = Db::name('manual_notification_schedule_runs');
+        $dispatchLinkedScope = null;
+        $planObservation = null;
+        if ($hotelId > 0) {
+            $explicitScope = Db::name('manual_notification_schedule_runs')
+                ->where('scope_hotel_id', $hotelId);
+            if ($tenantId > 0 && $this->tableHasColumn(
+                'manual_notification_schedule_runs',
+                'scope_tenant_id'
+            )) {
+                $explicitScope->where('scope_tenant_id', $tenantId);
+            }
+            if ($robotId > 0 && $this->tableHasColumn(
+                'manual_notification_schedule_runs',
+                'scope_robot_id'
+            )) {
+                $explicitScope->where('scope_robot_id', $robotId);
+            }
+            $explicitRunId = (int)($explicitScope->order('id', 'desc')->value('id') ?? 0);
+
+            $dispatchRunId = 0;
+            if ($this->tableExists('manual_notification_schedule_dispatches')
+                && $this->tableHasColumn(
+                    'manual_notification_schedule_dispatches',
+                    'schedule_run_id'
+                )
+            ) {
+                $dispatchScope = Db::name('manual_notification_schedule_dispatches')
+                    ->where('hotel_id', $hotelId)
+                    ->where('schedule_run_id', '>', 0);
+                if ($tenantId > 0) {
+                    $dispatchScope->where('tenant_id', $tenantId);
+                }
+                if ($robotId > 0) {
+                    $dispatchScope->where('robot_id', $robotId);
+                }
+                $dispatchLinkedScope = $dispatchScope
+                    ->order('schedule_run_id', 'desc')
+                    ->order('id', 'desc')
+                    ->field('schedule_run_id,tenant_id,hotel_id,robot_id')
+                    ->find();
+                $dispatchRunId = is_array($dispatchLinkedScope)
+                    ? (int)($dispatchLinkedScope['schedule_run_id'] ?? 0)
+                    : 0;
+            }
+            $observationRunId = 0;
+            if ($this->tableExists('manual_notification_schedule_run_scopes')) {
+                $observationScope = Db::name('manual_notification_schedule_run_scopes')
+                    ->where('hotel_id', $hotelId);
+                if ($tenantId > 0) {
+                    $observationScope->where('tenant_id', $tenantId);
+                }
+                if ($robotId > 0) {
+                    $observationScope->where('robot_id', $robotId);
+                }
+                $planObservation = $observationScope
+                    ->order('schedule_run_id', 'desc')
+                    ->order('id', 'desc')
+                    ->find();
+                $observationRunId = is_array($planObservation)
+                    ? (int)($planObservation['schedule_run_id'] ?? 0)
+                    : 0;
+            }
+            $latestScopedRunId = max($explicitRunId, $dispatchRunId, $observationRunId);
+            if ($latestScopedRunId > 0) {
+                $query->where('id', $latestScopedRunId);
+            } else {
+                $query->where('id', -1);
+            }
+        }
+        $row = $query->order('id', 'desc')->find();
         if (!is_array($row)) {
             return [
                 'status' => 'not_run',
-                'message' => '调度表已安装，但尚无运行记录。',
+                'message' => $hotelId > 0
+                    ? '尚未取得当前门店作用域的云端调度运行记录。'
+                    : '调度表已安装，但尚无运行记录。',
             ];
         }
-        $observedAt = strtotime((string)$row['observed_at']);
+        $usesDispatchLink = $hotelId > 0
+            && is_array($dispatchLinkedScope)
+            && (int)($dispatchLinkedScope['schedule_run_id'] ?? 0) === (int)$row['id']
+            && (int)($row['scope_hotel_id'] ?? 0) !== $hotelId;
+        $usesPlanObservation = !$usesDispatchLink
+            && $hotelId > 0
+            && is_array($planObservation)
+            && (int)($planObservation['schedule_run_id'] ?? 0) === (int)$row['id']
+            && (int)($row['scope_hotel_id'] ?? 0) !== $hotelId;
+        $scopeEvidence = $usesPlanObservation ? $planObservation : $row;
+        $observedAtText = (string)($scopeEvidence['observed_at'] ?? $row['observed_at']);
+        $observedAt = strtotime($observedAtText);
         $ageSeconds = $observedAt === false ? null : max(0, time() - $observedAt);
-        $runStatus = (string)$row['status'];
-        $dispatchRequested = (int)$row['dispatch_requested'] === 1;
+        $dispatchRequested = (int)($scopeEvidence['dispatch_requested'] ?? $row['dispatch_requested']) === 1;
+        $runnerMode = (string)($scopeEvidence['runner_mode'] ?? $row['runner_mode']);
+        $runStatus = (string)($scopeEvidence['status'] ?? $row['status']);
+        $candidateCount = (int)($scopeEvidence['candidate_count'] ?? $row['candidate_count']);
+        $dueCount = (int)($scopeEvidence['due_count'] ?? $row['due_count']);
+        $sentCount = (int)($scopeEvidence['sent_count'] ?? $row['sent_count']);
+        $failedCount = (int)($scopeEvidence['failed_count'] ?? $row['failed_count']);
+        $blockedCount = (int)($scopeEvidence['blocked_count'] ?? $row['blocked_count']);
+        if ($usesDispatchLink) {
+            $scopeQuery = Db::name('manual_notification_schedule_dispatches')
+                ->where('schedule_run_id', (int)$row['id'])
+                ->where('hotel_id', $hotelId);
+            if ($tenantId > 0) {
+                $scopeQuery->where('tenant_id', $tenantId);
+            }
+            if ($robotId > 0) {
+                $scopeQuery->where('robot_id', $robotId);
+            }
+            $scopeDispatches = $scopeQuery->field('status,result_code')->select()->toArray();
+            $candidateCount = count($scopeDispatches);
+            $dueCount = $candidateCount;
+            $sentCount = 0;
+            $failedCount = 0;
+            $blockedCount = 0;
+            $inProgressCount = 0;
+            foreach ($scopeDispatches as $scopeDispatch) {
+                $dispatchStatus = strtolower(trim((string)($scopeDispatch['status'] ?? '')));
+                if ($dispatchStatus === 'sent') {
+                    $sentCount++;
+                } elseif (in_array($dispatchStatus, ['blocked', 'binding_missing'], true)) {
+                    $blockedCount++;
+                } elseif (in_array($dispatchStatus, ['sending', 'claimed', 'queued', 'retry_pending'], true)) {
+                    $inProgressCount++;
+                } else {
+                    $failedCount++;
+                }
+            }
+            $runStatus = $failedCount > 0
+                ? 'failed'
+                : ($blockedCount > 0
+                    ? 'blocked'
+                    : ($candidateCount > 0 && $sentCount === $candidateCount
+                        ? 'completed'
+                        : ($inProgressCount > 0 ? 'running' : 'completed')));
+        }
         $status = $runStatus === 'completed' && $ageSeconds !== null && $ageSeconds <= 300
-            ? ($dispatchRequested ? 'test_scope_ready' : 'preview_only')
-            : match ($runStatus) {
-                'failed' => 'failed',
-                'blocked' => 'blocked',
-                default => 'stale',
-            };
+            ? ($dispatchRequested
+                ? ($runnerMode === 'formal' ? 'formal_scope_ready' : 'test_scope_ready')
+                : 'preview_only')
+            : ($runStatus === 'failed'
+                ? 'failed'
+                : ($runStatus === 'blocked' ? 'blocked' : 'stale'));
         return [
             'status' => $status,
             'run_status' => $runStatus,
             'run_id' => (int)$row['id'],
-            'runner_mode' => (string)$row['runner_mode'],
+            'scope_source' => $usesDispatchLink
+                ? 'dispatch_link'
+                : ($usesPlanObservation ? 'plan_observation' : 'explicit_runner_scope'),
+            'scope_tenant_id' => $this->positiveOrNull(
+                $usesDispatchLink
+                    ? ($dispatchLinkedScope['tenant_id'] ?? null)
+                    : ($usesPlanObservation
+                        ? ($planObservation['tenant_id'] ?? null)
+                        : ($row['scope_tenant_id'] ?? null))
+            ),
+            'scope_hotel_id' => $this->positiveOrNull(
+                $usesDispatchLink
+                    ? ($dispatchLinkedScope['hotel_id'] ?? null)
+                    : ($usesPlanObservation
+                        ? ($planObservation['hotel_id'] ?? null)
+                        : ($row['scope_hotel_id'] ?? null))
+            ),
+            'scope_robot_id' => $this->positiveOrNull(
+                $usesDispatchLink
+                    ? ($dispatchLinkedScope['robot_id'] ?? null)
+                    : ($usesPlanObservation
+                        ? ($planObservation['robot_id'] ?? null)
+                        : ($row['scope_robot_id'] ?? null))
+            ),
+            'runner_mode' => $runnerMode,
             'dispatch_requested' => $dispatchRequested,
-            'scope_hotel_id' => (int)$row['scope_hotel_id'],
-            'scope_robot_id' => (int)$row['scope_robot_id'],
-            'observed_at' => (string)$row['observed_at'],
+            'observed_at' => $observedAtText,
             'age_seconds' => $ageSeconds,
-            'candidate_count' => (int)$row['candidate_count'],
-            'due_count' => (int)$row['due_count'],
-            'sent_count' => (int)$row['sent_count'],
-            'failed_count' => (int)$row['failed_count'],
-            'blocked_count' => (int)$row['blocked_count'],
+            'candidate_count' => $candidateCount,
+            'due_count' => $dueCount,
+            'sent_count' => $sentCount,
+            'failed_count' => $failedCount,
+            'blocked_count' => $blockedCount,
             'finished_at' => $row['finished_at'] ?? null,
             'message' => match ($status) {
                 'test_scope_ready' => '云端测试群调度最近5分钟内运行，实际发送仍以每条回执为准。',
+                'formal_scope_ready' => '云端正式群调度最近5分钟内运行，实际发送以每条企业微信回执为准。',
                 'preview_only' => '云端最近仅运行预览调度，未请求企业微信发送。',
                 'failed' => '云端最近一次调度执行失败，请查看调度运行与发送历史。',
-                'blocked' => '云端最近一次调度被数据、身份或发送门禁阻断，未冒充成功。',
+                'blocked' => '云端最近一次调度被数据或机器人作用域门禁阻断。',
                 default => '最近一次云端调度记录已过期，当前运行状态待验证。',
             },
         ];
@@ -430,70 +633,74 @@ final class ManualNotificationDispatchLedgerService
         return $row;
     }
 
-    /**
-     * A data or identity gate can recover inside the same due window because a
-     * blocked claim has no delivery attempt. Sending or unknown outcomes are
-     * never reopened automatically.
-     *
-     * @param array<string, mixed> $data
-     * @return array<string, mixed>|null
-     */
-    private function reopenBlockedDispatch(int $dispatchId, array $data): ?array
-    {
-        return Db::transaction(function () use ($dispatchId, $data): ?array {
-            $row = Db::name('manual_notification_schedule_dispatches')
+    private function recoverExpiredSendingDispatch(
+        int $dispatchId,
+        DateTimeImmutable $now
+    ): bool {
+        if ($dispatchId <= 0) {
+            return false;
+        }
+        return Db::transaction(function () use ($dispatchId, $now): bool {
+            $dispatch = Db::name('manual_notification_schedule_dispatches')
                 ->where('id', $dispatchId)
                 ->lock(true)
                 ->find();
-            if (!is_array($row)
-                || (string)($row['status'] ?? '') !== 'blocked'
-                || (int)($row['attempt_count'] ?? 0) !== 0
+            if (!is_array($dispatch)
+                || strtolower(trim((string)($dispatch['status'] ?? ''))) !== 'sending'
             ) {
-                return null;
+                return false;
             }
-            $allowed = [
-                'business_date',
-                'payload_fingerprint',
-                'operating_target_record_id',
-                'snapshot_revision_no',
-                'render_contract_version',
-                'payload_snapshot_json',
-                'robot_id',
-                'robot_name',
-                'status',
-                'result_code',
-                'result_message',
-                'claimed_at',
-                'update_time',
-            ];
-            $update = array_intersect_key($data, array_fill_keys($allowed, true));
-            $update['status'] = 'claimed';
-            $update['result_code'] = 'dispatch_claimed_after_gate_recovery';
-            $update['result_message'] = null;
-            Db::name('manual_notification_schedule_dispatches')
-                ->where('id', $dispatchId)
-                ->where('status', 'blocked')
-                ->where('attempt_count', 0)
-                ->update($update);
-            $reopened = Db::name('manual_notification_schedule_dispatches')
-                ->where('id', $dispatchId)
-                ->find();
-            return is_array($reopened) && (string)$reopened['status'] === 'claimed'
-                ? $reopened
-                : null;
-        });
-    }
+            $leaseStartedAt = trim((string)(
+                $dispatch['last_attempt_at']
+                ?? $dispatch['update_time']
+                ?? $dispatch['claimed_at']
+                ?? ''
+            ));
+            if ($leaseStartedAt === '') {
+                return false;
+            }
+            try {
+                $leaseStarted = new DateTimeImmutable($leaseStartedAt, $now->getTimezone());
+            } catch (\Throwable) {
+                return false;
+            }
+            if (($now->getTimestamp() - $leaseStarted->getTimestamp()) < self::SENDING_LEASE_SECONDS) {
+                return false;
+            }
 
-    private function isUniqueConstraintViolation(\Throwable $exception): bool
-    {
-        $code = (string)$exception->getCode();
-        if (in_array($code, ['1062', '23505'], true)) {
-            return true;
-        }
-        $message = strtolower($exception->getMessage());
-        return str_contains($message, 'duplicate entry')
-            || str_contains($message, 'unique constraint failed')
-            || str_contains($message, 'duplicate key value');
+            $attemptNo = max(0, (int)($dispatch['attempt_count'] ?? 0));
+            $timestamp = $now->format('Y-m-d H:i:s');
+            $resultCode = 'delivery_attempt_lease_expired_outcome_unknown';
+            $resultMessage = $this->safeText(
+                'Delivery receipt was not recorded before the sending lease expired. '
+                . 'Automatic retry is blocked; an operator must confirm any retry.',
+                255
+            );
+            if ($attemptNo > 0) {
+                Db::name('manual_notification_dispatch_attempts')
+                    ->where('dispatch_id', $dispatchId)
+                    ->where('attempt_no', $attemptNo)
+                    ->where('status', 'sending')
+                    ->update([
+                        'status' => 'outcome_unknown',
+                        'result_code' => $resultCode,
+                        'result_message' => $resultMessage,
+                        'response_reference' => null,
+                    ]);
+            }
+            $updated = Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->where('status', 'sending')
+                ->update([
+                    'status' => 'outcome_unknown',
+                    'result_code' => $resultCode,
+                    'result_message' => $resultMessage,
+                    'response_reference' => null,
+                    'next_retry_at' => null,
+                    'update_time' => $timestamp,
+                ]);
+            return $updated > 0;
+        });
     }
 
     /**
@@ -538,7 +745,7 @@ final class ManualNotificationDispatchLedgerService
         }
         $message = $messages !== []
             ? implode('；', array_slice($messages, 0, 3))
-            : (string)($delivery['error'] ?? $deliveryStatus ?: '企业微信发送失败');
+            : (string)($delivery['error'] ?? $delivery['reason'] ?? $deliveryStatus ?: '企业微信发送失败');
         return [
             'status' => $ambiguous ? 'outcome_unknown' : 'failed',
             'result_code' => $ambiguous
@@ -555,8 +762,12 @@ final class ManualNotificationDispatchLedgerService
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private function present(array $row): array
     {
+        $status = strtolower(trim((string)($row['status'] ?? '')));
+        $retryable = in_array($status, ['failed', 'outcome_unknown'], true)
+            && (int)($row['attempt_count'] ?? 0) < max(1, (int)($row['max_attempts'] ?? 3));
         return [
             'id' => (int)$row['id'],
+            'schedule_run_id' => $this->positiveOrNull($row['schedule_run_id'] ?? null),
             'notification_id' => (int)$row['notification_id'],
             'tenant_id' => (int)$row['tenant_id'],
             'hotel_id' => (int)$row['hotel_id'],
@@ -579,6 +790,10 @@ final class ManualNotificationDispatchLedgerService
             'attempt_count' => (int)($row['attempt_count'] ?? 0),
             'max_attempts' => (int)($row['max_attempts'] ?? 3),
             'next_retry_at' => $row['next_retry_at'] ?? null,
+            'retryable' => $retryable,
+            'retry_requires_confirmation' => $retryable,
+            'retry_may_duplicate' => $status === 'outcome_unknown',
+            'automatic_retry_allowed' => false,
             'last_attempt_at' => $row['last_attempt_at'] ?? null,
             'response_reference' => $row['response_reference'] ?? null,
             'claimed_at' => (string)$row['claimed_at'],
@@ -586,6 +801,15 @@ final class ManualNotificationDispatchLedgerService
             'created_at' => (string)$row['create_time'],
             'updated_at' => (string)$row['update_time'],
         ];
+    }
+
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        try {
+            return in_array($column, Db::getTableInfo($table, 'fields'), true);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** @param array<string, mixed> $row @return array<string, mixed> */

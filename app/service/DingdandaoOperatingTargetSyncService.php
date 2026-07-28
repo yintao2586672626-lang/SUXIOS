@@ -6,14 +6,20 @@ namespace app\service;
 use think\facade\Db;
 
 /**
- * Promotes one verified Dingdandao capture into the daily operating-target
- * record without changing the user-authored target amount.
+ * Promotes one verified Dingdandao PMS capture into the same-hotel,
+ * same-date operating-target record. User-authored goals are preserved.
  */
 final class DingdandaoOperatingTargetSyncService
 {
+    /**
+     * @param null|\Closure(int,int,string):void $afterTargetLock
+     *        Transaction-bound test/diagnostic seam invoked only after the
+     *        exact tenant/hotel/date target row (or unique-key gap) is locked.
+     */
     public function __construct(
         private readonly ?DingdandaoOperatingTargetCaptureService $captures = null,
-        private readonly ?OperatingTargetService $targets = null
+        private readonly ?OperatingTargetService $targets = null,
+        private readonly ?\Closure $afterTargetLock = null
     ) {
     }
 
@@ -34,49 +40,80 @@ final class DingdandaoOperatingTargetSyncService
 
         $targetDate = (string)$capture['business_date'];
         $targetService = $this->targets ?? new OperatingTargetService();
-        $before = $targetService->current($tenantId, $hotelId, $targetDate);
-        $existingRecord = is_array($before['record'] ?? null) ? $before['record'] : null;
-        $existingFacts = is_array($existingRecord['facts'] ?? null)
-            ? $existingRecord['facts']
-            : [];
-        $targetRevenue = $existingFacts['target_revenue'] ?? null;
-        $existingScope = trim((string)($existingFacts['fact_scope'] ?? ''));
-        if ($targetRevenue !== null && $existingScope !== 'accommodation_room_fee') {
-            throw new \RuntimeException('dingdandao_target_scope_mismatch');
-        }
-
-        $sourceReference = '订单来了住宿数据中心 / capture:' . $captureId;
-        $input = [
-            'target_date' => $targetDate,
-            'target_revenue' => $targetRevenue,
-            'actual_revenue' => $capture['summary']['total_room_fee'],
-            'sold_room_nights' => $capture['summary']['sold_room_nights'],
-            'sellable_room_nights' => $capture['summary']['derived_sellable_room_nights'],
-            'fact_scope' => 'accommodation_room_fee',
-            'source_type' => 'pms',
-            'source_reference' => $sourceReference,
-            'quality_status' => 'verified',
-            'quality_reason' => DingdandaoOperatingTargetCaptureService::RENDER_SCOPE_NOTE
-                . ' 已通过门店身份、日期、汇总/明细对账和数据库回读校验。',
-            'fact_captured_at' => $capture['captured_at'],
-            'change_reason' => '订单来了今日住宿经营事实自动同步，capture_id=' . $captureId,
-        ];
-
-        if ($existingRecord !== null
-            && $this->sameFacts($existingFacts, $input)
-        ) {
-            return $this->result($existingRecord, $captureId, 'idempotent');
-        }
+        $integrationService = new DingdandaoPmsIntegrationService();
 
         return Db::transaction(function () use (
             $targetService,
+            $integrationService,
             $tenantId,
             $hotelId,
             $userId,
             $targetDate,
             $captureId,
-            $input
+            $capture
         ): array {
+            $gate = $integrationService->factGateForCapture(
+                $tenantId,
+                $hotelId,
+                $userId,
+                $capture,
+                true
+            );
+            if (($gate['allowed'] ?? false) !== true) {
+                return [
+                    'status' => 'blocked',
+                    'sync_status' => 'blocked',
+                    'capture_id' => $captureId,
+                    'send_eligible' => false,
+                    'gaps' => $gate['blockers'],
+                    'fact_gate' => $gate,
+                ];
+            }
+
+            Db::name('operating_target_daily_records')
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->where('target_date', $targetDate)
+                ->field('id')
+                ->lock(true)
+                ->find();
+            if ($this->afterTargetLock !== null) {
+                ($this->afterTargetLock)($tenantId, $hotelId, $targetDate);
+            }
+
+            $before = $targetService->current($tenantId, $hotelId, $targetDate);
+            $existingRecord = is_array($before['record'] ?? null) ? $before['record'] : null;
+            $existingFacts = is_array($existingRecord['facts'] ?? null)
+                ? $existingRecord['facts']
+                : [];
+            $existingScope = trim((string)($existingFacts['fact_scope'] ?? ''));
+            if ($this->hasAnyTarget($existingFacts) && $existingScope !== 'accommodation_room_fee') {
+                throw new \RuntimeException('dingdandao_target_scope_mismatch');
+            }
+
+            $input = [
+                'target_date' => $targetDate,
+                'target_revenue' => $existingFacts['target_revenue'] ?? null,
+                'target_occupancy_rate_percent' => $existingFacts['target_occupancy_rate_percent'] ?? null,
+                'target_revpar' => $existingFacts['target_revpar'] ?? null,
+                'actual_revenue' => $capture['summary']['total_room_fee'],
+                'sold_room_nights' => $capture['summary']['sold_room_nights'],
+                'sellable_room_nights' => $capture['summary']['derived_sellable_room_nights'],
+                'fact_scope' => 'accommodation_room_fee',
+                'source_type' => 'pms',
+                'source_reference' => '订单来了住宿数据中心 / capture:' . $captureId,
+                'quality_status' => 'verified',
+                'quality_reason' => DingdandaoOperatingTargetCaptureService::RENDER_SCOPE_NOTE
+                    . ' 已通过门店身份、日期、汇总/明细对账和数据库回读校验。',
+                'fact_captured_at' => $capture['captured_at'],
+                'change_reason' => '订单来了经营事实自动同步，capture_id=' . $captureId,
+            ];
+
+            if ($existingRecord !== null && $this->sameFacts($existingFacts, $input)) {
+                return $this->result($existingRecord, $captureId, 'idempotent')
+                    + ['fact_gate' => $gate];
+            }
+
             $saved = $targetService->save($tenantId, $hotelId, $userId, $input);
             $readback = $targetService->current($tenantId, $hotelId, $targetDate);
             $record = is_array($readback['record'] ?? null) ? $readback['record'] : null;
@@ -94,7 +131,7 @@ final class DingdandaoOperatingTargetSyncService
                 $record,
                 $captureId,
                 ($saved['revision_no'] ?? 0) === 1 ? 'created' : 'updated'
-            );
+            ) + ['fact_gate' => $gate];
         });
     }
 
@@ -123,10 +160,23 @@ final class DingdandaoOperatingTargetSyncService
         }
     }
 
+    /** @param array<string,mixed> $facts */
+    private function hasAnyTarget(array $facts): bool
+    {
+        return ($facts['target_revenue'] ?? null) !== null
+            || ($facts['target_occupancy_rate_percent'] ?? null) !== null
+            || ($facts['target_revpar'] ?? null) !== null;
+    }
+
     /** @param array<string,mixed> $facts @param array<string,mixed> $input */
     private function sameFacts(array $facts, array $input): bool
     {
         return $this->sameNumber($facts['target_revenue'] ?? null, $input['target_revenue'])
+            && $this->sameNumber(
+                $facts['target_occupancy_rate_percent'] ?? null,
+                $input['target_occupancy_rate_percent']
+            )
+            && $this->sameNumber($facts['target_revpar'] ?? null, $input['target_revpar'])
             && $this->sameNumber($facts['actual_revenue'] ?? null, $input['actual_revenue'])
             && $this->sameNumber($facts['sold_room_nights'] ?? null, $input['sold_room_nights'])
             && $this->sameNumber($facts['sellable_room_nights'] ?? null, $input['sellable_room_nights'])

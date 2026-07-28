@@ -185,16 +185,24 @@ Route::group('api/operating-targets', function () {
     Route::get('/prefill/daily-report', 'OperatingTarget/prefillDailyReport');
     Route::get('/prefill/dingdandao', 'OperatingTarget/prefillDingdandao');
     Route::get('/pms/dingdandao/status', 'OperatingTarget/dingdandaoStatus');
+    Route::get('/pms/dingdandao/integration', 'OperatingTarget/dingdandaoIntegrationStatus');
+    Route::post('/pms/dingdandao/integration', 'OperatingTarget/saveDingdandaoIntegration');
+    Route::post('/pms/dingdandao/push', 'OperatingTarget/pushDingdandaoVerifiedCapture');
     Route::post('/pms/dingdandao/captures', 'OperatingTarget/saveDingdandaoCapture');
+    Route::get('/prefill/meituan-cloud', 'OperatingTarget/prefillMeituanCloud');
+    Route::get('/pms/meituan-cloud/status', 'OperatingTarget/meituanCloudStatus');
+    Route::get('/pms/meituan-cloud/integration', 'OperatingTarget/meituanCloudIntegrationStatus');
+    Route::post('/pms/meituan-cloud/integration', 'OperatingTarget/saveMeituanCloudIntegration');
+    Route::post('/pms/meituan-cloud/captures', 'OperatingTarget/saveMeituanCloudCapture');
     Route::get('/preview', 'OperatingTarget/preview');
     Route::get('/report-preview', 'OperatingTarget/reportPreview');
     Route::get('/current', 'OperatingTarget/current');
+    Route::post('/task-draft', 'OperatingTarget/createTaskDraft');
     Route::post('/report-test-request', 'OperatingTarget/requestTestPush');
     Route::post('/', 'OperatingTarget/save');
 })->middleware(\app\middleware\Auth::class);
 
-// User-authored hotel notifications. Dynamic operating-target delivery and
-// every attempt remain scoped to the current hotel's explicitly marked test robot.
+// Hotel notification templates, formal schedules, test sends, and receipts.
 Route::group('api/manual-notifications', function () {
     Route::get('/metadata', 'ManualNotification/metadata');
     Route::get('/history', 'ManualNotification/history');
@@ -260,6 +268,7 @@ Route::group('api/online-data', function () {
     Route::post('/public-page-diagnosis/execution-intent', 'ota.CtripController/createOtaPublicPageDiagnosisExecutionIntent');
     Route::post('/ctrip/public-profiles/add', 'ota.CtripController/addCtripPublicProfile');
     Route::post('/ctrip/public-profiles/sync', 'ota.CtripController/syncCtripPublicProfiles');
+    Route::post('/ctrip/public-profiles/archive', 'ota.CtripController/archiveCtripPublicProfile');
     Route::post('/fetch-ctrip-traffic', 'ota.CtripController/fetchCtripTraffic');
     Route::post('/ctrip/traffic', 'ota.CtripController/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'ota.MeituanController/fetchMeituanTraffic');
@@ -446,6 +455,7 @@ Route::group('api/ota-standard', function () {
     Route::post('/revenue-metrics', 'OtaStandard/revenueMetrics');
     Route::get('/analysis', 'OtaStandard/analysis');
     Route::post('/analysis', 'OtaStandard/analysis');
+    Route::get('/operation-optimizer', 'OtaStandard/operationOptimizer');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== Revenue AI 首页只读总览 API ====================

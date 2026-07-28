@@ -2,18 +2,18 @@
 -- evidence for explicit retries; a sent or ambiguous logical delivery is never
 -- silently sent again.
 ALTER TABLE `manual_notification_schedule_dispatches`
-  ADD COLUMN `request_kind` varchar(32) NOT NULL DEFAULT 'scheduled' AFTER `trigger_type`,
-  ADD COLUMN `business_date` date DEFAULT NULL AFTER `request_kind`,
-  ADD COLUMN `payload_fingerprint` char(64) DEFAULT NULL AFTER `business_date`,
-  ADD COLUMN `operating_target_record_id` bigint unsigned DEFAULT NULL AFTER `payload_fingerprint`,
-  ADD COLUMN `snapshot_revision_no` int unsigned DEFAULT NULL AFTER `operating_target_record_id`,
-  ADD COLUMN `render_contract_version` varchar(48) DEFAULT NULL AFTER `snapshot_revision_no`,
-  ADD COLUMN `payload_snapshot_json` json DEFAULT NULL AFTER `render_contract_version`,
-  ADD COLUMN `attempt_count` int unsigned NOT NULL DEFAULT 0 AFTER `payload_snapshot_json`,
-  ADD COLUMN `max_attempts` int unsigned NOT NULL DEFAULT 3 AFTER `attempt_count`,
-  ADD COLUMN `next_retry_at` datetime DEFAULT NULL AFTER `max_attempts`,
-  ADD COLUMN `last_attempt_at` datetime DEFAULT NULL AFTER `next_retry_at`,
-  ADD COLUMN `response_reference` varchar(120) DEFAULT NULL AFTER `last_attempt_at`;
+  ADD COLUMN IF NOT EXISTS `request_kind` varchar(32) NOT NULL DEFAULT 'scheduled' AFTER `trigger_type`,
+  ADD COLUMN IF NOT EXISTS `business_date` date DEFAULT NULL AFTER `request_kind`,
+  ADD COLUMN IF NOT EXISTS `payload_fingerprint` char(64) DEFAULT NULL AFTER `business_date`,
+  ADD COLUMN IF NOT EXISTS `operating_target_record_id` bigint unsigned DEFAULT NULL AFTER `payload_fingerprint`,
+  ADD COLUMN IF NOT EXISTS `snapshot_revision_no` int unsigned DEFAULT NULL AFTER `operating_target_record_id`,
+  ADD COLUMN IF NOT EXISTS `render_contract_version` varchar(48) DEFAULT NULL AFTER `snapshot_revision_no`,
+  ADD COLUMN IF NOT EXISTS `payload_snapshot_json` json DEFAULT NULL AFTER `render_contract_version`,
+  ADD COLUMN IF NOT EXISTS `attempt_count` int unsigned NOT NULL DEFAULT 0 AFTER `payload_snapshot_json`,
+  ADD COLUMN IF NOT EXISTS `max_attempts` int unsigned NOT NULL DEFAULT 3 AFTER `attempt_count`,
+  ADD COLUMN IF NOT EXISTS `next_retry_at` datetime DEFAULT NULL AFTER `max_attempts`,
+  ADD COLUMN IF NOT EXISTS `last_attempt_at` datetime DEFAULT NULL AFTER `next_retry_at`,
+  ADD COLUMN IF NOT EXISTS `response_reference` varchar(120) DEFAULT NULL AFTER `last_attempt_at`;
 
 CREATE TABLE IF NOT EXISTS `manual_notification_dispatch_attempts` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,

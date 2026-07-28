@@ -54,8 +54,8 @@ final class CtripPublicHotelProfileBindingTest extends TestCase
         Db::connect(null, true);
         $this->createSchema();
         Db::name('hotels')->insertAll([
-            ['id' => 10, 'tenant_id' => 1, 'name' => '系统本店', 'address' => '', 'update_time' => null],
-            ['id' => 20, 'tenant_id' => 2, 'name' => '另一门店', 'address' => '', 'update_time' => null],
+            ['id' => 10, 'tenant_id' => 1, 'code' => 'HOTEL-10', 'name' => '系统本店', 'city' => '', 'address' => '', 'room_count' => null, 'update_time' => null],
+            ['id' => 20, 'tenant_id' => 2, 'code' => 'HOTEL-20', 'name' => '另一门店', 'city' => '', 'address' => '', 'room_count' => null, 'update_time' => null],
         ]);
     }
 
@@ -121,6 +121,78 @@ final class CtripPublicHotelProfileBindingTest extends TestCase
         self::assertSame(1, $bulk['requested_count']);
         self::assertSame(1, $bulk['cached_count']);
         self::assertSame('4567890', $bulk['profiles'][0]['ota_hotel_id']);
+    }
+
+    public function testSystemHotelMasterDataUsesConfiguredRoomTypesWithoutPublicOverwrite(): void
+    {
+        Db::name('hotels')->where('id', 10)->update([
+            'city' => '上海',
+            'address' => '宿析主档地址',
+        ]);
+        Db::name('room_types')->insertAll([
+            ['tenant_id' => 1, 'hotel_id' => 10, 'room_count' => 40, 'is_enabled' => 1],
+            ['tenant_id' => 1, 'hotel_id' => 10, 'room_count' => 48, 'is_enabled' => 1],
+            ['tenant_id' => 1, 'hotel_id' => 10, 'room_count' => 99, 'is_enabled' => 0],
+        ]);
+
+        $master = $this->service()->systemHotelMasterData(10);
+
+        self::assertSame('suxios_hotel_master', $master['source_scope']);
+        self::assertSame('readback_verified', $master['readback_status']);
+        self::assertSame(10, $master['fields']['system_hotel_id']);
+        self::assertSame('HOTEL-10', $master['fields']['code']);
+        self::assertSame('系统本店', $master['fields']['name']);
+        self::assertSame('上海', $master['fields']['city']);
+        self::assertSame('宿析主档地址', $master['fields']['address']);
+        self::assertSame(88, $master['fields']['physical_room_count']);
+        self::assertSame('room_types', $master['field_sources']['physical_room_count']);
+        self::assertStringContainsString('不自动覆盖主档', $master['scope_notice']);
+    }
+
+    public function testSingleProfileRefreshRequiresCurrentHotelMembership(): void
+    {
+        $service = $this->service();
+        $service->addByHotelId(10, '3456814', 'self', 91);
+        $service->addByHotelId(10, '4567890', 'competitor', 91);
+
+        $refreshed = $service->syncOneForHotel(10, '4567890', true);
+        self::assertSame('selected', $refreshed['scope']);
+        self::assertSame(1, $refreshed['requested_count']);
+        self::assertSame(1, $refreshed['fetched_count']);
+        self::assertSame(1, $refreshed['saved_count']);
+        self::assertSame('4567890', $refreshed['profiles'][0]['ota_hotel_id']);
+        self::assertSame('competitor', $refreshed['profiles'][0]['role']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('不属于当前系统门店');
+        $service->syncOneForHotel(10, '9999999', true);
+    }
+
+    public function testCompetitorArchiveIsSoftAndDatabaseReadbackVerified(): void
+    {
+        $service = $this->service();
+        $service->addByHotelId(10, '3456814', 'self', 91);
+        $service->addByHotelId(10, '4567890', 'competitor', 91);
+
+        $archived = $service->archiveCompetitor(10, '4567890', 91);
+
+        self::assertSame('archived', $archived['status']);
+        self::assertTrue($archived['readback_verified']);
+        self::assertCount(1, $archived['profiles']);
+        self::assertSame('3456814', $archived['profiles'][0]['ota_hotel_id']);
+        self::assertSame(0, (int)Db::name('competitor_hotel')
+            ->where('store_id', 10)
+            ->where('hotel_code', '4567890')
+            ->value('status'));
+        $snapshot = Db::name('ota_ctrip_entity_snapshots')
+            ->where('system_hotel_id', 10)
+            ->where('entity_key', '4567890')
+            ->find();
+        self::assertIsArray($snapshot);
+        $attributes = json_decode((string)$snapshot['attributes_json'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('archived_competitor', $attributes['role']);
+        self::assertSame(91, $attributes['archived_by']);
+        self::assertSame(0, $service->syncForHotel(10, 'competitors', 30, false)['requested_count']);
     }
 
     public function testOfficialCompetitorIdUpgradesOneExactPublicNameTargetWithoutDuplicate(): void
@@ -334,7 +406,8 @@ HTML;
     private function createSchema(): void
     {
         foreach ([
-            'CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL, address TEXT NULL, update_time TEXT NULL)',
+            'CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, code TEXT NULL, name TEXT NOT NULL, city TEXT NULL, address TEXT NULL, room_count INTEGER NULL, update_time TEXT NULL)',
+            'CREATE TABLE room_types (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NULL, hotel_id INTEGER NOT NULL, room_count INTEGER NOT NULL DEFAULT 0, is_enabled INTEGER NOT NULL DEFAULT 1)',
             'CREATE TABLE system_configs (id INTEGER PRIMARY KEY AUTOINCREMENT, config_key TEXT NOT NULL UNIQUE, config_value TEXT NULL, description TEXT NULL, create_time TEXT NULL, update_time TEXT NULL)',
             'CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, system_hotel_id INTEGER NOT NULL, source TEXT NOT NULL, data_type TEXT NOT NULL, hotel_id TEXT NULL, hotel_name TEXT NULL, compare_type TEXT NULL, raw_data TEXT NULL, data_date TEXT NULL, update_time TEXT NULL)',
             'CREATE TABLE competitor_hotel (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NULL, store_id INTEGER NOT NULL, platform TEXT NOT NULL, city TEXT NOT NULL DEFAULT "", hotel_name TEXT NOT NULL DEFAULT "", hotel_code TEXT NOT NULL, status INTEGER NOT NULL DEFAULT 1, create_time TEXT NULL, update_time TEXT NULL, created_at TEXT NULL, updated_at TEXT NULL)',

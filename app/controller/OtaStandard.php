@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\OtaInsightAnalysisService;
+use app\service\OperationOptimizationWorkbenchService;
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
 use RuntimeException;
@@ -51,6 +52,22 @@ class OtaStandard extends Base
                 'metrics' => $metrics,
                 'analysis' => $analysis,
             ], 'success');
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), $this->httpCode($e));
+        }
+    }
+
+    public function operationOptimizer(): Response
+    {
+        try {
+            $filters = $this->filters();
+            $dataset = (new OtaStandardEtlService())->buildDataset($filters);
+            $workbench = (new OperationOptimizationWorkbenchService())->build($dataset, [
+                'hotel_id' => (int)($filters['system_hotel_id'] ?? 0),
+                'start_date' => (string)($filters['start_date'] ?? ''),
+                'end_date' => (string)($filters['end_date'] ?? ''),
+            ]);
+            return $this->success($workbench, 'success');
         } catch (RuntimeException $e) {
             return $this->error($e->getMessage(), $this->httpCode($e));
         }

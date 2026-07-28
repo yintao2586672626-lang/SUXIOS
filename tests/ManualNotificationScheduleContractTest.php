@@ -7,7 +7,7 @@ use PHPUnit\Framework\TestCase;
 
 final class ManualNotificationScheduleContractTest extends TestCase
 {
-    public function testCommandAndSystemdAssetsKeepReadOnlyVerificationSeparateFromDispatch(): void
+    public function testCommandAndSystemdAssetsRemainPreviewFirst(): void
     {
         $root = dirname(__DIR__);
         $command = (string)file_get_contents($root . '/app/command/RunManualNotificationSchedule.php');
@@ -26,11 +26,11 @@ final class ManualNotificationScheduleContractTest extends TestCase
         self::assertStringContainsString("->where('enabled', 1)", $service);
         self::assertStringContainsString("->where('schedule_status', 'schedule_enabled')", $service);
         self::assertStringContainsString('dispatch_window_already_claimed', $service);
-        self::assertStringContainsString('formal_delivery_not_authorized', $service);
+        self::assertStringContainsString("'wecom_formal'", $service);
+        self::assertStringContainsString('resolvePlanRobot(', $service);
+        self::assertStringNotContainsString('formal_delivery_not_authorized', $service);
         self::assertStringNotContainsString('--dispatch', $unit);
-        self::assertStringContainsString('verify_manual_notification_test_dispatch.php', $unit);
-        self::assertStringNotContainsString('manual-notification:schedule', $unit);
-        self::assertStringNotContainsString('--preview', $unit);
+        self::assertStringContainsString('--preview', $unit);
         self::assertStringNotContainsString('[Install]', $timer);
     }
 
@@ -66,19 +66,5 @@ final class ManualNotificationScheduleContractTest extends TestCase
         self::assertIsInt($base);
         self::assertIsInt($attempts);
         self::assertLessThan($attempts, $base);
-    }
-
-    public function testScheduleRunMigrationAddsRobotScopeForReadbackIsolation(): void
-    {
-        $sql = (string)file_get_contents(
-            dirname(__DIR__)
-            . '/database/migrations/20260726_extend_manual_notification_schedule_runs_scope_robot.sql'
-        );
-
-        self::assertStringContainsString('ADD COLUMN `scope_robot_id`', $sql);
-        self::assertStringContainsString(
-            '(`scope_hotel_id`, `scope_robot_id`, `observed_at`)',
-            $sql
-        );
     }
 }

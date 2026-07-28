@@ -16,6 +16,8 @@ use think\facade\Db;
  */
 final class HourlyHotelMonitorWechatService
 {
+    private const ADMIN_NOTIFICATION_SCOPE = 'admin_shared';
+
     public function __construct(
         private readonly ?CloudDataHealthService $healthService = null,
         private readonly ?TemporalInsightService $temporalService = null,
@@ -31,24 +33,29 @@ final class HourlyHotelMonitorWechatService
         int $robotId,
         bool $push = true,
         ?string $now = null,
-        bool $testOnly = true
+        bool $testOnly = true,
+        int $planOwnerUserId = 0,
+        ?callable $formalDelivery = null
     ): array
     {
         $hotel = Db::name('hotels')->where('id', $hotelId)->field('id,tenant_id,name,status')->find();
         if (!is_array($hotel) || (int)($hotel['status'] ?? 0) !== 1) {
-            throw new \InvalidArgumentException('测试门店不存在或未启用。');
+            throw new \InvalidArgumentException('目标门店不存在或未启用。');
         }
         $robot = Db::name('competitor_wechat_robot')
             ->where('id', $robotId)
             ->where('store_id', $hotelId)
             ->where('status', 1)
-            ->field('id,store_id,name,status')
             ->find();
         if (!is_array($robot)) {
-            throw new \InvalidArgumentException('未找到该门店启用中的测试群机器人。');
+            throw new \InvalidArgumentException('未找到该门店启用中的目标机器人。');
         }
         if ($testOnly && !$this->isTestRobot((string)($robot['name'] ?? ''))) {
             throw new \InvalidArgumentException('为避免误发正式群，每小时监控只能指定名称含“测试”的机器人。');
+        }
+        $deliveryService = $this->deliveryService ?? new WechatRobotDeliveryService();
+        if (!$testOnly) {
+            $this->assertFormalDeliveryTarget($hotel, $robot, $deliveryService, $planOwnerUserId);
         }
 
         $observedAt = $this->normalizeTime($now);
@@ -104,6 +111,18 @@ final class HourlyHotelMonitorWechatService
             return ['status' => 'in_progress', 'hotel_id' => $hotelId, 'robot_id' => $robotId, 'test_only' => $testOnly];
         }
         try {
+            if (!$testOnly) {
+                $currentRobot = Db::name('competitor_wechat_robot')
+                    ->where('id', $robotId)
+                    ->where('store_id', $hotelId)
+                    ->where('status', 1)
+                    ->find();
+                if (!is_array($currentRobot)) {
+                    throw new \InvalidArgumentException('hourly_formal_robot_identity_mismatch');
+                }
+                $this->assertFormalDeliveryTarget($hotel, $currentRobot, $deliveryService, $planOwnerUserId);
+                $robot = $currentRobot;
+            }
             $record = $state->queueDelivery(
                 'hourly_hotel_monitor',
                 $hotelId,
@@ -128,8 +147,19 @@ final class HourlyHotelMonitorWechatService
                 ];
             }
             $record = $state->beginDeliveryAttempt($record);
-            $delivery = ($this->deliveryService ?? new WechatRobotDeliveryService())
-                ->deliverToHotel($hotelId, $payload, [$robotId]);
+            $delivery = $testOnly
+                ? $deliveryService->deliverToHotel($hotelId, $payload, [$robotId])
+                : ($formalDelivery !== null
+                    ? (array)call_user_func($formalDelivery, $payload, $robot, $hotel)
+                    : $deliveryService->deliverToPlanRobot(
+                        (int)$hotel['tenant_id'],
+                        $hotelId,
+                        $robotId,
+                        (string)$robot['name'],
+                        $planOwnerUserId,
+                        'formal',
+                        $payload
+                    ));
             $record = $state->recordDeliveryAttempt($record, $delivery, 3);
             OperationLog::record(
                 'wechat_monitor',
@@ -138,7 +168,9 @@ final class HourlyHotelMonitorWechatService
                     . ($testOnly ? '每小时经营监控测试群播报' : '每小时经营监控运营群播报'),
                 0,
                 $hotelId,
-                ($delivery['delivery_status'] ?? '') === 'sent' ? null : '企业微信测试群未成功送达',
+                ($delivery['delivery_status'] ?? '') === 'sent'
+                    ? null
+                    : ($testOnly ? '企业微信测试群未成功送达' : '企业微信正式运营群未成功送达'),
                 [
                     'test_only' => $testOnly,
                     'robot_id' => $robotId,
@@ -184,6 +216,8 @@ final class HourlyHotelMonitorWechatService
         $lines = [
             '# ' . self::text((string)($hotel['name'] ?? '未命名门店'), 80) . '｜经营监控',
             '> ' . self::text($observedAt, 24) . ($deliveryMode === 'formal' ? '｜运营群' : '｜测试群'),
+            '> 观察日：' . self::text(substr($observedAt, 0, 10), 10)
+                . '；OTA校验日：' . self::text($targetDate, 10),
             '> 范围：已授权 OTA 渠道，不代表全酒店经营结果',
         ];
 
@@ -479,6 +513,80 @@ final class HourlyHotelMonitorWechatService
     private function isTestRobot(string $name): bool
     {
         return str_contains($name, '测试');
+    }
+
+    /**
+     * Hourly formal broadcasts without an owner are system-owned shared-group
+     * deliveries. An account-owned policy must pass its exact owner id; this
+     * prevents the server runner from selecting another account's robot.
+     *
+     * @param array<string,mixed> $hotel
+     * @param array<string,mixed> $robot
+     */
+    private function assertFormalDeliveryTarget(
+        array $hotel,
+        array $robot,
+        WechatRobotDeliveryService $deliveryService,
+        int $planOwnerUserId = 0
+    ): void {
+        $tenantId = (int)($hotel['tenant_id'] ?? 0);
+        if ($tenantId <= 0) {
+            throw new \InvalidArgumentException('hourly_formal_hotel_tenant_missing');
+        }
+        if (!array_key_exists('tenant_id', $robot)
+            || (int)($robot['tenant_id'] ?? 0) <= 0
+            || (int)$robot['tenant_id'] !== $tenantId
+        ) {
+            throw new \InvalidArgumentException('hourly_formal_robot_tenant_mismatch');
+        }
+        if (!array_key_exists('owner_user_id', $robot)
+            || !array_key_exists('notification_scope', $robot)
+        ) {
+            throw new \InvalidArgumentException('hourly_formal_robot_scope_unavailable');
+        }
+        if ($this->isFormalTestRobot((string)($robot['name'] ?? ''))) {
+            throw new \InvalidArgumentException('hourly_formal_test_robot_forbidden');
+        }
+
+        $ownerUserId = (int)($robot['owner_user_id'] ?? 0);
+        $scope = trim((string)($robot['notification_scope'] ?? ''));
+        if ($planOwnerUserId > 0) {
+            if ($ownerUserId !== $planOwnerUserId || $scope !== 'account_onboarding') {
+                throw new \InvalidArgumentException('hourly_formal_account_robot_scope_mismatch');
+            }
+        } else {
+            if ($ownerUserId > 0 || $scope === 'account_onboarding') {
+                throw new \InvalidArgumentException('hourly_formal_account_robot_forbidden');
+            }
+            if ($ownerUserId !== 0 || $scope !== self::ADMIN_NOTIFICATION_SCOPE) {
+                throw new \InvalidArgumentException('hourly_formal_robot_scope_forbidden');
+            }
+        }
+
+        $binding = $deliveryService->resolvePlanRobot(
+            $tenantId,
+            (int)($hotel['id'] ?? 0),
+            (int)($robot['id'] ?? 0),
+            trim((string)($robot['name'] ?? '')),
+            $planOwnerUserId,
+            'formal'
+        );
+        if (($binding['eligible'] ?? false) !== true
+            || (int)($binding['owner_user_id'] ?? -1) !== $planOwnerUserId
+            || (string)($binding['notification_scope'] ?? '') !== (
+                $planOwnerUserId > 0 ? 'account_onboarding' : self::ADMIN_NOTIFICATION_SCOPE
+            )
+        ) {
+            throw new \InvalidArgumentException(
+                'hourly_formal_robot_binding_invalid:'
+                . (string)($binding['reason_code'] ?? 'target_binding_missing')
+            );
+        }
+    }
+
+    private function isFormalTestRobot(string $name): bool
+    {
+        return preg_match('/(?:测试|\btest\b)/iu', trim($name)) === 1;
     }
 
     private function normalizeTime(?string $now): \DateTimeImmutable

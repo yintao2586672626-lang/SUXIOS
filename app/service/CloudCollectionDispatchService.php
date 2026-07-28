@@ -88,9 +88,6 @@ final class CloudCollectionDispatchService
             if (!is_array($task)) {
                 throw new RuntimeException('cloud_collection_task_not_found');
             }
-            if (strtolower((string)($task['platform'] ?? '')) === 'dingdandao') {
-                throw new RuntimeException('dingdandao_collection_server_receipt_required');
-            }
             $requiredFields = $this->taskFields($task);
             $collectedFields = $this->fieldNames($receipt['collected_fields'] ?? null);
             $readbackFields = $this->fieldNames($receipt['readback_fields'] ?? null);

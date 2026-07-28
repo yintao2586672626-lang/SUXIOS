@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\model\Hotel;
+use app\service\CloudMessageTaskOverviewService;
 use app\service\ManualNotificationService;
 use app\service\WechatRobotDeliveryService;
 use think\Response;
@@ -13,16 +14,23 @@ final class ManualNotification extends Base
     public function metadata(): Response
     {
         $input = $this->requestData();
-        [$hotelId] = $this->authorizedScope('can_view_report', $input);
+        [$hotelId, $tenantId] = $this->authorizedScope('can_view_report', $input);
         try {
+            $metadata = (new ManualNotificationService())->metadata(
+                (string)($input['business_date'] ?? $this->request->get('business_date', '')),
+                $tenantId,
+                $hotelId,
+                (int)($input['robot_id'] ?? $this->request->get('robot_id', 0))
+            );
+            $metadata['automatic_tasks'] = (new CloudMessageTaskOverviewService())
+                ->overview($tenantId, $hotelId);
             return $this->success(
-                (new ManualNotificationService())->metadata(
-                    (string)($input['business_date'] ?? $this->request->get('business_date', '')),
-                    $hotelId
-                )
+                $metadata
             );
         } catch (\InvalidArgumentException) {
             return $this->error('业务日期格式无效', 422);
+        } catch (\RuntimeException) {
+            return $this->error('自动发送任务状态暂时无法读取', 503);
         }
     }
 
@@ -114,7 +122,15 @@ final class ManualNotification extends Base
         $hotel = Hotel::find($hotelId);
         $service = new ManualNotificationService(
             static fn(int $targetHotelId, int $robotId, array $payload, array $context = []): array =>
-                (new WechatRobotDeliveryService())->deliverToHotel($targetHotelId, $payload, [$robotId])
+                (new WechatRobotDeliveryService())->deliverToPlanRobot(
+                    (int)($context['tenant_id'] ?? 0),
+                    $targetHotelId,
+                    $robotId,
+                    (string)($context['robot_name'] ?? ''),
+                    (int)($context['owner_user_id'] ?? 0),
+                    (string)($context['mode'] ?? 'test'),
+                    $payload
+                )
         );
         try {
             $result = $service->testPush(
@@ -135,7 +151,7 @@ final class ManualNotification extends Base
         }
 
         return (string)($result['delivery_status'] ?? '') === 'sent'
-            ? $this->success($result, '测试消息已发送到当前酒店已验证的测试群机器人')
+            ? $this->success($result, '测试消息已发送到所选企业微信机器人')
             : $this->error(
                 (string)($result['message'] ?? '测试消息未送达'),
                 (string)($result['delivery_status'] ?? '') === 'blocked' ? 409 : 502,
@@ -149,7 +165,15 @@ final class ManualNotification extends Base
         [$hotelId, $tenantId] = $this->authorizedScope('can_fill_daily_report', $input);
         $service = new ManualNotificationService(
             static fn(int $targetHotelId, int $robotId, array $payload, array $context = []): array =>
-                (new WechatRobotDeliveryService())->deliverToHotel($targetHotelId, $payload, [$robotId])
+                (new WechatRobotDeliveryService())->deliverToPlanRobot(
+                    (int)($context['tenant_id'] ?? 0),
+                    $targetHotelId,
+                    $robotId,
+                    (string)($context['robot_name'] ?? ''),
+                    (int)($context['owner_user_id'] ?? 0),
+                    (string)($context['mode'] ?? ''),
+                    $payload
+                )
         );
         try {
             $result = $service->retryDispatch(
@@ -165,7 +189,7 @@ final class ManualNotification extends Base
             return $this->error('发送记录不存在、不可重试或发送器未配置', 409);
         }
         return (string)($result['delivery_status'] ?? '') === 'sent'
-            ? $this->success($result, '失败发送已显式重试并送达测试群')
+            ? $this->success($result, '失败发送已显式重试并取得送达回执')
             : $this->error('显式重试未确认送达', 502, $result);
     }
 
@@ -210,12 +234,17 @@ final class ManualNotification extends Base
             'manual_notification_schedule_required' => '每日固定时间必须配置触发时间',
             'manual_notification_schedule_invalid' => '计划发送时间格式无效',
             'manual_notification_test_confirmation_required' => '请明确确认本次测试推送',
-            'manual_notification_test_target_forbidden' => '测试推送仅允许当前酒店已验证并明确标记为测试群的机器人',
+            'manual_notification_test_target_forbidden' => '所选机器人未启用、作用域不匹配或不属于当前酒店',
             'manual_notification_test_method_forbidden' => '当前通知发送方式不是企业微信测试机器人',
+            'manual_notification_target_required' => '正式计划必须保存目标机器人编号和名称',
+            'manual_notification_target_binding_invalid' => '目标机器人未启用、作用域不匹配或酒店归属无效',
             'manual_notification_idempotency_key_invalid' => '立即测试缺少有效幂等键，请刷新页面后重试',
             'manual_notification_retry_confirmation_required' => '请明确确认本次失败发送重试',
             'manual_notification_retry_status_forbidden' => '只有明确失败的发送可以重试',
             'manual_notification_retry_limit_reached' => '该发送已达到最大重试次数',
+            'manual_notification_retry_target_changed',
+            'manual_notification_retry_target_invalid' => '计划机器人已变化或当前不可用，拒绝重试',
+            'manual_notification_formal_plan_inactive' => '正式计划已停用或尚未通过测试，拒绝重试',
             default => '通知输入不合法',
         };
     }

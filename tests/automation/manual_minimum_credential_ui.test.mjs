@@ -361,6 +361,59 @@ test('Ctrip config defaults to all capabilities and requires both room counts', 
   assert.equal(payload.competitor_room_count, 360);
 });
 
+test('Ctrip config reuses stable fields for the selected hotel without crossing stores', () => {
+  const configs = [
+    {
+      id: 'ctrip-58',
+      config_id: 'ctrip-58',
+      hotel_id: 58,
+      system_hotel_id: 58,
+      ctrip_hotel_id: '832085',
+      hotel_room_count: 37,
+      competitor_room_count: 200,
+      has_cookies: true,
+      credential_status: 'ready',
+      config_status: 'active',
+    },
+    {
+      id: 'ctrip-58-history',
+      hotel_id: 58,
+      ctrip_hotel_id: 'OLD-ID',
+      hotel_room_count: 99,
+      competitor_room_count: 999,
+      config_status: 'history',
+    },
+  ];
+
+  const reused = ctripStaticApi.buildCtripConfigFormForHotel({
+    hotelId: 58,
+    hotelName: '巢湖测试',
+    configs,
+  });
+  assert.equal(reused.id, 'ctrip-58');
+  assert.equal(reused.hotel_id, '58');
+  assert.equal(reused.ctrip_hotel_id, '832085');
+  assert.equal(reused.hotel_room_count, 37);
+  assert.equal(reused.competitor_room_count, 200);
+  assert.equal(reused.cookies, '');
+  assert.equal(reused.has_cookies, true);
+
+  const otherHotel = ctripStaticApi.buildCtripConfigFormForHotel({
+    hotelId: 60,
+    hotelName: 'B店',
+    configs,
+  });
+  assert.equal(otherHotel.id, null);
+  assert.equal(otherHotel.hotel_id, '60');
+  assert.equal(otherHotel.ctrip_hotel_id, '');
+  assert.equal(otherHotel.hotel_room_count, '');
+  assert.equal(otherHotel.competitor_room_count, '');
+
+  assert.match(html, /const hydrateCtripConfigFormForHotel = \(hotelId, options = \{\}\) => \{/);
+  assert.match(html, /buildCtripConfigFormForHotel\(\{[\s\S]*configs: ctripConfigList\.value/);
+  assert.match(html, /watch\(\(\) => String\(ctripConfigForm\.value\?\.hotel_id \|\| ''\)/);
+});
+
 test('Ctrip config UI requires and echoes room-count fields', () => {
   const configForm = sliceFrom('data-testid="ctrip-config-form"', '<!-- 已保存的配置列表 -->');
   const configList = sliceFrom('<!-- 已保存的配置列表 -->', '<!-- 携程数据抓取设置 -->');

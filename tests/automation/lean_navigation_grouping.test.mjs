@@ -29,7 +29,7 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(analysis, /sourcePath: 'revenue-research-center'/);
   assert.match(analysis, /sourcePath: 'ai-daily-report'/);
 
-  const ota = section("name: 'OTA数据与采集'", "name: '运营执行'");
+  const ota = section("name: 'OTA数据与采集'", "name: '运营自动化中心'");
   assert.match(ota, /name: 'OTA数据与采集'/);
   assert.match(ota, /sourcePath: 'ctrip-ebooking'/);
   assert.match(ota, /sourcePath: 'meituan-ebooking'/);
@@ -40,16 +40,29 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(onlineDataPage, /openPlatformSourcesTab\(\)[\s\S]*配置：平台账号/);
   assert.match(onlineDataPage, /openOnlineDataTab\('data'\)[\s\S]*记录与下载/);
 
-  const operations = section("name: '运营执行'", "sourcePath: 'hotels'");
-  assert.match(operations, /name: '运营执行'/);
+  const operations = section("name: '运营自动化中心'", "sourcePath: 'hotels'");
+  assert.match(operations, /name: '运营自动化中心'/);
+  assert.match(operations, /sourcePath: 'pms-operating-data',[\s\S]*name: 'PMS经营数据'/);
+  assert.match(operations, /sourcePath: 'wechat-notification',[\s\S]*name: '企业微信推送'/);
+  assert.match(operations, /sourcePath: 'operating-targets',[\s\S]*name: '经营目标'/);
   assert.match(operations, /sourcePath: 'ops-track'/);
+  assert.doesNotMatch(operations, /sourcePath: 'manual-notifications'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-daily-report'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-governance'/);
+  assert.equal((operations.match(/sourcePath:/g) || []).length, 4);
 
   const systemTools = section("name: '系统与工具'");
   assert.match(systemTools, /name: '系统与工具'/);
   assert.match(systemTools, /sourcePath: 'ai-governance',[\s\S]*name: 'AI决策审计'/);
   assert.match(systemTools, /name: '系统与权限'/);
+  assert.doesNotMatch(systemTools, /sourcePath: 'wechat-notification'/);
+});
+
+test('enterprise WeChat entry follows report permission rather than OTA collection permission', () => {
+  const systemStatic = readFileSync('public/system-static.js', 'utf8');
+  const entry = systemStatic.match(/\{ name: '企业微信推送',[^\n]+\}/)?.[0] || '';
+  assert.match(entry, /permissions: \['can_fill_daily_report'\]/);
+  assert.doesNotMatch(entry, /can_fetch_online_data/);
 });
 
 test('sidebar highlights only the exact active leaf, including online-data tabs', () => {

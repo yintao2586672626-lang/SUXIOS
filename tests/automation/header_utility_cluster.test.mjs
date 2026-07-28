@@ -4,12 +4,11 @@ import test from 'node:test';
 
 const read = (path) => fs.readFileSync(path, 'utf8');
 
-test('header utility cluster exposes one-click language, truthful notifications, and Beijing time', () => {
+test('header utility cluster exposes truthful notifications and Beijing time', () => {
   const shell = read('resources/frontend/templates/fragments/00-app-shell.html');
   const appMain = read('public/app-main.js');
   const css = read('public/style.css');
 
-  assert.match(shell, /data-testid="header-locale-switch"[\s\S]*@click="switchLocale\(option\.value\)"/);
   assert.match(shell, /data-testid="header-notification-trigger"[\s\S]*:aria-expanded="globalNotificationOpen \? 'true' : 'false'"/);
   assert.match(shell, /id="global-notification-panel"[\s\S]*aria-label="关闭通知中心"/);
   assert.match(shell, /显示最近 \{\{ globalNotificationVisibleItems\.length \}\} 条 · 共 \{\{ globalNotificationTotalCount \}\} 条/);

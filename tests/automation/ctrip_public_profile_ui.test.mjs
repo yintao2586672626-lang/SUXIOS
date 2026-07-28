@@ -19,9 +19,49 @@ test('Ctrip public profile UI exposes ID-only add and truthful static-data bound
   assert.match(panel, /添加并自动补全/);
   assert.match(panel, /<option value="self">本店<\/option>/);
   assert.match(panel, /<option value="competitor">竞品酒店<\/option>/);
-  assert.match(panel, /客房总数是酒店静态资料，不等于任一日期的可售库存/);
+  assert.match(panel, /公开页展示房量只作静态参考，不等于物理房量或任一日期的可售库存/);
   assert.match(panel, /不采集动态价格、订单、流量或 PMS 数据/);
   assert.doesNotMatch(panel, /Cookie|spidertoken|Authorization/);
+});
+
+test('Ctrip public profile follows SUXIOS comparison, evidence and master-data boundaries', () => {
+  const source = read('public/app-main.js');
+  const template = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
+  const panel = template.split('<!-- 携程公开酒店档案 -->')[1]?.split('<!-- 流量概要 -->')[0] || '';
+  const routes = read('route/app.php');
+  const controller = read('app/controller/ota/CtripController.php');
+  const actionCatalog = read('app/domain/Ota/OtaActionCatalog.php');
+  const concern = read('app/controller/concern/CtripCompetitiveOperationsConcern.php');
+  const service = read('app/service/CtripPublicHotelProfileService.php');
+
+  assert.match(panel, /data-testid="ctrip-public-profile-comparison"/);
+  assert.match(panel, /静态竞争位置对比/);
+  assert.match(panel, /data-testid="ctrip-public-profile-search"/);
+  assert.match(panel, /data-testid="ctrip-public-profile-quality-filter"/);
+  assert.match(panel, /data-testid="ctrip-public-profile-master-compare"/);
+  assert.match(panel, /差异不会自动覆盖宿析主档/);
+  assert.match(panel, /ctripPublicProfileSourceStatusText\(profile\)/);
+  assert.match(panel, /ctripPublicProfileReadbackStatusText\(profile\)/);
+  assert.match(panel, /公开坐标推算/);
+  assert.match(panel, /单独刷新重试/);
+  assert.match(panel, /class="suxi-cpp-compact-detail"/);
+  assert.match(source, /const ctripPublicProfileNeedsAttention =/);
+  assert.match(source, /captureStatus !== 'available'/);
+  assert.match(source, /persistence_readback_status/);
+  assert.match(source, /source_verified: '来源已验证'/);
+  assert.match(source, /readback_verified: '保存已回读'/);
+  assert.match(source, /const ctripPublicProfileMasterDifferences = computed/);
+  assert.match(source, /const ctripPublicProfileDistanceText =/);
+  assert.match(source, /ota_hotel_id: otaHotelId,\s+force: true/);
+  assert.match(source, /request\('\/online-data\/ctrip\/public-profiles\/archive'/);
+  assert.match(routes, /Route::post\('\/ctrip\/public-profiles\/archive', 'ota\.CtripController\/archiveCtripPublicProfile'\)/);
+  assert.match(controller, /public function archiveCtripPublicProfile\(\): Response[\s\S]*?execute\(__FUNCTION__\)/);
+  assert.match(actionCatalog, /'archiveCtripPublicProfile'/);
+  assert.match(concern, /'master_data' => \$service->systemHotelMasterData\(\$systemHotelId\)/);
+  assert.match(service, /public function syncOneForHotel\(/);
+  assert.match(service, /public function archiveCompetitor\(/);
+  assert.match(service, /'role' => 'archived_competitor'/);
+  assert.match(service, /历史公开档案仍保留/);
 });
 
 test('Ctrip public profile UI calls scoped add, read, and refresh endpoints', () => {
@@ -37,7 +77,8 @@ test('Ctrip public profile UI calls scoped add, read, and refresh endpoints', ()
   assert.match(source, /businessContext: \{ hotelId: systemHotelId, platform: 'ctrip' \}/);
   assert.match(source, /binding_saved_collection_failed/);
   assert.match(source, /mutationSeq !== ctripPublicProfileMutationSeq[\s\S]*systemHotelId !== String\(selectedCtripHotelId\.value/);
-  assert.match(template, /ctrip-public-profile-hotel-select[^>]*:disabled="ctripPublicProfileLoading \|\| ctripPublicProfileSaving \|\| ctripPublicProfileRefreshing[^"]*"/);
+  assert.match(source, /const ctripPublicProfileBusy = computed\(\(\) => ctripPublicProfileLoading\.value[\s\S]*ctripPublicProfileArchivingId\.value\)/);
+  assert.match(template, /ctrip-public-profile-hotel-select[^>]*:disabled="ctripPublicProfileBusy \|\| otaPublicPageDiagnosisExecutionLoading"/);
 });
 
 test('Ctrip competition-circle operations are reachable from the public-profile page with truthful evidence states', () => {

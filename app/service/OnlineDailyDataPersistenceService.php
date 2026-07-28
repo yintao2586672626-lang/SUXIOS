@@ -114,6 +114,15 @@ final class OnlineDailyDataPersistenceService
     public static function resetReadbackVerification(array $data, ?array $columns = null): array
     {
         $columns ??= self::getColumns();
+        // This method is the shared final pre-write boundary for both legacy
+        // collectors and the normalized persistence path. Recompute from the
+        // final tenant/hotel/source identity so nullable hashes can no longer
+        // bypass the database uniqueness contract, including after cloud
+        // destination rebinding.
+        if (isset($columns['persistence_identity_hash'])) {
+            $data['persistence_identity_hash'] =
+                (new PlatformNormalizedRowPersistenceService())->identityHash($data);
+        }
         if (isset($columns['readback_verified'])) {
             $data['readback_verified'] = 0;
         }

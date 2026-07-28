@@ -23,6 +23,7 @@ final class CloudCollectorBindingEvidenceTest extends TestCase
         self::assertSame(hash('sha256', 'server-owner-device'), $evidence['device_id_hash']);
         self::assertSame(80, $evidence['hotel_id']);
         self::assertSame('ctrip', $evidence['platform']);
+        self::assertSame('ctrip-h80', $evidence['platform_hotel_id']);
         self::assertSame('2026-07-25 22:30:00', $evidence['bound_at']);
         self::assertFalse($evidence['sensitive_values_exposed']);
     }
@@ -41,6 +42,7 @@ final class CloudCollectorBindingEvidenceTest extends TestCase
                 'device_id_hash' => hash('sha256', 'server-owner-device'),
                 'hotel_id' => 80,
                 'platform' => 'ctrip',
+                'platform_hotel_id' => 'ctrip-h80',
             ],
         ];
 
@@ -130,6 +132,7 @@ final class CloudCollectorBindingEvidenceTest extends TestCase
                 'collector_hotel_id' => 80,
                 'collector_platform' => 'ctrip',
                 'collector_bound_at' => '2026-07-25 22:30:00',
+                'platform_hotel_id' => 'ctrip-h80',
             ],
         ];
     }

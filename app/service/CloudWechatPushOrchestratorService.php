@@ -72,6 +72,10 @@ final class CloudWechatPushOrchestratorService
         ];
 
         return Db::transaction(function () use ($hotelId, $userId, $templateKey, $values): array {
+            $tenantId = $this->hotelTenantIdForPolicy($hotelId);
+            if ($tenantId !== null) {
+                $values['tenant_id'] = $tenantId;
+            }
             $existing = Db::name(self::POLICY_TABLE)
                 ->where('hotel_id', $hotelId)
                 ->where('owner_user_id', $userId)
@@ -157,10 +161,50 @@ final class CloudWechatPushOrchestratorService
 
         $hotelId = (int)$policy['hotel_id'];
         $robotId = (int)$policy['robot_id'];
+        $ownerUserId = (int)($policy['owner_user_id'] ?? 0);
+        $deliveryService = $this->deliveryService ?? new WechatRobotDeliveryService();
+        $formalSender = static function (array $payload) use (
+            $deliveryService,
+            $policy,
+            $hotelId,
+            $robotId,
+            $ownerUserId,
+            $window
+        ): array {
+            return $deliveryService->deliverToAccountPolicyRobot(
+                (int)($policy['id'] ?? 0),
+                $hotelId,
+                self::TEMPLATE_HOURLY_MONITOR,
+                $robotId,
+                $payload,
+                [
+                    'tenant_id' => (int)($policy['tenant_id'] ?? 0),
+                    'owner_user_id' => $ownerUserId,
+                    'frequency' => (string)($policy['frequency'] ?? ''),
+                    'template_key' => (string)($policy['template_key'] ?? ''),
+                    'dispatch_window' => $window,
+                ]
+            );
+        };
         try {
             $message = $this->hourlyDispatcher !== null
-                ? call_user_func($this->hourlyDispatcher, $hotelId, $robotId, $now)
-                : (new HourlyHotelMonitorWechatService())->run($hotelId, $robotId, true, $now->format('Y-m-d H:i:s'), false);
+                ? call_user_func(
+                    $this->hourlyDispatcher,
+                    $hotelId,
+                    $robotId,
+                    $now,
+                    $ownerUserId,
+                    $formalSender
+                )
+                : (new HourlyHotelMonitorWechatService())->run(
+                    $hotelId,
+                    $robotId,
+                    true,
+                    $now->format('Y-m-d H:i:s'),
+                    false,
+                    $ownerUserId,
+                    $formalSender
+                );
         } catch (\Throwable $exception) {
             $message = [
                 'status' => 'failed',
@@ -173,7 +217,7 @@ final class CloudWechatPushOrchestratorService
         $sent = in_array($messageStatus, ['sent', 'partial'], true);
         $visual = ['status' => 'not_requested'];
         if ($sent && (int)($policy['visual_card_enabled'] ?? 0) === 1) {
-            $visual = $this->dispatchVisualCard($hotelId, $robotId, $now);
+            $visual = $this->dispatchVisualCard($policy, $now);
         }
 
         $failureAlert = ['status' => 'not_needed'];
@@ -181,7 +225,16 @@ final class CloudWechatPushOrchestratorService
             $failureAlert = $this->sendFailureAlert($policy, $window, $messageStatus, $message);
         }
 
-        Db::name(self::POLICY_TABLE)->where('id', (int)$policy['id'])->update([
+        $policyUpdate = Db::name(self::POLICY_TABLE)
+            ->where('id', (int)$policy['id'])
+            ->where('tenant_id', (int)($policy['tenant_id'] ?? 0))
+            ->where('hotel_id', $hotelId)
+            ->where('owner_user_id', $ownerUserId)
+            ->where('robot_id', $robotId)
+            ->where('frequency', (string)($policy['frequency'] ?? ''))
+            ->where('template_key', (string)($policy['template_key'] ?? ''))
+            ->where('status', 1);
+        $policyUpdate->update([
             'last_dispatch_window' => $window,
             'last_delivery_status' => $messageStatus,
             'last_failure_alert_status' => (string)($failureAlert['status'] ?? ''),
@@ -195,9 +248,12 @@ final class CloudWechatPushOrchestratorService
         ]);
     }
 
-    /** @return array<string,mixed> */
-    private function dispatchVisualCard(int $hotelId, int $robotId, DateTimeImmutable $now): array
+    /** @param array<string,mixed> $policy @return array<string,mixed> */
+    private function dispatchVisualCard(array $policy, DateTimeImmutable $now): array
     {
+        $policyId = (int)($policy['id'] ?? 0);
+        $hotelId = (int)($policy['hotel_id'] ?? 0);
+        $robotId = (int)($policy['robot_id'] ?? 0);
         if ($this->visualCardDispatcher !== null) {
             return (array)call_user_func($this->visualCardDispatcher, $hotelId, $robotId, $now);
         }
@@ -208,7 +264,7 @@ final class CloudWechatPushOrchestratorService
             return ['status' => 'visual_card_sender_missing'];
         }
         $process = proc_open(
-            [PHP_BINARY, $script, '--hotel-id', (string)$hotelId, '--robot-id', (string)$robotId],
+            [PHP_BINARY, $script, '--hotel-id', (string)$hotelId, '--policy-id', (string)$policyId],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             $root,
@@ -251,22 +307,43 @@ final class CloudWechatPushOrchestratorService
             ],
         ];
         $state = $this->stateStore ?? new CloudAutomationStateStore();
-        $record = $state->queueDelivery(
-            'wechat_push_failure_alert',
-            $hotelId,
-            ['policy_id' => (int)$policy['id'], 'window' => $window, 'robot_id' => $failureRobotId],
-            $payload,
-            ['policy_id' => (int)$policy['id'], 'message_status' => $messageStatus],
-            'wechat-push-failure-alert:' . (int)$policy['id'] . ':' . $window
-        );
-        if (in_array((string)($record['status'] ?? ''), ['sent', 'sending', 'delivery_outcome_unknown'], true)) {
-            return ['status' => (string)$record['status'], 'delivery_key' => (string)($record['delivery_key'] ?? '')];
+        $lock = $state->acquireLock(5);
+        if (!is_resource($lock)) {
+            return ['status' => 'in_progress', 'delivery_key' => ''];
         }
-        $attempt = $state->beginDeliveryAttempt($record);
+        try {
+            $record = $state->queueDelivery(
+                'wechat_push_failure_alert',
+                $hotelId,
+                ['policy_id' => (int)$policy['id'], 'window' => $window, 'robot_id' => $failureRobotId],
+                $payload,
+                ['policy_id' => (int)$policy['id'], 'message_status' => $messageStatus],
+                'wechat-push-failure-alert:' . (int)$policy['id'] . ':' . $window
+            );
+            if (in_array((string)($record['status'] ?? ''), ['sent', 'sending', 'delivery_outcome_unknown'], true)) {
+                return ['status' => (string)$record['status'], 'delivery_key' => (string)($record['delivery_key'] ?? '')];
+            }
+            $attempt = $state->beginDeliveryAttempt($record);
+            if ((string)($attempt['status'] ?? '') !== 'sending') {
+                return [
+                    'status' => (string)($attempt['status'] ?? 'in_progress'),
+                    'delivery_key' => (string)($attempt['delivery_key'] ?? ''),
+                ];
+            }
+        } finally {
+            $state->releaseLock($lock);
+        }
+
         $delivery = $this->failureAlertDispatcher !== null
             ? (array)call_user_func($this->failureAlertDispatcher, $hotelId, $payload, $failureRobotId)
             : ($this->deliveryService ?? new WechatRobotDeliveryService())
-                ->deliverToHotel($hotelId, $payload, [$failureRobotId]);
+                ->deliverToAccountPolicyRobot(
+                    (int)($policy['id'] ?? 0),
+                    $hotelId,
+                    'failure_alert',
+                    $failureRobotId,
+                    $payload
+                );
         $record = $state->recordDeliveryAttempt($attempt, $delivery, 3);
         return [
             'status' => (string)($record['status'] ?? 'failed'),
@@ -319,6 +396,7 @@ final class CloudWechatPushOrchestratorService
     {
         return [
             'id' => (int)($policy['id'] ?? 0),
+            'tenant_id' => $this->positiveInt($policy['tenant_id'] ?? null),
             'hotel_id' => (int)($policy['hotel_id'] ?? 0),
             'owner_user_id' => (int)($policy['owner_user_id'] ?? 0),
             'robot_id' => (int)($policy['robot_id'] ?? 0),
@@ -343,6 +421,30 @@ final class CloudWechatPushOrchestratorService
     private function truthy(mixed $value): bool
     {
         return in_array($value, [true, 1, '1', 'true', 'yes', 'on'], true);
+    }
+
+    private function hotelTenantIdForPolicy(int $hotelId): ?int
+    {
+        if (!$this->tableHasColumn(self::POLICY_TABLE, 'tenant_id')) {
+            return null;
+        }
+        if (!$this->tableHasColumn('hotels', 'tenant_id')) {
+            throw new \RuntimeException('wechat_push_policy_hotel_tenant_scope_unavailable');
+        }
+        $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+        if ($tenantId <= 0) {
+            throw new \RuntimeException('wechat_push_policy_hotel_tenant_scope_missing');
+        }
+        return $tenantId;
+    }
+
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        try {
+            return in_array($column, Db::getTableInfo($table, 'fields'), true);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function safeError(string $value): string

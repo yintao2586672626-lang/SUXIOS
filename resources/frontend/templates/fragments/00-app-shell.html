@@ -242,17 +242,6 @@
                             <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
                         </div>
                         <div class="header-utility-cluster flex flex-wrap items-center justify-end gap-3" role="group" aria-label="顶栏工具">
-                            <div data-locale-switch="" data-testid="header-locale-switch" class="locale-switch header-locale-switch header-language-control" role="group" :aria-label="aiModelConfigText('global.languageLabel')">
-                                <span class="header-utility-label">
-                                    <i class="fas fa-globe-asia" aria-hidden="true"></i>
-                                    <span>{{ aiModelConfigText('global.languageLabel') }}</span>
-                                </span>
-                                <span class="header-language-options">
-                                    <button v-for="option in languageOptions" :key="option.value" type="button" @click="switchLocale(option.value)" :aria-pressed="currentLocale === option.value" :title="option.label" :data-testid="'header-locale-' + option.value" :class="['header-language-option', currentLocale === option.value ? 'is-active' : '']">
-                                        {{ option.value === 'en-US' ? 'EN' : option.label }}
-                                    </button>
-                                </span>
-                            </div>
                             <div class="relative header-notification-control">
                                 <button type="button" data-testid="header-notification-trigger" @click="toggleGlobalNotifications" @keydown.esc.stop="globalNotificationOpen = false" class="header-notification-button" :class="globalNotificationOpen ? 'is-open' : ''" :aria-expanded="globalNotificationOpen ? 'true' : 'false'" aria-controls="global-notification-panel" :aria-label="globalNotificationUnreadCount ? `通知中心，${globalNotificationUnreadCount} 条未读` : '通知中心，无未读提醒'">
                                     <span class="header-utility-icon"><i class="fas fa-bell" aria-hidden="true"></i></span>

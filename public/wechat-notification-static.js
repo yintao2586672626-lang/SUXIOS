@@ -51,10 +51,10 @@
                     h('section', { class: 'rounded-2xl border border-slate-200 bg-white p-6 shadow-sm' }, [
                         h('div', { class: 'flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between' }, [
                             h('div', {}, [
-                                h('div', { class: 'text-sm font-medium text-emerald-700' }, '当前账户 · 当前门店'),
-                                h('h2', { class: 'mt-1 text-2xl font-bold text-slate-900' }, '企业微信通知'),
+                                h('div', { class: 'text-sm font-medium text-emerald-700' }, '账号级配置 · 当前账户与当前门店'),
+                                h('h2', { class: 'mt-1 text-2xl font-bold text-slate-900' }, '我的通知群'),
                                 h('p', { class: 'mt-2 max-w-2xl text-sm leading-6 text-slate-500' },
-                                    '绑定只对当前账户和所选门店生效，不会修改管理员已有机器人。'),
+                                    '只对当前账户和所选门店生效；与管理员维护的门店共享机器人分开保存、互不覆盖。'),
                             ]),
                             h('span', {
                                 class: `inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium ${props.statusClass}`,
@@ -135,7 +135,7 @@
                                 detail('最后测试', props.lastTestText, 'wechat-notification-last-test'),
                             ]),
                             h('div', { class: 'mt-5 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800' },
-                                '切换门店后会重新读取该门店下当前账户自己的绑定，其他账户和门店的配置不会显示。'),
+                                '切换门店后只读取该门店下当前账户自己的绑定；其他账户和管理员共享配置不会显示。'),
                         ]),
                     ]),
                 ]);

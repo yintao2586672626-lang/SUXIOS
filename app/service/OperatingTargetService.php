@@ -226,7 +226,7 @@ final class OperatingTargetService
     {
         $now = date('Y-m-d H:i:s');
         $createdBy = $existing === null ? $userId : (int)($existing['created_by'] ?? $userId);
-        return [
+        $payload = [
             'target_date' => $input['target_date'],
             'target_revenue' => $input['target_revenue'],
             'actual_revenue' => $input['actual_revenue'],
@@ -244,6 +244,13 @@ final class OperatingTargetService
             'create_time' => $existing === null ? $now : (string)($existing['create_time'] ?? $now),
             'update_time' => $now,
         ];
+        if ($this->tableHasField('operating_target_daily_records', 'target_occupancy_rate_percent')) {
+            $payload['target_occupancy_rate_percent'] = $input['target_occupancy_rate_percent'];
+        }
+        if ($this->tableHasField('operating_target_daily_records', 'target_revpar')) {
+            $payload['target_revpar'] = $input['target_revpar'];
+        }
+        return $payload;
     }
 
     private function normalizeInput(array $input): array
@@ -270,6 +277,11 @@ final class OperatingTargetService
         return [
             'target_date' => $targetDate,
             'target_revenue' => $this->decimalOrNull($input['target_revenue'] ?? null, 'target_revenue'),
+            'target_occupancy_rate_percent' => $this->percentOrNull(
+                $input['target_occupancy_rate_percent'] ?? null,
+                'target_occupancy_rate_percent'
+            ),
+            'target_revpar' => $this->decimalOrNull($input['target_revpar'] ?? null, 'target_revpar'),
             'actual_revenue' => $this->decimalOrNull($input['actual_revenue'] ?? null, 'actual_revenue'),
             'sold_room_nights' => $this->integerOrNull($input['sold_room_nights'] ?? null, 'sold_room_nights'),
             'sellable_room_nights' => $this->integerOrNull($input['sellable_room_nights'] ?? null, 'sellable_room_nights'),
@@ -296,6 +308,11 @@ final class OperatingTargetService
             'target_date' => (string)$row['target_date'],
             'facts' => [
                 'target_revenue' => $this->decimalOrNull($row['target_revenue'] ?? null, 'target_revenue'),
+                'target_occupancy_rate_percent' => $this->percentOrNull(
+                    $row['target_occupancy_rate_percent'] ?? null,
+                    'target_occupancy_rate_percent'
+                ),
+                'target_revpar' => $this->decimalOrNull($row['target_revpar'] ?? null, 'target_revpar'),
                 'actual_revenue' => $this->decimalOrNull($row['actual_revenue'] ?? null, 'actual_revenue'),
                 'sold_room_nights' => $this->integerOrNull($row['sold_room_nights'] ?? null, 'sold_room_nights'),
                 'sellable_room_nights' => $this->integerOrNull($row['sellable_room_nights'] ?? null, 'sellable_room_nights'),
@@ -363,6 +380,11 @@ final class OperatingTargetService
     private function calculate(array $input): array
     {
         $targetRevenue = $this->decimalOrNull($input['target_revenue'] ?? null, 'target_revenue');
+        $targetOccupancyRate = $this->percentOrNull(
+            $input['target_occupancy_rate_percent'] ?? null,
+            'target_occupancy_rate_percent'
+        );
+        $targetRevpar = $this->decimalOrNull($input['target_revpar'] ?? null, 'target_revpar');
         $actualRevenue = $this->decimalOrNull($input['actual_revenue'] ?? null, 'actual_revenue');
         $soldRoomNights = $this->integerOrNull($input['sold_room_nights'] ?? null, 'sold_room_nights');
         $sellableRoomNights = $this->integerOrNull($input['sellable_room_nights'] ?? null, 'sellable_room_nights');
@@ -396,6 +418,12 @@ final class OperatingTargetService
         if ($soldRoomNights !== null && $sellableRoomNights !== null && $soldRoomNights > $sellableRoomNights) {
             $gaps[] = $this->gap('input_inconsistent', '已售间夜大于可售房夜，数据口径冲突，已阻断派生计算。');
         }
+        if ($targetRevpar !== null && $factScope !== 'accommodation_room_fee') {
+            $gaps[] = $this->gap(
+                'revpar_fact_scope_mismatch',
+                '目标 RevPAR 只能与住宿房费口径的收入和可售房量比较，不能使用全酒店总营收替代。'
+            );
+        }
 
         $qualityUsable = in_array($qualityStatus, self::USABLE_QUALITY_STATUSES, true);
         $targetUsable = $targetRevenue !== null && $targetRevenue > 0;
@@ -416,6 +444,19 @@ final class OperatingTargetService
             : null;
         $sellingProgress = $qualityUsable && $roomsConsistent
             ? round(($soldRoomNights / $sellableRoomNights) * 100, 2)
+            : null;
+        $actualOccupancyRate = $sellingProgress;
+        $actualRevpar = $qualityUsable
+            && $roomsConsistent
+            && $actualRevenue !== null
+            && $factScope === 'accommodation_room_fee'
+            ? round($actualRevenue / $sellableRoomNights, 2)
+            : null;
+        $occupancyGapPoints = $targetOccupancyRate !== null && $actualOccupancyRate !== null
+            ? round($actualOccupancyRate - $targetOccupancyRate, 2)
+            : null;
+        $revparGap = $targetRevpar !== null && $actualRevpar !== null
+            ? round($actualRevpar - $targetRevpar, 2)
             : null;
         $remainingSellableRoomNights = $qualityUsable && $roomsConsistent
             ? $sellableRoomNights - $soldRoomNights
@@ -442,6 +483,24 @@ final class OperatingTargetService
                 'message' => '当前仍有营收目标待完成，请结合剩余可售房夜核对经营节奏。',
             ];
         }
+        if ($occupancyGapPoints !== null) {
+            $reminders[] = [
+                'level' => $occupancyGapPoints >= 0 ? 'success' : 'warning',
+                'code' => $occupancyGapPoints >= 0 ? 'occupancy_target_achieved' : 'occupancy_target_below',
+                'message' => $occupancyGapPoints >= 0
+                    ? '实际入住率已达到目标入住率。'
+                    : '实际入住率低于目标入住率，请结合剩余可售房量制定执行动作。',
+            ];
+        }
+        if ($revparGap !== null) {
+            $reminders[] = [
+                'level' => $revparGap >= 0 ? 'success' : 'warning',
+                'code' => $revparGap >= 0 ? 'revpar_target_achieved' : 'revpar_target_below',
+                'message' => $revparGap >= 0
+                    ? '实际 RevPAR 已达到目标 RevPAR。'
+                    : '实际 RevPAR 低于目标 RevPAR，请复核价格、入住率和剩余经营空间。',
+            ];
+        }
         foreach ($gaps as $gap) {
             $reminders[] = [
                 'level' => $gap['code'] === 'input_inconsistent' ? 'danger' : 'info',
@@ -457,6 +516,10 @@ final class OperatingTargetService
                 'completion_rate_percent' => $completionRate,
                 'remaining_revenue' => $remainingRevenue,
                 'selling_progress_percent' => $sellingProgress,
+                'actual_occupancy_rate_percent' => $actualOccupancyRate,
+                'occupancy_gap_points' => $occupancyGapPoints,
+                'actual_revpar' => $actualRevpar,
+                'revpar_gap' => $revparGap,
                 'remaining_sellable_room_nights' => $remainingSellableRoomNights,
                 'required_average_rate' => $requiredAverageRate,
             ],
@@ -564,6 +627,18 @@ final class OperatingTargetService
             throw new \InvalidArgumentException('operating_target_' . $field . '_invalid');
         }
         return round($number, 2);
+    }
+
+    private function percentOrNull(mixed $value, string $field): ?float
+    {
+        $number = $this->decimalOrNull($value, $field);
+        if ($number === null) {
+            return null;
+        }
+        if ($number > 100) {
+            throw new \InvalidArgumentException('operating_target_' . $field . '_invalid');
+        }
+        return $number;
     }
 
     private function integerOrNull(mixed $value, string $field): ?int

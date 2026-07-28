@@ -458,13 +458,21 @@ final class PlatformDataSyncServiceTest extends TestCase
             'platform' => 'ctrip',
             'ingestion_method' => 'browser_profile',
         ];
-        $options = ['require_current_session_probe' => true];
+        $options = [
+            'require_current_session_probe' => true,
+            'required_collector_binding' => [
+                'platform_hotel_id' => 'hotel-80',
+            ],
+        ];
 
         self::assertNull($method->invoke($service, $source, $options, [
             'status' => 'success',
             'payload' => [
                 'auth_status' => ['ok' => true, 'status' => 'logged_in'],
-                'platform_identity_validation' => ['status' => 'matched'],
+                'platform_identity_validation' => [
+                    'status' => 'matched',
+                    'validated_identifier' => 'hotel-80',
+                ],
             ],
         ]));
 
@@ -474,7 +482,10 @@ final class PlatformDataSyncServiceTest extends TestCase
             'status' => 'success',
             'payload' => [
                 'auth_status' => ['ok' => true, 'status' => 'logged_in'],
-                'platform_identity_validation' => ['status' => 'mismatch'],
+                'platform_identity_validation' => [
+                    'status' => 'mismatch',
+                    'validated_identifier' => 'hotel-81',
+                ],
             ],
         ]);
     }

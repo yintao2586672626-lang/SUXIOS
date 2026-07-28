@@ -1124,6 +1124,7 @@ class OperationManagementService
             'quant_simulation',
             'daily_workbench_patrol',
             'operation_alert',
+            'operating_target',
         ];
         if (in_array((string)$payload['source_module'], $reservedSources, true) && !$trustedReservedSource) {
             throw new \InvalidArgumentException('reserved execution source must be created from its scoped source endpoint');
@@ -1516,28 +1517,36 @@ class OperationManagementService
     {
         $this->assertExecutionPayloadHasNoCredentialMaterial($remark);
         $this->ensureExecutionTables();
-        $intent = $this->executionIntentRow($id, $hotelIds);
-        if (!$intent) {
-            throw new \RuntimeException('execution intent not found');
-        }
-        if (($intent['status'] ?? '') === 'blocked') {
-            throw new \InvalidArgumentException('blocked execution intent cannot be approved');
-        }
-        if (($intent['status'] ?? '') !== 'pending_approval') {
-            throw new \InvalidArgumentException('execution intent must be pending_approval before review');
-        }
-        if ($approved) {
-            $this->assertExecutionPayloadHasNoCredentialMaterial([
-                $this->decodeJson((string)($intent['current_value_json'] ?? '')),
-                $this->decodeJson((string)($intent['target_value_json'] ?? '')),
-                $this->decodeJson((string)($intent['evidence_json'] ?? '')),
-            ]);
-            $this->assertAiDecisionIntentReadyForApproval($this->normalizeExecutionIntentRow($intent));
-        }
-
         $now = date('Y-m-d H:i:s');
         $status = $approved ? 'approved' : 'rejected';
-        Db::transaction(function () use ($id, $status, $userId, $now, $remark, $approved, $intent): void {
+        Db::transaction(function () use (
+            $id,
+            $status,
+            $userId,
+            $now,
+            $remark,
+            $approved,
+            $hotelIds
+        ): void {
+            $intent = $this->executionIntentRow($id, $hotelIds, true);
+            if (!$intent) {
+                throw new \RuntimeException('execution intent not found');
+            }
+            if (($intent['status'] ?? '') === 'blocked') {
+                throw new \InvalidArgumentException('blocked execution intent cannot be approved');
+            }
+            if (($intent['status'] ?? '') !== 'pending_approval') {
+                throw new \InvalidArgumentException('execution intent must be pending_approval before review');
+            }
+            if ($approved) {
+                $this->assertExecutionPayloadHasNoCredentialMaterial([
+                    $this->decodeJson((string)($intent['current_value_json'] ?? '')),
+                    $this->decodeJson((string)($intent['target_value_json'] ?? '')),
+                    $this->decodeJson((string)($intent['evidence_json'] ?? '')),
+                ]);
+                $this->assertAiDecisionIntentReadyForApproval($this->normalizeExecutionIntentRow($intent));
+            }
+
             $affected = (int)Db::name('operation_execution_intents')
                 ->where('id', $id)
                 ->where('hotel_id', (int)$intent['hotel_id'])
@@ -1588,6 +1597,10 @@ class OperationManagementService
         }
         if (in_array($sourceModule, ['strategy_simulation', 'quant_simulation'], true)) {
             $this->assertSimulationIntentSourceIsCurrent($intent);
+            return;
+        }
+        if ($sourceModule === 'operating_target') {
+            $this->assertOperatingTargetIntentSourceIsCurrent($intent);
             return;
         }
         if (!in_array($sourceModule, [
@@ -1677,6 +1690,79 @@ class OperationManagementService
         ) {
             throw new \InvalidArgumentException('revenue research provenance is no longer execution ready');
         }
+    }
+
+    /** @param array<string, mixed> $intent */
+    private function assertOperatingTargetIntentSourceIsCurrent(array $intent): void
+    {
+        $hotelId = (int)($intent['hotel_id'] ?? 0);
+        $sourceRecordId = (int)($intent['source_record_id'] ?? 0);
+        $targetDate = trim((string)($intent['date_start'] ?? ''));
+        $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+        $storedDigest = strtolower(trim((string)($evidence['operating_target_source_digest'] ?? '')));
+        if ($hotelId <= 0
+            || $sourceRecordId <= 0
+            || $targetDate === ''
+            || ($evidence['operating_target_provenance_contract'] ?? '')
+                !== OperatingTargetExecutionProvenanceService::CONTRACT_VERSION
+            || preg_match('/^[a-f0-9]{64}$/D', $storedDigest) !== 1
+        ) {
+            throw new \InvalidArgumentException(
+                'operating target execution provenance is required before approval'
+            );
+        }
+
+        $tenantId = $this->tenantIdForHotel($hotelId);
+        $sourceRow = Db::name('operating_target_daily_records')
+            ->where('id', $sourceRecordId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('target_date', $targetDate)
+            ->lock(true)
+            ->find();
+        if (!is_array($sourceRow)) {
+            throw new \InvalidArgumentException(
+                'operating target source is missing; create a new execution intent'
+            );
+        }
+        $this->afterOperatingTargetSourceLockedForApproval($intent, $sourceRow);
+
+        $current = (new OperatingTargetService())->current(
+            $tenantId,
+            $hotelId,
+            $targetDate
+        );
+        $record = is_array($current['record'] ?? null) ? $current['record'] : null;
+        if ($record === null || (int)($record['id'] ?? 0) !== $sourceRecordId) {
+            throw new \InvalidArgumentException(
+                'operating target source is missing; create a new execution intent'
+            );
+        }
+        $currentDigest = (new OperatingTargetExecutionProvenanceService())->digest($record);
+        if (!hash_equals($storedDigest, $currentDigest)) {
+            throw new \InvalidArgumentException(
+                'operating target source changed; create a new execution intent'
+            );
+        }
+        $facts = is_array($record['facts'] ?? null) ? $record['facts'] : [];
+        $calculation = is_array($record['calculation'] ?? null) ? $record['calculation'] : [];
+        if (!in_array((string)($facts['quality_status'] ?? ''), ['verified', 'manual_confirmed'], true)
+            || (string)($calculation['status'] ?? '') === 'blocked'
+        ) {
+            throw new \InvalidArgumentException(
+                'operating target facts are no longer actionable'
+            );
+        }
+    }
+
+    /**
+     * Transaction-bound extension point for lock-boundary verification.
+     *
+     * @param array<string, mixed> $intent
+     * @param array<string, mixed> $sourceRow
+     */
+    protected function afterOperatingTargetSourceLockedForApproval(array $intent, array $sourceRow): void
+    {
     }
 
     /** @param array<string, mixed> $intent */
@@ -3484,7 +3570,7 @@ class OperationManagementService
             return null;
         }
         $value = trim($value);
-        if (preg_match('/^(?:ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*|operation_alert_[a-f0-9]{32})$/D', $value) !== 1) {
+        if (preg_match('/^(?:ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*|operation_alert_[a-f0-9]{32}|operating_target_[a-f0-9]{32})$/D', $value) !== 1) {
             throw new \InvalidArgumentException('trusted execution-intent idempotency key is invalid');
         }
         return $value;
@@ -3616,17 +3702,20 @@ class OperationManagementService
         return $this->executionIntentDetail((int)$row['id'], $hotelIds);
     }
 
-    private function executionIntentRow(int $id, array $hotelIds): ?array
+    private function executionIntentRow(int $id, array $hotelIds, bool $lock = false): ?array
     {
         if ($id <= 0 || empty($hotelIds)) {
             return null;
         }
 
-        $row = Db::name('operation_execution_intents')
+        $query = Db::name('operation_execution_intents')
             ->where('id', $id)
             ->whereIn('hotel_id', $hotelIds)
-            ->whereNull('deleted_at')
-            ->find();
+            ->whereNull('deleted_at');
+        if ($lock) {
+            $query->lock(true);
+        }
+        $row = $query->find();
 
         return is_array($row) ? $row : null;
     }

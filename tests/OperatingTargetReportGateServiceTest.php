@@ -4,68 +4,10 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OperatingTargetReportGateService;
-use app\service\ManualNotificationTestTargetService;
 use PHPUnit\Framework\TestCase;
-use think\App;
-use think\facade\Config;
-use think\facade\Db;
 
 final class OperatingTargetReportGateServiceTest extends TestCase
 {
-    private const HOTEL_ID = 5;
-    private const ROBOT_ID = 2;
-    private const ROBOT_NAME = '宿析OS云端日报';
-
-    private static array $databaseConfig;
-    private static string $databasePath;
-
-    public static function setUpBeforeClass(): void
-    {
-        $app = new App();
-        $app->initialize();
-        self::$databaseConfig = Config::get('database');
-        self::$databasePath = sys_get_temp_dir()
-            . '/operating_target_report_gate_' . getmypid() . '.sqlite';
-        @unlink(self::$databasePath);
-        $config = self::$databaseConfig;
-        $config['default'] = 'sqlite';
-        $config['connections']['sqlite'] = [
-            'type' => 'sqlite',
-            'database' => self::$databasePath,
-            'prefix' => '',
-            'fields_strict' => false,
-        ];
-        Config::set($config, 'database');
-        Db::connect(null, true);
-    }
-
-    public static function tearDownAfterClass(): void
-    {
-        Config::set(self::$databaseConfig, 'database');
-        Db::connect(null, true);
-        @unlink(self::$databasePath);
-    }
-
-    protected function setUp(): void
-    {
-        Db::execute(
-            'CREATE TABLE IF NOT EXISTS competitor_wechat_robot ('
-            . 'id INTEGER PRIMARY KEY, '
-            . 'store_id INTEGER NOT NULL, '
-            . 'notification_scope VARCHAR(40) NULL, '
-            . 'name VARCHAR(120) NOT NULL, '
-            . 'status INTEGER NOT NULL)'
-        );
-        Db::name('competitor_wechat_robot')->delete(true);
-        Db::name('competitor_wechat_robot')->insert([
-            'id' => self::ROBOT_ID,
-            'store_id' => self::HOTEL_ID,
-            'notification_scope' => ManualNotificationTestTargetService::TEST_SCOPE,
-            'name' => self::ROBOT_NAME,
-            'status' => 1,
-        ]);
-    }
-
     public function testReadyWholeHotelPreviewAllowsFormalSendDecisionWithoutSending(): void
     {
         $service = new OperatingTargetReportGateService();
@@ -138,8 +80,8 @@ final class OperatingTargetReportGateServiceTest extends TestCase
             'approval_reference' => 'approval-local-001',
             'test_destination' => '隔离测试接收器',
             'test_only' => true,
-            'target_robot_id' => self::ROBOT_ID,
-            'target_robot_name' => self::ROBOT_NAME,
+            'target_robot_id' => 1,
+            'target_robot_name' => '漠蓝测试',
             'first_confirmation' => true,
             'second_confirmation' => true,
             'preview_fingerprint' => $pagePreview['preview_fingerprint'],
@@ -181,8 +123,8 @@ final class OperatingTargetReportGateServiceTest extends TestCase
             'approval_reference' => 'approval-local-002',
             'test_destination' => '隔离测试接收器',
             'test_only' => true,
-            'target_robot_id' => self::ROBOT_ID,
-            'target_robot_name' => self::ROBOT_NAME,
+            'target_robot_id' => 1,
+            'target_robot_name' => '漠蓝测试',
             'first_confirmation' => true,
             'second_confirmation' => true,
             'preview_fingerprint' => $pagePreview['preview_fingerprint'],
@@ -221,8 +163,8 @@ final class OperatingTargetReportGateServiceTest extends TestCase
             'approval_reference' => 'approval-local-003',
             'test_destination' => '隔离测试接收器',
             'test_only' => true,
-            'target_robot_id' => self::ROBOT_ID,
-            'target_robot_name' => self::ROBOT_NAME,
+            'target_robot_id' => 1,
+            'target_robot_name' => '漠蓝测试',
             'first_confirmation' => true,
             'second_confirmation' => true,
             'preview_fingerprint' => $pagePreview['preview_fingerprint'],
@@ -263,7 +205,7 @@ final class OperatingTargetReportGateServiceTest extends TestCase
         return [
             'title' => '每日经营目标报告预览',
             'status' => 'ready',
-            'hotel_id' => self::HOTEL_ID,
+            'hotel_id' => 80,
             'target_date' => '2026-07-26',
             'facts' => [
                 'target_revenue' => 10000,

@@ -9,11 +9,22 @@ use think\facade\Db;
 
 final class ManualNotificationService
 {
+    /** @deprecated Kept only for source compatibility with older callers. */
+    public const TEST_HOTEL_ID = 80;
+    /** @deprecated Kept only for source compatibility with older callers. */
+    public const TEST_ROBOT_ID = 1;
+    /** @deprecated Kept only for source compatibility with older callers. */
+    public const TEST_ROBOT_NAME = '漠蓝测试';
     public const DYNAMIC_REPORT_TYPE = 'operating_target_report';
+    public const OPERATING_DAILY_REPORT_TYPE = 'operating_daily_report';
 
     private const TIMEZONE = 'Asia/Shanghai';
     private const TYPES = [
+        self::OPERATING_DAILY_REPORT_TYPE => '经营日报',
         self::DYNAMIC_REPORT_TYPE => '每日经营目标报告',
+        'ai_analysis_result' => 'AI分析结果',
+        'anomaly_alert' => '异常预警',
+        'task_notification' => '任务通知',
         'today_revenue_management' => '今日收益管理',
         'future_room_status' => '远期房态',
         'daily_review' => '今日复盘',
@@ -21,6 +32,7 @@ final class ManualNotificationService
     ];
     private const SEND_METHODS = [
         'wecom_test' => '企业微信测试机器人（仅测试群）',
+        'wecom_formal' => '企业微信正式计划机器人',
         'manual_preview' => '仅保存与页面预览',
     ];
     private const TRIGGER_TYPES = [
@@ -36,13 +48,27 @@ final class ManualNotificationService
         ?callable $testDispatcher = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
         private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
-        private readonly ?ManualNotificationTestTargetService $testTargets = null
+        private readonly ?WechatRobotDeliveryService $deliveries = null
     ) {
         $this->testDispatcher = $testDispatcher;
     }
 
+    public static function isDynamicReportType(string $type): bool
+    {
+        return in_array(
+            trim($type),
+            [self::DYNAMIC_REPORT_TYPE, self::OPERATING_DAILY_REPORT_TYPE],
+            true
+        );
+    }
+
     /** @return array<string, mixed> */
-    public function metadata(string $businessDate = '', int $hotelId = 0): array
+    public function metadata(
+        string $businessDate = '',
+        int $tenantId = 0,
+        int $hotelId = 0,
+        int $robotId = 0
+    ): array
     {
         $date = $this->normalizeDate(
             $businessDate === '' ? $this->now()->format('Y-m-d') : $businessDate
@@ -54,16 +80,12 @@ final class ManualNotificationService
                 'label' => $label,
                 'title' => $this->defaultTitle($key, $date),
                 'body' => $this->defaultBody($key, $date),
-                'dynamic' => $key === self::DYNAMIC_REPORT_TYPE,
+                'dynamic' => self::isDynamicReportType($key),
             ];
         }
 
-        $testTarget = $hotelId > 0 ? $this->testTargetResolver()->resolve($hotelId) : null;
         try {
-            $scheduler = $this->dispatchLedger()->latestScheduleRun(
-                $hotelId,
-                (int)($testTarget['robot_id'] ?? 0)
-            );
+            $scheduler = $this->dispatchLedger()->latestScheduleRun($tenantId, $hotelId, $robotId);
         } catch (\Throwable) {
             $scheduler = [
                 'status' => 'not_deployed',
@@ -85,11 +107,11 @@ final class ManualNotificationService
             ),
             'variables' => ['{酒店名称}', '{经营日期}', '{统计时间}', '{数据状态}'],
             'test_target' => [
-                'hotel_id' => $hotelId,
-                'robot_id' => (int)($testTarget['robot_id'] ?? 0),
-                'robot_name' => (string)($testTarget['robot_name'] ?? ''),
-                'binding_status' => (string)($testTarget['binding_status'] ?? 'test_binding_missing'),
-                'formal_group_delivery_allowed' => false,
+                'hotel_id' => null,
+                'robot_id' => null,
+                'robot_name' => null,
+                'selection_required' => true,
+                'formal_group_delivery_allowed' => true,
             ],
             'scheduler_status' => (string)($scheduler['status'] ?? 'not_deployed'),
             'scheduler_note' => (string)($scheduler['message'] ?? '调度状态以最近一次云端运行记录为准。'),
@@ -126,9 +148,53 @@ final class ManualNotificationService
             throw new \InvalidArgumentException('manual_notification_scope_invalid');
         }
         $normalized = $this->normalizeInput($input);
+        $requestedId = max(0, (int)($input['id'] ?? 0));
+        $existing = null;
+        if ($requestedId > 0) {
+            $existing = Db::name('manual_notifications')
+                ->where('id', $requestedId)
+                ->where('tenant_id', $tenantId)
+                ->where('hotel_id', $hotelId)
+                ->find();
+            if (!is_array($existing)) {
+                throw new \RuntimeException('manual_notification_not_found');
+            }
+        }
+        $targetRobotId = ($normalized['target_robot_provided'] ?? false) === true
+            ? (int)$normalized['target_robot_id']
+            : (int)($existing['test_robot_id'] ?? 0);
+        $targetRobotName = ($normalized['target_robot_provided'] ?? false) === true
+            ? (string)$normalized['target_robot_name']
+            : trim((string)($existing['test_robot_name'] ?? ''));
+        if ((string)$normalized['send_method'] === 'wecom_formal'
+            && ($targetRobotId <= 0 || $targetRobotName === '')
+        ) {
+            throw new \InvalidArgumentException('manual_notification_target_required');
+        }
+        if ($targetRobotId > 0 || $targetRobotName !== '') {
+            $binding = $this->deliveryService()->resolvePlanRobot(
+                $tenantId,
+                $hotelId,
+                $targetRobotId,
+                $targetRobotName,
+                (int)($existing['created_by'] ?? $userId),
+                (string)$normalized['send_method'] === 'wecom_formal' ? 'formal' : 'test'
+            );
+            if (($binding['eligible'] ?? false) !== true) {
+                throw new \InvalidArgumentException('manual_notification_target_binding_invalid');
+            }
+        }
+
+        $testStillValid = is_array($existing)
+            && (string)($existing['last_test_status'] ?? '') === 'sent'
+            && (int)($existing['test_robot_id'] ?? 0) === $targetRobotId
+            && trim((string)($existing['test_robot_name'] ?? '')) === $targetRobotName
+            && in_array((string)($existing['send_method'] ?? ''), ['wecom_test', 'wecom_formal'], true)
+            && in_array((string)$normalized['send_method'], ['wecom_test', 'wecom_formal'], true)
+            && $this->sameTestedPlan($existing, $normalized);
         $now = $this->now()->format('Y-m-d H:i:s');
         $scheduleStatus = $normalized['enabled'] && $normalized['trigger_type'] !== 'manual_test'
-            ? 'awaiting_test'
+            ? ($testStillValid ? 'schedule_enabled' : 'awaiting_test')
             : 'saved_only';
         $recordData = [
             'tenant_id' => $tenantId,
@@ -143,27 +209,19 @@ final class ManualNotificationService
             'planned_send_at' => $normalized['planned_send_at'],
             'enabled' => $normalized['enabled'] ? 1 : 0,
             'schedule_status' => $scheduleStatus,
-            'last_test_status' => 'never_tested',
+            'last_test_status' => $testStillValid
+                ? (string)$existing['last_test_status']
+                : 'never_tested',
+            'last_test_message' => $testStillValid ? ($existing['last_test_message'] ?? null) : null,
+            'last_tested_at' => $testStillValid ? ($existing['last_tested_at'] ?? null) : null,
+            'last_tested_by' => $testStillValid ? ($existing['last_tested_by'] ?? null) : null,
+            'test_robot_id' => $targetRobotId > 0 ? $targetRobotId : null,
+            'test_robot_name' => $targetRobotName !== '' ? $targetRobotName : null,
             'created_by' => $userId,
             'update_time' => $now,
         ];
-        $requestedId = max(0, (int)($input['id'] ?? 0));
         if ($requestedId > 0) {
-            $existing = Db::name('manual_notifications')
-                ->where('id', $requestedId)
-                ->where('tenant_id', $tenantId)
-                ->where('hotel_id', $hotelId)
-                ->field('id')
-                ->find();
-            if (!is_array($existing)) {
-                throw new \RuntimeException('manual_notification_not_found');
-            }
             unset($recordData['tenant_id'], $recordData['hotel_id'], $recordData['created_by']);
-            $recordData['last_test_message'] = null;
-            $recordData['last_tested_at'] = null;
-            $recordData['last_tested_by'] = null;
-            $recordData['test_robot_id'] = null;
-            $recordData['test_robot_name'] = null;
             Db::name('manual_notifications')->where('id', $requestedId)->update($recordData);
             $id = $requestedId;
             $operation = 'updated';
@@ -242,17 +300,50 @@ final class ManualNotificationService
         string $hotelName,
         string $idempotencyKey = ''
     ): array {
-        $record = $this->read($tenantId, $hotelId, $notificationId);
-        if ((string)$record['send_method'] !== 'wecom_test') {
-            throw new \InvalidArgumentException('manual_notification_test_method_forbidden');
-        }
-        $robot = $this->assertTestRequest(
-            $hotelId,
+        $this->assertTestRequest(
             $confirmed,
             $targetRobotId,
             $targetRobotName,
             $idempotencyKey
         );
+        $storedScope = Db::name('manual_notifications')
+            ->where('id', $notificationId)
+            ->field('tenant_id,hotel_id')
+            ->find();
+        if (!is_array($storedScope)
+            || (int)($storedScope['tenant_id'] ?? 0) !== $tenantId
+            || (int)($storedScope['hotel_id'] ?? 0) !== $hotelId
+        ) {
+            throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
+        }
+        $record = $this->read($tenantId, $hotelId, $notificationId);
+        if (!in_array((string)$record['send_method'], ['wecom_test', 'wecom_formal'], true)) {
+            throw new \InvalidArgumentException('manual_notification_test_method_forbidden');
+        }
+        $persistedRobotId = (int)($record['target_robot_id'] ?? $record['test_robot_id'] ?? 0);
+        $persistedRobotName = trim((string)(
+            $record['target_robot_name'] ?? $record['test_robot_name'] ?? ''
+        ));
+        if (($persistedRobotId > 0 && $persistedRobotId !== $targetRobotId)
+            || ($persistedRobotName !== '' && $persistedRobotName !== trim($targetRobotName))
+        ) {
+            throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
+        }
+        $binding = $this->deliveryService()->resolvePlanRobot(
+            $tenantId,
+            $hotelId,
+            $targetRobotId,
+            trim($targetRobotName),
+            (int)($record['created_by'] ?? $userId),
+            'test'
+        );
+        if (($binding['eligible'] ?? false) !== true) {
+            throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
+        }
+        $robot = [
+            'id' => (int)$binding['robot_id'],
+            'name' => (string)$binding['robot_name'],
+        ];
 
         $businessDate = (string)$record['business_date'];
         $candidate = $this->deliveryCandidate(
@@ -276,8 +367,8 @@ final class ManualNotificationService
             'test',
             (string)$record['trigger_type'],
             'immediate_test',
-            (int)$robot['robot_id'],
-            (string)$robot['robot_name'],
+            (int)$robot['id'],
+            (string)$robot['name'],
             $businessDate,
             $candidate,
             $this->now(),
@@ -296,7 +387,8 @@ final class ManualNotificationService
                 'message' => '相同幂等请求已处理，未重复发送。',
                 'idempotent_replay' => true,
                 'dispatch' => $dispatch,
-                'formal_group_delivery_allowed' => false,
+                'formal_group_delivery_allowed' => (string)$record['send_method'] === 'wecom_formal'
+                    && (string)$dispatch['status'] === 'sent',
             ];
         }
         if ($blocked) {
@@ -341,13 +433,17 @@ final class ManualNotificationService
             $delivery = call_user_func(
                 $this->testDispatcher,
                 $hotelId,
-                (int)$robot['robot_id'],
+                (int)$robot['id'],
                 $candidate['payload'],
                 [
                     'notification_id' => $notificationId,
                     'dispatch_id' => (int)$dispatch['id'],
                     'business_date' => $businessDate,
                     'request_kind' => 'immediate_test',
+                    'tenant_id' => $tenantId,
+                    'robot_name' => (string)$robot['name'],
+                    'owner_user_id' => (int)($record['created_by'] ?? $userId),
+                    'mode' => 'test',
                 ]
             );
             $delivery = is_array($delivery) ? $delivery : [];
@@ -363,7 +459,7 @@ final class ManualNotificationService
         );
         $sent = (string)$finished['status'] === 'sent';
         $message = $sent
-            ? '测试消息已送达“' . (string)$robot['robot_name'] . '”，并保存企业微信业务成功记录。'
+            ? '测试消息已送达“' . (string)$robot['name'] . '”，并保存企业微信业务成功记录。'
             : ((string)$finished['status'] === 'outcome_unknown'
                 ? '企业微信发送结果不明确，已阻止自动重试，正式群未触发。'
                 : '测试消息未送达，已保存失败记录，正式群未触发。');
@@ -381,8 +477,8 @@ final class ManualNotificationService
         $result['delivery'] = [
             'delivery_status' => (string)$finished['status'],
             'target_hotel_id' => $hotelId,
-            'target_robot_id' => (int)$robot['robot_id'],
-            'target_robot_name' => (string)$robot['robot_name'],
+            'target_robot_id' => (int)$robot['id'],
+            'target_robot_name' => (string)$robot['name'],
             'formal_group_delivery_allowed' => false,
         ];
         return $result;
@@ -399,23 +495,51 @@ final class ManualNotificationService
         if (!$confirmed) {
             throw new \InvalidArgumentException('manual_notification_retry_confirmation_required');
         }
-        $retry = $this->dispatchLedger()->dispatchForRetry($tenantId, $hotelId, $dispatchId);
-        if ((string)($retry['dispatch']['delivery_mode'] ?? '') !== 'test') {
-            throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
+        $now = $this->now();
+        $retry = $this->dispatchLedger()->dispatchForRetry(
+            $tenantId,
+            $hotelId,
+            $dispatchId,
+            $now
+        );
+        $mode = strtolower(trim((string)($retry['delivery_mode'] ?? '')));
+        if (!in_array($mode, ['test', 'formal'], true)) {
+            throw new \InvalidArgumentException('manual_notification_retry_mode_forbidden');
         }
-        $robot = $this->testTargetResolver()->resolve(
+        $record = $this->read($tenantId, $hotelId, (int)$retry['notification_id']);
+        if ((int)($record['target_robot_id'] ?? 0) !== (int)$retry['robot_id']
+            || trim((string)($record['target_robot_name'] ?? '')) !== (string)$retry['robot_name']
+        ) {
+            throw new \InvalidArgumentException('manual_notification_retry_target_changed');
+        }
+        if ($mode === 'formal'
+            && ((string)$record['send_method'] !== 'wecom_formal'
+                || (bool)($record['enabled'] ?? false) !== true
+                || (string)$record['schedule_status'] !== 'schedule_enabled')
+        ) {
+            throw new \InvalidArgumentException('manual_notification_formal_plan_inactive');
+        }
+        $binding = $this->deliveryService()->resolvePlanRobot(
+            $tenantId,
             $hotelId,
             (int)$retry['robot_id'],
-            (string)$retry['robot_name']
+            (string)$retry['robot_name'],
+            (int)($record['created_by'] ?? $userId),
+            $mode
         );
-        if ($robot === null) {
-            throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
+        if (($binding['eligible'] ?? false) !== true) {
+            throw new \InvalidArgumentException('manual_notification_retry_target_invalid');
         }
         if ($this->testDispatcher === null) {
-            throw new \RuntimeException('manual_notification_test_dispatcher_missing');
+            throw new \RuntimeException('manual_notification_dispatcher_missing');
         }
 
-        $attempt = $this->dispatchLedger()->beginAttempt($dispatchId, $this->now());
+        $attempt = $this->dispatchLedger()->beginAttempt(
+            $dispatchId,
+            $now,
+            'explicit_retry',
+            (string)($retry['previous_status'] ?? '') === 'outcome_unknown'
+        );
         if (($attempt['allowed'] ?? false) !== true) {
             throw new \InvalidArgumentException((string)$attempt['reason_code']);
         }
@@ -425,12 +549,16 @@ final class ManualNotificationService
             $delivery = call_user_func(
                 $this->testDispatcher,
                 $hotelId,
-                (int)$robot['robot_id'],
+                (int)$retry['robot_id'],
                 $retry['payload'],
                 [
                     'notification_id' => (int)$retry['notification_id'],
                     'dispatch_id' => $dispatchId,
                     'request_kind' => 'explicit_retry',
+                    'tenant_id' => $tenantId,
+                    'robot_name' => (string)$retry['robot_name'],
+                    'owner_user_id' => (int)($record['created_by'] ?? $userId),
+                    'mode' => $mode,
                 ]
             );
             $delivery = is_array($delivery) ? $delivery : [];
@@ -445,21 +573,24 @@ final class ManualNotificationService
             $exception
         );
         $sent = (string)$finished['status'] === 'sent';
-        $this->persistTestResult(
-            $tenantId,
-            $hotelId,
-            (int)$retry['notification_id'],
-            $userId,
-            $robot,
-            $sent ? 'sent' : (string)$finished['status'],
-            $sent
-                ? '显式重试已送达“' . (string)$robot['robot_name'] . '”。'
-                : '显式重试未确认送达，已保存真实状态。'
-        );
+        if ($mode === 'test') {
+            $this->persistTestResult(
+                $tenantId,
+                $hotelId,
+                (int)$retry['notification_id'],
+                $userId,
+                ['id' => (int)$retry['robot_id'], 'name' => (string)$retry['robot_name']],
+                $sent ? 'sent' : (string)$finished['status'],
+                $sent
+                    ? '显式重试已送达“' . (string)$retry['robot_name'] . '”。'
+                    : '显式重试未确认送达，已保存真实状态。'
+            );
+        }
         return [
             'delivery_status' => (string)$finished['status'],
             'dispatch' => $finished,
-            'formal_group_delivery_allowed' => false,
+            'delivery_mode' => $mode,
+            'formal_group_delivery_allowed' => $mode === 'formal',
         ];
     }
 
@@ -476,9 +607,6 @@ final class ManualNotificationService
         if ($title === '' || $body === '') {
             throw new \InvalidArgumentException('manual_notification_content_required');
         }
-        if (preg_match('/[A-Za-z]/', $body) === 1) {
-            throw new \InvalidArgumentException('manual_notification_body_chinese_only');
-        }
         $sendMethod = trim((string)($input['send_method'] ?? 'wecom_test'));
         if (!isset(self::SEND_METHODS[$sendMethod])) {
             throw new \InvalidArgumentException('manual_notification_send_method_invalid');
@@ -491,6 +619,18 @@ final class ManualNotificationService
         if ($triggerType === 'daily_fixed_time' && $plannedSendAt === null) {
             throw new \InvalidArgumentException('manual_notification_schedule_required');
         }
+        $targetRobotProvided = array_key_exists('target_robot_id', $input)
+            || array_key_exists('target_robot_name', $input)
+            || array_key_exists('test_robot_id', $input)
+            || array_key_exists('test_robot_name', $input);
+        $targetRobotId = max(0, (int)($input['target_robot_id'] ?? $input['test_robot_id'] ?? 0));
+        $targetRobotName = $this->safeText(
+            (string)($input['target_robot_name'] ?? $input['test_robot_name'] ?? ''),
+            120
+        );
+        if ($targetRobotProvided && (($targetRobotId > 0) !== ($targetRobotName !== ''))) {
+            throw new \InvalidArgumentException('manual_notification_target_required');
+        }
         return [
             'notification_type' => $type,
             'template_type' => $type,
@@ -501,6 +641,9 @@ final class ManualNotificationService
             'trigger_type' => $triggerType,
             'planned_send_at' => $plannedSendAt,
             'enabled' => filter_var($input['enabled'] ?? false, FILTER_VALIDATE_BOOL),
+            'target_robot_provided' => $targetRobotProvided,
+            'target_robot_id' => $targetRobotId,
+            'target_robot_name' => $targetRobotName,
         ];
     }
 
@@ -512,7 +655,7 @@ final class ManualNotificationService
         array $data
     ): array {
         $type = (string)($data['template_type'] ?? $data['notification_type'] ?? '');
-        if ($type === self::DYNAMIC_REPORT_TYPE) {
+        if (self::isDynamicReportType($type)) {
             if ($tenantId <= 0) {
                 return $this->blockedDynamicPreview(
                     $data,
@@ -526,6 +669,13 @@ final class ManualNotificationService
                 $hotelName,
                 (string)$data['business_date']
             );
+            $scheduleStatus = trim((string)($data['schedule_status'] ?? ''));
+            if ($scheduleStatus === '') {
+                $scheduleStatus = (bool)$data['enabled']
+                    && (string)$data['trigger_type'] !== 'manual_test'
+                        ? 'awaiting_test'
+                        : 'saved_only';
+            }
             return [
                 'title' => (string)$data['title'],
                 'body' => (string)$data['body'],
@@ -539,12 +689,8 @@ final class ManualNotificationService
                 'trigger_type_label' => self::TRIGGER_TYPES[(string)$data['trigger_type']],
                 'planned_send_at' => $data['planned_send_at'] ?? null,
                 'enabled_requested' => (bool)$data['enabled'],
-                'schedule_status' => (bool)$data['enabled'] && (string)$data['trigger_type'] !== 'manual_test'
-                    ? 'awaiting_test'
-                    : 'saved_only',
-                'schedule_status_label' => (bool)$data['enabled'] && (string)$data['trigger_type'] !== 'manual_test'
-                    ? '等待一次真实测试成功后启用'
-                    : '仅保存/仅测试',
+                'schedule_status' => $scheduleStatus,
+                'schedule_status_label' => $this->scheduleStatusLabel($scheduleStatus),
                 'scheduler_connected' => false,
                 'dynamic_report' => true,
                 'delivery_status' => 'preview_only',
@@ -567,7 +713,7 @@ final class ManualNotificationService
         string $businessDate,
         string $deliveryMode
     ): array {
-        if ((string)$record['template_type'] === self::DYNAMIC_REPORT_TYPE) {
+        if (self::isDynamicReportType((string)$record['template_type'])) {
             $today = $this->now()->format('Y-m-d');
             if ($deliveryMode === 'immediate_test' && $businessDate !== $today) {
                 return [
@@ -619,10 +765,11 @@ final class ManualNotificationService
         $plannedSendAt = trim((string)($data['planned_send_at'] ?? ''));
         $enabled = (bool)($data['enabled'] ?? false);
         $triggerType = (string)($data['trigger_type'] ?? 'manual_test');
-        $status = $enabled && $triggerType !== 'manual_test' ? 'awaiting_test' : 'saved_only';
-        $statusLabel = $status === 'awaiting_test'
-            ? '等待一次真实测试成功后启用'
-            : '仅保存/仅测试';
+        $status = trim((string)($data['schedule_status'] ?? ''));
+        if ($status === '') {
+            $status = $enabled && $triggerType !== 'manual_test' ? 'awaiting_test' : 'saved_only';
+        }
+        $statusLabel = $this->scheduleStatusLabel($status);
         $modeLabel = $testMode ? '明确点击的测试推送' : '页面实时预览（未发送）';
         $variables = [
             '{酒店名称}' => $hotelName !== '' ? $hotelName : '未取得',
@@ -677,9 +824,11 @@ final class ManualNotificationService
         return [
             'title' => (string)$data['title'],
             'body' => (string)$data['body'],
-            'notification_type' => self::DYNAMIC_REPORT_TYPE,
-            'template_type' => self::DYNAMIC_REPORT_TYPE,
-            'notification_type_label' => self::TYPES[self::DYNAMIC_REPORT_TYPE],
+            'notification_type' => (string)($data['template_type'] ?? self::DYNAMIC_REPORT_TYPE),
+            'template_type' => (string)($data['template_type'] ?? self::DYNAMIC_REPORT_TYPE),
+            'notification_type_label' => self::TYPES[
+                (string)($data['template_type'] ?? self::DYNAMIC_REPORT_TYPE)
+            ] ?? self::TYPES[self::DYNAMIC_REPORT_TYPE],
             'business_date' => (string)$data['business_date'],
             'send_method' => (string)$data['send_method'],
             'trigger_type' => (string)$data['trigger_type'],
@@ -727,6 +876,10 @@ final class ManualNotificationService
             'last_tested_at' => $row['last_tested_at'] ?? null,
             'test_robot_id' => $this->positiveOrNull($row['test_robot_id'] ?? null),
             'test_robot_name' => $row['test_robot_name'] ?? null,
+            'target_robot_id' => $this->positiveOrNull($row['test_robot_id'] ?? null),
+            'target_robot_name' => $row['test_robot_name'] ?? null,
+            'formal_delivery_configured' => (string)($row['send_method'] ?? '') === 'wecom_formal'
+                && $this->positiveOrNull($row['test_robot_id'] ?? null) !== null,
             'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => $row['create_time'] ?? null,
             'updated_at' => $row['update_time'] ?? null,
@@ -762,43 +915,38 @@ final class ManualNotificationService
                 'last_test_message' => $this->safeText($message, 255),
                 'last_tested_at' => $now,
                 'last_tested_by' => $userId,
-                'test_robot_id' => $robot === null
-                    ? null
-                    : (int)($robot['robot_id'] ?? $robot['id'] ?? 0),
+                'test_robot_id' => $robot === null ? null : (int)($robot['id'] ?? 0),
                 'test_robot_name' => $robot === null
                     ? null
-                    : (string)($robot['robot_name'] ?? $robot['name'] ?? ''),
+                    : (string)($robot['name'] ?? ''),
                 'update_time' => $now,
             ]);
+        $targetRobotId = $robot === null ? null : $this->positiveOrNull($robot['id'] ?? null);
+        $targetRobotName = $robot === null ? null : trim((string)($robot['name'] ?? ''));
+        $formalAllowed = (string)$record['send_method'] === 'wecom_formal'
+            && $scheduleStatus === 'schedule_enabled';
         return [
             'delivery_status' => $status,
             'message' => $message,
             'schedule_status' => $scheduleStatus,
             'schedule_status_label' => $this->scheduleStatusLabel($scheduleStatus),
             'target_hotel_id' => $hotelId,
-            'target_robot_id' => (int)($robot['robot_id'] ?? $robot['id'] ?? 0),
-            'target_robot_name' => (string)($robot['robot_name'] ?? $robot['name'] ?? ''),
-            'formal_group_delivery_allowed' => false,
+            'target_robot_id' => $targetRobotId,
+            'target_robot_name' => $targetRobotName,
+            'formal_group_delivery_allowed' => $formalAllowed,
         ];
     }
 
-    /** @return array<string, mixed> */
     private function assertTestRequest(
-        int $hotelId,
         bool $confirmed,
         int $targetRobotId,
         string $targetRobotName,
         string $idempotencyKey
-    ): array {
+    ): void {
         if (!$confirmed) {
             throw new \InvalidArgumentException('manual_notification_test_confirmation_required');
         }
-        $robot = $this->testTargetResolver()->resolve(
-            $hotelId,
-            $targetRobotId,
-            $targetRobotName
-        );
-        if ($robot === null) {
+        if ($targetRobotId <= 0 || trim($targetRobotName) === '') {
             throw new \InvalidArgumentException('manual_notification_test_target_forbidden');
         }
         $idempotencyKey = trim($idempotencyKey);
@@ -808,12 +956,6 @@ final class ManualNotificationService
         ) {
             throw new \InvalidArgumentException('manual_notification_idempotency_key_invalid');
         }
-        return $robot;
-    }
-
-    private function testTargetResolver(): ManualNotificationTestTargetService
-    {
-        return $this->testTargets ?? new ManualNotificationTestTargetService();
     }
 
     /** @param array<string, mixed> $candidate */
@@ -844,7 +986,11 @@ final class ManualNotificationService
     private function defaultTitle(string $type, string $date): string
     {
         return match ($type) {
+            self::OPERATING_DAILY_REPORT_TYPE => $date . ' 经营日报',
             self::DYNAMIC_REPORT_TYPE => $date . ' 每日经营目标报告',
+            'ai_analysis_result' => $date . ' AI分析结果',
+            'anomaly_alert' => $date . ' 异常预警',
+            'task_notification' => $date . ' 任务通知',
             'today_revenue_management' => $date . ' 今日收益管理',
             'future_room_status' => $date . ' 远期房态',
             'daily_review' => $date . ' 今日复盘',
@@ -855,12 +1001,31 @@ final class ManualNotificationService
     private function defaultBody(string $type, string $date): string
     {
         return match ($type) {
+            self::OPERATING_DAILY_REPORT_TYPE,
             self::DYNAMIC_REPORT_TYPE => implode("\n", [
                 '【每日经营目标报告】',
                 '酒店：{酒店名称}',
                 '经营日期：{经营日期}',
                 '正文由同酒店、同日期的已保存经营目标和已核验经营事实动态生成。',
                 '缺失、身份不匹配、采集失败或未验证时阻断发送，不以零或旧数据补齐。',
+            ]),
+            'ai_analysis_result' => implode("\n", [
+                '【AI分析结果】',
+                '酒店：{酒店名称}',
+                '业务日期：{经营日期}',
+                '业务服务尚未提供分析正文；请保存真实分析结果后再启用发送。',
+            ]),
+            'anomaly_alert' => implode("\n", [
+                '【异常预警】',
+                '酒店：{酒店名称}',
+                '业务日期：{经营日期}',
+                '业务服务尚未提供异常事实；请保存真实异常正文后再启用发送。',
+            ]),
+            'task_notification' => implode("\n", [
+                '【任务通知】',
+                '酒店：{酒店名称}',
+                '业务日期：{经营日期}',
+                '业务服务尚未提供任务正文；请保存真实任务内容后再启用发送。',
             ]),
             'today_revenue_management' => implode("\n", [
                 '【今日收益管理】',
@@ -925,6 +1090,25 @@ final class ManualNotificationService
         return $parsed->format('Y-m-d H:i:s');
     }
 
+    /** @param array<string, mixed> $existing @param array<string, mixed> $normalized */
+    private function sameTestedPlan(array $existing, array $normalized): bool
+    {
+        foreach ([
+            'notification_type',
+            'template_type',
+            'business_date',
+            'title',
+            'body',
+            'trigger_type',
+            'planned_send_at',
+        ] as $field) {
+            if ((string)($existing[$field] ?? '') !== (string)($normalized[$field] ?? '')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private function now(): DateTimeImmutable
     {
         return new DateTimeImmutable('now', new DateTimeZone(self::TIMEZONE));
@@ -938,6 +1122,11 @@ final class ManualNotificationService
     private function dispatchLedger(): ManualNotificationDispatchLedgerService
     {
         return $this->ledger ?? new ManualNotificationDispatchLedgerService();
+    }
+
+    private function deliveryService(): WechatRobotDeliveryService
+    {
+        return $this->deliveries ?? new WechatRobotDeliveryService();
     }
 
     private function positiveOrNull(mixed $value): ?int

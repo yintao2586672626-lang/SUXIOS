@@ -20,20 +20,6 @@ if (trim((string)getenv('SUXIOS_CACHE_PATH')) === '') {
     $_ENV['SUXIOS_LOCAL_LOCK_PATH'] = $testLockPath;
 }
 
-// Release worktrees may reuse the main checkout's vendor directory through a
-// junction. Composer then resolves app\ to that checkout as well, so register
-// the current worktree first and ensure tests exercise the candidate sources.
-spl_autoload_register(static function (string $class): void {
-    if (!str_starts_with($class, 'app\\')) {
-        return;
-    }
-    $relative = str_replace('\\', DIRECTORY_SEPARATOR, substr($class, 4)) . '.php';
-    $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . $relative;
-    if (is_file($path)) {
-        require_once $path;
-    }
-}, true, true);
-
 require_once __DIR__ . '/../vendor/autoload.php';
 
 $thinkHelper = __DIR__ . '/../vendor/topthink/framework/src/helper.php';

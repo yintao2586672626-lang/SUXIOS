@@ -41,6 +41,56 @@ final class OnlineDataTest extends TestCase
         return $reflection->newInstanceWithoutConstructor();
     }
 
+    public function testCtripStableConfigInputReusesSavedHotelMetadataOnlyWhenRequestIsBlank(): void
+    {
+        $controller = $this->controller();
+        $stored = [
+            'ctrip_hotel_id' => '832085',
+            'hotel_room_count' => 37,
+            'competitor_room_count' => 200,
+        ];
+
+        self::assertSame(
+            '832085',
+            $this->invokeNonPublic($controller, 'resolveCtripStableConfigInput', [
+                ['ctrip_hotel_id' => ''],
+                $stored,
+                ['ctrip_hotel_id', 'ctripHotelId', 'ota_hotel_id'],
+            ])
+        );
+        self::assertSame(
+            37,
+            $this->invokeNonPublic($controller, 'resolveCtripStableConfigInput', [
+                [],
+                $stored,
+                ['hotel_room_count', 'hotelRoomCount'],
+            ])
+        );
+        self::assertSame(
+            88,
+            $this->invokeNonPublic($controller, 'resolveCtripStableConfigInput', [
+                ['hotel_room_count' => 88],
+                $stored,
+                ['hotel_room_count', 'hotelRoomCount'],
+            ])
+        );
+        self::assertSame(
+            0,
+            $this->invokeNonPublic($controller, 'resolveCtripStableConfigInput', [
+                ['hotel_room_count' => 0],
+                $stored,
+                ['hotel_room_count', 'hotelRoomCount'],
+            ])
+        );
+        self::assertNull(
+            $this->invokeNonPublic($controller, 'resolveCtripStableConfigInput', [
+                [],
+                [],
+                ['competitor_room_count', 'competitorRoomCount'],
+            ])
+        );
+    }
+
     public function testStoredOnlineDataOnlyPassesAfterReadbackVerification(): void
     {
         $controller = $this->controller();

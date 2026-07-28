@@ -15,6 +15,8 @@ use think\facade\Db;
 
 class CompetitorWechatRobotController extends Base
 {
+    private const ADMIN_NOTIFICATION_SCOPE = 'admin_shared';
+
     private ?WechatRobotWebhookSecret $webhookSecret = null;
 
     private function checkSuperAdmin(): void
@@ -33,7 +35,7 @@ class CompetitorWechatRobotController extends Base
         $storeId = $this->request->get('store_id', '');
         $stores = $this->getStores();
 
-        $query = Db::name('competitor_wechat_robot')->order('id', 'desc');
+        $query = $this->adminManagedRobotQuery()->order('id', 'desc');
         if ($storeId !== '') {
             $query->where('store_id', (int)$storeId);
         }
@@ -60,9 +62,9 @@ class CompetitorWechatRobotController extends Base
     public function edit(int $id): Response
     {
         $this->checkSuperAdmin();
-        $robot = Db::name('competitor_wechat_robot')->where('id', $id)->find();
+        $robot = $this->findAdminManagedRobot($id);
         if (!$robot) {
-            abort(404, '记录不存在');
+            abort(404, '门店共享机器人不存在');
         }
         return view('competitor_wechat_robot/edit', [
             'robot' => $this->formatRobotDetailRow($robot),
@@ -90,11 +92,17 @@ class CompetitorWechatRobotController extends Base
         }
         $insert = [
             'store_id' => (int)$data['store_id'],
+            'owner_user_id' => null,
+            'notification_scope' => self::ADMIN_NOTIFICATION_SCOPE,
             'name' => $data['name'],
             'status' => isset($data['status']) ? (int)$data['status'] : 1,
             'create_time' => date('Y-m-d H:i:s'),
         ];
-        $this->insertProtectedRobot($insert, $webhook);
+        try {
+            $this->insertProtectedRobot($insert, $webhook);
+        } catch (\RuntimeException $e) {
+            abort(500, $this->robotSaveFailureMessage($e));
+        }
         OperationLog::record('competitor', 'create_robot', '新增企业微信机器人', $this->currentUser->id);
 
         return redirect((string)url('admin/CompetitorWechatRobotController/index'));
@@ -103,14 +111,15 @@ class CompetitorWechatRobotController extends Base
     public function update(int $id): Response
     {
         $this->checkSuperAdmin();
-        $robot = Db::name('competitor_wechat_robot')->where('id', $id)->find();
+        $robot = $this->findAdminManagedRobot($id);
         if (!$robot) {
-            abort(404, '记录不存在');
+            abort(404, '门店共享机器人不存在');
         }
 
         $data = $this->request->post();
         try {
             $storedWebhook = $this->resolveStoredRobotWebhookForUpdate($data, $robot);
+            $webhookChanged = $this->robotWebhookChanged($data, $robot);
         } catch (\RuntimeException $e) {
             abort(500, $this->robotWebhookEncryptionFailureMessage());
         }
@@ -123,7 +132,11 @@ class CompetitorWechatRobotController extends Base
             'webhook' => $storedWebhook,
             'status' => isset($data['status']) ? (int)$data['status'] : (int)$robot['status'],
         ];
-        Db::name('competitor_wechat_robot')->where('id', $id)->update($update);
+        try {
+            $this->persistAdminManagedRobotUpdate($id, $update, $webhookChanged);
+        } catch (\RuntimeException $e) {
+            abort(500, $this->robotSaveFailureMessage($e));
+        }
         OperationLog::record('competitor', 'update_robot', '更新企业微信机器人', $this->currentUser->id);
 
         return redirect((string)url('admin/CompetitorWechatRobotController/index'));
@@ -132,7 +145,10 @@ class CompetitorWechatRobotController extends Base
     public function delete(int $id): Response
     {
         $this->checkSuperAdmin();
-        Db::name('competitor_wechat_robot')->where('id', $id)->delete();
+        if ($this->findAdminManagedRobot($id) === null) {
+            return json(['code' => 404, 'message' => '门店共享机器人不存在']);
+        }
+        $this->adminManagedRobotQuery()->where('id', $id)->delete();
         OperationLog::record('competitor', 'delete_robot', '删除企业微信机器人', $this->currentUser->id);
         return json(['code' => 200, 'message' => '删除成功']);
     }
@@ -140,30 +156,23 @@ class CompetitorWechatRobotController extends Base
     public function testSend(int $id): Response
     {
         $this->checkSuperAdmin();
-        $robot = Db::name('competitor_wechat_robot')->where('id', $id)->find();
-        if (!$robot) {
-            return json(['code' => 404, 'message' => '记录不存在']);
-        }
-        try {
-            $webhook = $this->revealRobotWebhook((string)($robot['webhook'] ?? ''), $id);
-        } catch (\RuntimeException $e) {
-            return json(['code' => 500, 'message' => $this->robotWebhookDecryptFailureMessage()]);
-        }
-        if ($webhook === '') {
-            return json(['code' => 400, 'message' => 'Webhook为空']);
-        }
-
         $payload = [
             'msgtype' => 'markdown',
             'markdown' => [
                 'content' => '# 宿析OS 企业微信联通测试' . "\n" . '> 机器人配置可用，消息发送链路正常。',
             ],
         ];
-        $result = $this->postJson($webhook, $payload);
-        if ($result['success']) {
+        $result = $this->testAdminManagedRobot($id, $payload);
+        if (($result['eligible'] ?? false) !== true) {
+            return json(['code' => 404, 'message' => '门店共享机器人不存在']);
+        }
+        if (($result['success'] ?? false) === true) {
             return json(['code' => 200, 'message' => '发送成功']);
         }
-        return json(['code' => 500, 'message' => '发送失败: ' . $result['error']]);
+        return json([
+            'code' => (int)($result['http_code'] ?? 500),
+            'message' => '发送失败: ' . (string)($result['error'] ?? '企业微信未确认送达'),
+        ]);
     }
 
     /**
@@ -191,7 +200,7 @@ class CompetitorWechatRobotController extends Base
         );
 
         if ($status === 'binding_missing') {
-            return json(['code' => 404, 'message' => '该门店未绑定机器人', 'data' => $delivery]);
+            return json(['code' => 404, 'message' => '该门店未绑定共享机器人', 'data' => $delivery]);
         }
         if ($status === 'sent') {
             return json(['code' => 200, 'message' => '全部发送成功', 'data' => $delivery]);
@@ -211,7 +220,7 @@ class CompetitorWechatRobotController extends Base
     {
         $this->checkSuperAdmin();
         $storeId = $this->request->get('store_id', '');
-        $query = Db::name('competitor_wechat_robot')->order('id', 'desc');
+        $query = $this->adminManagedRobotQuery()->order('id', 'desc');
         if ($storeId !== '') {
             $query->where('store_id', (int)$storeId);
         }
@@ -227,9 +236,9 @@ class CompetitorWechatRobotController extends Base
     public function apiDetail(int $id): Response
     {
         $this->checkSuperAdmin();
-        $robot = Db::name('competitor_wechat_robot')->where('id', $id)->find();
+        $robot = $this->findAdminManagedRobot($id);
         if (!$robot) {
-            return $this->error('记录不存在', 404);
+            return $this->error('门店共享机器人不存在', 404);
         }
         return $this->success($this->formatRobotDetailRow($robot));
     }
@@ -252,6 +261,8 @@ class CompetitorWechatRobotController extends Base
         }
         $insert = [
             'store_id' => (int)$data['store_id'],
+            'owner_user_id' => null,
+            'notification_scope' => self::ADMIN_NOTIFICATION_SCOPE,
             'name' => $data['name'],
             'status' => isset($data['status']) ? (int)$data['status'] : 1,
             'create_time' => date('Y-m-d H:i:s'),
@@ -259,7 +270,7 @@ class CompetitorWechatRobotController extends Base
         try {
             $this->insertProtectedRobot($insert, $webhook);
         } catch (\RuntimeException $e) {
-            return $this->error($this->robotWebhookEncryptionFailureMessage(), 500);
+            return $this->error($this->robotSaveFailureMessage($e), 500);
         }
         return $this->success(null, '保存成功');
     }
@@ -270,13 +281,14 @@ class CompetitorWechatRobotController extends Base
     public function apiUpdate(int $id): Response
     {
         $this->checkSuperAdmin();
-        $robot = Db::name('competitor_wechat_robot')->where('id', $id)->find();
+        $robot = $this->findAdminManagedRobot($id);
         if (!$robot) {
-            return $this->error('记录不存在');
+            return $this->error('门店共享机器人不存在', 404);
         }
         $data = $this->request->post();
         try {
             $storedWebhook = $this->resolveStoredRobotWebhookForUpdate($data, $robot);
+            $webhookChanged = $this->robotWebhookChanged($data, $robot);
         } catch (\RuntimeException $e) {
             return $this->error($this->robotWebhookEncryptionFailureMessage(), 500);
         }
@@ -289,7 +301,11 @@ class CompetitorWechatRobotController extends Base
             'webhook' => $storedWebhook,
             'status' => isset($data['status']) ? (int)$data['status'] : (int)$robot['status'],
         ];
-        Db::name('competitor_wechat_robot')->where('id', $id)->update($update);
+        try {
+            $this->persistAdminManagedRobotUpdate($id, $update, $webhookChanged);
+        } catch (\RuntimeException $e) {
+            return $this->error($this->robotSaveFailureMessage($e), 500);
+        }
         return $this->success(null, '保存成功');
     }
 
@@ -299,7 +315,10 @@ class CompetitorWechatRobotController extends Base
     public function apiDelete(int $id): Response
     {
         $this->checkSuperAdmin();
-        Db::name('competitor_wechat_robot')->where('id', $id)->delete();
+        if ($this->findAdminManagedRobot($id) === null) {
+            return $this->error('门店共享机器人不存在', 404);
+        }
+        $this->adminManagedRobotQuery()->where('id', $id)->delete();
         return $this->success(null, '删除成功');
     }
 
@@ -526,9 +545,13 @@ class CompetitorWechatRobotController extends Base
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    private function sendPayloadToStore(int $storeId, array $payload): array
+    private function sendPayloadToStore(
+        int $storeId,
+        array $payload,
+        ?callable $transport = null
+    ): array
     {
-        $robots = Db::name('competitor_wechat_robot')
+        $robots = $this->adminManagedRobotQuery()
             ->where('store_id', $storeId)
             ->where('status', 1)
             ->order('id', 'asc')
@@ -547,27 +570,29 @@ class CompetitorWechatRobotController extends Base
 
         $sentCount = 0;
         $failures = [];
+        $results = [];
         foreach ($robots as $robot) {
             $robotId = (int)($robot['id'] ?? 0);
-            $robotName = $this->safeRobotText((string)($robot['name'] ?? ('机器人 #' . $robotId)), 80);
-            try {
-                $webhook = $this->revealRobotWebhook((string)($robot['webhook'] ?? ''), $robotId);
-            } catch (\RuntimeException $e) {
-                $failures[] = ['robot_id' => $robotId, 'name' => $robotName, 'reason' => $this->robotWebhookDecryptFailureMessage()];
-                continue;
-            }
-            if ($webhook === '') {
-                $failures[] = ['robot_id' => $robotId, 'name' => $robotName, 'reason' => 'Webhook为空'];
-                continue;
-            }
-            $result = $this->postJson($webhook, $payload);
+            $result = $this->testAdminManagedRobot(
+                $robotId,
+                $payload,
+                $transport,
+                $storeId,
+                true
+            );
+            $results[] = [
+                'robot_id' => $robotId,
+                'status' => (string)($result['test_status'] ?? 'failed'),
+                'tested_at' => $result['tested_at'] ?? null,
+                'state_persisted' => (bool)($result['state_persisted'] ?? false),
+            ];
             if (($result['success'] ?? false) === true) {
                 $sentCount++;
                 continue;
             }
             $failures[] = [
                 'robot_id' => $robotId,
-                'name' => $robotName,
+                'name' => (string)($result['name'] ?? ('机器人 #' . $robotId)),
                 'reason' => $this->safeRobotText((string)($result['error'] ?? '发送失败'), 180),
             ];
         }
@@ -583,7 +608,109 @@ class CompetitorWechatRobotController extends Base
             'sent_count' => $sentCount,
             'failed_count' => $failedCount,
             'failures' => $failures,
+            'results' => $results,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function testAdminManagedRobot(
+        int $robotId,
+        array $payload,
+        ?callable $transport = null,
+        ?int $expectedStoreId = null,
+        bool $requireEnabled = false
+    ): array {
+        return Db::transaction(function () use (
+            $robotId,
+            $payload,
+            $transport,
+            $expectedStoreId,
+            $requireEnabled
+        ): array {
+            $robot = $this->findAdminManagedRobot($robotId, true);
+            if ($robot === null
+                || ($expectedStoreId !== null && (int)($robot['store_id'] ?? 0) !== $expectedStoreId)
+                || ($requireEnabled && (int)($robot['status'] ?? 0) !== 1)
+            ) {
+                return [
+                    'eligible' => false,
+                    'success' => false,
+                    'state_persisted' => false,
+                    'test_status' => 'failed',
+                    'error' => '机器人配置已变化，本次未发送',
+                    'http_code' => 409,
+                ];
+            }
+
+            $storedWebhook = (string)($robot['webhook'] ?? '');
+            $robotName = $this->safeRobotText(
+                (string)($robot['name'] ?? ('机器人 #' . $robotId)),
+                80
+            );
+            $deliverySuccess = false;
+            $error = '';
+            $httpCode = 500;
+            try {
+                $webhook = $this->revealRobotWebhook($storedWebhook, $robotId);
+            } catch (\RuntimeException) {
+                $webhook = '';
+                $error = $this->robotWebhookDecryptFailureMessage();
+            }
+            if ($error === '') {
+                if ($webhook === '') {
+                    $error = 'Webhook为空';
+                    $httpCode = 400;
+                } else {
+                    $sender = $transport === null
+                        ? fn(string $url, array $body, array $currentRobot): array =>
+                            $this->postJson($url, $body)
+                        : \Closure::fromCallable($transport);
+                    try {
+                        $delivery = $sender($webhook, $payload, $robot);
+                        $deliverySuccess = is_array($delivery)
+                            && (($delivery['success'] ?? false) === true);
+                        $error = $deliverySuccess
+                            ? ''
+                            : (string)($delivery['error'] ?? '企业微信未确认送达');
+                    } catch (\Throwable) {
+                        $error = $this->robotWebhookRequestFailureMessage();
+                    }
+                }
+            }
+
+            $testedAt = date('Y-m-d H:i:s');
+            $testStatus = $deliverySuccess ? 'sent' : 'failed';
+            $updated = $this->adminManagedRobotQuery()
+                ->where('id', $robotId)
+                ->where('store_id', (int)$robot['store_id'])
+                ->where('webhook', $storedWebhook)
+                ->update([
+                    'last_tested_at' => $testedAt,
+                    'last_test_status' => $testStatus,
+                ]);
+            $statePersisted = $updated === 1;
+            if (!$statePersisted) {
+                $deliverySuccess = false;
+                $testStatus = 'binding_changed';
+                $error = 'Webhook 配置已变化，请重新测试当前配置';
+                $httpCode = 409;
+            }
+
+            return [
+                'eligible' => true,
+                'robot_id' => $robotId,
+                'name' => $robotName,
+                'success' => $deliverySuccess,
+                'state_persisted' => $statePersisted,
+                'test_status' => $testStatus,
+                'tested_at' => $statePersisted ? $testedAt : null,
+                'error' => $error,
+                'http_code' => $httpCode,
+            ];
+        });
     }
 
     /** @param array<string, mixed> $delivery */
@@ -621,6 +748,8 @@ class CompetitorWechatRobotController extends Base
                 ? 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=******'
                 : '',
             'webhook_configured' => $storedWebhook !== '',
+            'notification_scope' => self::ADMIN_NOTIFICATION_SCOPE,
+            'scope_label' => '门店共享',
             'status' => (int)($robot['status'] ?? 0),
             'create_time' => $robot['create_time'] ?? null,
         ];
@@ -636,6 +765,30 @@ class CompetitorWechatRobotController extends Base
         return $row;
     }
 
+    private function adminManagedRobotQuery()
+    {
+        return Db::name('competitor_wechat_robot')
+            ->where(function ($query): void {
+                $query->whereNull('owner_user_id')
+                    ->whereOr('owner_user_id', 0);
+            })
+            ->where(function ($query): void {
+                $query->whereNull('notification_scope')
+                    ->whereOr('notification_scope', '')
+                    ->whereOr('notification_scope', self::ADMIN_NOTIFICATION_SCOPE);
+            });
+    }
+
+    private function findAdminManagedRobot(int $id, bool $lock = false): ?array
+    {
+        $query = $this->adminManagedRobotQuery()->where('id', $id);
+        if ($lock) {
+            $query->lock(true);
+        }
+        $robot = $query->find();
+        return is_array($robot) ? $robot : null;
+    }
+
     private function resolveStoredRobotWebhookForUpdate(array $data, array $robot): ?string
     {
         if (!array_key_exists('webhook', $data) || trim((string)$data['webhook']) === '') {
@@ -648,6 +801,22 @@ class CompetitorWechatRobotController extends Base
             return null;
         }
         return $this->protectRobotWebhookForStorage($webhook, (int)($robot['id'] ?? 0));
+    }
+
+    private function robotWebhookChanged(array $data, array $robot): bool
+    {
+        if (!array_key_exists('webhook', $data) || trim((string)$data['webhook']) === '') {
+            return false;
+        }
+        $webhook = $this->normalizeRobotWebhook((string)$data['webhook']);
+        if ($webhook === null) {
+            return false;
+        }
+        $current = $this->revealRobotWebhook(
+            (string)($robot['webhook'] ?? ''),
+            (int)($robot['id'] ?? 0)
+        );
+        return !hash_equals(trim($current), $webhook);
     }
 
     private function normalizeRobotWebhook(string $webhook): ?string
@@ -768,6 +937,7 @@ class CompetitorWechatRobotController extends Base
     private function insertProtectedRobot(array $insert, string $webhook): int
     {
         return Db::transaction(function () use ($insert, $webhook): int {
+            $insert = $this->withRobotTenantScope($insert);
             $insert['webhook'] = '';
             $robotId = (int)Db::name('competitor_wechat_robot')->insertGetId($insert);
             if ($robotId <= 0) {
@@ -783,6 +953,95 @@ class CompetitorWechatRobotController extends Base
             }
             return $robotId;
         });
+    }
+
+    /** @param array<string, mixed> $update */
+    private function persistAdminManagedRobotUpdate(
+        int $robotId,
+        array $update,
+        bool $webhookChanged
+    ): void {
+        Db::transaction(function () use ($robotId, $update, $webhookChanged): void {
+            if ($webhookChanged) {
+                $robotFields = $this->tableFields('competitor_wechat_robot');
+                if (in_array('last_test_status', $robotFields, true)) {
+                    $update['last_test_status'] = 'pending';
+                }
+                if (in_array('last_tested_at', $robotFields, true)) {
+                    $update['last_tested_at'] = null;
+                }
+            }
+            $update = $this->withRobotTenantScope($update);
+            $this->adminManagedRobotQuery()->where('id', $robotId)->update($update);
+            if ($webhookChanged) {
+                $this->invalidateNotificationPlans($robotId);
+            }
+        });
+    }
+
+    /** @param array<string, mixed> $values @return array<string, mixed> */
+    private function withRobotTenantScope(array $values): array
+    {
+        if (!$this->tableHasColumn('competitor_wechat_robot', 'tenant_id')) {
+            return $values;
+        }
+        if (!$this->tableHasColumn('hotels', 'tenant_id')) {
+            throw new \RuntimeException('robot_hotel_tenant_scope_unavailable');
+        }
+        $storeId = (int)($values['store_id'] ?? 0);
+        $tenantId = $storeId > 0
+            ? (int)Db::name('hotels')->where('id', $storeId)->value('tenant_id')
+            : 0;
+        if ($tenantId <= 0) {
+            throw new \RuntimeException('robot_hotel_tenant_scope_missing');
+        }
+        $values['tenant_id'] = $tenantId;
+        return $values;
+    }
+
+    private function invalidateNotificationPlans(int $robotId): void
+    {
+        $fields = $this->tableFields('manual_notifications');
+        if (!in_array('test_robot_id', $fields, true)
+            || !in_array('schedule_status', $fields, true)
+        ) {
+            return;
+        }
+        $values = ['schedule_status' => 'awaiting_test'];
+        foreach ([
+            'last_test_status' => 'never_tested',
+            'last_test_message' => null,
+            'last_tested_at' => null,
+            'last_tested_by' => null,
+        ] as $field => $value) {
+            if (in_array($field, $fields, true)) {
+                $values[$field] = $value;
+            }
+        }
+        if (in_array('update_time', $fields, true)) {
+            $values['update_time'] = date('Y-m-d H:i:s');
+        }
+        $query = Db::name('manual_notifications')->where('test_robot_id', $robotId);
+        if (in_array('enabled', $fields, true)) {
+            $query->where('enabled', 1);
+        }
+        $query->update($values);
+    }
+
+    /** @return array<int, string> */
+    private function tableFields(string $table): array
+    {
+        try {
+            $fields = Db::getTableInfo($table, 'fields');
+            return is_array($fields) ? array_values($fields) : [];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    private function tableHasColumn(string $table, string $column): bool
+    {
+        return in_array($column, $this->tableFields($table), true);
     }
 
     private function protectRobotWebhookForStorage(string $webhook, int $robotId): string
@@ -811,6 +1070,13 @@ class CompetitorWechatRobotController extends Base
     private function robotWebhookEncryptionFailureMessage(): string
     {
         return 'Webhook 安全存储失败，请检查应用密钥配置';
+    }
+
+    private function robotSaveFailureMessage(\RuntimeException $error): string
+    {
+        return str_starts_with($error->getMessage(), 'robot_hotel_tenant_scope_')
+            ? '门店租户范围不可用，无法安全保存企业微信机器人'
+            : $this->robotWebhookEncryptionFailureMessage();
     }
 
     private function robotWebhookDecryptFailureMessage(): string

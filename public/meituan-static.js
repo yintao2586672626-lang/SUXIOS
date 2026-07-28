@@ -2386,6 +2386,39 @@ window.SUXI_MEITUAN_STATIC = (() => {
         competitor_room_count: config?.competitor_room_count || '',
     });
 
+    const buildMeituanConfigFormForHotel = ({
+        hotelId = '',
+        hotelName = '',
+        configs = [],
+        normalizeHotelName = normalizeMeituanConfigHotelName,
+    } = {}) => {
+        const targetHotelId = String(hotelId || '').trim();
+        const normalizedHotelName = String(hotelName || '').trim();
+        const defaultName = targetHotelId && normalizedHotelName
+            ? `${normalizedHotelName}美团数据源`
+            : '';
+        const config = findMeituanConfigForHotel({
+            hotelId: targetHotelId,
+            hotelName: normalizedHotelName,
+            configs,
+            normalizeHotelName,
+        });
+        if (!config) {
+            return {
+                ...createEmptyMeituanConfigForm(),
+                name: defaultName,
+                hotel_id: targetHotelId,
+            };
+        }
+
+        return buildMeituanConfigEditForm({
+            ...config,
+            id: config?.id ?? config?.config_id ?? null,
+            name: config?.name || defaultName,
+            hotel_id: targetHotelId,
+        });
+    };
+
     const buildMeituanConfigEditState = ({
         config = {},
     } = {}) => ({
@@ -4519,6 +4552,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanRankingFormPatchFromConfig,
         buildMeituanConfigUseState,
         buildMeituanConfigEditForm,
+        buildMeituanConfigFormForHotel,
         buildMeituanConfigEditState,
         buildMeituanBookmarkletSuccessState,
         buildMeituanBookmarkletFailureState,

@@ -35,7 +35,9 @@ final class AutoFetchCloudBindingTest extends TestCase
         Db::connect(null, true);
         Db::execute(
             'CREATE TABLE platform_data_sources ('
-            . 'id INTEGER PRIMARY KEY, config_json TEXT, update_time DATETIME)'
+            . 'id INTEGER PRIMARY KEY, tenant_id INTEGER, user_id INTEGER, '
+            . 'system_hotel_id INTEGER, platform TEXT, ingestion_method TEXT, '
+            . 'enabled INTEGER, status TEXT, config_json TEXT, update_time DATETIME)'
         );
     }
 
@@ -58,12 +60,28 @@ final class AutoFetchCloudBindingTest extends TestCase
     public function testConfirmedBindingIsAtomicAndPreservesExistingProfileMetadata(): void
     {
         $sources = [
-            $this->source(25, 'ctrip', ['stable_profile_id' => 'ctrip-profile']),
-            $this->source(68, 'meituan', ['store_id' => 'meituan-store']),
+            $this->source(25, 'ctrip', [
+                'stable_profile_id' => 'ctrip-profile',
+                'platform_hotel_id' => 'ctrip-h80',
+                'current_session_probe_performed' => true,
+                'current_session_verified' => true,
+                'current_session_probe_platform_hotel_id' => 'ctrip-h80',
+            ]),
+            $this->source(68, 'meituan', [
+                'store_id' => 'meituan-store',
+                'platform_hotel_id' => 'meituan-h80',
+            ]),
         ];
         foreach ($sources as $source) {
             Db::name('platform_data_sources')->insert([
                 'id' => $source['id'],
+                'tenant_id' => $source['tenant_id'],
+                'user_id' => $source['user_id'],
+                'system_hotel_id' => $source['system_hotel_id'],
+                'platform' => $source['platform'],
+                'ingestion_method' => $source['ingestion_method'],
+                'enabled' => $source['enabled'],
+                'status' => $source['status'],
                 'config_json' => $source['config_json'],
             ]);
         }
@@ -74,6 +92,11 @@ final class AutoFetchCloudBindingTest extends TestCase
         $meituan = $this->storedConfig(68);
         self::assertSame('ctrip-profile', $ctrip['stable_profile_id']);
         self::assertSame('meituan-store', $meituan['store_id']);
+        self::assertSame('ctrip-h80', $ctrip['platform_hotel_id']);
+        self::assertSame('meituan-h80', $meituan['platform_hotel_id']);
+        self::assertArrayNotHasKey('current_session_probe_performed', $ctrip);
+        self::assertArrayNotHasKey('current_session_verified', $ctrip);
+        self::assertArrayNotHasKey('current_session_probe_platform_hotel_id', $ctrip);
         foreach ([25 => $ctrip, 68 => $meituan] as $sourceId => $config) {
             self::assertSame('single_user_local', $config['source_method'], (string)$sourceId);
             self::assertSame('server-owner-device', $config['collector_device_id'], (string)$sourceId);
@@ -92,8 +115,12 @@ final class AutoFetchCloudBindingTest extends TestCase
 
     public function testDifferentExistingDeviceRequiresExplicitRotationAndRollsBackEverySource(): void
     {
-        $first = $this->source(25, 'ctrip', ['stable_profile_id' => 'ctrip-profile']);
+        $first = $this->source(25, 'ctrip', [
+            'stable_profile_id' => 'ctrip-profile',
+            'platform_hotel_id' => 'ctrip-h80',
+        ]);
         $second = $this->source(68, 'meituan', [
+            'platform_hotel_id' => 'meituan-h80',
             'source_method' => 'single_user_local',
             'collector_device_id' => 'old-device',
             'collector_device_id_hash' => hash('sha256', 'old-device'),
@@ -101,6 +128,13 @@ final class AutoFetchCloudBindingTest extends TestCase
         foreach ([$first, $second] as $source) {
             Db::name('platform_data_sources')->insert([
                 'id' => $source['id'],
+                'tenant_id' => $source['tenant_id'],
+                'user_id' => $source['user_id'],
+                'system_hotel_id' => $source['system_hotel_id'],
+                'platform' => $source['platform'],
+                'ingestion_method' => $source['ingestion_method'],
+                'enabled' => $source['enabled'],
+                'status' => $source['status'],
                 'config_json' => $source['config_json'],
             ]);
         }
@@ -123,12 +157,25 @@ final class AutoFetchCloudBindingTest extends TestCase
     public function testConfirmedUnbindRemovesOnlyCollectorBindingMetadata(): void
     {
         $sources = [
-            $this->source(25, 'ctrip', ['stable_profile_id' => 'ctrip-profile']),
-            $this->source(68, 'meituan', ['store_id' => 'meituan-store']),
+            $this->source(25, 'ctrip', [
+                'stable_profile_id' => 'ctrip-profile',
+                'platform_hotel_id' => 'ctrip-h80',
+            ]),
+            $this->source(68, 'meituan', [
+                'store_id' => 'meituan-store',
+                'platform_hotel_id' => 'meituan-h80',
+            ]),
         ];
         foreach ($sources as $source) {
             Db::name('platform_data_sources')->insert([
                 'id' => $source['id'],
+                'tenant_id' => $source['tenant_id'],
+                'user_id' => $source['user_id'],
+                'system_hotel_id' => $source['system_hotel_id'],
+                'platform' => $source['platform'],
+                'ingestion_method' => $source['ingestion_method'],
+                'enabled' => $source['enabled'],
+                'status' => $source['status'],
                 'config_json' => $source['config_json'],
             ]);
         }
@@ -157,6 +204,52 @@ final class AutoFetchCloudBindingTest extends TestCase
             self::assertArrayNotHasKey('collector_user_id', $config);
             self::assertArrayNotHasKey('collector_hotel_id', $config);
         }
+    }
+
+    public function testCrossHotelCanonicalPlatformIdentityConflictBlocksWithoutWrite(): void
+    {
+        $source = $this->source(25, 'ctrip', [
+            'stable_profile_id' => 'ctrip-profile',
+            'platform_hotel_id' => 'ctrip-h80',
+        ]);
+        Db::name('platform_data_sources')->insert([
+            'id' => $source['id'],
+            'tenant_id' => $source['tenant_id'],
+            'user_id' => $source['user_id'],
+            'system_hotel_id' => $source['system_hotel_id'],
+            'platform' => $source['platform'],
+            'ingestion_method' => $source['ingestion_method'],
+            'enabled' => $source['enabled'],
+            'status' => $source['status'],
+            'config_json' => $source['config_json'],
+        ]);
+        Db::name('platform_data_sources')->insert([
+            'id' => 99,
+            'tenant_id' => 9,
+            'user_id' => 2,
+            'system_hotel_id' => 81,
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+            'enabled' => 1,
+            'status' => 'ready',
+            'config_json' => json_encode([
+                'platform_hotel_id' => 'ctrip-h80',
+            ], JSON_THROW_ON_ERROR),
+        ]);
+
+        try {
+            $this->bind([$source], $this->scope('server-owner-device'), false);
+            self::fail('Expected a cross-hotel canonical platform identity conflict.');
+        } catch (RuntimeException $e) {
+            self::assertStringContainsString(
+                'already bound to another tenant or system hotel',
+                $e->getMessage()
+            );
+        }
+
+        $stored = $this->storedConfig(25);
+        self::assertArrayNotHasKey('source_method', $stored);
+        self::assertSame('ctrip-h80', $stored['platform_hotel_id']);
     }
 
     /** @return array<string, mixed> */

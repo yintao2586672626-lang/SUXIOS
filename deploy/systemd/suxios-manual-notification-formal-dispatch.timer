@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SUXIOS formal WeCom notification scheduler every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=10s
+Persistent=true
+Unit=suxios-manual-notification-formal-dispatch.service
+
+[Install]
+WantedBy=timers.target

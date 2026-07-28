@@ -17,6 +17,24 @@ final class SchemaVersionService
     private const FRESH_INIT_BASELINE_ADOPTED_MIGRATIONS = [
         '20260723_validate_owner_tenant_bootstrap_targets.sql',
     ];
+    /**
+     * Applied migrations remain immutable by default. These two revisions are
+     * narrowly allowed because they only added IF NOT EXISTS guards after the
+     * original DDL had already been applied. Both the old and current hashes
+     * must match exactly before the registry can be advanced.
+     *
+     * @var array<string, array<string, string>>
+     */
+    private const COMPATIBLE_MIGRATION_CHECKSUM_REVISIONS = [
+        '20260725_add_account_wechat_notification_binding.sql' => [
+            '1d257f3d35e9c8edfe020e1ecc665a583ace97232a8218c1f081ab5c1097ee0f'
+                => 'df3165a834beac6b067ee134199314cca722c3e1dead9407c82fe500f07b91e6',
+        ],
+        '20260726_extend_manual_notification_dispatch_attempts.sql' => [
+            '43875cfe53bff7f97cd68a787232a121c0c620e39795449fe23f7a9c45ff5b19'
+                => '6440cc5549990223d4857bfc1c80b81ab8b096f490be60e33405c319c0a876d7',
+        ],
+    ];
     private const HISTORICAL_NOT_APPLICABLE_GUARDS = [
         '20260723_validate_owner_tenant_bootstrap_targets.sql' => [
             [127, 'VIP003'],
@@ -221,7 +239,11 @@ final class SchemaVersionService
             if ($checksumSupported) {
                 if ($checksum === '') {
                     $missingChecksums[] = $migration;
-                } elseif (!hash_equals($requiredByMigration[$migration]['checksum'], $checksum)) {
+                } elseif (!$this->migrationChecksumMatches(
+                    $migration,
+                    $requiredByMigration[$migration]['checksum'],
+                    $checksum
+                )) {
                     $checksumMismatches[] = $migration;
                 }
             }
@@ -239,7 +261,11 @@ final class SchemaVersionService
             }
             $validVersion = hash_equals($migration['version'], $row['version']);
             $validChecksum = !$checksumSupported
-                || ($row['checksum'] !== '' && hash_equals($migration['checksum'], $row['checksum']));
+                || ($row['checksum'] !== '' && $this->migrationChecksumMatches(
+                    $migration['migration'],
+                    $migration['checksum'],
+                    $row['checksum']
+                ));
             if ($contiguous && $validVersion && $validChecksum) {
                 $currentVersion = $migration['version'];
             } else {
@@ -511,7 +537,14 @@ final class SchemaVersionService
         return $registered;
     }
 
-    /** @return array{executed: list<string>, historical_not_applicable: list<string>, status: array<string, mixed>} */
+    /**
+     * @return array{
+     *   executed: list<string>,
+     *   historical_not_applicable: list<string>,
+     *   checksum_upgrades: list<string>,
+     *   status: array<string, mixed>
+     * }
+     */
     public function migrate(): array
     {
         if ($this->applicationTableCount() === 0 && !$this->registryExists()) {
@@ -528,6 +561,7 @@ final class SchemaVersionService
         $this->ensureRegistryTable();
         $locked = $this->acquireLock();
         try {
+            $checksumUpgrades = $this->upgradeCompatibleRegisteredChecksums();
             $status = $this->status();
             if ($status['version_mismatches'] !== []) {
                 throw new RuntimeException(
@@ -607,6 +641,7 @@ final class SchemaVersionService
             return [
                 'executed' => $executed,
                 'historical_not_applicable' => $historicalNotApplicable,
+                'checksum_upgrades' => $checksumUpgrades,
                 'status' => $finalStatus,
             ];
         } finally {
@@ -1304,6 +1339,63 @@ final class SchemaVersionService
             . 'WHERE resolved_at IS NULL ORDER BY migration ASC'
         )->fetchAll(PDO::FETCH_COLUMN);
         return array_values(array_map('strval', is_array($rows) ? $rows : []));
+    }
+
+    private function migrationChecksumMatches(
+        string $migration,
+        string $requiredChecksum,
+        string $registeredChecksum
+    ): bool {
+        if ($requiredChecksum === '' || $registeredChecksum === '') {
+            return false;
+        }
+        if (hash_equals($requiredChecksum, $registeredChecksum)) {
+            return true;
+        }
+
+        $compatibleChecksum = self::COMPATIBLE_MIGRATION_CHECKSUM_REVISIONS[$migration][$registeredChecksum]
+            ?? null;
+        return is_string($compatibleChecksum) && hash_equals($requiredChecksum, $compatibleChecksum);
+    }
+
+    /** @return list<string> */
+    private function upgradeCompatibleRegisteredChecksums(): array
+    {
+        if (!$this->registryExists() || !$this->registryColumnExists('checksum')) {
+            return [];
+        }
+
+        $catalog = [];
+        foreach (self::migrationCatalog($this->root) as $migration) {
+            $catalog[$migration['migration']] = $migration;
+        }
+        $update = $this->pdo->prepare(
+            'UPDATE schema_versions SET checksum = ? '
+            . 'WHERE migration = ? AND version = ? AND checksum = ?'
+        );
+        $upgraded = [];
+        foreach (self::COMPATIBLE_MIGRATION_CHECKSUM_REVISIONS as $migration => $revisions) {
+            $required = $catalog[$migration] ?? null;
+            if (!is_array($required)) {
+                continue;
+            }
+            foreach ($revisions as $registeredChecksum => $compatibleChecksum) {
+                if (!hash_equals($required['checksum'], $compatibleChecksum)) {
+                    continue;
+                }
+                $update->execute([
+                    $compatibleChecksum,
+                    $migration,
+                    $required['version'],
+                    $registeredChecksum,
+                ]);
+                if ($update->rowCount() > 0) {
+                    $upgraded[] = $migration;
+                }
+            }
+        }
+        sort($upgraded);
+        return $upgraded;
     }
 
     private function backfillMissingChecksums(): void
