@@ -30,12 +30,27 @@ final class SingleHotelOperatingDigestServiceTest extends TestCase
         self::assertSame(8275.67, $digest['sources']['pms']['facts']['room_fee_revenue']);
         self::assertSame(13.0, $digest['sources']['pms']['facts']['average_daily_room_nights']);
         self::assertSame(1318.0, $digest['sources']['ctrip']['facts']['channel_revenue']);
+        self::assertSame(1000.0, $digest['sources']['ctrip']['facts']['list_exposure']);
+        self::assertSame(20.0, $digest['sources']['ctrip']['facts']['list_to_detail_rate_percent']);
+        self::assertSame(50.0, $digest['sources']['ctrip']['facts']['order_filling_to_submit_rate_percent']);
         self::assertSame(5.0, $digest['sources']['meituan']['facts']['paid_orders']);
+        self::assertSame(16.25, $digest['sources']['meituan']['facts']['list_to_detail_rate_percent']);
+        self::assertSame(2.87, $digest['sources']['meituan']['facts']['detail_to_paid_order_rate_percent']);
+        self::assertSame(14.29, $digest['sources']['meituan']['facts']['platform_detail_to_paid_rate_percent']);
+        self::assertSame(
+            14.29,
+            $digest['sources']['meituan']['conversion_rates']['platform_detail_to_paid_order']['value_percent']
+        );
+        self::assertNull($digest['sources']['meituan']['facts']['order_filling_visitors']);
         self::assertSame(0.0, $digest['sources']['meituan']['facts']['target_date_order_count']);
         self::assertNull($digest['sources']['meituan']['facts']['channel_revenue']);
         self::assertNull($digest['sources']['meituan']['facts']['room_nights']);
         self::assertSame(
-            ['meituan_room_revenue_missing', 'meituan_room_nights_missing'],
+            [
+                'meituan_order_filling_missing',
+                'meituan_room_revenue_missing',
+                'meituan_room_nights_missing',
+            ],
             array_column($digest['gaps'], 'code')
         );
     }
@@ -52,7 +67,8 @@ final class SingleHotelOperatingDigestServiceTest extends TestCase
             static fn(): array => [],
             static fn(): array => [],
             static fn(): array => [],
-            self::SCOPE
+            self::SCOPE,
+            static fn(): array => []
         );
 
         $digest = $service->build(1, 5, '2026-07-27', $this->targetPreview());
@@ -124,13 +140,92 @@ final class SingleHotelOperatingDigestServiceTest extends TestCase
         self::assertSame(5.0, $digest['sources']['meituan']['facts']['paid_orders']);
     }
 
+    public function testMissingCtripTrafficFunnelBlocksWithoutUsingRevenueAsTrafficProof(): void
+    {
+        $digest = $this->service(
+            '130079194',
+            $this->pmsSummary(),
+            []
+        )->build(1, 5, '2026-07-27', $this->targetPreview());
+
+        self::assertFalse($digest['delivery_allowed']);
+        self::assertSame('blocked', $digest['sources']['ctrip']['status']);
+        self::assertSame(1318.0, $digest['sources']['ctrip']['facts']['channel_revenue']);
+        self::assertNull($digest['sources']['ctrip']['facts']['list_exposure']);
+        self::assertContains(
+            'ctrip_traffic_funnel_unverified',
+            array_column($digest['sources']['ctrip']['gaps'], 'code')
+        );
+    }
+
+    public function testVerifiedZeroDenominatorStaysZeroAndRateIsNotCalculable(): void
+    {
+        $digest = $this->service(
+            '130079194',
+            $this->pmsSummary(),
+            [
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'order_filling_visitors' => 0,
+                'order_submit_users' => 0,
+                'platform_reported_rate_percent' => null,
+            ],
+            [
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'paid_orders' => 0,
+                'target_date_order_count' => 0,
+            ]
+        )->build(1, 5, '2026-07-27', $this->targetPreview());
+
+        self::assertTrue($digest['delivery_allowed']);
+        self::assertSame(0.0, $digest['sources']['ctrip']['facts']['list_exposure']);
+        self::assertNull($digest['sources']['ctrip']['facts']['list_to_detail_rate_percent']);
+        self::assertSame(
+            'not_calculable_zero_denominator',
+            $digest['sources']['ctrip']['conversion_rates']['list_to_detail']['status']
+        );
+        self::assertSame(0.0, $digest['sources']['meituan']['facts']['paid_orders']);
+        self::assertNull($digest['sources']['meituan']['facts']['detail_to_paid_order_rate_percent']);
+        self::assertNull($digest['sources']['meituan']['facts']['platform_detail_to_paid_rate_percent']);
+        self::assertSame(
+            'not_calculable_missing_input',
+            $digest['sources']['meituan']['conversion_rates']['platform_detail_to_paid_order']['status']
+        );
+        self::assertContains(
+            'meituan_detail_to_paid_order_rate_not_calculable',
+            array_column($digest['gaps'], 'code')
+        );
+        self::assertContains(
+            'meituan_platform_detail_to_paid_rate_missing',
+            array_column($digest['gaps'], 'code')
+        );
+    }
+
     /** @param array<string,mixed>|null $pmsSummary */
     private function service(
         string $ctripPlatformHotelId = '130079194',
-        ?array $pmsSummary = null
+        ?array $pmsSummary = null,
+        ?array $ctripTrafficFacts = null,
+        ?array $meituanFacts = null
     ): SingleHotelOperatingDigestService
     {
         $pmsSummary ??= $this->pmsSummary();
+        $ctripTrafficFacts ??= [
+            'list_exposure' => 1000,
+            'detail_exposure' => 200,
+            'order_filling_visitors' => 40,
+            'order_submit_users' => 20,
+            'platform_reported_rate_percent' => 20,
+        ];
+        $meituanFacts ??= [
+            'list_exposure' => 1071,
+            'detail_exposure' => 174,
+            'flow_rate_percent' => 16.25,
+            'platform_detail_to_paid_rate_percent' => 14.29,
+            'paid_orders' => 5,
+            'target_date_order_count' => 0,
+        ];
 
         return new SingleHotelOperatingDigestService(
             static fn(): array => [
@@ -179,15 +274,18 @@ final class SingleHotelOperatingDigestServiceTest extends TestCase
                 'readback_verified' => true,
                 'field_facts_verified' => true,
                 'collected_at' => '2026-07-27 23:34:00',
-                'facts' => [
-                    'list_exposure' => 1071,
-                    'detail_exposure' => 174,
-                    'flow_rate_percent' => 16.25,
-                    'paid_orders' => 5,
-                    'target_date_order_count' => 0,
-                ],
+                'facts' => $meituanFacts,
             ],
-            self::SCOPE
+            self::SCOPE,
+            static fn(): array => [
+                'business_date' => '2026-07-27',
+                'row_id' => 824,
+                'identity_matched' => true,
+                'readback_verified' => true,
+                'field_facts_verified' => true,
+                'collected_at' => '2026-07-27 23:31:00',
+                'facts' => $ctripTrafficFacts,
+            ]
         );
     }
 

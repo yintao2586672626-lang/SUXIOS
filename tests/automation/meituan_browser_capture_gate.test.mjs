@@ -56,6 +56,11 @@ test('Meituan own-hotel DOM traffic rows persist explicit self identity', () => 
 
   assert.equal((block.match(/compare_type: 'self'/g) || []).length, 2);
   assert.equal((block.match(/is_self: true/g) || []).length, 2);
+  assert.doesNotMatch(
+    block,
+    /orderFillingNum/,
+    'paid order count must not be duplicated into the missing order-filling stage',
+  );
 });
 
 test('capture normalizer applies traffic-card parsing only to traffic and date evidence to ads rows', () => {
@@ -69,6 +74,8 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /runMeituanOrderInteractionPlan/);
   assert.match(source, /runMeituanReviewInteractionPlan/);
   assert.match(source, /dataPeriod === 'historical_daily'/);
+  assert.match(source, /formatDateOffsetInTimeZone/);
+  assert.match(source, /timeZone:\s*'Asia\/Shanghai'/);
   assert.match(source, /target_date_relative_range_selected/);
   assert.match(source, /relative_yesterday_only_not_a_substitute_for_response_date_evidence/);
   assert.match(source, /\['data', 'results'\]/);
@@ -154,6 +161,29 @@ test('retains yesterday-selected traffic after the target-date filter runs', () 
   assert.equal(result.traffic.length, 1);
   assert.equal(result.traffic[0].dataDate, '2026-07-24');
   assert.equal(result.traffic[0].data_updated_at, '2026-07-25');
+});
+
+test('retains dateRange=1 rows only when request evidence is structurally complete', () => {
+  const result = filterMeituanCumulativeRowsByTargetDate({
+    flowAnalysis: [
+      {
+        dataDate: '2026-07-27',
+        dateRange: '1',
+        date_source: 'request.query.dateRange=1',
+        data_period: 'historical_daily',
+        exposureUV: 66,
+      },
+      {
+        dataDate: '2026-07-27',
+        date_source: 'request.query.dateRange=1',
+        exposureUV: 99,
+      },
+    ],
+  }, '2026-07-27');
+
+  assert.equal(result.flowAnalysis.length, 1);
+  assert.equal(result.flowAnalysis[0].exposureUV, 66);
+  assert.equal(result.target_date_filter.dropped_counts.flowAnalysis, 1);
 });
 
 test('fails when a requested Meituan section has neither rows nor an authoritative empty response', () => {

@@ -395,7 +395,7 @@ function validateTargetDateEvidence(data, targetDate) {
       }
       const explicitSource = String(row.date_source || row.dateSource || '').trim();
       const inferredRowSource = hasOwnDate(row) && !explicitSource ? 'row' : explicitSource;
-      if (!rowDate || !isAuthoritativeDateSource(inferredRowSource)) {
+      if (!rowDate || !isAuthoritativeDateSource(inferredRowSource, row)) {
         failed.push('target_date_unverified');
       }
     }
@@ -410,11 +410,16 @@ function isVerifiedTargetDateRow(row, targetDate) {
   ]));
   const explicitSource = String(row.date_source || row.dateSource || '').trim();
   const inferredRowSource = hasOwnDate(row) && !explicitSource ? 'row' : explicitSource;
-  return rowDate === targetDate && isAuthoritativeDateSource(inferredRowSource);
+  return rowDate === targetDate && isAuthoritativeDateSource(inferredRowSource, row);
 }
 
-function isAuthoritativeDateSource(source) {
+function isAuthoritativeDateSource(source, row = {}) {
   const value = String(source || '').trim().toLowerCase();
+  if (value === 'request.query.daterange=1') {
+    const dateRange = String(row.dateRange ?? row.date_range ?? '').trim();
+    const dataPeriod = String(row.data_period || row.dataPeriod || '').trim().toLowerCase();
+    return dateRange === '1' && dataPeriod === 'historical_daily';
+  }
   return value === 'row'
     || value.startsWith('row.')
     || value.startsWith('request.')

@@ -1,3 +1,5 @@
+import { formatDateOffsetInTimeZone } from './shared_helpers.mjs';
+
 const CARD_METRIC_MAP = new Map([
   ['EXPOSE_PV_CNT', { fields: ['listExposure', 'list_exposure'], label: 'list_exposure' }],
   ['INTENTION_UV', { fields: ['detailExposure', 'detail_exposure'], label: 'detail_exposure' }],
@@ -232,11 +234,9 @@ const CARD_METRIC_TITLE_RULES = [
 ];
 
 const REQUIRED_TRAFFIC_FIELD_GROUPS = [
-  ['listExposure', 'list_exposure', 'exposure_count', 'exposureCount'],
-  ['detailExposure', 'detail_exposure', 'page_views', 'pageViews', 'unique_visitors', 'uniqueVisitors'],
-  ['flowRate', 'flow_rate', 'conversion_rate', 'conversionRate', 'cvr'],
-  ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'click_count', 'clickCount', 'clicks'],
-  ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'orderCount', 'order_count', 'orders'],
+  ['listExposure', 'list_exposure', 'exposure_count', 'exposureCount', 'exposureUV', 'mt_exposure'],
+  ['detailExposure', 'detail_exposure', 'page_views', 'pageViews', 'unique_visitors', 'uniqueVisitors', 'intentionUV', 'mt_intention_uv'],
+  ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'orderCount', 'order_count', 'orders', 'payOrderCnt', 'mt_pay_orders'],
 ];
 
 export function normalizeMeituanTrafficCardRows(value, options = {}) {
@@ -426,7 +426,6 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
       listExposure: numberish(data.exposeCount ?? data.exposureCount ?? data.exposure),
       detailExposure: numberish(data.visitCount ?? data.visitorCount ?? data.uv),
       orderSubmitNum: numberish(data.orderCount ?? data.payOrderCount ?? data.orders),
-      orderFillingNum: numberish(data.orderCount ?? data.payOrderCount ?? data.orders),
       flowRate: numberish(data.visitOrderRate ?? data.conversionRate ?? data.orderConversionRate),
       expose_visit_rate: numberish(data.exposeVisitRate),
     }, 'traffic_analysis', 'data', options)];
@@ -576,12 +575,6 @@ function buildCardMetricRow(cards, options = {}) {
   } else if (options.defaultDataDate) {
     row.dataDate = options.defaultDataDate;
     row.date_source = 'capture_context.default_data_date';
-  }
-
-  if (hasTrafficMetricValue(row.orderSubmitNum) && !hasTrafficMetricValue(row.orderFillingNum)) {
-    row.orderFillingNum = row.orderSubmitNum;
-    row.order_filling_num = row.order_submit_num;
-    row._order_filling_source_policy = 'meituan_metric_cards_no_separate_order_filling_step_pay_order_count_used';
   }
 
   return row;
@@ -744,6 +737,8 @@ function decorateSupplementalRow(row, dataType, sourcePath, options = {}) {
   }
   if (String(options.dateRange || '') === '0' && !next.data_period) {
     next.data_period = 'realtime_snapshot';
+  } else if (isVerifiedShanghaiYesterdayRange(options) && !next.data_period) {
+    next.data_period = 'historical_daily';
   }
   return next;
 }
@@ -776,9 +771,29 @@ function supplementalDateSource(options = {}) {
   if (options.requestDateEvidence?.date_source) {
     return options.requestDateEvidence.date_source;
   }
-  return String(options.dateRange || '') === '0'
-    ? 'request.query.dateRange=0'
-    : 'capture_context.default_data_date';
+  if (String(options.dateRange || '') === '0') {
+    return 'request.query.dateRange=0';
+  }
+  if (isVerifiedShanghaiYesterdayRange(options)) {
+    return 'request.query.dateRange=1';
+  }
+  return 'capture_context.default_data_date';
+}
+
+function isVerifiedShanghaiYesterdayRange(options = {}) {
+  if (String(options.dateRange || '') !== '1') {
+    return false;
+  }
+  const capturedAt = String(options.capturedAt || '').trim();
+  const defaultDate = normalizeDateLike(options.defaultDataDate || '');
+  if (!capturedAt || !defaultDate) {
+    return false;
+  }
+  try {
+    return defaultDate === formatDateOffsetInTimeZone(capturedAt, -1, 'Asia/Shanghai');
+  } catch {
+    return false;
+  }
 }
 
 function hasOwnDate(row) {

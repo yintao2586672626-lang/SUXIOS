@@ -41,7 +41,14 @@ import {
   sanitizeOtaObservedUrl,
   summarizeOtaSessionCookies,
 } from './lib/ota_session_probe.mjs';
-import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
+import {
+  fail,
+  formatDateOffsetInTimeZone,
+  parseArgs,
+  safeName,
+  timestamp,
+  waitForEnter,
+} from './lib/shared_helpers.mjs';
 
 const URLS = {
   login: 'https://me.meituan.com/ebooking/',
@@ -513,8 +520,10 @@ async function detectMeituanAdsSectionEvidence(page) {
 
 async function runMeituanTrafficInteractionPlan(page) {
   const results = [];
+  const businessTimeZone = 'Asia/Shanghai';
+  const businessYesterday = formatDateOffsetInTimeZone(capturedAt, -1, businessTimeZone);
   const targetDateIsYesterday = /^\d{4}-\d{2}-\d{2}$/.test(defaultDataDate)
-    && defaultDataDate === new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    && defaultDataDate === businessYesterday;
   const historicalTargetedRun = dataPeriod === 'historical_daily' && targetDateIsYesterday;
   const periods = historicalTargetedRun
     ? ['\u6628\u65e5']
@@ -540,6 +549,7 @@ async function runMeituanTrafficInteractionPlan(page) {
       relative_range: '\u6628\u65e5',
       evidence_source: 'page.traffic_period_selection.readback',
       marker: 'meituan_traffic_yesterday_tab',
+      timeZone: 'Asia/Shanghai',
       date_scope_policy: 'relative_yesterday_only_not_a_substitute_for_response_date_evidence',
     };
   }
@@ -1312,9 +1322,7 @@ async function collectMeituanTrafficDomRows(page) {
         listExposure: normalizeNumber(flowFunnel[1]),
         detailExposure: normalizeNumber(flowFunnel[3]),
         flowRate: Number(flowFunnel[7]),
-        orderFillingNum: orders,
         orderSubmitNum: orders,
-        _order_filling_source_policy: 'meituan_flow_funnel_no_separate_order_filling_step_pay_order_count_used',
         _order_submit_source_label: 'pay_order_count',
       });
     }
@@ -1334,9 +1342,7 @@ async function collectMeituanTrafficDomRows(page) {
           listExposure: exposure,
           detailExposure: visitors,
           flowRate: flowRate || (exposure > 0 ? Math.round((visitors / exposure) * 10000) / 100 : 0),
-          orderFillingNum: orders,
           orderSubmitNum: orders,
-          _order_filling_source_policy: 'meituan_home_summary_no_separate_order_filling_step_pay_order_count_used',
           _order_submit_source_label: 'pay_order_count',
         });
       }

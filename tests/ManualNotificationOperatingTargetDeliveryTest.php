@@ -236,8 +236,14 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
         self::assertFalse($brief['external_delivery_authorized'] ?? true);
         self::assertStringContainsString('经营目标：未设置', (string)($brief['content'] ?? ''));
         self::assertStringContainsString('订单来了PMS', (string)($brief['content'] ?? ''));
-        self::assertStringContainsString('携程｜渠道事实', (string)($brief['content'] ?? ''));
-        self::assertStringContainsString('美团｜流量与订单事实', (string)($brief['content'] ?? ''));
+        self::assertStringContainsString(
+            '携程｜流量、转化与成交事实',
+            (string)($brief['content'] ?? '')
+        );
+        self::assertStringContainsString(
+            '美团｜流量、转化与支付订单事实',
+            (string)($brief['content'] ?? '')
+        );
         self::assertStringContainsString('渠道收入：未获取', (string)($brief['content'] ?? ''));
     }
 
@@ -482,7 +488,22 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
                     'target_date_order_count' => 0,
                 ],
             ],
-            $scope
+            $scope,
+            static fn(): array => [
+                'business_date' => $today,
+                'row_id' => 903,
+                'identity_matched' => true,
+                'readback_verified' => true,
+                'field_facts_verified' => true,
+                'collected_at' => $today . ' 12:08:00',
+                'facts' => [
+                    'list_exposure' => 400,
+                    'detail_exposure' => 80,
+                    'order_filling_visitors' => 10,
+                    'order_submit_users' => 2,
+                    'platform_reported_rate_percent' => 20,
+                ],
+            ]
         );
 
         return new OperatingTargetNotificationPayloadService(null, null, $digest);

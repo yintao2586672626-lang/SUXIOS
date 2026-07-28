@@ -21,6 +21,8 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
   const requestedSections = new Set();
 
   let responseCount = 0;
+  let parsedResponseCount = 0;
+  let parseFailedResponseCount = 0;
   let catalogFactCount = 0;
   let standardRowCount = 0;
   let unmatchedUrlCount = 0;
@@ -89,6 +91,13 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
       const section = sectionFromValue(response?.section);
       const endpointId = String(response?.endpoint_id || '').trim();
       bumpSection(bySection, section, 'response_count');
+      if (!isParsedCtripResponse(response)) {
+        parseFailedResponseCount += 1;
+        bumpSection(bySection, section, 'parse_failed_response_count');
+        continue;
+      }
+      parsedResponseCount += 1;
+      bumpSection(bySection, section, 'parsed_response_count');
       if (endpointId) {
         capturedEndpoints.add(endpointId);
         addSectionValue(bySection, section, 'endpoint_ids', endpointId);
@@ -155,6 +164,8 @@ export function buildCtripCaptureAudit(inputs = [], options = {}) {
   const summary = {
     input_file_count: normalizedInputs.length,
     response_count: responseCount,
+    parsed_response_count: parsedResponseCount,
+    parse_failed_response_count: parseFailedResponseCount,
     catalog_fact_count: catalogFactCount,
     unique_metric_count: uniqueMetrics.size,
     standard_row_count: standardRowCount,
@@ -249,7 +260,7 @@ export function evaluateCtripCaptureAuditGate(audit = {}, options = {}) {
     });
   }
 
-  const responseCount = numberValue(summary.response_count);
+  const responseCount = numberValue(summary.parsed_response_count ?? summary.response_count);
   addGateCheck(checks, {
     id: 'response_count',
     passed: responseCount >= thresholds.min_response_count,
@@ -734,7 +745,7 @@ function buildCaptureGapReport({
       required_evidence: ['logged-in browser profile'],
     });
   }
-  if (numberValue(summary.response_count) === 0) {
+  if (numberValue(summary.parsed_response_count ?? summary.response_count) === 0) {
     blockers.push('response_count');
     nextActions.push({
       action: 'capture_business_xhr',
@@ -920,6 +931,8 @@ function ensureSection(bySection, section) {
   const key = section || 'unknown';
   bySection[key] ||= {
     response_count: 0,
+    parsed_response_count: 0,
+    parse_failed_response_count: 0,
     catalog_fact_count: 0,
     standard_row_count: 0,
     endpoint_ids: new Set(),
@@ -953,11 +966,26 @@ function finalizeSectionStats(bySection) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([section, stats]) => [section, {
       response_count: stats.response_count,
+      parsed_response_count: stats.parsed_response_count,
+      parse_failed_response_count: stats.parse_failed_response_count,
       catalog_fact_count: stats.catalog_fact_count,
       standard_row_count: stats.standard_row_count,
       endpoint_ids: [...stats.endpoint_ids].sort(),
       metric_keys: [...stats.metric_keys].sort(),
     }]));
+}
+
+function isParsedCtripResponse(response) {
+  const status = String(response?.parse_status || '').trim().toLowerCase();
+  if (status) {
+    return status === 'parsed' || status === 'success';
+  }
+  if (response?.error) {
+    return false;
+  }
+  const data = response?.data;
+  return !(data && typeof data === 'object' && !Array.isArray(data)
+    && Object.prototype.hasOwnProperty.call(data, '_raw_text'));
 }
 
 function finalizeInteractionStats(bySection) {

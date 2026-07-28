@@ -4057,6 +4057,15 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('data.myHotel.exposureUV', $facts['list_exposure']['source_path'] ?? '');
         self::assertSame('data.myHotel.intentionUV', $facts['detail_exposure']['source_path'] ?? '');
         self::assertSame('data.myHotel.intentionPerExposure', $facts['flow_rate']['source_path'] ?? '');
+        self::assertSame(
+            'data.myHotel.payOrderPerIntention',
+            $facts['meituan_detail_to_paid_rate']['source_path'] ?? ''
+        );
+        self::assertSame(
+            'raw_data.row.payOrderPerIntention',
+            $facts['meituan_detail_to_paid_rate']['storage_field'] ?? ''
+        );
+        self::assertTrue($facts['meituan_detail_to_paid_rate']['stored_value_present'] ?? false);
         self::assertSame('data.myHotel.payOrderCnt', $facts['order_submit_num']['source_path'] ?? '');
         self::assertSame('missing', $facts['order_filling_num']['status'] ?? '');
     }
