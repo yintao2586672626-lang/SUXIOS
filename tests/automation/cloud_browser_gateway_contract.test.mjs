@@ -366,7 +366,7 @@ test('gateway-owned Dingdandao Profile lease restores, guards, and seals only it
     ]);
     const startCall = calls.find((entry) => entry[0] === 'start');
     const guardCall = calls.find((entry) => entry[0] === 'guard');
-    assert.match(startCall[2], /^about:blank#suxios-cbpl_[A-Za-z0-9_-]+$/);
+    assert.match(startCall[2], /^data:text\/html,suxios-cbpl_[A-Za-z0-9_-]+$/);
     assert.equal(guardCall[1], startCall[2]);
 
     const activeHealth = await fetch(`${base}/health`).then((response) => response.json());

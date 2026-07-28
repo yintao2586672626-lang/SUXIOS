@@ -1139,7 +1139,11 @@ export async function createGateway(env = process.env, dependencies = {}) {
         );
 
         const profileLeaseId = `cbpl_${randomBytes(18).toString('base64url')}`;
-        const ownershipTargetUrl = `about:blank#suxios-${profileLeaseId}`;
+        // Chromium normalizes a command-line `about:blank#...` target to
+        // `chrome://newtab/`, so the exact ownership check below never sees
+        // the requested URL. A data URL remains byte-for-byte visible in CDP
+        // and still carries no account or business data.
+        const ownershipTargetUrl = `data:text/html,suxios-${profileLeaseId}`;
         const expiresAt = new Date(
           now.getTime() + config.collectionTtlSeconds * 1000,
         ).toISOString();
