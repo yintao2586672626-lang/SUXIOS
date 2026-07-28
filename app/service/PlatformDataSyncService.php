@@ -445,6 +445,14 @@ final class PlatformDataSyncService
                 'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
             ],
             [
+                'metric_key' => 'meituan_detail_to_paid_rate',
+                'normalized_field' => 'raw_data.row.payOrderPerIntention',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.row.payOrderPerIntention',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['payOrderPerIntention'],
+            ],
+            [
                 'metric_key' => 'order_filling_num',
                 'normalized_field' => 'order_filling_num',
                 'storage_table' => 'online_daily_data',

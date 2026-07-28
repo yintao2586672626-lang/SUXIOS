@@ -23,6 +23,12 @@ final class SingleHotelOperatingBriefService
         $pmsFacts = is_array($pms['facts'] ?? null) ? $pms['facts'] : [];
         $ctripFacts = is_array($ctrip['facts'] ?? null) ? $ctrip['facts'] : [];
         $meituanFacts = is_array($meituan['facts'] ?? null) ? $meituan['facts'] : [];
+        $ctripRates = is_array($ctrip['conversion_rates'] ?? null)
+            ? $ctrip['conversion_rates']
+            : [];
+        $meituanRates = is_array($meituan['conversion_rates'] ?? null)
+            ? $meituan['conversion_rates']
+            : [];
 
         $sourceGatePassed = ($digest['applies'] ?? false) === true
             && ($digest['delivery_allowed'] ?? false) === true
@@ -56,15 +62,48 @@ final class SingleHotelOperatingBriefService
                     $pmsFacts['detail_room_fee_total'] ?? null
                 ),
             '',
-            '## 携程｜渠道事实',
+            '## 携程｜流量、转化与成交事实',
+            '- 列表曝光：' . $this->count($ctripFacts['list_exposure'] ?? null)
+                . '；详情访问：' . $this->count($ctripFacts['detail_exposure'] ?? null),
+            '- 平台上报流量转化率：' . $this->percent(
+                $ctripFacts['platform_reported_rate_percent'] ?? null
+            ),
+            '- 填单人数：' . $this->count($ctripFacts['order_filling_visitors'] ?? null)
+                . '；提交订单人数：' . $this->count(
+                    $ctripFacts['order_submit_users'] ?? null
+                ),
+            '- 曝光→详情：' . $this->conversionRate($ctripRates['list_to_detail'] ?? null)
+                . '；详情→填单：' . $this->conversionRate(
+                    $ctripRates['detail_to_order_filling'] ?? null
+                ),
+            '- 填单→提交：' . $this->conversionRate(
+                $ctripRates['order_filling_to_submit'] ?? null
+            )
+                . '；详情→提交：' . $this->conversionRate(
+                    $ctripRates['detail_to_submit'] ?? null
+                ),
             '- 渠道收入：' . $this->money($ctripFacts['channel_revenue'] ?? null)
                 . '；订单：' . $this->count($ctripFacts['orders'] ?? null)
                 . '；间夜：' . $this->count($ctripFacts['room_nights'] ?? null),
             '',
-            '## 美团｜流量与订单事实',
+            '## 美团｜流量、转化与支付订单事实',
             '- 列表曝光：' . $this->count($meituanFacts['list_exposure'] ?? null)
-                . '；详情曝光：' . $this->count($meituanFacts['detail_exposure'] ?? null),
-            '- 流量转化率：' . $this->percent($meituanFacts['flow_rate_percent'] ?? null)
+                . '；详情访问：' . $this->count($meituanFacts['detail_exposure'] ?? null),
+            '- 平台曝光→详情：' . $this->percent(
+                $meituanFacts['platform_reported_rate_percent'] ?? null
+            )
+                . '；平台详情→支付：' . $this->conversionRate(
+                    $meituanRates['platform_detail_to_paid_order'] ?? null
+                ),
+            '- 同日自算曝光→详情：' . $this->conversionRate(
+                $meituanRates['list_to_detail'] ?? null
+            )
+                . '；自算支付订单/详情访问：' . $this->conversionRate(
+                    $meituanRates['detail_to_paid_order'] ?? null
+                ),
+            '- 独立填单人数：' . $this->count(
+                $meituanFacts['order_filling_visitors'] ?? null
+            )
                 . '；支付订单：' . $this->count($meituanFacts['paid_orders'] ?? null),
             '- 目标日期订单：' . $this->count(
                 $meituanFacts['target_date_order_count'] ?? null
@@ -73,7 +112,8 @@ final class SingleHotelOperatingBriefService
                 . '；间夜：' . $this->count($meituanFacts['room_nights'] ?? null),
             '',
             '> 口径：PMS住宿房费、携程渠道事实和美团渠道事实分别展示，禁止直接相加；'
-                . '“未获取”不会用0、旧数据或默认值代替。',
+                . '平台转化率与同日分子/分母自算校验分列；“未获取”不会用0、旧数据'
+                . '或其他漏斗环节代替。',
         ];
         $blockers = array_values(array_filter(
             (array)($digest['blockers'] ?? []),
@@ -123,6 +163,21 @@ final class SingleHotelOperatingBriefService
         $number = $this->number($value);
 
         return $number === null ? '未获取' : $this->decimal($number) . '%';
+    }
+
+    private function conversionRate(mixed $rate): string
+    {
+        if (!is_array($rate)) {
+            return '不可计算（缺证据）';
+        }
+        $status = (string)($rate['status'] ?? 'not_calculable_missing_input');
+        if ($status === 'available') {
+            return $this->percent($rate['value_percent'] ?? null);
+        }
+
+        return $status === 'not_calculable_zero_denominator'
+            ? '不可计算（分母为0）'
+            : '不可计算（缺数据）';
     }
 
     private function count(mixed $value): string
