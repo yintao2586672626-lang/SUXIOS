@@ -32,6 +32,10 @@ test('Node automation runner discovers nested test files and forces serial execu
       ['D:\\php\\php.exe'],
     );
     assert.deepEqual(
+      runner.buildPhpBinaryCandidates({ SUXI_PHP: 'D:\\portable-php\\php.exe' }, 'win32'),
+      ['D:\\portable-php\\php.exe'],
+    );
+    assert.deepEqual(
       runner.buildPhpBinaryCandidates({}, 'win32'),
       ['php', 'C:\\xampp\\php\\php.exe'],
     );

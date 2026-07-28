@@ -41,26 +41,6 @@
                             </div>
                         </div>
 
-                        <div v-if="hotelForm.id">
-                            <label class="block text-sm font-medium text-gray-700 mb-1.5">门店状态</label>
-                            <div class="flex gap-4">
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" v-model="hotelForm.status" :value="1" class="w-4 h-4 text-blue-500 focus:ring-blue-500">
-                                    <span class="flex items-center gap-1.5">
-                                        <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                                        <span class="text-sm">营业中</span>
-                                    </span>
-                                </label>
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" v-model="hotelForm.status" :value="0" class="w-4 h-4 text-blue-500 focus:ring-blue-500">
-                                    <span class="flex items-center gap-1.5">
-                                        <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                                        <span class="text-sm">已停用</span>
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1.5">适用平台（可多选）</label>
                             <div class="grid grid-cols-2 gap-2 text-sm">
@@ -74,6 +54,32 @@
                                 </label>
                             </div>
                             <p class="text-xs text-gray-400 mt-1">保存后只检查已选平台，不会自动采集。</p>
+                        </div>
+
+                        <div id="hotel-pms-configuration" class="pt-3 border-t border-gray-100" data-testid="hotel-pms-configuration">
+                            <div class="rounded-lg border border-[#eadfc9] bg-[#fffdf8] px-3 py-2.5">
+                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                    <h4 class="shrink-0 text-sm font-semibold text-slate-900 sm:w-40">经营系统（PMS）</h4>
+                                    <select v-model="hotelForm.pms_provider" @change="handleHotelPmsProviderChange" :disabled="hotelPmsBindingLoading || !!hotelPmsBindingError" aria-label="当前使用的 PMS" data-testid="hotel-pms-provider" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#eadfc9] disabled:bg-slate-100 sm:flex-1">
+                                        <option v-if="hotelForm.pms_provider === 'conflict'" value="conflict" disabled>历史配置冲突，请重新选择</option>
+                                        <option value="none">暂不配置 PMS</option>
+                                        <option value="dingdandao_pms">订单来了 PMS</option>
+                                        <option value="meituan_cloud_pms">美团云 PMS</option>
+                                    </select>
+                                </div>
+
+                                <div v-if="hotelPmsBindingLoading" class="mt-2 text-xs text-slate-500">
+                                    <i class="fas fa-spinner fa-spin mr-1"></i>正在读取当前 PMS 配置...
+                                </div>
+                                <div v-else-if="hotelPmsBindingError" class="mt-2 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                    <span>{{ hotelPmsBindingError }}</span>
+                                    <button v-if="hotelForm.id" type="button" @click="loadHotelPmsBindingForModal(hotelForm.id)" class="shrink-0 font-medium underline">重试</button>
+                                </div>
+
+                                <div v-if="hotelForm.pms_provider === 'conflict'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" data-testid="hotel-pms-conflict">
+                                    历史配置中“订单来了”和“美团云 PMS”同时启用。宿析OS不会自动选择真值；请在下方明确保留一个来源后保存。
+                                </div>
+                            </div>
                         </div>
 
                         <div v-if="hotelForm.id" class="pt-4 border-t border-gray-100">
@@ -113,26 +119,8 @@
                                                 <div class="text-gray-400">最近登录</div>
                                                 <div class="mt-1 text-gray-800">{{ account.lastLoginText }}</div>
                                             </div>
-                                            <div class="rounded-lg border border-white bg-white/75 px-3 py-2 sm:col-span-2">
-                                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                                    <div>
-                                                        <div class="text-gray-400">最近采集</div>
-                                                        <div class="mt-1 text-gray-800">{{ account.lastCaptureText }}</div>
-                                                    </div>
-                                                    <span :class="account.captureStatusClass" class="rounded-md border px-2 py-0.5 text-xs whitespace-nowrap">{{ account.captureStatusText }}</span>
-                                                </div>
-                                            </div>
                                         </div>
-                                        <div class="mt-3">
-                                            <div class="text-[11px] text-gray-400 mb-1">可用模块</div>
-                                            <div class="flex flex-wrap gap-1.5">
-                                                <span v-for="module in account.modules" :key="`modal-${account.platform}-${module}`" class="rounded-md border border-white bg-white/80 px-2 py-0.5 text-[11px] text-gray-600">{{ module }}</span>
-                                            </div>
-                                        </div>
-                                        <div v-if="account.reasonText" :class="account.reasonClass" class="mt-3 rounded-lg border px-3 py-2 text-xs">
-                                            {{ account.reasonText }}
-                                        </div>
-                                        <div class="mt-4 flex flex-wrap gap-2">
+                                        <div class="mt-3 flex flex-wrap gap-2">
                                             <button v-if="user?.is_super_admin" type="button" @click="showHotelModal = false; openHotelPlatformAccountAction(hotelFormAccountHotel(), account, { forceLogin: true })" class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs text-gray-700 hover:border-blue-200 hover:text-blue-700">
                                                 {{ account.primaryActionText }}
                                             </button>
@@ -155,7 +143,7 @@
                         <button type="button" @click="showHotelModal = false" class="px-5 py-2.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors">
                             取消
                         </button>
-                        <button type="submit" :disabled="hotelSaving" class="px-5 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
+                        <button type="submit" :disabled="hotelSaving || hotelPmsBindingLoading" class="px-5 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
                             <i :class="hotelSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'"></i>
                             <span>{{ hotelSaving ? '保存中' : (hotelForm.id ? '保存修改' : '创建门店') }}</span>
                         </button>

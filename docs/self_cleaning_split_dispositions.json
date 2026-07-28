@@ -9,6 +9,42 @@
         "app/view admin pages use CDN Tailwind links and do not depend on this local file"
       ],
       "review_after": "Revisit when the public SPA is split or migrated away from the current Vue CDN runtime."
+    },
+    {
+      "path": "resources/frontend/app-template.html",
+      "reason": "Generated compatibility snapshot assembled from the canonical frontend fragments; splitting or editing this snapshot would duplicate its source structure.",
+      "evidence": [
+        "scripts/build_frontend_template.mjs validates the snapshot against resources/frontend/templates/fragments",
+        "AGENTS.md and docs/file_inventory.md mark this file as generated and not independently editable"
+      ],
+      "review_after": "Revisit only when the frontend fragment build contract is replaced."
+    },
+    {
+      "path": "public/app-render.min.js",
+      "reason": "Generated minified render artifact produced from the canonical frontend template fragments; it is not an independently maintained business-code module.",
+      "evidence": [
+        "scripts/build_frontend_template.mjs writes public/app-render.min.js",
+        "scripts/lib/frontend_template_build.mjs verifies the artifact byte-for-byte against the pinned build contract"
+      ],
+      "review_after": "Revisit when the generated template runtime is replaced by route-level component bundles."
+    },
+    {
+      "path": "public/tailwind.full.css",
+      "reason": "Pinned full Tailwind source dependency retained as the deterministic input and rollback source for the generated runtime stylesheet.",
+      "evidence": [
+        "scripts/build_tailwind_runtime.mjs compiles public/tailwind.full.css",
+        "scripts/lib/frontend_tailwind_build.mjs treats the file as the canonical source input"
+      ],
+      "review_after": "Revisit when Tailwind is upgraded or the deterministic local CSS build is replaced."
+    },
+    {
+      "path": ".agents/skills/impeccable/scripts/live-browser.js",
+      "reason": "Bundled project-local Skill runtime outside the application delivery path; its size is governed by the installed Skill version rather than application module boundaries.",
+      "evidence": [
+        "The file is under .agents/skills rather than app, public application source, routes, or tests",
+        "Application runtime entry and build scripts do not load this Skill helper"
+      ],
+      "review_after": "Revisit when the impeccable Skill package is upgraded or removed."
     }
   ]
 }

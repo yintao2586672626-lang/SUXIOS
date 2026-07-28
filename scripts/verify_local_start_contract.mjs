@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageJsonPath = path.join(repoRoot, 'package.json');
 const startupScriptPath = path.join(repoRoot, 'scripts', 'start_local_stack.ps1');
+const localOriginServerPath = path.join(repoRoot, 'scripts', 'local_origin_server.mjs');
 const agentInstructionPath = path.join(repoRoot, 'AGENTS.md');
 const codexHandoffPath = path.join(repoRoot, 'CODEX_HANDOFF.md');
 const codexStartPromptPath = path.join(repoRoot, 'CODEX_START_PROMPT.md');
@@ -35,6 +36,9 @@ if (!fs.existsSync(startupScriptPath)) {
     'Test-StaticAsset',
     '/api/health',
     'public/router.php',
+    'local_origin_server.mjs',
+    'BackendPort',
+    '--backend=',
     'information_schema.SCHEMATA',
     'information_schema.TABLES',
   ];
@@ -51,6 +55,17 @@ if (!fs.existsSync(startupScriptPath)) {
 
   if (/"think",\s*"run"|public\/index\.php|public\\index\.php/.test(script)) {
     failures.push('startup script must serve PHP through public/router.php so static CSS/JS files are not routed as ThinkPHP controllers');
+  }
+}
+
+if (!fs.existsSync(localOriginServerPath)) {
+  failures.push('scripts/local_origin_server.mjs is missing');
+} else {
+  const originServer = fs.readFileSync(localOriginServerPath, 'utf8');
+  for (const token of ['createLocalOriginServer', 'fs.createReadStream', 'proxyToBackend', '127.0.0.1']) {
+    if (!originServer.includes(token)) {
+      failures.push(`local origin server must include ${token}`);
+    }
   }
 }
 

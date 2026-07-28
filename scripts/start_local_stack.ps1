@@ -1,6 +1,7 @@
 param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8080,
+    [int]$BackendPort = 8081,
     [string]$DbHost = "127.0.0.1",
     [int]$DbPort = 3306,
     [string]$DbName = "hotelx",
@@ -23,7 +24,10 @@ $LogDir = Join-Path $RepoRoot "runtime\codex"
 $BaseUrl = "http://$BindHost`:$Port/"
 $HealthPath = "/api/health"
 $HealthUrl = "http://$BindHost`:$Port$HealthPath"
+$BackendHealthUrl = "http://$BindHost`:$BackendPort$HealthPath"
 $StaticProbeUrl = "http://$BindHost`:$Port/vue.global.prod.js?v=startup-static-probe"
+$OriginServerPath = Join-Path $RepoRoot "scripts\local_origin_server.mjs"
+$PublicRoot = Join-Path $RepoRoot "public"
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 Set-Location $RepoRoot
@@ -61,6 +65,14 @@ if (-not $PhpExe) {
 }
 if (-not $PhpExe) {
     throw "PHP was not found. Install XAMPP or add php.exe to PATH."
+}
+
+$NodeExe = Resolve-CommandSource "node"
+if (-not $NodeExe) {
+    throw "Node.js was not found. Install Node.js or add node.exe to PATH."
+}
+if (-not (Test-Path -LiteralPath $OriginServerPath)) {
+    throw "Concurrent local origin server is missing: $OriginServerPath"
 }
 
 $PhpRuntimeArgs = @(
@@ -250,6 +262,15 @@ function Test-HttpHealth {
     }
 }
 
+function Test-BackendHttpHealth {
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $BackendHealthUrl -TimeoutSec 2
+        return $response.StatusCode -eq 200 -and $response.Content -like "*status*" -and $response.Content -like "*ok*"
+    } catch {
+        return $false
+    }
+}
+
 function Test-StaticAsset {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $StaticProbeUrl -TimeoutSec 3
@@ -263,7 +284,9 @@ function Test-StaticAsset {
 }
 
 function Test-PortListening {
-    $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    param([int]$TargetPort)
+
+    $listener = Get-NetTCPConnection -LocalPort $TargetPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     return $null -ne $listener
 }
 
@@ -273,32 +296,69 @@ function Start-ThinkPhp {
         return
     }
 
-    if (Test-PortListening) {
+    if (Test-PortListening -TargetPort $Port) {
         throw "Port $Port is already in use, but $HealthUrl did not pass."
     }
 
-    $stdout = Join-Path $LogDir "think-run-$Port.out.log"
-    $stderr = Join-Path $LogDir "think-run-$Port.err.log"
+    if (-not (Test-BackendHttpHealth)) {
+        if (Test-PortListening -TargetPort $BackendPort) {
+            throw "Backend port $BackendPort is already in use, but $BackendHealthUrl did not pass."
+        }
 
-    Write-Host "[INFO] Starting ThinkPHP on $BaseUrl"
+        $backendStdout = Join-Path $LogDir "think-backend-$BackendPort.out.log"
+        $backendStderr = Join-Path $LogDir "think-backend-$BackendPort.err.log"
+
+        Write-Host "[INFO] Starting ThinkPHP backend on http://$BindHost`:$BackendPort/"
+        Start-Process `
+            -FilePath $PhpExe `
+            -ArgumentList ($PhpRuntimeArgs + @("-S", "$BindHost`:$BackendPort", "-t", "public", "public/router.php")) `
+            -WorkingDirectory $RepoRoot `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $backendStdout `
+            -RedirectStandardError $backendStderr `
+            | Out-Null
+
+        for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
+            if (Test-BackendHttpHealth) {
+                break
+            }
+            Start-Sleep -Seconds 1
+        }
+        if (-not (Test-BackendHttpHealth)) {
+            throw "ThinkPHP backend did not become healthy at $BackendHealthUrl within $PhpWaitSeconds seconds."
+        }
+        Write-Host "[OK] ThinkPHP backend started: http://$BindHost`:$BackendPort/"
+    } else {
+        Write-Host "[OK] ThinkPHP backend is already serving http://$BindHost`:$BackendPort/"
+    }
+
+    $originStdout = Join-Path $LogDir "local-origin-$Port.out.log"
+    $originStderr = Join-Path $LogDir "local-origin-$Port.err.log"
+    Write-Host "[INFO] Starting concurrent local origin on $BaseUrl"
     Start-Process `
-        -FilePath $PhpExe `
-        -ArgumentList ($PhpRuntimeArgs + @("-S", "$BindHost`:$Port", "-t", "public", "public/router.php")) `
+        -FilePath $NodeExe `
+        -ArgumentList @(
+            $OriginServerPath,
+            "--host=$BindHost",
+            "--port=$Port",
+            "--backend=http://$BindHost`:$BackendPort",
+            "--public-root=$PublicRoot"
+        ) `
         -WorkingDirectory $RepoRoot `
         -WindowStyle Hidden `
-        -RedirectStandardOutput $stdout `
-        -RedirectStandardError $stderr `
+        -RedirectStandardOutput $originStdout `
+        -RedirectStandardError $originStderr `
         | Out-Null
 
     for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
         if ((Test-HttpHealth) -and (Test-StaticAsset)) {
-            Write-Host "[OK] ThinkPHP started: $BaseUrl"
+            Write-Host "[OK] Concurrent local origin started: $BaseUrl"
             return
         }
         Start-Sleep -Seconds 1
     }
 
-    throw "ThinkPHP did not become healthy at $HealthUrl with static assets available within $PhpWaitSeconds seconds."
+    throw "Concurrent local origin did not become healthy at $HealthUrl with static assets available within $PhpWaitSeconds seconds."
 }
 
 if (-not (Test-Path (Join-Path $RepoRoot "think"))) {

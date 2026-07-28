@@ -194,10 +194,18 @@ function p0_import_project_payload_for_import(array $payload): array
         'partner_id',
         'partnerId',
         'default_data_date',
+        'data_period',
+        'snapshot_time',
+        'captured_at',
+        'capture_scope',
+        'live_page_verified',
+        'period_control',
+        'period_control_state',
         'auth_status',
         'capture_gate',
         'platform_identity_validation',
         'capture_sections',
+        'section_evidence',
         'requested_sections',
         'traffic',
         'standard_rows',
@@ -432,6 +440,157 @@ function p0_import_payload_warnings(array $payload): array
         'failed_check_ids' => $failedCheckIds,
         'blocking_failed_check_ids' => $blockingFailedCheckIds,
     ]];
+}
+
+function p0_import_realtime_evidence_bool(mixed $value): bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+    return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'ready', 'verified'], true);
+}
+
+/**
+ * Today's Meituan traffic is cumulative and changes during the day. A target
+ * date plus a previously successful import cannot prove that the current run
+ * refreshed the merchant page. Require a fresh capture timestamp and an exact
+ * "今日实时" selection readback (or the equivalent bounded live-DOM proof).
+ *
+ * @param array<int, array<string, mixed>> $rows
+ * @return array<string, mixed>
+ */
+function p0_import_meituan_today_realtime_freshness(array $payload, array $rows, string $platform, string $date): array
+{
+    $timezone = new DateTimeZone('Asia/Shanghai');
+    $now = new DateTimeImmutable('now', $timezone);
+    $required = strtolower(trim($platform)) === 'meituan' && $date === $now->format('Y-m-d');
+    $result = [
+        'required' => $required,
+        'status' => $required ? 'blocked' : 'not_required',
+        'policy' => 'Same-day Meituan traffic requires evidence from this run: a capture timestamp no older than 30 minutes plus an active 今日实时 period readback.',
+        'max_age_seconds' => 1800,
+        'capture_timestamp_present' => false,
+        'capture_timestamp_valid' => false,
+        'capture_timestamp_fresh' => false,
+        'capture_age_seconds' => null,
+        'today_realtime_period_verified' => false,
+        'period_evidence_source' => '',
+        'issues' => [],
+    ];
+    if (!$required) {
+        return $result;
+    }
+
+    $timestampValue = '';
+    $timestampSource = '';
+    foreach (['captured_at', 'capturedAt', 'snapshot_time', 'snapshotTime'] as $key) {
+        $candidate = trim((string)($payload[$key] ?? ''));
+        if ($candidate !== '') {
+            $timestampValue = $candidate;
+            $timestampSource = 'payload.' . $key;
+            break;
+        }
+    }
+    if ($timestampValue === '') {
+        foreach ($rows as $index => $row) {
+            foreach (['captured_at', 'capturedAt', 'snapshot_time', 'snapshotTime'] as $key) {
+                $candidate = trim((string)($row[$key] ?? ''));
+                if ($candidate !== '') {
+                    $timestampValue = $candidate;
+                    $timestampSource = 'row[' . $index . '].' . $key;
+                    break 2;
+                }
+            }
+        }
+    }
+    $result['capture_timestamp_present'] = $timestampValue !== '';
+    $result['capture_timestamp_source'] = $timestampSource;
+    if ($timestampValue === '') {
+        $result['issues'][] = [
+            'code' => 'meituan_today_realtime_capture_timestamp_missing',
+            'message' => 'Same-day Meituan traffic must carry captured_at or snapshot_time from the current collection run.',
+        ];
+    } else {
+        try {
+            $capturedAt = new DateTimeImmutable($timestampValue, $timezone);
+            $capturedAt = $capturedAt->setTimezone($timezone);
+            $ageSeconds = $now->getTimestamp() - $capturedAt->getTimestamp();
+            $result['capture_timestamp_valid'] = true;
+            $result['capture_age_seconds'] = $ageSeconds;
+            $result['capture_timestamp_fresh'] = $capturedAt->format('Y-m-d') === $date
+                && $ageSeconds >= -300
+                && $ageSeconds <= (int)$result['max_age_seconds'];
+            if (!$result['capture_timestamp_fresh']) {
+                $result['issues'][] = [
+                    'code' => 'meituan_today_realtime_capture_stale',
+                    'message' => 'Same-day Meituan traffic capture is stale or outside the current Shanghai business date; historical success is not current-run evidence.',
+                    'capture_age_seconds' => $ageSeconds,
+                    'max_age_seconds' => (int)$result['max_age_seconds'],
+                ];
+            }
+        } catch (Throwable) {
+            $result['issues'][] = [
+                'code' => 'meituan_today_realtime_capture_timestamp_invalid',
+                'message' => 'Same-day Meituan traffic capture timestamp is invalid.',
+            ];
+        }
+    }
+
+    $dataPeriod = strtolower(trim((string)($payload['data_period'] ?? $payload['dataPeriod'] ?? '')));
+    if ($dataPeriod === '') {
+        foreach ($rows as $row) {
+            $dataPeriod = strtolower(trim((string)($row['data_period'] ?? $row['dataPeriod'] ?? '')));
+            if ($dataPeriod !== '') {
+                break;
+            }
+        }
+    }
+    if (!in_array($dataPeriod, ['realtime_snapshot', 'today_realtime', 'realtime', 'real_time', 'live', 'snapshot'], true)) {
+        $result['issues'][] = [
+            'code' => 'meituan_today_realtime_data_period_missing',
+            'message' => 'Same-day Meituan traffic must explicitly declare a realtime_snapshot data period.',
+        ];
+    }
+
+    $trafficEvidence = is_array($payload['section_evidence']['traffic'] ?? null)
+        ? (array)$payload['section_evidence']['traffic']
+        : [];
+    $sectionReadbackVerified = (string)($trafficEvidence['status'] ?? '') === 'target_date_relative_range_selected'
+        && (string)($trafficEvidence['target_date'] ?? '') === $date
+        && trim((string)($trafficEvidence['relative_range'] ?? '')) === '今日实时'
+        && (string)($trafficEvidence['evidence_source'] ?? '') === 'page.traffic_period_selection.readback'
+        && (string)($trafficEvidence['marker'] ?? '') === 'meituan_traffic_today_realtime_tab';
+
+    $payloadLiveProof = p0_import_realtime_evidence_bool($payload['live_page_verified'] ?? false)
+        && strtolower(trim((string)($payload['period_control'] ?? ''))) === 'today_realtime'
+        && strtolower(trim((string)($payload['period_control_state'] ?? ''))) === 'active';
+    $targetRows = array_values(array_filter(
+        $rows,
+        static fn(array $row): bool => p0_import_row_date($row, $date) === $date
+    ));
+    $liveDomRows = array_values(array_filter(
+        $targetRows,
+        static fn(array $row): bool => p0_import_realtime_evidence_bool($row['live_page_verified'] ?? false)
+            && strtolower(trim((string)($row['period_control'] ?? ''))) === 'today_realtime'
+            && strtolower(trim((string)($row['period_control_state'] ?? ''))) === 'active'
+    ));
+    $rowLiveProof = $targetRows !== [] && count($liveDomRows) === count($targetRows);
+
+    $result['today_realtime_period_verified'] = $sectionReadbackVerified || $payloadLiveProof || $rowLiveProof;
+    $result['period_evidence_source'] = $sectionReadbackVerified
+        ? 'payload.section_evidence.traffic'
+        : (($payloadLiveProof || $rowLiveProof) ? 'bounded_live_dom_readback' : '');
+    if (!$result['today_realtime_period_verified']) {
+        $result['issues'][] = [
+            'code' => 'meituan_today_realtime_period_not_verified',
+            'message' => 'Same-day Meituan traffic must prove that 今日实时 was selected and read back as active in this collection run.',
+        ];
+    }
+
+    if ($result['issues'] === []) {
+        $result['status'] = 'ready';
+    }
+    return $result;
 }
 
 function p0_import_safe_capture_evidence_value(mixed $value): string
@@ -1924,6 +2083,17 @@ try {
 
     $issues = p0_import_payload_scope_issues($payload, (string)$options['platform'], (int)$options['system-hotel-id']);
     $warnings = p0_import_payload_warnings($payload);
+    $realtimeFreshness = p0_import_meituan_today_realtime_freshness(
+        $payload,
+        $rows,
+        (string)$options['platform'],
+        (string)$options['date']
+    );
+    foreach ((array)($realtimeFreshness['issues'] ?? []) as $freshnessIssue) {
+        if (is_array($freshnessIssue)) {
+            $issues[] = $freshnessIssue;
+        }
+    }
     $platformIdentityValidation = is_array($payload['platform_identity_validation'] ?? null)
         ? $payload['platform_identity_validation']
         : null;
@@ -2138,6 +2308,7 @@ try {
         'target_data_type' => 'traffic',
         'payload_import_projection' => $payloadProjectionMetadata,
         'payload_hotel_scope_filter' => $hotelScopeFilterMetadata,
+        'realtime_freshness' => $realtimeFreshness,
         'sensitive_values_exposed' => $sensitiveHits !== [],
         'summary' => $summary,
         'execute_plan' => $executePlan,

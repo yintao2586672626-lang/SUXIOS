@@ -1,127 +1,46 @@
                     <div v-if="currentPage === 'ops-track'" class="max-w-7xl mx-auto space-y-6">
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                            <h2 class="text-2xl font-bold text-gray-900">策行·效果追踪</h2>
-                            <p class="text-sm text-gray-500 mt-1">创建策略动作并比较同口径执行前后结果；差异本身不证明由该动作造成</p>
-                        </div>
-                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4">
+                        <div class="overflow-hidden rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-5 shadow-sm sm:p-6">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                                 <div>
-                                    <h3 class="font-bold text-gray-900">经营日报（模型或规则）</h3>
-                                    <p class="text-sm text-gray-500 mt-1">完整日报已独立成页，这里只保留最新状态和进入入口。</p>
+                                    <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 第 4 步</p>
+                                    <h2 class="mt-2 text-2xl font-semibold text-slate-900">任务执行与复盘</h2>
+                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">把建议或人工动作变成门店任务，经过审批、执行证据、次日同口径复盘后再判断效果；没有证据时不生成收入或 ROI。</p>
                                 </div>
-                                <button @click="currentPage = 'ai-daily-report'" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
-                                    <i class="fas fa-file-alt mr-2"></i>进入日报
-                                </button>
-                            </div>
-                            <div v-if="operationError.aiDailyReport" class="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">{{ operationError.aiDailyReport }}</div>
-                            <div v-if="!aiDailyReport &amp;&amp; !operationLoading.aiDailyReport" class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">当前门店还没有经营日报，进入独立页后可按模型或规则生成。</div>
-                            <template v-if="aiDailyReport">
-                                <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50/60 p-4">
-                                    <div>
-                                        <div class="text-xs text-blue-600 font-semibold">日报日期：{{ aiDailyReport.report_date }}</div>
-                                        <div class="mt-1 text-lg font-bold text-gray-900">{{ aiDailyReport.summary || '暂无摘要' }}</div>
-                                        <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                                            <span :class="aiDailyReportModelClass" class="rounded-full px-2 py-1">{{ aiDailyReportModelText }}</span>
-                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">来源 {{ aiDailyReportSourceCount }} 项</span>
-                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">缺失 {{ aiDailyReportDataGaps.length }} 项</span>
-                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">可转单 {{ aiDailyReportTransferableCount }} 条</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
-                                <div>
-                                    <h3 class="font-bold text-gray-900">板块闭环成熟度</h3>
-                                    <p class="text-sm text-gray-500 mt-1">冻结采集和 OTA 标准化，仅核对收益分析之后的决策、执行、证据、复盘和效果证据。</p>
-                                </div>
-                                <span :class="operationClosureSummaryBadge.className" class="rounded-full border px-3 py-1 text-xs font-medium">
-                                    {{ operationClosureSummaryBadge.text }}
-                                </span>
-                            </div>
-                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                                <div v-for="card in operationClosureSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
-                                    <div class="mt-1 text-xl font-bold text-gray-900">{{ card.value }}</div>
-                                    <div class="mt-2 text-xs text-gray-400">{{ card.hint }}</div>
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                                <div v-for="module in operationClosureModules" :key="module.key" class="rounded-lg border border-gray-100 p-4">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <div class="font-semibold text-gray-900 truncate">{{ module.label }}</div>
-                                            <div class="mt-1 text-xs text-gray-400 line-clamp-1">{{ module.source_scope }}</div>
-                                        </div>
-                                        <span :class="operationClosureStatusClass(module.status)" class="shrink-0 rounded-full border px-2 py-1 text-xs">{{ module.status_label }}</span>
-                                    </div>
-                                    <div class="mt-3 grid grid-cols-4 gap-2 text-xs">
-                                        <div>
-                                            <div class="text-gray-400">记录</div>
-                                            <div class="font-semibold text-gray-800">{{ module.record_count || 0 }}</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-gray-400">执行单</div>
-                                            <div class="font-semibold text-gray-800">{{ module.linked_execution_count || 0 }}</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-gray-400">复盘</div>
-                                            <div class="font-semibold text-gray-800">{{ module.reviewed_count || 0 }}</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-gray-400">ROI</div>
-                                            <div class="font-semibold text-gray-800">{{ module.roi_ready_count || 0 }}</div>
-                                        </div>
-                                    </div>
-                                    <div class="mt-3 flex items-center justify-between text-sm">
-                                        <span class="text-gray-500">成熟度</span>
-                                        <span :class="operationClosureScoreClass(module.maturity_score)" class="font-bold">{{ module.maturity_score || 0 }}%</span>
-                                    </div>
-                                    <div class="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-                                        <span class="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">{{ module.module_group || '运营收益闭环' }}</span>
-                                        <span class="rounded-md border border-cyan-100 bg-cyan-50 px-2 py-0.5 text-cyan-700">{{ module.ai_connection_label || '模型或规则来源待确认' }}</span>
-                                        <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-gray-600">{{ module.data_basis_label || '现有记录' }}</span>
-                                    </div>
-                                    <div class="mt-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-xs text-gray-600 leading-5">
-                                        <div>闭环目标：{{ module.closure_target || '业务记录 -&gt; 执行证据 -&gt; 复盘' }}</div>
-                                        <div class="mt-1 text-gray-500">理论口径：{{ module.theory_basis || '缺少真实样本时只显示缺口，不推断闭环结果。' }}</div>
-                                    </div>
-                                    <div class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                                        下一步：{{ module.next_action_label }}
-                                    </div>
-                                    <div v-if="operationClosureGapText(module) !== '暂无显式缺口'" class="mt-2 text-xs text-amber-700">
-                                        {{ operationClosureGapText(module) }}
-                                    </div>
-                                    <button v-if="module.entry_page" type="button" @click="openOperationClosureModule(module)" class="mt-3 inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                                        <i class="fas fa-arrow-right mr-1"></i>进入板块
-                                    </button>
-                                </div>
+                                <label class="w-full lg:w-72">
+                                    <span class="mb-1 block text-xs text-slate-500">查看门店</span>
+                                    <select v-model="operationFilters.hotel_id" @change="loadOperationActions" data-testid="operation-scope-hotel" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800">
+                                        <option value="">全部有权限门店</option>
+                                        <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option>
+                                    </select>
+                                </label>
                             </div>
                         </div>
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                            <h3 class="font-bold text-gray-900 mb-4">新增策略动作</h3>
+                            <div class="mb-4">
+                                <h3 class="font-bold text-gray-900">人工新建运营任务</h3>
+                                <p class="mt-1 text-sm text-gray-500">用于补录线下已决定的运营动作；系统产生的建议会直接进入下方执行池，不需要重复创建。</p>
+                            </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                                <input v-model="actionForm.action_title" placeholder="策略标题" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <select v-model="actionForm.action_type" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                <label class="text-xs text-gray-500">任务名称<input v-model="actionForm.action_title" placeholder="例如：调整今日房价" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <label class="text-xs text-gray-500">任务类型<select v-model="actionForm.action_type" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
                                     <option v-for="item in operationStrategyTypes" :key="item.key" :value="item.key">{{ item.label }}</option>
-                                </select>
-                                <select v-model="actionForm.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                </select></label>
+                                <label class="text-xs text-gray-500">执行门店<select v-model="actionForm.hotel_id" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
                                     <option value="">自动选择可见酒店</option>
                                     <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
-                                </select>
-                                <input v-model="actionForm.start_date" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <input v-model="actionForm.end_date" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <select v-model="actionForm.target_metric" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                </select></label>
+                                <label class="text-xs text-gray-500">开始日期<input v-model="actionForm.start_date" type="date" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <label class="text-xs text-gray-500">结束日期<input v-model="actionForm.end_date" type="date" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <label class="text-xs text-gray-500">目标指标<select v-model="actionForm.target_metric" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
                                     <option value="orders">订单</option>
                                     <option value="revenue">收入</option>
                                     <option value="room_nights">间夜</option>
                                     <option value="conversion">转化率</option>
-                                </select>
-                                <input v-model.number="actionForm.target_change_rate" type="number" placeholder="目标提升比例" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <input v-model="actionForm.remark" placeholder="备注" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <button @click="createOperationAction" :disabled="operationLoading.actions" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
-                                    <i class="fas fa-plus mr-2"></i>创建
+                                </select></label>
+                                <label class="text-xs text-gray-500">目标变化（%）<input v-model.number="actionForm.target_change_rate" type="number" placeholder="例如 10" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <label class="text-xs text-gray-500">执行说明<input v-model="actionForm.remark" placeholder="补充动作范围或注意事项" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <button @click="createOperationAction" :disabled="operationLoading.actions" class="self-end px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
+                                    <i class="fas fa-plus mr-2"></i>创建运营任务
                                 </button>
                             </div>
                         </div>

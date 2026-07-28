@@ -54,7 +54,9 @@ includesAll('business-chain report exposes a machine-readable database blocker',
 ]);
 
 includesAll('business-chain runtime tests use portable PHP and fail closed when runtime is required', runtimeTest, [
-  "process.env.PHP_BINARY || 'php'",
+  'buildPhpBinaryCandidates',
+  'resolvePhpBinary',
+  'const php = resolvePhpBinary(phpCandidates)',
   'function isRuntimeRequired(env = process.env)',
   'env.CI',
   'env.SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME',

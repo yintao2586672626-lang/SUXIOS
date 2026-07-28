@@ -5,6 +5,7 @@ import test from 'node:test';
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 
 const fragment = read('resources/frontend/templates/fragments/15aab-page-pms-operating-data.html');
+const hotelDialog = read('resources/frontend/templates/fragments/40-dialog-hotel.html');
 const operatingTargetFragment = read('resources/frontend/templates/fragments/15aa-page-operating-targets.html');
 const appMain = read('public/app-main.js');
 const routes = read('route/app.php');
@@ -13,18 +14,32 @@ const targetSyncService = read('app/service/DingdandaoOperatingTargetSyncService
 const runner = read('scripts/run_dingdandao_cloud_collection.php');
 const controller = read('app/controller/OperatingTarget.php');
 
-test('PMS operating data page exposes Dingdandao binding, robot policy, blockers and receipts', () => {
+test('PMS operating data page shows only the hotel-selected PMS while binding lives in hotel management', () => {
   assert.match(fragment, /currentPage === 'pms-operating-data'/);
-  assert.match(fragment, /data-testid="dingdandao-pms-integration"/);
-  assert.match(fragment, /data-testid="dingdandao-provider-hotel-id"/);
-  assert.match(fragment, /data-testid="dingdandao-stable-master-data"/);
-  assert.match(fragment, /稳定主数据 · 自动带出/);
-  assert.match(fragment, /不覆盖每日动态房态/);
-  assert.match(fragment, /data-testid="dingdandao-pms-robot"/);
-  assert.match(fragment, /data-testid="dingdandao-pms-auto-push"/);
-  assert.match(fragment, /data-testid="dingdandao-pms-blockers"/);
-  assert.match(fragment, /推送当前已验证数据/);
+  assert.match(fragment, /data-testid="pms-selected-source"/);
+  assert.match(fragment, /当前门店唯一 PMS/);
+  assert.match(fragment, /data-testid="pms-selected-source-metrics"/);
+  assert.match(fragment, /data-testid="pms-selected-source-blockers"/);
+  assert.match(fragment, /前往门店管理配置/);
+  assert.doesNotMatch(fragment, /data-testid="dingdandao-pms-integration"/);
+  assert.doesNotMatch(fragment, /data-testid="dingdandao-pms-robot"/);
+  assert.doesNotMatch(fragment, /data-testid="dingdandao-pms-auto-push"/);
+  assert.doesNotMatch(fragment, /推送当前已验证数据/);
   assert.doesNotMatch(fragment, /企业微信[^<\n]{0,20}Webhook[^<\n]{0,20}<input/);
+  assert.match(hotelDialog, /data-testid="hotel-pms-configuration"/);
+  assert.match(hotelDialog, /data-testid="hotel-pms-provider"/);
+  assert.match(hotelDialog, /aria-label="当前使用的 PMS"/);
+  assert.match(hotelDialog, /value="dingdandao_pms"/);
+  assert.doesNotMatch(hotelDialog, /一家门店只启用一套 PMS/);
+  assert.doesNotMatch(hotelDialog, /hotelPmsBinding\.binding_status_label/);
+  assert.doesNotMatch(hotelDialog, /data-testid="hotel-pms-provider-hotel-id"/);
+  assert.doesNotMatch(hotelDialog, /data-testid="hotel-pms-provider-hotel-name"/);
+  assert.doesNotMatch(hotelDialog, /切换 PMS 会停用另一来源/);
+  assert.match(hotelDialog, />最近登录<\/div>/);
+  assert.doesNotMatch(hotelDialog, />最近采集<\/div>/);
+  assert.doesNotMatch(hotelDialog, />可用模块<\/div>/);
+  assert.doesNotMatch(hotelDialog, /\{\{ account\.reasonText \}\}/);
+  assert.doesNotMatch(hotelDialog, /hotelPlatformBlockingIssueText\(account\)/);
   assert.doesNotMatch(operatingTargetFragment, /data-testid="dingdandao-pms-integration"/);
 });
 

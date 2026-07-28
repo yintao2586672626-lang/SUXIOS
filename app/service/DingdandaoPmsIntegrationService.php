@@ -87,6 +87,7 @@ final class DingdandaoPmsIntegrationService
             'capture' => $capture,
             'latest_capture' => $latestCapture,
             'latest_dispatch' => $dispatch,
+            'fact_gate' => $this->factGate($config, $capture),
             'push_gate' => $this->pushGate($config, $capture, $robots),
         ];
     }

@@ -1,67 +1,107 @@
-<div v-if="currentPage === 'pms-operating-data'" class="suxi-dashboard-scope mx-auto max-w-7xl space-y-3" data-testid="pms-operating-data-page">
-  <section class="suxi-panel p-4">
-    <h2 class="text-xl font-bold">PMS 经营事实与差值分析</h2>
-    <p class="text-sm">美团云 PMS 与订单来了分别保存；差值只作诊断，不自动选择真值。</p>
-    <div class="mt-3 flex flex-wrap items-end gap-2">
-      <label><span class="block text-xs">门店</span><select v-model="operatingTargetForm.hotel_id" data-testid="pms-operating-data-hotel" class="rounded border p-2"><option value="">请选择门店</option><option v-for="hotel in pmsHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option></select></label>
-      <label><span class="block text-xs">经营日期</span><input v-model="operatingTargetForm.target_date" data-testid="pms-operating-data-date" type="date" class="rounded border p-2"></label>
-      <button data-testid="pms-operating-data-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded bg-emerald-800 px-4 py-2 text-white">{{ operatingTargetLoading.current ? '读取中...' : '读取 PMS 数据' }}</button>
+<div v-if="currentPage === 'pms-operating-data'" class="suxi-dashboard-scope mx-auto max-w-7xl space-y-4" data-testid="pms-operating-data-page">
+  <section class="overflow-hidden rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-5 shadow-sm sm:p-6">
+    <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div>
+        <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 第 1 步</p>
+        <h2 class="mt-2 text-2xl font-semibold text-slate-900">PMS经营数据</h2>
+      </div>
+      <div class="flex flex-wrap items-end gap-2">
+        <label>
+          <span class="mb-1 block text-xs text-slate-500">当前门店</span>
+          <select v-model="operatingTargetForm.hotel_id" @change="loadOperatingTarget" data-testid="pms-operating-data-hotel" class="min-w-[190px] rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
+            <option value="">请选择门店</option>
+            <option v-for="hotel in pmsHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option>
+          </select>
+        </label>
+        <label>
+          <span class="mb-1 block text-xs text-slate-500">经营日期</span>
+          <input v-model="operatingTargetForm.target_date" @change="loadOperatingTarget" data-testid="pms-operating-data-date" type="date" class="rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
+        </label>
+        <button data-testid="pms-operating-data-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">{{ operatingTargetLoading.current ? '读取中...' : '刷新实际数据' }}</button>
+      </div>
     </div>
   </section>
-  <p v-if="operatingTargetError" data-testid="pms-operating-data-error" class="bg-red-50 p-3 text-sm text-red-700">{{ operatingTargetError }}</p>
 
-  <section v-if="operatingTargetPmsReconciliation" class="suxi-panel p-4" data-testid="pms-unified-reconciliation">
-    <div data-testid="pms-reconciliation-thinking"><b>宿析统一判定 · {{ operatingTargetPmsReconciliation.decision?.status_label || '待判断' }}</b><p class="text-xs">{{ operatingTargetPmsReconciliation.decision?.summary }}；不自动选择真值。</p></div>
-    <div class="text-xs" data-testid="pms-source-snapshot-deltas"><p v-for="d in operatingTargetPmsReconciliation.source_deltas" :key="d.provider"><b>{{ d.provider_label }} · 同源相邻快照 · {{ d.status_label }}</b>；净拾取不等于毛预订：{{ pmsDeltaText(d.delta_vector?.net_pickup) }}，房费 {{ pmsDeltaText(d.delta_vector?.room_revenue, 'money') }}，OCC {{ pmsDeltaText(d.delta_vector?.occupancy_rate_points, 'percent') }}。{{ d.judgment }}</p></div>
-    <p class="text-xs" data-testid="pms-cross-source-metrics"><span v-for="m in operatingTargetPmsReconciliation.comparison?.metrics" :key="m.key">{{ m.label }}：{{ m.status_label }}；</span>{{ operatingTargetPmsReconciliation.decision?.next_action }}</p>
+  <p v-if="operatingTargetError" data-testid="pms-operating-data-error" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingTargetError }}</p>
+  <p v-if="operatingHotelPmsBindingError" data-testid="pms-binding-read-error" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingHotelPmsBindingError }}</p>
+
+  <section v-if="operatingTargetLoading.current || operatingHotelPmsBindingLoading" class="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500" data-testid="pms-selected-source-loading">
+    <i class="fas fa-spinner fa-spin mr-2"></i>正在读取门店 PMS 配置、目标日期事实与数据库回读状态...
   </section>
 
-  <section class="rounded-xl border border-blue-100 bg-white p-4 shadow-sm" data-testid="meituan-cloud-pms-integration">
-    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-3">
-      <div><div class="text-sm font-medium text-blue-700">独立真实 PMS 数据源</div><h3 class="font-bold text-gray-900">美团云 PMS → 宿析经营事实</h3><p class="mt-1 text-xs text-gray-500">与订单来了平级；独立绑定、采集、验真和回读，不保存登录凭证、客人或订单明细。</p></div>
-      <span :class="['rounded-full border px-2 py-1 text-xs', meituanCloudPmsFactReady ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700']">{{ meituanCloudPmsFactReady ? '事实可用' : '事实阻断' }}</span>
+  <section v-else-if="operatingHotelPmsBinding && operatingHotelPmsBinding.binding_status !== 'configured'" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm" data-testid="pms-binding-required">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p class="text-xs font-semibold tracking-[0.16em] text-amber-700">门店 PMS 配置</p>
+        <h3 class="mt-1 text-lg font-semibold text-slate-900">{{ operatingHotelPmsBinding.binding_status_label || '尚未配置 PMS' }}</h3>
+        <p class="mt-2 text-sm leading-6 text-amber-900">{{ operatingHotelPmsBinding.blockers?.[0]?.message || '请先在门店管理中选择当前使用的 PMS。' }}</p>
+        <p class="mt-1 text-xs text-amber-700">历史数据不会删除；配置冲突时宿析OS不会自动选择其中一套作为真值。</p>
+      </div>
+      <button v-if="canManageOwnHotels()" type="button" @click="openSelectedHotelPmsConfiguration" data-testid="pms-open-hotel-configuration" class="shrink-0 rounded-lg border border-amber-300 bg-white px-4 py-2.5 text-sm font-medium text-amber-800 hover:bg-amber-100">前往门店管理配置</button>
     </div>
-    <div v-if="meituanCloudPmsLoading.status" class="py-5 text-center text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>读取中...</div>
-    <template v-else>
-      <div v-if="meituanCloudPmsError" class="mt-3 rounded-lg bg-red-50 p-2 text-sm text-red-700" data-testid="meituan-cloud-pms-error">{{ meituanCloudPmsError }}</div>
-      <div class="mt-3 grid gap-4 lg:grid-cols-2">
-        <div class="space-y-3">
-          <div class="grid gap-3 sm:grid-cols-2"><label class="text-xs text-gray-500">门店ID<input v-model="meituanCloudPmsConfigForm.provider_hotel_id" data-testid="meituan-cloud-provider-hotel-id" maxlength="120" placeholder="接口返回后可自动固化" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label><label class="text-xs text-gray-500">门店名称<input v-model="meituanCloudPmsConfigForm.provider_hotel_name" data-testid="meituan-cloud-provider-hotel-name" maxlength="160" placeholder="与登录会话门店一致" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label></div>
-          <label class="flex gap-2 text-sm"><input v-model="meituanCloudPmsConfigForm.status" data-testid="meituan-cloud-pms-enabled" type="checkbox"><span>启用美团云 PMS 独立数据源</span></label>
-          <button type="button" data-testid="meituan-cloud-pms-save" @click="saveMeituanCloudPmsIntegration" :disabled="meituanCloudPmsLoading.save" class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">{{ meituanCloudPmsLoading.save ? '保存中...' : '保存并回读绑定' }}</button>
-          <p class="text-xs text-gray-500">只读来源：{{ meituanCloudPmsIntegration?.source_url || 'https://pms.meituan.com/#qk-workbench' }}</p>
+  </section>
+
+  <template v-else-if="operatingHotelPmsBinding?.selected_source">
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="pms-selected-source">
+      <header class="border-b border-slate-100 bg-gradient-to-r from-white to-[#faf7ef] p-5">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-xs font-semibold tracking-[0.16em] text-[#96743f]">当前门店唯一 PMS</p>
+              <span :class="[
+                'rounded-full border px-2.5 py-1 text-xs font-medium',
+                selectedOperatingPmsFactGate.allowed
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-amber-200 bg-amber-50 text-amber-700'
+              ]">{{ selectedOperatingPmsFactGate.allowed ? '事实验真通过' : '事实尚未通过' }}</span>
+            </div>
+            <h3 class="mt-2 text-xl font-semibold text-slate-900">{{ operatingHotelPmsBinding.selected_provider_label }}</h3>
+            <p class="mt-1 text-sm text-slate-600">绑定门店：{{ selectedOperatingPmsSource.config?.provider_hotel_name || '未取得' }}<span v-if="selectedOperatingPmsSource.config?.provider_hotel_id"> · ID {{ selectedOperatingPmsSource.config.provider_hotel_id }}</span></p>
+          </div>
+          <button v-if="canManageOwnHotels()" type="button" @click="openSelectedHotelPmsConfiguration" data-testid="pms-edit-hotel-configuration" class="shrink-0 rounded-lg border border-[#d8c49f] bg-[#fffaf0] px-4 py-2 text-sm font-medium text-[#826333] hover:border-[#ad8b52]">修改门店 PMS</button>
         </div>
-        <aside class="space-y-2 text-sm">
-          <p>登录：<b>{{ meituanCloudPmsProfileText }}</b>　回读：<b>{{ meituanCloudPmsIntegration?.capture?.readback_status || '未取得' }}</b></p>
-          <p>身份 / 日期：<b>{{ meituanCloudPmsIntegration?.capture?.identity_status || '未验证' }} / {{ meituanCloudPmsIntegration?.capture?.date_status || '未验证' }}</b></p>
-          <p>首页 / 房型可售差值：<b>{{ meituanCloudPmsIntegration?.capture?.availability_difference ?? '未取得' }} / 容差 {{ meituanCloudPmsIntegration?.capture?.availability_tolerance ?? '未取得' }}</b></p>
-          <div v-if="(meituanCloudPmsIntegration?.fact_gate?.blockers || []).length" class="space-y-1" data-testid="meituan-cloud-pms-blockers"><p v-for="blocker in meituanCloudPmsIntegration.fact_gate.blockers" :key="blocker.code" class="rounded bg-amber-50 p-2 text-amber-800">{{ blocker.message }}</p></div>
-          <p v-else class="rounded bg-emerald-50 p-2 text-emerald-800">身份、日期、差值和数据库回读均已通过。</p>
-          <p class="text-xs text-gray-500">缺失字段保持为空，不用0、历史记录、OTA或另一家PMS替代。</p>
-        </aside>
-      </div>
-    </template>
-  </section>
+      </header>
 
-  <section class="suxi-panel p-4" data-testid="dingdandao-pms-integration">
-    <b>订单来了 → 已验证经营事实 → 企业微信</b><span class="ml-2 text-xs">{{ dingdandaoPmsPushReady ? '可推送' : '推送阻断' }}</span>
-    <p class="text-xs">独立保存；不保存 Cookie、密码或 Webhook。</p>
-    <p v-if="dingdandaoPmsLoading.status" class="p-3 text-center">读取中...</p>
-    <template v-else>
-      <p v-if="dingdandaoPmsError" data-testid="dingdandao-pms-error" class="bg-red-50 p-2 text-red-700">{{ dingdandaoPmsError }}</p>
-      <div v-if="dingdandaoPmsIntegration?.stable_master_data" class="mt-2 suxi-panel-muted p-2" data-testid="dingdandao-stable-master-data">
-        <b>稳定主数据 · 自动带出</b><span class="ml-2 text-xs text-amber-700">不覆盖每日动态房态</span>
-        <p class="mt-1 text-xs"><span v-for="item in dingdandaoPmsIntegration.stable_master_data.items" :key="item.key" class="mr-3">{{ item.label }}：<b>{{ item.value === null || item.value === '' ? '待补' : item.value }}{{ item.value === null || item.value === '' ? '' : item.unit }}</b>（{{ item.status_label }}）</span></p>
+      <div class="grid gap-3 border-b border-slate-100 p-5 text-sm sm:grid-cols-2 xl:grid-cols-5" data-testid="pms-selected-source-evidence">
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">经营日期</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.business_date || operatingTargetForm.target_date || '未取得' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">登录状态</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsProfileText }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">门店身份</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.identity_status || '未验证' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">数据库回读</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.readback_status || '未取得' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">采集时间</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.captured_at || '未取得' }}</p></div>
       </div>
-      <div class="mt-2 grid gap-2 md:grid-cols-2">
-        <label class="text-xs">门店 ID<input v-model="dingdandaoPmsConfigForm.provider_hotel_id" data-testid="dingdandao-provider-hotel-id" class="block w-full border p-2"></label>
-        <label class="text-xs">门店名称<input v-model="dingdandaoPmsConfigForm.provider_hotel_name" class="block w-full border p-2"></label>
-        <label class="text-xs md:col-span-2">共享机器人<select v-model="dingdandaoPmsConfigForm.robot_id" data-testid="dingdandao-pms-robot" class="block w-full border p-2"><option value="">请选择</option><option v-for="robot in (dingdandaoPmsIntegration?.robots || [])" :key="robot.id" :value="String(robot.id)">{{ robot.name }}{{ ['success', 'sent'].includes(robot.last_test_status) ? '（已测试）' : '（未验证）' }}</option></select></label>
-        <label><input v-model="dingdandaoPmsConfigForm.status" data-testid="dingdandao-pms-enabled" type="checkbox" @change="!dingdandaoPmsConfigForm.status && (dingdandaoPmsConfigForm.auto_push_enabled = false)"> 启用门店绑定</label>
-        <label><input v-model="dingdandaoPmsConfigForm.auto_push_enabled" data-testid="dingdandao-pms-auto-push" type="checkbox" :disabled="!dingdandaoPmsConfigForm.status || !dingdandaoPmsConfigForm.robot_id || !['success', 'sent'].includes((dingdandaoPmsIntegration?.robots || []).find(robot => String(robot.id) === String(dingdandaoPmsConfigForm.robot_id))?.last_test_status)"> 验真后自动推送</label>
+
+      <div class="p-5">
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-testid="pms-selected-source-metrics">
+          <article v-for="metric in selectedOperatingPmsMetricRows" :key="metric.key" :class="[
+            'rounded-xl border p-4',
+            metric.available ? 'border-slate-200 bg-white' : 'border-amber-100 bg-amber-50/60'
+          ]">
+            <p class="text-xs text-slate-500">{{ metric.label }}</p>
+            <p :class="['mt-2 text-xl font-semibold', metric.available ? 'text-slate-900' : 'text-amber-700']">{{ metric.value }}</p>
+          </article>
+        </div>
+
+        <div v-if="operatingHotelPmsBinding.selected_provider === 'meituan_cloud_pms' && selectedOperatingPmsCapture" class="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-800" data-testid="pms-selected-source-availability-delta">
+          首页可售与房型可售差值：<b>{{ selectedOperatingPmsCapture.availability_difference ?? '未取得' }}</b>；验真容差：<b>{{ selectedOperatingPmsCapture.availability_tolerance ?? '未取得' }}</b>。
+        </div>
+
+        <div v-if="(selectedOperatingPmsFactGate.blockers || []).length" class="mt-4 space-y-2" data-testid="pms-selected-source-blockers">
+          <p v-for="blocker in selectedOperatingPmsFactGate.blockers" :key="blocker.code" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ blocker.message }}（{{ blocker.code }}）</p>
+        </div>
+        <p v-else class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">当前门店、经营日期、来源身份、数据质量与数据库回读均已通过。</p>
+        <p class="mt-3 text-xs leading-5 text-slate-500">缺失字段保持“未取得”，不会使用另一套 PMS、OTA 数据、历史记录或 0 代替。</p>
       </div>
-      <div class="mt-2 flex flex-wrap gap-2"><button data-testid="dingdandao-pms-save" @click="saveDingdandaoPmsIntegration" :disabled="dingdandaoPmsLoading.save" class="bg-emerald-800 px-3 py-2 text-white">{{ dingdandaoPmsLoading.save ? '保存中...' : '保存配置' }}</button><button data-testid="dingdandao-pms-push" @click="pushDingdandaoVerifiedCapture" :disabled="dingdandaoPmsLoading.push || !dingdandaoPmsPushReady" class="border px-3 py-2">{{ dingdandaoPmsLoading.push ? '发送中...' : '推送当前已验证数据' }}</button><button v-if="!(dingdandaoPmsIntegration?.robots || []).length" @click="currentPage = 'wechat-notification'" class="border px-3">配置机器人</button></div>
-      <div v-if="(dingdandaoPmsIntegration?.push_gate?.blockers || []).length" class="mt-2" data-testid="dingdandao-pms-blockers"><p v-for="blocker in dingdandaoPmsIntegration.push_gate.blockers" :key="blocker.code" class="text-xs text-amber-700">{{ blocker.message }}（{{ blocker.code }}）</p></div>
-    </template>
-  </section>
+    </section>
+
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="pms-selected-source-deltas">
+      <h3 class="text-base font-semibold text-slate-900">同一 PMS 的相邻快照差值</h3>
+      <p class="mt-1 text-xs text-slate-500">只比较当前门店已配置来源的同源快照；净拾取不等于毛预订。</p>
+      <div v-if="selectedOperatingPmsDeltas.length" class="mt-3 space-y-2">
+        <p v-for="delta in selectedOperatingPmsDeltas" :key="delta.provider" class="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-700">
+          <b>{{ delta.status_label || '待判断' }}</b> · 净拾取 {{ pmsDeltaText(delta.delta_vector?.net_pickup) }}，房费 {{ pmsDeltaText(delta.delta_vector?.room_revenue, 'money') }}，OCC {{ pmsDeltaText(delta.delta_vector?.occupancy_rate_points, 'percent') }}。{{ delta.judgment }}
+        </p>
+      </div>
+      <p v-else class="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-500">目标日期尚无可比较的同源前次快照。</p>
+    </section>
+  </template>
 </div>

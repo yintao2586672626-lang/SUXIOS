@@ -9,7 +9,11 @@ final class ManualImportDataSourceAdapter implements DataSourceAdapter
 {
     public function supports(array $source): bool
     {
-        return in_array((string)($source['ingestion_method'] ?? 'manual'), ['manual', 'import_json', 'import_csv', 'import_excel'], true);
+        return in_array(
+            (string)($source['ingestion_method'] ?? 'manual'),
+            ['manual', 'import_json', 'import_csv', 'import_excel', 'browser_assist_dom'],
+            true
+        );
     }
 
     public function fetch(array $source, array $options = []): array

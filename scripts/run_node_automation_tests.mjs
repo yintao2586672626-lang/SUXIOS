@@ -34,7 +34,7 @@ export function buildNodeTestArgs(testFiles) {
 }
 
 export function buildPhpBinaryCandidates(env = process.env, platform = process.platform) {
-  const configured = String(env.PHP_BINARY || '').trim();
+  const configured = String(env.PHP_BINARY || env.SUXI_PHP || '').trim();
   if (configured) return [configured];
   return platform === 'win32'
     ? ['php', 'C:\\xampp\\php\\php.exe']

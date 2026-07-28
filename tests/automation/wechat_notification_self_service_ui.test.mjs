@@ -40,6 +40,26 @@ test('self-service UI scopes every status, save and test request to the selected
   assert.match(routes, /Route::group\('api\/wechat-notification'[\s\S]+?->middleware\(\\app\\middleware\\Auth::class\)/);
 });
 
+test('self-service UI defaults an unselected permitted hotel to 敦煌漠蓝新', () => {
+  assert.match(appMain, /const DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME = '敦煌漠蓝新';/);
+  const ensureHotel = appMain.slice(
+    appMain.indexOf('const ensureWechatNotificationHotel = () => {'),
+    appMain.indexOf('const loadWechatNotificationStatus = async () => {'),
+  );
+  assert.match(
+    ensureHotel,
+    /const defaultHotel = options\.find\([\s\S]+?hotel\?\.name[\s\S]+?DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME/,
+  );
+  assert.ok(
+    ensureHotel.indexOf('if (currentExists) return') < ensureHotel.indexOf('const defaultHotel ='),
+    'an explicit current selection must remain stable',
+  );
+  assert.ok(
+    ensureHotel.indexOf('defaultHotel?.id') < ensureHotel.indexOf('preferred?.id'),
+    '敦煌漠蓝新 should precede the account hotel and first-option fallbacks',
+  );
+});
+
 test('Webhook is password-only input, is cleared after save, and only backend mask is rendered', () => {
   assert.match(panel, /type: 'password'[\s\S]+?'data-testid': 'wechat-notification-webhook'/);
   assert.match(panel, /binding\?\.webhook_masked \|\| '未保存'/);

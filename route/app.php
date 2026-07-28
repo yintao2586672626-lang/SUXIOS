@@ -124,6 +124,8 @@ Route::group('api/hotels', function () {
     Route::post('/batch-status', 'Hotel/batchStatus');
     Route::get('/merge-preview', 'Hotel/mergePreview');
     Route::post('/merge-execute', 'Hotel/mergeExecute');
+    Route::get('/:id/pms-binding', 'Hotel/pmsBinding');
+    Route::put('/:id/pms-binding', 'Hotel/updatePmsBinding');
     Route::get('/:id', 'Hotel/read');
     Route::post('/', 'Hotel/create');
     Route::put('/:id', 'Hotel/update');
@@ -205,6 +207,7 @@ Route::group('api/operating-targets', function () {
 // Hotel notification templates, formal schedules, test sends, and receipts.
 Route::group('api/manual-notifications', function () {
     Route::get('/metadata', 'ManualNotification/metadata');
+    Route::get('/monitor', 'ManualNotification/monitor');
     Route::get('/history', 'ManualNotification/history');
     Route::get('/dispatch-history', 'ManualNotification/dispatchHistory');
     Route::post('/preview', 'ManualNotification/preview');

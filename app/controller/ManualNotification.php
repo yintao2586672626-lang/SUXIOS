@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\model\Hotel;
+use app\service\AutomationRunMonitorService;
 use app\service\CloudMessageTaskOverviewService;
 use app\service\ManualNotificationService;
 use app\service\WechatRobotDeliveryService;
@@ -31,6 +32,44 @@ final class ManualNotification extends Base
             return $this->error('业务日期格式无效', 422);
         } catch (\RuntimeException) {
             return $this->error('自动发送任务状态暂时无法读取', 503);
+        }
+    }
+
+    public function monitor(): Response
+    {
+        if (!$this->currentUser) {
+            abort(401, '请先登录');
+        }
+
+        $businessDate = (string)$this->request->get('business_date', date('Y-m-d'));
+        $hotelIds = array_values(array_unique(array_filter(
+            array_map('intval', $this->currentUser->getPermittedHotelIds()),
+            fn(int $hotelId): bool => $hotelId > 0
+                && (
+                    $this->currentUser->isSuperAdmin()
+                    || $this->currentUser->hasHotelPermission($hotelId, 'can_view_report')
+                )
+        )));
+        $hotels = $hotelIds === []
+            ? []
+            : Hotel::whereIn('id', $hotelIds)
+                ->where('status', 1)
+                ->field('id,tenant_id,name,status')
+                ->select()
+                ->toArray();
+
+        try {
+            return $this->success(
+                (new AutomationRunMonitorService())->overview(
+                    $hotels,
+                    $businessDate,
+                    (int)$this->currentUser->id
+                )
+            );
+        } catch (\InvalidArgumentException) {
+            return $this->error('请选择有效的数据日期', 422);
+        } catch (\RuntimeException) {
+            return $this->error('企业微信机器人绑定状态暂时无法读取', 503);
         }
     }
 

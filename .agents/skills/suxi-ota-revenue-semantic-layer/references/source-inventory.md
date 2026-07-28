@@ -2,9 +2,9 @@
 
 ## Coverage
 
-- Coverage level: Strong for local code/docs/tests; Limited for live OTA facts and external company context.
-- Sources checked: 15 local project sources.
-- Missing high-value lanes: live MySQL `hotelx` query results, current OTA backend pages, current production dashboards or BI, team communication, Google Drive or other company docs outside this repo.
+- Coverage level: Strong for local code/docs/tests; one authorized Meituan point-in-time page scan is available; recurring live cross-platform facts remain limited.
+- Sources checked: 17 local or authorized sources.
+- Missing high-value lanes: live MySQL `hotelx` query results, current authorized Ctrip page verification for the common contract, recurring Meituan snapshots, current production dashboards or BI, team communication, Google Drive or other company docs outside this repo.
 - Rejected or lower-confidence candidates: raw capture JSON and sensitive capture assets were not read linearly; they are intentionally excluded by project rules unless a future task targets a specific field.
 
 ## Sources
@@ -27,3 +27,5 @@
 | Pricing recommendation service | Source code | `HOTEL/app/service/RevenuePricingRecommendationService.php` | Local filesystem | Available | 2026-06-06 Asia/Shanghai | Advisory-only pricing, signal counts, constraints, review checklist, data gaps | No direct OTA rate write implied | Yes | Report source changes |
 | Transfer decision service | Source code | `HOTEL/app/service/TransferDecisionService.php` | Local filesystem | Available | 2026-06-06 Asia/Shanghai | Asset pricing, transfer timing, dashboard, data anomaly handling, AI evaluation | Inputs are manually supplied unless later connected to live operating data | Yes | Report source changes |
 | Focused tests | Test evidence | `HOTEL/tests/OtaStandardModuleTest.php`, `HOTEL/tests/OperationExecutionLoopTest.php`, `HOTEL/tests/RevenuePricingRecommendationServiceTest.php`, `HOTEL/tests/TransferDecisionServiceTest.php`, `HOTEL/tests/LlmClientTest.php`, `HOTEL/tests/AiModelCallLogTest.php` | Local filesystem | Available | 2026-06-06 Asia/Shanghai | Executable behavior guards for metrics, execution loop, pricing, transfer, AI governance | Unit tests cover contracts; they do not replace production E2E or live data verification | Yes | Report source changes |
+| Authorized Meituan merchant data center | Logged-in OTA page and same-origin JSON | `https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html#/index`, `#/trade`, `#/flow` | In-app browser/CDP | Available in the user's authorized session | 2026-07-28 to 2026-07-29 Asia/Shanghai | Visible definitions for intraday, yesterday, and future broadcast metrics; structured JSON availability | Single-store point-in-time evidence; no database save/readback was performed and endpoints may change | Local authorized collection only | Reverify after login/profile/page or platform-version changes |
+| Ctrip capture catalog | Local field catalog/source code | `HOTEL/scripts/lib/ctrip_capture_catalog.mjs` | Local filesystem | Available | 2026-07-29 Asia/Shanghai | Candidate mappings for price, sales, traffic, future PV/UV/orders, peer averages, and explicit missing-value handling | Local contract is not proof that the current live Ctrip page uses the same business/date definition | Yes | Reverify against current authorized Ctrip responses before mapping |

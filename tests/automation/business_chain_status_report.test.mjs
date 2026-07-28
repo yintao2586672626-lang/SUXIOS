@@ -2,8 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import {
+  buildPhpBinaryCandidates,
+  resolvePhpBinary,
+} from '../../scripts/run_node_automation_tests.mjs';
 
-const php = String(process.env.PHP_BINARY || 'php').trim() || 'php';
+const phpCandidates = buildPhpBinaryCandidates();
+const php = resolvePhpBinary(phpCandidates) || phpCandidates[0] || 'php';
 
 function isRuntimeRequired(env = process.env) {
   const enabled = (value) => ['1', 'true'].includes(String(value || '').trim().toLowerCase());

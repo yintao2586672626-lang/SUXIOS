@@ -3178,7 +3178,7 @@
                         <section class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
                             <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
                                 <div>
-                                    <div class="mb-1 text-sm font-medium text-emerald-700">酒店经营目标（明确口径）</div>
+                                    <div class="mb-1 text-sm font-medium text-emerald-700">经营分析 · 目标与事实</div>
                                     <h2 class="text-xl font-bold text-gray-900 sm:text-2xl">每天目标、事实与剩余经营压力</h2>
                                     <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-500">支持全酒店经营，也支持订单来了、美团云 PMS 两个独立真实数据源的住宿房费口径；目标与实际必须一致。携程、美团 OTA 渠道数据不能替代酒店经营事实；缺数据时保留缺口，不显示伪造的 0。</p>
                                 </div>
@@ -3212,37 +3212,49 @@
                                 <section class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
                                     <div class="flex flex-col gap-3 border-b border-gray-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
                                         <div>
-                                            <h3 class="font-bold text-gray-900">录入或核对当日经营事实</h3>
-                                            <p class="mt-1 text-xs leading-5 text-gray-500">可先从同门店、同日期的经营日报预填。预填仅供核对，未经确认不会产出正式完成结论。</p>
+                                            <h3 class="font-bold text-gray-900">设置当日住宿房费总目标</h3>
+                                            <p class="mt-1 text-xs leading-5 text-gray-500">只设置一个总目标；实际房费、间夜、入住率、ADR 和 RevPAR 统一从同店当天 PMS 事实核对，不再重复手工填写。</p>
                                         </div>
                                         <div class="flex flex-wrap gap-2">
-                                            <button type="button" data-testid="operating-target-prefill" @click="prefillOperatingTargetFromDailyReport" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">
-                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-file-import', 'mr-1.5']"></i>从经营日报预填
-                                            </button>
                                             <button type="button" data-testid="operating-target-prefill-dingdandao" @click="prefillOperatingTargetFromDingdandao" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60">
-                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-hotel', 'mr-1.5']"></i>从订单来了预填
+                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-hotel', 'mr-1.5']"></i>核对订单来了
                                             </button>
                                             <button type="button" data-testid="operating-target-prefill-meituan-cloud" @click="prefillOperatingTargetFromMeituanCloud" :disabled="operatingTargetLoading.prefill" class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">
-                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-cloud', 'mr-1.5']"></i>从美团云 PMS 预填
+                                                <i :class="[operatingTargetLoading.prefill ? 'fas fa-spinner fa-spin' : 'fas fa-cloud', 'mr-1.5']"></i>核对美团云 PMS
                                             </button>
                                             <button type="button" data-testid="operating-target-save" @click="saveOperatingTarget" :disabled="operatingTargetLoading.save" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
-                                                <i :class="[operatingTargetLoading.save ? 'fas fa-spinner fa-spin' : 'fas fa-save', 'mr-1.5']"></i>{{ operatingTargetLoading.save ? '保存并回读中...' : '保存并回读' }}
+                                                <i :class="[operatingTargetLoading.save ? 'fas fa-spinner fa-spin' : 'fas fa-save', 'mr-1.5']"></i>{{ operatingTargetLoading.save ? '保存目标并回读中...' : '保存目标并回读' }}
                                             </button>
                                         </div>
                                     </div>
 
-                                    <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">{{ operatingTargetForm.fact_scope === 'accommodation_room_fee' ? '当日住宿房费目标（元）' : '当日全酒店营收目标（元）' }}</span><input v-model="operatingTargetForm.target_revenue" data-testid="operating-target-revenue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="例如 10000" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">目标入住率（%）</span><input v-model="operatingTargetForm.target_occupancy_rate_percent" data-testid="operating-target-occupancy-rate" inputmode="decimal" type="number" min="0" max="100" step="0.01" placeholder="例如 80" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">目标 RevPAR（元）</span><input v-model="operatingTargetForm.target_revpar" data-testid="operating-target-revpar" inputmode="decimal" type="number" min="0" step="0.01" placeholder="例如 300" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">{{ operatingTargetForm.fact_scope === 'accommodation_room_fee' ? '住宿房费实际额（元）' : '全酒店实际营收（元）' }}</span><input v-model="operatingTargetForm.actual_revenue" data-testid="operating-target-actual" inputmode="decimal" type="number" min="0" step="0.01" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">已售间夜</span><input v-model="operatingTargetForm.sold_room_nights" data-testid="operating-target-sold" inputmode="numeric" type="number" min="0" step="1" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">可售房夜</span><input v-model="operatingTargetForm.sellable_room_nights" data-testid="operating-target-sellable" inputmode="numeric" type="number" min="0" step="1" placeholder="缺失则留空" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">目标与事实口径</span><select v-model="operatingTargetForm.fact_scope" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="whole_hotel">全酒店经营</option><option value="accommodation_room_fee">住宿房费</option></select></label>
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">事实来源</span><select v-model="operatingTargetForm.source_type" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="manual">人工录入</option><option value="daily_report">经营日报</option><option value="pms">PMS</option><option value="import">导入文件</option></select></label>
-                                        <label class="block"><span class="mb-1 block text-xs text-gray-500">确认状态</span><select v-model="operatingTargetForm.quality_status" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="manual_confirmed">已人工确认</option><option value="verified">已验证</option><option value="unverified">未验证，仅保留输入</option></select></label>
-                                        <label class="block sm:col-span-2"><span class="mb-1 block text-xs text-gray-500">来源说明 / 核对依据</span><input v-model="operatingTargetForm.source_reference" type="text" maxlength="255" placeholder="例如 PMS 日结单、日报编号或导入文件名" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
-                                        <label class="block sm:col-span-2"><span class="mb-1 block text-xs text-gray-500">本次调整说明（可选）</span><input v-model="operatingTargetForm.change_reason" type="text" maxlength="500" placeholder="例如：更正日结口径、补齐可售房夜" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label>
+                                    <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(240px,0.55fr)_minmax(0,1.45fr)] lg:items-start">
+                                        <label class="block rounded-xl border border-[#d8c49f] bg-[#fffaf0] p-4">
+                                            <span class="mb-2 block text-xs font-medium text-[#826333]">当日住宿房费总目标（元）</span>
+                                            <input v-model="operatingTargetForm.target_revenue" data-testid="operating-target-revenue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="例如 10000" class="w-full rounded-lg border border-[#d8c49f] bg-white px-3 py-2.5 text-lg font-semibold text-gray-900 focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15">
+                                            <span class="mt-2 block text-xs leading-5 text-gray-500">目标只保存住宿房费总额；不再单独设入住率或 RevPAR 目标。</span>
+                                        </label>
+
+                                        <section class="rounded-xl border border-gray-100 bg-gray-50/70 p-4" data-testid="operating-target-pms-facts">
+                                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                <div>
+                                                    <h4 class="font-semibold text-gray-900">PMS 经营事实（只读）</h4>
+                                                    <p class="mt-1 text-xs leading-5 text-gray-500">点击上方 PMS 核对按钮后回显；页面不允许手工改写经营事实。</p>
+                                                </div>
+                                                <span class="inline-flex self-start rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                                    {{ operatingTargetForm.source_type === 'pms' ? (operatingTargetSourceText(operatingTargetForm.source_type) + ' / ' + operatingTargetQualityText(operatingTargetForm.quality_status)) : '尚未核对 PMS' }}
+                                                </span>
+                                            </div>
+                                            <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                                <article v-for="item in operatingTargetPmsFactRows" :key="item.key" class="rounded-lg border border-white bg-white px-3 py-2.5">
+                                                    <div class="text-xs text-gray-500">{{ item.label }}</div>
+                                                    <div :class="['mt-1 font-semibold', item.available ? 'text-gray-900' : 'text-gray-400']">{{ item.displayValue }}</div>
+                                                </article>
+                                            </div>
+                                            <p class="mt-3 break-all text-xs leading-5 text-gray-500">
+                                                核对依据：{{ operatingTargetForm.source_reference || '尚未取得同店当天 PMS 回读证据' }}
+                                            </p>
+                                        </section>
                                     </div>
                                 </section>
 
@@ -3252,7 +3264,7 @@
                                         <div class="mt-1 leading-6">{{ operatingTargetPreview.delivery_note || '当前为页面预览；不会自动向企业微信或其他外部渠道发送。' }}</div>
                                     </section>
 
-                                    <section v-if="operatingTargetResult" class="grid grid-cols-2 gap-3 md:grid-cols-3" data-testid="operating-target-metrics">
+                                    <section v-if="operatingTargetResult" class="grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="operating-target-metrics">
                                         <div v-for="item in operatingTargetMetricRows" :key="item.key" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
                                             <div class="text-xs text-gray-500">{{ item.label }}</div>
                                             <div class="mt-2 text-2xl font-bold text-gray-900">{{ item.value }}</div>
@@ -3260,48 +3272,17 @@
                                     </section>
                                 </template>
 
-                                <section v-if="operatingTargetResult" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5" data-testid="operating-target-pms-comparison">
-                                    <div class="flex flex-col gap-3 border-b border-gray-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
-                                        <div>
-                                            <h3 class="font-bold text-gray-900">目标入住率 / RevPAR 与 PMS 事实偏差</h3>
-                                            <p class="mt-1 text-xs leading-5 text-gray-500">实际入住率和 RevPAR 只回显当前保存记录中的 PMS 事实。不是 PMS、字段缺失或尚未验证时保持空白，并明确标记未验证。</p>
-                                        </div>
-                                        <span class="inline-flex self-start rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
-                                            {{ operatingTargetSourceText(operatingTargetResult?.facts?.source_type) }} / {{ operatingTargetQualityText(operatingTargetResult?.facts?.quality_status) }}
-                                        </span>
+                                <section v-if="operatingTargetResult" class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm" data-testid="operating-target-task-draft-actions">
+                                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <p class="text-xs leading-5 text-gray-500">当住宿房费尚未达到总目标时，可把已保存的金额差距生成待人工审批任务；不会自动修改 OTA。</p>
+                                        <button type="button" data-testid="operating-target-create-task-draft" @click="createOperatingTargetTaskDraft" :disabled="operatingTargetTaskDraftLoading" class="shrink-0 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
+                                            <i :class="[operatingTargetTaskDraftLoading ? 'fas fa-spinner fa-spin' : 'fas fa-tasks', 'mr-1.5']"></i>{{ operatingTargetTaskDraftLoading ? '生成中...' : '根据金额差距生成任务' }}
+                                        </button>
                                     </div>
-                                    <div class="mt-4 grid gap-3 md:grid-cols-2">
-                                        <article v-for="item in operatingTargetPmsComparisonRows" :key="item.key" class="rounded-xl border border-gray-100 bg-gray-50/60 p-4" :data-testid="`operating-target-${item.key}-comparison`">
-                                            <div class="flex items-center justify-between gap-2">
-                                                <h4 class="font-semibold text-gray-900">{{ item.label }}</h4>
-                                                <span :class="['rounded-full border px-2 py-0.5 text-xs font-medium', item.verified ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700']">{{ item.actualStatus }}</span>
-                                            </div>
-                                            <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
-                                                <div class="rounded-lg border border-white bg-white p-3">
-                                                    <div class="text-xs text-gray-500">目标</div>
-                                                    <div class="mt-1 font-semibold text-gray-900">{{ item.target || '未设置' }}</div>
-                                                </div>
-                                                <div class="rounded-lg border border-white bg-white p-3">
-                                                    <div class="text-xs text-gray-500">PMS 实际</div>
-                                                    <div class="mt-1 min-h-5 font-semibold text-gray-900">{{ item.actual || '—' }}</div>
-                                                </div>
-                                            </div>
-                                            <div :class="['mt-3 rounded-lg border px-3 py-2 text-sm leading-6', item.deviationClass]">{{ item.deviationText }}</div>
-                                            <p v-if="item.actual &amp;&amp; !item.verified" class="mt-2 text-xs leading-5 text-amber-700">PMS 事实尚未验证，当前偏差仅供核对，不能据此生成自动执行结论。</p>
-                                        </article>
-                                    </div>
-                                    <div class="mt-4 border-t border-gray-100 pt-4" data-testid="operating-target-task-draft-actions">
-                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                            <p class="text-xs leading-5 text-gray-500">仅把已保存、可执行的负向偏差生成待人工审批任务；不会自动修改 OTA 或直接执行经营动作。</p>
-                                            <button type="button" data-testid="operating-target-create-task-draft" @click="createOperatingTargetTaskDraft" :disabled="operatingTargetTaskDraftLoading" class="shrink-0 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
-                                                <i :class="[operatingTargetTaskDraftLoading ? 'fas fa-spinner fa-spin' : 'fas fa-tasks', 'mr-1.5']"></i>{{ operatingTargetTaskDraftLoading ? '生成中...' : '生成待审批任务' }}
-                                            </button>
-                                        </div>
-                                        <div v-if="operatingTargetTaskDraftError" data-testid="operating-target-task-draft-error" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">{{ operatingTargetTaskDraftError }}</div>
-                                        <div v-if="operatingTargetTaskDraft" data-testid="operating-target-task-draft-success" class="mt-3 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800 sm:flex-row sm:items-center sm:justify-between">
-                                            <span>{{ operatingTargetTaskDraft.reused_existing_intent ? '已回读同一目标版本的待审批任务' : '待审批任务已生成' }} #{{ operatingTargetTaskDraft.execution_intent?.id || '未取得编号' }}</span>
-                                            <button type="button" @click="openOperatingTargetTaskDraft" class="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100">进入任务执行与复盘</button>
-                                        </div>
+                                    <div v-if="operatingTargetTaskDraftError" data-testid="operating-target-task-draft-error" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">{{ operatingTargetTaskDraftError }}</div>
+                                    <div v-if="operatingTargetTaskDraft" data-testid="operating-target-task-draft-success" class="mt-3 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800 sm:flex-row sm:items-center sm:justify-between">
+                                        <span>{{ operatingTargetTaskDraft.reused_existing_intent ? '已回读同一目标版本的待审批任务' : '待审批任务已生成' }} #{{ operatingTargetTaskDraft.execution_intent?.id || '未取得编号' }}</span>
+                                        <button type="button" @click="openOperatingTargetTaskDraft" class="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100">进入任务执行与复盘</button>
                                     </div>
                                 </section>
                             </div>
@@ -3378,72 +3359,264 @@
                             <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-sm text-gray-500">该门店暂未保存经营目标历史。</div>
                         </section>
                     </div>
-<div v-if="currentPage === 'pms-operating-data'" class="suxi-dashboard-scope mx-auto max-w-7xl space-y-3" data-testid="pms-operating-data-page">
-  <section class="suxi-panel p-4">
-    <h2 class="text-xl font-bold">PMS 经营事实与差值分析</h2>
-    <p class="text-sm">美团云 PMS 与订单来了分别保存；差值只作诊断，不自动选择真值。</p>
-    <div class="mt-3 flex flex-wrap items-end gap-2">
-      <label><span class="block text-xs">门店</span><select v-model="operatingTargetForm.hotel_id" data-testid="pms-operating-data-hotel" class="rounded border p-2"><option value="">请选择门店</option><option v-for="hotel in pmsHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option></select></label>
-      <label><span class="block text-xs">经营日期</span><input v-model="operatingTargetForm.target_date" data-testid="pms-operating-data-date" type="date" class="rounded border p-2"></label>
-      <button data-testid="pms-operating-data-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded bg-emerald-800 px-4 py-2 text-white">{{ operatingTargetLoading.current ? '读取中...' : '读取 PMS 数据' }}</button>
+<div v-if="currentPage === 'pms-operating-data'" class="suxi-dashboard-scope mx-auto max-w-7xl space-y-4" data-testid="pms-operating-data-page">
+  <section class="overflow-hidden rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-5 shadow-sm sm:p-6">
+    <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div>
+        <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 第 1 步</p>
+        <h2 class="mt-2 text-2xl font-semibold text-slate-900">PMS经营数据</h2>
+      </div>
+      <div class="flex flex-wrap items-end gap-2">
+        <label>
+          <span class="mb-1 block text-xs text-slate-500">当前门店</span>
+          <select v-model="operatingTargetForm.hotel_id" @change="loadOperatingTarget" data-testid="pms-operating-data-hotel" class="min-w-[190px] rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
+            <option value="">请选择门店</option>
+            <option v-for="hotel in pmsHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option>
+          </select>
+        </label>
+        <label>
+          <span class="mb-1 block text-xs text-slate-500">经营日期</span>
+          <input v-model="operatingTargetForm.target_date" @change="loadOperatingTarget" data-testid="pms-operating-data-date" type="date" class="rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
+        </label>
+        <button data-testid="pms-operating-data-load" @click="loadOperatingTarget" :disabled="operatingTargetLoading.current" class="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">{{ operatingTargetLoading.current ? '读取中...' : '刷新实际数据' }}</button>
+      </div>
     </div>
   </section>
-  <p v-if="operatingTargetError" data-testid="pms-operating-data-error" class="bg-red-50 p-3 text-sm text-red-700">{{ operatingTargetError }}</p>
 
-  <section v-if="operatingTargetPmsReconciliation" class="suxi-panel p-4" data-testid="pms-unified-reconciliation">
-    <div data-testid="pms-reconciliation-thinking"><b>宿析统一判定 · {{ operatingTargetPmsReconciliation.decision?.status_label || '待判断' }}</b><p class="text-xs">{{ operatingTargetPmsReconciliation.decision?.summary }}；不自动选择真值。</p></div>
-    <div class="text-xs" data-testid="pms-source-snapshot-deltas"><p v-for="d in operatingTargetPmsReconciliation.source_deltas" :key="d.provider"><b>{{ d.provider_label }} · 同源相邻快照 · {{ d.status_label }}</b>；净拾取不等于毛预订：{{ pmsDeltaText(d.delta_vector?.net_pickup) }}，房费 {{ pmsDeltaText(d.delta_vector?.room_revenue, 'money') }}，OCC {{ pmsDeltaText(d.delta_vector?.occupancy_rate_points, 'percent') }}。{{ d.judgment }}</p></div>
-    <p class="text-xs" data-testid="pms-cross-source-metrics"><span v-for="m in operatingTargetPmsReconciliation.comparison?.metrics" :key="m.key">{{ m.label }}：{{ m.status_label }}；</span>{{ operatingTargetPmsReconciliation.decision?.next_action }}</p>
+  <p v-if="operatingTargetError" data-testid="pms-operating-data-error" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingTargetError }}</p>
+  <p v-if="operatingHotelPmsBindingError" data-testid="pms-binding-read-error" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ operatingHotelPmsBindingError }}</p>
+
+  <section v-if="operatingTargetLoading.current || operatingHotelPmsBindingLoading" class="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500" data-testid="pms-selected-source-loading">
+    <i class="fas fa-spinner fa-spin mr-2"></i>正在读取门店 PMS 配置、目标日期事实与数据库回读状态...
   </section>
 
-  <section class="rounded-xl border border-blue-100 bg-white p-4 shadow-sm" data-testid="meituan-cloud-pms-integration">
-    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-3">
-      <div><div class="text-sm font-medium text-blue-700">独立真实 PMS 数据源</div><h3 class="font-bold text-gray-900">美团云 PMS → 宿析经营事实</h3><p class="mt-1 text-xs text-gray-500">与订单来了平级；独立绑定、采集、验真和回读，不保存登录凭证、客人或订单明细。</p></div>
-      <span :class="['rounded-full border px-2 py-1 text-xs', meituanCloudPmsFactReady ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700']">{{ meituanCloudPmsFactReady ? '事实可用' : '事实阻断' }}</span>
+  <section v-else-if="operatingHotelPmsBinding && operatingHotelPmsBinding.binding_status !== 'configured'" class="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm" data-testid="pms-binding-required">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p class="text-xs font-semibold tracking-[0.16em] text-amber-700">门店 PMS 配置</p>
+        <h3 class="mt-1 text-lg font-semibold text-slate-900">{{ operatingHotelPmsBinding.binding_status_label || '尚未配置 PMS' }}</h3>
+        <p class="mt-2 text-sm leading-6 text-amber-900">{{ operatingHotelPmsBinding.blockers?.[0]?.message || '请先在门店管理中选择当前使用的 PMS。' }}</p>
+        <p class="mt-1 text-xs text-amber-700">历史数据不会删除；配置冲突时宿析OS不会自动选择其中一套作为真值。</p>
+      </div>
+      <button v-if="canManageOwnHotels()" type="button" @click="openSelectedHotelPmsConfiguration" data-testid="pms-open-hotel-configuration" class="shrink-0 rounded-lg border border-amber-300 bg-white px-4 py-2.5 text-sm font-medium text-amber-800 hover:bg-amber-100">前往门店管理配置</button>
     </div>
-    <div v-if="meituanCloudPmsLoading.status" class="py-5 text-center text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>读取中...</div>
-    <template v-else>
-      <div v-if="meituanCloudPmsError" class="mt-3 rounded-lg bg-red-50 p-2 text-sm text-red-700" data-testid="meituan-cloud-pms-error">{{ meituanCloudPmsError }}</div>
-      <div class="mt-3 grid gap-4 lg:grid-cols-2">
-        <div class="space-y-3">
-          <div class="grid gap-3 sm:grid-cols-2"><label class="text-xs text-gray-500">门店ID<input v-model="meituanCloudPmsConfigForm.provider_hotel_id" data-testid="meituan-cloud-provider-hotel-id" maxlength="120" placeholder="接口返回后可自动固化" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label><label class="text-xs text-gray-500">门店名称<input v-model="meituanCloudPmsConfigForm.provider_hotel_name" data-testid="meituan-cloud-provider-hotel-name" maxlength="160" placeholder="与登录会话门店一致" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"></label></div>
-          <label class="flex gap-2 text-sm"><input v-model="meituanCloudPmsConfigForm.status" data-testid="meituan-cloud-pms-enabled" type="checkbox"><span>启用美团云 PMS 独立数据源</span></label>
-          <button type="button" data-testid="meituan-cloud-pms-save" @click="saveMeituanCloudPmsIntegration" :disabled="meituanCloudPmsLoading.save" class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">{{ meituanCloudPmsLoading.save ? '保存中...' : '保存并回读绑定' }}</button>
-          <p class="text-xs text-gray-500">只读来源：{{ meituanCloudPmsIntegration?.source_url || 'https://pms.meituan.com/#qk-workbench' }}</p>
+  </section>
+
+  <template v-else-if="operatingHotelPmsBinding?.selected_source">
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="pms-selected-source">
+      <header class="border-b border-slate-100 bg-gradient-to-r from-white to-[#faf7ef] p-5">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-xs font-semibold tracking-[0.16em] text-[#96743f]">当前门店唯一 PMS</p>
+              <span :class="[
+                'rounded-full border px-2.5 py-1 text-xs font-medium',
+                selectedOperatingPmsFactGate.allowed
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-amber-200 bg-amber-50 text-amber-700'
+              ]">{{ selectedOperatingPmsFactGate.allowed ? '事实验真通过' : '事实尚未通过' }}</span>
+            </div>
+            <h3 class="mt-2 text-xl font-semibold text-slate-900">{{ operatingHotelPmsBinding.selected_provider_label }}</h3>
+            <p class="mt-1 text-sm text-slate-600">绑定门店：{{ selectedOperatingPmsSource.config?.provider_hotel_name || '未取得' }}<span v-if="selectedOperatingPmsSource.config?.provider_hotel_id"> · ID {{ selectedOperatingPmsSource.config.provider_hotel_id }}</span></p>
+          </div>
+          <button v-if="canManageOwnHotels()" type="button" @click="openSelectedHotelPmsConfiguration" data-testid="pms-edit-hotel-configuration" class="shrink-0 rounded-lg border border-[#d8c49f] bg-[#fffaf0] px-4 py-2 text-sm font-medium text-[#826333] hover:border-[#ad8b52]">修改门店 PMS</button>
         </div>
-        <aside class="space-y-2 text-sm">
-          <p>登录：<b>{{ meituanCloudPmsProfileText }}</b>　回读：<b>{{ meituanCloudPmsIntegration?.capture?.readback_status || '未取得' }}</b></p>
-          <p>身份 / 日期：<b>{{ meituanCloudPmsIntegration?.capture?.identity_status || '未验证' }} / {{ meituanCloudPmsIntegration?.capture?.date_status || '未验证' }}</b></p>
-          <p>首页 / 房型可售差值：<b>{{ meituanCloudPmsIntegration?.capture?.availability_difference ?? '未取得' }} / 容差 {{ meituanCloudPmsIntegration?.capture?.availability_tolerance ?? '未取得' }}</b></p>
-          <div v-if="(meituanCloudPmsIntegration?.fact_gate?.blockers || []).length" class="space-y-1" data-testid="meituan-cloud-pms-blockers"><p v-for="blocker in meituanCloudPmsIntegration.fact_gate.blockers" :key="blocker.code" class="rounded bg-amber-50 p-2 text-amber-800">{{ blocker.message }}</p></div>
-          <p v-else class="rounded bg-emerald-50 p-2 text-emerald-800">身份、日期、差值和数据库回读均已通过。</p>
-          <p class="text-xs text-gray-500">缺失字段保持为空，不用0、历史记录、OTA或另一家PMS替代。</p>
-        </aside>
-      </div>
-    </template>
-  </section>
+      </header>
 
-  <section class="suxi-panel p-4" data-testid="dingdandao-pms-integration">
-    <b>订单来了 → 已验证经营事实 → 企业微信</b><span class="ml-2 text-xs">{{ dingdandaoPmsPushReady ? '可推送' : '推送阻断' }}</span>
-    <p class="text-xs">独立保存；不保存 Cookie、密码或 Webhook。</p>
-    <p v-if="dingdandaoPmsLoading.status" class="p-3 text-center">读取中...</p>
-    <template v-else>
-      <p v-if="dingdandaoPmsError" data-testid="dingdandao-pms-error" class="bg-red-50 p-2 text-red-700">{{ dingdandaoPmsError }}</p>
-      <div v-if="dingdandaoPmsIntegration?.stable_master_data" class="mt-2 suxi-panel-muted p-2" data-testid="dingdandao-stable-master-data">
-        <b>稳定主数据 · 自动带出</b><span class="ml-2 text-xs text-amber-700">不覆盖每日动态房态</span>
-        <p class="mt-1 text-xs"><span v-for="item in dingdandaoPmsIntegration.stable_master_data.items" :key="item.key" class="mr-3">{{ item.label }}：<b>{{ item.value === null || item.value === '' ? '待补' : item.value }}{{ item.value === null || item.value === '' ? '' : item.unit }}</b>（{{ item.status_label }}）</span></p>
+      <div class="grid gap-3 border-b border-slate-100 p-5 text-sm sm:grid-cols-2 xl:grid-cols-5" data-testid="pms-selected-source-evidence">
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">经营日期</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.business_date || operatingTargetForm.target_date || '未取得' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">登录状态</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsProfileText }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">门店身份</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.identity_status || '未验证' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">数据库回读</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.readback_status || '未取得' }}</p></div>
+        <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-400">采集时间</p><p class="mt-1 font-medium text-slate-800">{{ selectedOperatingPmsCapture?.captured_at || '未取得' }}</p></div>
       </div>
-      <div class="mt-2 grid gap-2 md:grid-cols-2">
-        <label class="text-xs">门店 ID<input v-model="dingdandaoPmsConfigForm.provider_hotel_id" data-testid="dingdandao-provider-hotel-id" class="block w-full border p-2"></label>
-        <label class="text-xs">门店名称<input v-model="dingdandaoPmsConfigForm.provider_hotel_name" class="block w-full border p-2"></label>
-        <label class="text-xs md:col-span-2">共享机器人<select v-model="dingdandaoPmsConfigForm.robot_id" data-testid="dingdandao-pms-robot" class="block w-full border p-2"><option value="">请选择</option><option v-for="robot in (dingdandaoPmsIntegration?.robots || [])" :key="robot.id" :value="String(robot.id)">{{ robot.name }}{{ ['success', 'sent'].includes(robot.last_test_status) ? '（已测试）' : '（未验证）' }}</option></select></label>
-        <label><input v-model="dingdandaoPmsConfigForm.status" data-testid="dingdandao-pms-enabled" type="checkbox" @change="!dingdandaoPmsConfigForm.status && (dingdandaoPmsConfigForm.auto_push_enabled = false)"> 启用门店绑定</label>
-        <label><input v-model="dingdandaoPmsConfigForm.auto_push_enabled" data-testid="dingdandao-pms-auto-push" type="checkbox" :disabled="!dingdandaoPmsConfigForm.status || !dingdandaoPmsConfigForm.robot_id || !['success', 'sent'].includes((dingdandaoPmsIntegration?.robots || []).find(robot => String(robot.id) === String(dingdandaoPmsConfigForm.robot_id))?.last_test_status)"> 验真后自动推送</label>
+
+      <div class="p-5">
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-testid="pms-selected-source-metrics">
+          <article v-for="metric in selectedOperatingPmsMetricRows" :key="metric.key" :class="[
+            'rounded-xl border p-4',
+            metric.available ? 'border-slate-200 bg-white' : 'border-amber-100 bg-amber-50/60'
+          ]">
+            <p class="text-xs text-slate-500">{{ metric.label }}</p>
+            <p :class="['mt-2 text-xl font-semibold', metric.available ? 'text-slate-900' : 'text-amber-700']">{{ metric.value }}</p>
+          </article>
+        </div>
+
+        <div v-if="operatingHotelPmsBinding.selected_provider === 'meituan_cloud_pms' && selectedOperatingPmsCapture" class="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-800" data-testid="pms-selected-source-availability-delta">
+          首页可售与房型可售差值：<b>{{ selectedOperatingPmsCapture.availability_difference ?? '未取得' }}</b>；验真容差：<b>{{ selectedOperatingPmsCapture.availability_tolerance ?? '未取得' }}</b>。
+        </div>
+
+        <div v-if="(selectedOperatingPmsFactGate.blockers || []).length" class="mt-4 space-y-2" data-testid="pms-selected-source-blockers">
+          <p v-for="blocker in selectedOperatingPmsFactGate.blockers" :key="blocker.code" class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ blocker.message }}（{{ blocker.code }}）</p>
+        </div>
+        <p v-else class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">当前门店、经营日期、来源身份、数据质量与数据库回读均已通过。</p>
+        <p class="mt-3 text-xs leading-5 text-slate-500">缺失字段保持“未取得”，不会使用另一套 PMS、OTA 数据、历史记录或 0 代替。</p>
       </div>
-      <div class="mt-2 flex flex-wrap gap-2"><button data-testid="dingdandao-pms-save" @click="saveDingdandaoPmsIntegration" :disabled="dingdandaoPmsLoading.save" class="bg-emerald-800 px-3 py-2 text-white">{{ dingdandaoPmsLoading.save ? '保存中...' : '保存配置' }}</button><button data-testid="dingdandao-pms-push" @click="pushDingdandaoVerifiedCapture" :disabled="dingdandaoPmsLoading.push || !dingdandaoPmsPushReady" class="border px-3 py-2">{{ dingdandaoPmsLoading.push ? '发送中...' : '推送当前已验证数据' }}</button><button v-if="!(dingdandaoPmsIntegration?.robots || []).length" @click="currentPage = 'wechat-notification'" class="border px-3">配置机器人</button></div>
-      <div v-if="(dingdandaoPmsIntegration?.push_gate?.blockers || []).length" class="mt-2" data-testid="dingdandao-pms-blockers"><p v-for="blocker in dingdandaoPmsIntegration.push_gate.blockers" :key="blocker.code" class="text-xs text-amber-700">{{ blocker.message }}（{{ blocker.code }}）</p></div>
-    </template>
-  </section>
+    </section>
+
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="pms-selected-source-deltas">
+      <h3 class="text-base font-semibold text-slate-900">同一 PMS 的相邻快照差值</h3>
+      <p class="mt-1 text-xs text-slate-500">只比较当前门店已配置来源的同源快照；净拾取不等于毛预订。</p>
+      <div v-if="selectedOperatingPmsDeltas.length" class="mt-3 space-y-2">
+        <p v-for="delta in selectedOperatingPmsDeltas" :key="delta.provider" class="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-700">
+          <b>{{ delta.status_label || '待判断' }}</b> · 净拾取 {{ pmsDeltaText(delta.delta_vector?.net_pickup) }}，房费 {{ pmsDeltaText(delta.delta_vector?.room_revenue, 'money') }}，OCC {{ pmsDeltaText(delta.delta_vector?.occupancy_rate_points, 'percent') }}。{{ delta.judgment }}
+        </p>
+      </div>
+      <p v-else class="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-500">目标日期尚无可比较的同源前次快照。</p>
+    </section>
+  </template>
+</div>
+<div v-if="currentPage === 'automation-monitor'" class="suxi-dashboard-scope mx-auto max-w-[1500px] space-y-3" data-testid="automation-run-monitor-page">
+    <section class="overflow-hidden rounded-2xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] px-5 py-4 shadow-sm sm:px-6">
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">运营自动化中心 · 第 3 步</p>
+                    <h2 class="text-xl font-semibold text-slate-900">今日数据与推送监控</h2>
+                </div>
+                <p class="mt-1.5 max-w-5xl text-sm leading-6 text-slate-600">仅监测当前账号有权限且已绑定启用企业微信机器人的门店；每店只显示一个主 PMS，未绑定机器人门店不进入监控名单。携程、美团、主 PMS 与企业微信回执按同日事实分别核验。</p>
+                <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <span>最近核验：{{ automationMonitor.observed_at || '尚未取得' }}（北京时间）</span>
+                    <span>每 {{ automationMonitor.refresh_interval_seconds || 60 }} 秒准实时刷新</span>
+                    <span>计划启用不等于消息已送达</span>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-end gap-2">
+                <label>
+                    <span class="mb-1 block text-xs text-slate-500">数据日期</span>
+                    <input v-model="automationMonitorDate" data-testid="automation-monitor-date" type="date" class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800">
+                </label>
+                <button type="button" data-testid="automation-monitor-refresh" @click="refreshAutomationMonitor" :disabled="automationMonitorLoading" class="rounded-xl bg-[#315d50] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#274c42] disabled:cursor-wait disabled:opacity-60">
+                    <i :class="[automationMonitorLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i>{{ automationMonitorLoading ? '读取中...' : '立即刷新' }}
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <section class="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6" data-testid="automation-monitor-summary">
+        <button
+            v-for="card in automationMonitorSummaryCards"
+            :key="card.key"
+            type="button"
+            :data-testid="`automation-monitor-summary-${card.key}`"
+            :aria-pressed="automationMonitorStatusFilter === card.filter ? 'true' : 'false'"
+            :aria-label="`筛选${card.label}，${card.value}家`"
+            @click="automationMonitorStatusFilter = card.filter"
+            :class="[
+                'group rounded-xl border px-4 py-3 text-left shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-[#315d50]/40',
+                card.tone,
+                automationMonitorStatusFilter === card.filter
+                    ? 'ring-2 ring-[#315d50]/50'
+                    : 'hover:-translate-y-0.5 hover:shadow-md'
+            ]"
+        >
+            <p class="text-xs font-medium opacity-75">{{ card.label }}</p>
+            <p class="mt-2 text-2xl font-semibold tabular-nums">{{ card.value }}</p>
+        </button>
+    </section>
+
+    <p v-if="automationMonitorError" data-testid="automation-monitor-error" class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ automationMonitorError }}</p>
+
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="automation-monitor-table-section">
+        <header class="flex flex-col gap-2 border-b border-slate-200 bg-[#f7f9f8] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <h3 class="font-semibold text-slate-900">门店运行状态</h3>
+                <p class="mt-1 text-xs leading-5 text-slate-500">{{ automationMonitor.message || '正在读取各门店同日期数据与推送证据。' }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-600">显示 {{ automationMonitorFilteredRows.length }} 家</span>
+                <span class="font-medium text-[#315d50]">点击门店、来源或推送状态直接查看对应页面</span>
+            </div>
+        </header>
+
+        <div v-if="automationMonitorLoading &amp;&amp; !(automationMonitor.rows || []).length" class="px-6 py-14 text-center text-sm text-slate-500">
+            <i class="fas fa-spinner fa-spin mr-2"></i>正在核验门店数据与推送状态...
+        </div>
+        <div v-else-if="automationMonitorFilteredRows.length" class="overflow-x-auto">
+            <table class="min-w-[1280px] w-full table-fixed text-left text-sm" data-testid="automation-monitor-table">
+                <colgroup>
+                    <col class="w-[170px]">
+                    <col class="w-[125px]">
+                    <col class="w-[125px]">
+                    <col class="w-[175px]">
+                    <col class="w-[175px]">
+                    <col class="w-[195px]">
+                    <col class="w-[175px]">
+                    <col>
+                </colgroup>
+                <thead class="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+                    <tr>
+                        <th class="px-4 py-3">门店</th>
+                        <th class="px-3 py-3">携程</th>
+                        <th class="px-3 py-3">美团</th>
+                        <th class="px-3 py-3">主 PMS 来源</th>
+                        <th class="px-3 py-3">数据日期 / 数据状态</th>
+                        <th class="px-3 py-3">预计下次推送</th>
+                        <th class="px-3 py-3">推送结果</th>
+                        <th class="px-3 py-3">阻断原因</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <tr
+                        v-for="row in automationMonitorFilteredRows"
+                        :key="row.hotel_id"
+                        class="align-top transition-colors hover:bg-slate-50/80 focus-within:bg-slate-50/80"
+                    >
+                        <td class="px-4 py-4">
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'hotel')" class="block w-full rounded-lg text-left hover:text-[#315d50]">
+                                <span class="block font-semibold text-slate-900">{{ row.hotel_name }} <i class="fas fa-arrow-right ml-1 text-[10px] text-[#315d50]" aria-hidden="true"></i></span>
+                                <span class="mt-1 block text-xs text-slate-400">门店 #{{ row.hotel_id }}</span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" :title="automationMonitorSourceStatusHint(row.ctrip)" @click="openAutomationMonitorDrilldown(row, 'ctrip')" class="rounded-full">
+                                <span :class="['inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorSourceClass(row.ctrip)]">{{ automationMonitorSourceStatusText(row.ctrip) }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" :title="automationMonitorSourceStatusHint(row.meituan)" @click="openAutomationMonitorDrilldown(row, 'meituan')" class="rounded-full">
+                                <span :class="['inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorSourceClass(row.meituan)]">{{ automationMonitorSourceStatusText(row.meituan) }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" :title="automationMonitorSourceStatusHint(row.pms)" @click="openAutomationMonitorDrilldown(row, 'pms')" class="block w-full rounded-lg text-left">
+                                <span class="block font-medium text-slate-900">{{ row.pms?.label || '未绑定 PMS' }} <i class="fas fa-arrow-right ml-1 text-[9px] text-[#315d50]" aria-hidden="true"></i></span>
+                                <span :class="['mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs', automationMonitorSourceClass(row.pms)]">{{ automationMonitorSourceStatusText(row.pms) }}</span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <p class="font-medium tabular-nums text-slate-700">{{ row.business_date || '未取得' }}</p>
+                            <span :class="['mt-1.5 inline-flex rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorDataStatusClass(row.data_status)]">{{ row.data_status_label || '待核验' }}</span>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'wechat')" class="block w-full rounded-lg text-left">
+                                <span class="block font-medium tabular-nums text-slate-800">{{ row.next_push_label || '预计时间未取得' }} <i class="fas fa-arrow-right ml-1 text-[9px] text-[#315d50]" aria-hidden="true"></i></span>
+                                <span class="mt-1 block text-xs text-slate-400">云端调度回读</span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'wechat')" class="rounded-lg text-left">
+                                <span :class="['inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorPushStatusClass(row.push_status)]">{{ row.push_result || '尚无执行回执' }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                                <span v-if="row.push_result_at" class="mt-1 block text-xs tabular-nums text-slate-400">{{ row.push_result_at }}</span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'tasks')" class="block w-full rounded-lg text-left" title="查看任务执行与复盘">
+                                <span :class="row.blocker_reason === '无' ? 'text-emerald-700' : 'text-red-700'" class="line-clamp-3 text-xs leading-5">{{ row.blocker_reason || '未取得' }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div v-else class="px-6 py-14 text-center">
+            <p class="text-sm font-medium text-slate-700">{{ automationMonitorStatusFilter === 'all' ? '当前没有已绑定企业微信机器人的可监控门店' : '当前筛选下没有门店记录' }}</p>
+            <p class="mt-2 text-xs text-slate-400">{{ automationMonitorStatusFilter === 'all' ? '请先在企业微信推送中为门店绑定并启用机器人。' : '可点击上方其他统计卡或状态筛选查看。' }}</p>
+        </div>
+        <footer class="border-t border-slate-100 bg-[#fbfcfb] px-4 py-3 text-xs leading-5 text-slate-500">
+            数据成功必须满足同门店、同日期、保存与数据库回读；推送成功必须取得企业微信送达回执。缺数据、绑定冲突、日期不一致或结果未知都会保留为待处理状态，不使用 0、旧数据或计划状态补成成功。
+        </footer>
+    </section>
 </div>
                 <div v-if="['manual-notifications', 'wechat-notification'].includes(currentPage)" class="max-w-7xl mx-auto space-y-6" data-testid="page-manual-notifications">
                     <section class="rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-6 shadow-sm">
@@ -3491,7 +3664,7 @@
                             <div>
                                 <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">自动推送计划</p>
                                 <h2 class="mt-1 text-lg font-semibold text-slate-900">{{ manualNotificationDataScopeLabel }} · {{ manualNotificationDataStatus }}</h2>
-                                <p class="mt-1 text-sm text-slate-500">携程、美团、订单来了分别配置发送时分、循环间隔、内容分项、通知群与暂停开关。</p>
+                                <p class="mt-1 text-sm text-slate-500">携程、美团、订单来了分别配置首次发送时间、发送间隔、内容分项、通知群与暂停开关。</p>
                             </div>
                             <a href="#manual-notification-plan-config" class="shrink-0 rounded-xl bg-[#315d50] px-4 py-2.5 text-sm font-semibold text-white">进入设置</a>
                         </div>
@@ -3800,7 +3973,7 @@
                                          <p v-if="manualNotificationIsOperatingDaily">内容：{{ manualNotificationForm.content_sections.length }} 项（来源证据与范围边界固定附带）</p>
                                          <p>经营日期：{{ manualNotificationForm.business_date || '未取得' }}</p>
                                          <p>发送时间：{{ manualNotificationForm.trigger_type === 'interval_minutes'
-                                             ? `${manualNotificationForm.hourly_start_time || '待配置'}–${manualNotificationForm.hourly_end_time || '待配置'}，每 ${manualNotificationForm.interval_minutes || '待配置'} 分钟`
+                                             ? `从 ${manualNotificationForm.hourly_start_time || '待配置'} 起，每 ${manualNotificationForm.interval_minutes || '待配置'} 分钟`
                                              : (manualNotificationForm.planned_send_at || manualNotificationForm.trigger_type_label || '待配置') }}</p>
                                         <p>状态：{{ manualNotificationDataStatus }}</p>
                                     </div>
@@ -3844,7 +4017,7 @@
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
                                              <p>{{ item.trigger_type === 'interval_minutes'
-                                                 ? `${item.hourly_start_time || '待配置'}–${item.hourly_end_time || '待配置'} / 每 ${item.interval_minutes || '待配置'} 分钟`
+                                                 ? `从 ${item.hourly_start_time || '待配置'} 起 / 每 ${item.interval_minutes || '待配置'} 分钟`
                                                  : (item.planned_send_at || '待配置') }}</p>
                                             <p class="mt-1 text-xs text-slate-400">{{ item.trigger_type_label }}</p>
                                         </td>
@@ -4647,129 +4820,48 @@
 
                     <!-- 运营管理：策行·效果追踪 -->
                     <div v-if="currentPage === 'ops-track'" class="max-w-7xl mx-auto space-y-6">
-                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                            <h2 class="text-2xl font-bold text-gray-900">策行·效果追踪</h2>
-                            <p class="text-sm text-gray-500 mt-1">创建策略动作并比较同口径执行前后结果；差异本身不证明由该动作造成</p>
-                        </div>
-                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4">
+                        <div class="overflow-hidden rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-5 shadow-sm sm:p-6">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                                 <div>
-                                    <h3 class="font-bold text-gray-900">经营日报（模型或规则）</h3>
-                                    <p class="text-sm text-gray-500 mt-1">完整日报已独立成页，这里只保留最新状态和进入入口。</p>
+                                    <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">运营自动化中心 · 第 4 步</p>
+                                    <h2 class="mt-2 text-2xl font-semibold text-slate-900">任务执行与复盘</h2>
+                                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">把建议或人工动作变成门店任务，经过审批、执行证据、次日同口径复盘后再判断效果；没有证据时不生成收入或 ROI。</p>
                                 </div>
-                                <button @click="currentPage = 'ai-daily-report'" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
-                                    <i class="fas fa-file-alt mr-2"></i>进入日报
-                                </button>
-                            </div>
-                            <div v-if="operationError.aiDailyReport" class="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">{{ operationError.aiDailyReport }}</div>
-                            <div v-if="!aiDailyReport &amp;&amp; !operationLoading.aiDailyReport" class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">当前门店还没有经营日报，进入独立页后可按模型或规则生成。</div>
-                            <template v-if="aiDailyReport">
-                                <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50/60 p-4">
-                                    <div>
-                                        <div class="text-xs text-blue-600 font-semibold">日报日期：{{ aiDailyReport.report_date }}</div>
-                                        <div class="mt-1 text-lg font-bold text-gray-900">{{ aiDailyReport.summary || '暂无摘要' }}</div>
-                                        <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                                            <span :class="aiDailyReportModelClass" class="rounded-full px-2 py-1">{{ aiDailyReportModelText }}</span>
-                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">来源 {{ aiDailyReportSourceCount }} 项</span>
-                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">缺失 {{ aiDailyReportDataGaps.length }} 项</span>
-                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">可转单 {{ aiDailyReportTransferableCount }} 条</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
-                                <div>
-                                    <h3 class="font-bold text-gray-900">板块闭环成熟度</h3>
-                                    <p class="text-sm text-gray-500 mt-1">冻结采集和 OTA 标准化，仅核对收益分析之后的决策、执行、证据、复盘和效果证据。</p>
-                                </div>
-                                <span :class="operationClosureSummaryBadge.className" class="rounded-full border px-3 py-1 text-xs font-medium">
-                                    {{ operationClosureSummaryBadge.text }}
-                                </span>
-                            </div>
-                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                                <div v-for="card in operationClosureSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
-                                    <div class="mt-1 text-xl font-bold text-gray-900">{{ card.value }}</div>
-                                    <div class="mt-2 text-xs text-gray-400">{{ card.hint }}</div>
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                                <div v-for="module in operationClosureModules" :key="module.key" class="rounded-lg border border-gray-100 p-4">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <div class="font-semibold text-gray-900 truncate">{{ module.label }}</div>
-                                            <div class="mt-1 text-xs text-gray-400 line-clamp-1">{{ module.source_scope }}</div>
-                                        </div>
-                                        <span :class="operationClosureStatusClass(module.status)" class="shrink-0 rounded-full border px-2 py-1 text-xs">{{ module.status_label }}</span>
-                                    </div>
-                                    <div class="mt-3 grid grid-cols-4 gap-2 text-xs">
-                                        <div>
-                                            <div class="text-gray-400">记录</div>
-                                            <div class="font-semibold text-gray-800">{{ module.record_count || 0 }}</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-gray-400">执行单</div>
-                                            <div class="font-semibold text-gray-800">{{ module.linked_execution_count || 0 }}</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-gray-400">复盘</div>
-                                            <div class="font-semibold text-gray-800">{{ module.reviewed_count || 0 }}</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-gray-400">ROI</div>
-                                            <div class="font-semibold text-gray-800">{{ module.roi_ready_count || 0 }}</div>
-                                        </div>
-                                    </div>
-                                    <div class="mt-3 flex items-center justify-between text-sm">
-                                        <span class="text-gray-500">成熟度</span>
-                                        <span :class="operationClosureScoreClass(module.maturity_score)" class="font-bold">{{ module.maturity_score || 0 }}%</span>
-                                    </div>
-                                    <div class="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-                                        <span class="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">{{ module.module_group || '运营收益闭环' }}</span>
-                                        <span class="rounded-md border border-cyan-100 bg-cyan-50 px-2 py-0.5 text-cyan-700">{{ module.ai_connection_label || '模型或规则来源待确认' }}</span>
-                                        <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-gray-600">{{ module.data_basis_label || '现有记录' }}</span>
-                                    </div>
-                                    <div class="mt-2 rounded-lg border border-gray-100 bg-white px-3 py-2 text-xs text-gray-600 leading-5">
-                                        <div>闭环目标：{{ module.closure_target || '业务记录 -&gt; 执行证据 -&gt; 复盘' }}</div>
-                                        <div class="mt-1 text-gray-500">理论口径：{{ module.theory_basis || '缺少真实样本时只显示缺口，不推断闭环结果。' }}</div>
-                                    </div>
-                                    <div class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                                        下一步：{{ module.next_action_label }}
-                                    </div>
-                                    <div v-if="operationClosureGapText(module) !== '暂无显式缺口'" class="mt-2 text-xs text-amber-700">
-                                        {{ operationClosureGapText(module) }}
-                                    </div>
-                                    <button v-if="module.entry_page" type="button" @click="openOperationClosureModule(module)" class="mt-3 inline-flex items-center justify-center rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                                        <i class="fas fa-arrow-right mr-1"></i>进入板块
-                                    </button>
-                                </div>
+                                <label class="w-full lg:w-72">
+                                    <span class="mb-1 block text-xs text-slate-500">查看门店</span>
+                                    <select v-model="operationFilters.hotel_id" @change="loadOperationActions" data-testid="operation-scope-hotel" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800">
+                                        <option value="">全部有权限门店</option>
+                                        <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('酒店 ' + hotel.id) }}</option>
+                                    </select>
+                                </label>
                             </div>
                         </div>
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                            <h3 class="font-bold text-gray-900 mb-4">新增策略动作</h3>
+                            <div class="mb-4">
+                                <h3 class="font-bold text-gray-900">人工新建运营任务</h3>
+                                <p class="mt-1 text-sm text-gray-500">用于补录线下已决定的运营动作；系统产生的建议会直接进入下方执行池，不需要重复创建。</p>
+                            </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                                <input v-model="actionForm.action_title" placeholder="策略标题" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <select v-model="actionForm.action_type" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                <label class="text-xs text-gray-500">任务名称<input v-model="actionForm.action_title" placeholder="例如：调整今日房价" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <label class="text-xs text-gray-500">任务类型<select v-model="actionForm.action_type" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
                                     <option v-for="item in operationStrategyTypes" :key="item.key" :value="item.key">{{ item.label }}</option>
-                                </select>
-                                <select v-model="actionForm.hotel_id" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                </select></label>
+                                <label class="text-xs text-gray-500">执行门店<select v-model="actionForm.hotel_id" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
                                     <option value="">自动选择可见酒店</option>
                                     <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
-                                </select>
-                                <input v-model="actionForm.start_date" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <input v-model="actionForm.end_date" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <select v-model="actionForm.target_metric" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                </select></label>
+                                <label class="text-xs text-gray-500">开始日期<input v-model="actionForm.start_date" type="date" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <label class="text-xs text-gray-500">结束日期<input v-model="actionForm.end_date" type="date" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <label class="text-xs text-gray-500">目标指标<select v-model="actionForm.target_metric" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800">
                                     <option value="orders">订单</option>
                                     <option value="revenue">收入</option>
                                     <option value="room_nights">间夜</option>
                                     <option value="conversion">转化率</option>
-                                </select>
-                                <input v-model.number="actionForm.target_change_rate" type="number" placeholder="目标提升比例" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <input v-model="actionForm.remark" placeholder="备注" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                                <button @click="createOperationAction" :disabled="operationLoading.actions" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
-                                    <i class="fas fa-plus mr-2"></i>创建
+                                </select></label>
+                                <label class="text-xs text-gray-500">目标变化（%）<input v-model.number="actionForm.target_change_rate" type="number" placeholder="例如 10" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <label class="text-xs text-gray-500">执行说明<input v-model="actionForm.remark" placeholder="补充动作范围或注意事项" class="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-800"></label>
+                                <button @click="createOperationAction" :disabled="operationLoading.actions" class="self-end px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
+                                    <i class="fas fa-plus mr-2"></i>创建运营任务
                                 </button>
                             </div>
                         </div>
@@ -5141,7 +5233,6 @@
                                 <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1" role="group" aria-label="门店营业状态">
                                     <button type="button" @click="filterHotelStatus = ''" :aria-pressed="filterHotelStatus === ''" :class="filterHotelStatus === '' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">全部</button>
                                     <button type="button" @click="filterHotelStatus = '1'" :aria-pressed="filterHotelStatus === '1'" :class="filterHotelStatus === '1' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">营业中</button>
-                                    <button type="button" @click="filterHotelStatus = '0'" :aria-pressed="filterHotelStatus === '0'" :class="filterHotelStatus === '0' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">停用</button>
                                 </div>
                                 <button v-if="searchHotel || filterHotelStatus !== '' || filterHotelAccountHealth !== ''" @click="searchHotel = ''; filterHotelStatus = ''; filterHotelAccountHealth = ''" class="text-sm text-blue-500 hover:text-blue-700 px-3 py-2">重置筛选</button>
                             </div>
@@ -5171,12 +5262,6 @@
                                         未设负责人 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.ownerMissing }}</span>
                                     </button>
                                 </div>
-                                <div v-if="canManageOwnHotels()" class="flex flex-wrap items-center gap-2 xl:justify-end" data-testid="hotel-batch-actions">
-                                    <span class="text-gray-500">已选 {{ selectedHotelIds.length }}</span>
-                                    <button type="button" @click="toggleAllFilteredHotels" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-gray-600">全选当前结果</button>
-                                    <button type="button" @click="batchUpdateHotelStatus(1)" :disabled="!selectedHotelIds.length || hotelBatchStatusLoading" class="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700 disabled:opacity-40">批量启用</button>
-                                    <button type="button" @click="batchUpdateHotelStatus(0)" :disabled="!selectedHotelIds.length || hotelBatchStatusLoading" class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700 disabled:opacity-40">批量停用</button>
-                                </div>
                             </div>
                         </div>
 
@@ -5204,13 +5289,12 @@
                                             <td class="px-4 py-4 w-[28%]">
                                                 <div class="min-w-0">
                                                     <div class="flex items-center gap-2 min-w-0">
-                                                        <input v-if="canManageOwnHotels()" v-model="selectedHotelIds" :value="String(hotel.id)" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择门店 ${hotel.name}`">
                                                         <span class="font-semibold text-gray-900 truncate max-w-[220px]" :title="hotel.name">{{ hotel.name }}</span>
                                                         <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                             {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                         </span>
-                                                        <button type="button" @click="openHotelModal(hotel)" data-testid="hotel-ota-applicability" :class="hotelOtaApplicabilityBadgeClass(hotel)" :title="hotelOtaApplicabilityBadgeTitle(hotel)" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                            {{ hotelOtaApplicabilityBadgeText(hotel) }}
+                                                        <button type="button" @click="openHotelModal(hotel)" data-testid="hotel-pms-selection" :class="hotel.pms_binding_status === 'configured' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (hotel.pms_binding_status === 'conflict' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200')" :title="hotel.pms_provider_label || 'PMS 状态未取得'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
+                                                            {{ hotel.pms_provider_label || 'PMS 状态未取得' }}
                                                         </button>
                                                         <span v-for="badge in hotelOtaStatusBadges(hotel)" :key="badge.key" data-testid="hotel-ota-strategy" :class="badge.className" :title="badge.title || badge.text" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                             {{ badge.text }}
@@ -5318,7 +5402,6 @@
                                                         <button type="button" @click="toggleHotelDetails(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ isHotelDetailsExpanded(hotel) ? '收起详情' : '展开详情' }}</button>
                                                         <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" :disabled="hotelUserAuthorizationLoading" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">{{ hotelUserAuthorizationLoading ? '读取中...' : '授权用户' }}</button>
                                                         <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
-                                                        <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
                                                         <button v-if="user?.is_super_admin" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">删除</button>
                                                     </div>
                                                 </div>
@@ -5333,13 +5416,12 @@
                                     <div class="hotel-preview-card__header">
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-2">
-                                                <input v-if="canManageOwnHotels()" v-model="selectedHotelIds" :value="String(hotel.id)" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择门店 ${hotel.name}`">
                                                 <h3 class="font-semibold text-gray-900 truncate" :title="hotel.name">{{ hotel.name }}</h3>
                                                 <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                     {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                 </span>
-                                                <button type="button" @click="openHotelModal(hotel)" data-testid="hotel-ota-applicability" :class="hotelOtaApplicabilityBadgeClass(hotel)" :title="hotelOtaApplicabilityBadgeTitle(hotel)" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                    {{ hotelOtaApplicabilityBadgeText(hotel) }}
+                                                <button type="button" @click="openHotelModal(hotel)" data-testid="hotel-pms-selection" :class="hotel.pms_binding_status === 'configured' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (hotel.pms_binding_status === 'conflict' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200')" :title="hotel.pms_provider_label || 'PMS 状态未取得'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
+                                                    {{ hotel.pms_provider_label || 'PMS 状态未取得' }}
                                                 </button>
                                                 <span v-for="badge in hotelOtaStatusBadges(hotel)" :key="badge.key" data-testid="hotel-ota-strategy" :class="badge.className" :title="badge.title || badge.text" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                     {{ badge.text }}
@@ -5362,7 +5444,6 @@
                                             </button>
                                             <div v-if="canManageOwnHotels()" class="flex flex-wrap gap-1">
                                                 <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
-                                                <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
                                                 <button v-if="user?.is_super_admin" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-red-100 bg-white text-xs text-red-600">删除</button>
                                             </div>
                                         </div>
@@ -5488,9 +5569,6 @@
                                 <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-col sm:flex-row justify-end gap-3">
                                     <button type="button" @click="closeHotelDeleteModal()" class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50">
                                         取消
-                                    </button>
-                                    <button v-if="String(hotelDeleteTarget?.status) === '1'" type="button" @click="deactivateHotelDeleteTarget" :disabled="hotelDeleteLoading" class="px-4 py-2 rounded-lg border border-orange-200 bg-white text-orange-600 hover:bg-orange-50 disabled:opacity-60">
-                                        停用酒店
                                     </button>
                                     <button type="button" @click="confirmDeleteHotel" :disabled="hotelDeleteLoading || (hotelDeleteReferences.length &gt; 0 &amp;&amp; (!hotelDeleteCanForce || String(hotelDeleteConfirmationName || '').trim() !== String(hotelDeleteTarget?.name || '').trim()))" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
                                         {{ hotelDeleteLoading ? '处理中...' : (hotelDeleteReferences.length ? '确认永久删除' : '查看影响清单') }}
@@ -8173,6 +8251,35 @@
                                             </button>
                                         </div>
 
+                                        <div v-if="ctripTableTab === 'sales'" class="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                                            <label class="block">
+                                                <span class="mb-1 block text-xs font-medium text-amber-900">携程间夜占全渠道比例（%）</span>
+                                                <input
+                                                    v-model="ctripFullChannelRoomNightSharePercent"
+                                                    type="number"
+                                                    min="1"
+                                                    max="100"
+                                                    step="1"
+                                                    inputmode="decimal"
+                                                    placeholder="例如 30"
+                                                    class="w-40 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                                >
+                                            </label>
+                                            <div class="min-w-[260px] flex-1 text-xs leading-5 text-amber-800">
+                                                <div class="font-medium">全渠道间夜情景推算（非平台返回）</div>
+                                                <div>携程间夜 ÷ 占比；仅展示，不写入。</div>
+                                                <div v-if="ctripFullChannelRoomNightShareInvalid" class="font-medium text-red-600">比例须大于 0 且不超过 100。</div>
+                                            </div>
+                                            <button
+                                                v-if="ctripFullChannelRoomNightSharePercent !== ''"
+                                                type="button"
+                                                class="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs text-amber-800 hover:bg-amber-100"
+                                                @click="ctripFullChannelRoomNightSharePercent = ''"
+                                            >
+                                                清除假设
+                                            </button>
+                                        </div>
+
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="overflow-x-auto table-container">
                                             <table class="min-w-full bg-white border text-sm table-striped">
@@ -8187,6 +8294,11 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                             <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 ÷ 用户填写的携程间夜占比；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
+                                                            全渠道间夜推算
+                                                            <span class="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700">情景</span>
+                                                            <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
@@ -8208,6 +8320,13 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center" :title="hotel.fullChannelRoomNightsEstimateMeta?.formulaText || '需先设置携程间夜占比'">
+                                                            <div v-if="hotel.fullChannelRoomNightsEstimate !== null &amp;&amp; hotel.fullChannelRoomNightsEstimate !== undefined" class="font-semibold text-amber-700">
+                                                                ≈ {{ formatOptionalNumber(hotel.fullChannelRoomNightsEstimate) }}
+                                                            </div>
+                                                            <div v-else class="text-xs font-medium text-amber-700">{{ hotel.fullChannelRoomNightsEstimateMeta?.displayLabel || '需设占比' }}</div>
+                                                            <div class="mt-0.5 text-[10px] text-gray-400">非平台返回</div>
+                                                        </td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
                                                                 {{ formatOptionalNumber(hotel.commentScore) }}
@@ -9607,6 +9726,35 @@
                                             </button>
                                         </div>
 
+                                        <div v-if="ctripTableTab === 'sales'" class="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                                            <label class="block">
+                                                <span class="mb-1 block text-xs font-medium text-amber-900">携程间夜占全渠道比例（%）</span>
+                                                <input
+                                                    v-model="ctripFullChannelRoomNightSharePercent"
+                                                    type="number"
+                                                    min="1"
+                                                    max="100"
+                                                    step="1"
+                                                    inputmode="decimal"
+                                                    placeholder="例如 30"
+                                                    class="w-40 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                                >
+                                            </label>
+                                            <div class="min-w-[260px] flex-1 text-xs leading-5 text-amber-800">
+                                                <div class="font-medium">全渠道间夜情景推算（非平台返回）</div>
+                                                <div>携程间夜 ÷ 占比；仅展示，不写入。</div>
+                                                <div v-if="ctripFullChannelRoomNightShareInvalid" class="font-medium text-red-600">比例须大于 0 且不超过 100。</div>
+                                            </div>
+                                            <button
+                                                v-if="ctripFullChannelRoomNightSharePercent !== ''"
+                                                type="button"
+                                                class="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs text-amber-800 hover:bg-amber-100"
+                                                @click="ctripFullChannelRoomNightSharePercent = ''"
+                                            >
+                                                清除假设
+                                            </button>
+                                        </div>
+
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="overflow-x-auto table-container">
                                             <table class="min-w-full bg-white border text-sm table-striped">
@@ -9621,6 +9769,11 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                             <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 ÷ 用户填写的携程间夜占比；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
+                                                            全渠道间夜推算
+                                                            <span class="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700">情景</span>
+                                                            <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
@@ -9642,6 +9795,13 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center" :title="hotel.fullChannelRoomNightsEstimateMeta?.formulaText || '需先设置携程间夜占比'">
+                                                            <div v-if="hotel.fullChannelRoomNightsEstimate !== null &amp;&amp; hotel.fullChannelRoomNightsEstimate !== undefined" class="font-semibold text-amber-700">
+                                                                ≈ {{ formatOptionalNumber(hotel.fullChannelRoomNightsEstimate) }}
+                                                            </div>
+                                                            <div v-else class="text-xs font-medium text-amber-700">{{ hotel.fullChannelRoomNightsEstimateMeta?.displayLabel || '需设占比' }}</div>
+                                                            <div class="mt-0.5 text-[10px] text-gray-400">非平台返回</div>
+                                                        </td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
                                                                 {{ formatOptionalNumber(hotel.commentScore) }}
@@ -19256,26 +19416,6 @@ Authorization: Bearer xxx"></textarea>
                             </div>
                         </div>
 
-                        <div v-if="hotelForm.id">
-                            <label class="block text-sm font-medium text-gray-700 mb-1.5">门店状态</label>
-                            <div class="flex gap-4">
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" v-model="hotelForm.status" :value="1" class="w-4 h-4 text-blue-500 focus:ring-blue-500">
-                                    <span class="flex items-center gap-1.5">
-                                        <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                                        <span class="text-sm">营业中</span>
-                                    </span>
-                                </label>
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" v-model="hotelForm.status" :value="0" class="w-4 h-4 text-blue-500 focus:ring-blue-500">
-                                    <span class="flex items-center gap-1.5">
-                                        <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                                        <span class="text-sm">已停用</span>
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1.5">适用平台（可多选）</label>
                             <div class="grid grid-cols-2 gap-2 text-sm">
@@ -19289,6 +19429,32 @@ Authorization: Bearer xxx"></textarea>
                                 </label>
                             </div>
                             <p class="text-xs text-gray-400 mt-1">保存后只检查已选平台，不会自动采集。</p>
+                        </div>
+
+                        <div id="hotel-pms-configuration" class="pt-3 border-t border-gray-100" data-testid="hotel-pms-configuration">
+                            <div class="rounded-lg border border-[#eadfc9] bg-[#fffdf8] px-3 py-2.5">
+                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                    <h4 class="shrink-0 text-sm font-semibold text-slate-900 sm:w-40">经营系统（PMS）</h4>
+                                    <select v-model="hotelForm.pms_provider" @change="handleHotelPmsProviderChange" :disabled="hotelPmsBindingLoading || !!hotelPmsBindingError" aria-label="当前使用的 PMS" data-testid="hotel-pms-provider" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#eadfc9] disabled:bg-slate-100 sm:flex-1">
+                                        <option v-if="hotelForm.pms_provider === 'conflict'" value="conflict" disabled>历史配置冲突，请重新选择</option>
+                                        <option value="none">暂不配置 PMS</option>
+                                        <option value="dingdandao_pms">订单来了 PMS</option>
+                                        <option value="meituan_cloud_pms">美团云 PMS</option>
+                                    </select>
+                                </div>
+
+                                <div v-if="hotelPmsBindingLoading" class="mt-2 text-xs text-slate-500">
+                                    <i class="fas fa-spinner fa-spin mr-1"></i>正在读取当前 PMS 配置...
+                                </div>
+                                <div v-else-if="hotelPmsBindingError" class="mt-2 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                    <span>{{ hotelPmsBindingError }}</span>
+                                    <button v-if="hotelForm.id" type="button" @click="loadHotelPmsBindingForModal(hotelForm.id)" class="shrink-0 font-medium underline">重试</button>
+                                </div>
+
+                                <div v-if="hotelForm.pms_provider === 'conflict'" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" data-testid="hotel-pms-conflict">
+                                    历史配置中“订单来了”和“美团云 PMS”同时启用。宿析OS不会自动选择真值；请在下方明确保留一个来源后保存。
+                                </div>
+                            </div>
                         </div>
 
                         <div v-if="hotelForm.id" class="pt-4 border-t border-gray-100">
@@ -19328,26 +19494,8 @@ Authorization: Bearer xxx"></textarea>
                                                 <div class="text-gray-400">最近登录</div>
                                                 <div class="mt-1 text-gray-800">{{ account.lastLoginText }}</div>
                                             </div>
-                                            <div class="rounded-lg border border-white bg-white/75 px-3 py-2 sm:col-span-2">
-                                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                                    <div>
-                                                        <div class="text-gray-400">最近采集</div>
-                                                        <div class="mt-1 text-gray-800">{{ account.lastCaptureText }}</div>
-                                                    </div>
-                                                    <span :class="account.captureStatusClass" class="rounded-md border px-2 py-0.5 text-xs whitespace-nowrap">{{ account.captureStatusText }}</span>
-                                                </div>
-                                            </div>
                                         </div>
-                                        <div class="mt-3">
-                                            <div class="text-[11px] text-gray-400 mb-1">可用模块</div>
-                                            <div class="flex flex-wrap gap-1.5">
-                                                <span v-for="module in account.modules" :key="`modal-${account.platform}-${module}`" class="rounded-md border border-white bg-white/80 px-2 py-0.5 text-[11px] text-gray-600">{{ module }}</span>
-                                            </div>
-                                        </div>
-                                        <div v-if="account.reasonText" :class="account.reasonClass" class="mt-3 rounded-lg border px-3 py-2 text-xs">
-                                            {{ account.reasonText }}
-                                        </div>
-                                        <div class="mt-4 flex flex-wrap gap-2">
+                                        <div class="mt-3 flex flex-wrap gap-2">
                                             <button v-if="user?.is_super_admin" type="button" @click="showHotelModal = false; openHotelPlatformAccountAction(hotelFormAccountHotel(), account, { forceLogin: true })" class="px-2.5 py-1.5 rounded-lg border border-white bg-white text-xs text-gray-700 hover:border-blue-200 hover:text-blue-700">
                                                 {{ account.primaryActionText }}
                                             </button>
@@ -19370,7 +19518,7 @@ Authorization: Bearer xxx"></textarea>
                         <button type="button" @click="showHotelModal = false" class="px-5 py-2.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors">
                             取消
                         </button>
-                        <button type="submit" :disabled="hotelSaving" class="px-5 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
+                        <button type="submit" :disabled="hotelSaving || hotelPmsBindingLoading" class="px-5 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
                             <i :class="hotelSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'"></i>
                             <span>{{ hotelSaving ? '保存中' : (hotelForm.id ? '保存修改' : '创建门店') }}</span>
                         </button>

@@ -2386,6 +2386,13 @@
             });
             const ctripBusinessSourceNotice = computed(() => ctripBusinessSummary.value?.source_notice || '');
             const ctripTableTab = ref('sales'); // 携程数据表格Tab: sales/traffic/rank
+            const normalizeCtripRoomNightSharePercent = requireCtripStatic('normalizeCtripRoomNightSharePercent');
+            const attachCtripFullChannelRoomNightScenario = requireCtripStatic('attachCtripFullChannelRoomNightScenario');
+            const ctripFullChannelRoomNightSharePercent = ref('');
+            const ctripFullChannelRoomNightShareInvalid = computed(() => (
+                ctripFullChannelRoomNightSharePercent.value !== ''
+                && normalizeCtripRoomNightSharePercent(ctripFullChannelRoomNightSharePercent.value) === null
+            ));
             // 携程表格排序功能
             const ctripSortField = ref(''); // 当前排序字段
             const ctripSortOrder = ref('desc'); // 排序方式: asc/desc
@@ -2398,8 +2405,14 @@
                 }
             };
             // 排序后的列表（computed，不修改原始数据，卡片仍基于原始列表计算）
+            const ctripScenarioHotelsList = computed(() => (
+                ctripHotelsList.value.map(row => attachCtripFullChannelRoomNightScenario(
+                    row,
+                    ctripFullChannelRoomNightSharePercent.value
+                ))
+            ));
             const ctripSortedHotelsList = computed(() => {
-                return buildCtripSortedHotelRows(ctripHotelsList.value, ctripSortField.value, ctripSortOrder.value);
+                return buildCtripSortedHotelRows(ctripScenarioHotelsList.value, ctripSortField.value, ctripSortOrder.value);
             });
             const ctripTablePage = ref(1);
             const ctripTablePageSize = ref(50);
@@ -13980,6 +13993,12 @@
                 if (['pms-operating-data', 'operating-targets'].includes(newPage)) {
                     runPageLoadOnce(newPage, 'main', () => loadOperatingTarget());
                 }
+                if (newPage === 'automation-monitor') {
+                    runPageLoadOnce(newPage, 'main', () => loadAutomationMonitor());
+                    startAutomationMonitorPolling();
+                } else {
+                    stopAutomationMonitorPolling();
+                }
                 if (newPage === 'ops-insight') {
                     runPageLoadOnce(newPage, 'main', async () => {
                         await ensureOperationStaticReady();
@@ -14319,6 +14338,7 @@
                         },
                         { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } },
                         { type: 'source', sourcePath: 'operation-optimizer', overrides: { name: '运营优化台' } },
+                        { type: 'source', sourcePath: 'operating-targets', overrides: { name: '目标与事实' } },
                         { type: 'source', sourcePath: 'ai-daily-report', overrides: { name: 'AI经营日报' } },
                     ],
                 },
@@ -14341,7 +14361,7 @@
                     children: [
                         { type: 'source', sourcePath: 'pms-operating-data', overrides: { name: 'PMS经营数据' } },
                         { type: 'source', sourcePath: 'wechat-notification', overrides: { name: '企业微信推送' } },
-                        { type: 'source', sourcePath: 'operating-targets', overrides: { name: '经营目标' } },
+                        { type: 'source', sourcePath: 'automation-monitor', overrides: { name: '自动化运行监控' } },
                         { type: 'source', sourcePath: 'ops-track', overrides: { name: '任务执行与复盘' } },
                     ],
                 },
@@ -15287,8 +15307,24 @@
                 return rows.filter((row) => String(row.value || '').trim() !== '');
             };
             const hotelBackgroundProfileForm = ref(getEmptyHotelBackgroundProfile());
-            const hotelForm = ref({ id: null, name: '', code: '', address: '', contact_person: '', contact_phone: '', status: 1, ota_channel_strategy: 'none', description: '' });
+            const hotelForm = ref({
+                id: null,
+                name: '',
+                code: '',
+                address: '',
+                contact_person: '',
+                contact_phone: '',
+                status: 1,
+                ota_channel_strategy: 'none',
+                description: '',
+                pms_provider: 'none',
+                pms_provider_hotel_id: '',
+                pms_provider_hotel_name: '',
+            });
             const hotelSaving = ref(false);
+            const hotelPmsBinding = ref(null);
+            const hotelPmsBindingLoading = ref(false);
+            const hotelPmsBindingError = ref('');
             const showHotelOtaConfig = ref(false);
             const hotelOtaConfigLoading = ref(false);
             const hotelOtaConfig = ref({
@@ -16234,7 +16270,7 @@
                 if (!wechatNotificationPanelLoadPromise) {
                     wechatNotificationPanelLoadPromise = new Promise((resolve, reject) => {
                         const script = document.createElement('script');
-                        script.src = 'wechat-notification-static.js?v=20260728-three-source-h7bf2ee8038';
+                        script.src = 'wechat-notification-static.js?v=20260729-simple-cadence-hd2ddd32fbd';
                         script.async = true;
                         script.onload = () => {
                             if (!window.SUXI_WECHAT_NOTIFICATION_PANEL
@@ -16264,6 +16300,7 @@
             const wechatNotificationTesting = ref(false);
             const wechatNotificationError = ref('');
             const DEFAULT_WECHAT_NOTIFICATION_NAME = '宿析通知群';
+            const DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME = '敦煌漠蓝新';
             const wechatNotificationState = ref({
                 hotel_id: null,
                 binding_status: 'binding_missing',
@@ -16325,8 +16362,11 @@
                     hotel => String(hotel.id) === String(wechatNotificationHotelId.value)
                 );
                 if (currentExists) return String(wechatNotificationHotelId.value);
+                const defaultHotel = options.find(
+                    hotel => String(hotel?.name || '').trim() === DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME
+                );
                 const preferred = options.find(hotel => String(hotel.id) === String(user.value?.hotel_id || ''));
-                wechatNotificationHotelId.value = String(preferred?.id || options[0]?.id || '');
+                wechatNotificationHotelId.value = String(defaultHotel?.id || preferred?.id || options[0]?.id || '');
                 return wechatNotificationHotelId.value;
             };
             const loadWechatNotificationStatus = async () => {
@@ -20243,7 +20283,7 @@
                 actual_revenue: '',
                 sold_room_nights: '',
                 sellable_room_nights: '',
-                fact_scope: 'whole_hotel',
+                fact_scope: 'accommodation_room_fee',
                 source_type: 'manual',
                 source_reference: '',
                 quality_status: 'manual_confirmed',
@@ -20266,6 +20306,9 @@
             const operatingTargetTaskDraft = ref(null);
             const operatingTargetTaskDraftError = ref('');
             const operatingTargetTaskDraftLoading = ref(false);
+            const operatingHotelPmsBinding = ref(null);
+            const operatingHotelPmsBindingError = ref('');
+            const operatingHotelPmsBindingLoading = ref(false);
             const dingdandaoPmsIntegration = ref(null);
             const dingdandaoPmsConfigForm = ref({
                 provider_hotel_id: '',
@@ -20361,6 +20404,19 @@
                 save: false,
                 testId: 0,
             });
+            const automationMonitorDate = ref(operationToday);
+            const automationMonitorStatusFilter = ref('all');
+            const automationMonitor = ref({
+                business_date: operationToday,
+                observed_at: '',
+                refresh_interval_seconds: 60,
+                summary: {},
+                rows: [],
+                message: '',
+            });
+            const automationMonitorLoading = ref(false);
+            const automationMonitorError = ref('');
+            let automationMonitorRefreshTimer = null;
             const strategyForm = ref({
                 hotel_id: '',
                 strategy_type: 'price_adjust',
@@ -21730,23 +21786,13 @@
                 return 'border-gray-200 bg-gray-50 text-gray-600';
             };
             const buildOperatingTargetMetricRows = (record) => {
+                const facts = record?.facts || {};
                 const metrics = record?.calculation?.metrics || {};
-                const targetAchieved = String(record?.calculation?.status || '') === 'ready'
-                    && metrics.required_average_rate === null
-                    && Number(metrics.remaining_revenue) === 0
-                    && Number(metrics.completion_rate_percent) >= 100;
                 return [
+                    { key: 'target_revenue', label: '住宿房费总目标', value: operatingTargetMetricText(facts.target_revenue, 'money') },
+                    { key: 'actual_revenue', label: 'PMS 实际住宿房费', value: operatingTargetMetricText(facts.actual_revenue, 'money') },
                     { key: 'completion_rate_percent', label: '营收完成率', value: operatingTargetMetricText(metrics.completion_rate_percent, 'percent') },
-                    { key: 'remaining_revenue', label: '剩余营收目标', value: operatingTargetMetricText(metrics.remaining_revenue, 'money') },
-                    { key: 'selling_progress_percent', label: '销售进度', value: operatingTargetMetricText(metrics.selling_progress_percent, 'percent') },
-                    { key: 'remaining_sellable_room_nights', label: '剩余可售房夜', value: operatingTargetMetricText(metrics.remaining_sellable_room_nights) },
-                    {
-                        key: 'required_average_rate',
-                        label: '所需均价',
-                        value: targetAchieved
-                            ? '不需要（目标已完成）'
-                            : operatingTargetMetricText(metrics.required_average_rate, 'moneyRate'),
-                    },
+                    { key: 'remaining_revenue', label: '距离目标还差', value: operatingTargetMetricText(metrics.remaining_revenue, 'money') },
                 ];
             };
             const operatingTargetMetricRows = computed(() => buildOperatingTargetMetricRows(operatingTargetResult.value));
@@ -21822,6 +21868,53 @@
                     verified: isVerified && item.actual !== '',
                 }));
             });
+            const operatingTargetNumberOrNull = (value) => {
+                if (!operatingTargetHasValue(value)) return null;
+                const number = Number(value);
+                return Number.isFinite(number) ? number : null;
+            };
+            const operatingTargetPmsFactRows = computed(() => {
+                const facts = operatingTargetForm.value || {};
+                const isPmsFact = String(facts.source_type || '') === 'pms';
+                const actualRevenue = isPmsFact
+                    ? operatingTargetNumberOrNull(facts.actual_revenue)
+                    : null;
+                const soldRoomNights = isPmsFact
+                    ? operatingTargetNumberOrNull(facts.sold_room_nights)
+                    : null;
+                const sellableRoomNights = isPmsFact
+                    ? operatingTargetNumberOrNull(facts.sellable_room_nights)
+                    : null;
+                const occupancyRate = soldRoomNights !== null
+                    && sellableRoomNights !== null
+                    && sellableRoomNights > 0
+                    ? soldRoomNights / sellableRoomNights * 100
+                    : null;
+                const adr = actualRevenue !== null
+                    && soldRoomNights !== null
+                    && soldRoomNights > 0
+                    ? actualRevenue / soldRoomNights
+                    : null;
+                const revpar = actualRevenue !== null
+                    && sellableRoomNights !== null
+                    && sellableRoomNights > 0
+                    ? actualRevenue / sellableRoomNights
+                    : null;
+                return [
+                    { key: 'actual_revenue', label: '实际住宿房费', value: actualRevenue, kind: 'money' },
+                    { key: 'sold_room_nights', label: '已售间夜', value: soldRoomNights, kind: 'number' },
+                    { key: 'sellable_room_nights', label: '可售房夜', value: sellableRoomNights, kind: 'number' },
+                    { key: 'occupancy_rate', label: '入住率', value: occupancyRate, kind: 'percent' },
+                    { key: 'adr', label: 'ADR', value: adr, kind: 'moneyRate' },
+                    { key: 'revpar', label: 'RevPAR', value: revpar, kind: 'money' },
+                ].map(item => ({
+                    ...item,
+                    available: item.value !== null,
+                    displayValue: item.value === null
+                        ? '未取得'
+                        : operatingTargetMetricText(item.value, item.kind),
+                }));
+            });
             const operatingTargetSnapshotMetricRows = computed(() => buildOperatingTargetMetricRows(
                 operatingTargetSelectedSnapshot.value?.record || null
             ));
@@ -21847,6 +21940,71 @@
                 session_expired: '登录已失效',
                 unauthorized: '尚未授权',
             }[String(meituanCloudPmsIntegration.value?.profile?.authorization_status || '')] || '尚无登录状态'));
+            const selectedOperatingPmsSource = computed(() => (
+                operatingHotelPmsBinding.value?.selected_source || null
+            ));
+            const selectedOperatingPmsCapture = computed(() => (
+                selectedOperatingPmsSource.value?.capture || null
+            ));
+            const selectedOperatingPmsFactGate = computed(() => (
+                selectedOperatingPmsSource.value?.fact_gate || {
+                    allowed: false,
+                    status: 'blocked',
+                    blockers: operatingHotelPmsBinding.value?.blockers || [],
+                }
+            ));
+            const selectedOperatingPmsProfileText = computed(() => ({
+                ready_to_collect: '登录有效，可采集',
+                login_verified: '登录已验证',
+                awaiting_login: '等待登录',
+                awaiting_relogin: '需要重新登录',
+                session_expired: '登录已失效',
+                unauthorized: '尚未授权',
+            }[String(selectedOperatingPmsSource.value?.profile?.authorization_status || '')] || '尚无登录状态'));
+            const selectedOperatingPmsMetricRows = computed(() => {
+                const provider = String(
+                    operatingHotelPmsBinding.value?.selected_provider || ''
+                );
+                const summary = selectedOperatingPmsCapture.value?.summary || {};
+                const rows = provider === 'meituan_cloud_pms'
+                    ? [
+                        ['estimated_room_revenue', '房费收入', 'money'],
+                        ['sold_room_nights', '已售间夜', 'number'],
+                        ['occupancy_rate_percent', '入住率', 'percent'],
+                        ['adr', '平均房价 ADR', 'moneyRate'],
+                        ['revpar', 'RevPAR', 'money'],
+                        ['available_rooms', '首页可售房', 'number'],
+                        ['room_type_available_rooms', '房型可售合计', 'number'],
+                        ['total_rooms', '总房量', 'number'],
+                    ]
+                    : [
+                        ['total_room_fee', '住宿房费', 'money'],
+                        ['sold_room_nights', '已售间夜', 'number'],
+                        ['occupancy_rate_percent', '入住率', 'percent'],
+                        ['adr', '平均房价 ADR', 'moneyRate'],
+                        ['revpar', 'RevPAR', 'money'],
+                        ['derived_sellable_room_nights', '推导可售房量', 'number'],
+                    ];
+                return rows.map(([key, label, kind]) => ({
+                    key,
+                    label,
+                    value: operatingTargetMetricText(summary[key], kind),
+                    available: operatingTargetHasValue(summary[key]),
+                }));
+            });
+            const selectedOperatingPmsDeltas = computed(() => {
+                const provider = String(
+                    operatingHotelPmsBinding.value?.selected_provider || ''
+                );
+                const sourceDeltas = operatingTargetPmsReconciliation.value?.source_deltas;
+                const deltas = Array.isArray(sourceDeltas)
+                    ? sourceDeltas
+                    : (sourceDeltas && typeof sourceDeltas === 'object'
+                        ? Object.values(sourceDeltas)
+                        : []);
+                return deltas
+                    .filter(delta => String(delta?.provider || '') === provider);
+            });
             const filteredOperationAlerts = computed(() => {
                 const list = operationAlerts.value?.list || [];
                 if (operationAlertFilter.value === 'all') return list;
@@ -21905,12 +22063,12 @@
                     hotel_id: String(record.hotel_id || operatingTargetForm.value.hotel_id || ''),
                     target_date: record.target_date || operatingTargetForm.value.target_date,
                     target_revenue: facts.target_revenue ?? '',
-                    target_occupancy_rate_percent: facts.target_occupancy_rate_percent ?? '',
-                    target_revpar: facts.target_revpar ?? '',
+                    target_occupancy_rate_percent: '',
+                    target_revpar: '',
                     actual_revenue: facts.actual_revenue ?? '',
                     sold_room_nights: facts.sold_room_nights ?? '',
                     sellable_room_nights: facts.sellable_room_nights ?? '',
-                    fact_scope: facts.fact_scope || 'whole_hotel',
+                    fact_scope: 'accommodation_room_fee',
                     source_type: facts.source_type || 'manual',
                     source_reference: facts.source_reference || '',
                     quality_status: facts.quality_status || 'unverified',
@@ -21964,6 +22122,30 @@
                     operatingTargetError.value = operationErrorMessage(error, '经营目标报告预览读取失败');
                 } finally {
                     operatingTargetLoading.value.reportGate = false;
+                }
+            };
+            const loadOperatingHotelPmsBinding = async () => {
+                const context = operatingTargetContext();
+                if (!context) return;
+                operatingHotelPmsBindingLoading.value = true;
+                operatingHotelPmsBindingError.value = '';
+                try {
+                    const res = await apiRequest(
+                        `/hotels/${encodeURIComponent(context.hotelId)}/pms-binding`
+                        + `?target_date=${encodeURIComponent(context.targetDate)}`
+                    );
+                    if (res.code !== 200) {
+                        throw new Error(res.message || '门店 PMS 配置与事实读取失败');
+                    }
+                    operatingHotelPmsBinding.value = res.data || null;
+                } catch (error) {
+                    operatingHotelPmsBinding.value = null;
+                    operatingHotelPmsBindingError.value = operationErrorMessage(
+                        error,
+                        '门店 PMS 配置与事实读取失败'
+                    );
+                } finally {
+                    operatingHotelPmsBindingLoading.value = false;
                 }
             };
             const applyDingdandaoPmsIntegration = (data) => {
@@ -22143,10 +22325,10 @@
                         loadOperatingTargetHistory(),
                         loadOperatingTargetSnapshots(),
                         loadOperatingTargetReportGate(),
-                        loadDingdandaoPmsIntegration(),
-                        loadMeituanCloudPmsIntegration(),
+                        loadOperatingHotelPmsBinding(),
                     ]);
                 } catch (error) {
+                    operatingHotelPmsBinding.value = null;
                     operatingTargetPmsReconciliation.value = null;
                     operatingTargetError.value = operationErrorMessage(error, '经营目标读取失败');
                 } finally {
@@ -22245,11 +22427,30 @@
                 operatingTargetTaskDraft.value = null;
                 operatingTargetTaskDraftError.value = '';
                 try {
+                    const pmsFactsSelected = String(operatingTargetForm.value.source_type || '') === 'pms';
                     const payload = {
                         ...operatingTargetForm.value,
                         hotel_id: context.hotelId,
                         target_date: context.targetDate,
-                        fact_scope: operatingTargetForm.value.fact_scope || 'whole_hotel',
+                        target_occupancy_rate_percent: null,
+                        target_revpar: null,
+                        actual_revenue: pmsFactsSelected
+                            ? operatingTargetForm.value.actual_revenue
+                            : null,
+                        sold_room_nights: pmsFactsSelected
+                            ? operatingTargetForm.value.sold_room_nights
+                            : null,
+                        sellable_room_nights: pmsFactsSelected
+                            ? operatingTargetForm.value.sellable_room_nights
+                            : null,
+                        fact_scope: 'accommodation_room_fee',
+                        source_type: pmsFactsSelected ? 'pms' : 'manual',
+                        source_reference: pmsFactsSelected
+                            ? operatingTargetForm.value.source_reference
+                            : '',
+                        quality_status: pmsFactsSelected
+                            ? operatingTargetForm.value.quality_status
+                            : 'unverified',
                     };
                     const res = await apiRequest('/operating-targets', {
                         method: 'POST',
@@ -22560,6 +22761,210 @@
                     "'": '&#39;',
                 }[character]))
             );
+            const automationMonitorSummaryCards = computed(() => {
+                const summary = automationMonitor.value?.summary || {};
+                return [
+                    { key: 'hotel_count', filter: 'all', label: '监控门店', value: Number(summary.hotel_count || 0), tone: 'border-slate-200 bg-white text-slate-900' },
+                    { key: 'data_ready_count', filter: 'ready', label: '数据就绪', value: Number(summary.data_ready_count || 0), tone: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
+                    { key: 'collecting_count', filter: 'collecting', label: '正在采集', value: Number(summary.collecting_count || 0), tone: 'border-blue-200 bg-blue-50 text-blue-800' },
+                    { key: 'waiting_push_count', filter: 'waiting', label: '等待推送', value: Number(summary.waiting_push_count || 0), tone: 'border-amber-200 bg-amber-50 text-amber-800' },
+                    { key: 'push_succeeded_count', filter: 'sent', label: '推送成功', value: Number(summary.push_succeeded_count || 0), tone: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
+                    { key: 'blocked_count', filter: 'blocked', label: '失败或阻断', value: Number(summary.blocked_count || 0), tone: 'border-red-200 bg-red-50 text-red-700' },
+                ];
+            });
+            const automationMonitorFilteredRows = computed(() => {
+                const rows = Array.isArray(automationMonitor.value?.rows)
+                    ? automationMonitor.value.rows
+                    : [];
+                const filter = String(automationMonitorStatusFilter.value || 'all');
+                if (filter === 'ready') {
+                    return rows.filter(row => row?.data_status === 'ready');
+                }
+                if (filter === 'collecting') {
+                    return rows.filter(row => row?.data_status === 'collecting');
+                }
+                if (filter === 'waiting') {
+                    return rows.filter(row => row?.push_status === 'waiting');
+                }
+                if (filter === 'sent') {
+                    return rows.filter(row => row?.push_status === 'sent');
+                }
+                if (filter === 'blocked') {
+                    return rows.filter(row => Array.isArray(row?.blockers) && row.blockers.length > 0);
+                }
+                return rows;
+            });
+            const openAutomationMonitorDrilldown = (row = {}, target = '') => {
+                const hotelId = String(row?.hotel_id || '').trim();
+                if (!hotelId) {
+                    showToast('当前监控记录缺少门店标识，暂时无法穿透查看。', 'warning');
+                    return;
+                }
+                const businessDate = String(
+                    row?.business_date || automationMonitorDate.value || operationToday
+                ).trim();
+                const syncOnlineDataScope = () => {
+                    onlineDataFilter.value = {
+                        ...onlineDataFilter.value,
+                        hotel_id: hotelId,
+                        start_date: businessDate,
+                        end_date: businessDate,
+                    };
+                };
+
+                if (target === 'hotel') {
+                    currentPage.value = 'hotels';
+                    return;
+                }
+                if (target === 'ctrip') {
+                    ctripTargetHotelManuallySelected.value = true;
+                    selectedCtripHotelId.value = hotelId;
+                    autoFetchHotelId.value = hotelId;
+                    syncOnlineDataScope();
+                    currentPage.value = 'ctrip-ebooking';
+                    return;
+                }
+                if (target === 'meituan') {
+                    meituanForm.value = {
+                        ...meituanForm.value,
+                        hotelId,
+                    };
+                    syncOnlineDataScope();
+                    currentPage.value = 'meituan-ebooking';
+                    return;
+                }
+                if (target === 'pms') {
+                    operatingTargetForm.value = {
+                        ...operatingTargetForm.value,
+                        hotel_id: hotelId,
+                        target_date: businessDate,
+                    };
+                    currentPage.value = 'pms-operating-data';
+                    return;
+                }
+                if (target === 'wechat') {
+                    manualNotificationForm.value = {
+                        ...manualNotificationForm.value,
+                        hotel_id: hotelId,
+                        business_date: businessDate,
+                    };
+                    wechatNotificationHotelId.value = hotelId;
+                    currentPage.value = 'wechat-notification';
+                    return;
+                }
+                if (target === 'tasks') {
+                    operationFilters.value = {
+                        ...operationFilters.value,
+                        hotel_id: hotelId,
+                        date: businessDate,
+                    };
+                    aiDailyReportForm.value = {
+                        ...aiDailyReportForm.value,
+                        hotel_id: hotelId,
+                        report_date: businessDate,
+                    };
+                    currentPage.value = 'ops-track';
+                }
+            };
+            const automationMonitorSourceClass = (source) => {
+                const status = String(source?.status || '');
+                if (status === 'readback_verified') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+                if (['collecting', 'pending_collection', 'pending_readback'].includes(status)) {
+                    return 'border-blue-200 bg-blue-50 text-blue-700';
+                }
+                if (['binding_conflict', 'collection_failed', 'blocked'].includes(status)) {
+                    return 'border-red-200 bg-red-50 text-red-700';
+                }
+                return 'border-amber-200 bg-amber-50 text-amber-700';
+            };
+            const automationMonitorSourceStatusText = (source) => ({
+                readback_verified: '已回读',
+                collecting: '采集中',
+                pending_collection: '状态待回写',
+                pending_readback: '待入库回读',
+                collection_failed: '采集失败',
+                binding_conflict: '绑定冲突',
+                binding_missing: '待绑定',
+                blocked: '未就绪',
+            }[String(source?.status || '')] || '状态未取得');
+            const automationMonitorSourceStatusHint = (source) => ({
+                readback_verified: '同店同日事实已完成数据库回读',
+                collecting: '已确认采集任务正在运行',
+                pending_collection: '尚未确认采集任务是否运行',
+                pending_readback: '采集结果尚未完成保存与数据库回读',
+                collection_failed: '采集失败，请查看阻断原因',
+                binding_conflict: '订单来了与美团云 PMS 只能保留一个主 PMS',
+                binding_missing: '请先在门店管理中选择主 PMS',
+                blocked: '当天事实尚未通过验真与回读',
+            }[String(source?.status || '')] || '未取得可信状态回写');
+            const automationMonitorDataStatusClass = (status) => ({
+                ready: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                collecting: 'border-blue-200 bg-blue-50 text-blue-700',
+                partial: 'border-amber-200 bg-amber-50 text-amber-700',
+                blocked: 'border-red-200 bg-red-50 text-red-700',
+                missing: 'border-slate-200 bg-slate-50 text-slate-600',
+            }[String(status || '')] || 'border-slate-200 bg-slate-50 text-slate-600');
+            const automationMonitorPushStatusClass = (status) => ({
+                sent: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                waiting: 'border-amber-200 bg-amber-50 text-amber-700',
+                unverified: 'border-slate-200 bg-slate-50 text-slate-600',
+                failed: 'border-red-200 bg-red-50 text-red-700',
+            }[String(status || '')] || 'border-slate-200 bg-slate-50 text-slate-600');
+            const stopAutomationMonitorPolling = () => {
+                if (automationMonitorRefreshTimer) {
+                    clearTimeout(automationMonitorRefreshTimer);
+                    automationMonitorRefreshTimer = null;
+                }
+            };
+            const startAutomationMonitorPolling = () => {
+                stopAutomationMonitorPolling();
+                if (currentPage.value !== 'automation-monitor') return;
+                const seconds = Math.min(
+                    300,
+                    Math.max(30, Number(automationMonitor.value?.refresh_interval_seconds || 60))
+                );
+                automationMonitorRefreshTimer = setTimeout(async () => {
+                    if (currentPage.value !== 'automation-monitor') return;
+                    await loadAutomationMonitor({ silent: true });
+                    startAutomationMonitorPolling();
+                }, seconds * 1000);
+            };
+            const loadAutomationMonitor = async ({ silent = false } = {}) => {
+                const businessDate = String(automationMonitorDate.value || '').trim();
+                if (!businessDate) {
+                    automationMonitorError.value = '请选择数据日期。';
+                    return;
+                }
+                if (!silent) automationMonitorLoading.value = true;
+                automationMonitorError.value = '';
+                try {
+                    const params = new URLSearchParams({ business_date: businessDate });
+                    const res = await apiRequest(`/manual-notifications/monitor?${params.toString()}`);
+                    if (res.code !== 200) {
+                        throw new Error(res.message || '自动化运行监控读取失败');
+                    }
+                    automationMonitor.value = {
+                        business_date: businessDate,
+                        observed_at: '',
+                        refresh_interval_seconds: 60,
+                        summary: {},
+                        rows: [],
+                        message: '',
+                        ...(res.data || {}),
+                    };
+                } catch (error) {
+                    automationMonitorError.value = operationErrorMessage(
+                        error,
+                        '自动化运行监控读取失败'
+                    );
+                } finally {
+                    if (!silent) automationMonitorLoading.value = false;
+                }
+            };
+            const refreshAutomationMonitor = async () => {
+                await loadAutomationMonitor();
+                startAutomationMonitorPolling();
+            };
             const manualNotificationAutomaticTaskRows = computed(() => {
                 const overview = manualNotificationMetadata.value?.automatic_tasks || {};
                 const tasks = Array.isArray(overview.tasks) ? overview.tasks : [];
@@ -22868,7 +23273,9 @@
                     effective_from: item.effective_from || '',
                     effective_to: item.effective_to || '',
                     hourly_start_time: item.hourly_start_time || '09:00',
-                    hourly_end_time: item.hourly_end_time || '22:00',
+                    hourly_end_time: item.trigger_type === 'interval_minutes'
+                        ? '23:59'
+                        : (item.hourly_end_time || '22:00'),
                     enabled: item.enabled === true,
                     schedule_status: item.schedule_status || 'saved_only',
                     schedule_status_label: item.schedule_status_label || '',
@@ -38786,6 +39193,12 @@
             const ctripDownloadRows = () => {
                 const rankText = (rank) => rank ? `第${rank}名` : '-';
                 const percentText = (value) => value === null || value === undefined || value === '' ? '-' : `${value}%`;
+                const fullChannelRoomNightText = (row = {}) => {
+                    const value = row.fullChannelRoomNightsEstimate;
+                    return value === null || value === undefined || value === ''
+                        ? (row.fullChannelRoomNightsEstimateMeta?.displayLabel || '需设占比')
+                        : `≈${formatNumber(value)}`;
+                };
                 const rows = Array.isArray(pagedCtripSortedHotelsList.value) ? pagedCtripSortedHotelsList.value : [];
                 const rankOffset = Number(ctripTableRankOffset.value || 0);
                 if (ctripTableTab.value === 'traffic') {
@@ -38830,6 +39243,7 @@
                         { label: '平均房价指数(ARI)', width: 145, value: row => row.ariText || '-', align: 'right' },
                         { label: '综合竞争力指数(SCI)', width: 145, value: row => row.sciText || '-', align: 'right' },
                         { label: '携程预定订单', width: 125, value: row => formatNumber(row.bookOrderNum), align: 'right' },
+                        { label: '全渠道间夜推算（情景）', width: 145, value: row => fullChannelRoomNightText(row), align: 'right' },
                         { label: '携程点评分', width: 105, value: row => formatNumber(row.commentScore), align: 'right' },
                         { label: '去哪儿点评分', width: 115, value: row => formatNumber(row.qunarCommentScore), align: 'right' },
                     ],
@@ -38941,16 +39355,112 @@
             };
 
             // 酒店操作
+            const applyHotelPmsBinding = (data) => {
+                hotelPmsBinding.value = data || null;
+                const bindingStatus = String(data?.binding_status || 'unconfigured');
+                const selectedProvider = String(data?.selected_provider || '');
+                const formProvider = bindingStatus === 'conflict'
+                    ? 'conflict'
+                    : (selectedProvider || 'none');
+                const selectedConfig = selectedProvider
+                    ? (data?.sources?.[selectedProvider] || {})
+                    : {};
+                hotelForm.value = {
+                    ...hotelForm.value,
+                    pms_provider: formProvider,
+                    pms_provider_hotel_id: selectedConfig.provider_hotel_id || '',
+                    pms_provider_hotel_name: selectedConfig.provider_hotel_name
+                        || (selectedProvider ? hotelForm.value.name : ''),
+                };
+            };
+            const loadHotelPmsBindingForModal = async (hotelId) => {
+                const scopeHotelId = String(hotelId || '').trim();
+                if (!scopeHotelId) return;
+                hotelPmsBindingLoading.value = true;
+                hotelPmsBindingError.value = '';
+                try {
+                    const res = await apiRequest(`/hotels/${encodeURIComponent(scopeHotelId)}/pms-binding`);
+                    if (res.code !== 200) {
+                        throw new Error(res.message || '门店 PMS 配置读取失败');
+                    }
+                    if (showHotelModal.value
+                        && String(hotelForm.value.id || '') === scopeHotelId
+                    ) {
+                        applyHotelPmsBinding(res.data || null);
+                    }
+                } catch (error) {
+                    if (showHotelModal.value
+                        && String(hotelForm.value.id || '') === scopeHotelId
+                    ) {
+                        hotelPmsBindingError.value = error.message || '门店 PMS 配置读取失败';
+                    }
+                } finally {
+                    if (String(hotelForm.value.id || '') === scopeHotelId) {
+                        hotelPmsBindingLoading.value = false;
+                    }
+                }
+            };
+            const handleHotelPmsProviderChange = () => {
+                const provider = String(hotelForm.value.pms_provider || 'none');
+                if (!['dingdandao_pms', 'meituan_cloud_pms'].includes(provider)) {
+                    hotelForm.value.pms_provider_hotel_id = '';
+                    hotelForm.value.pms_provider_hotel_name = '';
+                    return;
+                }
+                const existing = hotelPmsBinding.value?.sources?.[provider] || {};
+                hotelForm.value.pms_provider_hotel_id = existing.provider_hotel_id || '';
+                hotelForm.value.pms_provider_hotel_name =
+                    existing.provider_hotel_name || hotelForm.value.name || '';
+            };
+            const saveHotelPmsBinding = async (hotelId) => {
+                const provider = String(hotelForm.value.pms_provider || 'none');
+                const res = await apiRequest(`/hotels/${encodeURIComponent(hotelId)}/pms-binding`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        provider,
+                        provider_hotel_id: String(
+                            hotelForm.value.pms_provider_hotel_id || ''
+                        ).trim(),
+                        provider_hotel_name: String(
+                            hotelForm.value.pms_provider_hotel_name || ''
+                        ).trim(),
+                    }),
+                });
+                if (res.code !== 200) {
+                    throw new Error(res.message || '门店 PMS 配置保存失败');
+                }
+                applyHotelPmsBinding(res.data || null);
+                return res.data || null;
+            };
+            const openSelectedHotelPmsConfiguration = () => {
+                const hotelId = String(operatingTargetForm.value.hotel_id || '').trim();
+                const hotel = operationHotelOptions.value.find(
+                    item => String(item?.id || '') === hotelId
+                );
+                if (!hotel) {
+                    showToast('请先选择有权限的门店', 'warning');
+                    return;
+                }
+                openHotelModal(hotel, { focusPms: true });
+            };
             const openHotelModal = async (hotel = null, options = {}) => {
                 if (!canManageOwnHotels()) {
                     showToast('当前账号没有门店管理权限', 'error');
                     return;
                 }
                 const operatorName = getCurrentOperatorName();
+                hotelPmsBinding.value = null;
+                hotelPmsBindingLoading.value = false;
+                hotelPmsBindingError.value = '';
                 if (hotel) {
                     // 编辑模式：复制门店数据到表单
                     const parsedDescription = parseHotelDescriptionPayload(hotel.description || '');
-                    hotelForm.value = createHotelForm({ hotel, operatorName, parsedDescription });
+                    hotelForm.value = {
+                        ...createHotelForm({ hotel, operatorName, parsedDescription }),
+                        pms_provider: 'none',
+                        pms_provider_hotel_id: '',
+                        pms_provider_hotel_name: '',
+                    };
                     hotelBackgroundProfileForm.value = {
                         ...getEmptyHotelBackgroundProfile(),
                         ...parsedDescription.profile,
@@ -38959,7 +39469,12 @@
                     hotelOtaConfigLoading.value = ctripConfigList.value.length === 0 || meituanConfigList.value.length === 0 || platformDataSources.value.length === 0;
                 } else {
                     // 新增模式：重置表单
-                    hotelForm.value = createHotelForm({ operatorName });
+                    hotelForm.value = {
+                        ...createHotelForm({ operatorName }),
+                        pms_provider: 'none',
+                        pms_provider_hotel_id: '',
+                        pms_provider_hotel_name: '',
+                    };
                     hotelBackgroundProfileForm.value = getEmptyHotelBackgroundProfile();
                     hotelOtaConfig.value = buildHotelOtaConfig('', '');
                     hotelOtaConfigLoading.value = false;
@@ -38969,6 +39484,7 @@
                 if (hotel) {
                     const modalHotelId = String(hotel.id || '');
                     const modalHotelName = hotel.name || '';
+                    loadHotelPmsBindingForModal(modalHotelId);
                     ensureHotelOtaConfigLists()
                         .then(() => {
                             if (showHotelModal.value && String(hotelForm.value.id || '') === modalHotelId) {
@@ -38986,6 +39502,14 @@
                                 hotelOtaConfigLoading.value = false;
                             }
                         });
+                    if (options.focusPms) {
+                        requestAnimationFrame(() => {
+                            document.getElementById('hotel-pms-configuration')?.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'center',
+                            });
+                        });
+                    }
                 }
             };
 
@@ -39012,6 +39536,25 @@
                     showToast('门店编码已存在，请更换', 'error');
                     return;
                 }
+                const pmsProvider = String(hotelForm.value.pms_provider || 'none');
+                if (hotelPmsBindingLoading.value) {
+                    showToast('PMS 配置仍在读取，请稍候', 'warning');
+                    return;
+                }
+                if (isEdit && hotelPmsBindingError.value) {
+                    showToast('PMS 原配置读取失败，已阻止覆盖，请先重试', 'error');
+                    return;
+                }
+                if (pmsProvider === 'conflict') {
+                    showToast('当前门店有两套 PMS 同时启用，请明确选择保留一个', 'error');
+                    return;
+                }
+                if (['dingdandao_pms', 'meituan_cloud_pms'].includes(pmsProvider)
+                    && !String(hotelForm.value.pms_provider_hotel_name || '').trim()
+                ) {
+                    showToast('请填写该 PMS 中的门店名称，用于采集验真', 'error');
+                    return;
+                }
 
                 // 构建提交数据
                 const payload = buildHotelSavePayload({
@@ -39029,12 +39572,22 @@
                 }
 
                 hotelSaving.value = true;
+                let hotelSaved = false;
+                let savedHotelId = hotelForm.value.id;
                 try {
                     const res = await request(url, { method, body: JSON.stringify(payload) });
                     if (res.code === 200) {
                         const savedHotel = res.data || {};
-                        const savedHotelId = savedHotel.id || hotelForm.value.id;
-                        showToast(isEdit ? '门店资料更新成功' : '门店创建成功', 'success');
+                        savedHotelId = savedHotel.id || hotelForm.value.id;
+                        hotelSaved = true;
+                        hotelForm.value.id = savedHotelId;
+                        await saveHotelPmsBinding(savedHotelId);
+                        showToast(
+                            isEdit
+                                ? '门店资料与唯一 PMS 配置已更新'
+                                : '门店与唯一 PMS 配置已创建',
+                            'success'
+                        );
                         showHotelModal.value = false;
                         await loadHotels({ force: true, includeInactive: true });
                         if (selectedCtripHotelId.value && String(selectedCtripHotelId.value) === String(savedHotelId)) {
@@ -39057,7 +39610,15 @@
                         }
                         return;
                     }
-                    showToast(error.message || '网络错误，请检查连接后重试', 'error');
+                    showToast(
+                        hotelSaved
+                            ? `门店资料已保存，但 PMS 配置未保存：${error.message || '请重试'}`
+                            : (error.message || '网络错误，请检查连接后重试'),
+                        hotelSaved ? 'warning' : 'error'
+                    );
+                    if (hotelSaved) {
+                        await loadHotels({ force: true, includeInactive: true });
+                    }
                     console.error('保存酒店失败:', error);
                 } finally {
                     hotelSaving.value = false;
@@ -40027,6 +40588,7 @@
                 }
                 stopAutoFetchProgressMonitor();
                 stopAutoFetchRunTimer();
+                stopAutomationMonitorPolling();
                 clearStartupHotelListLoadTimer();
                 clearPublicSystemConfigRefreshTimer();
                 clearFormOperationSupportLoadTimer();
@@ -41634,6 +42196,9 @@
             });
 
             return {
+                ctripScenarioHotelsList,
+                ctripFullChannelRoomNightSharePercent,
+                ctripFullChannelRoomNightShareInvalid,
                 aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyCurrentReadiness, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, aiSimulationRecordId, aiSimulationLoading, simulationCurrentReadiness, simulationReadinessBadgeClass, simulationReadinessMissingText,
                 simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, reuseSimulationRecord, archiveSimulationRecord,
@@ -41652,9 +42217,10 @@
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
                 operatingTargetForm, pmsHotelOptions, operatingTargetResult, operatingTargetPmsStatus, operatingTargetMeituanCloudPmsStatus, operatingTargetPmsReconciliation, operatingTargetPreview, operatingTargetHistory, operatingTargetSnapshots, operatingTargetSelectedSnapshot, operatingTargetReportGate, operatingTargetTestFirstConfirmed, operatingTargetTestResult, operatingTargetError, operatingTargetLoading,
                 operatingTargetTaskDraft, operatingTargetTaskDraftError, operatingTargetTaskDraftLoading,
+                operatingHotelPmsBinding, operatingHotelPmsBindingError, operatingHotelPmsBindingLoading, selectedOperatingPmsSource, selectedOperatingPmsCapture, selectedOperatingPmsFactGate, selectedOperatingPmsProfileText, selectedOperatingPmsMetricRows, selectedOperatingPmsDeltas,
                 dingdandaoPmsIntegration, dingdandaoPmsConfigForm, dingdandaoPmsLastAction, dingdandaoPmsError, dingdandaoPmsLoading, dingdandaoPmsPushReady, dingdandaoPmsProfileText,
                 meituanCloudPmsIntegration, meituanCloudPmsConfigForm, meituanCloudPmsError, meituanCloudPmsLoading, meituanCloudPmsFactReady, meituanCloudPmsProfileText,
-                operatingTargetStatusText, operatingTargetStatusClass, operatingTargetSourceText, operatingTargetQualityText, pmsReconciliationStatusClass, pmsReconciliationMetricClass, pmsDeltaText, pmsDeltaStatusClass, operatingTargetMetricRows, operatingTargetPmsComparisonRows, operatingTargetSnapshotMetricRows, loadOperatingTarget, loadOperatingTargetHistory, loadOperatingTargetSnapshots, loadOperatingTargetReportGate, prefillOperatingTargetFromDailyReport, prefillOperatingTargetFromDingdandao, prefillOperatingTargetFromMeituanCloud, saveOperatingTarget, createOperatingTargetTaskDraft, openOperatingTargetTaskDraft, requestOperatingTargetTestPush,
+                operatingTargetStatusText, operatingTargetStatusClass, operatingTargetSourceText, operatingTargetQualityText, pmsReconciliationStatusClass, pmsReconciliationMetricClass, pmsDeltaText, pmsDeltaStatusClass, operatingTargetMetricRows, operatingTargetPmsComparisonRows, operatingTargetPmsFactRows, operatingTargetSnapshotMetricRows, loadOperatingTarget, loadOperatingTargetHistory, loadOperatingTargetSnapshots, loadOperatingTargetReportGate, loadOperatingHotelPmsBinding, openSelectedHotelPmsConfiguration, prefillOperatingTargetFromDailyReport, prefillOperatingTargetFromDingdandao, prefillOperatingTargetFromMeituanCloud, saveOperatingTarget, createOperatingTargetTaskDraft, openOperatingTargetTaskDraft, requestOperatingTargetTestPush,
                 loadDingdandaoPmsIntegration, saveDingdandaoPmsIntegration, pushDingdandaoVerifiedCapture,
                 loadMeituanCloudPmsIntegration, saveMeituanCloudPmsIntegration,
                 manualNotificationMetadata, manualNotificationForm, manualNotificationHistory, manualNotificationDispatchHistory, manualNotificationPreview, manualNotificationEditing, manualNotificationError, manualNotificationLoading,
@@ -41663,6 +42229,10 @@
                 manualNotificationTypeLabel, manualNotificationStatusText, manualNotificationStatusClass, manualNotificationTestAllowed, handleManualNotificationAutomaticTaskClick,
                 loadManualNotificationCenter, loadManualNotificationMetadata, loadManualNotificationHistory, loadManualNotificationDispatchHistory, selectManualNotificationTemplate, selectManualNotificationContentMode, syncManualNotificationTargetRobot,
                 insertManualNotificationVariable, previewManualNotification, saveManualNotification, openManualNotificationRecord, testManualNotification, retryManualNotificationDispatch,
+                automationMonitorDate, automationMonitorStatusFilter, automationMonitor, automationMonitorLoading, automationMonitorError,
+                automationMonitorSummaryCards, automationMonitorFilteredRows,
+                automationMonitorSourceClass, automationMonitorSourceStatusText, automationMonitorSourceStatusHint, automationMonitorDataStatusClass, automationMonitorPushStatusClass,
+                openAutomationMonitorDrilldown, loadAutomationMonitor, refreshAutomationMonitor,
                 operationEvidenceModalOpen, operationEvidenceForm, closeOperationEvidenceModal, submitOperationExecutionEvidence,
                 operationReviewModalOpen, operationReviewForm, closeOperationReviewModal, submitOperationExecutionReview,
                 operationStrategyRequirementText, operationStrategyAmountRequired, operationStrategyDiscountRequired,
@@ -41772,12 +42342,12 @@
                 showDataConfigSpidertoken, showDataConfigCookie, showDataConfigPayload,
                 openDataConfigModal, saveDataConfig, testDataConfig,
                 showHotelModal, showHotelDeleteModal, hotelDeleteTarget, hotelDeleteLoading, hotelDeleteError, hotelDeleteReferences, hotelDeleteCanForce, hotelDeleteConfirmationName, showHotelMergeModal, hotelMergeForm, hotelMergePreview, hotelMergeConfirmationInput, hotelMergeLoading, hotelMergeExecuting, hotelMergeError, hotelMergeVisibleItems, hotelMergeSkippableConflictCount, hotelMergeCanExecute, hotelMergeFlowState, showUserModal, showUserLoginInfoModal, userLoginInfoTarget, userLoginInfoPassword, userLoginInfoShowPassword, userLoginInfoSaving, userLoginInfoError, showUserStatusConfirmModal, userStatusConfirmTarget, userStatusConfirmAction, userStatusConfirmLoading, userStatusConfirmError, userStatusConfirmName, userStatusConfirmTitle, userStatusConfirmDescription, userStatusConfirmPrimaryText, showUserDeleteModal, userDeleteTarget, userDeleteLoading, userDeleteError, userDeleteReferences, userDeleteCanForce, lastUserIssueGuideText, userDeleteName, userDeletePrimaryText, showPermissionModal, showHotelOtaConfig,
-                hotelForm, hotelSaving, hotelBackgroundProfileForm, hotelCodeErrorText, hotelOtaConfig, hotelOtaConfigLoading, hotelOtaConfigStatusText, userForm, userSaving,
+                hotelForm, hotelSaving, hotelPmsBinding, hotelPmsBindingLoading, hotelPmsBindingError, hotelBackgroundProfileForm, hotelCodeErrorText, hotelOtaConfig, hotelOtaConfigLoading, hotelOtaConfigStatusText, userForm, userSaving,
                 getEmptyHotelBackgroundProfile, parseHotelDescriptionPayload, buildHotelDescriptionPayload, getHotelDescriptionProfileRows, hotelFormAccountHotel,
                 filteredHotels, filteredUsers,
                 permissionUser, userPermissions,
                 handleLogin, handleLoginFieldInput, handleLoginPasswordKeyEvent, clearLoginPasswordCapsLock, scheduleLoginAutofillSync, handleLogout, openLoginSupport, loadLoginSupportContact, closeLoginSupport, handleLoginSupportKeydown, copyLoginSupportContact, showToast,
-                openHotelModal, openHotelManagementForOta, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, openHotelMergeModal, closeHotelMergeModal, invalidateHotelMergePreview, previewHotelMerge, executeHotelMerge, toggleHotelStatus,
+                openHotelModal, openHotelManagementForOta, loadHotelPmsBindingForModal, handleHotelPmsProviderChange, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, openHotelMergeModal, closeHotelMergeModal, invalidateHotelMergePreview, previewHotelMerge, executeHotelMerge, toggleHotelStatus,
                 openUserModal, openUserAuthorization, closeHotelUserAuthorization, saveHotelUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, activateUser, deactivateUser, openUserLoginInfoModal, closeUserLoginInfoModal, confirmUserLoginInfoReset, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,

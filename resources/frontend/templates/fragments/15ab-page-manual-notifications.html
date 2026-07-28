@@ -44,7 +44,7 @@
                             <div>
                                 <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">自动推送计划</p>
                                 <h2 class="mt-1 text-lg font-semibold text-slate-900">{{ manualNotificationDataScopeLabel }} · {{ manualNotificationDataStatus }}</h2>
-                                <p class="mt-1 text-sm text-slate-500">携程、美团、订单来了分别配置发送时分、循环间隔、内容分项、通知群与暂停开关。</p>
+                                <p class="mt-1 text-sm text-slate-500">携程、美团、订单来了分别配置首次发送时间、发送间隔、内容分项、通知群与暂停开关。</p>
                             </div>
                             <a href="#manual-notification-plan-config" class="shrink-0 rounded-xl bg-[#315d50] px-4 py-2.5 text-sm font-semibold text-white">进入设置</a>
                         </div>
@@ -353,7 +353,7 @@
                                          <p v-if="manualNotificationIsOperatingDaily">内容：{{ manualNotificationForm.content_sections.length }} 项（来源证据与范围边界固定附带）</p>
                                          <p>经营日期：{{ manualNotificationForm.business_date || '未取得' }}</p>
                                          <p>发送时间：{{ manualNotificationForm.trigger_type === 'interval_minutes'
-                                             ? `${manualNotificationForm.hourly_start_time || '待配置'}–${manualNotificationForm.hourly_end_time || '待配置'}，每 ${manualNotificationForm.interval_minutes || '待配置'} 分钟`
+                                             ? `从 ${manualNotificationForm.hourly_start_time || '待配置'} 起，每 ${manualNotificationForm.interval_minutes || '待配置'} 分钟`
                                              : (manualNotificationForm.planned_send_at || manualNotificationForm.trigger_type_label || '待配置') }}</p>
                                         <p>状态：{{ manualNotificationDataStatus }}</p>
                                     </div>
@@ -397,7 +397,7 @@
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
                                              <p>{{ item.trigger_type === 'interval_minutes'
-                                                 ? `${item.hourly_start_time || '待配置'}–${item.hourly_end_time || '待配置'} / 每 ${item.interval_minutes || '待配置'} 分钟`
+                                                 ? `从 ${item.hourly_start_time || '待配置'} 起 / 每 ${item.interval_minutes || '待配置'} 分钟`
                                                  : (item.planned_send_at || '待配置') }}</p>
                                             <p class="mt-1 text-xs text-slate-400">{{ item.trigger_type_label }}</p>
                                         </td>

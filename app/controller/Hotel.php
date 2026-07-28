@@ -10,6 +10,7 @@ use app\service\HotelDataMergeService;
 use app\service\HotelCascadeDeletionService;
 use app\service\PermissionService;
 use app\service\BatchStatusPreviewService;
+use app\service\HotelPmsBindingService;
 use DomainException;
 use InvalidArgumentException;
 use RuntimeException;
@@ -70,7 +71,11 @@ class Hotel extends Base
         }
 
         $total = $query->count();
-        $list = $query->page($pagination['page'], $pagination['page_size'])->select();
+        $list = $this->appendPmsSelectionSummaries(
+            $query->page($pagination['page'], $pagination['page_size'])
+                ->select()
+                ->toArray()
+        );
 
         return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
     }
@@ -213,7 +218,7 @@ class Hotel extends Base
             }
         }
 
-        $list = $query->select();
+        $list = $this->appendPmsSelectionSummaries($query->select()->toArray());
 
         return $this->success($list);
     }
@@ -248,6 +253,98 @@ class Hotel extends Base
         }
 
         return $this->success($hotel);
+    }
+
+    /**
+     * Read the single PMS selection and the selected provider's fact status.
+     */
+    public function pmsBinding(int $id): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        if (!$this->currentUser->isSuperAdmin()) {
+            $permittedHotelIds = array_values(array_map(
+                'intval',
+                $this->currentUser->getPermittedHotelIds()
+            ));
+            if (!in_array($id, $permittedHotelIds, true)) {
+                return $this->error('无权查看此酒店的 PMS 配置', 403);
+            }
+        }
+
+        try {
+            $result = (new HotelPmsBindingService())->status(
+                (int)$hotel->tenant_id,
+                $id,
+                (int)$this->currentUser->id,
+                (string)$this->request->get('target_date', '')
+            );
+            return $this->success($result);
+        } catch (InvalidArgumentException) {
+            return $this->error('PMS 门店范围或经营日期无效', 422);
+        }
+    }
+
+    /**
+     * Save exactly one active PMS for this hotel. Provider history is retained.
+     */
+    public function updatePmsBinding(int $id): Response
+    {
+        $this->checkPermission();
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店不存在', 404);
+        }
+        $authorization = (new PermissionService())->authorize(
+            $this->currentUser,
+            'hotel.update',
+            $id
+        );
+        if (empty($authorization['allowed'])
+            || !$this->currentUserCanManageHotelRecord($hotel)
+        ) {
+            return $this->error('权限不足', 403, $authorization);
+        }
+
+        $input = $this->requestData();
+        try {
+            $result = (new HotelPmsBindingService())->save(
+                (int)$hotel->tenant_id,
+                $id,
+                (int)$this->currentUser->id,
+                $input,
+                (string)($input['target_date'] ?? '')
+            );
+            OperationLog::record(
+                'hotel',
+                'pms_binding',
+                '维护门店唯一 PMS: ' . (string)$hotel->name,
+                (int)$this->currentUser->id,
+                $id,
+                null,
+                [
+                    'outcome' => 'success',
+                    'selected_provider' => $result['selected_provider'] ?? null,
+                    'binding_status' => $result['binding_status'] ?? 'unconfigured',
+                ]
+            );
+            return $this->success($result, '门店 PMS 配置已保存并回读');
+        } catch (InvalidArgumentException $error) {
+            $message = match ($error->getMessage()) {
+                'hotel_pms_provider_invalid' => '请选择有效的 PMS，或选择暂不配置',
+                'hotel_pms_binding_required' => '启用 PMS 时必须填写该系统中的门店名称',
+                default => 'PMS 门店配置无效',
+            };
+            return $this->error($message, 422);
+        } catch (\Throwable $error) {
+            $message = $error->getMessage() === 'hotel_pms_tables_missing'
+                ? 'PMS 配置表尚未安装，请先执行对应数据库迁移'
+                : 'PMS 配置保存失败，未生成成功回执';
+            return $this->error($message, 500);
+        }
     }
 
     /**
@@ -502,6 +599,38 @@ class Hotel extends Base
         }
 
         return HotelModel::where([]);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $hotels
+     * @return array<int,array<string,mixed>>
+     */
+    private function appendPmsSelectionSummaries(array $hotels): array
+    {
+        $hotelIds = array_values(array_filter(array_map(
+            static fn(array $hotel): int => (int)($hotel['id'] ?? 0),
+            $hotels
+        )));
+        try {
+            $summaries = (new HotelPmsBindingService())->selectionSummaries($hotelIds);
+        } catch (\Throwable) {
+            $summaries = [];
+        }
+
+        foreach ($hotels as &$hotel) {
+            $hotelId = (int)($hotel['id'] ?? 0);
+            $summary = $summaries[$hotelId] ?? [
+                'binding_status' => 'unavailable',
+                'selected_provider' => null,
+                'selected_provider_label' => 'PMS 状态未取得',
+            ];
+            $hotel['pms_binding_status'] = $summary['binding_status'];
+            $hotel['pms_provider'] = $summary['selected_provider'];
+            $hotel['pms_provider_label'] = $summary['selected_provider_label'];
+        }
+        unset($hotel);
+
+        return $hotels;
     }
 
     private function duplicateHotelByName(string $name, ?int $excludeId = null): ?HotelModel

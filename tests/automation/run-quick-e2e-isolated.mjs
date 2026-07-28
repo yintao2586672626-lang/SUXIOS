@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { formatHealthFailure } from './e2e-health-diagnostics.mjs';
 
 const root = process.cwd();
 const php = process.env.SUXI_PHP || 'C:\\xampp\\php\\php.exe';
@@ -229,7 +230,8 @@ async function verifyHealth(server = null) {
       if (response.ok) {
         return;
       }
-      lastError = new Error(`HTTP ${response.status}`);
+      const body = await response.json().catch(() => null);
+      lastError = new Error(formatHealthFailure(response.status, body));
     } catch (error) {
       lastError = error;
     } finally {

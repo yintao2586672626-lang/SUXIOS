@@ -566,6 +566,35 @@
                                             </button>
                                         </div>
 
+                                        <div v-if="ctripTableTab === 'sales'" class="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                                            <label class="block">
+                                                <span class="mb-1 block text-xs font-medium text-amber-900">携程间夜占全渠道比例（%）</span>
+                                                <input
+                                                    v-model="ctripFullChannelRoomNightSharePercent"
+                                                    type="number"
+                                                    min="1"
+                                                    max="100"
+                                                    step="1"
+                                                    inputmode="decimal"
+                                                    placeholder="例如 30"
+                                                    class="w-40 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                                >
+                                            </label>
+                                            <div class="min-w-[260px] flex-1 text-xs leading-5 text-amber-800">
+                                                <div class="font-medium">全渠道间夜情景推算（非平台返回）</div>
+                                                <div>携程间夜 ÷ 占比；仅展示，不写入。</div>
+                                                <div v-if="ctripFullChannelRoomNightShareInvalid" class="font-medium text-red-600">比例须大于 0 且不超过 100。</div>
+                                            </div>
+                                            <button
+                                                v-if="ctripFullChannelRoomNightSharePercent !== ''"
+                                                type="button"
+                                                class="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs text-amber-800 hover:bg-amber-100"
+                                                @click="ctripFullChannelRoomNightSharePercent = ''"
+                                            >
+                                                清除假设
+                                            </button>
+                                        </div>
+
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="overflow-x-auto table-container">
                                             <table class="min-w-full bg-white border text-sm table-striped">
@@ -580,6 +609,11 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                             <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 ÷ 用户填写的携程间夜占比；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
+                                                            全渠道间夜推算
+                                                            <span class="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700">情景</span>
+                                                            <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
@@ -601,6 +635,13 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center" :title="hotel.fullChannelRoomNightsEstimateMeta?.formulaText || '需先设置携程间夜占比'">
+                                                            <div v-if="hotel.fullChannelRoomNightsEstimate !== null &amp;&amp; hotel.fullChannelRoomNightsEstimate !== undefined" class="font-semibold text-amber-700">
+                                                                ≈ {{ formatOptionalNumber(hotel.fullChannelRoomNightsEstimate) }}
+                                                            </div>
+                                                            <div v-else class="text-xs font-medium text-amber-700">{{ hotel.fullChannelRoomNightsEstimateMeta?.displayLabel || '需设占比' }}</div>
+                                                            <div class="mt-0.5 text-[10px] text-gray-400">非平台返回</div>
+                                                        </td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
                                                                 {{ formatOptionalNumber(hotel.commentScore) }}
@@ -2000,6 +2041,35 @@
                                             </button>
                                         </div>
 
+                                        <div v-if="ctripTableTab === 'sales'" class="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                                            <label class="block">
+                                                <span class="mb-1 block text-xs font-medium text-amber-900">携程间夜占全渠道比例（%）</span>
+                                                <input
+                                                    v-model="ctripFullChannelRoomNightSharePercent"
+                                                    type="number"
+                                                    min="1"
+                                                    max="100"
+                                                    step="1"
+                                                    inputmode="decimal"
+                                                    placeholder="例如 30"
+                                                    class="w-40 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                                                >
+                                            </label>
+                                            <div class="min-w-[260px] flex-1 text-xs leading-5 text-amber-800">
+                                                <div class="font-medium">全渠道间夜情景推算（非平台返回）</div>
+                                                <div>携程间夜 ÷ 占比；仅展示，不写入。</div>
+                                                <div v-if="ctripFullChannelRoomNightShareInvalid" class="font-medium text-red-600">比例须大于 0 且不超过 100。</div>
+                                            </div>
+                                            <button
+                                                v-if="ctripFullChannelRoomNightSharePercent !== ''"
+                                                type="button"
+                                                class="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs text-amber-800 hover:bg-amber-100"
+                                                @click="ctripFullChannelRoomNightSharePercent = ''"
+                                            >
+                                                清除假设
+                                            </button>
+                                        </div>
+
                                         <!-- 销售与订单表格 -->
                                         <div v-if="ctripTableTab === 'sales'" class="overflow-x-auto table-container">
                                             <table class="min-w-full bg-white border text-sm table-striped">
@@ -2014,6 +2084,11 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                             <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预订订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
+                                                        <th class="px-3 py-2 text-center border text-xs bg-amber-50 cursor-pointer hover:bg-amber-100" title="情景推算：携程离店间夜 ÷ 用户填写的携程间夜占比；非平台返回值" @click="sortCtripTable('fullChannelRoomNightsEstimate')">
+                                                            全渠道间夜推算
+                                                            <span class="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700">情景</span>
+                                                            <span v-if="ctripSortField === 'fullChannelRoomNightsEstimate'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
@@ -2035,6 +2110,13 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center" :title="hotel.fullChannelRoomNightsEstimateMeta?.formulaText || '需先设置携程间夜占比'">
+                                                            <div v-if="hotel.fullChannelRoomNightsEstimate !== null &amp;&amp; hotel.fullChannelRoomNightsEstimate !== undefined" class="font-semibold text-amber-700">
+                                                                ≈ {{ formatOptionalNumber(hotel.fullChannelRoomNightsEstimate) }}
+                                                            </div>
+                                                            <div v-else class="text-xs font-medium text-amber-700">{{ hotel.fullChannelRoomNightsEstimateMeta?.displayLabel || '需设占比' }}</div>
+                                                            <div class="mt-0.5 text-[10px] text-gray-400">非平台返回</div>
+                                                        </td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
                                                                 {{ formatOptionalNumber(hotel.commentScore) }}

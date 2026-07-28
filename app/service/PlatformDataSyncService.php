@@ -940,9 +940,13 @@ final class PlatformDataSyncService
                     }
                 }
             }
+            $browserAssistBindingReady = $this->isOtaBrowserAssistSource($source)
+                && ($bindingEvidence['status'] ?? '') === 'operator_confirmed'
+                && ($bindingEvidence['proof'] ?? '') === 'authenticated_page_header';
             $isGenericOtaSource = $this->isOtaPlatform($platform)
                 && !$this->isOtaBrowserProfileSource($source)
-                && !$this->isOtaLocalCollectorSource($source);
+                && !$this->isOtaLocalCollectorSource($source)
+                && !$browserAssistBindingReady;
             if ($isGenericOtaSource) {
                 $validationFlags[] = 'source_ingestion_method_unverified';
                 if (($bindingEvidence['status'] ?? '') !== 'matched') {
@@ -1173,6 +1177,9 @@ final class PlatformDataSyncService
         if (!$this->isOtaPlatform($platform) || $this->isOtaBrowserProfileSource($source)) {
             return [];
         }
+        if ($this->isOtaBrowserAssistSource($source)) {
+            return $this->assertBrowserAssistPayloadBinding($source, $payload);
+        }
 
         $keys = $this->otaHotelIdentifierKeys($platform);
         $config = is_array($source['config'] ?? null)
@@ -1230,6 +1237,70 @@ final class PlatformDataSyncService
         }
 
         return ['status' => 'matched', 'proof' => 'single_self_row_identifier'];
+    }
+
+    /**
+     * Browser assist has no reusable credential or response-derived hotel id.
+     * Accept only an explicit operator-confirmed mapping from an authenticated
+     * page header, bound to the authoritative hotel and exact row date.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $payload
+     * @return array{status:string,proof:string}
+     */
+    private function assertBrowserAssistPayloadBinding(array $source, array $payload): array
+    {
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        $tenantId = (int)($source['tenant_id'] ?? 0);
+        if ($hotelId <= 0 || $tenantId <= 0) {
+            throw new RuntimeException('binding_missing', 422);
+        }
+        $hotel = Db::name('hotels')
+            ->where('id', $hotelId)
+            ->where('tenant_id', $tenantId)
+            ->field('id,name')
+            ->find();
+        if (!is_array($hotel) || trim((string)($hotel['name'] ?? '')) === '') {
+            throw new RuntimeException('binding_missing', 422);
+        }
+        $rows = $this->extractBusinessRows($payload);
+        if ($rows === []) {
+            throw new RuntimeException('binding_unverified', 422);
+        }
+        $observedNames = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)
+                || (int)($row['system_hotel_id'] ?? 0) !== $hotelId
+                || trim((string)($row['data_date'] ?? '')) === ''
+            ) {
+                throw new RuntimeException('binding_mismatch', 409);
+            }
+            $identity = is_array($row['browser_assist_identity'] ?? null)
+                ? $row['browser_assist_identity']
+                : [];
+            $confirmedAt = trim((string)($identity['confirmed_at'] ?? ''));
+            $dataDate = trim((string)$row['data_date']);
+            if ((string)($identity['status'] ?? '') !== 'operator_confirmed'
+                || (string)($identity['evidence_type'] ?? '') !== 'authenticated_page_header'
+                || (string)($identity['source_contract'] ?? '') !== 'ota_browser_assist_collection_contract.v1'
+                || (int)($identity['system_hotel_id'] ?? 0) !== $hotelId
+                || trim((string)($identity['expected_hotel_name'] ?? ''))
+                    !== trim((string)$hotel['name'])
+                || trim((string)($identity['observed_hotel_name'] ?? '')) === ''
+                || substr($confirmedAt, 0, 10) !== $dataDate
+            ) {
+                throw new RuntimeException('binding_unverified', 422);
+            }
+            $observedNames[trim((string)$identity['observed_hotel_name'])] = true;
+        }
+        if (count($observedNames) !== 1) {
+            throw new RuntimeException('binding_mismatch', 409);
+        }
+
+        return [
+            'status' => 'operator_confirmed',
+            'proof' => 'authenticated_page_header',
+        ];
     }
 
     /** @return array<int, string> */
@@ -1576,15 +1647,20 @@ final class PlatformDataSyncService
             true
         );
         $isLocalCollector = $ingestionMethod === 'local_collector';
-        $isCredentiallessSource = $isBrowserProfile || $isLocalCollector;
+        $isBrowserAssist = $ingestionMethod === 'browser_assist_dom';
+        $isCredentiallessSource = $isBrowserProfile || $isLocalCollector || $isBrowserAssist;
         if ($existing) {
             $existingMethod = strtolower(trim((string)($existing['ingestion_method'] ?? '')));
             $existingAuthorizationModel = in_array($existingMethod, ['browser_profile', 'profile_browser'], true)
                 ? 'browser_profile'
-                : ($existingMethod === 'local_collector' ? 'local_collector' : 'credential_vault');
+                : ($existingMethod === 'local_collector'
+                    ? 'local_collector'
+                    : ($existingMethod === 'browser_assist_dom' ? 'browser_assist_dom' : 'credential_vault'));
             $authorizationModel = $isBrowserProfile
                 ? 'browser_profile'
-                : ($isLocalCollector ? 'local_collector' : 'credential_vault');
+                : ($isLocalCollector
+                    ? 'local_collector'
+                    : ($isBrowserAssist ? 'browser_assist_dom' : 'credential_vault'));
             if ($existingAuthorizationModel !== $authorizationModel) {
                 throw new RuntimeException(
                     'OTA data source cannot switch authorization model in place; create a separate data source.',
@@ -1596,7 +1672,9 @@ final class PlatformDataSyncService
             throw new RuntimeException(
                 $isBrowserProfile
                     ? 'Browser Profile data source must not store reusable OTA credentials; use a separate API/manual source.'
-                    : 'Local collector data source must not store reusable OTA credentials; keep the session on the account owner device.',
+                    : ($isLocalCollector
+                        ? 'Local collector data source must not store reusable OTA credentials; keep the session on the account owner device.'
+                        : 'Browser assist data source must not store reusable OTA credentials.'),
                 422
             );
         }
@@ -1646,6 +1724,7 @@ final class PlatformDataSyncService
             $hasSecretInput,
             $isBrowserProfile,
             $isLocalCollector,
+            $isBrowserAssist,
             $safeConfig,
             $profileKey,
             $tenantId,
@@ -1715,6 +1794,16 @@ final class PlatformDataSyncService
                     'has_secret' => false,
                     'has_cookies' => false,
                     'profile_execution_policy' => 'account_owner_device_only',
+                ]);
+            } elseif ($isBrowserAssist) {
+                $config = array_merge($safeConfig, [
+                    'config_id' => $configId,
+                    'credential_usage' => 'not_required_for_browser_assist',
+                    'credential_status' => 'not_required',
+                    'status' => 'not_required',
+                    'has_secret' => false,
+                    'has_cookies' => false,
+                    'profile_execution_policy' => 'authorized_page_observation_only',
                 ]);
             } else {
                 $credential = ($hasSecretInput || !$existing)
@@ -2199,7 +2288,9 @@ final class PlatformDataSyncService
                     ? $this->fetchOtaBrowserProfileSource($adapter, $source, $options)
                     : ($this->isOtaLocalCollectorSource($source)
                         ? $this->fetchOtaLocalCollectorSource($adapter, $source, $options)
-                        : $this->fetchOtaSourceInsideVault($adapter, $source, $options));
+                        : ($this->isOtaBrowserAssistSource($source)
+                            ? $this->fetchOtaBrowserAssistSource($adapter, $source, $options)
+                            : $this->fetchOtaSourceInsideVault($adapter, $source, $options)));
             } else {
                 $result = $adapter->fetch($source, $options);
             }
@@ -2292,13 +2383,24 @@ final class PlatformDataSyncService
     public function importRows($user, array $payload): array
     {
         $sourceId = (int)($payload['data_source_id'] ?? $payload['source_id'] ?? 0);
+        $ingestionMethod = strtolower(trim((string)($payload['ingestion_method'] ?? 'manual')));
+        if (!in_array(
+            $ingestionMethod,
+            ['manual', 'import_json', 'import_csv', 'import_excel', 'browser_assist_dom'],
+            true
+        )) {
+            $ingestionMethod = 'manual';
+        }
+        if ($sourceId <= 0 && $ingestionMethod === 'browser_assist_dom') {
+            $sourceId = $this->reusableBrowserAssistSourceId($user, $payload);
+        }
         if ($sourceId <= 0) {
             $sourcePayload = [
                 'name' => $payload['name'] ?? 'Manual import',
                 'platform' => $payload['platform'] ?? 'custom',
                 'data_type' => $payload['data_type'] ?? 'business',
                 'system_hotel_id' => $payload['system_hotel_id'] ?? 0,
-                'ingestion_method' => 'manual',
+                'ingestion_method' => $ingestionMethod,
             ];
             foreach (['external_hotel_id', 'hotel_id', 'hotelId', 'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'poi_id', 'poiId', 'store_id', 'storeId'] as $bindingKey) {
                 if (array_key_exists($bindingKey, $payload) && trim((string)$payload[$bindingKey]) !== '') {
@@ -2313,6 +2415,29 @@ final class PlatformDataSyncService
             'trigger_type' => 'manual_import',
             'payload' => ['rows' => $payload['rows'] ?? $payload['data'] ?? []],
         ]);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function reusableBrowserAssistSourceId($user, array $payload): int
+    {
+        $hotelId = (int)($payload['system_hotel_id'] ?? 0);
+        $platform = strtolower(trim((string)($payload['platform'] ?? '')));
+        $dataType = strtolower(trim((string)($payload['data_type'] ?? '')));
+        if ($hotelId <= 0
+            || !in_array($platform, ['ctrip', 'meituan'], true)
+            || $dataType === ''
+        ) {
+            return 0;
+        }
+        $query = Db::name('platform_data_sources')
+            ->withoutField('secret_json')
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('data_type', $dataType)
+            ->where('ingestion_method', 'browser_assist_dom')
+            ->where('enabled', 1);
+        $this->applySourceTenantScope($query, $user);
+        return max(0, (int)($query->order('id', 'desc')->value('id') ?? 0));
     }
 
     /**
@@ -3605,6 +3730,30 @@ final class PlatformDataSyncService
     }
 
     /**
+     * Browser-assist imports contain already-observed, bounded page facts.
+     * They may use the manual-import adapter but never decrypt, inject or store
+     * an OTA credential.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function fetchOtaBrowserAssistSource(
+        DataSourceAdapter $adapter,
+        array $source,
+        array $options
+    ): array {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $this->assertNoInlineOtaCredentialOptions($options, $platform);
+        $executionSource = $source;
+        unset($executionSource['secret'], $executionSource['secret_json']);
+        return $this->sanitizeAdapterResultForCredentialBoundary(
+            $adapter->fetch($executionSource, $options),
+            []
+        );
+    }
+
+    /**
      * Browser Profile collection reuses the authorized local browser session.
      * It must never decrypt or inject a reusable Cookie/API credential.
      *
@@ -3846,13 +3995,25 @@ final class PlatformDataSyncService
     {
         foreach ($options as $key => $value) {
             $key = (string)$key;
+            $normalizedKey = strtolower($key);
             if ($this->isSensitiveConfigKey($key) && $this->credentialPayloadHasValue($value)) {
                 throw new RuntimeException('Inline OTA credentials are not allowed for data source sync.', 422);
             }
-            if (str_contains(strtolower($key), 'url')) {
+            if (in_array(
+                $normalizedKey,
+                ['source_url_hash', '_source_url_hash', 'url_hash', '_url_hash'],
+                true
+            )) {
+                if ($value !== null
+                    && $value !== ''
+                    && (!is_string($value) || preg_match('/^[a-f0-9]{64}$/D', strtolower($value)) !== 1)
+                ) {
+                    throw new RuntimeException('OTA source URL hash is invalid.', 422);
+                }
+            } elseif (str_contains($normalizedKey, 'url')) {
                 $this->assertOtaMetadataUrlsAreSafe($value, $platform);
             }
-            if (strtolower($key) === 'headers' && is_string($value)
+            if ($normalizedKey === 'headers' && is_string($value)
                 && preg_match('/(?:^|\r?\n)\s*(?:cookie|authorization|x-api-key|token)\s*:/i', $value) === 1
             ) {
                 throw new RuntimeException('Inline OTA credentials are not allowed for data source sync.', 422);
@@ -4302,6 +4463,18 @@ final class PlatformDataSyncService
 
         return in_array($platform, ['ctrip', 'meituan'], true)
             && $method === 'local_collector';
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function isOtaBrowserAssistSource(array $source): bool
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+
+        return in_array($platform, ['ctrip', 'meituan'], true)
+            && $method === 'browser_assist_dom';
     }
 
     private function refreshDatabaseConnectionAfterExternalFetch(): void

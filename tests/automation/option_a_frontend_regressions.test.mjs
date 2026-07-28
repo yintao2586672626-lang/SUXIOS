@@ -24,7 +24,7 @@ const sliceBetween = (source, startText, endText) => {
   return end > start ? source.slice(start, end) : source.slice(start);
 };
 
-test('Ctrip display and export omit the unsupported estimate and preserve real zeroes', () => {
+test('Ctrip display removes the legacy estimate and builds an explicit full-channel scenario', () => {
   const api = loadWindowApi(ctripStaticSource, 'SUXI_CTRIP_STATIC', 'public/ctrip-static.js');
   const display = api.buildTruthfulCtripDisplayModel([
     { hotelId: 'A', quantity: 0, bookOrderNum: 0, aiEstimatedTotalRoomNights: 12 },
@@ -40,8 +40,25 @@ test('Ctrip display and export omit the unsupported estimate and preserve real z
   assert.equal(Object.hasOwn(display.rows[0], 'aiEstimatedTotalRoomNights'), false);
   assert.equal(Object.hasOwn(display.summary.metrics, 'aiEstimatedTotalRoomNights'), false);
   assert.deepEqual(Array.from(display.summary.cards, card => card.key), ['totalAmount']);
+  const missingShareScenario = api.buildCtripFullChannelRoomNightScenario({ quantity: 54 }, '');
+  assert.equal(missingShareScenario.value, null);
+  assert.equal(missingShareScenario.status, 'share_required');
+  assert.equal(missingShareScenario.displayLabel, '需设占比');
+  assert.equal(missingShareScenario.formulaText, '携程离店间夜 ÷ 携程间夜占全渠道比例');
+  assert.equal(missingShareScenario.sourceLabel, '情景推算，非平台返回');
+  assert.equal(api.buildCtripFullChannelRoomNightScenario({ quantity: 54 }, 30).value, 180);
+  assert.equal(api.buildCtripFullChannelRoomNightScenario({ quantity: 0 }, 30).value, 0);
+  assert.equal(api.buildCtripFullChannelRoomNightScenario({
+    quantity: 0,
+    metricSourceStatus: { quantity: '系统未返回' },
+  }, 30).value, null);
+  const scenarioRow = api.attachCtripFullChannelRoomNightScenario({ hotelId: 'A', quantity: 54 }, 30);
+  assert.equal(scenarioRow.fullChannelRoomNightsEstimate, 180);
+  assert.equal(scenarioRow.fullChannelRoomNightsEstimateMeta.status, 'scenario_estimate');
   assert.doesNotMatch(appMain, /ctripStableEstimateRatio|ctripAiEstimatedRoomNights|全渠道AI预计总间夜数/);
   assert.doesNotMatch(ctripStaticSource, /field === 'aiEstimatedTotalRoomNights'/);
+  assert.match(appMain, /全渠道间夜推算（情景）/);
+  assert.match(appMain, /fullChannelRoomNightText/);
 
   const downloadTable = sliceBetween(appMain, 'const ctripDownloadRows', 'const buildCtripBusinessCanvas');
   for (const field of ['quantity', 'bookOrderNum', 'commentScore', 'qunarCommentScore']) {
@@ -51,7 +68,11 @@ test('Ctrip display and export omit the unsupported estimate and preserve real z
   assert.match(downloadTable, /value === null \|\| value === undefined \|\| value === '' \? '-' : `\$\{value\}%`/);
 });
 
-test('Ctrip templates omit the unsupported estimate column', () => {
+test('Ctrip templates expose the bounded full-channel room-night scenario', () => {
+  assert.match(appTemplate, /携程间夜占全渠道比例（%）/);
+  assert.match(appTemplate, /全渠道间夜推算/);
+  assert.match(appTemplate, /情景推算（非平台返回）/);
+  assert.match(appTemplate, /v-model="ctripFullChannelRoomNightSharePercent"/);
   assert.doesNotMatch(appTemplate, /全渠道AI预计总间夜数|aiEstimatedTotalRoomNights|ai_estimated_total_room_nights/);
 });
 

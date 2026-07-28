@@ -76,7 +76,7 @@ final class ManualNotificationScheduleRuleServiceTest extends TestCase
         ));
     }
 
-    public function testMinuteIntervalUsesConfiguredStartMinuteAndCadence(): void
+    public function testMinuteIntervalUsesConfiguredStartMinuteAndSystemDayEnd(): void
     {
         $service = new ManualNotificationScheduleRuleService();
         $row = [
@@ -103,6 +103,10 @@ final class ManualNotificationScheduleRuleServiceTest extends TestCase
         self::assertSame('2026-07-29 11:15:00', $service->nextRunAt(
             $row,
             new DateTimeImmutable('2026-07-29 10:46:00', $timezone)
+        ));
+        self::assertSame('2026-07-29 12:15:00', $service->nextRunAt(
+            $row,
+            new DateTimeImmutable('2026-07-29 11:50:00', $timezone)
         ));
     }
 }

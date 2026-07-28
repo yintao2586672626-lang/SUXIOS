@@ -1,0 +1,152 @@
+<div v-if="currentPage === 'automation-monitor'" class="suxi-dashboard-scope mx-auto max-w-[1500px] space-y-3" data-testid="automation-run-monitor-page">
+    <section class="overflow-hidden rounded-2xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] px-5 py-4 shadow-sm sm:px-6">
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">运营自动化中心 · 第 3 步</p>
+                    <h2 class="text-xl font-semibold text-slate-900">今日数据与推送监控</h2>
+                </div>
+                <p class="mt-1.5 max-w-5xl text-sm leading-6 text-slate-600">仅监测当前账号有权限且已绑定启用企业微信机器人的门店；每店只显示一个主 PMS，未绑定机器人门店不进入监控名单。携程、美团、主 PMS 与企业微信回执按同日事实分别核验。</p>
+                <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <span>最近核验：{{ automationMonitor.observed_at || '尚未取得' }}（北京时间）</span>
+                    <span>每 {{ automationMonitor.refresh_interval_seconds || 60 }} 秒准实时刷新</span>
+                    <span>计划启用不等于消息已送达</span>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-end gap-2">
+                <label>
+                    <span class="mb-1 block text-xs text-slate-500">数据日期</span>
+                    <input v-model="automationMonitorDate" data-testid="automation-monitor-date" type="date" class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800">
+                </label>
+                <button type="button" data-testid="automation-monitor-refresh" @click="refreshAutomationMonitor" :disabled="automationMonitorLoading" class="rounded-xl bg-[#315d50] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#274c42] disabled:cursor-wait disabled:opacity-60">
+                    <i :class="[automationMonitorLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i>{{ automationMonitorLoading ? '读取中...' : '立即刷新' }}
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <section class="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6" data-testid="automation-monitor-summary">
+        <button
+            v-for="card in automationMonitorSummaryCards"
+            :key="card.key"
+            type="button"
+            :data-testid="`automation-monitor-summary-${card.key}`"
+            :aria-pressed="automationMonitorStatusFilter === card.filter ? 'true' : 'false'"
+            :aria-label="`筛选${card.label}，${card.value}家`"
+            @click="automationMonitorStatusFilter = card.filter"
+            :class="[
+                'group rounded-xl border px-4 py-3 text-left shadow-sm transition duration-150 focus:outline-none focus:ring-2 focus:ring-[#315d50]/40',
+                card.tone,
+                automationMonitorStatusFilter === card.filter
+                    ? 'ring-2 ring-[#315d50]/50'
+                    : 'hover:-translate-y-0.5 hover:shadow-md'
+            ]"
+        >
+            <p class="text-xs font-medium opacity-75">{{ card.label }}</p>
+            <p class="mt-2 text-2xl font-semibold tabular-nums">{{ card.value }}</p>
+        </button>
+    </section>
+
+    <p v-if="automationMonitorError" data-testid="automation-monitor-error" class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ automationMonitorError }}</p>
+
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="automation-monitor-table-section">
+        <header class="flex flex-col gap-2 border-b border-slate-200 bg-[#f7f9f8] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <h3 class="font-semibold text-slate-900">门店运行状态</h3>
+                <p class="mt-1 text-xs leading-5 text-slate-500">{{ automationMonitor.message || '正在读取各门店同日期数据与推送证据。' }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-600">显示 {{ automationMonitorFilteredRows.length }} 家</span>
+                <span class="font-medium text-[#315d50]">点击门店、来源或推送状态直接查看对应页面</span>
+            </div>
+        </header>
+
+        <div v-if="automationMonitorLoading &amp;&amp; !(automationMonitor.rows || []).length" class="px-6 py-14 text-center text-sm text-slate-500">
+            <i class="fas fa-spinner fa-spin mr-2"></i>正在核验门店数据与推送状态...
+        </div>
+        <div v-else-if="automationMonitorFilteredRows.length" class="overflow-x-auto">
+            <table class="min-w-[1280px] w-full table-fixed text-left text-sm" data-testid="automation-monitor-table">
+                <colgroup>
+                    <col class="w-[170px]">
+                    <col class="w-[125px]">
+                    <col class="w-[125px]">
+                    <col class="w-[175px]">
+                    <col class="w-[175px]">
+                    <col class="w-[195px]">
+                    <col class="w-[175px]">
+                    <col>
+                </colgroup>
+                <thead class="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+                    <tr>
+                        <th class="px-4 py-3">门店</th>
+                        <th class="px-3 py-3">携程</th>
+                        <th class="px-3 py-3">美团</th>
+                        <th class="px-3 py-3">主 PMS 来源</th>
+                        <th class="px-3 py-3">数据日期 / 数据状态</th>
+                        <th class="px-3 py-3">预计下次推送</th>
+                        <th class="px-3 py-3">推送结果</th>
+                        <th class="px-3 py-3">阻断原因</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <tr
+                        v-for="row in automationMonitorFilteredRows"
+                        :key="row.hotel_id"
+                        class="align-top transition-colors hover:bg-slate-50/80 focus-within:bg-slate-50/80"
+                    >
+                        <td class="px-4 py-4">
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'hotel')" class="block w-full rounded-lg text-left hover:text-[#315d50]">
+                                <span class="block font-semibold text-slate-900">{{ row.hotel_name }} <i class="fas fa-arrow-right ml-1 text-[10px] text-[#315d50]" aria-hidden="true"></i></span>
+                                <span class="mt-1 block text-xs text-slate-400">门店 #{{ row.hotel_id }}</span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" :title="automationMonitorSourceStatusHint(row.ctrip)" @click="openAutomationMonitorDrilldown(row, 'ctrip')" class="rounded-full">
+                                <span :class="['inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorSourceClass(row.ctrip)]">{{ automationMonitorSourceStatusText(row.ctrip) }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" :title="automationMonitorSourceStatusHint(row.meituan)" @click="openAutomationMonitorDrilldown(row, 'meituan')" class="rounded-full">
+                                <span :class="['inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorSourceClass(row.meituan)]">{{ automationMonitorSourceStatusText(row.meituan) }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" :title="automationMonitorSourceStatusHint(row.pms)" @click="openAutomationMonitorDrilldown(row, 'pms')" class="block w-full rounded-lg text-left">
+                                <span class="block font-medium text-slate-900">{{ row.pms?.label || '未绑定 PMS' }} <i class="fas fa-arrow-right ml-1 text-[9px] text-[#315d50]" aria-hidden="true"></i></span>
+                                <span :class="['mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs', automationMonitorSourceClass(row.pms)]">{{ automationMonitorSourceStatusText(row.pms) }}</span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <p class="font-medium tabular-nums text-slate-700">{{ row.business_date || '未取得' }}</p>
+                            <span :class="['mt-1.5 inline-flex rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorDataStatusClass(row.data_status)]">{{ row.data_status_label || '待核验' }}</span>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'wechat')" class="block w-full rounded-lg text-left">
+                                <span class="block font-medium tabular-nums text-slate-800">{{ row.next_push_label || '预计时间未取得' }} <i class="fas fa-arrow-right ml-1 text-[9px] text-[#315d50]" aria-hidden="true"></i></span>
+                                <span class="mt-1 block text-xs text-slate-400">云端调度回读</span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'wechat')" class="rounded-lg text-left">
+                                <span :class="['inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorPushStatusClass(row.push_status)]">{{ row.push_result || '尚无执行回执' }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                                <span v-if="row.push_result_at" class="mt-1 block text-xs tabular-nums text-slate-400">{{ row.push_result_at }}</span>
+                            </button>
+                        </td>
+                        <td class="px-3 py-4">
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'tasks')" class="block w-full rounded-lg text-left" title="查看任务执行与复盘">
+                                <span :class="row.blocker_reason === '无' ? 'text-emerald-700' : 'text-red-700'" class="line-clamp-3 text-xs leading-5">{{ row.blocker_reason || '未取得' }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                            </button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div v-else class="px-6 py-14 text-center">
+            <p class="text-sm font-medium text-slate-700">{{ automationMonitorStatusFilter === 'all' ? '当前没有已绑定企业微信机器人的可监控门店' : '当前筛选下没有门店记录' }}</p>
+            <p class="mt-2 text-xs text-slate-400">{{ automationMonitorStatusFilter === 'all' ? '请先在企业微信推送中为门店绑定并启用机器人。' : '可点击上方其他统计卡或状态筛选查看。' }}</p>
+        </div>
+        <footer class="border-t border-slate-100 bg-[#fbfcfb] px-4 py-3 text-xs leading-5 text-slate-500">
+            数据成功必须满足同门店、同日期、保存与数据库回读；推送成功必须取得企业微信送达回执。缺数据、绑定冲突、日期不一致或结果未知都会保留为待处理状态，不使用 0、旧数据或计划状态补成成功。
+        </footer>
+    </section>
+</div>

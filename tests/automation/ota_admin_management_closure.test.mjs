@@ -101,7 +101,7 @@ test('employee and hotel saves are single-flight and expose progress in their mo
   assert.match(saveUser, /await loadUsers\(\);/);
   assert.match(saveUser, /finally \{\s*userSaving\.value = false;/);
   assert.match(html, /:disabled="userSaving"/);
-  assert.match(html, /:disabled="hotelSaving"/);
+  assert.match(html, /:disabled="hotelSaving \|\| hotelPmsBindingLoading"/);
 });
 
 test('new hotel code and status are controlled by the server', () => {
@@ -110,7 +110,7 @@ test('new hotel code and status are controlled by the server', () => {
 
   assert.match(hotelModal, /编号自动生成，创建后默认营业/);
   assert.match(hotelModal, /<div v-if="hotelForm\.id">\s*<label[^>]*>门店编号<\/label>[\s\S]*readonly=""/);
-  assert.match(hotelModal, /<div v-if="hotelForm\.id">\s*<label[^>]*>门店状态<\/label>/);
+  assert.doesNotMatch(hotelModal, /v-model="hotelForm\.status"|门店状态|历史停用/);
   assert.doesNotMatch(hotelModal, /默认按录入顺序生成，可手动调整/);
   assert.match(saveHotel, /if \(!isEdit\) \{\s*delete payload\.code;\s*delete payload\.status;/);
   assert.match(hotelController, /\$hotel->code = null;/);

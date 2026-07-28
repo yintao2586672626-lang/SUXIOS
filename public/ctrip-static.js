@@ -2725,6 +2725,61 @@ window.SUXI_CTRIP_STATIC = (() => {
         return result;
     };
 
+    const normalizeCtripRoomNightSharePercent = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const percent = Number(value);
+        return Number.isFinite(percent) && percent > 0 && percent <= 100 ? percent : null;
+    };
+
+    const buildCtripFullChannelRoomNightScenario = (row = {}, sharePercent = null) => {
+        const normalizedSharePercent = normalizeCtripRoomNightSharePercent(sharePercent);
+        if (normalizedSharePercent === null) {
+            return {
+                value: null,
+                status: 'share_required',
+                displayLabel: '需设占比',
+                formulaText: '携程离店间夜 ÷ 携程间夜占全渠道比例',
+                sourceLabel: '情景推算，非平台返回',
+            };
+        }
+
+        const quantityStatus = String(row?.metricSourceStatus?.quantity || '').trim();
+        const quantityMissing = row?.quantity === null
+            || row?.quantity === undefined
+            || row?.quantity === ''
+            || /未返回|missing|unavailable|failed|unknown/i.test(quantityStatus);
+        const ctripRoomNights = Number(row?.quantity);
+        if (quantityMissing || !Number.isFinite(ctripRoomNights) || ctripRoomNights < 0) {
+            return {
+                value: null,
+                status: 'ctrip_room_nights_missing',
+                displayLabel: '携程间夜缺失',
+                sharePercent: normalizedSharePercent,
+                formulaText: '携程离店间夜 ÷ 携程间夜占全渠道比例',
+                sourceLabel: '情景推算，非平台返回',
+            };
+        }
+
+        return {
+            value: Math.round(ctripRoomNights / (normalizedSharePercent / 100)),
+            status: 'scenario_estimate',
+            displayLabel: '情景推算',
+            sharePercent: normalizedSharePercent,
+            ctripRoomNights,
+            formulaText: `携程离店间夜 ${ctripRoomNights} ÷ ${normalizedSharePercent}%`,
+            sourceLabel: '情景推算，非平台返回',
+        };
+    };
+
+    const attachCtripFullChannelRoomNightScenario = (row = {}, sharePercent = null) => {
+        const estimate = buildCtripFullChannelRoomNightScenario(row, sharePercent);
+        return {
+            ...(row && typeof row === 'object' ? row : {}),
+            fullChannelRoomNightsEstimate: estimate.value,
+            fullChannelRoomNightsEstimateMeta: estimate,
+        };
+    };
+
     const buildTruthfulCtripDisplayModel = (rows = [], summary = null) => {
         const displayRows = Array.isArray(rows) ? rows.map(omitUnsupportedCtripEstimate) : [];
         if (!summary || typeof summary !== 'object') {
@@ -2756,6 +2811,11 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (field === 'ari') return row.ari || 0;
         if (field === 'sci') return row.sci || 0;
         if (field === 'bookOrderNum') return row.bookOrderNum || 0;
+        if (field === 'fullChannelRoomNightsEstimate') {
+            return Number.isFinite(Number(row.fullChannelRoomNightsEstimate))
+                ? Number(row.fullChannelRoomNightsEstimate)
+                : Number.NEGATIVE_INFINITY;
+        }
         if (field === 'totalOrderNum') return row.totalOrderNum || 0;
         if (field === 'commentScore') return row.commentScore || 0;
         if (field === 'qunarCommentScore') return row.qunarCommentScore || 0;
@@ -3534,6 +3594,9 @@ window.SUXI_CTRIP_STATIC = (() => {
         runCtripFetchDataFlow,
         buildLatestCtripSnapshotModel,
         buildTruthfulCtripDisplayModel,
+        normalizeCtripRoomNightSharePercent,
+        buildCtripFullChannelRoomNightScenario,
+        attachCtripFullChannelRoomNightScenario,
         isCtripLatestRequestCurrent,
         buildCtripTrafficFetchRequestBody,
         buildCtripTrafficResponseModel,

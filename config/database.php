@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 $e2eDatabaseOverride = trim((string)getenv('SUXI_E2E_DB_OVERRIDE')) === '1';
 $e2eDatabaseName = trim((string)getenv('SUXI_E2E_DB_NAME'));

@@ -1039,6 +1039,46 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertTrue($facts['list_exposure']['stored_value_present'] ?? false);
     }
 
+    public function testOperatorConfirmedBrowserAssistBindingIsNotMarkedGenericUnverified(): void
+    {
+        $service = new PlatformDataSyncService();
+        $rows = $service->normalizeRowsFromPayload([
+            '_ota_binding_evidence' => [
+                'status' => 'operator_confirmed',
+                'proof' => 'authenticated_page_header',
+            ],
+            'rows' => [[
+                'data_date' => '2026-07-29',
+                'data_type' => 'business',
+                'amount' => 2026.78,
+                'quantity' => 2,
+                'book_order_num' => 1,
+                'dimension' => 'intraday:business',
+                'compare_type' => 'self',
+                'is_self' => true,
+            ]],
+        ], [
+            'id' => 68,
+            'name' => 'Meituan browser assist fixture',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 80,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_assist_dom',
+        ], 340);
+
+        self::assertCount(1, $rows);
+        self::assertSame('normal', $rows[0]['validation_status']);
+        self::assertNotContains(
+            'source_ingestion_method_unverified',
+            json_decode($rows[0]['validation_flags'], true)
+        );
+        self::assertNotContains(
+            'hotel_binding_unverified',
+            json_decode($rows[0]['validation_flags'], true)
+        );
+    }
+
     public function testOrderPersistenceIdentityIsDistinctPerOrderAndStableAcrossRetries(): void
     {
         $service = new PlatformDataSyncService();

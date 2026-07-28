@@ -12,11 +12,14 @@ const systemStatic = read('public/system-static.js');
 const userAdminStatic = read('public/user-admin-static.js');
 const userAdminStaticHash = createHash('sha256').update(userAdminStatic).digest('hex').slice(0, 10);
 const indexHtml = readFrontendContractSource();
+const hotelManagementTemplate = read('resources/frontend/templates/fragments/18-page-hotels.html');
+const hotelDialogTemplate = read('resources/frontend/templates/fragments/40-dialog-hotel.html');
 const hotelAccountSummary = indexHtml.slice(
   indexHtml.indexOf('data-testid="hotel-account-summary-table"'),
   indexHtml.indexOf('<!-- 空状态 -->', indexHtml.indexOf('data-testid="hotel-account-summary-table"'))
 );
 const hotelController = read('app/controller/Hotel.php');
+const hotelPmsBindingService = read('app/service/HotelPmsBindingService.php');
 const userModel = read('app/model/User.php');
 const roleModel = read('app/model/Role.php');
 const userController = read('app/controller/User.php');
@@ -235,9 +238,17 @@ assert.match(indexHtml, /账号待补只统计已勾选的适用渠道；未勾�
 assert.match(indexHtml, /const todo = activeHotels\.filter\(h => hotelAccountHealthKey\(h\) === 'todo'\)\.length;/, 'todo count should only reflect account collection readiness');
 assert.match(indexHtml, /适用平台（可多选）[\s\S]*hotelFormChannelSelected\('ctrip'\)[\s\S]*toggleHotelFormChannel\('ctrip'\)[\s\S]*携程[\s\S]*hotelFormChannelSelected\('meituan'\)[\s\S]*toggleHotelFormChannel\('meituan'\)[\s\S]*美团/, 'hotel form must expose independently selectable platforms');
 assert.match(indexHtml, /保存后只检查已选平台，不会自动采集。/, 'hotel form must explain saved applicability separately from verified platform state');
-assert.equal((indexHtml.match(/data-testid="hotel-ota-applicability"/g) || []).length, 2, 'desktop and mobile hotel lists must echo the saved OTA applicability');
-assert.equal((indexHtml.match(/@click="openHotelModal\(hotel\)"[^>]*data-testid="hotel-ota-applicability"/g) || []).length, 2, 'desktop and mobile applicability badges must open hotel editing');
-assert.match(indexHtml, /hotelOtaApplicabilityBadgeText\(hotel\)/, 'hotel list must expose saved applicability or a compact review candidate');
+assert.equal((hotelManagementTemplate.match(/data-testid="hotel-pms-selection"/g) || []).length, 2, 'desktop and mobile hotel lists must echo the selected PMS');
+assert.equal((hotelManagementTemplate.match(/@click="openHotelModal\(hotel\)"[^>]*data-testid="hotel-pms-selection"/g) || []).length, 2, 'desktop and mobile PMS badges must open hotel editing');
+assert.match(hotelManagementTemplate, /\{\{ hotel\.pms_provider_label \|\| 'PMS 状态未取得' \}\}/, 'hotel list must show the selected PMS without falling back to OTA applicability');
+assert.doesNotMatch(hotelManagementTemplate, /data-testid="hotel-ota-applicability"/, 'hotel identity must not present OTA applicability as the PMS choice');
+assert.doesNotMatch(hotelManagementTemplate, /@click="toggleHotelStatus\(hotel\)"/, 'hotel rows must not expose the temporary enable or disable action');
+assert.doesNotMatch(hotelManagementTemplate, /filterHotelStatus = '0'/, 'hotel management must not expose a disabled-store filter');
+assert.doesNotMatch(hotelManagementTemplate, /data-testid="hotel-batch-actions"|batchUpdateHotelStatus|selectedHotelIds/, 'hotel management must not expose batch status controls');
+assert.doesNotMatch(hotelManagementTemplate, /deactivateHotelDeleteTarget|停用酒店/, 'hotel deletion must not offer a stop-store alternative');
+assert.doesNotMatch(hotelDialogTemplate, /hotelForm\.status|门店状态|历史停用/, 'hotel editing must not expose the retired store-status control or summary');
+assert.match(hotelController, /appendPmsSelectionSummaries[\s\S]*pms_provider_label/, 'hotel list responses must include the selected PMS summary');
+assert.match(hotelPmsBindingService, /function selectionSummaries[\s\S]*订单来了 PMS[\s\S]*美团云 PMS/, 'PMS summaries must be loaded in one batched service call');
 assert.match(indexHtml, /none: '未选渠道'[\s\S]*ctrip_only: '仅携程'[\s\S]*dual: '携程 \+ 美团'[\s\S]*meituan_only: '仅美团'/, 'applicability labels must describe exact selected platforms');
 assert.match(indexHtml, /if \(key === 'strategy-review'\)[\s\S]*hotelOtaStrategyReview\(hotel\)\.visible/, 'hotel filters must isolate channel-strategy review candidates');
 assert.match(indexHtml, /strategyReview: count\('strategy-review'\)/, 'problem queue must count strategy review candidates');

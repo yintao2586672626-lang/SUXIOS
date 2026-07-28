@@ -4,6 +4,7 @@ declare(strict_types=1);
 use app\model\Role;
 use app\model\SystemConfig;
 use app\service\HotelCascadeDeletionService;
+use app\service\SchemaVersionService;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
@@ -87,6 +88,7 @@ function e2eAssertSchemaReady(): array
             'source', 'data_type', 'dimension',
             'readback_verified', 'readback_verified_at',
         ],
+        'competitor_price_log' => ['report_fingerprint'],
     ];
     $missing = [];
     foreach ($requiredColumns as $table => $columns) {
@@ -104,9 +106,35 @@ function e2eAssertSchemaReady(): array
         );
     }
 
+    $defaultConnection = (string)Config::get('database.default', 'mysql');
+    $connectionConfig = (array)Config::get('database.connections.' . $defaultConnection, []);
+    $schemaStatus = SchemaVersionService::fromDatabaseConfig(
+        $connectionConfig,
+        dirname(__DIR__, 2)
+    )->status();
+    if (($schemaStatus['ready'] ?? false) !== true) {
+        throw new RuntimeException(sprintf(
+            'Isolated E2E database migration catalog is stale: current=%s, required=%s, pending=%d; run php think db:migrate against this dedicated test database',
+            (string)($schemaStatus['current_version'] ?? 'none'),
+            (string)($schemaStatus['required_version'] ?? 'unknown'),
+            count((array)($schemaStatus['pending'] ?? []))
+        ));
+    }
+
+    $idempotencyIndexes = Db::query(
+        "SHOW INDEX FROM `competitor_price_log` WHERE `Key_name` = 'uniq_competitor_report_fingerprint'"
+    );
+    if (count($idempotencyIndexes) !== 1
+        || (int)($idempotencyIndexes[0]['Non_unique'] ?? $idempotencyIndexes[0]['non_unique'] ?? 1) !== 0
+        || (string)($idempotencyIndexes[0]['Column_name'] ?? $idempotencyIndexes[0]['column_name'] ?? '') !== 'report_fingerprint') {
+        throw new RuntimeException(
+            'Isolated E2E database schema is missing the competitor report idempotency index; run php think db:migrate against this dedicated test database'
+        );
+    }
+
     return [
         'schema_ready' => true,
-        'schema_contract' => 'e2e-core-v1',
+        'schema_contract' => 'e2e-runtime-readiness-v2',
     ];
 }
 

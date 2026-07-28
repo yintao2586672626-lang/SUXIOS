@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const root = new URL('../../', import.meta.url);
 const source = async (path) => readFile(new URL(path, root), 'utf8');
 
-test('Meituan Cloud PMS is an independent real PMS source with save/readback UI', async () => {
+test('Meituan Cloud PMS remains an independent source but hotel management owns the single active PMS', async () => {
   const [
     routes,
     controller,
@@ -21,6 +21,9 @@ test('Meituan Cloud PMS is an independent real PMS source with save/readback UI'
     profileService,
     gateway,
     reconciliationReference,
+    hotelDialog,
+    hotelPmsBindingService,
+    hotelController,
   ] = await Promise.all([
     source('route/app.php'),
     source('app/controller/OperatingTarget.php'),
@@ -36,11 +39,16 @@ test('Meituan Cloud PMS is an independent real PMS source with save/readback UI'
     source('app/service/CloudBrowserProfileService.php'),
     source('deploy/remote-browser/cloud_browser_gateway.mjs'),
     source('docs/pms-independent-source-reconciliation.md'),
+    source('resources/frontend/templates/fragments/40-dialog-hotel.html'),
+    source('app/service/HotelPmsBindingService.php'),
+    source('app/controller/Hotel.php'),
   ]);
 
   assert.match(routes, /\/pms\/meituan-cloud\/integration/);
   assert.match(routes, /\/pms\/meituan-cloud\/captures/);
   assert.match(routes, /\/prefill\/meituan-cloud/);
+  assert.match(routes, /\/:id\/pms-binding', 'Hotel\/pmsBinding'/);
+  assert.match(routes, /\/:id\/pms-binding', 'Hotel\/updatePmsBinding'/);
   assert.match(controller, /saveMeituanCloudIntegration/);
   assert.match(controller, /saveMeituanCloudCapture/);
   assert.match(controller, /prefillMeituanCloud/);
@@ -72,20 +80,38 @@ test('Meituan Cloud PMS is an independent real PMS source with save/readback UI'
   );
 
   assert.doesNotMatch(targetTemplate, /data-testid="meituan-cloud-pms-integration"/);
-  assert.match(pmsTemplate, /独立真实 PMS 数据源/);
-  assert.match(pmsTemplate, /data-testid="pms-unified-reconciliation"/);
-  assert.match(pmsTemplate, /data-testid="pms-source-snapshot-deltas"/);
-  assert.match(pmsTemplate, /同源相邻快照/);
+  assert.match(pmsTemplate, /data-testid="pms-selected-source"/);
+  assert.match(
+    pmsTemplate,
+    /data-testid="pms-operating-data-load"[^>]+bg-blue-600[^>]+hover:bg-blue-700/,
+  );
+  assert.doesNotMatch(pmsTemplate, /data-testid="pms-operating-data-load"[^>]+bg-\[#315d50\]/);
+  assert.doesNotMatch(
+    pmsTemplate,
+    /选择门店后，读取该门店在“门店管理”中配置的唯一 PMS 及目标经营日事实/,
+  );
+  assert.match(pmsTemplate, /当前门店唯一 PMS/);
+  assert.match(pmsTemplate, /data-testid="pms-selected-source-deltas"/);
+  assert.match(pmsTemplate, /同一 PMS 的相邻快照差值/);
   assert.match(pmsTemplate, /净拾取不等于毛预订/);
   assert.match(targetTemplate, /data-testid="operating-target-prefill-meituan-cloud"/);
-  assert.match(pmsTemplate, /不用0、历史记录、OTA或另一家PMS替代/);
-  assert.match(pmsTemplate, /data-testid="meituan-cloud-pms-integration"/);
-  assert.match(app, /loadMeituanCloudPmsIntegration/);
-  assert.match(app, /saveMeituanCloudPmsIntegration/);
+  assert.match(pmsTemplate, /不会使用另一套 PMS、OTA 数据、历史记录或 0 代替/);
+  assert.doesNotMatch(pmsTemplate, /data-testid="meituan-cloud-pms-integration"/);
+  assert.doesNotMatch(pmsTemplate, /data-testid="meituan-cloud-pms-save"/);
+  assert.match(hotelDialog, /data-testid="hotel-pms-provider"/);
+  assert.match(hotelDialog, /value="meituan_cloud_pms"/);
+  assert.match(hotelPmsBindingService, /class HotelPmsBindingService/);
+  assert.match(hotelPmsBindingService, /hotel_pms_multiple_sources_enabled/);
+  assert.match(hotelPmsBindingService, /'selected_provider'\s*=>\s*\$selectedProvider/);
+  assert.match(hotelController, /public function updatePmsBinding/);
+  assert.match(app, /loadOperatingHotelPmsBinding/);
+  assert.match(app, /saveHotelPmsBinding/);
   assert.match(app, /prefillOperatingTargetFromMeituanCloud/);
   assert.match(app, /meituan_cloud_pms/);
   assert.match(app, /operatingTargetPmsReconciliation/);
   assert.match(app, /pmsDeltaStatusClass/);
+  assert.match(app, /Array\.isArray\(sourceDeltas\)/);
+  assert.match(app, /Object\.values\(sourceDeltas\)/);
 
   assert.match(controller, /PmsFactReconciliationService/);
   assert.match(controller, /pms_reconciliation/);

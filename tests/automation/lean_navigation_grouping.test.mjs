@@ -27,6 +27,7 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(analysis, /name: '经营分析'/);
   assert.match(analysis, /sourcePath: 'online-data',[\s\S]*sourceTab: 'data-health'/);
   assert.match(analysis, /sourcePath: 'revenue-research-center'/);
+  assert.match(analysis, /sourcePath: 'operating-targets',[\s\S]*name: '目标与事实'/);
   assert.match(analysis, /sourcePath: 'ai-daily-report'/);
 
   const ota = section("name: 'OTA数据与采集'", "name: '运营自动化中心'");
@@ -44,8 +45,9 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(operations, /name: '运营自动化中心'/);
   assert.match(operations, /sourcePath: 'pms-operating-data',[\s\S]*name: 'PMS经营数据'/);
   assert.match(operations, /sourcePath: 'wechat-notification',[\s\S]*name: '企业微信推送'/);
-  assert.match(operations, /sourcePath: 'operating-targets',[\s\S]*name: '经营目标'/);
+  assert.match(operations, /sourcePath: 'automation-monitor',[\s\S]*name: '自动化运行监控'/);
   assert.match(operations, /sourcePath: 'ops-track'/);
+  assert.doesNotMatch(operations, /sourcePath: 'operating-targets'/);
   assert.doesNotMatch(operations, /sourcePath: 'manual-notifications'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-daily-report'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-governance'/);

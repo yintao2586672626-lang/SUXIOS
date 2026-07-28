@@ -12,6 +12,12 @@ const systemHotelId = '7';
 const runtimeExecuteDate = '1900-01-01';
 const runtimeExecuteSystemHotelId = systemHotelId;
 const checks = [];
+const shanghaiToday = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
 
 const hash = (char) => char.repeat(64);
 
@@ -1485,6 +1491,52 @@ for (const item of cases) {
   }
 }
 
+const meituanTodayRealtimeFreshCase = {
+  name: 'meituan_today_realtime_fresh_ready',
+  platform: 'meituan',
+  payload: {
+    data_period: 'realtime_snapshot',
+    captured_at: new Date().toISOString(),
+    traffic: [{
+      ...trafficRow({
+        poiId: 'demo',
+        dataDate: shanghaiToday,
+        dateSource: 'page.traffic_period_selection.readback',
+        trace: 'meituan:today-realtime-fresh',
+        hash: hash('r'),
+      }),
+      live_page_verified: true,
+      period_control: 'today_realtime',
+      period_control_state: 'active',
+    }],
+  },
+};
+const meituanTodayRealtimeFreshResult = runImporterCase(meituanTodayRealtimeFreshCase, shanghaiToday);
+check(
+  meituanTodayRealtimeFreshCase.name,
+  'fresh current-run Meituan today payload passes',
+  meituanTodayRealtimeFreshResult.status === 'ready_to_import'
+    && meituanTodayRealtimeFreshResult.realtime_freshness?.status === 'ready',
+  JSON.stringify(meituanTodayRealtimeFreshResult.realtime_freshness || {}),
+);
+
+const meituanTodayRealtimeStaleCase = {
+  ...meituanTodayRealtimeFreshCase,
+  name: 'meituan_today_realtime_stale_blocked',
+  payload: {
+    ...meituanTodayRealtimeFreshCase.payload,
+    captured_at: '2000-01-01T00:00:00.000Z',
+  },
+};
+const meituanTodayRealtimeStaleResult = runImporterCase(meituanTodayRealtimeStaleCase, shanghaiToday);
+check(
+  meituanTodayRealtimeStaleCase.name,
+  'historical capture timestamp cannot stand in for current success',
+  meituanTodayRealtimeStaleResult.status === 'blocked'
+    && (meituanTodayRealtimeStaleResult.issues || []).some((issue) => issue.code === 'meituan_today_realtime_capture_stale'),
+  JSON.stringify(meituanTodayRealtimeStaleResult.issues || []),
+);
+
 const evidenceCase = cases.find((item) => item.name === 'payload_level_evidence_propagates_to_rows');
 if (evidenceCase) {
   const importerResult = runImporterCase(evidenceCase);
@@ -1780,6 +1832,7 @@ check('execute_contract', 'importer blocks raw URL string values before evidence
 check('execute_contract', 'importer normalizes camelCase browser metadata keys before projection or sensitive scan', importerSource.includes('p0_import_is_sensitive_browser_metadata_key') && importerSource.includes('p0_import_normalize_sensitive_key_segment') && importerSource.includes('profile_(path|dir|directory)') && importerSource.includes('spider_token'));
 check('execute_contract', 'importer projects browser capture payloads before sensitive scan or execute', importerSource.includes('p0_import_project_payload_for_import') && importerSource.includes('$payloadProjection = p0_import_project_payload_for_import($rawPayload)') && importerSource.includes("'payload_import_projection' => $payloadProjectionMetadata"));
 check('execute_contract', 'browser capture import projection keeps only importable evidence keys', importerSource.includes('browser_capture_import_projection') && importerSource.includes("'standard_rows'") && importerSource.includes("'responses'") && importerSource.includes("'traffic'"));
+check('execute_contract', 'same-day Meituan import requires fresh current-run period evidence', importerSource.includes('p0_import_meituan_today_realtime_freshness') && importerSource.includes('meituan_today_realtime_capture_stale') && importerSource.includes('meituan_today_realtime_period_not_verified') && importerSource.includes('historical success is not current-run evidence'));
 check('execute_contract', 'browser capture import projection exposes removed metadata without raw values', importerSource.includes('removed_sensitive_metadata_paths') && importerSource.includes('dropped_top_level_keys') && importerSource.includes('removed_sensitive_metadata_count'));
 check('execute_contract', 'importer markdown exposes browser capture projection status', importerSource.includes('payload import projection') && importerSource.includes('projection removed sensitive metadata') && importerSource.includes('projection dropped top-level metadata') && importerSource.includes('sensitive values exposed'));
 check('execute_contract', 'importer markdown exposes traffic evidence non-completion policy', importerSource.includes('traffic evidence contract') && importerSource.includes('traffic evidence verifier command') && importerSource.includes('traffic evidence completion policy') && importerSource.includes('next verifier command'));

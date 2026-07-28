@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "4c24b76cc537a533170302b00cde991512bd3323fb964871669a344b2d68c301",
-  "source_snapshot_bytes": 2173759,
+  "source_snapshot_sha256": "bb2ef797857b1b7c85c1486af4eec62ae61acc77c4ea6a4e94b3659aa97f773a",
+  "source_snapshot_bytes": 2179237,
   "fragments": [
     {
       "id": "app-shell",
@@ -111,6 +111,12 @@
       "domain": "operations",
       "path": "fragments/15aab-page-pms-operating-data.html",
       "anchor": "<div v-if=\"currentPage === 'pms-operating-data'\" class=\"mx-auto max-w-7xl space-y-4\" data-testid=\"pms-operating-data-page\">"
+    },
+    {
+      "id": "page-automation-run-monitor",
+      "domain": "operations",
+      "path": "fragments/15aac-page-automation-monitor.html",
+      "anchor": "<div v-if=\"currentPage === 'automation-monitor'\" class=\"suxi-dashboard-scope mx-auto max-w-[1500px] space-y-4\" data-testid=\"automation-run-monitor-page\">"
     },
     {
       "id": "page-manual-notifications",

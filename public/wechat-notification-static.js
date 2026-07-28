@@ -407,26 +407,18 @@
                             ]),
                         ] : []),
                         ...(triggerType === 'interval_minutes' ? [
-                            field('每隔多少分钟发送', input(
+                            field('每隔多久发送', input(
                                 'interval_minutes',
                                 'number',
                                 'manual-notification-interval-minutes',
                                 { min: 5, max: 1440, step: 1 }
-                            ), '允许 5–1440 分钟；每个时间窗只会认领一次。'),
-                            h('div', { class: 'grid grid-cols-2 gap-3' }, [
-                                field('循环开始（时:分）', input(
-                                    'hourly_start_time',
-                                    'time',
-                                    'manual-notification-interval-start',
-                                    { step: 60 }
-                                )),
-                                field('循环结束（时:分）', input(
-                                    'hourly_end_time',
-                                    'time',
-                                    'manual-notification-interval-end',
-                                    { step: 60 }
-                                )),
-                            ]),
+                            ), '允许 5–1440 分钟；每个发送时点只会认领一次。'),
+                            field('首次发送时间', input(
+                                'hourly_start_time',
+                                'time',
+                                'manual-notification-interval-start',
+                                { step: 60 }
+                            ), '当天从这个时间开始按间隔发送，23:59 自动结束，次日重新开始。'),
                         ] : []),
                         h('fieldset', {
                             class: 'md:col-span-2',

@@ -86,7 +86,6 @@
                                 <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1" role="group" aria-label="门店营业状态">
                                     <button type="button" @click="filterHotelStatus = ''" :aria-pressed="filterHotelStatus === ''" :class="filterHotelStatus === '' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">全部</button>
                                     <button type="button" @click="filterHotelStatus = '1'" :aria-pressed="filterHotelStatus === '1'" :class="filterHotelStatus === '1' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">营业中</button>
-                                    <button type="button" @click="filterHotelStatus = '0'" :aria-pressed="filterHotelStatus === '0'" :class="filterHotelStatus === '0' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">停用</button>
                                 </div>
                                 <button v-if="searchHotel || filterHotelStatus !== '' || filterHotelAccountHealth !== ''" @click="searchHotel = ''; filterHotelStatus = ''; filterHotelAccountHealth = ''" class="text-sm text-blue-500 hover:text-blue-700 px-3 py-2">重置筛选</button>
                             </div>
@@ -116,12 +115,6 @@
                                         未设负责人 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.ownerMissing }}</span>
                                     </button>
                                 </div>
-                                <div v-if="canManageOwnHotels()" class="flex flex-wrap items-center gap-2 xl:justify-end" data-testid="hotel-batch-actions">
-                                    <span class="text-gray-500">已选 {{ selectedHotelIds.length }}</span>
-                                    <button type="button" @click="toggleAllFilteredHotels" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-gray-600">全选当前结果</button>
-                                    <button type="button" @click="batchUpdateHotelStatus(1)" :disabled="!selectedHotelIds.length || hotelBatchStatusLoading" class="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700 disabled:opacity-40">批量启用</button>
-                                    <button type="button" @click="batchUpdateHotelStatus(0)" :disabled="!selectedHotelIds.length || hotelBatchStatusLoading" class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700 disabled:opacity-40">批量停用</button>
-                                </div>
                             </div>
                         </div>
 
@@ -149,13 +142,12 @@
                                             <td class="px-4 py-4 w-[28%]">
                                                 <div class="min-w-0">
                                                     <div class="flex items-center gap-2 min-w-0">
-                                                        <input v-if="canManageOwnHotels()" v-model="selectedHotelIds" :value="String(hotel.id)" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择门店 ${hotel.name}`">
                                                         <span class="font-semibold text-gray-900 truncate max-w-[220px]" :title="hotel.name">{{ hotel.name }}</span>
                                                         <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                             {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                         </span>
-                                                        <button type="button" @click="openHotelModal(hotel)" data-testid="hotel-ota-applicability" :class="hotelOtaApplicabilityBadgeClass(hotel)" :title="hotelOtaApplicabilityBadgeTitle(hotel)" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                            {{ hotelOtaApplicabilityBadgeText(hotel) }}
+                                                        <button type="button" @click="openHotelModal(hotel)" data-testid="hotel-pms-selection" :class="hotel.pms_binding_status === 'configured' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (hotel.pms_binding_status === 'conflict' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200')" :title="hotel.pms_provider_label || 'PMS 状态未取得'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
+                                                            {{ hotel.pms_provider_label || 'PMS 状态未取得' }}
                                                         </button>
                                                         <span v-for="badge in hotelOtaStatusBadges(hotel)" :key="badge.key" data-testid="hotel-ota-strategy" :class="badge.className" :title="badge.title || badge.text" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                             {{ badge.text }}
@@ -263,7 +255,6 @@
                                                         <button type="button" @click="toggleHotelDetails(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ isHotelDetailsExpanded(hotel) ? '收起详情' : '展开详情' }}</button>
                                                         <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" :disabled="hotelUserAuthorizationLoading" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">{{ hotelUserAuthorizationLoading ? '读取中...' : '授权用户' }}</button>
                                                         <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
-                                                        <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
                                                         <button v-if="user?.is_super_admin" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">删除</button>
                                                     </div>
                                                 </div>
@@ -278,13 +269,12 @@
                                     <div class="hotel-preview-card__header">
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-2">
-                                                <input v-if="canManageOwnHotels()" v-model="selectedHotelIds" :value="String(hotel.id)" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择门店 ${hotel.name}`">
                                                 <h3 class="font-semibold text-gray-900 truncate" :title="hotel.name">{{ hotel.name }}</h3>
                                                 <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                     {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                 </span>
-                                                <button type="button" @click="openHotelModal(hotel)" data-testid="hotel-ota-applicability" :class="hotelOtaApplicabilityBadgeClass(hotel)" :title="hotelOtaApplicabilityBadgeTitle(hotel)" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                    {{ hotelOtaApplicabilityBadgeText(hotel) }}
+                                                <button type="button" @click="openHotelModal(hotel)" data-testid="hotel-pms-selection" :class="hotel.pms_binding_status === 'configured' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (hotel.pms_binding_status === 'conflict' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200')" :title="hotel.pms_provider_label || 'PMS 状态未取得'" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
+                                                    {{ hotel.pms_provider_label || 'PMS 状态未取得' }}
                                                 </button>
                                                 <span v-for="badge in hotelOtaStatusBadges(hotel)" :key="badge.key" data-testid="hotel-ota-strategy" :class="badge.className" :title="badge.title || badge.text" class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
                                                     {{ badge.text }}
@@ -307,7 +297,6 @@
                                             </button>
                                             <div v-if="canManageOwnHotels()" class="flex flex-wrap gap-1">
                                                 <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
-                                                <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
                                                 <button v-if="user?.is_super_admin" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-red-100 bg-white text-xs text-red-600">删除</button>
                                             </div>
                                         </div>
@@ -433,9 +422,6 @@
                                 <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-col sm:flex-row justify-end gap-3">
                                     <button type="button" @click="closeHotelDeleteModal()" class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50">
                                         取消
-                                    </button>
-                                    <button v-if="String(hotelDeleteTarget?.status) === '1'" type="button" @click="deactivateHotelDeleteTarget" :disabled="hotelDeleteLoading" class="px-4 py-2 rounded-lg border border-orange-200 bg-white text-orange-600 hover:bg-orange-50 disabled:opacity-60">
-                                        停用酒店
                                     </button>
                                     <button type="button" @click="confirmDeleteHotel" :disabled="hotelDeleteLoading || (hotelDeleteReferences.length &gt; 0 &amp;&amp; (!hotelDeleteCanForce || String(hotelDeleteConfirmationName || '').trim() !== String(hotelDeleteTarget?.name || '').trim()))" class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
                                         {{ hotelDeleteLoading ? '处理中...' : (hotelDeleteReferences.length ? '确认永久删除' : '查看影响清单') }}

@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const indexHtml = readFrontendContractSource();
+const hotelPage = fs.readFileSync(new URL('../../resources/frontend/templates/fragments/18-page-hotels.html', import.meta.url), 'utf8');
 const styleCss = fs.readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8');
 const styleHash = createHash('sha256').update(styleCss).digest('hex').slice(0, 10);
 const systemStaticSource = fs.readFileSync(new URL('../../public/system-static.js', import.meta.url), 'utf8');
@@ -54,11 +55,9 @@ assert.match(indexHtml, /尚未采集/);
 assert.match(indexHtml, /未设负责人/);
 assert.match(indexHtml, /class="xl:sticky xl:top-2 z-20/, 'large filter panel must stay in normal flow on narrow screens');
 assert.doesNotMatch(indexHtml, /class="sticky top-2 z-20 bg-white rounded-xl p-3 shadow-sm border border-gray-100 space-y-3"/, 'narrow screens must not pin the full KPI and filter panel over hotel cards');
-assert.match(indexHtml, /data-testid="hotel-problem-queue"[\s\S]*data-testid="hotel-batch-actions"/, 'problem filters and batch actions must keep separate wrapping groups');
-assert.match(indexHtml, /const batchUpdateHotelStatus = async \(status\) =>/);
-assert.match(indexHtml, /\/hotels\/batch-status/);
-assert.match(indexHtml, /confirm: false/);
-assert.match(indexHtml, /confirm: true/);
+assert.match(indexHtml, /data-testid="hotel-problem-queue"/, 'problem filters must remain available without status batch actions');
+assert.doesNotMatch(hotelPage, /data-testid="hotel-batch-actions"|batchUpdateHotelStatus|selectedHotelIds/);
+assert.doesNotMatch(hotelPage, /filterHotelStatus = '0'|deactivateHotelDeleteTarget|停用酒店/);
 assert.match(indexHtml, /@click="openHotelPlatformAccountAction\(hotel, account\)"[^>]*>下一步：/);
 assert.match(indexHtml, /\{\{ isHotelDetailsExpanded\(hotel\) \? '收起详情' : '展开详情' \}\}/);
 assert.match(

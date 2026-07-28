@@ -41,7 +41,7 @@ final class ManualNotificationService
         'manual_test' => '手动测试',
         'daily_fixed_time' => '每日固定时间',
         'hourly_on_the_hour' => '每小时整点',
-        'interval_minutes' => '按分钟间隔循环',
+        'interval_minutes' => '按间隔发送',
     ];
     private const BUSINESS_DATE_RULES = [
         'today' => '今日累计 T0',
@@ -810,9 +810,11 @@ final class ManualNotificationService
         $hourlyStartTime = $this->normalizeHourTime(
             $input['hourly_start_time'] ?? ManualNotificationScheduleRuleService::DEFAULT_HOURLY_START
         );
-        $hourlyEndTime = $this->normalizeHourTime(
-            $input['hourly_end_time'] ?? ManualNotificationScheduleRuleService::DEFAULT_HOURLY_END
-        );
+        $hourlyEndTime = $triggerType === 'interval_minutes'
+            ? ManualNotificationScheduleRuleService::DEFAULT_INTERVAL_END
+            : $this->normalizeHourTime(
+                $input['hourly_end_time'] ?? ManualNotificationScheduleRuleService::DEFAULT_HOURLY_END
+            );
         if ($triggerType === 'hourly_on_the_hour'
             && (
                 !str_ends_with($hourlyStartTime, ':00:00')

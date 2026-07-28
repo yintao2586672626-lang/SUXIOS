@@ -201,20 +201,21 @@ Superpowers 用作降低风险的流程关口，不作为死板步骤清单。�
 ```
 HOTEL/                          # ⭐ 项目根目录（ThinkPHP 项目）
 ├── app/
-│   ├── controller/             # 16 个控制器
+│   ├── controller/             # HTTP 边界；含业务控制器、concern 与薄 OTA 适配器
 │   │   ├── Auth.php            # 登录/登出/改密
 │   │   ├── Base.php            # 基类（分页/响应封装/checkPermission）
-│   │   ├── OnlineData.php      # ⭐ 核心：携程/美团数据抓取
-│   │   ├── Agent.php           # ⭐ 核心：AI Agent（3个Agent）
+│   │   ├── OnlineData.php      # 在线数据兼容入口；实现已拆入 concern/service
+│   │   ├── Agent.php           # 收益分析、OTA诊断与 AI 工作流入口（当前架构热点）
 │   │   ├── DailyReport.php    # 日报表（含 Excel 导入导出）
 │   │   └── admin/              # 管理模块（罗盘/竞对/微信机器人）
-│   ├── model/                  # 34 个模型
+│   ├── service/                # 业务服务；大型服务按动态 split-map 持续拆分
+│   ├── model/                  # ThinkORM 模型
 │   └── middleware/
 │       └── Auth.php             # Token 验证中间件
 ├── config/
 │   └── database.php            # 数据库配置，可被 .env 覆盖
 ├── route/
-│   └── app.php                 # 路由定义（639 行）
+│   └── app.php                 # 路由定义；由路由覆盖验证器防止公开动作漏注册
 ├── public/
 │   ├── index.html              # ⭐ Vue 3 runtime-only 启动壳
 │   ├── app-render.min.js       # 业务模板预编译运行产物
@@ -353,8 +354,8 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 | 不需认证 | login、health、receive-cookies、cron-trigger 单独列出 |
 | 响应格式 | 使用 `$this->success($data, $msg)` 和 `$this->error($msg, $code)` |
 | 分页 | 使用 `$this->getPagination()` 和 `$this->paginate()` |
-| 数据库 | 使用 ThinkORM，不直接写 SQL |
-| 权限检查 | 每个 Controller 继承 Base 后调用 `$this->checkPermission()` |
+| 数据库 | 业务 CRUD 默认使用 ThinkORM；仅在结构探测、数据库锁、原子 CAS 或 ORM 无法安全表达时使用原生 SQL，动态值必须参数绑定，动态表/列名必须来自固定白名单 |
+| 权限检查 | 登录接口优先由 `Auth` 中间件建立用户、租户和酒店上下文；控制器再按能力调用权限检查。公开设备、配对和 cron 接口必须使用各自的专用令牌、作用域校验、限流与审计，不得用“公开路由”绕过身份边界 |
 | 日志 | 敏感操作记录 OperationLog |
 
 ### 7.2 前端规则（模板分片与 public 运行入口）

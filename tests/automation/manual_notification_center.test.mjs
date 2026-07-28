@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -52,7 +53,7 @@ test('operating target missing-record reset preserves new context and clears sta
   assert.equal(result.actual_revenue, '');
   assert.equal(result.sold_room_nights, '');
   assert.equal(result.sellable_room_nights, '');
-  assert.equal(result.fact_scope, 'whole_hotel');
+  assert.equal(result.fact_scope, 'accommodation_room_fee');
   assert.equal(result.source_reference, '');
   assert.equal(result.quality_reason, '');
   assert.equal(result.change_reason, '');
@@ -108,7 +109,6 @@ test('notification plans expose persisted schedule rules and truthful runtime st
     'manual-notification-hourly-end',
     'manual-notification-interval-minutes',
     'manual-notification-interval-start',
-    'manual-notification-interval-end',
     'manual-notification-enabled',
     'manual-notification-runtime-status',
     'manual-notification-next-run',
@@ -136,6 +136,20 @@ test('notification plans expose persisted schedule rules and truthful runtime st
   assert.match(notificationUiSource, /manual-notification-content-sections/);
   assert.match(notificationUiSource, /发送来源/);
   assert.match(notificationUiSource, /发送什么/);
+  assert.match(notificationUiSource, /首次发送时间/);
+  assert.match(notificationUiSource, /23:59 自动结束/);
+  assert.doesNotMatch(notificationUiSource, /manual-notification-interval-end|循环开始|循环结束/);
+});
+
+test('notification schedule panel cache key matches its exact source bytes', () => {
+  const versionMatch = appMainSource.match(
+    /wechat-notification-static\.js\?v=[^'"]+-h([0-9a-f]{10})/,
+  );
+  assert.ok(versionMatch, 'notification schedule panel must have a content hash cache key');
+  assert.equal(
+    versionMatch[1],
+    createHash('sha256').update(schedulePanelSource).digest('hex').slice(0, 10),
+  );
 });
 
 test('operating daily keeps custom compatibility while common templates choose a source', () => {
@@ -167,13 +181,13 @@ test('operating daily keeps custom compatibility while common templates choose a
 
 test('PMS operating data page owns unified PMS deltas without duplicating source configuration', () => {
   assert.match(pmsOperatingDataFragmentSource, /data-testid="pms-operating-data-page"/);
-  assert.match(pmsOperatingDataFragmentSource, /data-testid="pms-unified-reconciliation"/);
-  assert.match(pmsOperatingDataFragmentSource, /data-testid="pms-source-snapshot-deltas"/);
-  assert.match(pmsOperatingDataFragmentSource, /同源相邻快照/);
-  assert.match(pmsOperatingDataFragmentSource, /不自动选择真值/);
+  assert.match(pmsOperatingDataFragmentSource, /data-testid="pms-selected-source"/);
+  assert.match(pmsOperatingDataFragmentSource, /data-testid="pms-selected-source-deltas"/);
+  assert.match(pmsOperatingDataFragmentSource, /同一 PMS 的相邻快照差值/);
+  assert.match(pmsOperatingDataFragmentSource, /不会自动选择其中一套作为真值/);
   assert.doesNotMatch(pmsOperatingDataFragmentSource, /data-testid="operating-target-pms-status"/);
-  assert.match(pmsOperatingDataFragmentSource, /data-testid="dingdandao-pms-integration"/);
-  assert.match(pmsOperatingDataFragmentSource, /data-testid="meituan-cloud-pms-integration"/);
+  assert.doesNotMatch(pmsOperatingDataFragmentSource, /data-testid="dingdandao-pms-integration"/);
+  assert.doesNotMatch(pmsOperatingDataFragmentSource, /data-testid="meituan-cloud-pms-integration"/);
   assert.doesNotMatch(operatingTargetFragmentSource, /data-testid="operating-target-pms-status"/);
   assert.doesNotMatch(operatingTargetFragmentSource, /data-testid="dingdandao-pms-integration"/);
   assert.doesNotMatch(operatingTargetFragmentSource, /data-testid="meituan-cloud-pms-integration"/);
@@ -181,7 +195,7 @@ test('PMS operating data page owns unified PMS deltas without duplicating source
 
 test('operating target page keeps PMS prefill and truthful report blockers', () => {
   assert.match(operatingTargetFragmentSource, /operating-target-prefill-dingdandao/);
-  assert.match(operatingTargetFragmentSource, /accommodation_room_fee/);
+  assert.match(operatingTargetFragmentSource, /data-testid="operating-target-pms-facts"/);
   assert.match(operatingTargetFragmentSource, /data-testid="operating-target-report-preview"/);
   assert.match(operatingTargetFragmentSource, /formal_send_gate\?\.allowed === true/);
   assert.match(operatingTargetFragmentSource, /formal_send_gate\.blockers/);
@@ -197,7 +211,7 @@ test('operating target desktop layout prioritizes entry with a compact evidence 
   );
   assert.match(
     operatingTargetFragmentSource,
-    /录入或核对当日经营事实[\s\S]*data-testid="operating-target-pms-comparison"[\s\S]*<aside class="space-y-4">/,
+    /设置当日住宿房费总目标[\s\S]*data-testid="operating-target-pms-facts"[\s\S]*<aside class="space-y-4">/,
   );
   assert.match(
     operatingTargetFragmentSource,
@@ -205,29 +219,41 @@ test('operating target desktop layout prioritizes entry with a compact evidence 
   );
   assert.match(
     operatingTargetFragmentSource,
-    /class="grid grid-cols-2 gap-3 md:grid-cols-3" data-testid="operating-target-metrics"/,
+    /class="grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="operating-target-metrics"/,
   );
 });
 
-test('operating targets bind occupancy and RevPAR goals to PMS-only actuals and task drafts', () => {
-  assert.match(operatingTargetFragmentSource, /v-model="operatingTargetForm\.target_occupancy_rate_percent"/);
-  assert.match(operatingTargetFragmentSource, /v-model="operatingTargetForm\.target_revpar"/);
-  assert.match(operatingTargetFragmentSource, /data-testid="operating-target-pms-comparison"/);
-  assert.match(operatingTargetFragmentSource, /item\.actual \|\| '—'/);
-  assert.match(appMainSource, /actualStatus: isVerified && item\.actual !== '' \? '已验证' : '未验证'/);
+test('operating targets keep one revenue goal and show PMS facts as read-only evidence', () => {
+  assert.match(operatingTargetFragmentSource, /v-model="operatingTargetForm\.target_revenue"/);
+  assert.doesNotMatch(operatingTargetFragmentSource, /v-model="operatingTargetForm\.target_occupancy_rate_percent"/);
+  assert.doesNotMatch(operatingTargetFragmentSource, /v-model="operatingTargetForm\.target_revpar"/);
+  assert.doesNotMatch(operatingTargetFragmentSource, /data-testid="operating-target-pms-comparison"/);
+  assert.match(operatingTargetFragmentSource, /data-testid="operating-target-pms-facts"/);
+  assert.match(operatingTargetFragmentSource, /PMS 经营事实（只读）/);
+  assert.match(operatingTargetFragmentSource, /operatingTargetPmsFactRows/);
+  assert.match(operatingTargetFragmentSource, /只设置一个总目标/);
   assert.match(operatingTargetFragmentSource, /data-testid="operating-target-create-task-draft"/);
   assert.match(operatingTargetFragmentSource, /data-testid="operating-target-task-draft-error"/);
   assert.match(operatingTargetFragmentSource, /进入任务执行与复盘/);
 
-  assert.match(appMainSource, /target_occupancy_rate_percent: facts\.target_occupancy_rate_percent \?\? ''/);
-  assert.match(appMainSource, /target_revpar: facts\.target_revpar \?\? ''/);
-  assert.match(appMainSource, /String\(facts\.source_type \|\| ''\) === 'pms'/);
-  assert.match(appMainSource, /metrics\.actual_occupancy_rate_percent/);
-  assert.match(appMainSource, /metrics\.actual_revpar/);
+  assert.match(appMainSource, /target_occupancy_rate_percent: null/);
+  assert.match(appMainSource, /target_revpar: null/);
+  assert.match(appMainSource, /fact_scope: 'accommodation_room_fee'/);
+  for (const key of [
+    'target_revenue',
+    'actual_revenue',
+    'completion_rate_percent',
+    'remaining_revenue',
+  ]) {
+    assert.match(appMainSource, new RegExp(`key: '${key}'`));
+  }
+  for (const label of ['实际住宿房费', '已售间夜', '可售房夜', '入住率', 'ADR', 'RevPAR']) {
+    assert.match(appMainSource, new RegExp(`label: '${label}'`));
+  }
   assert.match(appMainSource, /apiRequest\('\/operating-targets\/task-draft'/);
   assert.match(appMainSource, /operatingTargetTaskDraftError\.value = operationErrorMessage/);
   assert.match(appMainSource, /currentPage\.value = 'ops-track'/);
-  assert.doesNotMatch(appMainSource, /actual_occupancy_rate_percent\s*\|\|\s*0|actual_revpar\s*\|\|\s*0/);
+  assert.doesNotMatch(appMainSource, /Number\([^)]*actual_revenue[^)]*\)\s*\|\|\s*0/);
 });
 
 test('dynamic operating-target template supports save then immediate test without preview-as-success', () => {

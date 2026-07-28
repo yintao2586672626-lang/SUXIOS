@@ -207,6 +207,84 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertSame(0, Db::name('ota_credentials')->count());
     }
 
+    public function testBrowserAssistSourceIsCredentiallessAndCannotStoreCookieMaterial(): void
+    {
+        $saved = $this->service()->saveDataSource($this->user(), [
+            'name' => 'Ctrip authorized page observation',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_assist_dom',
+        ]);
+
+        self::assertSame('browser_assist_dom', $saved['ingestion_method']);
+        self::assertFalse($saved['has_secret']);
+        self::assertFalse($saved['has_cookies']);
+        self::assertSame('not_required', $saved['credential_status']);
+        self::assertSame(
+            'not_required_for_browser_assist',
+            $saved['config']['credential_usage']
+        );
+        self::assertSame(
+            'authorized_page_observation_only',
+            $saved['config']['profile_execution_policy']
+        );
+        self::assertSame(0, Db::name('ota_credentials')->count());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(
+            'Browser assist data source must not store reusable OTA credentials.'
+        );
+        $this->service()->saveDataSource($this->user(), [
+            'name' => 'Forbidden browser assist cookie',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_assist_dom',
+            'secret' => ['cookies' => 'must-not-persist'],
+        ]);
+    }
+
+    public function testBrowserAssistBindingRequiresExactOperatorConfirmedHotelAndDate(): void
+    {
+        $service = $this->service();
+        $method = new \ReflectionMethod($service, 'assertGenericOtaPayloadBinding');
+        $method->setAccessible(true);
+        $source = [
+            'tenant_id' => 7,
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_assist_dom',
+        ];
+        $identity = [
+            'status' => 'operator_confirmed',
+            'evidence_type' => 'authenticated_page_header',
+            'system_hotel_id' => 101,
+            'expected_hotel_name' => 'Hotel A',
+            'observed_hotel_name' => 'Ctrip Hotel A page header',
+            'confirmed_at' => '2026-07-28 21:38:00',
+            'source_contract' => 'ota_browser_assist_collection_contract.v1',
+        ];
+        $payload = ['rows' => [[
+            'system_hotel_id' => 101,
+            'data_date' => '2026-07-28',
+            'browser_assist_identity' => $identity,
+        ]]];
+
+        self::assertSame(
+            [
+                'status' => 'operator_confirmed',
+                'proof' => 'authenticated_page_header',
+            ],
+            $method->invoke($service, $source, $payload)
+        );
+
+        $payload['rows'][0]['browser_assist_identity']['expected_hotel_name'] = 'Other Hotel';
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('binding_unverified');
+        $method->invoke($service, $source, $payload);
+    }
+
     public function testLocalCollectorSourceStoresOnlyAccountDeviceAndProfileProofHashes(): void
     {
         $saved = $this->service()->saveDataSource($this->user(), [

@@ -12,6 +12,7 @@ final class ManualNotificationScheduleRuleService
     public const DEFAULT_WEEKDAYS = '1,2,3,4,5,6,7';
     public const DEFAULT_HOURLY_START = '09:00:00';
     public const DEFAULT_HOURLY_END = '22:00:00';
+    public const DEFAULT_INTERVAL_END = '23:59:00';
 
     /** @param array<string, mixed> $row */
     public function resolveBusinessDate(array $row, DateTimeImmutable $observedAt): string
@@ -101,10 +102,12 @@ final class ManualNotificationScheduleRuleService
                 $row['hourly_start_time'] ?? null,
                 self::DEFAULT_HOURLY_START
             );
-            $end = $this->timeValue(
-                $row['hourly_end_time'] ?? null,
-                self::DEFAULT_HOURLY_END
-            );
+            $end = $triggerType === 'interval_minutes'
+                ? self::DEFAULT_INTERVAL_END
+                : $this->timeValue(
+                    $row['hourly_end_time'] ?? null,
+                    self::DEFAULT_HOURLY_END
+                );
             if ($triggerType === 'interval_minutes') {
                 $intervalMinutes = $this->intervalMinutes($row);
                 if ($intervalMinutes === null || $start >= $end) {
@@ -153,10 +156,7 @@ final class ManualNotificationScheduleRuleService
             $row['hourly_start_time'] ?? null,
             self::DEFAULT_HOURLY_START
         );
-        $end = $this->timeValue(
-            $row['hourly_end_time'] ?? null,
-            self::DEFAULT_HOURLY_END
-        );
+        $end = self::DEFAULT_INTERVAL_END;
         if ($start >= $end) {
             return null;
         }

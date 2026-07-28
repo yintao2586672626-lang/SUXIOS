@@ -51,8 +51,35 @@ final class OtaTrafficAttributionService
             return false;
         }
 
+        // Ctrip-family captures can persist Ctrip and Qunar rows under the same
+        // acquisition platform. The explicit dimension remains authoritative:
+        // Qunar traffic must never satisfy Ctrip's own-hotel P0 closure.
+        $dimensionChannel = self::dimensionChannel((string)($row['dimension'] ?? ''));
+        if ($dimensionChannel !== '' && $dimensionChannel !== $platform) {
+            return false;
+        }
+
         $compareType = strtolower(trim((string)($row['compare_type'] ?? '')));
         return $compareType === '' || $compareType === 'self';
+    }
+
+    private static function dimensionChannel(string $dimension): string
+    {
+        $dimension = strtolower(trim($dimension));
+        if ($dimension === '') {
+            return '';
+        }
+
+        foreach (['ctrip', 'qunar', 'meituan'] as $channel) {
+            if (preg_match(
+                '/(?:^|[^a-z0-9])' . preg_quote($channel, '/') . '(?:[^a-z0-9]|$)/',
+                $dimension
+            ) === 1) {
+                return $channel;
+            }
+        }
+
+        return '';
     }
 
     /**

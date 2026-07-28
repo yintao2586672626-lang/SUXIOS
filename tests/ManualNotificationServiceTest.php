@@ -226,7 +226,7 @@ final class ManualNotificationServiceTest extends TestCase
         );
         self::assertSame(30, $saved['record']['interval_minutes']);
         self::assertSame('09:15', $saved['record']['hourly_start_time']);
-        self::assertSame('22:45', $saved['record']['hourly_end_time']);
+        self::assertSame('23:59', $saved['record']['hourly_end_time']);
         self::assertSame('awaiting_test', $saved['record']['schedule_status']);
     }
 
