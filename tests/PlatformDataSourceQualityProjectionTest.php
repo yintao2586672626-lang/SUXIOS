@@ -34,6 +34,8 @@ final class PlatformDataSourceQualityProjectionTest extends TestCase
                 'target_date_traffic_field_fact_ready_count' => 1,
                 'target_date_traffic_verified_metric_keys' => $this->requiredTrafficMetrics(),
                 'target_date_traffic_ready_data_source_ids' => [31],
+                'target_date_readback_check_supported' => true,
+                'target_date_readback_verified_rows' => 2,
                 'row_count' => 2,
                 'end_date' => '2026-07-09',
                 'latest_collected_at' => '2026-07-10 08:20:00',
