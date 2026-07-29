@@ -1351,6 +1351,8 @@ final class AgentTest extends TestCase
                 'items' => [[
                     'title' => '酒店OTA专业指标口径知识库',
                     'summary' => '分母为 0 或缺失时返回不可计算，不返回 0。',
+                    'known_knowns' => ['分母缺失时指标不可计算'],
+                    'known_unknowns' => ['当前门店是否返回公式所需原始字段'],
                     'chunks' => ['诊断模板: 预订转化低先查房型、图片、退改、价格、点评和问答。'],
                 ]],
             ],
@@ -1359,7 +1361,74 @@ final class AgentTest extends TestCase
         self::assertStringContainsString('知识库参考', $prompt);
         self::assertStringContainsString('酒店OTA专业指标口径知识库', $prompt);
         self::assertStringContainsString('分母为 0 或缺失时返回不可计算', $prompt);
-        self::assertStringContainsString('异常描述必须优先写成数据口径提示或需复核提示', $prompt);
+        self::assertStringContainsString('已确认：分母缺失时指标不可计算', $prompt);
+        self::assertStringContainsString('待验证：当前门店是否返回公式所需原始字段', $prompt);
+        self::assertStringContainsString('禁止用0、旧数据或默认值补齐', $prompt);
+    }
+
+    public function testDefaultOtaKnowledgeContextExcludesCaseReferenceChunks(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [[
+            'scope' => 'generic_methodology',
+            'evidence_level' => 'reviewed_method',
+            'source_refs' => ['same-demand-date-review'],
+            'rules' => ['同需求日复核'],
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [[
+            'scope' => 'case_reference',
+            'evidence_level' => 'case_reference',
+            'source_refs' => ['example-case'],
+            'case_key' => 'example_case',
+            'facts' => ['adr' => 107.46],
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [
+            '{"scope":"source_archive","evidence_level":"reviewed","source_refs":["archive"],"requires_explicit_case_key":true}',
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [[
+            'lifecycle_status' => 'quarantined',
+            'scope' => 'generic_methodology',
+            'evidence_level' => 'legacy',
+            'source_refs' => ['old-source'],
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [[
+            'scope' => 'generic_methodology',
+            'evidence_level' => 'reviewed',
+            'source_refs' => [],
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [
+            'legacy plain-text knowledge',
+        ]));
+    }
+
+    public function testOtaKnowledgeItemsPreferStructuredCopyOverMirroredBaseRow(): void
+    {
+        $controller = $this->controller();
+        $items = $this->invokeNonPublic($controller, 'deduplicateOtaKnowledgeItems', [[
+            [
+                'source' => 'knowledge_units',
+                'id' => 43,
+                'hotel_id' => 0,
+                'title' => '经营目标差值检测与节奏判断',
+            ],
+            [
+                'source' => 'knowledge_base',
+                'id' => 14,
+                'hotel_id' => 0,
+                'title' => '经营目标差值检测与节奏判断',
+            ],
+            [
+                'source' => 'knowledge_base',
+                'id' => 15,
+                'hotel_id' => 0,
+                'title' => '其他知识',
+            ],
+        ], 8]);
+
+        self::assertCount(2, $items);
+        self::assertSame('knowledge_units', $items[0]['source']);
+        self::assertSame('其他知识', $items[1]['title']);
     }
 
     public function testCapturedOtaFinalPromptKeepsCtripChannelBoundary(): void

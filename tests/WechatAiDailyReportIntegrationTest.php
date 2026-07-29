@@ -75,10 +75,14 @@ final class WechatAiDailyReportIntegrationTest extends TestCase
         self::assertStringContainsString("Route::post('/:id/send-wecom'", $route);
         self::assertStringNotContainsString('wecom-robot-management', $dataConfig);
         self::assertStringNotContainsString('wecom-robot-management', $hotelsPage);
-        self::assertStringContainsString('wecom-robot-management', $wechatNotificationPage);
-        self::assertStringContainsString('门店共享机器人', $wechatNotificationPage);
-        self::assertStringContainsString('binding_missing', $wechatNotificationPage);
-        self::assertStringContainsString('我的通知群', $wechatNotificationPanel);
+        self::assertStringNotContainsString('wecom-robot-management', $wechatNotificationPage);
+        self::assertStringNotContainsString('管理员配置', $wechatNotificationPage);
+        self::assertStringContainsString('1　推送通道', $wechatNotificationPage);
+        self::assertStringContainsString('2　自动推送', $wechatNotificationPage);
+        self::assertStringContainsString('当前酒店推送通道', $wechatNotificationPanel);
+        self::assertStringContainsString('当前酒店只绑定一个企业微信群机器人 Webhook', $wechatNotificationPanel);
+        self::assertStringNotContainsString('我的通知群', $wechatNotificationPanel);
+        self::assertStringNotContainsString('通知群名称', $wechatNotificationPanel);
         self::assertStringContainsString('ai-daily-report-send-wecom', $dailyReport);
         self::assertStringContainsString('ai-daily-report-wecom-edition', $dailyReport);
         self::assertStringContainsString('企业微信简版', $dailyReport);

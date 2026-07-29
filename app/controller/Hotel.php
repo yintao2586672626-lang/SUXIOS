@@ -903,6 +903,7 @@ class Hotel extends Base
         }
 
         $hotelId = (int)$hotel->id;
+        $canDeleteOta = (new PermissionService())->roleAllows($this->currentUser, 'ota.delete') ? 1 : 0;
         $payload = [
             'user_id' => (int)$this->currentUser->id,
             'hotel_id' => $hotelId,
@@ -912,7 +913,7 @@ class Hotel extends Base
             'can_fill' => 1,
             'can_edit' => 1,
             'can_fetch_ota' => 1,
-            'can_delete_ota' => 0,
+            'can_delete_ota' => $canDeleteOta,
             'can_export' => 1,
             'can_ai' => 1,
             'can_operation' => 1,
@@ -926,7 +927,7 @@ class Hotel extends Base
             'can_delete_report' => 0,
             'can_view_online_data' => 1,
             'can_fetch_online_data' => 1,
-            'can_delete_online_data' => 0,
+            'can_delete_online_data' => $canDeleteOta,
             'is_primary' => empty($this->currentUser->hotel_id) ? 1 : 0,
             'update_time' => date('Y-m-d H:i:s'),
         ];

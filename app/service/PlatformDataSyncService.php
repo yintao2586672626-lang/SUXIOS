@@ -284,7 +284,7 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'raw_data.lead_price',
                 'missing_state' => 'optional_missing',
-                'source_keys' => ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice'],
+                'source_keys' => ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice', 'DAY_ROOM_LOWEST_PRICE_AVG'],
             ],
             [
                 'metric_key' => 'sales_avg_price',
@@ -292,7 +292,7 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'data_value',
                 'missing_state' => 'optional_missing',
-                'source_keys' => ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice'],
+                'source_keys' => ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'PAY_ADR'],
             ],
             [
                 'metric_key' => 'exposure_users',
@@ -3547,7 +3547,7 @@ final class PlatformDataSyncService
                     : (string)$payload[$key];
             }
         }
-        foreach (['config_id', 'url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'headers_json', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled', 'local_collector_account_id', 'collector_device_id_hash', 'profile_key_hash', 'source_method', 'current_session_verified'] as $key) {
+        foreach (['config_id', 'url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'headers_json', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'capture_plan', 'capturePlan', 'ctrip_capture_plan', 'ctripCapturePlan', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled', 'local_collector_account_id', 'collector_device_id_hash', 'profile_key_hash', 'source_method', 'current_session_verified'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
                 $config[$key] = $payload[$key];
             }
@@ -5906,7 +5906,6 @@ final class PlatformDataSyncService
         $fieldFactMissingCount = 0;
         $nonzeroRequiredMetricRows = 0;
         $allIdentifiersReady = $trafficRows !== [];
-        $allUiRowsReady = $trafficRows !== [];
         foreach ($trafficRows as $row) {
             $raw = $this->decodeConfig($row['raw_data'] ?? []);
             $rowEvidence = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
@@ -5940,17 +5939,6 @@ final class PlatformDataSyncService
                     $completeMetricKeys[$metricKey] = true;
                     $rowCompleteMetricKeys[$metricKey] = true;
                 }
-            }
-
-            // The page/P0 status is scoped to this platform's required metrics.
-            // Optional cross-platform aliases in raw_data.field_facts must not
-            // turn a complete Ctrip row into a false Meituan-field failure.
-            $rowUiReady = array_diff($requiredMetricKeys, array_keys($rowCompleteMetricKeys)) === [];
-            if ($rowUiReady) {
-                $fieldFactReadyCount++;
-            } else {
-                $fieldFactMissingCount++;
-                $allUiRowsReady = false;
             }
 
             $identifierReady = ($raw['platform_hotel_identifier_present'] ?? null) === true
@@ -5987,6 +5975,11 @@ final class PlatformDataSyncService
 
         $completeMetricKeys = array_values(array_intersect($requiredMetricKeys, array_keys($completeMetricKeys)));
         $missingMetricKeys = array_values(array_diff($requiredMetricKeys, $completeMetricKeys));
+        // Ctrip and Meituan expose the required traffic metrics through
+        // multiple endpoint-granular rows. P0 requires complete evidence for
+        // every metric across the current run, not every metric on every row.
+        $fieldFactReadyCount = count($completeMetricKeys);
+        $fieldFactMissingCount = count($missingMetricKeys);
         return [
             'required_metric_keys' => $requiredMetricKeys,
             'traffic_row_count' => count($trafficRows),
@@ -5997,7 +5990,7 @@ final class PlatformDataSyncService
             'nonzero_required_metric_rows' => $nonzeroRequiredMetricRows,
             'nonzero_required_metric_ready' => $nonzeroRequiredMetricRows > 0,
             'platform_hotel_identifier_ready' => $allIdentifiersReady,
-            'ui_status_ready' => $allUiRowsReady && $missingMetricKeys === [],
+            'ui_status_ready' => $trafficRows !== [] && $missingMetricKeys === [],
         ];
     }
 

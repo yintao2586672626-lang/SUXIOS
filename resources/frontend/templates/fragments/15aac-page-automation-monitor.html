@@ -6,7 +6,7 @@
                     <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">运营自动化中心 · 运行总览</p>
                     <h2 class="text-xl font-semibold text-slate-900">今日数据与推送监控</h2>
                 </div>
-                <p class="mt-1.5 max-w-5xl text-sm leading-6 text-slate-600">监测当前账号有权限的全部营业门店；每店只显示一个主 PMS，未绑定企业微信机器人或未启用计划会保留为明确阻断。携程、美团、主 PMS 与企业微信回执按同日事实分别核验。</p>
+                <p class="mt-1.5 max-w-5xl text-sm leading-6 text-slate-600">自动计划持续核验全部有权限的营业门店；需要补数时，可在携程、美团或主 PMS 列原地手动抓取/回读。每店只显示一个主 PMS，缺失配置与企业微信回执仍保留为明确阻断。</p>
                 <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                     <span>最近核验：{{ automationMonitor.observed_at || '尚未取得' }}（北京时间）</span>
                     <span>每 {{ automationMonitor.refresh_interval_seconds || 60 }} 秒准实时刷新</span>
@@ -25,7 +25,7 @@
         </div>
     </section>
 
-    <section class="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6" data-testid="automation-monitor-summary">
+    <section v-if="!(automationMonitorLoading &amp;&amp; !(automationMonitor.rows || []).length)" class="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6" data-testid="automation-monitor-summary">
         <button
             v-for="card in automationMonitorSummaryCards"
             :key="card.key"
@@ -57,24 +57,35 @@
             </div>
             <div class="flex flex-wrap items-center gap-2 text-xs">
                 <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-600">显示 {{ automationMonitorFilteredRows.length }} 家</span>
-                <span class="font-medium text-[#315d50]">点击门店、来源或推送状态直接查看对应页面</span>
+                <span class="font-medium text-[#315d50]">自动核验 + 手动补数；来源状态仍可点击查看详情</span>
             </div>
         </header>
 
-        <div v-if="automationMonitorLoading &amp;&amp; !(automationMonitor.rows || []).length" class="px-6 py-14 text-center text-sm text-slate-500">
-            <i class="fas fa-spinner fa-spin mr-2"></i>正在核验门店数据与推送状态...
+        <div v-if="automationMonitorLoading &amp;&amp; !(automationMonitor.rows || []).length" class="p-4 sm:p-5" data-testid="automation-monitor-skeleton" role="status" aria-live="polite">
+            <span class="sr-only">正在核验门店数据与推送状态...</span>
+            <div class="animate-pulse" aria-hidden="true">
+                <div class="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
+                    <div v-for="index in 6" :key="`automation-summary-loading-${index}`" class="h-20 rounded-xl bg-slate-100"></div>
+                </div>
+                <div class="mt-5 space-y-3">
+                    <div v-for="index in 4" :key="`automation-row-loading-${index}`" class="grid grid-cols-[minmax(130px,1fr)_repeat(4,minmax(110px,1fr))] gap-3 rounded-xl border border-slate-100 p-4">
+                        <div class="h-5 rounded bg-slate-200"></div>
+                        <div v-for="cell in 4" :key="cell" class="h-5 rounded bg-slate-100"></div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div v-else-if="automationMonitorFilteredRows.length" class="overflow-x-auto">
-            <table class="min-w-[1280px] w-full table-fixed text-left text-sm" data-testid="automation-monitor-table">
+            <table class="min-w-[1580px] w-full table-fixed text-left text-sm" data-testid="automation-monitor-table">
                 <colgroup>
                     <col class="w-[170px]">
-                    <col class="w-[125px]">
-                    <col class="w-[125px]">
+                    <col class="w-[220px]">
+                    <col class="w-[220px]">
+                    <col class="w-[220px]">
+                    <col class="w-[225px]">
+                    <col class="w-[210px]">
                     <col class="w-[175px]">
-                    <col class="w-[175px]">
-                    <col class="w-[195px]">
-                    <col class="w-[175px]">
-                    <col>
+                    <col class="w-[145px]">
                 </colgroup>
                 <thead class="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
                     <tr>
@@ -83,9 +94,9 @@
                         <th class="px-3 py-3">美团</th>
                         <th class="px-3 py-3">主 PMS 来源</th>
                         <th class="px-3 py-3">数据日期 / 数据状态</th>
-                        <th class="px-3 py-3">预计下次推送</th>
+                        <th class="px-3 py-3">下次推送倒计时</th>
                         <th class="px-3 py-3">推送结果</th>
-                        <th class="px-3 py-3">阻断原因</th>
+                        <th class="px-3 py-3">成功次数</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -101,29 +112,67 @@
                             </button>
                         </td>
                         <td class="px-3 py-4">
-                            <button type="button" :title="automationMonitorSourceStatusHint(row.ctrip)" @click="openAutomationMonitorDrilldown(row, 'ctrip')" class="rounded-full">
+                            <button type="button" :title="automationMonitorSourceStatusHint(row.ctrip)" @click="openAutomationMonitorDrilldown(row, 'ctrip')" class="block w-full rounded-lg text-left">
                                 <span :class="['inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorSourceClass(row.ctrip)]">{{ automationMonitorSourceStatusText(row.ctrip) }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                                <span class="mt-1.5 block text-xs tabular-nums text-slate-500">{{ automationMonitorSourceLastSuccessText(row.ctrip) }}</span>
                             </button>
+                            <button
+                                type="button"
+                                @click.stop="triggerAutomationMonitorSource(row, 'ctrip')"
+                                :disabled="Boolean(automationMonitorManualBusyKey)"
+                                :class="['mt-2 inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-50', automationMonitorManualActionClass(row, 'ctrip')]"
+                                data-testid="automation-monitor-capture-ctrip"
+                            >
+                                <i :class="[automationMonitorManualAction(row, 'ctrip').status === 'running' ? 'fas fa-spinner fa-spin' : 'fas fa-download', 'mr-1.5']"></i>{{ automationMonitorManualActionLabel(row, 'ctrip') }}
+                            </button>
+                            <p v-if="automationMonitorManualAction(row, 'ctrip').message" class="mt-1 text-[11px] leading-4 text-slate-500">{{ automationMonitorManualAction(row, 'ctrip').message }}</p>
                         </td>
                         <td class="px-3 py-4">
-                            <button type="button" :title="automationMonitorSourceStatusHint(row.meituan)" @click="openAutomationMonitorDrilldown(row, 'meituan')" class="rounded-full">
+                            <button type="button" :title="automationMonitorSourceStatusHint(row.meituan)" @click="openAutomationMonitorDrilldown(row, 'meituan')" class="block w-full rounded-lg text-left">
                                 <span :class="['inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorSourceClass(row.meituan)]">{{ automationMonitorSourceStatusText(row.meituan) }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                                <span class="mt-1.5 block text-xs tabular-nums text-slate-500">{{ automationMonitorSourceLastSuccessText(row.meituan) }}</span>
                             </button>
+                            <button
+                                type="button"
+                                @click.stop="triggerAutomationMonitorSource(row, 'meituan')"
+                                :disabled="Boolean(automationMonitorManualBusyKey)"
+                                :class="['mt-2 inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-50', automationMonitorManualActionClass(row, 'meituan')]"
+                                data-testid="automation-monitor-capture-meituan"
+                            >
+                                <i :class="[automationMonitorManualAction(row, 'meituan').status === 'running' ? 'fas fa-spinner fa-spin' : 'fas fa-download', 'mr-1.5']"></i>{{ automationMonitorManualActionLabel(row, 'meituan') }}
+                            </button>
+                            <p v-if="automationMonitorManualAction(row, 'meituan').message" class="mt-1 text-[11px] leading-4 text-slate-500">{{ automationMonitorManualAction(row, 'meituan').message }}</p>
                         </td>
                         <td class="px-3 py-4">
                             <button type="button" :title="automationMonitorSourceStatusHint(row.pms)" @click="openAutomationMonitorDrilldown(row, 'pms')" class="block w-full rounded-lg text-left">
                                 <span class="block font-medium text-slate-900">{{ row.pms?.label || '未绑定 PMS' }} <i class="fas fa-arrow-right ml-1 text-[9px] text-[#315d50]" aria-hidden="true"></i></span>
                                 <span :class="['mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs', automationMonitorSourceClass(row.pms)]">{{ automationMonitorSourceStatusText(row.pms) }}</span>
                             </button>
+                            <button
+                                type="button"
+                                @click.stop="triggerAutomationMonitorSource(row, 'pms')"
+                                :disabled="Boolean(automationMonitorManualBusyKey)"
+                                :class="['mt-2 inline-flex items-center rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-50', automationMonitorManualActionClass(row, 'pms')]"
+                                data-testid="automation-monitor-readback-pms"
+                            >
+                                <i :class="[automationMonitorManualAction(row, 'pms').status === 'running' ? 'fas fa-spinner fa-spin' : 'fas fa-database', 'mr-1.5']"></i>{{ automationMonitorManualActionLabel(row, 'pms') }}
+                            </button>
+                            <p v-if="automationMonitorManualAction(row, 'pms').message" class="mt-1 text-[11px] leading-4 text-slate-500">{{ automationMonitorManualAction(row, 'pms').message }}</p>
                         </td>
                         <td class="px-3 py-4">
                             <p class="font-medium tabular-nums text-slate-700">{{ row.business_date || '未取得' }}</p>
                             <span :class="['mt-1.5 inline-flex rounded-full border px-2.5 py-1 text-xs font-medium', automationMonitorDataStatusClass(row.data_status)]">{{ row.data_status_label || '待核验' }}</span>
+                            <div class="mt-2 flex flex-wrap gap-1 text-[11px]">
+                                <span :class="['rounded-full border px-2 py-0.5', automationMonitorSourceClass(row.ctrip)]">携程 {{ automationMonitorSourceStatusText(row.ctrip) }}</span>
+                                <span :class="['rounded-full border px-2 py-0.5', automationMonitorSourceClass(row.meituan)]">美团 {{ automationMonitorSourceStatusText(row.meituan) }}</span>
+                                <span :class="['rounded-full border px-2 py-0.5', automationMonitorSourceClass(row.pms)]">PMS {{ automationMonitorSourceStatusText(row.pms) }}</span>
+                            </div>
                         </td>
                         <td class="px-3 py-4">
                             <button type="button" @click="openAutomationMonitorDrilldown(row, 'wechat')" class="block w-full rounded-lg text-left">
-                                <span class="block font-medium tabular-nums text-slate-800">{{ row.next_push_label || '预计时间未取得' }} <i class="fas fa-arrow-right ml-1 text-[9px] text-[#315d50]" aria-hidden="true"></i></span>
-                                <span class="mt-1 block text-xs text-slate-400">云端调度回读</span>
+                                <span class="block font-semibold tabular-nums text-[#315d50]">{{ automationMonitorNextPushCountdown(row) }} <i class="fas fa-arrow-right ml-1 text-[9px] text-[#315d50]" aria-hidden="true"></i></span>
+                                <span v-if="row.next_push_at" class="mt-1 block text-xs tabular-nums text-slate-500">计划 {{ row.next_push_at }}</span>
+                                <span v-else class="mt-1 block text-xs text-slate-400">尚无可倒计时计划</span>
                             </button>
                         </td>
                         <td class="px-3 py-4">
@@ -133,8 +182,10 @@
                             </button>
                         </td>
                         <td class="px-3 py-4">
-                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'tasks')" class="block w-full rounded-lg text-left" title="查看任务执行与复盘">
-                                <span :class="row.blocker_reason === '无' ? 'text-emerald-700' : 'text-red-700'" class="line-clamp-3 text-xs leading-5">{{ row.blocker_reason || '未取得' }} <i class="fas fa-arrow-right ml-1 text-[9px] opacity-60" aria-hidden="true"></i></span>
+                            <button type="button" @click="openAutomationMonitorDrilldown(row, 'tasks')" class="block w-full rounded-lg text-left" :title="row.blocker_reason === '无' ? '查看任务执行与复盘' : `当前阻断：${row.blocker_reason}`">
+                                <span class="block text-xl font-semibold tabular-nums text-slate-900">{{ automationMonitorPushSuccessCountText(row) }} <i class="fas fa-arrow-right ml-1 text-[9px] text-[#315d50]" aria-hidden="true"></i></span>
+                                <span class="mt-1 block text-xs text-slate-400">当前业务日送达</span>
+                                <span v-if="(row.blockers || []).length" class="mt-1 block text-[11px] text-red-600">另有 {{ row.blockers.length }} 项待处理</span>
                             </button>
                         </td>
                     </tr>

@@ -24,7 +24,24 @@ final class AutomationRunMonitorServiceTest extends TestCase
                 '已发送'
             ),
             new DateTimeImmutable('2026-07-28 09:30:00', new DateTimeZone('Asia/Shanghai')),
-            fn(array $permittedHotelIds): array => [80]
+            fn(array $permittedHotelIds): array => [80],
+            function (array $hotels, string $businessDate): array {
+                self::assertSame([80], array_column($hotels, 'id'));
+                self::assertSame('2026-07-28', $businessDate);
+                return [
+                    80 => [
+                        'sources' => [
+                            'ctrip' => ['last_success_at' => '2026-07-28 08:43:47'],
+                            'meituan' => ['last_success_at' => '2026-07-28 08:45:12'],
+                        ],
+                        'delivery' => [
+                            'success_count' => 3,
+                            'last_success_at' => '2026-07-28 09:15:30',
+                            'status' => 'verified',
+                        ],
+                    ],
+                ];
+            }
         );
 
         $overview = $service->overview([$this->hotel()], '2026-07-28', 9);
@@ -36,6 +53,11 @@ final class AutomationRunMonitorServiceTest extends TestCase
         self::assertSame('2026-07-28 10:00:00', $row['next_push_at']);
         self::assertSame('sent', $row['push_status']);
         self::assertSame('企业微信已送达', $row['push_result']);
+        self::assertSame('2026-07-28 08:43:47', $row['ctrip']['last_success_at']);
+        self::assertSame('2026-07-28 08:45:12', $row['meituan']['last_success_at']);
+        self::assertSame(3, $row['push_success_count']);
+        self::assertSame('verified', $row['push_success_count_status']);
+        self::assertSame('2026-07-28 09:15:30', $row['push_result_at']);
         self::assertSame('无', $row['blocker_reason']);
         self::assertSame(1, $overview['summary']['push_succeeded_count']);
     }
@@ -78,7 +100,15 @@ final class AutomationRunMonitorServiceTest extends TestCase
                 ]],
             ],
             new DateTimeImmutable('2026-07-28 09:30:00', new DateTimeZone('Asia/Shanghai')),
-            fn(array $permittedHotelIds): array => [80]
+            fn(array $permittedHotelIds): array => [80],
+            fn(): array => [
+                80 => [
+                    'sources' => [
+                        'ctrip' => ['last_success_at' => '2026-07-28 08:43:47'],
+                        'meituan' => ['last_success_at' => '2026-07-27 22:00:14'],
+                    ],
+                ],
+            ]
         );
 
         $row = $service->overview([$this->hotel()], '2026-07-28', 9)['rows'][0];
@@ -87,6 +117,9 @@ final class AutomationRunMonitorServiceTest extends TestCase
         self::assertSame('partial', $row['data_status']);
         self::assertSame('部分就绪（2/3）', $row['data_status_label']);
         self::assertNull($row['next_push_at']);
+        self::assertSame('2026-07-28 08:43:47', $row['ctrip']['last_success_at']);
+        self::assertSame('2026-07-27 22:00:14', $row['meituan']['last_success_at']);
+        self::assertSame('pending_readback', $row['meituan']['status']);
         self::assertSame('预计时间未取得', $row['next_push_label']);
         self::assertSame('waiting', $row['push_status']);
         self::assertSame('尚无执行回执', $row['push_result']);
@@ -137,7 +170,8 @@ final class AutomationRunMonitorServiceTest extends TestCase
             function (array $permittedHotelIds): array {
                 self::assertSame([80, 81], $permittedHotelIds);
                 return [81, 999];
-            }
+            },
+            fn(): array => []
         );
 
         $overview = $service->overview([

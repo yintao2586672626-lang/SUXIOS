@@ -538,7 +538,44 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertContains('--login-timeout-ms=30000', $args);
         self::assertContains('--sections=business_overview,traffic_report', $args);
         self::assertContains('--section-concurrency=3', $args);
+        self::assertContains('--capture-plan=full', $args);
         self::assertContains('--headless=true', $args);
+    }
+
+    public function testBuildCtripAutoArgsNormalizesLightweightCapturePlan(): void
+    {
+        $args = BrowserProfileCaptureRequestService::buildCtripAutoArgs(
+            'node',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs',
+            'profile-1',
+            9,
+            '2026-07-30',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture' . DIRECTORY_SEPARATOR . 'capture.json',
+            ['traffic_report'],
+            1,
+            false,
+            'search demand'
+        );
+
+        self::assertContains('--capture-plan=future_demand', $args);
+    }
+
+    public function testBuildCtripAutoArgsNormalizesHistoricalReviewCapturePlan(): void
+    {
+        $args = BrowserProfileCaptureRequestService::buildCtripAutoArgs(
+            'node',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'ctrip_browser_capture.mjs',
+            'profile-1',
+            9,
+            '2026-07-30',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture' . DIRECTORY_SEPARATOR . 'capture.json',
+            ['traffic_report'],
+            1,
+            false,
+            'past review'
+        );
+
+        self::assertContains('--capture-plan=historical_review', $args);
     }
 
     public function testBuildMeituanAutoArgsKeepsSectionsAndOptionalMetadata(): void

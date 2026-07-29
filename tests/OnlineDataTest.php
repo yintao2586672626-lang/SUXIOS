@@ -1552,6 +1552,15 @@ final class OnlineDataTest extends TestCase
         self::assertSame('携程竞争圈返回', $rows[0]['metricSourceStatus']['amount']);
         self::assertSame('携程竞争圈返回', $rows[0]['metricSourceStatus']['quantity']);
         self::assertSame('系统未返回', $rows[0]['metricSourceStatus']['totalDetailNum']);
+
+        $summary = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplaySummary', [$rows]);
+        $cards = array_column($summary['cards'], null, 'key');
+        self::assertSame('未返回', $cards['totalDetailNum']['value']);
+        self::assertSame('未返回', $cards['totalQunarDetailVisitors']['value']);
+        self::assertSame('数据不足', $cards['trafficValue']['value']);
+        self::assertSame('数据不足', $cards['visitConcentration']['value']);
+        self::assertSame('数据不足', $cards['ctripReviewImpact']['value']);
+        self::assertSame('数据不足', $cards['qunarReviewImpact']['value']);
     }
 
     public function testBackendTreatsZeroQunarVisitorsAsPartialCtripCapture(): void

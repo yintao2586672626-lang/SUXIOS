@@ -40,7 +40,8 @@ test('dual OTA values preserve authoritative zero and reject missing arithmetic'
 
   assert.match(appMain, /const dualOtaNumberText = \(value, digits = 0\) => \{[\s\S]*number === null[\s\S]*toLocaleString/);
   assert.match(appMain, /every\(platform => platform\.revenueObserved\)/);
-  assert.match(appMain, /dualOtaSumObservedValues\(\[ctripRevenue, meituanRevenue\]\)/);
+  assert.match(appMain, /dualOtaCombinedLossNode\('revenue', '收入', \[[\s\S]*platform: '携程'[\s\S]*platform: '美团'/);
+  assert.match(appMain, /dataStatus: 'partial'[\s\S]*合计不完整/);
   assert.match(dualOtaPage, /:title="node\.note \|\| ''"/);
   assert.doesNotMatch(dualOtaPage, /nodeExplanations\[node\.id\].*description/);
   assert.doesNotMatch(dualOtaStatic, /美团昨日漏斗来自.*样例/);
@@ -91,8 +92,11 @@ test('home temporal cards do not coerce null into zero or probability confidence
   assert.match(appMain, /return '区间未返回';/);
   assert.match(appMain, /if \(number === null\) return '待校准';/);
   assert.match(appMain, /规则置信指数（未校准）/);
-  assert.match(appMain, /较前7日变化未返回/);
-  assert.match(appMain, /历史预测准确度：\$\{homeTemporalPercentText\(review\.range_hit_rate\)\}/);
+  assert.match(appMain, /需满 14 个有效日才做两组 7 日对比/);
+  assert.match(appMain, /最近 \$\{recentWindowDays\} 个有数据日均值/);
+  assert.match(appMain, /历史预测区间命中率：\$\{homeTemporalPercentText\(review\.range_hit_rate\)\}/);
+  assert.match(dualOtaPage, /data-testid="home-temporal-generate-inline"/);
+  assert.match(appMain, /status: 'blocked',[\s\S]*message: homeTemporalError\.value,[\s\S]*series: \[\]/);
   assert.doesNotMatch(appMain, /粗粒度区间 \$\{futureRange\}，置信度/);
 });
 

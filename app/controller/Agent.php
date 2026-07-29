@@ -2110,9 +2110,24 @@ class Agent extends Base
             if (isset($unitColumns['created_by'])) {
                 $unitFieldNames[] = 'created_by';
             }
+            if (isset($unitColumns['lifecycle_status'])) {
+                $unitFieldNames[] = 'lifecycle_status';
+            }
+            if (isset($unitColumns['known_knowns'])) {
+                $unitFieldNames[] = 'known_knowns';
+            }
+            if (isset($unitColumns['known_unknowns'])) {
+                $unitFieldNames[] = 'known_unknowns';
+            }
+            if (isset($unitColumns['truth_profile_version'])) {
+                $unitFieldNames[] = 'truth_profile_version';
+            }
             $unitQuery = Db::name('knowledge_units')
                 ->field(implode(',', $unitFieldNames))
                 ->where('status', 'done');
+            if (isset($unitColumns['lifecycle_status'])) {
+                $unitQuery->where('lifecycle_status', 'active');
+            }
             if (isset($unitColumns['hotel_id']) && isset($unitColumns['created_by']) && $hotelIds) {
                 [$keywordSql, $keywordBind] = $this->buildOtaKnowledgeKeywordWhereSql(['name', 'description', 'source'], $keywords, 'ku');
                 $unitQuery->where(function ($scope) use ($hotelIds, $keywordSql, $keywordBind): void {
@@ -2143,6 +2158,10 @@ class Agent extends Base
                     ->select()
                     ->toArray();
                 foreach ($chunkRows as &$chunkRow) {
+                    if (!$this->isDefaultOtaKnowledgeChunkAllowed($chunkRow['content'] ?? null)) {
+                        $chunkRow['_relevance_score'] = -1;
+                        continue;
+                    }
                     $searchText = mb_strtolower((string)($chunkRow['type'] ?? '') . ' ' . $this->sanitizeOtaKnowledgeText($chunkRow['content'] ?? '', 6000));
                     $score = 0;
                     foreach ($keywords as $keywordIndex => $keyword) {
@@ -2178,12 +2197,18 @@ class Agent extends Base
 
             foreach ($unitRows as $row) {
                 $unitId = (int)($row['unit_id'] ?? 0);
+                if (empty($chunksByUnit[$unitId])) {
+                    continue;
+                }
                 $items[] = [
                     'source' => 'knowledge_units',
                     'id' => $unitId,
                     'hotel_id' => (int)($row['hotel_id'] ?? 0),
                     'title' => $this->sanitizeOtaKnowledgeText((string)($row['name'] ?? ''), 80),
                     'summary' => $this->sanitizeOtaKnowledgeText($row['description'] ?? '', 220),
+                    'known_knowns' => $this->normalizeOtaKnowledgeStatements($row['known_knowns'] ?? []),
+                    'known_unknowns' => $this->normalizeOtaKnowledgeStatements($row['known_unknowns'] ?? []),
+                    'truth_profile_version' => trim((string)($row['truth_profile_version'] ?? '')),
                     'chunks' => $chunksByUnit[$unitId] ?? [],
                 ];
             }
@@ -2218,22 +2243,12 @@ class Agent extends Base
             }
         }
 
-        $unique = [];
-        foreach ($items as $item) {
-            $key = (string)($item['source'] ?? '') . '#' . (string)($item['id'] ?? '') . '#' . (string)($item['title'] ?? '');
-            if (($item['title'] ?? '') === '' || isset($unique[$key])) {
-                continue;
-            }
-            $unique[$key] = $item;
-            if (count($unique) >= 8) {
-                break;
-            }
-        }
+        $unique = $this->deduplicateOtaKnowledgeItems($items, 8);
 
         return [
             'status' => $unique ? 'available' : 'empty',
             'keywords' => $keywords,
-            'items' => array_values($unique),
+            'items' => $unique,
         ];
     }
 
@@ -2303,6 +2318,100 @@ class Agent extends Base
         return mb_substr((string)$text, 0, $limit);
     }
 
+    /**
+     * Default OTA prompts may use reusable methods and guardrails, but case
+     * figures require an explicit case-key lookup through the bounded service.
+     *
+     * @param mixed $content
+     */
+    private function isDefaultOtaKnowledgeChunkAllowed($content): bool
+    {
+        if (is_array($content)) {
+            $payload = $content;
+        } elseif (is_string($content) && trim($content) !== '') {
+            $decoded = json_decode($content, true);
+            $payload = is_array($decoded) ? $decoded : [];
+        } else {
+            $payload = [];
+        }
+
+        $lifecycleStatus = strtolower(trim((string)($payload['lifecycle_status'] ?? 'active')));
+        if ($lifecycleStatus !== 'active') {
+            return false;
+        }
+
+        $scope = strtolower(trim((string)($payload['scope'] ?? '')));
+        if ($scope === 'case_reference') {
+            return false;
+        }
+
+        $evidenceLevel = trim((string)($payload['evidence_level'] ?? ''));
+        $sourceRefs = is_array($payload['source_refs'] ?? null) ? $payload['source_refs'] : [];
+        if ($scope === '' || $evidenceLevel === '' || $sourceRefs === []) {
+            return false;
+        }
+
+        return filter_var(
+            $payload['requires_explicit_case_key'] ?? false,
+            FILTER_VALIDATE_BOOL
+        ) !== true;
+    }
+
+    /**
+     * Structured knowledge_units entries are appended before their mirrored
+     * knowledge_base rows, so title/hotel deduplication keeps the traceable
+     * structured copy and avoids repeating the same knowledge in one prompt.
+     *
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function deduplicateOtaKnowledgeItems(array $items, int $limit = 8): array
+    {
+        $unique = [];
+        $limit = max(1, min(20, $limit));
+        foreach ($items as $item) {
+            $title = trim((string)($item['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $key = (int)($item['hotel_id'] ?? 0) . '#' . mb_strtolower($title);
+            if (isset($unique[$key])) {
+                continue;
+            }
+            $unique[$key] = $item;
+            if (count($unique) >= $limit) {
+                break;
+            }
+        }
+
+        return array_values($unique);
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<int, string>
+     */
+    private function normalizeOtaKnowledgeStatements($value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($value as $item) {
+            $text = $this->sanitizeOtaKnowledgeText(is_scalar($item) ? (string)$item : '', 180);
+            if ($text !== '') {
+                $items[$text] = $text;
+            }
+        }
+
+        return array_values($items);
+    }
+
     private function formatOtaKnowledgeContextForPrompt(array $summary): string
     {
         $context = is_array($summary['knowledge_context'] ?? null) ? $summary['knowledge_context'] : [];
@@ -2322,6 +2431,18 @@ class Agent extends Base
                 continue;
             }
             $lines[] = '- ' . trim($title . ($itemSummary !== '' ? '：' . $itemSummary : ''));
+            foreach (array_slice((array)($item['known_knowns'] ?? []), 0, 2) as $knownKnown) {
+                $knownText = $this->sanitizeOtaKnowledgeText($knownKnown, 180);
+                if ($knownText !== '') {
+                    $lines[] = '  - 已确认：' . $knownText;
+                }
+            }
+            foreach (array_slice((array)($item['known_unknowns'] ?? []), 0, 2) as $knownUnknown) {
+                $unknownText = $this->sanitizeOtaKnowledgeText($knownUnknown, 180);
+                if ($unknownText !== '') {
+                    $lines[] = '  - 待验证：' . $unknownText;
+                }
+            }
             foreach (array_slice((array)($item['chunks'] ?? []), 0, 2) as $chunk) {
                 $chunkText = $this->sanitizeOtaKnowledgeText($chunk, 180);
                 if ($chunkText !== '') {
@@ -2329,7 +2450,7 @@ class Agent extends Base
                 }
             }
         }
-        $lines[] = '知识库使用规则：指标必须标注口径，分母缺失或为0时写不可计算；平台私有分值不反推权重；异常描述必须优先写成数据口径提示或需复核提示。';
+        $lines[] = '知识库使用规则：已确认内容仍须匹配本次门店、日期和来源；待验证内容必须保持缺口，禁止用0、旧数据或默认值补齐；指标必须标注口径，分母缺失或为0时写不可计算；平台私有分值不反推权重。';
 
         return implode("\n", $lines) . "\n";
     }

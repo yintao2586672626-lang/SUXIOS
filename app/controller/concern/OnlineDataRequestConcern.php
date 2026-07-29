@@ -2338,9 +2338,6 @@ trait OnlineDataRequestConcern
     public function saveCtripConfig(): Response
     {
         $this->checkPermission();
-        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
-            return $this->error('Ctrip collection configuration is restricted to super-admin maintenance.', 403);
-        }
 
         try {
             $requestData = $this->requestData();
@@ -2361,7 +2358,11 @@ trait OnlineDataRequestConcern
                 'outcome' => 'success',
             ]);
             $this->clearAutoFetchLightConfigListCache('ctrip');
-            return json(['code' => 200, 'message' => '配置保存成功', 'data' => $this->sanitizeSecretConfig($config)]);
+            $responseConfig = $this->sanitizeSecretConfig($config);
+            if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+                $responseConfig = CtripImplementationExposurePolicy::config($responseConfig);
+            }
+            return json(['code' => 200, 'message' => '配置保存成功', 'data' => $responseConfig]);
         } catch (\think\exception\HttpException $e) {
             return $this->error($e->getMessage(), $e->getStatusCode());
         } catch (\InvalidArgumentException $e) {
@@ -2598,6 +2599,7 @@ trait OnlineDataRequestConcern
             if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
                 $list = CtripImplementationExposurePolicy::configList($list);
             }
+            $list = $this->appendOtaConfigActionPermissions($list);
 
             return $this->success(array_values($list));
         } catch (\Throwable $e) {
@@ -2609,9 +2611,6 @@ trait OnlineDataRequestConcern
     public function getCtripConfigDetail(): Response
     {
         $this->checkPermission();
-        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
-            return $this->error('Ctrip collection configuration detail is restricted to super-admin maintenance.', 403);
-        }
 
         $id = trim((string)$this->request->get('id', ''));
         if ($id === '') {
@@ -2641,7 +2640,11 @@ trait OnlineDataRequestConcern
         }
 
         $safeList = $this->sanitizeStoredOtaConfigListForRuntime([$id => $list[$id]]);
-        return $this->success($safeList[$id] ?? []);
+        $responseConfig = $safeList[$id] ?? [];
+        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            $responseConfig = CtripImplementationExposurePolicy::config($responseConfig);
+        }
+        return $this->success($responseConfig);
     }
 
     /**
@@ -2650,9 +2653,6 @@ trait OnlineDataRequestConcern
     public function deleteCtripConfig(): Response
     {
         $this->checkPermission();
-        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
-            return $this->error('Ctrip collection configuration is restricted to super-admin maintenance.', 403);
-        }
         $id = trim((string)$this->request->param('id', ''));
         if ($id === '') {
             return $this->error('配置ID不能为空');
@@ -2688,9 +2688,7 @@ trait OnlineDataRequestConcern
             if (!$this->isOtaConfigVisibleToCurrentUser($config)) {
                 return $this->error('无权删除此配置', 403);
             }
-            if (!$this->currentUserCanMaintainOtaConfigItem($config, $systemHotelId)) {
-                $this->checkActionPermission('can_delete_online_data');
-            }
+            $this->checkHotelActionPermission($systemHotelId, 'can_delete_online_data');
 
             $deleted = $this->deleteCtripConfigMetadata($id, $systemHotelId);
 

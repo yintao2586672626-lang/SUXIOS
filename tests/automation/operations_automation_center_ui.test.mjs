@@ -7,6 +7,7 @@ const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), '
 const pmsPage = read('resources/frontend/templates/fragments/15aab-page-pms-operating-data.html');
 const notificationPage = read('resources/frontend/templates/fragments/15ab-page-manual-notifications.html');
 const notificationSchedulePanel = read('public/wechat-notification-static.js');
+const meituanStatic = read('public/meituan-static.js');
 const targetPage = read('resources/frontend/templates/fragments/15aa-page-operating-targets.html');
 const monitorPage = read('resources/frontend/templates/fragments/15aac-page-automation-monitor.html');
 const taskPage = read('resources/frontend/templates/fragments/17-page-ops-track.html');
@@ -41,9 +42,9 @@ test('automation center keeps configuration, monitoring and execution pages focu
     '主 PMS 来源',
     '数据日期',
     '数据状态',
-    '预计下次推送',
+    '下次推送倒计时',
     '推送结果',
-    '阻断原因',
+    '成功次数',
   ]) {
     assert.match(monitorPage, new RegExp(label));
   }
@@ -62,20 +63,45 @@ test('notification plan exposes the necessary schedule and runtime settings', ()
   assert.match(notificationPage, /运行监控/);
   for (const label of [
     '数据范围',
-    '定时数据日期',
+    '发送哪天的数据',
     '发送频率',
     '每日发送时间',
     '生效星期',
-    '生效日期',
     '小时播报开始',
     '小时播报结束',
-    '目标通知群',
+    '推送通道',
     '启用或暂停本计划',
     '上次运行',
     '上次回执',
     '当前阻断原因',
   ]) {
     assert.match(notificationSchedulePanel, new RegExp(label));
+  }
+  assert.doesNotMatch(notificationSchedulePanel, /页面预览日期|生效日期|今日累计 T0|昨日 T-1/);
+  assert.doesNotMatch(notificationSchedulePanel, /manual-notification-effective-(?:from|to)/);
+  assert.match(notificationSchedulePanel, /发送当天数据：每次取发送当天/);
+  assert.match(notificationSchedulePanel, /border-slate-900 bg-slate-900 text-white/);
+  assert.match(notificationSchedulePanel, /当前酒店企业微信群机器人 Webhook/);
+  assert.match(notificationSchedulePanel, /无需重复选择通知群/);
+  assert.match(notificationPage, /data-testid="manual-notification-save"[\s\S]*保存计划/);
+});
+
+test('notification center classifies channel, plans, records and template variables', () => {
+  for (const [key, label] of [
+    ['groups', '推送通道'],
+    ['plans', '自动推送'],
+    ['records', '发送记录'],
+  ]) {
+    assert.match(notificationPage, new RegExp(`key: '${key}'`));
+    assert.match(notificationPage, new RegExp(label));
+  }
+  assert.match(notificationPage, /manual-notification-tab-\$\{tab\.key\}/);
+  assert.match(notificationPage, /manualNotificationWorkspaceTab === 'groups'/);
+  assert.match(notificationPage, /manualNotificationWorkspaceTab === 'plans'/);
+  assert.match(notificationPage, /manualNotificationWorkspaceTab === 'records'/);
+  assert.match(notificationPage, /v-for="group in manualNotificationVariableGroups"/);
+  for (const label of ['基础信息', 'PMS 经营', '携程', '去哪儿', '美团']) {
+    assert.match(appMain, new RegExp(label));
   }
 });
 
@@ -89,8 +115,8 @@ test('task execution page is explicitly hotel-scoped and labels manual task fiel
 });
 
 test('automation monitor includes permitted hotels and keeps missing WeCom setup visible', () => {
-  assert.match(monitorPage, /监测当前账号有权限的全部营业门店/);
-  assert.match(monitorPage, /未绑定企业微信机器人或未启用计划会保留为明确阻断/);
+  assert.match(monitorPage, /自动计划持续核验全部有权限的营业门店/);
+  assert.match(monitorPage, /缺失配置与企业微信回执仍保留为明确阻断/);
   assert.doesNotMatch(monitorPage, /未绑定机器人门店不进入监控名单/);
   assert.match(monitorPage, /<button[\s\S]*v-for="card in automationMonitorSummaryCards"/);
   assert.match(monitorPage, /@click="automationMonitorStatusFilter = card\.filter"/);
@@ -129,8 +155,36 @@ test('automation monitor uses concise truthful source status labels', () => {
   assert.doesNotMatch(monitorPage, /\{\{ row\.(?:ctrip|meituan|pms)\?\.status_label/);
 });
 
+test('automation monitor exposes successful capture time, per-source readiness, plan countdown and delivery count', () => {
+  assert.match(monitorPage, /automationMonitorSourceLastSuccessText\(row\.ctrip\)/);
+  assert.match(monitorPage, /automationMonitorSourceLastSuccessText\(row\.meituan\)/);
+  assert.match(monitorPage, /携程 \{\{ automationMonitorSourceStatusText\(row\.ctrip\) \}\}/);
+  assert.match(monitorPage, /美团 \{\{ automationMonitorSourceStatusText\(row\.meituan\) \}\}/);
+  assert.match(monitorPage, /PMS \{\{ automationMonitorSourceStatusText\(row\.pms\) \}\}/);
+  assert.match(monitorPage, /automationMonitorNextPushCountdown\(row\)/);
+  assert.match(monitorPage, /row\.next_push_at/);
+  assert.match(monitorPage, /automationMonitorPushSuccessCountText\(row\)/);
+  assert.match(automationMonitorLogic, /还有 \$\{days\}天/);
+  assert.match(automationMonitorLogic, /push_success_count_status === 'partial'/);
+});
+
+test('automation monitor supports in-place manual capture and PMS readback without navigation', () => {
+  assert.match(monitorPage, /自动核验 \+ 手动补数/);
+  assert.match(monitorPage, /triggerAutomationMonitorSource\(row, 'ctrip'\)/);
+  assert.match(monitorPage, /triggerAutomationMonitorSource\(row, 'meituan'\)/);
+  assert.match(monitorPage, /triggerAutomationMonitorSource\(row, 'pms'\)/);
+  assert.match(monitorPage, /automation-monitor-capture-ctrip/);
+  assert.match(monitorPage, /automation-monitor-capture-meituan/);
+  assert.match(monitorPage, /automation-monitor-readback-pms/);
+  assert.match(automationMonitorLogic, /runCtripBrowserCapture\(\{[\s\S]*silent: true/);
+  assert.match(automationMonitorLogic, /runMeituanBrowserCapture\(\{[\s\S]*dataDate: businessDate/);
+  assert.match(automationMonitorLogic, /\/operating-targets\/prefill\/dingdandao/);
+  assert.match(automationMonitorLogic, /await loadAutomationMonitor\(\{ silent: true \}\)/);
+  assert.match(meituanStatic, /data_date: dataDate/);
+});
+
 test('automation monitor links primary-row facts directly without a duplicate detail panel', () => {
-  assert.match(monitorPage, /点击门店、来源或推送状态直接查看对应页面/);
+  assert.match(monitorPage, /来源状态仍可点击查看详情/);
   assert.doesNotMatch(monitorPage, /automation-monitor-drilldown|运行明细|toggleAutomationMonitorRow|点击门店行展开/);
   for (const target of ['hotel', 'ctrip', 'meituan', 'pms', 'wechat', 'tasks']) {
     assert.match(

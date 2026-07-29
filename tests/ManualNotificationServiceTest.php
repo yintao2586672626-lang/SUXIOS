@@ -90,6 +90,13 @@ final class ManualNotificationServiceTest extends TestCase
             '今日经营数据汇总｜PMS＋OTA',
             $metadata['daily_custom_template']['title']
         );
+        self::assertStringContainsString(
+            '平台采集快照，不代表发送时点状态',
+            $metadata['daily_custom_template']['body']
+        );
+        self::assertStringNotContainsString('实时', $metadata['daily_custom_template']['body']);
+        self::assertContains('{携程访客量}', $metadata['daily_template_variables']);
+        self::assertNotContains('{携程实时访客量}', $metadata['daily_template_variables']);
         self::assertContains('{美团支付订单}', $metadata['daily_template_variables']);
         self::assertNotContains(
             ManualNotificationService::OPERATING_DAILY_CUSTOM_REPORT_TYPE,
@@ -113,6 +120,8 @@ final class ManualNotificationServiceTest extends TestCase
             array_column($metadata['trigger_types'], 'key')
         );
         self::assertStringContainsString('不补发', $metadata['fixed_policies']['missed_window']);
+        self::assertStringContainsString('明确失败', $metadata['fixed_policies']['retry']);
+        self::assertStringContainsString('重复送达', $metadata['fixed_policies']['retry']);
         self::assertSame(
             '经营目标与已核验经营事实',
             $metadata['types'][1]['data_scope_label']
@@ -322,7 +331,7 @@ final class ManualNotificationServiceTest extends TestCase
         ]));
 
         self::assertSame('yesterday', $saved['record']['business_date_rule']);
-        self::assertSame('昨日 T-1', $saved['record']['business_date_rule_label']);
+        self::assertSame('发送前一天数据', $saved['record']['business_date_rule_label']);
         self::assertSame([1, 2, 3, 4, 5], $saved['record']['active_weekdays']);
         self::assertSame('工作日', $saved['record']['active_weekdays_label']);
         self::assertSame('2026-07-20', $saved['record']['effective_from']);
@@ -491,6 +500,33 @@ final class ManualNotificationServiceTest extends TestCase
         );
         self::assertTrue($replay['idempotent_replay']);
         self::assertCount(1, $calls);
+    }
+
+    public function testMeituanBlankCustomPreviewOmitsInternalDeliveryMetadata(): void
+    {
+        $preview = (new ManualNotificationService())->preview(
+            80,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'notification_type' => 'blank_custom',
+                'template_type' => 'blank_custom',
+                'source_scope' => 'meituan',
+                'title' => '美团今日实时数据｜本地采集测试',
+                'body' => "门店：{酒店名称}\n业务日：{经营日期}\n采集完成：2026-07-30 01:26:11",
+            ]),
+            9
+        );
+
+        self::assertSame(
+            "美团今日实时数据｜本地采集测试\n"
+                . "门店：敦煌漠蓝新\n"
+                . "业务日：2026-07-26\n"
+                . '采集完成：2026-07-30 01:26:11',
+            $preview['payload']['markdown']['content']
+        );
+        foreach (['当前模式', '酒店：', '通知类型', '计划发送', '发送触发', '状态：'] as $label) {
+            self::assertStringNotContainsString($label, $preview['payload']['markdown']['content']);
+        }
     }
 
     public function testFailedDispatcherIsPersistedWithoutFalseSuccess(): void

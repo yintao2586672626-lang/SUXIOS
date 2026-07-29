@@ -53,6 +53,33 @@ final class OnlineDataFieldFactServiceTest extends TestCase
         self::assertContains('order_count', $metricKeys);
     }
 
+    public function testExplicitZeroExposureToBrowseRateRemainsAStoredPlatformFact(): void
+    {
+        $row = OnlineDataFieldFactService::attachToOnlineDailyRow([
+            'data_type' => 'traffic',
+            'raw_data' => json_encode([
+                '_source_path' => 'data.myHotel',
+                'exposure_to_browse_rate' => 0,
+            ], JSON_UNESCAPED_UNICODE),
+        ], [
+            '_source_path' => 'data.myHotel',
+            'intentionPerExposure' => '0%',
+            'exposure_to_browse_rate' => 0,
+        ]);
+
+        $raw = json_decode((string)$row['raw_data'], true);
+        self::assertIsArray($raw);
+        $facts = array_column($raw['field_facts'] ?? [], null, 'metric_key');
+
+        self::assertSame(
+            'data.myHotel.intentionPerExposure',
+            $facts['exposure_to_browse_rate']['source_path'] ?? null
+        );
+        self::assertTrue(
+            $facts['exposure_to_browse_rate']['stored_value_present'] ?? false
+        );
+    }
+
     public function testFieldFactStatusRequiresDesensitizedCaptureEvidence(): void
     {
         $row = [

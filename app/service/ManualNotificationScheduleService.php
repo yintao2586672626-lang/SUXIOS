@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\User;
 use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
@@ -24,6 +25,12 @@ final class ManualNotificationScheduleService
     /** @var callable|null */
     private $sender;
 
+    /** @var callable|null */
+    private $meituanTemporalRefresher;
+
+    /** @var array<string, array<string, mixed>> */
+    private array $meituanPreparationCache = [];
+
     public function __construct(
         ?callable $sender = null,
         private readonly ?OperatingTargetNotificationPayloadService $operatingTargetPayloads = null,
@@ -31,9 +38,11 @@ final class ManualNotificationScheduleService
         private readonly ?WechatRobotDeliveryService $deliveries = null,
         private readonly ?ManualNotificationScheduleRuleService $scheduleRuleService = null,
         private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null,
-        private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null
+        private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null,
+        ?callable $meituanTemporalRefresher = null
     ) {
         $this->sender = $sender;
+        $this->meituanTemporalRefresher = $meituanTemporalRefresher;
     }
 
     /** @return array<string, mixed> */
@@ -189,11 +198,36 @@ final class ManualNotificationScheduleService
                 'reason_code' => 'scoped_robot_identity_mismatch',
             ];
         }
+        $sourcePreparation = ($identity['eligible'] ?? false) === true
+            ? $this->prepareMeituanSource($row, $businessDate, $now, $dispatch)
+            : [
+                'status' => 'skipped',
+                'reason_code' => 'target_identity_not_ready',
+            ];
+        $base['source_preparation'] = $sourcePreparation;
         $candidate = $this->deliveryCandidate(
             $row,
             $businessDate,
             $mode
         );
+        if (($sourcePreparation['status'] ?? '') === 'blocked') {
+            $reasonCode = (string)($sourcePreparation['reason_code']
+                ?? 'meituan_current_capture_not_ready');
+            $candidate = [
+                'status' => 'blocked',
+                'reason_code' => $reasonCode,
+                'business_date' => $businessDate,
+                'payload' => null,
+                'formal_send_gate' => [
+                    'allowed' => false,
+                    'status' => 'formal_send_blocked',
+                    'blockers' => [[
+                        'code' => $reasonCode,
+                        'message' => '美团当次采集未完成保存回读，本轮未发送。',
+                    ]],
+                ],
+            ];
+        }
         if (($identity['eligible'] ?? false) === true
             && ($candidate['status'] ?? '') === 'ready'
         ) {
@@ -363,6 +397,185 @@ final class ManualNotificationScheduleService
             'payload_fingerprint' => $finished['payload_fingerprint'] ?? null,
             'operating_target_record_id' => $finished['operating_target_record_id'] ?? null,
             'snapshot_revision_no' => $finished['snapshot_revision_no'] ?? null,
+        ];
+    }
+
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private function prepareMeituanSource(
+        array $row,
+        string $businessDate,
+        DateTimeImmutable $observedAt,
+        bool $dispatch
+    ): array {
+        if (trim((string)($row['source_scope'] ?? '')) !== 'meituan') {
+            return [
+                'status' => 'not_required',
+                'reason_code' => 'non_meituan_plan',
+            ];
+        }
+        if ((string)($row['business_date_rule'] ?? 'today') !== 'today') {
+            return [
+                'status' => 'not_required',
+                'reason_code' => 'historical_business_date_uses_verified_snapshot',
+            ];
+        }
+        if (!$dispatch) {
+            return [
+                'status' => 'preview_only',
+                'reason_code' => 'current_capture_runs_before_real_dispatch',
+            ];
+        }
+
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        $cacheKey = $hotelId . '|' . $businessDate;
+        if (isset($this->meituanPreparationCache[$cacheKey])) {
+            return $this->meituanPreparationCache[$cacheKey] + ['reused_in_run' => true];
+        }
+
+        try {
+            $result = $this->meituanTemporalRefresher !== null
+                ? call_user_func(
+                    $this->meituanTemporalRefresher,
+                    $row,
+                    $businessDate,
+                    $observedAt
+                )
+                : $this->refreshMeituanTemporalSource(
+                    $row,
+                    $businessDate,
+                    $observedAt
+                );
+            $result = is_array($result) ? $result : [];
+        } catch (\Throwable) {
+            $result = [
+                'status' => 'blocked',
+                'reason_code' => 'meituan_current_capture_failed',
+            ];
+        }
+
+        if (($result['status'] ?? '') === 'ready') {
+            if (($result['readback_verified'] ?? false) !== true
+                || (int)($result['saved_count'] ?? 0) <= 0
+            ) {
+                $result = [
+                    ...$result,
+                    'status' => 'blocked',
+                    'reason_code' => 'meituan_current_capture_readback_missing',
+                ];
+            }
+        } elseif (($result['status'] ?? '') !== 'blocked') {
+            $result = [
+                ...$result,
+                'status' => 'blocked',
+                'reason_code' => (string)($result['reason_code']
+                    ?? 'meituan_current_capture_not_ready'),
+            ];
+        }
+
+        $this->meituanPreparationCache[$cacheKey] = $result;
+        return $result;
+    }
+
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private function refreshMeituanTemporalSource(
+        array $row,
+        string $businessDate,
+        DateTimeImmutable $observedAt
+    ): array {
+        $timezone = new DateTimeZone(self::TIMEZONE);
+        $observedAt = $observedAt->setTimezone($timezone);
+        $liveNow = new DateTimeImmutable('now', $timezone);
+        if ($businessDate !== $liveNow->format('Y-m-d')
+            || abs($liveNow->getTimestamp() - $observedAt->getTimestamp())
+                >= self::DUE_GRACE_SECONDS
+        ) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => 'meituan_dispatch_observation_not_current',
+            ];
+        }
+
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        $actorId = (int)($row['created_by'] ?? 0);
+        if ($hotelId <= 0 || $actorId <= 0) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => 'meituan_schedule_actor_scope_missing',
+            ];
+        }
+        $actor = User::where('id', $actorId)->where('status', 1)->find();
+        if (!$actor) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => 'meituan_schedule_actor_missing',
+            ];
+        }
+
+        $service = new MeituanTemporalService();
+        $refresh = $service->refresh($actor, $hotelId, $businessDate);
+        if (($refresh['status'] ?? '') === 'blocked') {
+            return [
+                'status' => 'blocked',
+                'reason_code' => (string)($refresh['reason_code']
+                    ?? 'meituan_current_capture_blocked'),
+            ];
+        }
+
+        $todayTask = null;
+        foreach ((array)($refresh['tasks'] ?? []) as $task) {
+            if (is_array($task) && ($task['segment'] ?? '') === 'today') {
+                $todayTask = $task;
+                break;
+            }
+        }
+        if (!is_array($todayTask)
+            || !in_array(
+                (string)($todayTask['status'] ?? ''),
+                ['completed', 'partial'],
+                true
+            )
+            || ($todayTask['readback_verified'] ?? false) !== true
+            || (int)($todayTask['saved_count'] ?? 0) <= 0
+        ) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => (string)($todayTask['reason_code']
+                    ?? 'meituan_current_capture_readback_missing'),
+            ];
+        }
+
+        $summary = $service->summary($actor, $hotelId, $businessDate);
+        $today = is_array($summary['today'] ?? null) ? $summary['today'] : [];
+        $capturedAt = trim((string)($today['captured_at'] ?? ''));
+        try {
+            $capturedTime = $capturedAt === ''
+                ? null
+                : new DateTimeImmutable($capturedAt, $timezone);
+        } catch (\Throwable) {
+            $capturedTime = null;
+        }
+        if (($summary['source_state']['status'] ?? '') !== 'ready'
+            || !in_array((string)($today['status'] ?? ''), ['ready', 'partial'], true)
+            || (string)($today['target_date'] ?? '') !== $businessDate
+            || !$capturedTime
+            || abs($liveNow->getTimestamp() - $capturedTime->getTimestamp()) > 900
+        ) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => 'meituan_current_summary_not_verified',
+            ];
+        }
+
+        return [
+            'status' => 'ready',
+            'reason_code' => 'meituan_current_capture_saved_and_read_back',
+            'data_scope' => 'ota_channel',
+            'target_date' => $businessDate,
+            'captured_at' => $capturedAt,
+            'summary_status' => (string)($today['status'] ?? ''),
+            'sync_task_id' => (int)($todayTask['sync_task_id'] ?? 0),
+            'saved_count' => (int)($todayTask['saved_count'] ?? 0),
+            'readback_verified' => true,
         ];
     }
 

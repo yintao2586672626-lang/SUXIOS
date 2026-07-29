@@ -240,7 +240,13 @@ const checks = [
       && ctripCatalogSource.includes('sales_report')
       && ctripCatalogSource.includes('room_type')
       && ctripCatalogSource.includes('competitor_overview')
-      && ctripBrowserScript.includes("args.sections || args.captureSections || args.only || 'default'")
+      && (
+        ctripBrowserScript.includes("args.sections || args.captureSections || args.only || 'default'")
+        || (
+          ctripBrowserScript.includes("const capturePlan = getCtripCapturePlan(args.capturePlan || args.capture_plan || 'full')")
+          && ctripBrowserScript.includes("|| capturePlan.default_sections.join(',')")
+        )
+      )
       && ctripBrowserScript.includes('requestedSections.includes(section)')
       && ctripBrowserScript.includes('target.business.push')
       && ctripBrowserScript.includes('target.traffic.push')
@@ -334,10 +340,11 @@ const checks = [
       && !runFetchBody.includes('cookie_extractable'),
   },
   {
-    name: 'Ctrip overview actions use vault locator plus server-defined task codes without browser endpoint catalogs',
+    name: 'Ctrip overview core actions use credential-vault Cookie task codes without Profile capture',
     pass: requestConcernSource.includes('fetchCtripCookieApiData')
       && requestConcernSource.includes('isTaskScopedCtripCookieApiRequest')
       && requestConcernSource.includes('$this->withOtaCredentialForExecution(')
+      && source.includes("'ctrip-ranking': () => runCtripOverviewCookieApiCapture(['competitor_overview', 'competitor_rank']")
       && source.includes("requestSource: 'competition_circle'")
       && source.includes("requestSource: 'revenue_overview'")
       && source.includes("requestSource: 'traffic_report'")

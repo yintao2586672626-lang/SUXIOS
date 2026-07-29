@@ -294,6 +294,7 @@ trait MeituanConfigConcern
             $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
             $list = $this->collapseMeituanConfigListByHotel(array_values($list));
             $list = $this->appendOtaConfigCollectionEvidence(array_values($list), 'meituan');
+            $list = $this->appendOtaConfigActionPermissions($list);
             return $this->success($list);
         } catch (\Throwable) {
             return $this->error('获取美团配置列表失败', 500);
@@ -349,9 +350,7 @@ trait MeituanConfigConcern
             }
 
             $systemHotelId = $this->strictOtaConfigBoundHotelId($list[$id], 'Meituan');
-            if (!$this->currentUserCanMaintainOtaConfigItem($list[$id], $systemHotelId)) {
-                $this->checkActionPermission('can_delete_online_data');
-            }
+            $this->checkHotelActionPermission($systemHotelId, 'can_delete_online_data');
 
             $expectedScope = trim((string)($list[$id]['scope'] ?? ''));
             $deleted = $this->deleteMeituanConfigMetadata($id, $systemHotelId, $expectedScope);

@@ -15,6 +15,7 @@ final class OperatingTargetDeltaDetectionKnowledgeTest extends TestCase
         $referencePath = $root . '/.agents/skills/suxi-ota-revenue-semantic-layer/references/operating-target-delta-detection.md';
         $skillPath = $root . '/.agents/skills/suxi-ota-revenue-semantic-layer/SKILL.md';
         $migrationPath = $root . '/database/migrations/20260727_seed_operating_target_delta_detection_knowledge.sql';
+        $correctionMigrationPath = $root . '/database/migrations/20260729_update_knowledge_lifecycle_and_runtime_status.sql';
         $sourceContractPath = $root . '/docs/followups/operating_target_source_contract.md';
         $dingdandaoServicePath = $root . '/app/service/DingdandaoOperatingTargetCaptureService.php';
         $reconciliationServicePath = $root . '/app/service/PmsFactReconciliationService.php';
@@ -22,6 +23,7 @@ final class OperatingTargetDeltaDetectionKnowledgeTest extends TestCase
         self::assertFileExists($referencePath);
         self::assertFileExists($skillPath);
         self::assertFileExists($migrationPath);
+        self::assertFileExists($correctionMigrationPath);
         self::assertFileExists($sourceContractPath);
         self::assertFileExists($dingdandaoServicePath);
         self::assertFileExists($reconciliationServicePath);
@@ -29,6 +31,7 @@ final class OperatingTargetDeltaDetectionKnowledgeTest extends TestCase
         $reference = (string)file_get_contents($referencePath);
         $skill = (string)file_get_contents($skillPath);
         $migration = (string)file_get_contents($migrationPath);
+        $correctionMigration = (string)file_get_contents($correctionMigrationPath);
         $sourceContract = (string)file_get_contents($sourceContractPath);
         $dingdandaoService = (string)file_get_contents($dingdandaoServicePath);
         $reconciliationService = (string)file_get_contents($reconciliationServicePath);
@@ -83,6 +86,18 @@ final class OperatingTargetDeltaDetectionKnowledgeTest extends TestCase
         self::assertStringContainsString('INSERT INTO `knowledge_base`', $migration);
         self::assertStringContainsString('经营目标,差值检测,目标差距,相邻快照,净拾取', $migration);
         self::assertStringContainsString('knowledge_absorbed_runtime_delta_feature_not_online', $migration);
+        self::assertStringContainsString(
+            'core_adjacent_snapshot_delta_online_remaining_advanced_features_partial',
+            $correctionMigration
+        );
+        self::assertStringContainsString(
+            'PmsFactReconciliationService verified same-source adjacent-snapshot gap and delta',
+            $correctionMigration
+        );
+        self::assertStringContainsString(
+            'PmsFactReconciliationService已接入同源已验证相邻快照的gap+delta核心',
+            $correctionMigration
+        );
         self::assertSame(9, substr_count($migration, 'INSERT INTO `tmp_operating_delta_seed_chunks`'));
         self::assertSame(1, substr_count($migration, 'INSERT INTO `knowledge_chunks`'));
         self::assertSame(0, substr_count($migration, 'DELETE FROM `knowledge_chunks`'));

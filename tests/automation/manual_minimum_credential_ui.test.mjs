@@ -254,6 +254,9 @@ test('OTA manual credential states expose migration blockers without weakening e
   assert.match(html, /app-startup-helpers\.min\.js\?v=[^"']*-h[0-9a-f]{10}/);
   assert.doesNotMatch(html, /携程已配置｜上次更新/);
   assert.doesNotMatch(html, /美团已配置｜上次更新/);
+  assert.doesNotMatch(html, /从携程 eBooking 后台获取竞争圈经营数据/);
+  assert.doesNotMatch(html, /选择门店只指定待校验归属/);
+  assert.doesNotMatch(html, /selectedCtripManualCredentialState\.label \}\}｜上次更新/);
 });
 
 test('ready stored OTA credentials can run manual fetch before Profile verification', () => {
@@ -361,6 +364,59 @@ test('Ctrip config defaults to all capabilities and requires both room counts', 
   assert.equal(payload.competitor_room_count, 360);
 });
 
+test('Ctrip config only fills room counts from verified public-profile readback', () => {
+  const semantics = 'static_total_guest_rooms_not_date_specific_sellable_inventory';
+  const verifiedProfile = (role, roomCount) => ({
+    role,
+    capture_status: 'available',
+    source_validation_status: 'source_verified',
+    persistence_readback_verified: true,
+    room_count_semantics: semantics,
+    fields: { room_count: roomCount },
+  });
+
+  const complete = ctripStaticApi.buildCtripPublicProfileRoomCountPatch({
+    room_count_semantics: semantics,
+    profiles: [
+      verifiedProfile('self', '88'),
+      verifiedProfile('competitor', 160),
+      verifiedProfile('competitor', 200),
+    ],
+  });
+  assert.equal(complete.status, 'applied');
+  assert.equal(complete.patch.hotel_room_count, 88);
+  assert.equal(complete.patch.competitor_room_count, 360);
+  assert.equal(complete.competitorProfileCount, 2);
+  assert.match(complete.message, /已建档竞品 2 家合计 360 间/);
+
+  const incompleteCompetitors = ctripStaticApi.buildCtripPublicProfileRoomCountPatch({
+    room_count_semantics: semantics,
+    profiles: [
+      verifiedProfile('self', 118),
+      verifiedProfile('competitor', 200),
+      {
+        ...verifiedProfile('competitor', 0),
+        source_validation_status: 'source_observed',
+      },
+    ],
+  });
+  assert.equal(incompleteCompetitors.status, 'partial');
+  assert.equal(incompleteCompetitors.patch.hotel_room_count, 118);
+  assert.equal(Object.prototype.hasOwnProperty.call(incompleteCompetitors.patch, 'competitor_room_count'), false);
+  assert.match(incompleteCompetitors.message, /竞争圈保留原值/);
+
+  const unavailable = ctripStaticApi.buildCtripPublicProfileRoomCountPatch({
+    room_count_semantics: semantics,
+    profiles: [{
+      ...verifiedProfile('self', 96),
+      capture_status: 'partial',
+    }],
+  });
+  assert.equal(unavailable.status, 'missing');
+  assert.equal(Object.keys(unavailable.patch).length, 0);
+  assert.doesNotMatch(JSON.stringify(unavailable.patch), /(?:^|:)0(?:,|})/);
+});
+
 test('Ctrip config reuses stable fields for the selected hotel without crossing stores', () => {
   const configs = [
     {
@@ -432,6 +488,11 @@ test('Ctrip config UI requires and echoes room-count fields', () => {
 
   assert.match(configForm, /v-model="ctripConfigForm\.hotel_room_count"[^>]*required/);
   assert.match(configForm, /v-model="ctripConfigForm\.competitor_room_count"[^>]*required/);
+  assert.match(configForm, /data-testid="ctrip-room-count-read"/);
+  assert.match(configForm, /@click="fillCtripConfigRoomCountsFromPublicProfiles"/);
+  assert.match(configForm, /ctripConfigRoomCountLookupMessage/);
+  assert.match(html, /const fillCtripConfigRoomCountsFromPublicProfiles = async \(\) => \{/);
+  assert.match(html, /buildCtripPublicProfileRoomCountPatch\(response\.data\)/);
   assert.doesNotMatch(configForm, /Profile采集范围|ctripConfigForm\.capture_sections/);
   assert.match(configList, /hotel_room_count/);
   assert.match(configList, /competitor_room_count/);
@@ -631,7 +692,7 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId \? activeConfig : null;/);
   assert.match(ctripFetchFlow, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig/);
   assert.doesNotMatch(fetchCtripData, /scheduleOnlineHistoryRefresh\(1400\)/);
-  assert.match(html, /已选门店：凭据库授权并可入库；未选门店：临时 Cookie，仅本页展示/);
+  assert.doesNotMatch(html, /选择门店：使用已保存授权并入库；临时 Cookie：仅查询，不入库/);
 });
 
 test('Ctrip config list actions route to visible destinations', () => {
@@ -3275,6 +3336,15 @@ test('Hotel management saves force-refresh the current management context', () =
   assert.ok((html.match(/await loadHotels\(\{ force: true, includeInactive: true \}\);/g) || []).length >= 4);
 });
 
+test('Hotel management starts its first snapshot after the deferred full-render remount', () => {
+  const loadData = constSlice(
+    'const loadData = async () => {',
+    '\n\n            // 酒店操作'
+  );
+
+  assert.match(loadData, /if \(currentPage\.value === 'hotels'\) \{[\s\S]*runPageLoadOnce\('hotels', 'main', \(\) => loadHotelManagementSnapshot\(\{[\s\S]*force: false,[\s\S]*deep: false,[\s\S]*showSuccess: false/);
+});
+
 test('FontAwesome stylesheet does not block the core shell first second', () => {
   const head = sliceFrom('<head>', '</head>');
 
@@ -4234,7 +4304,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.doesNotMatch(loadMeituanConfigList, /meituanConfigListLoadFailed\.value = true;\s*console\.error\('\[Debug\] 加载美团配置列表失败:', e\);/);
 });
 
-test('Ctrip manual startup keeps config list responsive without first-paint blocking', () => {
+test('Ctrip manual startup loads the stored snapshot without fixed waits or unrelated requests', () => {
   const scheduleCtripEbookingDeferredStartupRefresh = sliceFrom(
     'const scheduleCtripEbookingDeferredStartupRefresh = () => {',
     '\n            const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS'
@@ -4249,10 +4319,10 @@ test('Ctrip manual startup keeps config list responsive without first-paint bloc
   );
 
   assert.match(html, /const CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS = 1600;/);
-  assert.match(html, /const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 2600;/);
-  assert.match(html, /const CTRIP_EBOOKING_LATEST_DATA_DELAY_MS = 5200;/);
-  assert.match(html, /const CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS = 6400;/);
-  assert.match(html, /const CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS = 7600;/);
+  assert.doesNotMatch(html, /CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS/);
+  assert.doesNotMatch(html, /CTRIP_EBOOKING_LATEST_DATA_DELAY_MS/);
+  assert.doesNotMatch(html, /CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS/);
+  assert.doesNotMatch(html, /CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS/);
   assert.match(html, /const CTRIP_EBOOKING_MODULE_CARD_DELAY_MS = 1000;/);
   assert.match(html, /const ctripEbookingModuleCardsReady = ref\(false\);/);
   assert.match(html, /const CTRIP_EBOOKING_SECONDARY_PANEL_DELAY_MS = 4200;/);
@@ -4280,19 +4350,16 @@ test('Ctrip manual startup keeps config list responsive without first-paint bloc
   assert.match(html, /v-if="ctripEbookingBusinessDetailsReady" data-testid="ctrip-store-overview-business-details" class="space-y-4"/);
   assert.match(html, /data-testid="ctrip-store-overview-diagnostics"[^>]+@toggle="handleCtripEbookingDiagnosticsToggle"/);
   assert.match(html, /v-if="ctripEbookingDiagnosticsPanelsReady" class="p-4 border-t space-y-4"/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /loadLatestCtripData\(\{ silent: true, hydrateDisplay: true \}\);/);
+  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /const systemHotelId = await syncCtripOverviewTargetHotel\(\{ loadConfig: false \}\);/);
+  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /const \[latestResult, configResult\] = await Promise\.allSettled\(\[/);
+  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /loadLatestCtripData\(\{\s*silent: true,\s*hydrateDisplay: true,\s*hotelId: systemHotelId,/);
+  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,/);
   assert.match(ctripEbookingDefaultLoader, /setOnlineDataTabFromPage\('ctrip-ranking'\);/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /scheduleCtripHotelConfigApply\(null, \{\s*refreshList: false,\s*skipIfAligned: true,\s*\}\);/);
+  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /await applyCtripHotelConfig\(false, \{\s*refreshList: false,\s*refreshLatest: false,\s*skipIfAligned: true,/);
   assert.match(scheduleCtripEbookingDeferredStartupRefresh, /if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /}, CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS\);/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /}, CTRIP_EBOOKING_LATEST_DATA_DELAY_MS\);/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /}, CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS\);/);
-  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /}, CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS\);/);
-  assert.doesNotMatch(scheduleCtripEbookingDeferredStartupRefresh, /}, 1800\);/);
-  assert.doesNotMatch(scheduleCtripEbookingDeferredStartupRefresh, /}, 2400\);/);
-  assert.doesNotMatch(scheduleCtripEbookingDeferredStartupRefresh, /}, 3000\);/);
-  assert.doesNotMatch(scheduleCtripEbookingDeferredStartupRefresh, /}, 3600\);/);
+  assert.match(scheduleCtripEbookingDeferredStartupRefresh, /}, 0\);/);
+  assert.doesNotMatch(scheduleCtripEbookingDeferredStartupRefresh, /loadCookiesList\(/);
+  assert.doesNotMatch(scheduleCtripEbookingDeferredStartupRefresh, /loadBookmarklet\(/);
 });
 
 test('Meituan orders and ads remain network-required workflows', () => {

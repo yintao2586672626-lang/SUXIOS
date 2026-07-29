@@ -1038,6 +1038,9 @@ final class DingdandaoPmsIntegrationService
             ? $region['summary']
             : [];
         $trend = is_array($capture['trend'] ?? null) ? $capture['trend'] : [];
+        $forward = is_array($capture['forward_room_status'] ?? null)
+            ? $capture['forward_room_status']
+            : [];
         $number = static function (mixed $value, int $decimals = 2): string {
             if ($value === null || $value === '' || is_bool($value) || !is_numeric($value)) {
                 return '未取得';
@@ -1109,6 +1112,64 @@ final class DingdandaoPmsIntegrationService
             '- 可售房夜：' . $number($summary['derived_sellable_room_nights'] ?? null) . ' 间夜',
             '',
         ];
+        $lines[] = '**远期房态（累计窗口）**';
+        $lines[] = '> 仅展示未来 3/7/14/21 天累计；来源为订单来了 PMS。';
+        $forwardLines = [];
+        if (($forward['fact_scope'] ?? '') === 'whole_hotel_forward_room_status'
+            && ($forward['data_status'] ?? '') === 'verified'
+            && ($forward['readback_status'] ?? '') === 'readback_verified'
+        ) {
+            $allowedHorizons = [3 => true, 7 => true, 14 => true, 21 => true];
+            $horizonRows = [];
+            foreach ((array)($forward['horizons'] ?? []) as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $days = (int)($row['horizon_days'] ?? 0);
+                if (!isset($allowedHorizons[$days])
+                    || (string)($row['quality_status'] ?? '') !== 'verified'
+                ) {
+                    continue;
+                }
+                $horizonRows[$days] = $row;
+            }
+            foreach (array_keys($allowedHorizons) as $days) {
+                $row = $horizonRows[$days] ?? null;
+                if (!is_array($row)) {
+                    continue;
+                }
+                $metrics = [];
+                foreach ([
+                    ['booked_room_nights', '已订', ' 间夜', 0],
+                    ['remaining_sellable_room_nights', '剩余可售', ' 间夜', 0],
+                    ['occupancy_rate_percent', 'OCC ', '%', 2],
+                    ['adr', 'ADR ¥', '', 2],
+                    ['revpar', 'RevPAR ¥', '', 2],
+                ] as [$key, $prefix, $suffix, $decimals]) {
+                    $value = $row[$key] ?? null;
+                    if (!is_numeric($value) || (float)$value < 0) {
+                        continue;
+                    }
+                    $metrics[] = $prefix . $number($value, $decimals) . $suffix;
+                }
+                if ($metrics === []) {
+                    continue;
+                }
+                $dateFrom = trim((string)($row['date_from'] ?? ''));
+                $dateTo = trim((string)($row['date_to'] ?? ''));
+                $range = preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)
+                    && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)
+                    ? '（' . mb_substr($dateFrom, 5, 5)
+                        . ' 至 ' . mb_substr($dateTo, 5, 5) . '）'
+                    : '';
+                $forwardLines[] = '- ' . $days . ' 天' . $range
+                    . '：' . implode('｜', $metrics);
+            }
+        }
+        $lines[] = $forwardLines === []
+            ? '- 状态：远期数据未取得或未通过回读（不补 0）'
+            : implode("\n", $forwardLines);
+        $lines[] = '';
         $regionName = $this->safeText((string)($region['region_name'] ?? '区域未取得'), 120);
         $lines[] = '**区域参考（' . $regionName . '）**';
         $lines[] = '> 区域均值是诊断基准，不是本店经营事实。';

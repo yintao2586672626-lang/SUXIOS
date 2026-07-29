@@ -13,6 +13,7 @@ use app\service\OperatingTargetAutomationService;
 use app\service\OperatingTargetReportGateService;
 use app\service\OperatingTargetService;
 use app\service\PmsFactReconciliationService;
+use app\service\PmsRealtimeSyncService;
 use think\Response;
 
 /** Whole-hotel daily operating target entry, history, and preview. */
@@ -93,6 +94,40 @@ final class OperatingTarget extends Base
             );
         } catch (\InvalidArgumentException) {
             return $this->error('请选择有效的目标日期', 422);
+        }
+    }
+
+    public function syncSelectedPmsRealtime(): Response
+    {
+        $input = $this->requestData();
+        [$hotelId, $tenantId] = $this->authorizedScope('can_fill_daily_report', $input);
+        $targetDate = trim((string)($input['target_date'] ?? ''));
+        try {
+            $result = (new PmsRealtimeSyncService())->sync(
+                $tenantId,
+                $hotelId,
+                (int)$this->currentUser->id,
+                $targetDate
+            );
+            OperationLog::record(
+                'operating_target',
+                'pms_realtime_sync',
+                '手动同步当前门店 PMS 实时数据 ' . $targetDate,
+                (int)$this->currentUser->id,
+                $hotelId,
+                null,
+                [
+                    'outcome' => ($result['status'] ?? '') === 'synced' ? 'success' : 'blocked',
+                    'provider' => (string)($result['provider'] ?? ''),
+                    'target_date' => (string)($result['target_date'] ?? ''),
+                    'capture_id' => (int)($result['capture_id'] ?? 0),
+                    'readback_verified' => ($result['readback_verified'] ?? false) === true,
+                    'blocker_code' => (string)($result['blocker_code'] ?? ''),
+                ]
+            );
+            return $this->success($result, (string)($result['message'] ?? 'PMS 实时同步已处理'));
+        } catch (\Throwable) {
+            return $this->error('PMS 实时同步执行失败，本次未把旧快照标记为新数据', 500);
         }
     }
 

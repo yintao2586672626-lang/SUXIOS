@@ -350,6 +350,16 @@ const trafficSearchFields = [
   field('future_search_conversion_rate', '未来搜索订单页转化率', ['conversionsRatesDataList'], '按 effectDateList 下标对齐的携程订单页转化率', { unit: '%' }),
 ];
 
+const trafficRealtimeVisitorTrendFields = [
+  field('intraday_channel_code', '实时访客趋势渠道编码', ['visitorCountByChannelList[].channel'], '实时页渠道编码：0=APP、1=电脑网页、2=手机H5；保留原始编码便于复核。'),
+  field('intraday_channel', '实时访客趋势渠道', ['visitorCountByChannelList[].channel.label'], '由携程实时页渠道编码映射；未知编码保持 channel_<code>，不猜测。'),
+  field('intraday_time_point', '实时访客趋势时点', ['visitorCountByChannelList[].visitorCountByHourList[].time'], 'getRealTimeVisitor 返回的当日曲线时点；只用于当日走势，不与采集时间混用。'),
+  field('intraday_timestamp', '实时访客趋势完整时点', ['visitorCountByChannelList[].visitorCountByHourList[].time+data_date'], '按曲线顺序和采集业务日补齐日期；保留东八区时区，用于区分滚动24小时首尾重复小时。', { valueType: 'datetime', timeScope: 'rolling_24h_asia_shanghai' }),
+  field('intraday_visitor_count', '实时访客趋势访客量', ['visitorCountByChannelList[].visitorCountByHourList[].uv'], '页面实时访客曲线使用的当前时点 UV。', { unit: '人' }),
+  field('intraday_last_week_visitor_count', '实时访客趋势上周同期', ['visitorCountByChannelList[].visitorCountByHourList[].lastUv'], '页面实时访客曲线使用的上周同期同一时点 UV。', { unit: '人' }),
+  field('intraday_week_on_week_ratio', '实时访客趋势较上周同期', ['visitorCountByChannelList[].visitorCountByHourList[].uvRatio'], '页面实时访客曲线使用的 uvRatio；仅作为同一时点同比参考。', { unit: '%' }),
+];
+
 const trafficFlowSourceFields = [
   field('source_name', '流量来源', ['sourceName']),
   field('source_rank_tag', '流量来源排名标签', ['sourceNameTag'], 'queryFlowSource 返回的页面图标标签，只保留为来源行辅助事实。'),
@@ -582,6 +592,10 @@ const FACT_ONLY_FIELD_IDS = new Set([
   'source_all_pv',
   'source_rank_tag',
   'start_date',
+  'intraday_channel_code',
+  'intraday_channel',
+  'intraday_time_point',
+  'intraday_timestamp',
   'strategy',
   'suggest_action',
   'target_url',
@@ -841,6 +855,10 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
     notes: '流量来源辅助弹窗，只保留来源/提示信息，不作为核心流量指标。',
   }),
   endpoint('traffic_flow_source', 'traffic_report', ['queryFlowSource', 'getRealTimeVisitorSourceV1'], [...trafficFlowSourceFields]),
+  endpoint('traffic_realtime_visitor_trend', 'traffic_report', ['getRealTimeVisitor'], [...trafficRealtimeVisitorTrendFields], {
+    dataType: 'traffic',
+    notes: '当日实时访客曲线；只读取 visitorCountByChannelList，不用日期区间 PV/UV 或订单趋势接口代替。',
+  }),
   endpoint('traffic_menu_key', 'traffic_report', ['queryMenuKey'], [...supportNoticeFields], {
     status: 'supporting',
     notes: '流量页菜单/权限辅助接口，只用于判断页面上下文，不作为经营指标。',
@@ -1053,6 +1071,7 @@ const C = {
   tongcheng: '\u540c\u7a0b\u65c5\u884c',
   totalPlatform: '\u603b\u5e73\u53f0',
   realtime: '\u5b9e\u65f6',
+  todayRealtime: '\u4eca\u65e5\u5b9e\u65f6',
   yesterday: '\u6628\u65e5',
   lastWeek: '\u4e0a\u5468',
   lastMonth: '\u4e0a\u6708',
@@ -1225,8 +1244,197 @@ export const CTRIP_SECTION_INTERACTION_PLANS = {
   ],
 };
 
-export function getCtripSectionInteractionPlan(section = '') {
-  return (CTRIP_SECTION_INTERACTION_PLANS[section] || []).map((step) => ({ ...step }));
+export const CTRIP_CAPTURE_PLANS = {
+  full: {
+    id: 'full',
+    label: 'full_diagnostic',
+    lightweight: false,
+    default_sections: [...DEFAULT_CTRIP_CAPTURE_SECTIONS],
+    capture_endpoint_ids: null,
+    expected_endpoint_ids: null,
+    click_refresh: true,
+    probe_popups: true,
+    scroll_page: true,
+    capture_screenshot: true,
+    interactions: null,
+  },
+  realtime_broadcast: {
+    id: 'realtime_broadcast',
+    label: 'realtime_broadcast',
+    lightweight: true,
+    default_sections: ['business_overview', 'traffic_report'],
+    capture_endpoint_ids: [
+      'business_realtime',
+      'business_capacity',
+      'business_flow_compete',
+      'business_visitor_title',
+      'business_hotel_seq',
+      'business_flow_transform',
+      'traffic_hotel_seq',
+      'traffic_flow_transform',
+      'traffic_order_overview',
+      'traffic_hotel_min_price',
+    ],
+    expected_endpoint_ids: [
+      'business_realtime',
+      'business_flow_compete',
+      'business_hotel_seq',
+      'business_flow_transform',
+      'traffic_hotel_seq',
+      'traffic_flow_transform',
+      'traffic_order_overview',
+    ],
+    click_refresh: false,
+    probe_popups: false,
+    scroll_page: false,
+    capture_screenshot: false,
+    interactions: {
+      business_overview: [
+        clickText(C.realtime, 'trigger real-time overview cards only'),
+      ],
+      traffic_report: [
+        clickText(C.flowData, 'open traffic report tab'),
+        clickText(C.ctrip, 'keep Ctrip channel scope'),
+        clickText(C.todayRealtime, 'keep current-day real-time window'),
+        clickText(C.app, 'keep APP terminal scope'),
+      ],
+    },
+  },
+  historical_review: {
+    id: 'historical_review',
+    label: 'historical_traffic_review',
+    lightweight: true,
+    default_sections: ['traffic_report'],
+    capture_endpoint_ids: [
+      'traffic_scan_flow',
+      'traffic_flow_transform',
+      'traffic_order_trend',
+    ],
+    expected_endpoint_ids: [
+      'traffic_order_trend',
+    ],
+    click_refresh: false,
+    probe_popups: false,
+    scroll_page: false,
+    capture_screenshot: false,
+    interactions: {
+      traffic_report: [
+        clickText(C.flowData, 'open traffic report tab'),
+        clickText(C.ctrip, 'keep Ctrip channel scope'),
+        clickText(C.app, 'keep APP terminal scope'),
+        clickText(C.yesterday, 'load yesterday traffic review'),
+        clickText(C.last7Days, 'load 7-day traffic review'),
+        clickText(C.last30Days, 'load 30-day traffic review'),
+      ],
+    },
+  },
+  intraday_trend: {
+    id: 'intraday_trend',
+    label: 'intraday_traffic_trend',
+    lightweight: true,
+    default_sections: ['traffic_report'],
+    capture_endpoint_ids: [
+      'traffic_realtime_visitor_trend',
+    ],
+    expected_endpoint_ids: [
+      'traffic_realtime_visitor_trend',
+    ],
+    click_refresh: false,
+    probe_popups: false,
+    scroll_page: false,
+    capture_screenshot: false,
+    interactions: {
+      traffic_report: [
+        clickText(C.flowData, 'open traffic report tab'),
+        clickText(C.ctrip, 'keep Ctrip channel scope'),
+        clickText(C.todayRealtime, 'load current-day hourly trend'),
+        clickText(C.app, 'keep APP terminal scope'),
+      ],
+    },
+  },
+  future_demand: {
+    id: 'future_demand',
+    label: 'future_30_day_search_demand',
+    lightweight: true,
+    default_sections: ['traffic_report'],
+    capture_endpoint_ids: [
+      'traffic_search_details',
+    ],
+    expected_endpoint_ids: [
+      'traffic_search_details',
+    ],
+    click_refresh: false,
+    probe_popups: false,
+    scroll_page: false,
+    capture_screenshot: false,
+    interactions: {
+      traffic_report: [
+        clickText(C.flowData, 'open traffic report tab'),
+        clickText(C.ctrip, 'keep Ctrip channel scope'),
+        clickText(C.cumulativeSearchData, 'load cumulative future search data'),
+        clickText(C.yesterdaySearchData, 'load yesterday future search data'),
+      ],
+    },
+  },
+};
+
+const CTRIP_CAPTURE_PLAN_ALIASES = {
+  full: 'full',
+  full_diagnostic: 'full',
+  diagnostic: 'full',
+  default: 'full',
+  realtime: 'realtime_broadcast',
+  realtime_broadcast: 'realtime_broadcast',
+  broadcast: 'realtime_broadcast',
+  past: 'historical_review',
+  history: 'historical_review',
+  historical: 'historical_review',
+  historical_review: 'historical_review',
+  past_review: 'historical_review',
+  intraday: 'intraday_trend',
+  intraday_trend: 'intraday_trend',
+  trend: 'intraday_trend',
+  hourly_trend: 'intraday_trend',
+  traffic_trend: 'intraday_trend',
+  future: 'future_demand',
+  future_demand: 'future_demand',
+  search_demand: 'future_demand',
+};
+
+export function normalizeCtripCapturePlan(value = 'full') {
+  const raw = String(value || 'full').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const plan = CTRIP_CAPTURE_PLAN_ALIASES[raw] || '';
+  if (!plan) {
+    throw new Error(`Unsupported Ctrip capture plan: ${raw}`);
+  }
+  return plan;
+}
+
+export function getCtripCapturePlan(value = 'full') {
+  const id = normalizeCtripCapturePlan(value);
+  const plan = CTRIP_CAPTURE_PLANS[id];
+  return {
+    ...plan,
+    default_sections: [...plan.default_sections],
+    capture_endpoint_ids: Array.isArray(plan.capture_endpoint_ids) ? [...plan.capture_endpoint_ids] : null,
+    expected_endpoint_ids: Array.isArray(plan.expected_endpoint_ids) ? [...plan.expected_endpoint_ids] : null,
+    interactions: plan.interactions
+      ? Object.fromEntries(
+          Object.entries(plan.interactions).map(([section, steps]) => [
+            section,
+            steps.map((step) => ({ ...step })),
+          ]),
+        )
+      : null,
+  };
+}
+
+export function getCtripSectionInteractionPlan(section = '', capturePlan = 'full') {
+  const plan = getCtripCapturePlan(capturePlan);
+  const steps = plan.interactions
+    ? (plan.interactions[section] || [])
+    : (CTRIP_SECTION_INTERACTION_PLANS[section] || []);
+  return steps.map((step) => ({ ...step }));
 }
 
 export function normalizeCtripCaptureSections(value = '') {
@@ -1440,6 +1648,15 @@ export function ctripCatalogSummary() {
     default_sections: [...DEFAULT_CTRIP_CAPTURE_SECTIONS],
     presets: Object.fromEntries(
       Object.entries(CTRIP_CAPTURE_SECTION_PRESETS).map(([key, sections]) => [key, [...sections]]),
+    ),
+    capture_plans: Object.fromEntries(
+      Object.entries(CTRIP_CAPTURE_PLANS).map(([key, plan]) => [key, {
+        label: plan.label,
+        lightweight: plan.lightweight,
+        default_sections: [...plan.default_sections],
+        capture_endpoint_ids: Array.isArray(plan.capture_endpoint_ids) ? [...plan.capture_endpoint_ids] : null,
+        expected_endpoint_ids: Array.isArray(plan.expected_endpoint_ids) ? [...plan.expected_endpoint_ids] : null,
+      }]),
     ),
     interaction_plan_section_count: Object.values(CTRIP_SECTION_INTERACTION_PLANS).filter((steps) => steps.length > 0).length,
     interaction_plan_step_count: Object.values(CTRIP_SECTION_INTERACTION_PLANS).reduce((sum, steps) => sum + steps.length, 0),
@@ -1753,6 +1970,9 @@ function extractEndpointSpecificFacts(node, path, fields, context, endpointInfo)
   if (endpointId === 'traffic_search_details') {
     return extractTrafficSearchDetailsFacts(node, path, fields, context, endpointInfo);
   }
+  if (endpointId === 'traffic_realtime_visitor_trend') {
+    return extractTrafficRealtimeVisitorTrendFacts(node, path, fields, context, endpointInfo);
+  }
   if (endpointId === 'weekly_report') {
     return extractWeeklyReportFacts(node, path, context, endpointInfo);
   }
@@ -1873,6 +2093,128 @@ function extractTrafficSearchDetailsFacts(node, path, fields, context, endpointI
   });
 
   return facts;
+}
+
+function extractTrafficRealtimeVisitorTrendFacts(node, path, fields, context, endpointInfo) {
+  const channels = node?.visitorCountByChannelList;
+  if (!Array.isArray(channels) || channels.length === 0) {
+    return [];
+  }
+
+  const fieldById = new Map(fields.map((item) => [item.id, item]));
+  const facts = [];
+  channels.forEach((channelItem, channelIndex) => {
+    if (!channelItem || typeof channelItem !== 'object' || Array.isArray(channelItem)) {
+      return;
+    }
+    const channelCode = channelItem.channel;
+    if (channelCode === null || channelCode === undefined || String(channelCode).trim() === '') {
+      return;
+    }
+    const channel = ctripRealtimeVisitorChannel(channelCode);
+    const hourly = channelItem.visitorCountByHourList;
+    if (!Array.isArray(hourly)) {
+      return;
+    }
+    const timestamps = resolveCtripIntradayTimestamps(hourly, context.dataDate);
+
+    hourly.forEach((point, pointIndex) => {
+      if (!point || typeof point !== 'object' || Array.isArray(point)) {
+        return;
+      }
+      const groupPath = [
+        ...path,
+        'visitorCountByChannelList',
+        String(channelIndex),
+        'visitorCountByHourList',
+        String(pointIndex),
+      ];
+      const timestamp = timestamps[pointIndex] || '';
+      const dimensionKey = `intraday_visitor:${channel}:${timestamp || String(point.time ?? 'unknown')}:point_${pointIndex}`;
+      const definitions = [
+        ['intraday_channel_code', 'channel', channelCode, [...path, 'visitorCountByChannelList', String(channelIndex), 'channel'], ''],
+        ['intraday_channel', 'channel', channel, [...path, 'visitorCountByChannelList', String(channelIndex), 'channel'], 'ctrip_realtime_channel_code'],
+        ['intraday_time_point', 'time', point.time, [...groupPath, 'time'], ''],
+        ['intraday_timestamp', 'time+data_date', timestamp, [...groupPath, 'time'], 'rolling_24h_curve_order_and_capture_data_date'],
+        ['intraday_visitor_count', 'uv', point.uv, [...groupPath, 'uv'], ''],
+        ['intraday_last_week_visitor_count', 'lastUv', point.lastUv, [...groupPath, 'lastUv'], ''],
+        ['intraday_week_on_week_ratio', 'uvRatio', point.uvRatio, [...groupPath, 'uvRatio'], ''],
+      ];
+      for (const [metricFieldId, sourceKey, value, sourcePath, derivedFrom] of definitions) {
+        const fieldInfo = fieldById.get(metricFieldId);
+        if (!fieldInfo) {
+          continue;
+        }
+        const fact = buildEndpointSpecificFact({
+          context,
+          endpointInfo,
+          fieldInfo,
+          sourceKey,
+          sourcePath,
+          sourceParentPath: groupPath,
+          value,
+          derived_from: derivedFrom,
+        });
+        fact.dimension_key = dimensionKey;
+        if (value === null || value === undefined || value === '') {
+          fact.missing_state = 'field_missing';
+        }
+        facts.push(fact);
+      }
+    });
+  });
+  return facts;
+}
+
+function ctripRealtimeVisitorChannel(value) {
+  const code = String(value ?? '').trim();
+  return {
+    0: 'app',
+    1: 'pc_web',
+    2: 'mobile_h5',
+  }[code] || `channel_${code}`;
+}
+
+function resolveCtripIntradayTimestamps(hourly, dataDate) {
+  const baseDate = normalizeFactDate(dataDate);
+  if (!baseDate || !Array.isArray(hourly) || hourly.length === 0) {
+    return [];
+  }
+  let cursorDateMs = Date.parse(`${baseDate}T00:00:00Z`);
+  if (!Number.isFinite(cursorDateMs)) {
+    return [];
+  }
+  const result = Array(hourly.length).fill('');
+  let nextMinute = null;
+  for (let index = hourly.length - 1; index >= 0; index -= 1) {
+    const timePoint = normalizeCtripIntradayTimePoint(hourly[index]?.time);
+    if (!timePoint) {
+      continue;
+    }
+    if (nextMinute !== null && timePoint.minute > nextMinute) {
+      cursorDateMs -= 86400000;
+    }
+    const date = new Date(cursorDateMs).toISOString().slice(0, 10);
+    result[index] = `${date}T${timePoint.text}:00+08:00`;
+    nextMinute = timePoint.minute;
+  }
+  return result;
+}
+
+function normalizeCtripIntradayTimePoint(value) {
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(String(value ?? '').trim());
+  if (!match) {
+    return null;
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return {
+    minute: (hour * 60) + minute,
+    text: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+  };
 }
 
 function normalizeCtripSearchRequestShape(value) {
@@ -3831,6 +4173,7 @@ function ctripStandardStructuredStorageField(id) {
     avg_booking_days: 'data_value',
     avg_stay_days: 'data_value',
     ad_order_amount: 'data_value',
+    intraday_visitor_count: 'data_value',
   }[id] || '';
 }
 
@@ -4026,6 +4369,12 @@ function applyFactToStandardRow(row, fact) {
       if (row.data_value === 0) {
         row.data_value = Math.round(number);
       }
+      break;
+    case 'intraday_visitor_count':
+      row.data_value = Math.round(number);
+      break;
+    case 'intraday_last_week_visitor_count':
+    case 'intraday_week_on_week_ratio':
       break;
     case 'list_exposure':
     case 'competitor_list_exposure':

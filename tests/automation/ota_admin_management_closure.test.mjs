@@ -43,19 +43,70 @@ const sliceFrom = (start, end) => {
 
 test('OTA manual config forms require an explicit store and separate save from verification', () => {
   const ctripForm = sliceFrom('data-testid="ctrip-config-form"', '<!-- 已保存的配置列表 -->');
-  const meituanForm = sliceFrom('<!-- 新增配置表单 -->', '<!-- 配置获取办法说明 -->');
+  const meituanForm = sliceFrom('<!-- 美团配置旧面板：入口已统一到酒店管理 -->', '<!-- 配置获取办法说明 -->');
 
   assert.match(ctripForm, /关联门店\s*<span class="text-red-500">\*<\/span>/);
   assert.match(ctripForm, /<option value="">请选择关联门店<\/option>/);
   assert.doesNotMatch(ctripForm, /<option value="">不关联<\/option>/);
   assert.match(meituanForm, /v-model="meituanConfigForm\.hotel_id"/);
   assert.match(meituanForm, /<option value="">请选择关联门店<\/option>/);
-  assert.match(ctripForm, /保存成功只表示配置已保存/);
-  assert.match(meituanForm, /保存成功只表示配置已保存/);
+  assert.match(ctripForm, /otaConfigHotelOptionText\(hotel\)/);
+  assert.match(meituanForm, /otaConfigHotelOptionText\(hotel\)/);
+  assert.match(html, /const otaConfigHotelOptionText = \(hotel = \{\}\) =>/);
+  assert.match(html, /门店编码/);
+  assert.match(ctripForm, /保存后需授权验证/);
+  assert.doesNotMatch(ctripForm, /保存成功只表示配置已保存|旧配置不会阻碍新配置保存/);
+  assert.match(meituanForm, /保存只表示 Cookie\/API 已安全写入/);
   assert.doesNotMatch(ctripForm, /最新成功配置/);
   assert.doesNotMatch(meituanForm, /最新成功配置/);
   assert.match(otaConfigConcern, /OtaConfigVerificationService/);
   assert.match(otaConfigConcern, /configuration_verified/);
+});
+
+test('Ctrip config panel removes unrelated snapshots and keeps Cookie help readable', () => {
+  const ctripForm = sliceFrom('data-testid="ctrip-config-form"', '<!-- 已保存的配置列表 -->');
+
+  assert.match(
+    html,
+    /!\['data-health', 'ctrip-public-profiles', 'ctrip-config'\]\.includes\(onlineDataTab\)[^>]*class="grid grid-cols-2 md:grid-cols-4/
+  );
+  assert.match(html, /const showCtripCookieGuide = ref\(false\)/);
+  assert.match(html, /if \(tab === 'ctrip-config'\) showCtripCookieGuide\.value = false/);
+  assert.match(html, /const editCtripConfig = async \(config\) => \{[\s\S]*?showCtripCookieGuide\.value = false/);
+  assert.match(ctripForm, /如何获取 Cookie/);
+  assert.match(ctripForm, /data-testid="ctrip-config-toolbar"/);
+  assert.match(ctripForm, /font-semibold leading-5 text-gray-800/);
+  assert.doesNotMatch(ctripForm, /grid h-9 w-9 shrink-0 place-items-center/);
+  assert.match(ctripForm, /px-3 py-2 text-sm font-medium text-amber-700/);
+  assert.match(ctripForm, /临时 Cookie 获取说明/);
+  assert.match(ctripForm, /v-for="\(step, index\) in ctripCookieGuideSteps"/);
+  assert.match(html, /const ctripCookieGuideSteps = \[/);
+  assert.match(html, /打开并登录携程 eBooking/);
+  assert.match(html, /进入 Network（网络）/);
+  assert.match(html, /Request Headers 和 Cookie 字段/);
+  assert.match(ctripForm, /grid gap-3 md:grid-cols-2/);
+  assert.doesNotMatch(ctripForm, /<a[^>]+defaultCtripLoginUrl[^>]*>打开携程 eBooking<\/a>/);
+  assert.doesNotMatch(ctripForm, /只粘贴 Request Headers 中的 Cookie 值，不要填写账号密码、验证码或整段请求头/);
+  assert.match(ctripForm, /示例：厦门锦江之星 · 门店编码 9436。门店由“门店管理”创建/);
+  assert.match(ctripForm, /示例：707666。登录携程 eBooking 后/);
+  assert.doesNotMatch(ctripForm, /3 步获取临时 Cookie/);
+  assert.match(ctripForm, /grid grid-cols-1 md:grid-cols-2 gap-4/);
+  assert.match(ctripForm, /本店物理客房数/);
+  assert.match(ctripForm, /竞争圈物理客房数/);
+  assert.match(ctripForm, /物理房量可手填或读取已核验的公开档案，不是当日 OTA 可售库存/);
+  assert.match(ctripForm, /data-testid="ctrip-room-count-read"/);
+  assert.match(ctripForm, /读取公开档案/);
+  assert.match(ctripForm, /rows="3"/);
+  assert.match(html, /const otaConfigVerificationShortLabel = \(config = \{\}\) =>/);
+  assert.match(html, /配置已保存，但尚未确认登录授权与当前门店一致/);
+  assert.match(html, /otaConfigVerificationShortLabel\(config\)/);
+  assert.match(html, /data-testid="ctrip-saved-config-row"/);
+  assert.match(html, /data-testid="ctrip-saved-config-meta-grid"/);
+  assert.match(html, /style="grid-template-columns:minmax\(0,1fr\) 4\.5rem 7\.5rem"/);
+  assert.match(html, /class="min-w-0 flex-1"/);
+  assert.match(html, /class="whitespace-nowrap text-xs text-gray-400">更新/);
+  assert.match(html, /flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between/);
+  assert.match(html, /rounded-md bg-slate-100 px-2\.5 py-1 text-xs text-slate-600/);
 });
 
 test('manual credential selection does not require browser Profile verification', () => {

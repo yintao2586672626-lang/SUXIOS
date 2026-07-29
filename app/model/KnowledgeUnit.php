@@ -19,9 +19,11 @@ class KnowledgeUnit extends Model
         'hotel_id' => 'integer',
         'created_by' => 'integer',
         'tags' => 'json',
+        'known_knowns' => 'json',
+        'known_unknowns' => 'json',
     ];
 
-    protected $json = ['tags'];
+    protected $json = ['tags', 'known_knowns', 'known_unknowns'];
     protected $jsonAssoc = true;
 
     public function chunks()

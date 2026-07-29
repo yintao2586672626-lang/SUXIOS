@@ -691,6 +691,9 @@ class RevenueResearchService
             static fn(int $hotelId): bool => $hotelId > 0
         )));
         $query = Db::name('knowledge_units')->where('status', 'done');
+        if (isset($columns['lifecycle_status'])) {
+            $query->where('lifecycle_status', 'active');
+        }
         if (isset($columns['hotel_id']) && isset($columns['created_by'])) {
             if ($hotelIds !== []) {
                 $query->where(function ($scope) use ($hotelIds): void {

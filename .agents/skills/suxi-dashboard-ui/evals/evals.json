@@ -1,0 +1,67 @@
+{
+  "skill_name": "suxi-dashboard-ui",
+  "evals": [
+    {
+      "id": "intentional-monitor-drilldown-boundary",
+      "prompt": "我看到VibeHub里有Drawer，自动化监控点状态现在会进入对应业务页，我们是不是也应该加一个右侧抽屉？",
+      "expected_output": "先核对当前直接穿透是有测试保护的刻意设计，不默认增加重复详情层；只有用户明确需要原页轻量查看、且摘要不会复制完整业务页面时才考虑窄范围Drawer。",
+      "assertions": [
+        "没有因为外部术语存在就自动实现",
+        "识别当前直接穿透路径及其测试约束",
+        "若使用Drawer也不装入长配置表单",
+        "当前请求和实际操作负担仍可覆盖历史设计"
+      ]
+    },
+    {
+      "id": "searchable-hotel-selection",
+      "prompt": "门店越来越多，企业微信计划和PMS数据页的酒店下拉框很难找。",
+      "expected_output": "根据实际门店数量把普通选择器升级为可搜索Select或AutoComplete，支持名称或编码定位，同时保留权限范围。",
+      "assertions": [
+        "没有把无权限门店加入候选",
+        "选项很少时允许继续使用普通Select",
+        "不因搜索改变当前酒店或跨店数据边界"
+      ]
+    },
+    {
+      "id": "single-dispatch-timeline",
+      "prompt": "发送历史很多字段，但我还是看不懂这一条为什么失败、卡在哪一步。",
+      "expected_output": "保留多记录表格，在单条记录详情中按时间展示认领、尝试、数据回读、发送和回执节点，并突出真实失败点与可用动作。",
+      "assertions": [
+        "选择Timeline作为单次过程详情",
+        "不使用Timeline替代多记录表格",
+        "未知时间或结果保持未取得",
+        "禁止把HTTP成功或计划启用冒充送达"
+      ]
+    },
+    {
+      "id": "truthful-loading-state",
+      "prompt": "PMS经营数据加载时一直转圈，看起来像卡死了，能不能更舒服一点？",
+      "expected_output": "布局稳定且字段可预测时使用Skeleton保留页面结构，超时、失败、无数据和成功后分别切换到真实状态。",
+      "assertions": [
+        "不使用0或旧数据填充Skeleton",
+        "没有可信进度时不伪造百分比",
+        "失败后不会无限停在加载状态"
+      ]
+    },
+    {
+      "id": "complexity-collapse-boundary",
+      "prompt": "这个推送计划页面还是有点复杂，把不常用的都折叠起来吧。",
+      "expected_output": "先识别重复和无当前用途的信息；只把仍必要的低频高级项或诊断详情放入Collapse，保留核心上下文、错误和主操作。",
+      "assertions": [
+        "门店、日期、来源、目标群和发送时间保持可见",
+        "错误与门禁状态不被折叠",
+        "不是所有低频内容都机械隐藏"
+      ]
+    },
+    {
+      "id": "existing-pattern-no-duplication",
+      "prompt": "通知页内容多，要不要再加一组页签和一个固定预览区？",
+      "expected_output": "先发现该页已经使用Tabs和桌面Sticky预览，避免重复添加；只在现有结构确有职责冲突时重组。",
+      "assertions": [
+        "先核对当前页面已用模式",
+        "不把机会映射当成功能清单",
+        "给出是否需要改动的实际判断"
+      ]
+    }
+  ]
+}

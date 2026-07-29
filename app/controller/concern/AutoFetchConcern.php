@@ -5735,7 +5735,12 @@ trait AutoFetchConcern
             $outputPath,
             $sectionsList,
             $this->normalizeCtripSectionConcurrency($periodOptions['ctrip_section_concurrency'] ?? 3),
-            $interactiveBrowser
+            $interactiveBrowser,
+            (string)($periodOptions['capture_plan']
+                ?? $periodOptions['capturePlan']
+                ?? $config['capture_plan']
+                ?? $config['capturePlan']
+                ?? 'full')
         );
         $args = $this->appendCtripCaptureGateArgs($args, $config);
         $mappingArgs = $this->appendCtripApprovedMappingsArg($args, $config, $projectRoot);

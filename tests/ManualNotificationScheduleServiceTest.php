@@ -221,6 +221,104 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         self::assertStringContainsString('未取得的数据未使用0或旧日数据补齐', $result['results'][0]['payload']['markdown']['content']);
     }
 
+    public function testMeituanDispatchRefreshesAndReadsBackBeforeSending(): void
+    {
+        $this->insertRecord([
+            'source_scope' => 'meituan',
+            'content_sections' => 'meituan_traffic,meituan_conversion',
+        ]);
+        $events = [];
+        $service = new ManualNotificationScheduleService(
+            static function () use (&$events): array {
+                $events[] = 'send';
+                return ['delivery_status' => 'sent'];
+            },
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            static function (
+                array $row,
+                string $businessDate
+            ) use (&$events): array {
+                $events[] = 'refresh';
+                return [
+                    'status' => 'ready',
+                    'reason_code' => 'meituan_current_capture_saved_and_read_back',
+                    'target_date' => $businessDate,
+                    'sync_task_id' => 1977,
+                    'saved_count' => 2,
+                    'readback_verified' => true,
+                ];
+            }
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:01:00'),
+            true
+        );
+
+        self::assertSame('dispatch_checked', $result['status']);
+        self::assertSame(1, $result['sent_count']);
+        self::assertSame(['refresh', 'send'], $events);
+        self::assertSame(
+            'ready',
+            $result['results'][0]['source_preparation']['status']
+        );
+        self::assertTrue(
+            $result['results'][0]['source_preparation']['readback_verified']
+        );
+        self::assertSame(
+            1977,
+            $result['results'][0]['source_preparation']['sync_task_id']
+        );
+    }
+
+    public function testMeituanDispatchStopsWhenCurrentReadbackIsMissing(): void
+    {
+        $this->insertRecord([
+            'source_scope' => 'meituan',
+            'content_sections' => 'meituan_traffic,meituan_conversion',
+        ]);
+        $sendCalls = 0;
+        $service = new ManualNotificationScheduleService(
+            static function () use (&$sendCalls): array {
+                $sendCalls++;
+                return ['delivery_status' => 'sent'];
+            },
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            static fn(): array => [
+                'status' => 'ready',
+                'reason_code' => 'capture_completed_without_readback',
+                'saved_count' => 2,
+                'readback_verified' => false,
+            ]
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:01:00'),
+            true
+        );
+
+        self::assertSame('dispatch_blocked', $result['status']);
+        self::assertSame(1, $result['blocked_count']);
+        self::assertSame(0, $sendCalls);
+        self::assertSame(
+            'meituan_current_capture_readback_missing',
+            $result['results'][0]['reason_code']
+        );
+        self::assertFalse(
+            (bool)($result['results'][0]['delivery_attempted'] ?? false)
+        );
+    }
+
     public function testSchedulerBuildsFutureRoomStatusFromDynamicBusinessFacts(): void
     {
         $notificationId = $this->insertRecord([

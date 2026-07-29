@@ -10,6 +10,7 @@ import {
   normalizeMeituanPeerRankRows,
   normalizeMeituanSearchKeywordRows,
   normalizeMeituanTrafficCardRows,
+  normalizeMeituanTrafficDomText,
   normalizeMeituanTrafficForecastRows,
 } from '../../scripts/lib/meituan_browser_capture_normalize.mjs';
 
@@ -83,6 +84,44 @@ test('Meituan business field aliases keep explicit platform values', () => {
     paid_order_count: 1,
     browse_to_pay_rate: 1.52,
   });
+});
+
+test('Meituan current home cards map the platform-native lead price and ADR ids', () => {
+  const rows = normalizeMeituanBusinessRows({
+    data: {
+      data: {
+        rtDataUpdateTime: '数据更新时间：2026/07/30 01:59',
+        cards: [
+          { id: 'DAY_ROOM_LOWEST_PRICE_AVG', value: '1158.00' },
+          { id: 'EXPOSE_PV_CNT', value: '-' },
+          { id: 'INTENTION_UV', value: '8' },
+          { id: 'PAY_ORDER_CNT_UV', value: '12.50' },
+          { id: 'PAY_ORDER_CNT', value: '1' },
+          { id: 'PAY_ROOMNIGHT', value: '1' },
+          { id: 'PAY_ADR', value: '1032.39' },
+          { id: 'PAY_AMT', value: '1032.39' },
+        ],
+      },
+    },
+  }, {
+    requestDateEvidence: { date: '2026-07-30', date_source: 'request.bound_business_period' },
+    businessCaptureEpoch: 7,
+    businessRelativeRange: '今日实时',
+    businessEvidenceSource: 'page.business_period_selection.readback',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].lead_price, 1158);
+  assert.equal(rows[0].sales_room_nights, 1);
+  assert.equal(rows[0].sales_amount, 1032.39);
+  assert.equal(rows[0].sales_avg_price, 1032.39);
+  assert.equal(rows[0].exposure_users, null);
+  assert.equal(rows[0].detail_visitors, 8);
+  assert.equal(rows[0].paid_order_count, 1);
+  assert.equal(rows[0].browse_to_pay_rate, 12.5);
+  assert.equal(rows[0].business_capture_epoch, 7);
+  assert.equal(rows[0].business_relative_range, '今日实时');
+  assert.equal(rows[0]._meituan_business_metric_missing.includes('exposure_users'), true);
 });
 
 test('Meituan order API aggregates sale price and room nights without promoting floor or guarantee money', () => {
@@ -336,7 +375,32 @@ test('Meituan search keyword cards expand to search_keyword rows', () => {
   assert.equal(rows[0].data_value, 320);
 });
 
-test('Meituan flow forecast keeps forecast rows separate from actual traffic', () => {
+test('Meituan flow forecast keeps semantically verified rows separate from actual traffic', () => {
+  const rows = normalizeMeituanTrafficForecastRows({
+    data: {
+      detail: [
+        { dateTime: '20260701', current: 88, peerAvg: 120 },
+      ],
+    },
+  }, {
+    forecastType: 'pv',
+    forecastCaptureEpoch: 3,
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'traffic_forecast');
+  assert.equal(rows[0].data_period, 'next_30_days');
+  assert.equal(rows[0].forecast_type, 'pv');
+  assert.equal(rows[0].dimension, 'flow_forecast_pv');
+  assert.equal(rows[0].forecast_capture_epoch, 3);
+  assert.equal(rows[0].dataDate, '2026-07-01');
+  assert.equal(rows[0].date_source, 'row.dateTime');
+  assert.equal(rows[0].data_value, 88);
+  assert.equal(rows[0].peer_avg, 120);
+  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
+});
+
+test('Meituan flow forecast refuses opaque numeric metric enums', () => {
   const rows = normalizeMeituanTrafficForecastRows({
     data: {
       detail: [
@@ -347,15 +411,60 @@ test('Meituan flow forecast keeps forecast rows separate from actual traffic', (
     forecastType: '2',
   });
 
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].data_type, 'traffic_forecast');
-  assert.equal(rows[0].data_period, 'next_30_days');
-  assert.equal(rows[0].forecast_type, '2');
-  assert.equal(rows[0].dataDate, '2026-07-01');
-  assert.equal(rows[0].date_source, 'row.dateTime');
-  assert.equal(rows[0].data_value, 88);
-  assert.equal(rows[0].peer_avg, 120);
-  assert.equal(isImportableMeituanTrafficRow(rows[0]), false);
+  assert.equal(rows[0].forecast_type, '');
+  assert.equal(rows[0].dimension, 'flow_forecast');
+});
+
+test('Meituan flow forecast keeps an explicit empty detail list as missing, not a placeholder row', () => {
+  assert.deepEqual(normalizeMeituanTrafficForecastRows({
+    data: {
+      titleRemark: '未来30天流量',
+      detail: [],
+    },
+  }, {
+    forecastType: 'uv',
+    forecastCaptureEpoch: 4,
+  }), []);
+});
+
+test('Meituan traffic DOM keeps funnel and direct source exposure facts separate', () => {
+  const rows = normalizeMeituanTrafficDomText([
+    '数据更新时间：2026/07/29 18:08',
+    '我的酒店 同行均值 曝光人数 浏览人数 支付订单数',
+    '720 500 121 100 3 2',
+    '曝光-浏览 转化率 16.81% 20.00%',
+    '浏览-支付 转化率 2.48%',
+    '流量来源 整体曝光 = 非广告曝光 + 广告曝光',
+    '流量类型 曝光量 占比 操作',
+    '整体曝光 1187',
+    '非广告曝光 103 9%',
+    '广告曝光 1084 91%',
+  ].join(' '));
+
+  const funnel = rows.find(row => row._capture_source === 'dom:traffic:flow_funnel');
+  assert.equal(funnel.listExposure, 720);
+  assert.equal(funnel.detailExposure, 121);
+  assert.equal(funnel.orderSubmitNum, 3);
+  assert.equal(funnel.flowRate, 2.48);
+  assert.equal(funnel.dataDate, '2026-07-29');
+
+  const sourceRows = rows.filter(row => row._capture_source === 'dom:traffic:source_breakdown');
+  assert.deepEqual(
+    Object.fromEntries(sourceRows.map(row => [row.dimension, row.data_value])),
+    {
+      total_exposure: 1187,
+      organic_exposure: 103,
+      ad_exposure: 1084,
+    },
+  );
+  assert.equal(sourceRows.every(row => row.dataDate === undefined), true);
+});
+
+test('Meituan traffic DOM never treats a conversion percentage as exposure', () => {
+  const rows = normalizeMeituanTrafficDomText(
+    '曝光-浏览 转化率 16.81% 浏览-支付 转化率 2.48% 支付订单数 3 单',
+  );
+  assert.equal(rows.some(row => row._capture_source === 'dom:traffic:home_summary'), false);
 });
 
 test('Meituan flow conversion becomes traffic_analysis supplemental data', () => {
@@ -410,6 +519,7 @@ test('Meituan myHotel funnel response becomes a truthful core traffic row', () =
   assert.equal(rows[0].intentionUV, 14);
   assert.equal(rows[0].payOrderCnt, 2);
   assert.equal(rows[0].intentionPerExposure, '17.28%');
+  assert.equal(rows[0].exposure_to_browse_rate, 17.28);
   assert.equal(rows[0].browse_pay_rate, 14.29);
   assert.equal(rows[0].order_filling_num, undefined);
 });

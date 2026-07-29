@@ -129,6 +129,38 @@ final class HotelTenantCreationTest extends TestCase
         self::assertSame('owner', $permission['scope_type']);
     }
 
+    public function testCreatedHotelInheritsOtaDeleteCapabilityFromRole(): void
+    {
+        $this->createSchema(true);
+        $this->createPermissionTable();
+        $user = $this->tenantManager(9002, 101, 0, ['hotel.create', 'ota.delete']);
+
+        $payload = $this->json($this->createHotel('Deletable OTA hotel', $user));
+        $hotelId = (int)$payload['data']['id'];
+        $permission = Db::name('user_hotel_permissions')->where('hotel_id', $hotelId)->find();
+
+        self::assertSame(200, $payload['code']);
+        self::assertIsArray($permission);
+        self::assertSame(1, (int)$permission['can_delete_ota']);
+        self::assertSame(1, (int)$permission['can_delete_online_data']);
+    }
+
+    public function testCreatedHotelDoesNotGainOtaDeleteCapabilityWithoutRoleGrant(): void
+    {
+        $this->createSchema(true);
+        $this->createPermissionTable();
+        $user = $this->tenantManager(9002, 101, 0, ['hotel.create']);
+
+        $payload = $this->json($this->createHotel('Non-deletable OTA hotel', $user));
+        $hotelId = (int)$payload['data']['id'];
+        $permission = Db::name('user_hotel_permissions')->where('hotel_id', $hotelId)->find();
+
+        self::assertSame(200, $payload['code']);
+        self::assertIsArray($permission);
+        self::assertSame(0, (int)$permission['can_delete_ota']);
+        self::assertSame(0, (int)$permission['can_delete_online_data']);
+    }
+
     public function testCreateGeneratesCodeAndForcesEnabledStatus(): void
     {
         $this->createSchema(true);
@@ -409,12 +441,26 @@ final class HotelTenantCreationTest extends TestCase
         )');
     }
 
-    private function tenantManager(int $userId, int $tenantId, int $hotelId = 0): HotelCreationManagerUser
-    {
+    /**
+     * @param array<int, string> $rolePermissions
+     */
+    private function tenantManager(
+        int $userId,
+        int $tenantId,
+        int $hotelId = 0,
+        array $rolePermissions = ['hotel.create']
+    ): HotelCreationManagerUser {
         $user = new HotelCreationManagerUser();
         $user->id = $userId;
+        $user->role_id = 8;
         $user->tenant_id = $tenantId;
         $user->hotel_id = $hotelId;
+
+        $role = new Role();
+        $role->id = 8;
+        $role->status = Role::STATUS_ENABLED;
+        $role->permissions = json_encode($rolePermissions, JSON_THROW_ON_ERROR);
+        $user->setRelation('role', $role);
 
         return $user;
     }

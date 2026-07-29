@@ -260,6 +260,38 @@ test('one-click acquisition page presents the two OTA config groups without the 
   assert.match(appMain, /const canMaintainOtaConfig = \(\) => canManageOwnHotels\(\) \|\| userHasPermission\('can_fetch_online_data'\)/);
 });
 
+test('OTA config deletion requires explicit hotel-scoped delete capability in every UI entry', () => {
+  const appMain = readFileSync('public/app-main.js', 'utf8');
+  const ctripFragment = readFileSync('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html', 'utf8');
+  const meituanFragment = readFileSync('resources/frontend/templates/fragments/26-page-meituan-ebooking.html', 'utf8');
+  const onlineDataFragment = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
+  const ctripConcern = readFileSync('app/controller/concern/OnlineDataRequestConcern.php', 'utf8');
+  const meituanConcern = readFileSync('app/controller/concern/MeituanConfigConcern.php', 'utf8');
+
+  assert.match(appMain, /const canDeleteOtaConfig = \(target = null\) => \{/);
+  assert.match(appMain, /target\?\.can_delete_config \?\? target\?\.config\?\.can_delete_config/);
+  assert.match(appMain, /const deleteOtaConfigOverviewRow = async \(row = \{\}\) => \{\s+if \(!canDeleteOtaConfig\(row\)\)/);
+  assert.match(appMain, /const deleteCtripConfig = async \(id\) => \{[\s\S]*if \(!canDeleteOtaConfig\(config\)\)/);
+  assert.match(appMain, /const deleteMeituanConfigItem = async \(id\) => \{[\s\S]*if \(!canDeleteOtaConfig\(config\)\)/);
+  assert.match(appMain, /manualOneClickFetchCanDeleteRow\([\s\S]*canDeleteOtaConfig\(findManualOneClickFetchConfigByRow\(row\)\)/);
+
+  assert.match(ctripFragment, /v-if="canDeleteOtaConfig\(config\)"[^>]*@click="deleteCtripConfig\(config\.id\)"/);
+  assert.match(ctripFragment, /<button v-else="" type="button" disabled[^>]*title="当前账号没有该门店删除权限"[^>]*aria-label="无删除权限"/);
+  assert.match(ctripFragment, /v-if="canDeleteOtaConfig\(row\)"[^>]*@click="deleteCtripCookieFromHealth\(row\)"/);
+  assert.match(meituanFragment, /v-if="canDeleteOtaConfig\(config\)"[^>]*@click="deleteMeituanConfigItem\(config\.id\)"/);
+  assert.match(onlineDataFragment, /v-if="canDeleteOtaConfig\(row\)"[^>]*@click="deleteOtaConfigOverviewRow\(row\)"/);
+
+  assert.match(ctripFragment, /<ctrip-config-history[^>]*:config="config"><\/ctrip-config-history>/);
+  assert.match(ctripFragment, /本店 <strong[^>]*>\{\{ config\.hotel_room_count/);
+  assert.match(ctripFragment, /竞争圈 <strong[^>]*>\{\{ config\.competitor_room_count/);
+  assert.doesNotMatch(ctripFragment, /采集范围：按任务与授权配置执行/);
+  assert.doesNotMatch(ctripFragment, /酒店物理客房总数（非当日OTA可售库存）/);
+  assert.doesNotMatch(ctripFragment, /secretPreview\(config\)/);
+
+  assert.match(ctripConcern, /appendOtaConfigActionPermissions\(\$list\)/);
+  assert.match(meituanConcern, /appendOtaConfigActionPermissions\(\$list\)/);
+});
+
 test('config list APIs append hotel-scoped platform persistence evidence', () => {
   const otaConcern = readFileSync('app/controller/concern/OtaConfigConcern.php', 'utf8');
   const ctripConcern = readFileSync('app/controller/concern/OnlineDataRequestConcern.php', 'utf8');

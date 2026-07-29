@@ -69,7 +69,7 @@ Current evidence status:
 | `sales_room_nights` | 销售间夜 | Room nights sold in the reporting period under the platform's verified order/payment-time definition | room nights | Do not mix booking-time, stay-date, and checkout-date room nights |
 | `sales_amount` | 销售额 | Sales amount attributed to the same period and scope as `sales_room_nights` | CNY | Keep gross/net and booking/checkout bases separate |
 | `sales_avg_price` | 销售均价 | `sales_amount / sales_room_nights` using aligned inputs | CNY per room night | Return missing when inputs are missing or room nights are zero |
-| `exposure_users` | 曝光人数 | Deduplicated users who saw the hotel | people | Never map impression-count fields such as Ctrip `list_exposure` without proof that they are user counts |
+| `exposure_users` | 曝光人数 | Deduplicated users who saw the hotel | people | Ctrip DataCenter `list_exposure` may map here only for the reviewed DataCenter module whose official help defines it as deduplicated viewers; other endpoints still require their own proof |
 | `detail_visitors` | 浏览人数 | Users who entered the hotel detail page | people | Ctrip `detail_visitor` is a candidate only after scope verification |
 | `paid_order_count` | 支付订单数 | Paid orders in the reporting period | orders | Do not substitute submit users, order-page visitors, or unverified booking counts |
 | `browse_to_pay_rate` | 浏览→支付转化率 | `paid_order_count / detail_visitors * 100` | percent | Inputs must share hotel, platform, time window, and room scope |
@@ -88,7 +88,7 @@ Current evidence status:
 - Future rows preserve `target_date`; the batch time is the forecast's as-of time. Never overwrite prior daily forecasts when trend diagnosis is required.
 - Normal values do not need a verbose status in the broadcast. Missing, stale, parse-failed, or collection-failed values remain explicit internally and are never replaced by `0` or old data.
 - Platform adapters may use different raw keys and capture methods. They must map into this contract only after source definition, date basis, unit, and formula are verified.
-- Meituan `曝光人数` and exposure-volume fields are separate facts. Ctrip `list_exposure` remains an exposure-volume fact unless a source proves a user-count definition.
+- Meituan `曝光人数` and exposure-volume fields are separate facts. The reviewed Ctrip DataCenter help maps that module's `list_exposure` to deduplicated viewers (`ctrip_datacenter_list_exposure_uv`); the same raw key from another endpoint or version remains unverified until its own source definition is checked.
 - Ctrip `future_search_pv`, `future_search_uv`, and `future_search_order_count` are candidates for the future group because the catalog aligns them by `target_date`; live source verification is still required for each hotel/session.
 
 ## Standard Filters And Dimensions

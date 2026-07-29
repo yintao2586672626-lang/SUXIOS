@@ -31,17 +31,22 @@ final class AutomationRunMonitorService
     /** @var callable|null */
     private $wechatRobotHotelIdsLoader;
 
+    /** @var callable|null */
+    private $runtimeEvidenceLoader;
+
     public function __construct(
         ?callable $businessPreviewLoader = null,
         ?callable $pmsBindingLoader = null,
         ?callable $taskOverviewLoader = null,
         private readonly ?DateTimeImmutable $observedAt = null,
-        ?callable $wechatRobotHotelIdsLoader = null
+        ?callable $wechatRobotHotelIdsLoader = null,
+        ?callable $runtimeEvidenceLoader = null
     ) {
         $this->businessPreviewLoader = $businessPreviewLoader;
         $this->pmsBindingLoader = $pmsBindingLoader;
         $this->taskOverviewLoader = $taskOverviewLoader;
         $this->wechatRobotHotelIdsLoader = $wechatRobotHotelIdsLoader;
+        $this->runtimeEvidenceLoader = $runtimeEvidenceLoader;
     }
 
     /**
@@ -59,6 +64,7 @@ final class AutomationRunMonitorService
             $this->wechatRobotHotelIds($hotels),
             true
         );
+        $runtimeEvidence = $this->runtimeEvidence($hotels, $businessDate);
         $rows = [];
         foreach ($hotels as $hotel) {
             if (!is_array($hotel)) {
@@ -73,7 +79,10 @@ final class AutomationRunMonitorService
                 $hotel,
                 $businessDate,
                 $userId,
-                isset($wechatRobotHotelIds[$hotelId])
+                isset($wechatRobotHotelIds[$hotelId]),
+                is_array($runtimeEvidence[$hotelId] ?? null)
+                    ? $runtimeEvidence[$hotelId]
+                    : []
             );
         }
 
@@ -169,7 +178,8 @@ final class AutomationRunMonitorService
         array $hotel,
         string $businessDate,
         int $userId,
-        bool $wechatRobotConfigured
+        bool $wechatRobotConfigured,
+        array $runtimeEvidence
     ): array
     {
         $hotelId = (int)$hotel['id'];
@@ -179,8 +189,17 @@ final class AutomationRunMonitorService
 
         $preview = $this->loadBusinessPreview($hotelId, $businessDate);
         $collection = (array)($preview['sections']['today_revenue_management']['ota_collection'] ?? []);
-        $ctrip = $this->otaSourceState('ctrip', $collection);
-        $meituan = $this->otaSourceState('meituan', $collection);
+        $sourceEvidence = is_array($runtimeEvidence['sources'] ?? null)
+            ? $runtimeEvidence['sources']
+            : [];
+        $ctrip = $this->sourceWithRuntimeEvidence(
+            $this->otaSourceState('ctrip', $collection),
+            $sourceEvidence['ctrip'] ?? []
+        );
+        $meituan = $this->sourceWithRuntimeEvidence(
+            $this->otaSourceState('meituan', $collection),
+            $sourceEvidence['meituan'] ?? []
+        );
         foreach ([$ctrip, $meituan] as $source) {
             if (($source['ready'] ?? false) !== true) {
                 $otaBlockers[] = (string)$source['blocker'];
@@ -200,7 +219,10 @@ final class AutomationRunMonitorService
 
         $tasks = $this->loadTaskOverview($tenantId, $hotelId);
         $schedule = $this->scheduleState($tasks);
-        $delivery = $this->deliveryState($tasks, $pms);
+        $deliveryEvidence = is_array($runtimeEvidence['delivery'] ?? null)
+            ? $runtimeEvidence['delivery']
+            : [];
+        $delivery = $this->deliveryState($tasks, $pms, $deliveryEvidence);
         if (!$wechatRobotConfigured) {
             $robotBlocker = '尚未为门店绑定并启用企业微信机器人。';
             $schedule = [
@@ -254,6 +276,11 @@ final class AutomationRunMonitorService
             'push_status' => $delivery['status'],
             'push_result' => $delivery['label'],
             'push_result_at' => $delivery['at'],
+            'push_success_count' => isset($deliveryEvidence['success_count'])
+                && is_numeric($deliveryEvidence['success_count'])
+                    ? max(0, (int)$deliveryEvidence['success_count'])
+                    : null,
+            'push_success_count_status' => (string)($deliveryEvidence['status'] ?? 'unavailable'),
             'blockers' => $this->uniqueText($blockers),
             'blocker_reason' => $this->blockerSummary($blockers),
         ];
@@ -328,6 +355,356 @@ final class AutomationRunMonitorService
     }
 
     /**
+     * Load read-only collection and delivery evidence once for all permitted
+     * hotels, so the monitor does not add per-row ledger queries.
+     *
+     * @param array<int, array<string, mixed>> $hotels
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeEvidence(array $hotels, string $businessDate): array
+    {
+        try {
+            $value = $this->runtimeEvidenceLoader === null
+                ? $this->loadRuntimeEvidence($hotels, $businessDate)
+                : call_user_func(
+                    $this->runtimeEvidenceLoader,
+                    $hotels,
+                    $businessDate
+                );
+            return is_array($value) ? $value : [];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $hotels
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadRuntimeEvidence(array $hotels, string $businessDate): array
+    {
+        $tenantByHotel = [];
+        foreach ($hotels as $hotel) {
+            if (!is_array($hotel)) {
+                continue;
+            }
+            $hotelId = (int)($hotel['id'] ?? 0);
+            $tenantId = (int)($hotel['tenant_id'] ?? 0);
+            if ($hotelId > 0 && $tenantId > 0) {
+                $tenantByHotel[$hotelId] = $tenantId;
+            }
+        }
+        if ($tenantByHotel === []) {
+            return [];
+        }
+
+        $evidence = [];
+        foreach ($tenantByHotel as $hotelId => $tenantId) {
+            $evidence[$hotelId] = [
+                'tenant_id' => $tenantId,
+                'sources' => [
+                    'ctrip' => ['last_success_at' => null],
+                    'meituan' => ['last_success_at' => null],
+                ],
+                'delivery' => [
+                    'success_count' => null,
+                    'last_success_at' => null,
+                    'status' => 'unavailable',
+                ],
+            ];
+        }
+
+        $this->attachCollectionEvidence(
+            $evidence,
+            $tenantByHotel,
+            $businessDate
+        );
+
+        $availableLedgers = 0;
+        foreach ([
+            [
+                'table' => 'manual_notification_schedule_dispatches',
+                'status_field' => 'status',
+                'success_statuses' => ['sent'],
+                'time_fields' => ['dispatched_at', 'update_time', 'create_time'],
+            ],
+            [
+                'table' => 'dingdandao_pms_push_dispatches',
+                'status_field' => 'delivery_status',
+                'success_statuses' => ['sent'],
+                'time_fields' => ['delivered_at', 'update_time', 'create_time'],
+            ],
+        ] as $ledger) {
+            $rows = $this->deliveryLedgerRows(
+                (string)$ledger['table'],
+                (string)$ledger['status_field'],
+                (array)$ledger['success_statuses'],
+                (array)$ledger['time_fields'],
+                array_keys($tenantByHotel),
+                $businessDate
+            );
+            if ($rows === null) {
+                continue;
+            }
+            $availableLedgers++;
+            foreach ($evidence as &$hotelEvidence) {
+                $delivery = (array)($hotelEvidence['delivery'] ?? []);
+                $delivery['success_count'] = max(0, (int)($delivery['success_count'] ?? 0));
+                $hotelEvidence['delivery'] = $delivery;
+            }
+            unset($hotelEvidence);
+
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $hotelId = (int)($row['hotel_id'] ?? 0);
+                $tenantId = (int)($row['tenant_id'] ?? 0);
+                if (!isset($tenantByHotel[$hotelId])
+                    || $tenantId !== $tenantByHotel[$hotelId]
+                ) {
+                    continue;
+                }
+                $delivery = (array)$evidence[$hotelId]['delivery'];
+                $delivery['success_count'] = max(0, (int)($delivery['success_count'] ?? 0))
+                    + max(0, (int)($row['success_count'] ?? 0));
+                $delivery['last_success_at'] = $this->laterTimestamp(
+                    $delivery['last_success_at'] ?? null,
+                    $row['last_success_at'] ?? null
+                );
+                $evidence[$hotelId]['delivery'] = $delivery;
+            }
+        }
+
+        foreach ($evidence as &$hotelEvidence) {
+            $delivery = (array)($hotelEvidence['delivery'] ?? []);
+            $delivery['status'] = match ($availableLedgers) {
+                2 => 'verified',
+                1 => 'partial',
+                default => 'unavailable',
+            };
+            $hotelEvidence['delivery'] = $delivery;
+        }
+        unset($hotelEvidence);
+
+        return $evidence;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $evidence
+     * @param array<int, int> $tenantByHotel
+     */
+    private function attachCollectionEvidence(
+        array &$evidence,
+        array $tenantByHotel,
+        string $businessDate
+    ): void {
+        $columns = $this->tableColumns('online_daily_data');
+        if (!isset(
+            $columns['system_hotel_id'],
+            $columns['readback_verified']
+        )) {
+            return;
+        }
+        $platformField = isset($columns['source'])
+            ? 'source'
+            : (isset($columns['platform']) ? 'platform' : '');
+        $timeFields = array_values(array_filter([
+            'snapshot_time',
+            'collected_at',
+            'captured_at',
+            'fetched_at',
+            'readback_verified_at',
+            'update_time',
+            'updated_at',
+            'create_time',
+            'created_at',
+        ], static fn(string $field): bool => isset($columns[$field])));
+        if ($platformField === '' || $timeFields === []) {
+            return;
+        }
+        $timeExpression = count($timeFields) === 1
+            ? '`' . $timeFields[0] . '`'
+            : 'COALESCE('
+                . implode(',', array_map(
+                    static fn(string $field): string => '`' . $field . '`',
+                    $timeFields
+                ))
+                . ')';
+
+        $fields = [
+            'system_hotel_id',
+            "`{$platformField}` AS platform_key",
+            "MAX({$timeExpression}) AS last_success_at",
+        ];
+        if (isset($columns['data_date'])) {
+            $fields[] = "MAX(CASE WHEN `data_date` = '{$businessDate}'"
+                . " THEN {$timeExpression} ELSE NULL END)"
+                . ' AS target_date_last_success_at';
+        }
+        $groups = ['system_hotel_id', $platformField];
+        if (isset($columns['tenant_id'])) {
+            $fields[] = 'tenant_id';
+            $groups[] = 'tenant_id';
+        }
+
+        try {
+            $query = Db::name('online_daily_data')
+                ->whereIn('system_hotel_id', array_keys($tenantByHotel))
+                ->where('readback_verified', 1);
+            if (isset($columns['data_type'])) {
+                $query->whereRaw(
+                    "(`data_type` IS NULL OR `data_type` <> 'competitor')"
+                );
+            }
+            $rows = $query
+                ->field(implode(',', $fields))
+                ->group(implode(',', $groups))
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return;
+        }
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $hotelId = (int)($row['system_hotel_id'] ?? 0);
+            if (!isset($tenantByHotel[$hotelId])) {
+                continue;
+            }
+            if (isset($columns['tenant_id'])
+                && (int)($row['tenant_id'] ?? 0) !== $tenantByHotel[$hotelId]
+            ) {
+                continue;
+            }
+            $platform = $this->monitorPlatform((string)($row['platform_key'] ?? ''));
+            if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+                continue;
+            }
+            $source = (array)$evidence[$hotelId]['sources'][$platform];
+            $lastSuccessAt = $this->firstTimestamp([
+                $row['target_date_last_success_at'] ?? null,
+                $row['last_success_at'] ?? null,
+            ]);
+            $source['last_success_at'] = $this->laterTimestamp(
+                $source['last_success_at'] ?? null,
+                $lastSuccessAt
+            );
+            $evidence[$hotelId]['sources'][$platform] = $source;
+        }
+    }
+
+    /**
+     * @param array<int, string> $successStatuses
+     * @param array<int, string> $timeFields
+     * @param array<int, int> $hotelIds
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function deliveryLedgerRows(
+        string $table,
+        string $statusField,
+        array $successStatuses,
+        array $timeFields,
+        array $hotelIds,
+        string $businessDate
+    ): ?array {
+        $columns = $this->tableColumns($table);
+        if (!isset(
+            $columns['tenant_id'],
+            $columns['hotel_id'],
+            $columns['business_date'],
+            $columns[$statusField]
+        )) {
+            return null;
+        }
+        $timeField = $this->firstExistingColumn($columns, $timeFields);
+        if ($timeField === '') {
+            return null;
+        }
+
+        try {
+            return Db::name($table)
+                ->whereIn('hotel_id', $hotelIds)
+                ->where('business_date', $businessDate)
+                ->whereIn($statusField, $successStatuses)
+                ->field(
+                    "hotel_id,tenant_id,COUNT(*) AS success_count,"
+                    . "MAX(`{$timeField}`) AS last_success_at"
+                )
+                ->group('hotel_id,tenant_id')
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** @return array<string, bool> */
+    private function tableColumns(string $table): array
+    {
+        try {
+            $fields = Db::getTableInfo($table, 'fields');
+        } catch (\Throwable) {
+            return [];
+        }
+        if (!is_array($fields)) {
+            return [];
+        }
+        $columns = [];
+        foreach ($fields as $key => $value) {
+            $name = is_string($key) && !is_numeric($key)
+                ? $key
+                : (string)$value;
+            $name = trim($name);
+            if ($name !== '') {
+                $columns[$name] = true;
+            }
+        }
+        return $columns;
+    }
+
+    /**
+     * @param array<string, bool> $columns
+     * @param array<int, string> $candidates
+     */
+    private function firstExistingColumn(array $columns, array $candidates): string
+    {
+        foreach ($candidates as $candidate) {
+            if (isset($columns[$candidate])) {
+                return $candidate;
+            }
+        }
+        return '';
+    }
+
+    /** @param array<string, mixed> $source */
+    private function sourceWithRuntimeEvidence(
+        array $source,
+        mixed $runtimeEvidence
+    ): array {
+        $runtimeEvidence = is_array($runtimeEvidence) ? $runtimeEvidence : [];
+        $source['last_success_at'] = $this->laterTimestamp(
+            $source['last_success_at'] ?? null,
+            $runtimeEvidence['last_success_at'] ?? null
+        );
+        return $source;
+    }
+
+    private function monitorPlatform(string $value): string
+    {
+        $value = strtolower(trim($value));
+        if (str_contains($value, 'ctrip') || str_contains($value, 'trip.com')) {
+            return 'ctrip';
+        }
+        if (str_contains($value, 'meituan') || str_contains($value, 'dianping')) {
+            return 'meituan';
+        }
+        return $value;
+    }
+
+    /**
      * @param array<string, mixed> $collection
      * @return array<string, mixed>
      */
@@ -355,6 +732,14 @@ final class AutomationRunMonitorService
             'status' => $status,
             'status_label' => $label,
             'ready' => $status === 'readback_verified',
+            'last_success_at' => $status === 'readback_verified'
+                ? $this->firstTimestamp([
+                    $row['last_success_at'] ?? null,
+                    $row['readback_verified_at'] ?? null,
+                    $row['finished_at'] ?? null,
+                    $row['collected_at'] ?? null,
+                ])
+                : null,
             'blocker' => $status === 'readback_verified'
                 ? ''
                 : $platformLabel . $label,
@@ -428,6 +813,14 @@ final class AutomationRunMonitorService
             'status_label' => $ready ? '当天事实已回读' : '当天事实未就绪',
             'ready' => $ready,
             'business_date' => $capture['business_date'] ?? $businessDate,
+            'last_success_at' => $ready
+                ? $this->firstTimestamp([
+                    $capture['readback_verified_at'] ?? null,
+                    $capture['captured_at'] ?? null,
+                    $capture['collected_at'] ?? null,
+                    $capture['update_time'] ?? null,
+                ])
+                : null,
             'blocker' => $ready
                 ? ''
                 : ($blocker !== '' ? $blocker : '主 PMS 当天事实尚未通过验真与回读。'),
@@ -487,10 +880,30 @@ final class AutomationRunMonitorService
     /**
      * @param array<string, mixed> $overview
      * @param array<string, mixed> $pms
+     * @param array<string, mixed> $deliveryEvidence
      * @return array{status:string,label:string,at:?string,blocker:string}
      */
-    private function deliveryState(array $overview, array $pms): array
+    private function deliveryState(
+        array $overview,
+        array $pms,
+        array $deliveryEvidence = []
+    ): array
     {
+        $successCount = isset($deliveryEvidence['success_count'])
+            && is_numeric($deliveryEvidence['success_count'])
+                ? max(0, (int)$deliveryEvidence['success_count'])
+                : 0;
+        if ($successCount > 0) {
+            return [
+                'status' => 'sent',
+                'label' => '企业微信已送达',
+                'at' => $this->firstTimestamp([
+                    $deliveryEvidence['last_success_at'] ?? null,
+                ]),
+                'blocker' => '',
+            ];
+        }
+
         $dispatch = is_array($pms['latest_dispatch'] ?? null)
             ? $pms['latest_dispatch']
             : null;
@@ -611,6 +1024,9 @@ final class AutomationRunMonitorService
             'status_label' => (string)($source['status_label'] ?? '未取得'),
             'ready' => ($source['ready'] ?? false) === true,
             'business_date' => $source['business_date'] ?? null,
+            'last_success_at' => $this->firstTimestamp([
+                $source['last_success_at'] ?? null,
+            ]),
         ];
     }
 
@@ -688,6 +1104,45 @@ final class AutomationRunMonitorService
             $summary .= '；另有 ' . (count($unique) - count($visible)) . ' 项';
         }
         return $summary;
+    }
+
+    /** @param array<int, mixed> $values */
+    private function firstTimestamp(array $values): ?string
+    {
+        foreach ($values as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $value = trim((string)$value);
+            if (preg_match(
+                '/(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)/',
+                $value,
+                $matches
+            ) !== 1) {
+                continue;
+            }
+            $timestamp = str_replace('T', ' ', (string)$matches[1]);
+            return strlen($timestamp) === 16 ? $timestamp . ':00' : $timestamp;
+        }
+        return null;
+    }
+
+    private function laterTimestamp(mixed $left, mixed $right): ?string
+    {
+        $left = $this->firstTimestamp([$left]);
+        $right = $this->firstTimestamp([$right]);
+        if ($left === null) {
+            return $right;
+        }
+        if ($right === null) {
+            return $left;
+        }
+        $leftTime = strtotime($left);
+        $rightTime = strtotime($right);
+        if ($leftTime === false || $rightTime === false) {
+            return strcmp($right, $left) > 0 ? $right : $left;
+        }
+        return $rightTime > $leftTime ? $right : $left;
     }
 
     private function date(string $value): string

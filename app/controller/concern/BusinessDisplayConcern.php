@@ -3268,6 +3268,11 @@ trait BusinessDisplayConcern
         $totalQuantity = (int)$this->sumCtripBusinessRows($rows, 'quantity');
         $totalDetailNum = (int)$this->sumCtripBusinessRows($rows, 'totalDetailNum');
         $totalQunarDetailVisitors = (int)$this->sumCtripBusinessRows($rows, 'qunarDetailVisitors');
+        $totalDetailNumReturned = $this->hasCtripReturnedMetricRows($rows, 'totalDetailNum');
+        $totalQunarDetailVisitorsReturned = $this->hasCtripReturnedMetricRows($rows, 'qunarDetailVisitors');
+        $trafficInputReturned = $totalDetailNumReturned || $totalQunarDetailVisitorsReturned;
+        $ctripReviewInputsReturned = $this->hasCtripReturnedMetricPairRows($rows, 'commentScore', 'convertionRate');
+        $qunarReviewInputsReturned = $this->hasCtripReturnedMetricPairRows($rows, 'qunarCommentScore', 'qunarDetailCR');
         $aiEstimatedValues = array_values(array_filter(
             array_column($rows, 'aiEstimatedTotalRoomNights'),
             static fn($value): bool => is_numeric($value)
@@ -3348,14 +3353,14 @@ trait BusinessDisplayConcern
                 $this->ctripBusinessSummaryCard('adr', '平均房价(ADR)', $adr > 0 ? '¥' . number_format($adr, 2, '.', ',') : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
                 $this->ctripBusinessSummaryCard('avgAri', '平均房价指数(ARI)', $avgAri > 0 ? number_format($avgAri, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $ariLevel),
                 $this->ctripBusinessSummaryCard('avgSci', '商圈综合竞争力指数(SCI)', $avgSci > 0 ? number_format($avgSci, 0, '.', ',') : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200', $sciLevel),
-                $this->ctripBusinessSummaryCard('totalDetailNum', '携程APP总访客量', number_format($totalDetailNum), 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
-                $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', number_format($totalQunarDetailVisitors), 'text-teal-600', 'bg-teal-50 border border-teal-200'),
-                $this->ctripBusinessSummaryCard('trafficValue', '流量价值效率', $trafficValue > 0 ? '¥' . number_format($trafficValue, 2, '.', ',') : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->ctripBusinessSummaryCard('totalDetailNum', '携程APP总访客量', $totalDetailNumReturned ? number_format($totalDetailNum) : '未返回', 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
+                $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', $totalQunarDetailVisitorsReturned ? number_format($totalQunarDetailVisitors) : '未返回', 'text-teal-600', 'bg-teal-50 border border-teal-200'),
+                $this->ctripBusinessSummaryCard('trafficValue', '流量价值效率', $trafficInputReturned && $trafficValue > 0 ? '¥' . number_format($trafficValue, 2, '.', ',') : '数据不足', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->ctripBusinessSummaryCard('revenueConcentration', '收益集中度', number_format($revenueHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $revenueLevel),
-                $this->ctripBusinessSummaryCard('visitConcentration', '浏览/访客集中度', number_format($visitHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $visitLevel),
+                $this->ctripBusinessSummaryCard('visitConcentration', '浏览/访客集中度', $totalDetailNumReturned && $totalDetailNum > 0 ? number_format($visitHhi, 2, '.', '') : '数据不足', 'text-orange-600', 'bg-orange-50 border border-orange-200', $totalDetailNumReturned && $totalDetailNum > 0 ? $visitLevel : []),
                 $this->ctripBusinessSummaryCard('priceSigma', '竞争健康度', $priceSigma > 0 ? number_format($priceSigma, 2, '.', '') . '%' : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200', $priceLevel),
-                $this->ctripBusinessSummaryCard('ctripReviewImpact', '携程点评分-转化率影响因子(R)', $ctripReviewImpact > 0 ? number_format($ctripReviewImpact, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
-                $this->ctripBusinessSummaryCard('qunarReviewImpact', '去哪儿点评分-转化率影响因子(R)', $qunarReviewImpact > 0 ? number_format($qunarReviewImpact, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+                $this->ctripBusinessSummaryCard('ctripReviewImpact', '携程点评分-转化率影响因子(R)', $ctripReviewInputsReturned && $ctripReviewImpact > 0 ? number_format($ctripReviewImpact, 1, '.', '') : '数据不足', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
+                $this->ctripBusinessSummaryCard('qunarReviewImpact', '去哪儿点评分-转化率影响因子(R)', $qunarReviewInputsReturned && $qunarReviewImpact > 0 ? number_format($qunarReviewImpact, 1, '.', '') : '数据不足', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->ctripBusinessSummaryCard('sourceStatus', '数据来源', '携程竞争圈返回', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
             ],
             'source_notice' => '仅展示携程竞争圈/榜单已返回字段。竞争健康度使用当前快照的房价离散系数=价格标准差/圈内平均房价；无可比基期时不输出改善或恶化趋势。单项缺失保留“系统未返回”，不把 OTA 渠道数据当全酒店经营事实。',
@@ -3416,6 +3421,44 @@ trait BusinessDisplayConcern
             $sum += (float)($row[$field] ?? 0);
         }
         return $sum;
+    }
+
+    private function hasCtripReturnedMetricRows(array $rows, string $field): bool
+    {
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $status = trim((string)($row['metricSourceStatus'][$field] ?? ''));
+            if ($status === '携程竞争圈返回') {
+                return true;
+            }
+            if ($status === '系统未返回') {
+                continue;
+            }
+            if (array_key_exists($field, $row)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function hasCtripReturnedMetricPairRows(array $rows, string $leftField, string $rightField): bool
+    {
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $status = is_array($row['metricSourceStatus'] ?? null) ? $row['metricSourceStatus'] : [];
+            $leftReturned = ($status[$leftField] ?? '') === '携程竞争圈返回'
+                || (!isset($status[$leftField]) && array_key_exists($leftField, $row));
+            $rightReturned = ($status[$rightField] ?? '') === '携程竞争圈返回'
+                || (!isset($status[$rightField]) && array_key_exists($rightField, $row));
+            if ($leftReturned && $rightReturned) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function sumBusinessRows(array $rows, string $field): float

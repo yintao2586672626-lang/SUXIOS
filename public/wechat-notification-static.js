@@ -6,11 +6,6 @@
         throw new Error('Vue runtime is required for the enterprise WeChat notification panel.');
     }
 
-    const field = (label, control, help = '') => h('label', { class: 'block' }, [
-        h('span', { class: 'mb-2 block text-sm font-medium text-slate-700' }, label),
-        control,
-        help ? h('span', { class: 'mt-2 block text-xs leading-5 text-slate-500' }, help) : null,
-    ]);
     const detail = (label, value, testid = '') => h('div', {}, [
         h('dt', { class: 'text-slate-500' }, label),
         h('dd', {
@@ -32,9 +27,9 @@
             error: { type: String, default: '' },
             statusText: { type: String, default: '尚未绑定' },
             statusClass: { type: String, default: '' },
-            lastTestText: { type: String, default: '尚未发送测试消息' },
+            lastTestText: { type: String, default: '尚未取得送达记录' },
         },
-        emits: ['hotel-change', 'update-name', 'update-webhook', 'save', 'test'],
+        emits: ['update-webhook', 'save', 'test'],
         setup(props, { emit }) {
             return () => {
                 const binding = props.state?.binding || null;
@@ -42,100 +37,79 @@
                     hotel => String(hotel?.id) === String(props.hotelId)
                 ) || null;
                 const busy = props.loading || props.saving || props.testing;
-                const inputClass = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100';
+                const inputClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm focus:border-[#315d50] focus:outline-none focus:ring-2 focus:ring-[#315d50]/15';
 
                 return h('div', {
-                    class: 'mx-auto max-w-5xl space-y-5',
+                    class: 'mx-auto max-w-5xl',
                     'data-testid': 'wechat-notification-panel',
                 }, [
                     h('section', { class: 'rounded-2xl border border-slate-200 bg-white p-6 shadow-sm' }, [
-                        h('div', { class: 'flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between' }, [
+                        h('div', { class: 'flex flex-col gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-start lg:justify-between' }, [
                             h('div', {}, [
-                                h('div', { class: 'text-sm font-medium text-emerald-700' }, '账号级配置 · 当前账户与当前门店'),
-                                h('h2', { class: 'mt-1 text-2xl font-bold text-slate-900' }, '我的通知群'),
+                                h('div', { class: 'text-sm font-medium text-emerald-700' }, '当前酒店推送通道'),
+                                h('h2', { class: 'mt-1 text-2xl font-bold text-slate-900' },
+                                    selectedHotel?.name || '请选择当前酒店'),
                                 h('p', { class: 'mt-2 max-w-2xl text-sm leading-6 text-slate-500' },
-                                    '只对当前账户和所选门店生效；与管理员维护的门店共享机器人分开保存、互不覆盖。'),
+                                    '当前酒店只绑定一个企业微信群机器人 Webhook；携程、美团和 PMS 的计划统一使用这个通道。'),
                             ]),
                             h('span', {
                                 class: `inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium ${props.statusClass}`,
                                 'data-testid': 'wechat-notification-status',
                             }, props.statusText),
                         ]),
-                    ]),
-                    h('section', { class: 'grid gap-5 lg:grid-cols-2' }, [
                         h('form', {
-                            class: 'rounded-2xl border border-slate-200 bg-white p-6 shadow-sm',
+                            class: 'mt-5',
                             'data-testid': 'wechat-notification-form',
                             onSubmit: (event) => {
                                 event.preventDefault();
                                 emit('save');
                             },
                         }, [
-                            h('div', { class: 'space-y-5' }, [
-                                field('绑定门店', h('select', {
-                                    value: String(props.hotelId || ''),
-                                    class: inputClass,
-                                    disabled: busy,
-                                    'data-testid': 'wechat-notification-hotel',
-                                    onChange: event => emit('hotel-change', event.target.value),
-                                }, [
-                                    h('option', { value: '', disabled: true }, '请选择有权限的门店'),
-                                    ...props.hotels.map(hotel => h('option', {
-                                        key: hotel.id,
-                                        value: String(hotel.id),
-                                    }, hotel.name || `门店 ${hotel.id}`)),
-                                ])),
-                                field('通知群名称', h('input', {
-                                    value: props.form?.name || '',
-                                    type: 'text',
-                                    maxlength: 120,
-                                    class: inputClass,
-                                    placeholder: '例如：西安店经营通知群',
-                                    'data-testid': 'wechat-notification-name',
-                                    onInput: event => emit('update-name', event.target.value),
-                                })),
-                                field('企业微信群机器人 Webhook', h('input', {
-                                    value: props.form?.webhook || '',
-                                    type: 'password',
-                                    autocomplete: 'new-password',
-                                    spellcheck: 'false',
-                                    class: `${inputClass} font-mono`,
-                                    placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...',
-                                    'data-testid': 'wechat-notification-webhook',
-                                    onInput: event => emit('update-webhook', event.target.value),
-                                }), '系统加密保存完整地址；保存或切换门店后输入框立即清空，页面只显示掩码。'),
+                            h('div', { class: 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]' }, [
+                                h('label', { class: 'block' }, [
+                                    h('span', { class: 'mb-2 block text-sm font-medium text-slate-700' },
+                                        binding ? '替换企业微信群机器人 Webhook' : '企业微信群机器人 Webhook'),
+                                    h('input', {
+                                        value: props.form?.webhook || '',
+                                        type: 'password',
+                                        autocomplete: 'new-password',
+                                        spellcheck: 'false',
+                                        class: `${inputClass} font-mono`,
+                                        placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...',
+                                        'data-testid': 'wechat-notification-webhook',
+                                        onInput: event => emit('update-webhook', event.target.value),
+                                    }),
+                                    h('span', { class: 'mt-2 block text-xs leading-5 text-slate-500' },
+                                        '完整地址会加密保存且不会回显；输入新地址并保存即可替换。'),
+                                ]),
+                                h('div', { class: 'flex items-end gap-2' }, [
+                                    h('button', {
+                                        type: 'submit',
+                                        disabled: busy || !props.hotelId || !String(props.form?.webhook || '').trim(),
+                                        class: 'rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50',
+                                        'data-testid': 'wechat-notification-save',
+                                    }, props.saving ? '保存中...' : (binding ? '更新 Webhook' : '保存 Webhook')),
+                                    h('button', {
+                                        type: 'button',
+                                        disabled: busy || !binding,
+                                        class: 'rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50',
+                                        'data-testid': 'wechat-notification-test',
+                                        onClick: () => emit('test'),
+                                    }, props.testing ? '发送中...' : '测试通道'),
+                                ]),
+                            ]),
+                            h('div', { class: 'mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-3' }, [
+                                detail('当前酒店', selectedHotel?.name || '未选择'),
+                                detail('Webhook', binding?.webhook_masked || '未绑定', 'wechat-notification-mask'),
+                                detail('最近送达', props.lastTestText, 'wechat-notification-last-test'),
+                            ]),
+                            h('div', { class: 'mt-4 text-xs leading-5 text-slate-500' },
+                                '酒店由页面顶部统一选择，不会绑定到其他酒店；自动推送计划只读取当前酒店的这个通道。'),
                                 props.error ? h('div', {
-                                    class: 'rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700',
+                                    class: 'mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700',
                                     role: 'alert',
                                     'data-testid': 'wechat-notification-error',
                                 }, props.error) : null,
-                                h('div', { class: 'flex flex-col gap-3 sm:flex-row' }, [
-                                    h('button', {
-                                        type: 'submit',
-                                        disabled: props.saving || props.loading || !props.hotelId,
-                                        class: 'rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60',
-                                        'data-testid': 'wechat-notification-save',
-                                    }, props.saving ? '安全保存中...' : (binding ? '更新绑定' : '保存绑定')),
-                                    h('button', {
-                                        type: 'button',
-                                        disabled: props.testing || !binding,
-                                        class: 'rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60',
-                                        'data-testid': 'wechat-notification-test',
-                                        onClick: () => emit('test'),
-                                    }, props.testing ? '发送中...' : '发送测试消息'),
-                                ]),
-                            ]),
-                        ]),
-                        h('aside', { class: 'rounded-2xl border border-slate-200 bg-slate-50 p-6' }, [
-                            h('h3', { class: 'text-base font-semibold text-slate-900' }, '当前绑定状态'),
-                            h('dl', { class: 'mt-4 space-y-4 text-sm' }, [
-                                detail('门店', selectedHotel?.name || '未选择'),
-                                detail('通知群', binding?.name || '尚未绑定'),
-                                detail('Webhook', binding?.webhook_masked || '未保存', 'wechat-notification-mask'),
-                                detail('最后测试', props.lastTestText, 'wechat-notification-last-test'),
-                            ]),
-                            h('div', { class: 'mt-5 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800' },
-                                '切换门店后只读取该门店下当前账户自己的绑定；其他账户和管理员共享配置不会显示。'),
                         ]),
                     ]),
                 ]);
@@ -153,10 +127,14 @@
     }
 
     const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15';
-    const field = (label, control, help = '') => h('label', { class: 'block' }, [
+    const field = (label, control, help = '', error = '') => h('label', { class: 'block' }, [
         h('span', { class: 'mb-2 block text-sm font-medium text-slate-700' }, label),
         control,
         help ? h('span', { class: 'mt-1 block text-xs leading-5 text-slate-500' }, help) : null,
+        error ? h('span', {
+            class: 'mt-1.5 block text-xs leading-5 text-rose-600',
+            role: 'alert',
+        }, error) : null,
     ]);
     const summary = (label, value, testid = '') => h('div', {
         class: 'rounded-xl border border-slate-200 bg-white px-3 py-2.5',
@@ -175,6 +153,7 @@
             dataScopeLabel: { type: String, default: '人工自定义正文' },
             dataStatus: { type: String, default: '仅保存/仅测试' },
             latestDispatch: { type: Object, default: null },
+            validationErrors: { type: Object, default: () => ({}) },
             error: { type: String, default: '' },
         },
         emits: ['field-change'],
@@ -188,18 +167,27 @@
                     option => String(option?.key) === String(key)
                 )?.label || fallback
             );
+            const fieldError = fieldName => String(
+                props.validationErrors?.[fieldName] || ''
+            ).trim();
             const input = (fieldName, type, testid, attributes = {}) => h('input', {
                 value: props.form?.[fieldName] || '',
                 type,
-                class: inputClass,
+                class: `${inputClass} ${fieldError(fieldName)
+                    ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+                    : ''}`,
                 'data-testid': testid,
+                'aria-invalid': fieldError(fieldName) ? 'true' : 'false',
                 onInput: event => change(fieldName, event.target.value),
                 ...attributes,
             });
             const select = (fieldName, options, testid, placeholder = '') => h('select', {
                 value: String(props.form?.[fieldName] ?? ''),
-                class: inputClass,
+                class: `${inputClass} ${fieldError(fieldName)
+                    ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-200'
+                    : ''}`,
                 'data-testid': testid,
+                'aria-invalid': fieldError(fieldName) ? 'true' : 'false',
                 onChange: event => change(fieldName, event.target.value),
             }, [
                 ...(placeholder ? [h('option', { value: '' }, placeholder)] : []),
@@ -224,7 +212,7 @@
                 const dateRuleLabel = optionLabel(
                     metadata.business_date_rules,
                     form.business_date_rule,
-                    '今日累计 T0'
+                    '发送当天数据'
                 );
                 const latest = props.latestDispatch || null;
                 const scheduleRun = metadata.latest_schedule_run || {};
@@ -290,7 +278,7 @@
                         h('div', {}, [
                             h('h3', { class: 'font-semibold text-slate-900' }, '自动发送设置'),
                             h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' },
-                                '三源可分别配置发送来源、内容、时间和通知群；微信正文可在上方选择通用或自定义模板。'),
+                                '携程、美团、PMS 分别保存自己的发送内容、时间和频率；计划自动使用当前酒店唯一推送通道。'),
                         ]),
                         h('span', {
                             class: `rounded-full border px-2.5 py-1 text-xs font-medium ${form.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'}`,
@@ -306,6 +294,7 @@
                     h('fieldset', {
                         class: 'mt-4',
                         'data-testid': 'manual-notification-source-scope',
+                        'aria-invalid': fieldError('source_scope') ? 'true' : 'false',
                     }, [
                         h('legend', { class: 'mb-2 text-sm font-medium text-slate-700' }, '发送来源'),
                         h('div', { class: 'grid gap-2 sm:grid-cols-2' }, visibleSourceScopes.map(source => {
@@ -334,10 +323,14 @@
                             ? h('p', { class: 'mt-2 text-xs leading-5 text-amber-700' },
                                 '自定义全文模板可能引用全部三源变量，因此保持三源汇总；如需单源计划，请使用通用模板。')
                             : null,
+                        fieldError('source_scope')
+                            ? h('p', { class: 'mt-2 text-xs text-rose-600', role: 'alert' }, fieldError('source_scope'))
+                            : null,
                     ]),
                     h('fieldset', {
                         class: 'mt-4',
                         'data-testid': 'manual-notification-content-sections',
+                        'aria-invalid': fieldError('content_sections') ? 'true' : 'false',
                     }, [
                         h('legend', { class: 'mb-2 text-sm font-medium text-slate-700' }, '发送什么'),
                         h('div', { class: 'grid gap-2 sm:grid-cols-2' }, availableSections.map(section => {
@@ -366,29 +359,28 @@
                         })),
                         h('p', { class: 'mt-2 text-xs leading-5 text-slate-500' },
                             '来源证据、同店同日回读状态和 OTA/全酒店范围说明固定附带，不能关闭。'),
+                        fieldError('content_sections')
+                            ? h('p', { class: 'mt-2 text-xs text-rose-600', role: 'alert' }, fieldError('content_sections'))
+                            : null,
                     ]),
                     h('div', { class: 'mt-4 grid gap-4 md:grid-cols-2' }, [
-                        field('页面预览日期', input(
-                            'business_date',
-                            'date',
-                            'manual-notification-business-date'
-                        ), '只用于页面预览；定时发送按右侧数据日期规则取数。'),
-                        field('定时数据日期', select(
+                        field('发送哪天的数据', select(
                             'business_date_rule',
                             metadata.business_date_rules,
                             'manual-notification-business-date-rule'
-                        )),
+                        ), '发送当天数据：每次取发送当天；发送前一天数据：每次取发送日期的前一天。消息预览也使用同一规则。',
+                        fieldError('business_date')),
                         field('发送频率', select(
                             'trigger_type',
                             metadata.trigger_types,
                             'manual-notification-trigger'
-                        )),
+                        ), '', fieldError('trigger_type')),
                         ...(triggerType === 'daily_fixed_time' ? [
                             field('每日发送时间（北京时间）', input(
                                 'planned_send_at',
                                 'datetime-local',
                                 'manual-notification-planned-time'
-                            ), '每天复用所选的时、分。'),
+                            ), '每天复用所选的时、分。', fieldError('planned_send_at')),
                         ] : []),
                         ...(triggerType === 'hourly_on_the_hour' ? [
                             h('div', { class: 'grid grid-cols-2 gap-3' }, [
@@ -397,13 +389,13 @@
                                     'time',
                                     'manual-notification-hourly-start',
                                     { step: 3600 }
-                                )),
+                                ), '', fieldError('hourly_start_time')),
                                 field('小时播报结束', input(
                                     'hourly_end_time',
                                     'time',
                                     'manual-notification-hourly-end',
                                     { step: 3600 }
-                                )),
+                                ), '', fieldError('hourly_end_time')),
                             ]),
                         ] : []),
                         ...(triggerType === 'interval_minutes' ? [
@@ -412,17 +404,20 @@
                                 'number',
                                 'manual-notification-interval-minutes',
                                 { min: 5, max: 1440, step: 1 }
-                            ), '允许 5–1440 分钟；每个发送时点只会认领一次。'),
+                            ), '允许 5–1440 分钟；每个发送时点只会认领一次。',
+                            fieldError('interval_minutes')),
                             field('首次发送时间', input(
                                 'hourly_start_time',
                                 'time',
                                 'manual-notification-interval-start',
                                 { step: 60 }
-                            ), '当天从这个时间开始按间隔发送，23:59 自动结束，次日重新开始。'),
+                            ), '当天从这个时间开始按间隔发送，23:59 自动结束，次日重新开始。',
+                            fieldError('hourly_start_time')),
                         ] : []),
                         h('fieldset', {
                             class: 'md:col-span-2',
                             'data-testid': 'manual-notification-weekdays',
+                            'aria-invalid': fieldError('active_weekdays') ? 'true' : 'false',
                         }, [
                             h('legend', { class: 'mb-2 text-sm font-medium text-slate-700' }, '生效星期'),
                             h('div', { class: 'flex flex-wrap gap-2' }, weekdayOptions.map(option => {
@@ -430,7 +425,7 @@
                                 const checked = weekdays.includes(key);
                                 return h('label', {
                                     key,
-                                    class: `cursor-pointer rounded-lg border px-3 py-2 text-xs font-medium ${checked ? 'border-[#ad8b52] bg-[#fff7e8] text-[#826333]' : 'border-slate-200 bg-white text-slate-500'}`,
+                                    class: `cursor-pointer rounded-lg border px-3 py-2 text-xs font-semibold shadow-sm transition ${checked ? 'border-slate-900 bg-slate-900 text-white ring-2 ring-slate-900/20' : 'border-slate-200 bg-white text-slate-500 hover:border-[#ad8b52]'}`,
                                 }, [
                                     h('input', {
                                         type: 'checkbox',
@@ -444,32 +439,34 @@
                                             if (next.length) change('active_weekdays', next);
                                         },
                                     }),
+                                    checked ? h('i', {
+                                        class: 'fas fa-check mr-1.5 text-[10px]',
+                                        'aria-hidden': 'true',
+                                    }) : null,
                                     option.label,
                                 ]);
                             })),
+                            fieldError('active_weekdays')
+                                ? h('p', { class: 'mt-2 text-xs text-rose-600', role: 'alert' }, fieldError('active_weekdays'))
+                                : null,
                         ]),
-                        field('生效日期', h('div', { class: 'grid grid-cols-2 gap-3' }, [
-                            input('effective_from', 'date', 'manual-notification-effective-from'),
-                            input('effective_to', 'date', 'manual-notification-effective-to'),
-                        ]), '开始、结束均可留空。'),
                         field('发送方式', select(
                             'send_method',
                             metadata.send_methods,
                             'manual-notification-send-method'
-                        )),
+                        ), '', fieldError('send_method')),
                         ...(['wecom_test', 'wecom_formal'].includes(String(form.send_method || '')) ? [
-                            field('目标通知群', h('select', {
-                                value: String(form.target_robot_id || ''),
-                                class: inputClass,
+                            field('推送通道', h('div', {
+                                class: `rounded-xl border px-3 py-2.5 text-sm ${props.robots.length
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                    : 'border-amber-200 bg-amber-50 text-amber-800'}`,
                                 'data-testid': 'manual-notification-formal-robot',
-                                onChange: event => change('target_robot_id', event.target.value),
-                            }, [
-                                h('option', { value: '' }, '请选择当前门店有权使用的机器人'),
-                                ...props.robots.map(robot => h('option', {
-                                    key: robot.id,
-                                    value: String(robot.id),
-                                }, `${robot.name} · ${robot.scope_label || '个人通知群'}${['success', 'sent'].includes(robot.last_test_status) ? '（已测试）' : '（送达未验证）'}`)),
-                            ]), '个人通知群与管理员共享机器人分开保存。'),
+                                'aria-invalid': fieldError('target_robot_id') ? 'true' : 'false',
+                            }, props.robots.length
+                                ? '当前酒店企业微信群机器人 Webhook 已绑定'
+                                : '请先到“推送通道”绑定当前酒店 Webhook'),
+                            '无需重复选择通知群；保存计划时自动写入当前酒店唯一通道。',
+                            fieldError('target_robot_id')),
                         ] : []),
                     ]),
                     h('label', {
@@ -497,7 +494,7 @@
                             h('span', {}, `缺数据：${policies.missing_data || '可信事实不足时阻断正式消息'}`),
                             h('span', {}, `漏跑：${policies.missed_window || '超过调度窗口不补发'}`),
                             h('span', {}, `结果不明：${policies.unknown_outcome || '不自动重发'}`),
-                            h('span', {}, `失败处理：${policies.retry || '只有明确失败允许人工重试'}`),
+                            h('span', {}, `失败处理：${policies.retry || '明确失败可人工重试；结果不明仅在确认可能重复送达后重试'}`),
                         ]),
                     ]),
                     h('dl', {

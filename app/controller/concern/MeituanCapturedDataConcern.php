@@ -340,11 +340,11 @@ trait MeituanCapturedDataConcern
 
     private function normalizeMeituanCapturedBusinessRow(array $item, array $context): ?array
     {
-        $leadPrice = $this->nullableNumberFromKeys($item, ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice']);
+        $leadPrice = $this->nullableNumberFromKeys($item, ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice', 'DAY_ROOM_LOWEST_PRICE_AVG']);
         $salesRoomNightsValue = $this->nullableNumberFromKeys($item, ['sales_room_nights', 'salesRoomNights', 'quantity', 'room_nights', 'roomNights', 'PAY_ROOMNIGHT']);
         $salesRoomNights = $salesRoomNightsValue === null ? null : (int)$salesRoomNightsValue;
         $salesAmount = $this->nullableNumberFromKeys($item, ['sales_amount', 'salesAmount', 'amount', 'sales', 'PAY_AMT']);
-        $salesAvgPrice = $this->nullableNumberFromKeys($item, ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'data_value']);
+        $salesAvgPrice = $this->nullableNumberFromKeys($item, ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'PAY_ADR', 'data_value']);
         $exposureUsersValue = $this->nullableNumberFromKeys($item, ['exposure_users', 'exposureUsers', 'listExposure', 'list_exposure', 'exposureUV', 'EXPOSE_PV_CNT']);
         $detailVisitorsValue = $this->nullableNumberFromKeys($item, ['detail_visitors', 'detailVisitors', 'detailExposure', 'detail_exposure', 'intentionUV', 'INTENTION_UV']);
         $paidOrdersValue = $this->nullableNumberFromKeys($item, ['paid_order_count', 'paidOrderCount', 'book_order_num', 'payOrderCnt', 'orderSubmitNum', 'PAY_ORDER_CNT']);
@@ -413,12 +413,36 @@ trait MeituanCapturedDataConcern
         $clicks = $clicksValue === null ? null : (int)$clicksValue;
         $payOrders = $payOrdersValue === null ? null : (int)$payOrdersValue;
         $payRooms = $payRoomsValue === null ? null : (int)$payRoomsValue;
+        $exposureBrowsePlatformValue = $this->firstMeituanValue(
+            $item,
+            [
+                'intentionPerExposure',
+                'intention_per_exposure',
+            ],
+            null
+        );
+        $exposureBrowseRate = $exposureBrowsePlatformValue !== null
+            ? $this->normalizeMeituanPercentValue($exposureBrowsePlatformValue)
+            : $this->nullableNumberFromKeys(
+                $item,
+                ['exposure_to_browse_rate', 'exposureToBrowseRate', 'expose_visit_rate']
+            );
+        if ($exposureBrowseRate !== null) {
+            $exposureBrowseRate = round($exposureBrowseRate, 2);
+        }
         $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'pay_order_per_intention', 'mt_conversion_rate', 'conversion_rate', 'conversionRate', 'flowRate', 'orderRate'], null));
         if ($conversion === null && $payOrders !== null && $pageViews !== null && $pageViews > 0) {
             $conversion = CtripTrafficDisplayService::trafficRate((float)$payOrders, (float)$pageViews);
         }
 
-        if ($exposure === null && $pageViews === null && $clicks === null && $payOrders === null && $payRooms === null && $conversion === null) {
+        if ($exposure === null
+            && $pageViews === null
+            && $clicks === null
+            && $payOrders === null
+            && $payRooms === null
+            && $exposureBrowseRate === null
+            && $conversion === null
+        ) {
             return null;
         }
 
@@ -432,6 +456,7 @@ trait MeituanCapturedDataConcern
             'mt_intention_uv' => $pageViews,
             'mt_pay_orders' => $payOrders,
             'mt_pay_rooms' => $payRooms,
+            'exposure_to_browse_rate' => $exposureBrowseRate,
         ]);
 
         return $this->baseMeituanCapturedRow($factSource, $context, [

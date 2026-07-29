@@ -8,7 +8,7 @@ const fragment = read('resources/frontend/templates/fragments/15aab-page-pms-ope
 const appMain = read('public/app-main.js');
 
 test('PMS hotel filter sorts by per-user frequency, recency and stable name fallback', () => {
-  assert.match(fragment, /v-for="hotel in pmsHotelOptions"/);
+  assert.match(fragment, /v-for="hotel in pmsFilteredHotelOptions"/);
 
   assert.match(appMain, /suxios_pms_hotel_usage_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);
   assert.match(appMain, /const pmsHotelOptions = computed\(\(\) => \{/);
@@ -22,6 +22,6 @@ test('successful PMS reads record usage without changing hotel identity or backe
   assert.match(appMain, /if \(!key \|\| !isOperationHotelPermitted\(key\)\) return/);
   assert.match(appMain, /count:\s*Math\.min\(Number\(current\.count \|\| 0\) \+ 1,\s*9999\)/);
   assert.match(appMain, /last_used_at:\s*Date\.now\(\)/);
-  assert.match(appMain, /if \(currentPage\.value === 'pms-operating-data'\) \{\s*recordPmsHotelUsage\(context\.hotelId\)/);
+  assert.match(appMain, /if \(currentPage\.value === 'pms-operating-data' \|\| dualOtaPmsSelected\.value\) \{\s*recordPmsHotelUsage\(context\.hotelId\)/);
   assert.doesNotMatch(fragment, /hotel 5|hotel 80|system_hotel_id/);
 });

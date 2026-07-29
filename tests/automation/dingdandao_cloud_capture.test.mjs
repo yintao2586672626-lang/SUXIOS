@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { browserSandboxMarkerUrl } from '../../scripts/lib/browser_sandbox.mjs';
 import {
   classifyDingdandaoResponseRequest,
   collectDingdandaoDirect,
@@ -466,6 +467,103 @@ test('closed Dingdandao page uses and cleans only a collector-owned same-origin 
       && call.params.targetId === 'user_page_target'
     )),
     false,
+  );
+});
+
+test('explicit sandbox selection reads only the marked isolated BrowserContext', async () => {
+  const calls = [];
+  const sandboxId = 'sbx_dingdandao_h80_primary';
+  const connection = {
+    async send(method, params = {}, sessionId = null) {
+      calls.push({ method, params, sessionId });
+      if (method === 'Target.getTargets') {
+        return {
+          targetInfos: [
+            {
+              type: 'page',
+              targetId: 'marker_target',
+              browserContextId: 'ctx_h80',
+              url: browserSandboxMarkerUrl(sandboxId),
+            },
+            {
+              type: 'page',
+              targetId: 'hotel_80_page',
+              browserContextId: 'ctx_h80',
+              url: 'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/overview',
+            },
+            {
+              type: 'page',
+              targetId: 'other_hotel_page',
+              browserContextId: 'ctx_other',
+              url: 'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/overview',
+            },
+          ],
+        };
+      }
+      if (method === 'Target.getBrowserContexts') {
+        return { browserContextIds: ['ctx_h80', 'ctx_other'] };
+      }
+      if (method === 'Storage.getCookies') {
+        assert.equal(params.browserContextId, 'ctx_h80');
+        return {
+          cookies: [{
+            name: 'sid',
+            value: 'cookie-value',
+            domain: '.dingdandao.com',
+            path: '/',
+            expires: -1,
+          }],
+        };
+      }
+      if (method === 'Browser.getVersion') {
+        return { userAgent: 'Mozilla/5.0 sandbox-test' };
+      }
+      if (method === 'Target.attachToTarget') return { sessionId: 'sandbox_session' };
+      if (method === 'Page.getFrameTree') {
+        return {
+          frameTree: {
+            frame: { url: 'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/overview' },
+          },
+        };
+      }
+      if (method === 'DOMStorage.getDOMStorageItems') {
+        return {
+          entries: [
+            ['networkInfo', JSON.stringify({
+              ntwNum: 'network_123',
+              ntwInviteCode: 'network_123',
+            })],
+            ['networkNumNew', 'network_123'],
+            ['token', 'local-storage-token-value'],
+          ],
+        };
+      }
+      return {};
+    },
+    close() {
+      calls.push({ method: 'connection.close', params: {} });
+    },
+  };
+
+  const material = await readDingdandaoSessionMaterial(
+    'http://127.0.0.1:9223',
+    {
+      now: new Date('2026-07-27T02:00:00.000Z'),
+      sandboxId,
+      connect: async () => connection,
+    },
+  );
+
+  assert.equal(material.ntwNum, 'network_123');
+  assert.deepEqual(
+    calls.filter((call) => call.method === 'Storage.getCookies')
+      .map((call) => call.params.browserContextId),
+    ['ctx_h80'],
+  );
+  assert.equal(
+    calls.find((call) => call.method === 'Target.attachToTarget')
+      ?.params.targetId,
+    'hotel_80_page',
   );
 });
 

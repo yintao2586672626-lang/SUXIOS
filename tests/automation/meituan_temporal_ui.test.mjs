@@ -27,12 +27,15 @@ test('Meituan traffic analysis keeps the existing navigation and exposes the thr
   assert.equal((nav.match(/switchDownloadTab\('/g) || []).length, 5);
 
   const traffic = sliceBetween(meituanDownload, '<!-- 流量分析模块 -->', '<!-- 订单线索模块 -->');
-  for (const text of ['美团流量分析', '更新本页数据', '今日实时', '昨日复盘', '未来30天', '上次验证参考', '采集明细（原始存储记录）']) {
-    assert.match(traffic, new RegExp(text));
+  const trafficCopy = sliceBetween(appMain, 'const meituanTemporalCopy =', 'const meituanTemporalUiClass =');
+  const renderedContract = `${traffic}\n${trafficCopy}`;
+  for (const text of ['美团流量分析', '更新本页数据', '设置定时推送', '今日实时', '昨日复盘', '未来30天', '上次验证参考', '采集明细（原始存储记录）']) {
+    assert.match(renderedContract, new RegExp(text));
   }
-  assert.match(traffic, /不代表全酒店经营数据/);
-  assert.match(traffic, /— \/ 未返回/);
-  assert.match(traffic, /不使用历史成功数据替代昨日当前值/);
+  assert.match(renderedContract, /不代表全酒店经营数据/);
+  assert.match(renderedContract, /— \/ 未返回/);
+  assert.match(renderedContract, /不使用历史成功数据替代昨日当前值/);
+  assert.match(renderedContract, /到点后先采集本店美团数据并完成数据库回读/);
 });
 
 test('Meituan temporal UI calls only the dedicated summary and manual refresh endpoints', () => {
@@ -47,6 +50,23 @@ test('Meituan temporal UI calls only the dedicated summary and manual refresh en
   assert.doesNotMatch(refresher, /timer|wechat|wecom|schedule/i);
   assert.match(routes, /Route::get\('\/meituan-temporal-summary'/);
   assert.match(routes, /Route::post\('\/meituan-temporal-refresh'/);
+});
+
+test('Meituan schedule shortcut creates a disabled current-data WeCom preset', () => {
+  const opener = sliceBetween(
+    appMain,
+    'const openMeituanTemporalSchedule = async',
+    'const previewManualNotification = async'
+  );
+  assert.match(opener, /currentPage\.value = 'wechat-notification'/);
+  assert.match(opener, /source_scope:\s*'meituan'/);
+  assert.match(opener, /\['meituan_traffic', 'meituan_conversion'\]/);
+  assert.match(opener, /send_method:\s*'wecom_formal'/);
+  assert.match(opener, /trigger_type:\s*'interval_minutes'/);
+  assert.match(opener, /interval_minutes:\s*240/);
+  assert.match(opener, /hourly_start_time:\s*'09:15'/);
+  assert.match(opener, /enabled:\s*false/);
+  assert.match(opener, /applyManualNotificationRecord\(existing\)/);
 });
 
 test('current values and last verified references remain separate', () => {

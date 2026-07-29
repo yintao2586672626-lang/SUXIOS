@@ -26,24 +26,34 @@ final class OperatingDailyReportPayloadService
         '{入住率}',
         '{ADR}',
         '{RevPAR}',
-        '{携程实时访客量}',
+        '{携程访客量}',
         '{携程上周同期访客量}',
-        '{携程实时预订订单}',
-        '{携程实时在店间夜}',
-        '{携程实时排名}',
+        '{携程预订订单}',
+        '{携程在店间夜}',
+        '{携程排名}',
         '{携程竞争圈排名}',
         '{携程竞争圈总量}',
-        '{携程实时起价}',
-        '{去哪儿实时访客量}',
+        '{携程起价}',
+        '{去哪儿访客量}',
         '{去哪儿竞争圈平均访客量}',
-        '{去哪儿实时预订订单}',
-        '{去哪儿实时下单转化率}',
+        '{去哪儿预订订单}',
+        '{去哪儿下单转化率}',
         '{去哪儿竞争圈平均转化率}',
         '{美团曝光人数}',
         '{美团浏览人数}',
         '{美团曝光浏览转化率}',
         '{美团支付订单}',
         '{美团浏览支付转化率}',
+    ];
+    private const LEGACY_CUSTOM_TEMPLATE_VARIABLES = [
+        '{携程实时访客量}',
+        '{携程实时预订订单}',
+        '{携程实时在店间夜}',
+        '{携程实时排名}',
+        '{携程实时起价}',
+        '{去哪儿实时访客量}',
+        '{去哪儿实时预订订单}',
+        '{去哪儿实时下单转化率}',
     ];
     private const SOURCE_SCOPES = [
         'combined' => '三源汇总',
@@ -135,6 +145,7 @@ final class OperatingDailyReportPayloadService
             'body' => implode("\n", [
                 '门店：{酒店名称}',
                 '业务日：{经营日期}',
+                '数据说明：OTA 渠道数据为平台采集快照，不代表发送时点状态；以采集时间为准。',
                 'PMS｜订单来了',
                 '- 住宿客房房费：{住宿客房房费}',
                 '- 已售间夜：{已售间夜}',
@@ -142,17 +153,17 @@ final class OperatingDailyReportPayloadService
                 '- 入住率：{入住率}',
                 '- ADR：{ADR}',
                 '- RevPAR：{RevPAR}',
-                '携程｜OTA 渠道',
-                '- APP 实时访客量：{携程实时访客量}（上周同期 {携程上周同期访客量}）',
-                '- 实时预订订单：{携程实时预订订单}',
-                '- 实时在店间夜：{携程实时在店间夜}',
-                '- 实时排名：{携程实时排名}',
-                '- 实时起价：{携程实时起价}',
-                '去哪儿｜OTA 渠道',
-                '- APP 实时访客量：{去哪儿实时访客量}（竞争圈平均 {去哪儿竞争圈平均访客量}）',
-                '- 实时预订订单：{去哪儿实时预订订单}',
-                '- APP 实时下单转化率：{去哪儿实时下单转化率}（竞争圈平均 {去哪儿竞争圈平均转化率}）',
-                '美团｜OTA 渠道',
+                '携程｜OTA 渠道（采集快照）',
+                '- APP 访客量：{携程访客量}（上周同期 {携程上周同期访客量}）',
+                '- 预订订单：{携程预订订单}',
+                '- 在店间夜：{携程在店间夜}',
+                '- 排名：{携程排名}',
+                '- 起价：{携程起价}',
+                '去哪儿｜OTA 渠道（采集快照）',
+                '- APP 访客量：{去哪儿访客量}（竞争圈平均 {去哪儿竞争圈平均访客量}）',
+                '- 预订订单：{去哪儿预订订单}',
+                '- APP 下单转化率：{去哪儿下单转化率}（竞争圈平均 {去哪儿竞争圈平均转化率}）',
+                '美团｜OTA 渠道（采集快照）',
                 '- 曝光人数：{美团曝光人数}',
                 '- 浏览人数：{美团浏览人数}',
                 '- 曝光→浏览转化率：{美团曝光浏览转化率}',
@@ -169,7 +180,11 @@ final class OperatingDailyReportPayloadService
         }
         $content = $title . "\n" . $body;
         preg_match_all('/\{[^{}\r\n]+\}/u', $content, $matches);
-        $allowed = array_fill_keys(self::CUSTOM_TEMPLATE_VARIABLES, true);
+        $supportedVariables = array_merge(
+            self::CUSTOM_TEMPLATE_VARIABLES,
+            self::LEGACY_CUSTOM_TEMPLATE_VARIABLES
+        );
+        $allowed = array_fill_keys($supportedVariables, true);
         foreach ($matches[0] ?? [] as $token) {
             if (!isset($allowed[$token])) {
                 throw new \InvalidArgumentException('operating_daily_custom_variable_invalid');
@@ -177,7 +192,7 @@ final class OperatingDailyReportPayloadService
         }
         $withoutAllowedVariables = strtr(
             $content,
-            array_fill_keys(self::CUSTOM_TEMPLATE_VARIABLES, '')
+            array_fill_keys($supportedVariables, '')
         );
         if (str_contains($withoutAllowedVariables, '{')
             || str_contains($withoutAllowedVariables, '}')
@@ -341,6 +356,31 @@ final class OperatingDailyReportPayloadService
                 null
             )
             : null;
+        $meituanBusinessCandidate = $needsMeituan
+            ? $this->resolveRow(
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                'meituan',
+                'business',
+                null
+            )
+            : null;
+        $meituanBusiness = $this->sameMeituanSnapshot(
+            $meituanBusinessCandidate,
+            $meituanTraffic
+        )
+            ? $meituanBusinessCandidate
+            : null;
+        if ($needsMeituan
+            && is_array($meituanBusinessCandidate)
+            && !is_array($meituanBusiness)
+        ) {
+            $warnings[] = [
+                'code' => 'meituan_business_snapshot_mismatch',
+                'message' => '美团经营卡片与流量卡片不属于同一采集快照，经营字段未进入本次播报。',
+            ];
+        }
 
         $requiredRows = [];
         if ($needsCtripTraffic) {
@@ -359,7 +399,7 @@ final class OperatingDailyReportPayloadService
             if (!is_array($row)) {
                 $blockers[] = $this->blocker(
                     'operating_daily_' . $key . '_missing',
-                    $key . ' 缺少同店同日、实时非日终且已回读的数据。'
+                    $key . ' 缺少同店同日、平台采集快照且已回读的数据。'
                 );
             }
         }
@@ -397,6 +437,9 @@ final class OperatingDailyReportPayloadService
         $ctripMetrics = $this->rawSection($ctripTraffic, 'metrics');
         $ctripRankMetrics = $this->rawSection($ctripRank, 'rank_metrics');
         $qunarMetrics = $this->rawSection($qunarTraffic, 'metrics');
+        $meituanBusinessRaw = $this->raw($meituanBusiness);
+        $meituanBusinessMetrics = $this->rawSection($meituanBusiness, 'metrics');
+        $meituanTrafficRaw = $this->raw($meituanTraffic);
 
         $facts = [
             'pms_room_fee' => $this->number($pmsSummary, 'total_room_fee'),
@@ -420,8 +463,33 @@ final class OperatingDailyReportPayloadService
             'qunar_conversion_peer_avg' => $this->number($qunarMetrics, 'conversion_peer_avg'),
             'meituan_exposure' => $this->number($meituanTraffic ?? [], 'list_exposure'),
             'meituan_viewers' => $this->number($meituanTraffic ?? [], 'detail_exposure'),
-            'meituan_exposure_view_conversion' => $this->number($meituanTraffic ?? [], 'flow_rate'),
+            'meituan_exposure_view_conversion' => $this->firstPercentNumber(
+                [$meituanTrafficRaw],
+                [
+                    'exposure_to_browse_rate',
+                    'intentionPerExposure',
+                    'intention_per_exposure',
+                    'exposureToBrowseRate',
+                    'expose_visit_rate',
+                ]
+            ),
             'meituan_paid_orders' => $this->number($meituanTraffic ?? [], 'order_submit_num'),
+            'meituan_lead_price' => $this->firstNumber(
+                [$meituanBusiness ?? [], $meituanBusinessRaw, $meituanBusinessMetrics],
+                ['lead_price', 'leadPrice', 'startingPrice']
+            ),
+            'meituan_sales_room_nights' => $this->firstNumber(
+                [$meituanBusiness ?? [], $meituanBusinessRaw, $meituanBusinessMetrics],
+                ['quantity', 'sales_room_nights', 'salesRoomNights', 'room_nights']
+            ),
+            'meituan_sales_amount' => $this->firstNumber(
+                [$meituanBusiness ?? [], $meituanBusinessRaw, $meituanBusinessMetrics],
+                ['amount', 'sales_amount', 'salesAmount']
+            ),
+            'meituan_sales_avg_price' => $this->firstNumber(
+                [$meituanBusiness ?? [], $meituanBusinessRaw, $meituanBusinessMetrics],
+                ['data_value', 'sales_avg_price', 'salesAvgPrice', 'avgPrice']
+            ),
         ];
         $booleanFacts = [
             'qunar_visitor_lagging' => $this->boolean($qunarMetrics, 'visitor_lagging'),
@@ -487,6 +555,16 @@ final class OperatingDailyReportPayloadService
         foreach ($requiredFactKeys as $field) {
             $selectedFacts[$field] = $facts[$field] ?? null;
         }
+        if ($sourceScope === 'meituan') {
+            foreach ([
+                'meituan_lead_price',
+                'meituan_sales_room_nights',
+                'meituan_sales_amount',
+                'meituan_sales_avg_price',
+            ] as $field) {
+                $selectedFacts[$field] = $facts[$field] ?? null;
+            }
+        }
 
         $blockers = $this->uniqueBlockers($blockers);
         $sourceIds = [];
@@ -504,6 +582,9 @@ final class OperatingDailyReportPayloadService
         }
         if ($needsMeituan) {
             $sourceIds['meituan_traffic_row_id'] = (int)($meituanTraffic['id'] ?? 0);
+            if (is_array($meituanBusiness)) {
+                $sourceIds['meituan_business_row_id'] = (int)($meituanBusiness['id'] ?? 0);
+            }
         }
         $fingerprintInput = [
             'contract' => self::RENDER_CONTRACT_VERSION,
@@ -537,6 +618,7 @@ final class OperatingDailyReportPayloadService
                 $ctripTraffic,
                 $ctripRank,
                 $qunarTraffic,
+                $meituanBusiness,
                 $meituanTraffic,
                 $sourceScope,
                 $contentSections,
@@ -576,6 +658,7 @@ final class OperatingDailyReportPayloadService
      * @param array<string, mixed>|null $ctripTraffic
      * @param array<string, mixed>|null $ctripRank
      * @param array<string, mixed>|null $qunarTraffic
+     * @param array<string, mixed>|null $meituanBusiness
      * @param array<string, mixed>|null $meituanTraffic
      * @return array{msgtype:string,text:array{content:string}}
      */
@@ -587,6 +670,7 @@ final class OperatingDailyReportPayloadService
         ?array $ctripTraffic,
         ?array $ctripRank,
         ?array $qunarTraffic,
+        ?array $meituanBusiness,
         ?array $meituanTraffic,
         string $sourceScope,
         array $contentSections,
@@ -606,6 +690,16 @@ final class OperatingDailyReportPayloadService
         if ($sourceScope === 'combined') {
             return $this->renderCommonCombinedPayload($hotelName, $businessDate, $facts);
         }
+        if ($sourceScope === 'meituan') {
+            return $this->renderMeituanPayload(
+                $hotelName,
+                $businessDate,
+                $facts,
+                $meituanBusiness,
+                $meituanTraffic,
+                $contentSections
+            );
+        }
         $ctripWindow = $this->observationWindow([$ctripTraffic, $ctripRank], 'ctrip');
         $qunarWindow = $this->observationWindow([$qunarTraffic], 'qunar');
         $otaWindow = $this->mergeWindows([$ctripWindow, $qunarWindow]);
@@ -616,8 +710,8 @@ final class OperatingDailyReportPayloadService
             : '历史采集链路未完整绑定';
         $sectionSet = array_fill_keys($contentSections, true);
         $title = match ($sourceScope) {
-            'ctrip' => '携程渠道实时播报',
-            'meituan' => '美团渠道实时播报',
+            'ctrip' => '携程渠道采集快照',
+            'meituan' => '美团渠道采集快照',
             'dingdandao_pms' => '订单来了 PMS 经营播报',
             default => '今日经营数据汇总｜PMS＋OTA',
         };
@@ -646,37 +740,37 @@ final class OperatingDailyReportPayloadService
             $lines[] = '';
         }
         if (isset($sectionSet['ctrip_traffic']) || isset($sectionSet['ctrip_market'])) {
-            $lines[] = '携程｜OTA 渠道';
+            $lines[] = '携程｜OTA 渠道（采集快照）';
             if (isset($sectionSet['ctrip_traffic'])) {
-                $lines[] = '- APP 实时访客量：' . $this->integer($facts['ctrip_visitors'])
+                $lines[] = '- APP 访客量：' . $this->integer($facts['ctrip_visitors'])
                     . '（上周同期 ' . $this->integer($facts['ctrip_last_week_visitors']) . '）';
-                $lines[] = '- 实时预订订单：' . $this->integer($facts['ctrip_booking_orders']);
-                $lines[] = '- 实时在店间夜：'
+                $lines[] = '- 预订订单：' . $this->integer($facts['ctrip_booking_orders']);
+                $lines[] = '- 在店间夜：'
                     . $this->integer($facts['ctrip_in_house_room_nights']);
             }
             if (isset($sectionSet['ctrip_market'])) {
-                $lines[] = '- 实时排名：' . $this->integer($facts['ctrip_realtime_rank'])
+                $lines[] = '- 排名：' . $this->integer($facts['ctrip_realtime_rank'])
                     . '；竞争圈排名：' . $this->integer($facts['ctrip_competitor_rank'])
                     . '/' . $this->integer($facts['ctrip_competitor_total']);
-                $lines[] = '- 实时起价：¥'
+                $lines[] = '- 起价：¥'
                     . number_format((float)$facts['ctrip_starting_price'], 2, '.', '')
                     . '（首页渠道卡片）';
             }
             $lines[] = '';
         }
         if (isset($sectionSet['qunar_traffic'])) {
-            $lines[] = '去哪儿｜OTA 渠道';
-            $lines[] = '- APP 实时访客量：' . $this->integer($facts['qunar_visitors'])
+            $lines[] = '去哪儿｜OTA 渠道（采集快照）';
+            $lines[] = '- APP 访客量：' . $this->integer($facts['qunar_visitors'])
                 . '（竞争圈平均 ' . $this->integer($facts['qunar_visitor_peer_avg'])
                 . '，页面标记' . ($facts['qunar_visitor_lagging'] ? '落后' : '领先') . '）';
-            $lines[] = '- 实时预订订单：' . $this->integer($facts['qunar_booking_orders']);
-            $lines[] = '- APP 实时下单转化率：' . $this->percent($facts['qunar_conversion'])
+            $lines[] = '- 预订订单：' . $this->integer($facts['qunar_booking_orders']);
+            $lines[] = '- APP 下单转化率：' . $this->percent($facts['qunar_conversion'])
                 . '（竞争圈平均 ' . $this->percent($facts['qunar_conversion_peer_avg'])
                 . '，页面标记' . ($facts['qunar_conversion_lagging'] ? '落后' : '领先') . '）';
             $lines[] = '';
         }
         if (isset($sectionSet['meituan_traffic']) || isset($sectionSet['meituan_conversion'])) {
-            $lines[] = '美团｜OTA 渠道';
+            $lines[] = '美团｜OTA 渠道（采集快照）';
             if (isset($sectionSet['meituan_traffic'])) {
                 $lines[] = '- 曝光人数：' . $this->integer($facts['meituan_exposure']);
                 $lines[] = '- 浏览人数：' . $this->integer($facts['meituan_viewers']);
@@ -717,17 +811,101 @@ final class OperatingDailyReportPayloadService
             $lines[] = '事实边界：本条仅含订单来了 PMS 的全酒店住宿客房经营事实；'
                 . '不包含餐饮、会议等其他收入。';
         } elseif ($sourceScope === 'ctrip') {
+            $lines[] = '快照说明：OTA 渠道数据为平台采集快照，不代表发送时点状态；'
+                . '以来源证据中的采集时间为准。';
             $lines[] = 'OTA 渠道边界：本条仅含携程及勾选的去哪儿渠道事实，'
                 . '不代表全酒店经营结果。';
         } elseif ($sourceScope === 'meituan') {
+            $lines[] = '快照说明：OTA 渠道数据为平台采集快照，不代表发送时点状态；'
+                . '以来源证据中的采集时间为准。';
             $lines[] = 'OTA 渠道边界：本条仅含美团渠道事实，不代表全酒店经营结果。';
         } else {
-            $lines[] = '实时说明：本条为发送时点快照；OTA 为实时累计、非日终，后续会继续变化。'
-                . 'PMS 可售房夜由已售间夜与入住率派生。';
+            $lines[] = '快照说明：OTA 渠道数据为平台采集快照，不代表发送时点状态；'
+                . '以来源证据中的采集时间为准。';
+            $lines[] = 'PMS 说明：可售房夜由已售间夜与入住率派生。';
             $lines[] = 'OTA 渠道边界：携程、去哪儿、美团数据仅代表各自渠道，不代表全酒店；'
                 . '全酒店经营事实以 PMS 为准。';
         }
 
+        return [
+            'msgtype' => 'text',
+            'text' => ['content' => implode("\n", $lines)],
+        ];
+    }
+
+    /**
+     * Keep the user-facing Meituan broadcast as compact as the established
+     * Ctrip format. Provenance and delivery state remain available in the
+     * structured candidate/dispatch records instead of being repeated here.
+     *
+     * @param array<string, float|bool|null> $facts
+     * @param array<string, mixed>|null $meituanBusiness
+     * @param array<string, mixed>|null $meituanTraffic
+     * @param list<string> $contentSections
+     * @return array{msgtype:string,text:array{content:string}}
+     */
+    private function renderMeituanPayload(
+        string $hotelName,
+        string $businessDate,
+        array $facts,
+        ?array $meituanBusiness,
+        ?array $meituanTraffic,
+        array $contentSections
+    ): array {
+        $sectionSet = array_fill_keys($contentSections, true);
+        $capturedAt = trim((string)(
+            $meituanTraffic['snapshot_time']
+            ?? $meituanBusiness['snapshot_time']
+            ?? ''
+        ));
+        if (!$this->validDateTime($capturedAt)) {
+            $capturedAt = '未返回';
+        }
+        $salesRoomNights = $facts['meituan_sales_room_nights'] ?? null;
+        $salesAmount = $facts['meituan_sales_amount'] ?? null;
+        $salesAvgPrice = $facts['meituan_sales_avg_price'] ?? null;
+        $salesAvgDerived = false;
+        if ($salesAvgPrice === null
+            && $salesAmount !== null
+            && $salesRoomNights !== null
+            && (float)$salesRoomNights > 0
+        ) {
+            $salesAvgPrice = round((float)$salesAmount / (float)$salesRoomNights, 2);
+            $salesAvgDerived = true;
+        }
+
+        $lines = [
+            '美团今日实时数据',
+            '门店：' . $hotelName,
+            '业务日：' . $businessDate,
+            '采集完成：' . $capturedAt,
+            '',
+            '美团｜OTA 渠道',
+            '- 引流价：' . $this->optionalMoney($facts['meituan_lead_price'] ?? null),
+            '- 销售间夜：' . $this->optionalInteger($salesRoomNights, ' 间夜'),
+            '- 销售额：' . $this->optionalMoney($salesAmount),
+            '- 销售均价：' . $this->optionalMoney($salesAvgPrice)
+                . ($salesAvgDerived ? '（同快照派生）' : ''),
+        ];
+        if (isset($sectionSet['meituan_traffic'])) {
+            $lines[] = '- 曝光人数：' . $this->integer($facts['meituan_exposure']);
+            $lines[] = '- 浏览人数：' . $this->integer($facts['meituan_viewers']);
+            $lines[] = '- 曝光→浏览转化率：'
+                . $this->percent($facts['meituan_exposure_view_conversion']);
+        } elseif (isset($sectionSet['meituan_conversion'])) {
+            $lines[] = '- 浏览人数：' . $this->integer($facts['meituan_viewers']);
+        }
+        if (isset($sectionSet['meituan_conversion'])) {
+            $platformBrowseToPay = $this->meituanFlowRateIsBrowseToPay($meituanTraffic)
+                ? $this->number($meituanTraffic ?? [], 'flow_rate')
+                : null;
+            $lines[] = '- 支付订单数：' . $this->integer($facts['meituan_paid_orders']);
+            $lines[] = '- 浏览→支付转化率：'
+                . $this->percent(
+                    $platformBrowseToPay ?? $facts['meituan_view_to_paid_conversion']
+                )
+                . ($platformBrowseToPay === null ? '（支付订单数÷浏览人数）' : '');
+        }
         return [
             'msgtype' => 'text',
             'text' => ['content' => implode("\n", $lines)],
@@ -758,25 +936,26 @@ final class OperatingDailyReportPayloadService
             '- 入住率：' . $this->percent($facts['pms_occupancy']),
             '- ADR：¥' . number_format((float)$facts['pms_adr'], 2, '.', ','),
             '- RevPAR：¥' . number_format((float)$facts['pms_revpar'], 2, '.', ','),
-            '携程｜OTA 渠道',
-            '- APP 实时访客量：' . $this->integer($facts['ctrip_visitors'])
+            '数据说明：OTA 渠道数据为平台采集快照，不代表发送时点状态；以采集时间为准。',
+            '携程｜OTA 渠道（采集快照）',
+            '- APP 访客量：' . $this->integer($facts['ctrip_visitors'])
                 . '（上周同期 ' . $this->integer($facts['ctrip_last_week_visitors']) . '）',
-            '- 实时预订订单：' . $this->integer($facts['ctrip_booking_orders']),
-            '- 实时在店间夜：' . $this->integer($facts['ctrip_in_house_room_nights']),
-            '- 实时排名：' . $this->integer($facts['ctrip_realtime_rank']),
-            '- 实时起价：¥' . number_format(
+            '- 预订订单：' . $this->integer($facts['ctrip_booking_orders']),
+            '- 在店间夜：' . $this->integer($facts['ctrip_in_house_room_nights']),
+            '- 排名：' . $this->integer($facts['ctrip_realtime_rank']),
+            '- 起价：¥' . number_format(
                 (float)$facts['ctrip_starting_price'],
                 2,
                 '.',
                 ''
             ),
-            '去哪儿｜OTA 渠道',
-            '- APP 实时访客量：' . $this->integer($facts['qunar_visitors'])
+            '去哪儿｜OTA 渠道（采集快照）',
+            '- APP 访客量：' . $this->integer($facts['qunar_visitors'])
                 . '（竞争圈平均 ' . $this->integer($facts['qunar_visitor_peer_avg']) . '）',
-            '- 实时预订订单：' . $this->integer($facts['qunar_booking_orders']),
-            '- APP 实时下单转化率：' . $this->percent($facts['qunar_conversion'])
+            '- 预订订单：' . $this->integer($facts['qunar_booking_orders']),
+            '- APP 下单转化率：' . $this->percent($facts['qunar_conversion'])
                 . '（竞争圈平均 ' . $this->percent($facts['qunar_conversion_peer_avg']) . '）',
-            '美团｜OTA 渠道',
+            '美团｜OTA 渠道（采集快照）',
             '- 曝光人数：' . $this->integer($facts['meituan_exposure']),
             '- 浏览人数：' . $this->integer($facts['meituan_viewers']),
             '- 曝光→浏览转化率：' . $this->percent(
@@ -814,18 +993,27 @@ final class OperatingDailyReportPayloadService
             '{入住率}' => $this->percent($facts['pms_occupancy']),
             '{ADR}' => '¥' . number_format((float)$facts['pms_adr'], 2, '.', ','),
             '{RevPAR}' => '¥' . number_format((float)$facts['pms_revpar'], 2, '.', ','),
+            '{携程访客量}' => $this->integer($facts['ctrip_visitors']),
             '{携程实时访客量}' => $this->integer($facts['ctrip_visitors']),
             '{携程上周同期访客量}' => $this->integer($facts['ctrip_last_week_visitors']),
+            '{携程预订订单}' => $this->integer($facts['ctrip_booking_orders']),
             '{携程实时预订订单}' => $this->integer($facts['ctrip_booking_orders']),
+            '{携程在店间夜}' => $this->integer($facts['ctrip_in_house_room_nights']),
             '{携程实时在店间夜}' => $this->integer($facts['ctrip_in_house_room_nights']),
+            '{携程排名}' => $this->integer($facts['ctrip_realtime_rank']),
             '{携程实时排名}' => $this->integer($facts['ctrip_realtime_rank']),
             '{携程竞争圈排名}' => $this->integer($facts['ctrip_competitor_rank']),
             '{携程竞争圈总量}' => $this->integer($facts['ctrip_competitor_total']),
+            '{携程起价}' => '¥'
+                . number_format((float)$facts['ctrip_starting_price'], 2, '.', ''),
             '{携程实时起价}' => '¥'
                 . number_format((float)$facts['ctrip_starting_price'], 2, '.', ''),
+            '{去哪儿访客量}' => $this->integer($facts['qunar_visitors']),
             '{去哪儿实时访客量}' => $this->integer($facts['qunar_visitors']),
             '{去哪儿竞争圈平均访客量}' => $this->integer($facts['qunar_visitor_peer_avg']),
+            '{去哪儿预订订单}' => $this->integer($facts['qunar_booking_orders']),
             '{去哪儿实时预订订单}' => $this->integer($facts['qunar_booking_orders']),
+            '{去哪儿下单转化率}' => $this->percent($facts['qunar_conversion']),
             '{去哪儿实时下单转化率}' => $this->percent($facts['qunar_conversion']),
             '{去哪儿竞争圈平均转化率}' => $this->percent(
                 $facts['qunar_conversion_peer_avg']
@@ -976,11 +1164,22 @@ final class OperatingDailyReportPayloadService
         if (!is_array($decoded)) {
             return [];
         }
-        $nested = $decoded['row']['raw_data'] ?? null;
-        if (is_string($nested)) {
-            $nested = json_decode($nested, true);
+        $normalizedRow = $decoded['row'] ?? null;
+        if (!is_array($normalizedRow)) {
+            return $decoded;
         }
-        return is_array($nested) ? $nested : $decoded;
+        $nestedRaw = $normalizedRow['raw_data'] ?? null;
+        if (is_string($nestedRaw)) {
+            $nestedRaw = json_decode($nestedRaw, true);
+        }
+        if (!is_array($nestedRaw)) {
+            $nestedRaw = [];
+        }
+
+        // Persistence keeps normalized collector fields under raw_data.row.
+        // Flatten that envelope for report readers while retaining top-level
+        // lineage, field facts and source-surface evidence.
+        return array_replace($decoded, $nestedRaw, $normalizedRow);
     }
 
     /** @param array<string, mixed>|null $row @return array<string, mixed> */
@@ -988,6 +1187,107 @@ final class OperatingDailyReportPayloadService
     {
         $raw = $this->raw($row);
         return is_array($raw[$key] ?? null) ? $raw[$key] : [];
+    }
+
+    /** @param array<string, mixed>|null $row */
+    private function meituanFlowRateIsBrowseToPay(?array $row): bool
+    {
+        foreach ((array)($this->raw($row)['field_facts'] ?? []) as $fact) {
+            if (!is_array($fact)
+                || (string)($fact['metric_key'] ?? '') !== 'flow_rate'
+            ) {
+                continue;
+            }
+            $sourcePath = strtolower(trim((string)($fact['source_path'] ?? '')));
+            return str_contains($sourcePath, 'browse_pay')
+                || str_contains($sourcePath, 'payorderperintention')
+                || str_contains($sourcePath, 'browsepayrate');
+        }
+        return false;
+    }
+
+    /**
+     * Business and traffic cards may update independently. Only let business
+     * metrics join the compact broadcast when both rows prove one capture.
+     *
+     * @param array<string, mixed>|null $business
+     * @param array<string, mixed>|null $traffic
+     */
+    private function sameMeituanSnapshot(?array $business, ?array $traffic): bool
+    {
+        if (!is_array($business) || !is_array($traffic)) {
+            return false;
+        }
+        $businessTaskId = (int)($business['sync_task_id'] ?? 0);
+        $trafficTaskId = (int)($traffic['sync_task_id'] ?? 0);
+        if ($businessTaskId > 0 || $trafficTaskId > 0) {
+            return $businessTaskId > 0
+                && $trafficTaskId > 0
+                && $businessTaskId === $trafficTaskId;
+        }
+        $businessTime = trim((string)($business['snapshot_time'] ?? ''));
+        $trafficTime = trim((string)($traffic['snapshot_time'] ?? ''));
+        return $this->validDateTime($businessTime)
+            && $this->validDateTime($trafficTime)
+            && $businessTime === $trafficTime;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $sources
+     * @param list<string> $keys
+     */
+    private function firstNumber(array $sources, array $keys): ?float
+    {
+        foreach ($sources as $source) {
+            foreach ($keys as $key) {
+                $value = $this->number($source, $key);
+                if ($value !== null) {
+                    return $value;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Platform response fields may be percentage-point numbers or explicit
+     * percentage strings. This never derives a rate from exposure and views.
+     *
+     * @param list<array<string, mixed>> $sources
+     * @param list<string> $keys
+     */
+    private function firstPercentNumber(array $sources, array $keys): ?float
+    {
+        foreach ($sources as $source) {
+            foreach ($keys as $key) {
+                if (!array_key_exists($key, $source)) {
+                    continue;
+                }
+                $raw = $source[$key];
+                $explicitPercent = is_string($raw) && str_contains($raw, '%');
+                if (is_string($raw)) {
+                    $raw = str_replace([',', '%', ' '], '', trim($raw));
+                }
+                if (!is_numeric($raw)) {
+                    continue;
+                }
+                $value = (float)$raw;
+                $isNormalizedPercentagePoint = in_array(
+                    $key,
+                    ['exposure_to_browse_rate', 'exposureToBrowseRate', 'expose_visit_rate'],
+                    true
+                );
+                if (!$explicitPercent
+                    && !$isNormalizedPercentagePoint
+                    && abs($value) > 0
+                    && abs($value) <= 1
+                ) {
+                    $value *= 100;
+                }
+                return round($value, 2);
+            }
+        }
+        return null;
     }
 
     /** @param array<string, mixed> $values */
@@ -1083,6 +1383,18 @@ final class OperatingDailyReportPayloadService
     private function integer(mixed $value): string
     {
         return (string)(int)round((float)$value);
+    }
+
+    private function optionalInteger(mixed $value, string $suffix = ''): string
+    {
+        return $value === null ? '未返回' : $this->integer($value) . $suffix;
+    }
+
+    private function optionalMoney(mixed $value): string
+    {
+        return $value === null
+            ? '未返回'
+            : '¥' . number_format((float)$value, 2, '.', ',');
     }
 
     private function percent(mixed $value): string

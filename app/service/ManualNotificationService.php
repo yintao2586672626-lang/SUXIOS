@@ -49,8 +49,8 @@ final class ManualNotificationService
         'interval_minutes' => '按间隔发送',
     ];
     private const BUSINESS_DATE_RULES = [
-        'today' => '今日累计 T0',
-        'yesterday' => '昨日 T-1',
+        'today' => '发送当天数据',
+        'yesterday' => '发送前一天数据',
     ];
     private const WEEKDAYS = [
         1 => '周一',
@@ -240,7 +240,7 @@ final class ManualNotificationService
                 'missing_data' => '正式消息缺少同门店、同日期可信事实时阻断',
                 'missed_window' => '超过5分钟调度窗口不补发，只记录未执行',
                 'unknown_outcome' => '发送结果不明确时不自动重发',
-                'retry' => '只有明确失败记录允许人工重试',
+                'retry' => '明确失败可人工重试；结果不明仅在确认可能重复送达后重试',
             ],
             'variables' => ['{酒店名称}', '{经营日期}', '{统计时间}', '{数据状态}'],
             'daily_content_template_modes' => [
@@ -1081,20 +1081,27 @@ final class ManualNotificationService
         ];
         $renderedTitle = strtr((string)($data['title'] ?? ''), $variables);
         $renderedBody = strtr((string)($data['body'] ?? ''), $variables);
-        $content = implode("\n", [
-            '# 宿析OS｜' . $this->safeText($renderedTitle, 120),
-            '> 当前模式：' . $modeLabel,
-            '> 酒店：' . $this->safeText($hotelName, 80) . '（ID ' . $hotelId . '）',
-            '> 通知类型：' . (self::TYPES[$type] ?? '未取得'),
-            '> 业务日期：' . ((string)($data['business_date'] ?? '') ?: '未取得'),
-            '> 计划发送：' . ($plannedSendAt !== '' ? $plannedSendAt : '待配置'),
-            '> 发送触发：' . (self::TRIGGER_TYPES[$triggerType] ?? '待配置'),
-            '> 状态：' . $statusLabel,
-            '',
-            $renderedBody,
-            '',
-            '> 未取得的数据未使用0或旧日数据补齐；当前预览不会触发正式群。',
-        ]);
+        $compactMeituanCustom = $type === 'blank_custom'
+            && (string)($data['source_scope'] ?? '') === 'meituan';
+        $content = $compactMeituanCustom
+            ? implode("\n", [
+                $this->safeText($renderedTitle, 120),
+                $renderedBody,
+            ])
+            : implode("\n", [
+                '# 宿析OS｜' . $this->safeText($renderedTitle, 120),
+                '> 当前模式：' . $modeLabel,
+                '> 酒店：' . $this->safeText($hotelName, 80) . '（ID ' . $hotelId . '）',
+                '> 通知类型：' . (self::TYPES[$type] ?? '未取得'),
+                '> 业务日期：' . ((string)($data['business_date'] ?? '') ?: '未取得'),
+                '> 计划发送：' . ($plannedSendAt !== '' ? $plannedSendAt : '待配置'),
+                '> 发送触发：' . (self::TRIGGER_TYPES[$triggerType] ?? '待配置'),
+                '> 状态：' . $statusLabel,
+                '',
+                $renderedBody,
+                '',
+                '> 未取得的数据未使用0或旧日数据补齐；当前预览不会触发正式群。',
+            ]);
         return [
             'title' => $renderedTitle,
             'body' => $renderedBody,

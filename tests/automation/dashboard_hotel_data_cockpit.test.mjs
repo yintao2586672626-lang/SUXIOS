@@ -94,7 +94,7 @@ test('AI workbench nests the yesterday loop and does not render missing current-
   assert.doesNotMatch(actualSourceGate, /美团榜单入库|美团榜单返回/);
   assert.match(aiWorkbenchFragment, /data-testid="dual-ota-current-store-empty"/);
   assert.match(aiWorkbenchFragment, /页面不会用 0 代替缺失数据|dualOtaSelectedHotelDataGapText/);
-  assert.match(aiWorkbenchFragment, /<template v-if="!dualOtaWorkbenchReadInProgress &amp;&amp; dualOtaSelectedHotelHasCurrentData">/);
+  assert.match(aiWorkbenchFragment, /<template v-if="!dualOtaPmsSelected &amp;&amp; !dualOtaWorkbenchReadInProgress &amp;&amp; dualOtaSelectedHotelHasCurrentData">/);
 });
 
 test('online-data surface exposes the six-step operating loop and retains collection readiness tools', () => {

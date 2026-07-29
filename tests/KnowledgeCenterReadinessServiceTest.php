@@ -8,6 +8,37 @@ use PHPUnit\Framework\TestCase;
 
 final class KnowledgeCenterReadinessServiceTest extends TestCase
 {
+    public function testQuarantinedUnitIsVisibleButNotRetrievable(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'lifecycle_status' => 'quarantined',
+            'lifecycle_reason' => '旧研究合同已失效',
+            'hotel_id' => 8,
+        ], 2);
+
+        self::assertSame('unit_quarantined', $readiness['stage']);
+        self::assertSame('已隔离', $readiness['status_label']);
+        self::assertSame('quarantined', $readiness['lifecycle_status']);
+        self::assertSame('旧研究合同已失效', $readiness['lifecycle_reason']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertSame(['lifecycle_quarantined'], array_column($readiness['missing_evidence'], 'code'));
+    }
+
+    public function testStaleUnitMustBeReviewedBeforeRetrieval(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'lifecycle_status' => 'stale',
+            'hotel_id' => 8,
+        ], 2);
+
+        self::assertSame('unit_stale', $readiness['stage']);
+        self::assertSame('待复核', $readiness['status_label']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertSame(['lifecycle_stale'], array_column($readiness['missing_evidence'], 'code'));
+    }
+
     public function testPendingUnitIsNotReady(): void
     {
         $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
@@ -37,6 +68,9 @@ final class KnowledgeCenterReadinessServiceTest extends TestCase
         $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
             'status' => 'done',
             'hotel_id' => 0,
+            'known_knowns' => ['通用方法已复核'],
+            'known_unknowns' => ['当前门店事实待验证'],
+            'truth_profile_version' => '2026-07-29.1',
         ], 2);
 
         self::assertSame('unit_global_scope', $readiness['stage']);
@@ -49,11 +83,33 @@ final class KnowledgeCenterReadinessServiceTest extends TestCase
         $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
             'status' => 'done',
             'hotel_id' => 8,
+            'known_knowns' => ['方法已复核'],
+            'known_unknowns' => ['效果待复盘'],
+            'truth_profile_version' => '2026-07-29.1',
         ], 2);
 
         self::assertSame('unit_ready', $readiness['stage']);
         self::assertTrue($readiness['closed_loop']);
         self::assertSame(100, $readiness['score']);
+        self::assertSame('active', $readiness['lifecycle_status']);
+        self::assertSame('mapped', $readiness['truth_profile_status']);
+        self::assertSame(1, $readiness['known_known_count']);
+        self::assertSame(1, $readiness['known_unknown_count']);
         self::assertSame([], $readiness['missing_evidence']);
+    }
+
+    public function testDoneUnitWithChunksRequiresTruthProfile(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'hotel_id' => 8,
+        ], 2);
+
+        self::assertSame('unit_truth_map_missing', $readiness['stage']);
+        self::assertSame('missing', $readiness['truth_profile_status']);
+        self::assertSame(
+            ['known_knowns', 'known_unknowns', 'truth_profile_version'],
+            array_column($readiness['missing_evidence'], 'code')
+        );
     }
 }

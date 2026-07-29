@@ -333,6 +333,10 @@
         if (deferredAuthenticatedAssetsPromise) return deferredAuthenticatedAssetsPromise;
         deferredAuthenticatedAssetsPromise = (async () => {
             if (!assets.length) return [];
+            const fullRenderAsset = assets.find(
+                (asset) => assetBaseName(asset.src) === 'app-render.min.js',
+            );
+            if (fullRenderAsset) preloadAuthenticatedAsset(fullRenderAsset, 'high');
             await waitForFirstAuthenticatedPaint();
             try {
                 await Promise.all(assets.map((asset) => loadAuthenticatedAsset(asset)));
@@ -388,6 +392,9 @@
                 ]);
                 await Promise.all(prerequisites.map((src) => loadScript(src)));
                 await loadScript(entry);
+                void loadDeferredAuthenticatedAssets(
+                    assets.filter((asset) => asset.phase === ASSET_PHASE_AFTER_FIRST_PAINT),
+                );
             } catch (error) {
                 const failedAsset = String(error?.message || '').split(' ')[0] || 'authenticated asset';
                 window.SUXI_RENDER_ASSET_LOAD_ERROR?.(failedAsset);

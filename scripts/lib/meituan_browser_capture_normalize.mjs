@@ -8,8 +8,8 @@ const CARD_METRIC_MAP = new Map([
 const BUSINESS_METRICS = [
   {
     key: 'lead_price',
-    fields: ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice'],
-    cardIds: ['LEAD_PRICE', 'STARTING_PRICE', 'MIN_PRICE', 'REALTIME_STARTING_PRICE'],
+    fields: ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice', 'DAY_ROOM_LOWEST_PRICE_AVG'],
+    cardIds: ['DAY_ROOM_LOWEST_PRICE_AVG', 'LEAD_PRICE', 'STARTING_PRICE', 'MIN_PRICE', 'REALTIME_STARTING_PRICE'],
     titles: [/\u5f15\u6d41\u4ef7/, /\u8d77\u4ef7/, /starting\s*price/i, /lead\s*price/i],
   },
   {
@@ -26,8 +26,8 @@ const BUSINESS_METRICS = [
   },
   {
     key: 'sales_avg_price',
-    fields: ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice'],
-    cardIds: ['SALES_AVG_PRICE', 'AVG_PRICE', 'AVERAGE_PRICE'],
+    fields: ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'PAY_ADR'],
+    cardIds: ['PAY_ADR', 'SALES_AVG_PRICE', 'AVG_PRICE', 'AVERAGE_PRICE'],
     titles: [/\u9500\u552e\u5747\u4ef7/, /average\s*price/i, /avg\s*price/i],
   },
   {
@@ -444,36 +444,199 @@ export function normalizeMeituanSearchKeywordRows(value, options = {}) {
 }
 
 export function normalizeMeituanTrafficForecastRows(value, options = {}) {
-  const details = firstArrayAtPath(value, [
+  const detailPaths = [
     ['data', 'detail'],
     ['data', 'data', 'detail'],
     ['detail'],
-  ]);
+  ];
+  const explicitDetails = detailPaths
+    .map(path => readPath(value, path))
+    .find(candidate => Array.isArray(candidate));
+  const details = explicitDetails || [];
   const forecastTypeCandidate = String(options.forecastType || readPath(value, ['data', 'forecastType']) || value?.forecastType || '').trim().toLowerCase();
   const forecastType = ['pv', 'uv', 'advance_orders'].includes(forecastTypeCandidate)
     ? forecastTypeCandidate
     : '';
+  const forecastCaptureEpoch = Number(options.forecastCaptureEpoch || 0);
   const rows = details.map((item, index) => decorateSupplementalRow({
     ...item,
     data_type: 'traffic_forecast',
     data_period: 'next_30_days',
     forecast_type: forecastType,
+    ...(forecastCaptureEpoch > 0 ? { forecast_capture_epoch: forecastCaptureEpoch } : {}),
     dimension: forecastType ? `flow_forecast_${forecastType}` : 'flow_forecast',
     data_value: item.current ?? item.value ?? null,
     peer_avg: item.peerAvg ?? item.peer_avg ?? null,
     dataDate: normalizeDateLike(item.dateTime || item.date || item.dataDate || item.statDate || ''),
   }, 'traffic_forecast', `data.detail.${index}`, options));
-  if (rows.length) {
+  if (Array.isArray(explicitDetails)) {
     return rows;
   }
 
+  const fallback = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const hasFallbackMetric = [
+    fallback.current,
+    fallback.value,
+    fallback.data_value,
+    fallback.peerAvg,
+    fallback.peer_avg,
+    fallback.dateTime,
+    fallback.date,
+    fallback.dataDate,
+  ].some(item => item !== undefined && item !== null && String(item).trim() !== '');
+  if (!hasFallbackMetric) {
+    return [];
+  }
   return [decorateSupplementalRow({
-    ...(value && typeof value === 'object' && !Array.isArray(value) ? value : { value }),
+    ...fallback,
     data_type: 'traffic_forecast',
     data_period: 'next_30_days',
     forecast_type: forecastType,
+    ...(forecastCaptureEpoch > 0 ? { forecast_capture_epoch: forecastCaptureEpoch } : {}),
     dimension: forecastType ? `flow_forecast_${forecastType}` : 'flow_forecast',
   }, 'traffic_forecast', '$', options)];
+}
+
+export function normalizeMeituanTrafficDomText(value) {
+  const fullText = String(value || '').trim().replace(/\s+/g, ' ');
+  if (!fullText) {
+    return [];
+  }
+
+  const normalizeNumber = (number, unit = '') => {
+    const parsed = Number(String(number ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(parsed)) return null;
+    return parsed * (String(unit || '').includes('\u4e07') ? 10000 : 1);
+  };
+  const pageDateMatch = fullText.match(
+    /(?:\u6570\u636e\u66f4\u65b0\u65f6\u95f4|\u66f4\u65b0\u65f6\u95f4|\u66f4\u65b0\u4e8e)[\uff1a:\s]*(\d{4})[\/\-\u5e74](\d{1,2})[\/\-\u6708](\d{1,2})/,
+  );
+  const pageDataDate = pageDateMatch
+    ? `${pageDateMatch[1]}-${String(pageDateMatch[2]).padStart(2, '0')}-${String(pageDateMatch[3]).padStart(2, '0')}`
+    : '';
+  const withDate = pageDataDate
+    ? { dataDate: pageDataDate, date_source: 'page.visible_update_time' }
+    : {};
+  const rows = [];
+  let hasCoreTrafficRow = false;
+
+  const flowFunnel = fullText.match(
+    /\u6211\u7684\u9152\u5e97\s*\u540c\u884c\u5747\u503c\s*\u66dd\u5149\u4eba\u6570\s*\u6d4f\u89c8\u4eba\u6570\s*\u652f\u4ed8\u8ba2\u5355\u6570\s*([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s*\u66dd\u5149-\u6d4f\u89c8\s*\u8f6c\u5316\u7387\s*([\d.]+)%\s*([\d.]+)%\s*\u6d4f\u89c8-\u652f\u4ed8\s*\u8f6c\u5316\u7387\s*([\d.]+)%/,
+  );
+  if (flowFunnel) {
+    const exposure = normalizeNumber(flowFunnel[1]);
+    const visitors = normalizeNumber(flowFunnel[3]);
+    const orders = normalizeNumber(flowFunnel[5]);
+    if (exposure !== null && visitors !== null && orders !== null) {
+      rows.push({
+        _capture_source: 'dom:traffic:flow_funnel',
+        _source_path: 'dom.traffic.flow_funnel',
+        compare_type: 'self',
+        is_self: true,
+        _dom_text: fullText.slice(0, 1600),
+        ...withDate,
+        listExposure: exposure,
+        detailExposure: visitors,
+        flowRate: Number(flowFunnel[9]),
+        orderFillingNum: orders,
+        orderSubmitNum: orders,
+        _order_filling_source_policy: 'meituan_flow_funnel_no_separate_order_filling_step_pay_order_count_used',
+        _order_submit_source_label: 'pay_order_count',
+      });
+      hasCoreTrafficRow = true;
+    }
+  }
+
+  const trafficSourceStart = fullText.indexOf('\u6d41\u91cf\u6765\u6e90');
+  if (trafficSourceStart >= 0) {
+    const trafficSourceText = fullText.slice(trafficSourceStart, trafficSourceStart + 1800);
+    const tableStart = trafficSourceText.search(
+      /\u6d41\u91cf\u7c7b\u578b\s*\u66dd\u5149\u91cf\s*\u5360\u6bd4/,
+    );
+    if (tableStart >= 0) {
+      const tableText = trafficSourceText.slice(tableStart);
+      const directMetrics = [
+        {
+          dimension: 'total_exposure',
+          label: '\u6574\u4f53\u66dd\u5149',
+          pattern: /\u6574\u4f53\u66dd\u5149\s*([\d,.]+)\s*(\u4e07)?/,
+        },
+        {
+          dimension: 'organic_exposure',
+          label: '\u975e\u5e7f\u544a\u66dd\u5149',
+          pattern: /\u975e\u5e7f\u544a\u66dd\u5149\s*([\d,.]+)\s*(\u4e07)?/,
+        },
+        {
+          dimension: 'ad_exposure',
+          label: '\u5e7f\u544a\u66dd\u5149',
+          pattern: /(?:^|\s)\u5e7f\u544a\u66dd\u5149\s*([\d,.]+)\s*(\u4e07)?/,
+        },
+      ];
+      for (const metric of directMetrics) {
+        const match = tableText.match(metric.pattern);
+        const metricValue = match ? normalizeNumber(match[1], match[2]) : null;
+        if (metricValue === null) continue;
+        rows.push({
+          _capture_source: 'dom:traffic:source_breakdown',
+          _source_path: `dom.traffic.source_breakdown.${metric.dimension}`,
+          data_type: 'traffic_analysis',
+          analysis_type: 'source',
+          dimension: metric.dimension,
+          name: metric.label,
+          data_value: metricValue,
+          compare_type: 'self',
+          is_self: true,
+          _dom_text: tableText.slice(0, 1000),
+        });
+      }
+    }
+  }
+
+  if (!hasCoreTrafficRow) {
+    const exactNumber = (patterns) => {
+      for (const pattern of patterns) {
+        const match = fullText.match(pattern);
+        const number = match ? normalizeNumber(match[1], match[2]) : null;
+        if (number !== null) return number;
+      }
+      return null;
+    };
+    // Keep this fallback deliberately strict. A broad "曝光...数字" match can
+    // misclassify the adjacent exposure-to-browse percentage as exposure.
+    const exposure = exactNumber([
+      /\u66dd\u5149\u4eba\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u4eba/,
+      /\u66dd\u5149\u91cf\s*([\d,.]+)\s*(\u4e07)?\s*\u6b21/,
+    ]);
+    const visitors = exactNumber([
+      /\u6d4f\u89c8\u4eba\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u4eba/,
+      /\u8bbf\u5ba2\u4eba\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u4eba/,
+    ]);
+    const orders = exactNumber([
+      /\u652f\u4ed8\u8ba2\u5355\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u5355/,
+    ]);
+    const flowRateMatch = fullText.match(
+      /(?:\u652f\u4ed8\u8f6c\u5316\u7387|\u6d4f\u89c8-\u652f\u4ed8\u8f6c\u5316\u7387)\s*([\d.]+)\s*%/,
+    );
+    if (exposure !== null && visitors !== null && orders !== null) {
+      rows.push({
+        _capture_source: 'dom:traffic:home_summary',
+        _source_path: 'dom.traffic.home_summary',
+        compare_type: 'self',
+        is_self: true,
+        _dom_text: fullText.slice(0, 1200),
+        ...withDate,
+        listExposure: exposure,
+        detailExposure: visitors,
+        flowRate: flowRateMatch ? Number(flowRateMatch[1]) : null,
+        orderFillingNum: orders,
+        orderSubmitNum: orders,
+        _order_filling_source_policy: 'meituan_home_summary_no_separate_order_filling_step_pay_order_count_used',
+        _order_submit_source_label: 'pay_order_count',
+      });
+    }
+  }
+
+  return rows;
 }
 
 export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
@@ -496,6 +659,7 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
         analysis_type: 'conversion_funnel',
         dimension: 'flow_conversion',
         data_value: exposure,
+        exposure_to_browse_rate: exposureToVisitRate,
         browse_pay_rate: numberish(myHotel.payOrderPerIntention),
       }, 'traffic', 'data.myHotel', options)];
     }
@@ -511,6 +675,7 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
       orderSubmitNum: numberish(data.orderCount ?? data.payOrderCount ?? data.orders),
       orderFillingNum: numberish(data.orderCount ?? data.payOrderCount ?? data.orders),
       flowRate: numberish(data.visitOrderRate ?? data.conversionRate ?? data.orderConversionRate),
+      exposure_to_browse_rate: numberish(data.exposeVisitRate),
       expose_visit_rate: numberish(data.exposeVisitRate),
     }, 'traffic_analysis', 'data', options)];
   }
@@ -724,6 +889,18 @@ function buildBusinessMetricRow(source, options = {}) {
   row.flowRate = row.browse_to_pay_rate;
   row.browse_pay_rate = row.browse_to_pay_rate;
   row.data_value = row.sales_avg_price;
+  const businessCaptureEpoch = Number(options.businessCaptureEpoch || 0);
+  if (businessCaptureEpoch > 0) {
+    row.business_capture_epoch = businessCaptureEpoch;
+  }
+  const businessRelativeRange = String(options.businessRelativeRange || '').trim();
+  if (businessRelativeRange) {
+    row.business_relative_range = businessRelativeRange;
+  }
+  const businessEvidenceSource = String(options.businessEvidenceSource || '').trim();
+  if (businessEvidenceSource) {
+    row.business_evidence_source = businessEvidenceSource;
+  }
 
   const dataDate = normalizeDateLike(
     source.dataDate
@@ -930,8 +1107,9 @@ function decorateSupplementalRow(row, dataType, sourcePath, options = {}) {
     next.rankType = String(options.rankType);
     next.rank_type = String(options.rankType);
   }
-  if (options.forecastType && !next.forecast_type) {
-    next.forecast_type = String(options.forecastType);
+  const semanticForecastType = String(options.forecastType || '').trim().toLowerCase();
+  if (['pv', 'uv', 'advance_orders'].includes(semanticForecastType) && !next.forecast_type) {
+    next.forecast_type = semanticForecastType;
   }
   if (hasOwnDate(next)) {
     if (!next.date_source && !next.dateSource) {

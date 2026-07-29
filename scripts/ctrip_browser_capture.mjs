@@ -10,6 +10,7 @@ import {
   ctripCatalogSummary,
   extractCtripCatalogFacts,
   findCtripEndpointByUrl,
+  getCtripCapturePlan,
   getCtripSectionInteractionPlan,
   normalizeCtripCaptureSections,
   sectionDataType,
@@ -67,7 +68,16 @@ if (!profileId) {
 const sessionProbeOnly = booleanArg(args.sessionProbeOnly) || booleanArg(args.session_probe_only);
 const loginOnly = !sessionProbeOnly && (booleanArg(args.loginOnly) || booleanArg(args.authOnly));
 const authOnly = sessionProbeOnly || loginOnly;
-const rawRequestedSections = normalizeSections(args.sections || args.captureSections || args.only || 'default');
+const capturePlan = getCtripCapturePlan(args.capturePlan || args.capture_plan || 'full');
+const captureEndpointIds = Array.isArray(capturePlan.capture_endpoint_ids)
+  ? new Set(capturePlan.capture_endpoint_ids)
+  : null;
+const rawRequestedSections = normalizeSections(
+  args.sections
+    || args.captureSections
+    || args.only
+    || capturePlan.default_sections.join(','),
+);
 const notApplicableSections = normalizeOptionalSections(
   args.notApplicableSections
     || args.not_applicable_sections
@@ -117,6 +127,7 @@ const parallelSectionsEnabled = !authOnly
   && !booleanArg(args.sequential_sections);
 const parallelFallbackEnabled = !booleanArg(args.disableParallelFallback);
 const includeResponseDataInOutput = booleanArg(args.includeResponseData || args.include_response_data || args.rawResponses || args.raw_responses);
+const captureStartedAtMs = Date.now();
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -132,6 +143,13 @@ const payload = {
   source: 'ctrip_browser_profile',
   mode: sessionProbeOnly ? 'session_probe_only' : (loginOnly ? 'login_only' : 'capture'),
   captured_at: capturedAt,
+  capture_plan: {
+    id: capturePlan.id,
+    label: capturePlan.label,
+    lightweight: capturePlan.lightweight,
+    capture_endpoint_ids: capturePlan.capture_endpoint_ids,
+    expected_endpoint_ids: capturePlan.expected_endpoint_ids,
+  },
   page_urls: PAGE_URLS,
   requested_sections: requestedSections,
   not_applicable_sections: notApplicableSections,
@@ -203,6 +221,7 @@ const payload = {
   },
   capture_execution: {
     mode: parallelSectionsEnabled ? 'parallel_pages' : 'single_page_sequential',
+    capture_plan: capturePlan.id,
     section_concurrency: parallelSectionsEnabled ? sectionConcurrency : 1,
     parallel_fallback_enabled: parallelFallbackEnabled,
     parallel_failed_sections: [],
@@ -499,8 +518,8 @@ async function probeTrustedCtripBusinessPageIdentity(page) {
   const target = PAGE_URLS.business_overview?.[0]?.url || '';
   if (!target) return false;
   await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 90000 }).catch(() => null);
-  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => null);
-  await page.waitForTimeout(2500);
+  await page.waitForLoadState('networkidle', { timeout: capturePlan.lightweight ? 8000 : 20000 }).catch(() => null);
+  await page.waitForTimeout(capturePlan.lightweight ? 700 : 2500);
   await dismissBlockingOverlays(page);
   const headerObserved = await observeTrustedCtripPageHeaderIdentity(page);
   const stateObserved = await observeTrustedCtripPageStateIdentity(page);
@@ -533,16 +552,30 @@ async function finalizePayload() {
   dedupeRows(payload.reviews, row => row.review_id || JSON.stringify([row.content || '', row.user_name || '', row.comment_time || '']));
   dedupeRows(payload.rows, row => row._fingerprint || JSON.stringify([row.source_trace_id || row.source_url_hash || row.capture_evidence?.source_trace_id || row.capture_evidence?.source_url_hash || '', row.hotelId, row.dataDate || row.date, row.data_type, row.metric_key || '', row.value || row.amount || row.quantity || '']));
   dedupeRows(payload.standard_rows, row => JSON.stringify([row.source, row.data_type, row.hotel_id, row.system_hotel_id || '', row.data_date, row.dimension]));
+  dedupeRows(payload.catalog_facts, fact => JSON.stringify([
+    fact.source_trace_id || fact.source_url_hash || '',
+    fact.endpoint_id || '',
+    fact.hotel_id || '',
+    fact.data_date || '',
+    fact.dimension_key || fact.source_parent_path || '',
+    fact.metric_key || '',
+    fact.request_shape || {},
+    fact.value,
+    fact.missing_state || '',
+  ]));
   payload.endpoint_candidates = buildCtripEndpointCandidates(payload.unmatched_xhr_urls);
   payload.p3_evidence_matrix = buildCtripEndpointEvidenceMatrix(payload.p3_evidence_drafts, { generatedAt: capturedAt });
   const audit = buildCtripCaptureAudit([{ path: outputPath, payload }], {
     generatedAt: capturedAt,
     allowedFieldKeys: profileFieldConfig.allowedFieldKeys ? [...profileFieldConfig.allowedFieldKeys] : null,
+    expectedEndpointIds: capturePlan.expected_endpoint_ids,
     notApplicableSections,
   });
   payload.capture_gate = evaluateCtripCaptureAuditGate(audit, captureGateOptions());
   payload.capture_gap_report = audit.capture_gap_report;
   payload.capture_audit = compactCaptureAudit(audit);
+  payload.capture_execution.completed_at = new Date().toISOString();
+  payload.capture_execution.elapsed_ms = Date.now() - captureStartedAtMs;
   payload.platform_identity_validation = evaluateCtripPlatformIdentity(
     [hotelId],
     Array.from(observedPlatformIdentifiers),
@@ -825,25 +858,33 @@ async function captureSection(page, section, url, confidence = '', target = payl
     errorMessage = error.message;
   }
 
-  await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => null);
-  await page.waitForTimeout(2500);
+  await page.waitForLoadState('networkidle', { timeout: capturePlan.lightweight ? 8000 : 20000 }).catch(() => null);
+  await page.waitForTimeout(capturePlan.lightweight ? 700 : 2500);
   await dismissBlockingOverlays(page);
   await observeTrustedCtripPageHeaderIdentity(page);
   await observeTrustedCtripPageStateIdentity(page);
-  await clickLikelyRefreshButtons(page);
+  if (capturePlan.click_refresh) {
+    await clickLikelyRefreshButtons(page);
+  }
   const interactions = await runSectionInteractionPlan(page, section, state);
-  if (section === 'traffic_report') {
+  if (section === 'traffic_report' && capturePlan.probe_popups) {
     interactions.push(...await triggerTrafficSourcePopupEvidence(page));
   }
-  await page.evaluate(() => window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))).catch(() => null);
-  await page.waitForTimeout(1200);
-  await page.evaluate(() => window.scrollTo(0, 0)).catch(() => null);
-  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => null);
+  if (capturePlan.scroll_page) {
+    await page.evaluate(() => window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight))).catch(() => null);
+    await page.waitForTimeout(1200);
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => null);
+  } else {
+    await page.waitForTimeout(400);
+  }
+  await page.waitForLoadState('networkidle', { timeout: capturePlan.lightweight ? 3500 : 10000 }).catch(() => null);
 
-  const screenshot = join(assetDir, `${safeName(profileId)}_${section}_${timestamp()}.png`);
-  await page.screenshot({ path: screenshot, fullPage: true }).catch(() => null);
-  if (existsSync(screenshot)) {
-    target.screenshots.push({ name: section, path: screenshot, ...(options.retry ? { retry: true } : {}) });
+  if (capturePlan.capture_screenshot) {
+    const screenshot = join(assetDir, `${safeName(profileId)}_${section}_${timestamp()}.png`);
+    await page.screenshot({ path: screenshot, fullPage: true }).catch(() => null);
+    if (existsSync(screenshot)) {
+      target.screenshots.push({ name: section, path: screenshot, ...(options.retry ? { retry: true } : {}) });
+    }
   }
   target.pages.push({ name: section, label: sectionLabel(section), url: sanitizeObservedPageUrl(page.url()), configured_url: sanitizeObservedPageUrl(url), confidence, ok, interactions, ...(options.retry ? { retry: true } : {}), ...(errorMessage ? { error: errorMessage } : {}) });
   state.activeCaptureSection = '';
@@ -851,7 +892,7 @@ async function captureSection(page, section, url, confidence = '', target = payl
 }
 
 async function runSectionInteractionPlan(page, section, state = defaultCaptureState) {
-  const plan = getCtripSectionInteractionPlan(section);
+  const plan = getCtripSectionInteractionPlan(section, capturePlan.id);
   const results = [];
   for (const step of plan) {
     if (step.action !== 'click_text' || !step.text) {
@@ -875,8 +916,8 @@ async function runSectionInteractionPlan(page, section, state = defaultCaptureSt
       state.activeTrafficPlatform = previousTrafficPlatform;
     }
     if (result.clicked) {
-      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
-      await page.waitForTimeout(900);
+      await page.waitForLoadState('networkidle', { timeout: capturePlan.lightweight ? 3500 : 8000 }).catch(() => null);
+      await page.waitForTimeout(capturePlan.lightweight ? 350 : 900);
     }
   }
   return results;
@@ -1025,6 +1066,13 @@ function inferCtripResponsePlatform(section, endpoint, url, requestPayload, stat
   return state.activeTrafficPlatform || 'Ctrip';
 }
 
+function capturePlanAllowsEndpoint(endpoint) {
+  if (!captureEndpointIds) {
+    return true;
+  }
+  return Boolean(endpoint?.id && captureEndpointIds.has(endpoint.id));
+}
+
 async function clickTextIfVisible(page, text) {
   await dismissBlockingOverlays(page);
   const locators = [
@@ -1160,6 +1208,9 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
     const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const activeSection = state.activeCaptureSection || '';
     const endpoint = findCtripEndpointByUrl(url, { preferredSection: activeSection });
+    if (!capturePlanAllowsEndpoint(endpoint)) {
+      return;
+    }
     const urlSection = endpoint?.section || '';
     const approvedMappingMatches = approvedMappingsForUrl(url);
     const contentType = response.headers()['content-type'] || '';
@@ -2309,15 +2360,57 @@ function summarizeCapturedResponseData(value) {
   if (value && typeof value === 'object') {
     const keys = Object.keys(value);
     const collectionCounts = {};
+    const nestedObjects = {};
     for (const [key, item] of Object.entries(value)) {
       if (Array.isArray(item)) {
         collectionCounts[key] = item.length;
+        continue;
+      }
+      if (item && typeof item === 'object' && Object.keys(nestedObjects).length < 12) {
+        nestedObjects[key] = {
+          keys: Object.keys(item).slice(0, 40),
+          collection_counts: Object.fromEntries(
+            Object.entries(item)
+              .filter(([, child]) => Array.isArray(child))
+              .slice(0, 20)
+              .map(([childKey, child]) => [childKey, child.length]),
+          ),
+          collection_item_keys: Object.fromEntries(
+            Object.entries(item)
+              .filter(([, child]) => Array.isArray(child) && child[0] && typeof child[0] === 'object' && !Array.isArray(child[0]))
+              .slice(0, 20)
+              .map(([childKey, child]) => [childKey, Object.keys(child[0]).slice(0, 40)]),
+          ),
+          collection_item_nested_collections: Object.fromEntries(
+            Object.entries(item)
+              .filter(([, child]) => Array.isArray(child) && child[0] && typeof child[0] === 'object' && !Array.isArray(child[0]))
+              .slice(0, 20)
+              .map(([childKey, child]) => [
+                childKey,
+                Object.fromEntries(
+                  Object.entries(child[0])
+                    .filter(([, nestedChild]) => Array.isArray(nestedChild))
+                    .slice(0, 20)
+                    .map(([nestedKey, nestedChild]) => [
+                      nestedKey,
+                      {
+                        count: nestedChild.length,
+                        first_item_keys: nestedChild[0] && typeof nestedChild[0] === 'object' && !Array.isArray(nestedChild[0])
+                          ? Object.keys(nestedChild[0]).slice(0, 40)
+                          : [],
+                      },
+                    ]),
+                ),
+              ]),
+          ),
+        };
       }
     }
     return {
       type: 'object',
       keys: keys.slice(0, 60),
       collection_counts: collectionCounts,
+      nested_objects: nestedObjects,
     };
   }
   return {

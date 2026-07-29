@@ -517,6 +517,18 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             '平均房价 ADR：07-27 ¥636.59 → 07-28 ¥583.04',
             $calls[0]['payload']['markdown']['content']
         );
+        self::assertStringContainsString(
+            '远期房态（累计窗口）',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
+            '3 天（07-29 至 07-31）：已订12 间夜｜剩余可售33 间夜｜OCC 26.67%｜ADR ¥320.00｜RevPAR ¥85.34',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringNotContainsString(
+            '22 天',
+            $calls[0]['payload']['markdown']['content']
+        );
         self::assertSame(1, (int)Db::name('dingdandao_pms_push_dispatches')->count());
         self::assertSame(
             'sent',
@@ -953,6 +965,58 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
                 ],
                 'trend' => [],
                 'field_trace' => [],
+            ],
+            'forward_room_status' => [
+                'fact_scope' => 'whole_hotel_forward_room_status',
+                'data_status' => 'verified',
+                'readback_status' => 'readback_verified',
+                'display_horizons' => [3, 7, 14, 21],
+                'horizons' => [
+                    [
+                        'horizon_days' => 3,
+                        'date_from' => '2026-07-29',
+                        'date_to' => '2026-07-31',
+                        'booked_room_nights' => 12,
+                        'remaining_sellable_room_nights' => 33,
+                        'occupancy_rate_percent' => 26.67,
+                        'adr' => 320,
+                        'revpar' => 85.34,
+                        'quality_status' => 'verified',
+                    ],
+                    [
+                        'horizon_days' => 7,
+                        'date_from' => '2026-07-29',
+                        'date_to' => '2026-08-04',
+                        'booked_room_nights' => 20,
+                        'remaining_sellable_room_nights' => 85,
+                        'occupancy_rate_percent' => 19.05,
+                        'adr' => 310,
+                        'revpar' => 59.06,
+                        'quality_status' => 'verified',
+                    ],
+                    [
+                        'horizon_days' => 14,
+                        'date_from' => '2026-07-29',
+                        'date_to' => '2026-08-11',
+                        'booked_room_nights' => 31,
+                        'remaining_sellable_room_nights' => 179,
+                        'occupancy_rate_percent' => 14.76,
+                        'adr' => 305,
+                        'revpar' => 45.02,
+                        'quality_status' => 'verified',
+                    ],
+                    [
+                        'horizon_days' => 21,
+                        'date_from' => '2026-07-29',
+                        'date_to' => '2026-08-18',
+                        'booked_room_nights' => 42,
+                        'remaining_sellable_room_nights' => 273,
+                        'occupancy_rate_percent' => 13.33,
+                        'adr' => 300,
+                        'revpar' => 40,
+                        'quality_status' => 'verified',
+                    ],
+                ],
             ],
             'captured_at' => '2026-07-28 00:30:00',
         ];

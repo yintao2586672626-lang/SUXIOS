@@ -11,9 +11,23 @@ test('local Dingdandao runner uses loopback CDP without cloud gateway credential
   assert.match(runner, /execution_mode'\s*=>\s*'local_cdp'/);
   assert.match(runner, /http:\/\/127\\\.0\\\.0\\\.1:/);
   assert.match(runner, /localValidCdpUrl/);
-  assert.match(runner, /--collection-mode=full_diagnostic/);
+  assert.match(runner, /'collection-mode::'/);
+  assert.match(runner, /localCollectionMode/);
+  assert.match(runner, /'full_diagnostic'/);
+  assert.match(runner, /--collection-mode='\s*\.\s*\$collectionMode/);
+  assert.match(runner, /'collection_mode'\s*=>\s*\$collectionMode/);
   assert.match(runner, /\['bypass_shell'\s*=>\s*true\]/);
   assert.doesNotMatch(runner, /gatewayRequest|control-token|profile-id/);
+});
+
+test('scheduled Dingdandao collection can require one explicit shared-browser sandbox', () => {
+  assert.match(runner, /'sandbox-id::'/);
+  assert.match(runner, /'require-sandbox'/);
+  assert.match(runner, /localValidSandboxId/);
+  assert.match(runner, /--sandbox-id=/);
+  assert.match(runner, /'sandbox_selection'\s*=>\s*\$sandboxId\s*!==\s*''/);
+  assert.match(runner, /'explicit_marker'/);
+  assert.match(runner, /'sandbox_isolated'\s*=>\s*\$sandboxId\s*!==\s*''/);
 });
 
 test('local Dingdandao runner requires an explicit provider binding', () => {

@@ -74,7 +74,7 @@ test('only terminal authentication responses clear a cached session', () => {
 });
 
 test('login, logout, and account switches reset hotel-scoped browser state', () => {
-  const resetState = sliceBetween('const resetHotelScopedClientState = () => {', 'const clearActiveHotelDashboardSnapshots = () => {');
+  const resetState = sliceBetween('const resetHotelScopedClientState = (', 'const clearActiveHotelDashboardSnapshots = () => {');
   const loginFlow = sliceBetween('const handleLogin = async () => {', 'const loadLoginSupportContact = async () => {');
   const logoutFlow = sliceBetween('const handleLogout = async () => {', 'const dedupeHotels = (items = []) => {');
 
@@ -652,7 +652,6 @@ test('account and hotel changes clear Agent, OTA diagnosis, revenue, and polling
     'agentRevenueStateEpoch += 1;',
     "agentTab.value = 'overview';",
     'agentOverview.value = createEmptyAgentOverview();',
-    'otaDiagnosisForm.value = createOtaDiagnosisForm();',
     'otaDiagnosisResult.value = null;',
     'otaDiagnosisLoading.value = false;',
     'otaDiagnosisExecutionLoading.value = \"\";',
@@ -667,6 +666,7 @@ test('account and hotel changes clear Agent, OTA diagnosis, revenue, and polling
     assert.ok(agentReset.includes(expected), `Agent reset must include: ${expected}`);
   }
 
+  assert.match(agentReset, /const retainedSystemHotelId = options\.reason === 'hotel-switch'[\s\S]*otaDiagnosisForm\.value = \{[\s\S]*\.\.\.createOtaDiagnosisForm\(\),[\s\S]*hotel_id: retainedSystemHotelId,[\s\S]*\};/);
   assert.match(profileTimerReset, /const clearPlatformProfileLoginTimers = \(\) => \{[\s\S]*clearPlatformProfileLoginTimer\('ctrip'\);[\s\S]*clearPlatformProfileLoginTimer\('meituan'\);[\s\S]*platformProfileLoginTasks\.value = \{\};/);
   assert.match(timerReset, /clearPostFetchRefreshTimers\(\);/);
   assert.match(timerReset, /clearHomeQuickLayoutAutoSaveTimer\(\);/);
@@ -785,7 +785,7 @@ test('hotel data dashboard rejects stale hotel and session responses before muta
   assert.match(dashboard, /const requestSeq = \+\+hotelDashboardRequestSeq;/);
   assert.match(dashboard, /requestSeq === hotelDashboardRequestSeq/);
   assert.match(dashboard, /isAuthSessionCurrent\(requestSession\)/);
-  assert.match(dashboard, /String\(dashboardHotelId\.value \|\| getAutoFetchHotelId\(\) \|\| ''\)\.trim\(\) === selectedHotelId/);
+  assert.match(dashboard, /String\(dashboardHotelId\.value \|\| filterReportHotel\.value \|\| getAutoFetchHotelId\(\) \|\| ''\)\.trim\(\) === selectedHotelId/);
   assert.match(dashboard, /dataHealthFullDiagnosticsLoaded\.value = false;/);
   assert.ok(responseIndex >= 0 && responseGuardIndex > responseIndex, 'dashboard response must be checked after the requests settle');
   assert.ok(firstResponseWriteIndex > responseGuardIndex, 'stale dashboard responses must be rejected before the first state write');

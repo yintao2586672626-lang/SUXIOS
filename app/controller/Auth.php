@@ -9,6 +9,7 @@ use app\model\LoginLog;
 use app\model\SystemConfig;
 use app\model\Hotel;
 use app\service\AuthTokenState;
+use app\service\HotelPmsBindingService;
 use app\service\LoginRateLimiter;
 use app\service\PermissionService;
 use think\Response;
@@ -324,9 +325,42 @@ class Auth extends Base
             ? Hotel::withoutTenantScope()
             : Hotel::where([]);
 
-        return $query->whereIn('id', array_values(array_map('intval', $permittedHotelIds)))
+        $hotels = $query->whereIn('id', array_values(array_map('intval', $permittedHotelIds)))
             ->select()
             ->toArray();
+
+        return $this->appendPmsSelectionSummaries($hotels);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $hotels
+     * @return array<int, array<string, mixed>>
+     */
+    private function appendPmsSelectionSummaries(array $hotels): array
+    {
+        $hotelIds = array_values(array_filter(array_map(
+            static fn(array $hotel): int => (int)($hotel['id'] ?? 0),
+            $hotels
+        )));
+        try {
+            $summaries = (new HotelPmsBindingService())->selectionSummaries($hotelIds);
+        } catch (\Throwable) {
+            $summaries = [];
+        }
+
+        foreach ($hotels as &$hotel) {
+            $summary = $summaries[(int)($hotel['id'] ?? 0)] ?? [
+                'binding_status' => 'unavailable',
+                'selected_provider' => null,
+                'selected_provider_label' => 'PMS 状态未取得',
+            ];
+            $hotel['pms_binding_status'] = $summary['binding_status'];
+            $hotel['pms_provider'] = $summary['selected_provider'];
+            $hotel['pms_provider_label'] = $summary['selected_provider_label'];
+        }
+        unset($hotel);
+
+        return $hotels;
     }
 
     /**

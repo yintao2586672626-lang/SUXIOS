@@ -63,8 +63,27 @@ final class OtaCredentialResponseTest extends TestCase
         return new class($vault) {
             use \app\controller\concern\OtaConfigConcern;
 
+            public object $currentUser;
+
             public function __construct(private readonly ?object $replacementVault)
             {
+            }
+
+            public function setCurrentUser(object $user): void
+            {
+                $this->currentUser = $user;
+            }
+
+            public function canMaintainVisibleConfig(array $config): bool
+            {
+                $hotelId = $this->otaConfigBoundSystemHotelId($config);
+                return $this->isOtaConfigVisibleToCurrentUser($config)
+                    && $this->currentUserCanMaintainOtaConfigItem($config, $hotelId);
+            }
+
+            public function appendActionPermissions(array $configs): array
+            {
+                return $this->appendOtaConfigActionPermissions($configs);
             }
 
             protected function otaCredentialVault(): object
@@ -252,16 +271,24 @@ final class OtaCredentialResponseTest extends TestCase
         };
     }
 
-    private function deleteMeituanPermissionFailureHarness(): object
+    private function deleteMeituanPermissionFailureHarness(
+        bool $canManageOwnHotels = true,
+        bool $canViewOnlineData = true,
+        bool $canDeleteOnlineData = false
+    ): object
     {
-        return new class {
+        return new class($canManageOwnHotels, $canViewOnlineData, $canDeleteOnlineData) {
             use \app\controller\concern\OtaConfigConcern;
             use \app\controller\concern\MeituanConfigConcern;
 
             public object $request;
             public object $currentUser;
 
-            public function __construct()
+            public function __construct(
+                bool $canManageOwnHotels,
+                bool $canViewOnlineData,
+                bool $canDeleteOnlineData
+            )
             {
                 $this->request = new class {
                     public function param(string $key, mixed $default = null): mixed
@@ -269,12 +296,29 @@ final class OtaCredentialResponseTest extends TestCase
                         return $key === 'id' ? 'meituan-58' : $default;
                     }
                 };
-                $this->currentUser = new class {
+                $this->currentUser = new class($canManageOwnHotels, $canViewOnlineData, $canDeleteOnlineData) {
                     public int $id = 77;
+                    public function __construct(
+                        private readonly bool $canManageOwnHotels,
+                        private readonly bool $canViewOnlineData,
+                        private readonly bool $canDeleteOnlineData
+                    ) {
+                    }
                     public function isSuperAdmin(): bool { return false; }
                     public function getPermittedHotelIds(): array { return [58]; }
-                    public function canManageOwnHotels(): bool { return false; }
-                    public function hasHotelPermission(int $hotelId, string $permission): bool { return false; }
+                    public function canManageOwnHotels(): bool { return $this->canManageOwnHotels; }
+                    public function hasHotelPermission(int $hotelId, string $permission): bool
+                    {
+                        if ($hotelId !== 58) {
+                            return false;
+                        }
+
+                        return match ($permission) {
+                            'can_view_online_data' => $this->canViewOnlineData,
+                            'can_delete_online_data' => $this->canDeleteOnlineData,
+                            default => false,
+                        };
+                    }
                 };
             }
 
@@ -287,6 +331,13 @@ final class OtaCredentialResponseTest extends TestCase
                 throw new \think\exception\HttpException(403, 'permission denied');
             }
 
+            private function checkHotelActionPermission(int $hotelId, string $permission): void
+            {
+                if (!$this->currentUser->hasHotelPermission($hotelId, $permission)) {
+                    throw new \think\exception\HttpException(403, 'permission denied');
+                }
+            }
+
             protected function error(string $message = '操作失败', int $code = 400, mixed $data = null): \think\Response
             {
                 return json(['code' => $code, 'message' => $message, 'data' => $data], $code);
@@ -294,19 +345,23 @@ final class OtaCredentialResponseTest extends TestCase
         };
     }
 
-    private function saveEndpointFailureHarness(\Throwable $failure): object
+    private function saveEndpointFailureHarness(\Throwable $failure, bool $isSuperAdmin = true): object
     {
-        return new class($failure) {
+        return new class($failure, $isSuperAdmin) {
             use \app\controller\concern\OnlineDataRequestConcern;
 
             public object $currentUser;
 
-            public function __construct(private readonly \Throwable $failure)
+            public function __construct(private readonly \Throwable $failure, bool $isSuperAdmin)
             {
-                $this->currentUser = new class {
+                $this->currentUser = new class($isSuperAdmin) {
+                    public function __construct(private readonly bool $isSuperAdmin)
+                    {
+                    }
+
                     public function isSuperAdmin(): bool
                     {
-                        return true;
+                        return $this->isSuperAdmin;
                     }
                 };
             }
@@ -332,29 +387,64 @@ final class OtaCredentialResponseTest extends TestCase
         };
     }
 
-    private function deletePermissionFailureHarness(): object
+    private function ctripConfigEndpointHarness(
+        bool $canManageOwnHotels = false,
+        bool $canViewOnlineData = false,
+        bool $canDeleteOnlineData = false,
+        ?object $replacementVault = null
+    ): object
     {
-        return new class {
+        return new class($canManageOwnHotels, $canViewOnlineData, $canDeleteOnlineData, $replacementVault) {
             use \app\controller\concern\OtaConfigConcern;
             use \app\controller\concern\OnlineDataRequestConcern;
 
             public object $request;
             public object $currentUser;
 
-            public function __construct()
+            public function __construct(
+                bool $canManageOwnHotels,
+                bool $canViewOnlineData,
+                bool $canDeleteOnlineData,
+                private readonly ?object $replacementVault
+            )
             {
                 $this->request = new class {
+                    public function get(?string $key = null, mixed $default = null): mixed
+                    {
+                        if ($key === null) {
+                            return ['id' => 'cfg-58'];
+                        }
+                        return $key === 'id' ? 'cfg-58' : $default;
+                    }
+
                     public function param(string $key, mixed $default = null): mixed
                     {
                         return $key === 'id' ? 'cfg-58' : $default;
                     }
                 };
-                $this->currentUser = new class {
+                $this->currentUser = new class($canManageOwnHotels, $canViewOnlineData, $canDeleteOnlineData) {
                     public int $id = 77;
+                    public function __construct(
+                        private readonly bool $canManageOwnHotels,
+                        private readonly bool $canViewOnlineData,
+                        private readonly bool $canDeleteOnlineData
+                    ) {
+                    }
                     public function isSuperAdmin(): bool { return false; }
                     public function getPermittedHotelIds(): array { return [58]; }
-                    public function canManageOwnHotels(): bool { return false; }
-                    public function hasHotelPermission(int $hotelId, string $permission): bool { return false; }
+                    public function canManageOwnHotels(): bool { return $this->canManageOwnHotels; }
+                    public function hasHotelPermission(int $hotelId, string $permission): bool
+                    {
+                        if ($hotelId !== 58) {
+                            return false;
+                        }
+
+                        return match ($permission) {
+                            'can_view_online_data' => $this->canViewOnlineData,
+                            'can_delete_online_data' => $this->canDeleteOnlineData,
+                            default => false,
+                        };
+                    }
                 };
             }
 
@@ -365,6 +455,23 @@ final class OtaCredentialResponseTest extends TestCase
             private function checkActionPermission(string $permission): void
             {
                 throw new \think\exception\HttpException(403, 'permission denied');
+            }
+
+            private function checkHotelActionPermission(int $hotelId, string $permission): void
+            {
+                if (!$this->currentUser->hasHotelPermission($hotelId, $permission)) {
+                    throw new \think\exception\HttpException(403, 'permission denied');
+                }
+            }
+
+            protected function otaCredentialVault(): object
+            {
+                return $this->replacementVault ?? throw new \RuntimeException('Test vault was not provided.');
+            }
+
+            protected function success(mixed $data = null, string $message = '操作成功'): \think\Response
+            {
+                return json(['code' => 200, 'message' => $message, 'data' => $data], 200);
             }
 
             protected function error(string $message = '操作失败', int $code = 400, mixed $data = null): \think\Response
@@ -872,6 +979,56 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertSame(0, $collapsed[1]['duplicate_current_count'] ?? null);
     }
 
+    public function testCtripCollapsedListIncludesSortedNonSecretHistorySummaries(): void
+    {
+        $collapsed = $this->otaConfigHarness()->collapseCtripConfigsByHotel([
+            [
+                'id' => 'active-58',
+                'config_id' => 'active-58',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'ctrip_hotel_id' => '100058',
+                'config_status' => 'active',
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'update_time' => '2026-07-12 10:00:00',
+            ],
+            [
+                'id' => 'history-58',
+                'config_id' => 'history-58',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'ctrip_hotel_id' => '100057',
+                'config_status' => 'history',
+                'hotel_room_count' => 118,
+                'competitor_room_count' => 1800,
+                'cookies' => 'must-never-leave-the-server',
+                'update_time' => '2026-07-11 09:00:00',
+            ],
+            [
+                'id' => 'deleted-58',
+                'config_id' => 'deleted-58',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'ctrip_hotel_id' => '100056',
+                'config_status' => 'deleted',
+                'deleted_at' => '2026-07-13 08:00:00',
+            ],
+        ]);
+
+        self::assertCount(1, $collapsed);
+        self::assertSame(2, $collapsed[0]['history_count'] ?? null);
+        $history = $collapsed[0]['history_items'] ?? [];
+        self::assertCount(2, $history);
+        self::assertSame('deleted-58', $history[0]['id'] ?? null);
+        self::assertSame('已删除', $history[0]['status_label'] ?? null);
+        self::assertSame('history-58', $history[1]['id'] ?? null);
+        self::assertSame('已替换', $history[1]['status_label'] ?? null);
+        self::assertSame('100057', $history[1]['ctrip_hotel_id'] ?? null);
+        self::assertSame(118, $history[1]['hotel_room_count'] ?? null);
+        self::assertArrayNotHasKey('cookies', $history[1]);
+    }
+
     public function testCtripListKeepsDeletedVersionsAsHistoryButNeverAsCurrent(): void
     {
         $collapsed = $this->otaConfigHarness()->collapseCtripConfigsByHotel([
@@ -1319,7 +1476,9 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertStringContainsString('$id = $primaryConfigId;', $source);
         self::assertStringContainsString('persistCtripConfigMetadata($config, (int)$this->currentUser->id, $isUpdate)', $source);
         self::assertStringContainsString('sanitizeStoredOtaConfigListForRuntime([$id => $list[$id]])', $source);
-        self::assertStringContainsString('return $this->success($safeList[$id] ?? [])', $source);
+        self::assertStringContainsString('$responseConfig = $safeList[$id] ?? [];', $source);
+        self::assertStringContainsString('CtripImplementationExposurePolicy::config($responseConfig)', $source);
+        self::assertStringContainsString('return $this->success($responseConfig)', $source);
         self::assertStringContainsString('deleteCtripConfigMetadata($id, $systemHotelId)', $source);
         self::assertStringContainsString('旧版携程 Cookie 书签保存入口已禁用。', $source);
         self::assertMatchesRegularExpression(
@@ -1393,7 +1552,126 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertStringNotContainsString('vault-internal-secret-message', $content);
     }
 
-    public function testDeleteCtripConfigPreservesPermissionHttp403(): void
+    public function testSaveCtripConfigLetsHotelScopedPayloadAuthorizeNonSuperAdmin(): void
+    {
+        $response = $this->saveEndpointFailureHarness(
+            new \InvalidArgumentException('hotel-scoped-payload-reached'),
+            false
+        )->saveCtripConfig();
+        $content = (string)$response->getContent();
+
+        self::assertStringContainsString('"code":400', $content);
+        self::assertStringContainsString('hotel-scoped-payload-reached', $content);
+        self::assertStringNotContainsString('super-admin maintenance', $content);
+
+        $source = $this->traitMethodSource(
+            \app\controller\concern\OnlineDataRequestConcern::class,
+            'saveCtripConfig'
+        );
+        $payloadOffset = strpos($source, 'saveCtripConfigPayload($requestData)');
+        self::assertIsInt($payloadOffset);
+        self::assertStringNotContainsString(
+            'canViewImplementation',
+            substr($source, 0, $payloadOffset),
+            'Implementation visibility must not block hotel-scoped save authorization.'
+        );
+        self::assertStringContainsString(
+            'CtripImplementationExposurePolicy::config($responseConfig)',
+            $source,
+            'Ordinary-account save responses must keep implementation metadata redacted.'
+        );
+    }
+
+    public function testVisibleHotelManagerCanMaintainOnlyPermittedHotelConfig(): void
+    {
+        $harness = $this->otaConfigHarness();
+        $harness->setCurrentUser(new class {
+            public int $id = 77;
+
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+
+            public function canManageOwnHotels(): bool
+            {
+                return true;
+            }
+
+            public function getPermittedHotelIds(): array
+            {
+                return [58];
+            }
+
+            public function hasHotelPermission(int $hotelId, string $permission): bool
+            {
+                return $hotelId === 58 && $permission === 'can_view_online_data';
+            }
+        });
+
+        self::assertTrue($harness->canMaintainVisibleConfig([
+            'id' => 'cfg-58',
+            'config_id' => 'cfg-58',
+            'system_hotel_id' => 58,
+        ]));
+        self::assertFalse($harness->canMaintainVisibleConfig([
+            'id' => 'cfg-60',
+            'config_id' => 'cfg-60',
+            'system_hotel_id' => 60,
+        ]));
+    }
+
+    public function testOtaConfigActionFlagsFollowHotelScopedDeletePermission(): void
+    {
+        $harness = $this->otaConfigHarness();
+        $harness->setCurrentUser(new class {
+            public int $id = 77;
+
+            public function hasHotelPermission(int $hotelId, string $permission): bool
+            {
+                return $permission === 'can_delete_online_data' && $hotelId === 58;
+            }
+        });
+
+        $configs = $harness->appendActionPermissions([
+            ['id' => 'cfg-58', 'system_hotel_id' => 58],
+            ['id' => 'cfg-60', 'system_hotel_id' => 60],
+            ['id' => 'cfg-unbound'],
+        ]);
+
+        self::assertTrue($configs[0]['can_delete_config']);
+        self::assertFalse($configs[1]['can_delete_config']);
+        self::assertFalse($configs[2]['can_delete_config']);
+    }
+
+    public function testCtripConfigDetailUsesHotelScopeAndRedactsImplementationForOrdinaryManager(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode([
+                'cfg-58' => [
+                    'id' => 'cfg-58',
+                    'config_id' => 'cfg-58',
+                    'name' => 'Ctrip A',
+                    'hotel_id' => '58',
+                    'system_hotel_id' => 58,
+                    'credential_status' => 'ready',
+                    'has_cookies' => true,
+                    'collector_script' => 'internal/collector-path.mjs',
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $response = $this->ctripConfigEndpointHarness(true, true)->getCtripConfigDetail();
+        $payload = json_decode((string)$response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame(200, $response->getCode());
+        self::assertSame('cfg-58', $payload['data']['config_id'] ?? null);
+        self::assertSame('redacted', $payload['data']['implementation_visibility'] ?? null);
+        self::assertArrayNotHasKey('collector_script', $payload['data'] ?? []);
+    }
+
+    public function testDeleteCtripConfigRejectsMaintainerWithoutHotelDeletePermission(): void
     {
         Db::name('system_configs')->insert([
             'config_key' => 'ctrip_config_list',
@@ -1412,13 +1690,54 @@ final class OtaCredentialResponseTest extends TestCase
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
         ]);
 
-        $response = $this->deletePermissionFailureHarness()->deleteCtripConfig();
+        $response = $this->ctripConfigEndpointHarness(true, true, false)->deleteCtripConfig();
+        $payload = json_decode((string)$response->getContent(), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame(403, $response->getCode());
-        self::assertStringContainsString(
-            'Ctrip collection configuration is restricted to super-admin maintenance.',
-            (string)$response->getContent()
+        self::assertSame('permission denied', $payload['message'] ?? null);
+    }
+
+    public function testDeleteCtripConfigLetsAuthorizedHotelManagerReachScopedRevocation(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode([
+                'cfg-58' => [
+                    'id' => 'cfg-58',
+                    'config_id' => 'cfg-58',
+                    'name' => 'Ctrip A',
+                    'hotel_id' => '58',
+                    'system_hotel_id' => 58,
+                    'credential_ref' => 902,
+                    'credential_status' => 'ready',
+                    'has_cookies' => true,
+                    'secret_mask' => 'ct****et',
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $vault = new class {
+            public array $revokeCalls = [];
+
+            public function revoke(int $tenantId, int $hotelId, string $platform, string $configId): array
+            {
+                $this->revokeCalls[] = func_get_args();
+                throw new \InvalidArgumentException('authorized-delete-reached');
+            }
+        };
+
+        $response = $this->ctripConfigEndpointHarness(true, true, true, $vault)->deleteCtripConfig();
+        $payload = json_decode((string)$response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame(400, $response->getCode());
+        self::assertSame('authorized-delete-reached', $payload['message'] ?? null);
+        self::assertSame([[7, 58, 'ctrip', 'cfg-58']], $vault->revokeCalls);
+        $stored = json_decode(
+            (string)Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
         );
+        self::assertSame('ready', $stored['cfg-58']['credential_status'] ?? null);
     }
 
     public function testMeituanPersistenceStoresOnlySafeMetadataAndUsesExactLocator(): void
@@ -2122,6 +2441,22 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertStringNotContainsString("saveOtaDataConfigValue('meituan-comments'", $source);
     }
 
+    public function testCtripAndMeituanConfigDeleteRequireTargetHotelDeletePermission(): void
+    {
+        foreach ([
+            [\app\controller\concern\OnlineDataRequestConcern::class, 'deleteCtripConfig'],
+            [\app\controller\concern\MeituanConfigConcern::class, 'deleteMeituanConfig'],
+        ] as [$trait, $method]) {
+            $source = $this->traitMethodSource($trait, $method);
+            self::assertStringContainsString(
+                "\$this->checkHotelActionPermission(\$systemHotelId, 'can_delete_online_data');",
+                $source
+            );
+            self::assertStringNotContainsString('currentUserCanMaintainOtaConfigItem', $source);
+            self::assertStringNotContainsString("checkActionPermission('can_delete_online_data')", $source);
+        }
+    }
+
     public function testSaveMeituanConfigItemReturnsOpaqueHttp500ForThrowable(): void
     {
         try {
@@ -2140,7 +2475,7 @@ final class OtaCredentialResponseTest extends TestCase
         }
     }
 
-    public function testDeleteMeituanConfigPreservesPermissionHttp403(): void
+    public function testDeleteMeituanConfigRejectsMaintainerWithoutHotelDeletePermission(): void
     {
         Db::name('system_configs')->insert([
             'config_key' => 'meituan_config_list',
@@ -2168,7 +2503,7 @@ final class OtaCredentialResponseTest extends TestCase
         }
 
         self::assertSame(403, $response->getCode());
-        self::assertStringContainsString('无权删除此配置', (string)$response->getContent());
+        self::assertStringContainsString('permission denied', (string)$response->getContent());
     }
 
     public function testSplitOtaConfigSecretsRecursivelySeparatesCaseInsensitiveSecrets(): void

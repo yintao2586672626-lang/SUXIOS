@@ -67,6 +67,15 @@ final class CtripImplementationExposurePolicyTest extends TestCase
             'node_id' => '24588',
             'approved_mappings_path' => 'private/mappings.json',
             'profile_dir' => 'private/profile',
+            'history_items' => [[
+                'id' => 'ctrip_7_history',
+                'status_label' => '已替换',
+                'update_time' => '2026-07-29 10:00:00',
+                'ctrip_hotel_id' => '9987',
+                'hotel_room_count' => 88,
+                'cookies' => 'private-cookie',
+                'request_url' => 'https://example.invalid/private-history',
+            ]],
         ]);
         $capture = CtripImplementationExposurePolicy::cookieCaptureResult([
             'status' => 'ready',
@@ -84,6 +93,10 @@ final class CtripImplementationExposurePolicyTest extends TestCase
         self::assertArrayNotHasKey('node_id', $config);
         self::assertArrayNotHasKey('approved_mappings_path', $config);
         self::assertArrayNotHasKey('profile_dir', $config);
+        self::assertSame('ctrip_7_history', $config['history_items'][0]['id'] ?? null);
+        self::assertSame('9987', $config['history_items'][0]['ctrip_hotel_id'] ?? null);
+        self::assertArrayNotHasKey('cookies', $config['history_items'][0] ?? []);
+        self::assertArrayNotHasKey('request_url', $config['history_items'][0] ?? []);
 
         self::assertSame('ready', $capture['status']);
         self::assertSame(12, $capture['saved_count']);

@@ -260,6 +260,81 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('current_session_not_verified', $blocked['operator_message']);
     }
 
+    public function testCtripTrafficP0AcceptsRequiredMetricEvidenceAcrossEndpointRows(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'targetTrafficP0Closure');
+        $method->setAccessible(true);
+        $targetDate = '2026-07-30';
+        $rows = [];
+        foreach ([
+            'list_exposure' => 296,
+            'detail_exposure' => 74,
+            'flow_rate' => 25,
+            'order_filling_num' => 2,
+            'order_submit_num' => 1,
+        ] as $metricKey => $value) {
+            $traceId = 'ctrip:traffic:' . $metricKey;
+            $sourceUrlHash = hash('sha256', $traceId);
+            $rows[] = [
+                'data_date' => $targetDate,
+                'data_type' => 'traffic',
+                'platform' => 'ctrip',
+                'compare_type' => 'self',
+                'dimension' => 'catalog:traffic_report:' . $metricKey,
+                $metricKey => $value,
+                'source_trace_id' => $traceId,
+                'raw_data' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $sourceUrlHash,
+                    'platform_hotel_identifier_present' => true,
+                    'platform_hotel_identifier_source' => 'hotel_id_family',
+                    'platform_hotel_identifier_proof' => 'row_field_present',
+                    'field_facts' => [[
+                        'metric_key' => $metricKey,
+                        'source_path' => 'data.' . $metricKey,
+                        'storage_field' => 'online_daily_data.' . $metricKey,
+                        'stored_value_present' => true,
+                        'capture_evidence' => [
+                            'source_trace_id' => $traceId,
+                            'source_url_hash' => $sourceUrlHash,
+                        ],
+                    ]],
+                ],
+            ];
+        }
+        $rows[] = [
+            'data_date' => $targetDate,
+            'data_type' => 'traffic',
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'dimension' => 'catalog:traffic_report:future_search_detail',
+            'source_trace_id' => 'ctrip:traffic:future-search',
+            'raw_data' => [
+                'platform_hotel_identifier_present' => true,
+                'platform_hotel_identifier_source' => 'hotel_id_family',
+                'platform_hotel_identifier_proof' => 'row_field_present',
+                'field_facts' => [],
+            ],
+        ];
+
+        $closure = $method->invoke($service, $rows, 'ctrip', $targetDate);
+
+        self::assertSame(6, $closure['traffic_row_count']);
+        self::assertSame([
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ], $closure['complete_metric_keys']);
+        self::assertSame([], $closure['missing_metric_keys']);
+        self::assertSame(5, $closure['field_fact_ready_count']);
+        self::assertSame(0, $closure['field_fact_missing_count']);
+        self::assertTrue($closure['platform_hotel_identifier_ready']);
+        self::assertTrue($closure['ui_status_ready']);
+    }
+
     public function testCtripDailyBusinessOverviewUsesExplicitBookingFieldsNotZeroDashboardFields(): void
     {
         $service = new PlatformDataSyncService();
@@ -3099,6 +3174,7 @@ final class PlatformDataSyncServiceTest extends TestCase
 
             $result = $adapter->fetch($source, [
                 'interactive_browser' => false,
+                'capture_plan' => 'future_demand',
                 'profile_field_config' => [
                     'fields' => [
                         ['id' => 'business_amount', 'field_key' => 'amount', 'section' => 'business_overview', 'enabled' => true],
@@ -3112,6 +3188,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertCount(1, $capturedArgs);
             $sectionArg = current(array_filter($capturedArgs[0], static fn($arg): bool => str_starts_with((string)$arg, '--sections=')));
             self::assertSame('business_overview,traffic_report', substr((string)$sectionArg, strlen('--sections=')));
+            self::assertContains('--capture-plan=future_demand', $capturedArgs[0]);
         } finally {
             $this->removeDirectory($root);
         }
@@ -3200,6 +3277,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             $sectionArg = current(array_filter($capturedArgs[0], static fn($arg): bool => str_starts_with((string)$arg, '--sections=')));
             self::assertSame('business_weekly_overview,traffic_report', substr((string)$sectionArg, strlen('--sections=')));
             self::assertContains('--section-concurrency=3', $capturedArgs[0]);
+            self::assertContains('--capture-plan=full', $capturedArgs[0]);
             self::assertSame('parallel_pages', $result['payload']['capture_execution']['mode']);
         } finally {
             $this->removeDirectory($root);

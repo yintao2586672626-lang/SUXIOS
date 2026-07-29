@@ -186,6 +186,7 @@ Route::group('api/operating-targets', function () {
     Route::get('/snapshots', 'OperatingTarget/snapshots');
     Route::get('/prefill/daily-report', 'OperatingTarget/prefillDailyReport');
     Route::get('/prefill/dingdandao', 'OperatingTarget/prefillDingdandao');
+    Route::post('/pms/realtime-sync', 'OperatingTarget/syncSelectedPmsRealtime');
     Route::get('/pms/dingdandao/status', 'OperatingTarget/dingdandaoStatus');
     Route::get('/pms/dingdandao/integration', 'OperatingTarget/dingdandaoIntegrationStatus');
     Route::post('/pms/dingdandao/integration', 'OperatingTarget/saveDingdandaoIntegration');
