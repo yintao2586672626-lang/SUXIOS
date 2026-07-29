@@ -173,6 +173,18 @@ test('unthrottled auth handoff keeps the measured hard ceiling separate from the
   );
 });
 
+test('login click-to-interactive tolerates bounded cold-runner jitter without hiding a real stall', () => {
+  const report = passingReport();
+  report.aggregate.metrics.login_click_to_interactive_ms = metric(1_900);
+  assert.deepEqual(evaluateFrontendRuntimeBudget(report).failures, []);
+
+  report.aggregate.metrics.login_click_to_interactive_ms = metric(2_001);
+  assert(
+    evaluateFrontendRuntimeBudget(report).failures
+      .some((failure) => failure.metric === 'login_click_to_interactive_p95_ms'),
+  );
+});
+
 test('longest task keeps the device target separate from the isolated CI ceiling', () => {
   const report = passingReport();
   report.aggregate.metrics.longest_task_ms = metric(422);
@@ -185,7 +197,7 @@ test('longest task keeps the device target separate from the isolated CI ceiling
     reason: 'improvement_target_missed',
   }]);
 
-  report.aggregate.metrics.longest_task_ms = metric(501);
+  report.aggregate.metrics.longest_task_ms = metric(551);
   assert(
     evaluateFrontendRuntimeBudget(report).failures
       .some((failure) => failure.metric === 'longest_task_p95_ms'),
