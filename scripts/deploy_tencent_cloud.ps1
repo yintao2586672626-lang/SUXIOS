@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Server = "122.51.64.165",
+    [string]$HealthHost = "www.glslsuxi.cn",
     [string]$User = "ubuntu",
     [string]$KeyPath = "C:\Users\Administrator\.ssh\suxios-lighthouse-shanghai.pem",
     [string]$KnownHostsPath = "",
@@ -18,6 +19,9 @@ $scp = "C:\windows\System32\OpenSSH\scp.exe"
 
 if ($Server -notmatch '^[A-Za-z0-9.-]+$' -or $User -notmatch '^[a-z_][a-z0-9_-]*$') {
     throw 'Server or SSH user contains unsupported characters.'
+}
+if ($HealthHost -notmatch '^[A-Za-z0-9.-]+$') {
+    throw 'Health-check host contains unsupported characters.'
 }
 if ([string]::IsNullOrWhiteSpace($KnownHostsPath)) {
     $KnownHostsPath = Join-Path (Split-Path -Parent $KeyPath) 'known_hosts'
@@ -153,7 +157,7 @@ try {
         "--archive", $remoteArchive,
         "--release", $ReleaseName,
         "--sha256", $sha256,
-        "--health-host", $Server
+        "--health-host", $HealthHost
     )
     if ($StageOnly) {
         $remoteArgs += "--no-switch"
@@ -166,6 +170,7 @@ try {
     [PSCustomObject]@{
         Status = if ($StageOnly) { "staged" } else { "deployed" }
         Server = $Server
+        HealthHost = $HealthHost
         Release = $ReleaseName
         SourceCommit = $sourceCommit
         Sha256 = $sha256

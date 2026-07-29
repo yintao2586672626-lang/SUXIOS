@@ -219,6 +219,37 @@ test('authenticated login lands on the today operating dashboard through one ent
   assert.match(appMain, /if \(options\.skipOtaBackground !== true\) \{[\s\S]*?loadLatestCtripData[\s\S]*?loadCompetitorSummary/);
 });
 
+test('authenticated dashboard defers secondary API requests beyond the first measurement window', () => {
+  const compassLoaderStart = appMain.indexOf('const loadCompassData = async (options = {}) => {');
+  const compassLoaderEnd = appMain.indexOf('\n\n            const refreshCompassDashboard', compassLoaderStart);
+  const compassLoader = appMain.slice(compassLoaderStart, compassLoaderEnd);
+  assert.match(appMain, /const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;/);
+  assert.match(
+    appMain,
+    /const scheduleDualOtaWorkbenchAutoFetch = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,
+  );
+  assert.match(
+    appMain,
+    /const scheduleInitialBackendNotificationRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,
+  );
+  assert.match(
+    appMain,
+    /const schedulePublicSystemConfigRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/,
+  );
+  assert.match(
+    compassLoader,
+    /scheduleDelayedPageTask\(async \(\) => \{[\s\S]*?const compassBackgroundJobs = \[[\s\S]*?\}, AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\);/,
+  );
+  assert.doesNotMatch(
+    compassLoader,
+    /deferUiTask\(async \(\) => \{[\s\S]*?const compassBackgroundJobs = \[/,
+  );
+  assert.match(appMain, /scheduleStartupHotelListLoad\(\);\s*schedulePublicSystemConfigRefresh\(\);/);
+  assert.doesNotMatch(appMain, /scheduleDualOtaWorkbenchAutoFetch = \(delayMs = 900\)/);
+  assert.doesNotMatch(appMain, /scheduleInitialBackendNotificationRefresh = \(delayMs = 800\)/);
+  assert.doesNotMatch(appMain, /schedulePublicSystemConfigRefresh = \(delayMs = 1800\)/);
+});
+
 test('deferred and action-gated helpers resolve from their bundles only when invoked', () => {
   assert.match(appMain, /const requireUserAdminStatic = \(key\) => \{/);
   assert.match(appMain, /const requireCtripSearchOpportunityStatic = \(key\) => \(\.\.\.args\) => \{/);

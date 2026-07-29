@@ -3379,10 +3379,11 @@ test('Public system config refresh does not compete with core OTA switching', ()
   assert.match(systemConfigLoader, /let systemConfigPublicLoadPromise = null;/);
   assert.match(systemConfigLoader, /if \(publicOnly && systemConfigPublicLoadPromise\) \{/);
   assert.match(systemConfigLoader, /systemConfigPublicLoadedAt && Date\.now\(\) - systemConfigPublicLoadedAt < SYSTEM_CONFIG_PUBLIC_CACHE_TTL_MS/);
-  assert.match(systemConfigLoader, /const schedulePublicSystemConfigRefresh = \(delayMs = 1800\) => \{/);
+  assert.match(html, /const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;/);
+  assert.match(systemConfigLoader, /const schedulePublicSystemConfigRefresh = \(delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS\) => \{/);
   assert.match(systemConfigLoader, /if \(isCoreOtaPageVisible\(\)\) return undefined;/);
   assert.match(currentPageWatcher, /deferUiTask\(\(\) => runPendingPublicSystemConfigRefresh\(\), 600\);/);
-  assert.match(loadData, /schedulePublicSystemConfigRefresh\(1800\);/);
+  assert.match(loadData, /schedulePublicSystemConfigRefresh\(\);/);
   assert.doesNotMatch(loadData, /deferUiTask\(\(\) => loadSystemConfig\(\{ publicOnly: true \}\), 120\)/);
 });
 

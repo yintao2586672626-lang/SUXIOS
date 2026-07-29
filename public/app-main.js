@@ -6600,7 +6600,8 @@
                 }
                 return true;
             };
-            const scheduleDualOtaWorkbenchAutoFetch = (delayMs = 900) => {
+            const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;
+            const scheduleDualOtaWorkbenchAutoFetch = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {
                 scheduleDelayedPageTask(() => {
                     if (!token.value || !isCompassDataPage()) return null;
                     return refreshDualOtaWorkbenchData({ allowFetch: true, silent: true });
@@ -11422,7 +11423,7 @@
                 schedulePlatformCollectionStatusRefresh();
             };
             const scheduleBackendNotificationRefresh = () => schedulePostFetchRefresh('backend-global-notifications', () => loadBackendGlobalNotifications().catch(() => null), 700);
-            const scheduleInitialBackendNotificationRefresh = (delayMs = 800) => {
+            const scheduleInitialBackendNotificationRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {
                 setTimeout(() => {
                     if (!token.value) return;
                     refreshGlobalNotifications({ silent: true, backendOnly: true, startupDedupe: true });
@@ -35320,7 +35321,7 @@
                 publicSystemConfigRefreshPending = false;
                 return loadSystemConfig({ publicOnly: true });
             };
-            const schedulePublicSystemConfigRefresh = (delayMs = 1800) => {
+            const schedulePublicSystemConfigRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {
                 publicSystemConfigRefreshPending = true;
                 clearPublicSystemConfigRefreshTimer();
                 publicSystemConfigRefreshTimer = setTimeout(() => {
@@ -35820,7 +35821,7 @@
                         }, COMPASS_WEATHER_REFRESH_DELAY_MS);
                     }
                     compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
-                    deferUiTask(async () => {
+                    scheduleDelayedPageTask(async () => {
                         if (!isCurrentRequest()) return null;
                         const compassBackgroundJobs = [
                             () => (revenueAiStaticReady.value ? loadRevenueAiOverview() : null),
@@ -35844,7 +35845,7 @@
                             compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                         }
                         return null;
-                    }, 1200);
+                    }, AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS);
                     if (options.notify) {
                         showToast('罗盘数据已更新');
                     }
@@ -39788,7 +39789,7 @@
 
             const loadData = async () => {
                 scheduleStartupHotelListLoad();
-                schedulePublicSystemConfigRefresh(1800);
+                schedulePublicSystemConfigRefresh();
                 scheduleFormOperationSupportLoad();
             };
 

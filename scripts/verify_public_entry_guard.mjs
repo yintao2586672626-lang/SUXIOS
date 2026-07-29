@@ -3315,11 +3315,12 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (/\b(?:fab|far)\s+fa-/.test(content)) {
     failures.push('public/index.html must avoid FontAwesome brands/regular icon classes in the SPA entry because they trigger extra webfont downloads on core OTA pages.');
   }
-  if (!content.includes('const SYSTEM_CONFIG_PUBLIC_CACHE_TTL_MS = 60 * 1000;')
+  if (!content.includes('const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;')
+    || !content.includes('const SYSTEM_CONFIG_PUBLIC_CACHE_TTL_MS = 60 * 1000;')
     || !content.includes('let systemConfigPublicLoadPromise = null;')
-    || !content.includes('const schedulePublicSystemConfigRefresh = (delayMs = 1800) => {')
+    || !content.includes('const schedulePublicSystemConfigRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {')
     || !content.includes('if (isCoreOtaPageVisible()) return undefined;')
-    || !content.includes('schedulePublicSystemConfigRefresh(1800);')
+    || !content.includes('schedulePublicSystemConfigRefresh();')
     || content.includes('deferUiTask(() => loadSystemConfig({ publicOnly: true }), 120)')) {
     failures.push('public/index.html must defer, deduplicate, and short-cache public system-config refreshes away from core OTA page switching.');
   }

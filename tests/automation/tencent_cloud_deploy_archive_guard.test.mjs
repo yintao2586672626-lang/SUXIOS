@@ -19,6 +19,10 @@ test('Tencent Cloud release archive excludes local sensitive and runtime paths',
   assert.match(source, /StrictHostKeyChecking=yes/);
   assert.match(source, /UserKnownHostsFile=\$KnownHostsPath/);
   assert.match(source, /Server or SSH user contains unsupported characters/);
+  assert.match(source, /\[string\]\$HealthHost = "www\.glslsuxi\.cn"/);
+  assert.match(source, /Health-check host contains unsupported characters/);
+  assert.match(source, /"--health-host", \$HealthHost/);
+  assert.doesNotMatch(source, /"--health-host", \$Server/);
 });
 
 test('git archive keeps ignored backups and runtime data out while retaining migrations', () => {

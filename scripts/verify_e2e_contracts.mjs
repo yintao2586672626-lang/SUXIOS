@@ -880,7 +880,9 @@ requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="ov
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="home-market-signal-card">', 'home market signal panel is not mounted during the immediate OTA navigation window');
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady && homeTrendCards.length"', 'home trend cards are not mounted during the immediate OTA navigation window');
 requireText('public/index.html', 'homeSecondaryPanelsReady, homeClosedLoopStages', 'home lower-panel readiness flag is returned for template gating');
-requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = 800) => {', 'startup backend notification refresh loads promptly so direct OTA auth failures can strongly remind the submitter');
+requireText('public/index.html', 'const AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS = 4600;', 'authenticated secondary API requests stay outside the first measured interaction window');
+requireText('public/index.html', 'const scheduleDualOtaWorkbenchAutoFetch = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {', 'startup dual OTA refresh waits until after the first measured interaction window');
+requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) => {', 'startup backend notifications wait until after the first measured interaction window');
 requireText('public/index.html', 'if (!token.value) return;\n                    refreshGlobalNotifications({ silent: true, backendOnly: true, startupDedupe: true });', 'startup strong-reminder refresh runs once per authenticated startup session');
 requireText('public/index.html', 'if (isLoggedIn.value && token.value && !isCoreOtaPageVisible()) {', 'notification polling is paused while core OTA pages are visible');
 requireText('public/index.html', 'const loadHotelsRequestPromises = new Map();', 'hotel-list requests are deduplicated while a matching request is in flight');
@@ -889,7 +891,7 @@ requireText('public/index.html', 'loadHotelsRequestPromises.set(requestKey, run)
 requireText('public/index.html', 'const scheduleStartupHotelListLoad = (delayMs = null) => {', 'login startup uses a scheduler for the full hotel list');
 requireText('public/index.html', 'if (!hasKnownHotelOptions()) {\n                    return loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS });\n                }', 'startup hotel scheduler only loads immediately when no hotel context is available');
 requireText('public/index.html', 'if (!isLoggedIn.value || !token.value || isCoreOtaPageVisible()) return null;', 'startup hotel scheduler yields while core OTA pages are visible');
-requireText('public/index.html', 'scheduleStartupHotelListLoad();\n                schedulePublicSystemConfigRefresh(1800);', 'loadData schedules hotel loading before public system config refresh');
+requireText('public/index.html', 'scheduleStartupHotelListLoad();\n                schedulePublicSystemConfigRefresh();', 'loadData schedules hotel loading before the deferred public system config refresh');
 requireNoText('public/index.html', 'const loadData = async () => {\n                loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS });', 'login startup must not request /hotels/all directly on first paint');
 requireText('public/index.html', 'const scheduleCtripEbookingDeferredStartupRefresh = () => {\n                scheduleDelayedPageTask(async () => {', 'Ctrip manual startup refresh is delayed outside first paint');
 requireText('public/index.html', 'const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 2600;', 'Ctrip manual startup config-list read stays outside the first interaction window while preserving on-demand fetch config reads');
@@ -980,7 +982,8 @@ requireText('public/index.html', "if (!isCurrentRequest()) return null;", 'defer
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true })', 'deferred compass competitor summary uses page visibility guard');
 requireText('public/index.html', 'const compassBackgroundJobs = [', 'deferred compass background jobs are queued explicitly');
 requireText('public/index.html', 'await job();', 'deferred compass background jobs run serially instead of in parallel');
-requireText('public/index.html', '}, 1200);', 'deferred compass background jobs leave a short window for fast page switches');
+requireText('public/index.html', 'scheduleDelayedPageTask(async () => {', 'compass background jobs use a real delay instead of an early idle callback');
+requireText('public/index.html', '}, AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS);', 'deferred compass background jobs stay outside the first measured interaction window');
 requireOnlineDataControllerText("?? $options['auto_fetch_mode'];", 'backend auto-fetch defaults Ctrip mode to the selected auto-fetch mode');
 requireOnlineDataControllerText("get('include_detail'", 'backend auto-fetch status supports light detail requests');
 requireOnlineDataControllerText("'detail_loaded' => false", 'backend auto-fetch status marks light responses explicitly');
@@ -2307,7 +2310,7 @@ requireText('public/index.html', "return localStorage.getItem('enablePageTestIds
 requireNoText('public/index.html', "host === 'localhost' || host === '127.0.0.1' || host === '::1'", 'ordinary localhost does not auto-load page-control test id helper');
 requireText('public/index.html', 'createPageTestIdController', 'entry wires extracted page test id controller after lazy load');
 requireText('public/index.html', 'const schedulePageControlTestIdObserverStart = (delayMs = 520) =>', 'entry defers page-control test id observer startup off core page switching');
-requireText('public/index.html', 'const schedulePublicSystemConfigRefresh = (delayMs = 1800) =>', 'entry defers public system-config refresh off core OTA page switching');
+requireText('public/index.html', 'const schedulePublicSystemConfigRefresh = (delayMs = AUTHENTICATED_SECONDARY_REQUEST_DELAY_MS) =>', 'entry defers public system-config refresh beyond authenticated first interaction');
 requireText('public/index.html', "const formOperationSupportScript = 'form-operation-support.js'", 'entry lazy-loads form operation support after login');
 requireText('public/index.html', 'const shouldDeferFormOperationSupportLoad = () => isCompassDataPage() || isCoreOtaPageVisible();', 'form operation support does not prewarm on home or core OTA pages');
 requireText('public/index.html', 'const pageDelay = shouldDeferFormOperationSupportLoad() ? 6400 : 5200;', 'form operation support loads after the first core OTA interaction window');
