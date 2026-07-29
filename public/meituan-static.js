@@ -1565,6 +1565,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const loginOnly = Boolean(options.loginOnly);
         const bindDataSource = options.bindDataSource !== false;
         const dataPeriod = String(options.dataPeriod || options.data_period || form.dataPeriod || form.data_period || '').trim();
+        const dataDate = String(options.dataDate || options.data_date || '').trim();
         const storeId = String(form.storeId || form.poiId || fallbackPoiId || '').trim();
         const sections = normalizeMeituanCaptureSections(form.captureSections);
         if (!systemHotelId) {
@@ -1592,6 +1593,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 login_only: loginOnly,
                 bind_data_source: bindDataSource,
                 ...(dataPeriod ? { data_period: dataPeriod } : {}),
+                ...(dataDate ? { data_date: dataDate } : {}),
             },
         };
     };

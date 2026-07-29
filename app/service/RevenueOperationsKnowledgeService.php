@@ -42,11 +42,23 @@ final class RevenueOperationsKnowledgeService
         if (isset($unitColumns['created_by'])) {
             $unitFields[] = 'created_by';
         }
+        if (isset($unitColumns['known_knowns'])) {
+            $unitFields[] = 'known_knowns';
+        }
+        if (isset($unitColumns['known_unknowns'])) {
+            $unitFields[] = 'known_unknowns';
+        }
+        if (isset($unitColumns['truth_profile_version'])) {
+            $unitFields[] = 'truth_profile_version';
+        }
 
         $unitQuery = Db::name('knowledge_units')
             ->field(implode(',', $unitFields))
             ->where('source', self::SOURCE)
             ->where('status', 'done');
+        if (isset($unitColumns['lifecycle_status'])) {
+            $unitQuery->where('lifecycle_status', 'active');
+        }
 
         if (isset($unitColumns['hotel_id']) && isset($unitColumns['created_by'])) {
             if ($hotelId > 0) {
@@ -109,9 +121,11 @@ final class RevenueOperationsKnowledgeService
         foreach ($unitRows as $row) {
             $unitId = (int)($row['unit_id'] ?? 0);
             $unitHotelId = max(0, (int)($row['hotel_id'] ?? 0));
+            $lifecycleStatus = strtolower(trim((string)($row['lifecycle_status'] ?? 'active')));
             if ($unitId <= 0
                 || trim((string)($row['source'] ?? '')) !== self::SOURCE
-                || trim((string)($row['status'] ?? '')) !== 'done') {
+                || trim((string)($row['status'] ?? '')) !== 'done'
+                || $lifecycleStatus !== 'active') {
                 continue;
             }
             if ($unitHotelId === 0
@@ -163,6 +177,11 @@ final class RevenueOperationsKnowledgeService
                 continue;
             }
 
+            $lifecycleStatus = strtolower(trim((string)($content['lifecycle_status'] ?? 'active')));
+            if ($lifecycleStatus !== 'active') {
+                continue;
+            }
+
             $scope = trim((string)($content['scope'] ?? ''));
             $evidenceLevel = trim((string)($content['evidence_level'] ?? ''));
             $sourceRefs = is_array($content['source_refs'] ?? null) ? $content['source_refs'] : [];
@@ -185,6 +204,8 @@ final class RevenueOperationsKnowledgeService
             }
 
             $unit = $unitMap[$unitId];
+            $knownKnowns = $this->normalizeList($unit['known_knowns'] ?? []);
+            $knownUnknowns = $this->normalizeList($unit['known_unknowns'] ?? []);
             $entries[] = [
                 'chunk_id' => (int)($row['chunk_id'] ?? 0),
                 'unit_id' => $unitId,
@@ -194,6 +215,9 @@ final class RevenueOperationsKnowledgeService
                 'scope' => $scope,
                 'evidence_level' => $evidenceLevel,
                 'source_refs' => array_values($sourceRefs),
+                'known_knowns' => $knownKnowns,
+                'known_unknowns' => $knownUnknowns,
+                'truth_profile_version' => trim((string)($unit['truth_profile_version'] ?? '')),
                 'content' => $content,
             ];
 
@@ -251,7 +275,8 @@ final class RevenueOperationsKnowledgeService
     private function normalizeList($value): array
     {
         if (is_string($value)) {
-            $value = preg_split('/[,，\n]+/u', $value);
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : preg_split('/[,，\n]+/u', $value);
         }
         if (!is_array($value)) {
             return [];

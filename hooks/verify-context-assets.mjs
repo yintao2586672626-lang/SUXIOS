@@ -61,6 +61,11 @@ if (!exists('AGENTS.md', outerRoot)) {
   const outerAgents = read('AGENTS.md', outerRoot);
   requireIncludes('outer AGENTS.md', outerAgents, 'Durable Context Assetization');
   requireIncludes('outer AGENTS.md', outerAgents, 'Outcome Ownership and Feature Delivery');
+  requireIncludes('outer AGENTS.md', outerAgents, 'The current delivery mainline');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Commit, push, and PR changes remain explicit-only');
+  requireIncludes('outer AGENTS.md', outerAgents, 'A dirty worktree is not a blocker');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Passkey');
+  requireIncludes('outer AGENTS.md', outerAgents, 'After three targeted inspections');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/.agents/skills/');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/hooks/');
   requireIncludes('outer AGENTS.md', outerAgents, 'suxi-capability-absorption');
@@ -76,6 +81,10 @@ if (!exists('AGENTS.md')) {
   requireIncludes('project AGENTS.md', projectAgents, '一个主目标、一个可验收结果');
   requireIncludes('project AGENTS.md', projectAgents, '功能完整性补全');
   requireIncludes('project AGENTS.md', projectAgents, '不作为 OTA 功能的默认前置门禁');
+  requireIncludes('project AGENTS.md', projectAgents, '当前阶段交付主线');
+  requireIncludes('project AGENTS.md', projectAgents, '工作树不要求全局干净');
+  requireIncludes('project AGENTS.md', projectAgents, '连续三轮定向检查');
+  requireIncludes('project AGENTS.md', projectAgents, 'Passkey');
 }
 
 const collaborationCharterPath = 'docs/product_collaboration_charter.md';
@@ -89,6 +98,10 @@ if (!exists(collaborationCharterPath)) {
     '功能完整性补全',
     '用户可见的最短安全路径',
     '最小验收与停止条件',
+    '本次请求未明确包含的提交、推送、外部PR、部署、生产写入或正式外发',
+    '工作树不要求全局干净',
+    '连续三轮定向检查',
+    'Passkey',
   ]) {
     requireIncludes(collaborationCharterPath, charter, needle);
   }
@@ -328,7 +341,8 @@ if (!exists(rulesPath)) {
 } else {
   const rules = read(rulesPath);
   requireIncludes(rulesPath, rules, 'Protected Scopes');
-  requireIncludes(rulesPath, rules, 'Do not use network, account authorization');
+  requireIncludes(rulesPath, rules, 'Commit, push, PR, deployment, production writes');
+  requireIncludes(rulesPath, rules, 'Passkey');
   requireIncludes(rulesPath, rules, 'Do not label OTA-only data as whole-hotel');
 }
 

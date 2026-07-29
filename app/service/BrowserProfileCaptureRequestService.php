@@ -617,7 +617,8 @@ final class BrowserProfileCaptureRequestService
         string $outputPath,
         array $sectionsList,
         int $sectionConcurrency,
-        bool $interactiveBrowser
+        bool $interactiveBrowser,
+        string $capturePlan = 'full'
     ): array {
         return [
             $nodeBinary,
@@ -629,8 +630,21 @@ final class BrowserProfileCaptureRequestService
             '--login-timeout-ms=' . ($interactiveBrowser ? '300000' : '30000'),
             '--sections=' . implode(',', $sectionsList),
             '--section-concurrency=' . (string)$sectionConcurrency,
+            '--capture-plan=' . self::normalizeCtripCapturePlan($capturePlan),
             $interactiveBrowser ? '--headless=false' : '--headless=true',
         ];
+    }
+
+    public static function normalizeCtripCapturePlan(mixed $value): string
+    {
+        $plan = strtolower(trim(str_replace(['-', ' '], '_', (string)$value)));
+        return match ($plan) {
+            'realtime', 'broadcast', 'realtime_broadcast' => 'realtime_broadcast',
+            'past', 'history', 'historical', 'historical_review', 'past_review' => 'historical_review',
+            'intraday', 'trend', 'hourly_trend', 'traffic_trend', 'intraday_trend' => 'intraday_trend',
+            'future', 'search_demand', 'future_demand' => 'future_demand',
+            default => 'full',
+        };
     }
 
     public static function normalizeProfileSections($value, string $fallback): string

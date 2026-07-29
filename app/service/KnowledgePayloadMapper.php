@@ -66,6 +66,27 @@ final class KnowledgePayloadMapper
             $data['tags'] = [];
         }
 
+        $truthProfileTouched = false;
+        if (array_key_exists('known_knowns', $input)) {
+            $data['known_knowns'] = $this->normalizeStatements($input['known_knowns'], 'known_knowns');
+            $truthProfileTouched = true;
+        }
+        if (array_key_exists('known_unknowns', $input)) {
+            $data['known_unknowns'] = $this->normalizeStatements($input['known_unknowns'], 'known_unknowns');
+            $truthProfileTouched = true;
+        }
+        if (array_key_exists('truth_profile_version', $input)) {
+            $version = trim((string)$input['truth_profile_version']);
+            if ($version !== '' && preg_match('/^[A-Za-z0-9._-]{1,32}$/', $version) !== 1) {
+                throw new ValidateException('truth_profile_version must use letters, numbers, dot, underscore or hyphen');
+            }
+            $data['truth_profile_version'] = $version;
+            $truthProfileTouched = true;
+        }
+        if ($truthProfileTouched) {
+            $data['reviewed_at'] = date('Y-m-d H:i:s');
+        }
+
         return $data;
     }
 
@@ -120,6 +141,8 @@ final class KnowledgePayloadMapper
             $decoded = json_decode($tags, true);
             $tags = is_array($decoded) ? $decoded : [];
         }
+        $knownKnowns = $this->decodeStatements($row['known_knowns'] ?? []);
+        $knownUnknowns = $this->decodeStatements($row['known_unknowns'] ?? []);
         $resolvedChunkCount = $chunkCount ?? (int)($row['chunk_count'] ?? 0);
 
         return [
@@ -128,14 +151,71 @@ final class KnowledgePayloadMapper
             'name' => (string)($row['name'] ?? ''),
             'source' => (string)($row['source'] ?? ''),
             'status' => (string)($row['status'] ?? 'pending'),
+            'lifecycle_status' => (string)($row['lifecycle_status'] ?? 'active'),
+            'lifecycle_reason' => (string)($row['lifecycle_reason'] ?? ''),
+            'known_knowns' => $knownKnowns,
+            'known_unknowns' => $knownUnknowns,
+            'truth_profile_version' => (string)($row['truth_profile_version'] ?? ''),
             'description' => (string)($row['description'] ?? ''),
             'tags' => array_values(is_array($tags) ? $tags : []),
             'chunk_count' => $resolvedChunkCount,
             'readiness' => $this->readinessService->buildUnitReadiness($row, $resolvedChunkCount),
             'created_by' => (int)($row['created_by'] ?? 0),
+            'reviewed_at' => (string)($row['reviewed_at'] ?? ''),
             'created_at' => (string)($row['created_at'] ?? ''),
             'updated_at' => (string)($row['updated_at'] ?? ''),
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function normalizeStatements(mixed $value, string $field): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = json_last_error() === JSON_ERROR_NONE
+                ? $decoded
+                : preg_split('/\r?\n+/u', $value);
+        }
+        if (!is_array($value)) {
+            throw new ValidateException($field . ' must be an array or newline-separated text');
+        }
+
+        $items = [];
+        foreach ($value as $item) {
+            if (!is_scalar($item)) {
+                continue;
+            }
+            $text = mb_substr(trim((string)$item), 0, 255);
+            if ($text !== '') {
+                $items[$text] = $text;
+            }
+            if (count($items) >= 20) {
+                break;
+            }
+        }
+
+        return array_values($items);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function decodeStatements(mixed $value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            static fn(mixed $item): string => is_scalar($item) ? trim((string)$item) : '',
+            $value
+        ), static fn(string $item): bool => $item !== ''));
     }
 
     public function formatChunkRow(array $row): array

@@ -75,6 +75,18 @@ final class CtripImplementationExposurePolicy
         'duplicate_status',
     ];
 
+    /** @var array<int, string> */
+    private const CONFIG_HISTORY_SUMMARY_KEYS = [
+        'id',
+        'config_status',
+        'status_label',
+        'update_time',
+        'ctrip_hotel_id',
+        'hotel_room_count',
+        'competitor_room_count',
+        'configuration_verified',
+    ];
+
     public static function canViewImplementation(mixed $user): bool
     {
         return is_object($user)
@@ -128,7 +140,15 @@ final class CtripImplementationExposurePolicy
     /** @param array<string, mixed> $config */
     public static function config(array $config): array
     {
-        return array_merge(self::pick($config, self::CONFIG_SUMMARY_KEYS), [
+        $summary = self::pick($config, self::CONFIG_SUMMARY_KEYS);
+        if (is_array($config['history_items'] ?? null)) {
+            $summary['history_items'] = array_values(array_map(
+                static fn(array $item): array => self::pick($item, self::CONFIG_HISTORY_SUMMARY_KEYS),
+                array_values(array_filter($config['history_items'], 'is_array'))
+            ));
+        }
+
+        return array_merge($summary, [
             'implementation_visibility' => 'redacted',
             'collection_contract' => 'task_scoped',
         ]);

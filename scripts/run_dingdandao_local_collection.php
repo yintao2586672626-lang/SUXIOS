@@ -19,6 +19,9 @@ $options = getopt('', [
     'target-date::',
     'cdp-url::',
     'node-binary::',
+    'sandbox-id::',
+    'collection-mode::',
+    'require-sandbox',
     'push',
 ]);
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))
@@ -39,11 +42,18 @@ $cdpUrl = rtrim(
 $nodeBinary = resolveLocalNodeBinary(
     isset($options['node-binary']) ? (string)$options['node-binary'] : null
 );
+$sandboxId = trim((string)($options['sandbox-id'] ?? ''));
+$collectionMode = localCollectionMode(
+    (string)($options['collection-mode'] ?? 'full_diagnostic')
+);
+$requireSandbox = array_key_exists('require-sandbox', $options);
 $pushRequested = array_key_exists('push', $options);
 
 if (!localValidDate($targetDate)
     || $targetDate !== $today
     || !localValidCdpUrl($cdpUrl)
+    || ($sandboxId !== '' && !localValidSandboxId($sandboxId))
+    || ($requireSandbox && $sandboxId === '')
 ) {
     localFail('dingdandao_local_collection_arguments_invalid', 2);
 }
@@ -106,13 +116,20 @@ try {
         $root . '/scripts/dingdandao_cloud_capture.mjs',
         $cdpUrl,
         $targetDate,
-        $expectedProviderHotelName
+        $expectedProviderHotelName,
+        $sandboxId,
+        $collectionMode
     );
     if (($collector['status'] ?? '') !== 'captured_unverified'
-        || ($collector['collection_mode'] ?? '') !== 'full_diagnostic'
+        || ($collector['collection_mode'] ?? '') !== $collectionMode
         || !is_array($collector['capture'] ?? null)
         || ($collector['raw_response_exposed'] ?? null) !== false
         || ($collector['session_material_exposed'] ?? null) !== false
+        || ($sandboxId !== ''
+            && (
+                ($collector['sandbox_id'] ?? null) !== $sandboxId
+                || ($collector['sandbox_selection'] ?? '') !== 'explicit_marker'
+            ))
     ) {
         throw new RuntimeException('dingdandao_local_collection_payload_invalid');
     }
@@ -190,6 +207,12 @@ try {
     $result = [
         'status' => 'saved_and_readback_verified',
         'execution_mode' => 'local_cdp',
+        'collection_mode' => $collectionMode,
+        'sandbox_id' => $sandboxId !== '' ? $sandboxId : null,
+        'sandbox_selection' => $sandboxId !== ''
+            ? 'explicit_marker'
+            : 'legacy_cookie_scan',
+        'sandbox_isolated' => $sandboxId !== '',
         'hotel_id' => $hotelId,
         'target_date' => $targetDate,
         'capture_id' => (int)$capture['id'],
@@ -261,7 +284,9 @@ function runLocalDingdandaoCollector(
     string $script,
     string $cdpUrl,
     string $targetDate,
-    string $hotelName
+    string $hotelName,
+    string $sandboxId = '',
+    string $collectionMode = 'full_diagnostic'
 ): array {
     $command = [
         $nodeBinary,
@@ -269,9 +294,12 @@ function runLocalDingdandaoCollector(
         '--cdp-url=' . $cdpUrl,
         '--target-date=' . $targetDate,
         '--expected-hotel-name=' . $hotelName,
-        '--collection-mode=full_diagnostic',
+        '--collection-mode=' . $collectionMode,
         '--timeout-ms=15000',
     ];
+    if ($sandboxId !== '') {
+        $command[] = '--sandbox-id=' . $sandboxId;
+    }
     $pipes = [];
     $process = proc_open(
         $command,
@@ -366,6 +394,24 @@ function localValidCdpUrl(string $value): bool
     }
     $port = (int)$matches[1];
     return $port > 0 && $port <= 65535;
+}
+
+function localValidSandboxId(string $value): bool
+{
+    return preg_match('/^sbx_[A-Za-z0-9_-]{8,64}$/D', $value) === 1;
+}
+
+function localCollectionMode(string $value): string
+{
+    $normalized = strtolower(trim($value));
+    if (!in_array(
+        $normalized,
+        ['operating_indicators', 'full_diagnostic'],
+        true
+    )) {
+        localFail('dingdandao_local_collection_mode_invalid', 2);
+    }
+    return $normalized;
 }
 
 function localPositiveInt(mixed $value, string $reason): int

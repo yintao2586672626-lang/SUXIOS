@@ -16,7 +16,6 @@ $ErrorActionPreference = "Stop"
 
 if ($env:Path) {
     [System.Environment]::SetEnvironmentVariable("Path", $env:Path, "Process")
-    [System.Environment]::SetEnvironmentVariable("PATH", $null, "Process")
 }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

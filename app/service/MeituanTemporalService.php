@@ -80,10 +80,9 @@ final class MeituanTemporalService
 
         $source = $selection['source'];
         $sourceId = (int)($source['id'] ?? 0);
-        $hasFutureToday = $this->hasVerifiedRowsCapturedOn(
+        $hasFutureToday = $this->hasCompleteVerifiedFutureSnapshotCapturedOn(
             $systemHotelId,
             $asOf->format('Y-m-d'),
-            ['traffic_forecast'],
             $asOf->format('Y-m-d')
         );
         $tasks = [];
@@ -122,16 +121,20 @@ final class MeituanTemporalService
         }
 
         $blockedTask = null;
+        $partialTask = null;
         foreach ($tasks as $task) {
             if (($task['status'] ?? '') === 'blocked') {
                 $blockedTask = $task;
                 break;
             }
+            if (($task['status'] ?? '') === 'partial') {
+                $partialTask ??= $task;
+            }
         }
         return [
-            'status' => $blockedTask ? 'blocked' : 'completed',
-            'reason_code' => $blockedTask['reason_code'] ?? 'refresh_completed',
-            'message' => $blockedTask['message'] ?? 'Meituan temporal refresh completed.',
+            'status' => $blockedTask ? 'blocked' : ($partialTask ? 'partial' : 'completed'),
+            'reason_code' => $blockedTask['reason_code'] ?? $partialTask['reason_code'] ?? 'refresh_completed',
+            'message' => $blockedTask['message'] ?? $partialTask['message'] ?? 'Meituan temporal refresh completed.',
             'system_hotel_id' => $systemHotelId,
             'as_of_date' => $asOf->format('Y-m-d'),
             'data_scope' => 'ota_channel',
@@ -204,6 +207,10 @@ final class MeituanTemporalService
         } elseif ($asOfText === $now->format('Y-m-d') && (int)$now->format('H') < 9) {
             $yesterdayCurrent['status'] = 'pending_source_update';
             $yesterdayCurrent['reason_code'] = 'before_platform_update_window';
+            if (($future['status'] ?? '') === 'missing') {
+                $future['status'] = 'pending_source_update';
+                $future['reason_code'] = 'before_future_platform_update_window';
+            }
         }
 
         return [
@@ -321,14 +328,52 @@ final class MeituanTemporalService
             ];
         }
 
-        usort($sources, static function (array $a, array $b): int {
-            $priority = static fn(array $source): int => match (strtolower((string)($source['data_type'] ?? ''))) {
-                'business', 'traffic', 'traffic_analysis' => 0,
-                default => 1,
+        return [
+            'status' => 'ready',
+            'reason_code' => 'source_bound',
+            'source' => self::preferredProfileSource($sources),
+        ];
+    }
+
+    /**
+     * Legacy Meituan setup can expose one owning Profile source plus generated
+     * resource projections for the same store. Execute the currently verified
+     * or reusable source instead of selecting a failed projection by id/type.
+     *
+     * @param array<int, array<string, mixed>> $sources
+     * @return array<string, mixed>
+     */
+    private static function preferredProfileSource(array $sources): array
+    {
+        usort($sources, static function (array $left, array $right): int {
+            $rank = static function (array $source): array {
+                $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+                $projectionIds = array_values(array_filter(
+                    (array)($config['source_projection_ids'] ?? []),
+                    static fn(mixed $id): bool => (int)$id > 0
+                ));
+                $statusRank = match (strtolower(trim((string)($source['status'] ?? '')))) {
+                    'success' => 0,
+                    'ready' => 1,
+                    'partial_success' => 2,
+                    'failed' => 3,
+                    'waiting_config' => 4,
+                    default => 5,
+                };
+
+                return [
+                    ($source['current_session_verified'] ?? false) === true ? 0 : 1,
+                    ($source['profile_reusable'] ?? false) === true ? 0 : 1,
+                    $projectionIds === [] ? 0 : 1,
+                    $statusRank,
+                    (int)($source['id'] ?? 0),
+                ];
             };
-            return [$priority($a), -(int)($a['id'] ?? 0)] <=> [$priority($b), -(int)($b['id'] ?? 0)];
+
+            return $rank($left) <=> $rank($right);
         });
-        return ['status' => 'ready', 'reason_code' => 'source_bound', 'source' => $sources[0]];
+
+        return $sources[0];
     }
 
     /** @return array<string, mixed> */
@@ -337,10 +382,13 @@ final class MeituanTemporalService
         try {
             $result = $this->syncService->syncDataSource($user, $sourceId, $options);
             $status = strtolower((string)($result['status'] ?? 'failed'));
+            $taskStatus = in_array($status, ['success', 'completed'], true)
+                ? 'completed'
+                : ($status === 'partial_success' ? 'partial' : 'blocked');
             return [
                 'segment' => $segment,
-                'status' => in_array($status, ['success', 'completed'], true) ? 'completed' : 'blocked',
-                'reason_code' => in_array($status, ['success', 'completed'], true) ? 'capture_saved_and_read_back' : $this->refreshReason($result),
+                'status' => $taskStatus,
+                'reason_code' => $taskStatus === 'completed' ? 'capture_saved_and_read_back' : $this->refreshReason($result),
                 'message' => (string)($result['message'] ?? ''),
                 'data_source_id' => $sourceId,
                 'sync_task_id' => (int)($result['id'] ?? $result['task_id'] ?? 0),
@@ -398,6 +446,65 @@ final class MeituanTemporalService
             ->toArray();
         foreach ($rows as $row) {
             if (str_starts_with($this->capturedAt($row), $capturedDate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function hasCompleteVerifiedFutureSnapshotCapturedOn(
+        int $systemHotelId,
+        string $asOfDate,
+        string $capturedDate
+    ): bool {
+        $start = $this->date($asOfDate)->add(new DateInterval('P1D'))->format('Y-m-d');
+        $end = $this->date($asOfDate)->add(new DateInterval('P30D'))->format('Y-m-d');
+        $rows = Db::name('online_daily_data')
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('source', 'meituan')
+            ->where('data_type', 'traffic_forecast')
+            ->where('readback_verified', 1)
+            ->whereBetween('data_date', [$start, $end])
+            ->order('id', 'desc')
+            ->limit(500)
+            ->select()
+            ->toArray();
+
+        return $this->hasCompleteVerifiedFutureSnapshotRows(
+            $rows,
+            $asOfDate,
+            $capturedDate
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function hasCompleteVerifiedFutureSnapshotRows(
+        array $rows,
+        string $asOfDate,
+        string $capturedDate
+    ): bool {
+        $futureEnd = $this->date($asOfDate)->add(new DateInterval('P30D'))->format('Y-m-d');
+        $groups = [];
+        foreach ($rows as $row) {
+            if (!str_starts_with($this->capturedAt($row), $capturedDate)) {
+                continue;
+            }
+            $type = $this->forecastType($row);
+            if (!in_array($type, ['pv', 'uv', 'advance_orders'], true)) {
+                continue;
+            }
+            $groups[$this->snapshotKey($row)][] = $row;
+        }
+        foreach ($groups as $snapshotKey => $snapshotRows) {
+            $snapshot = $this->buildFutureSnapshot(
+                $snapshotRows,
+                $snapshotKey,
+                $asOfDate,
+                $futureEnd
+            );
+            if (($snapshot['status'] ?? '') === 'ready') {
                 return true;
             }
         }
@@ -672,10 +779,10 @@ final class MeituanTemporalService
             'sales_room_nights' => ['types' => ['business'], 'field' => 'quantity', 'raw_keys' => ['sales_room_nights', 'salesRoomNights', 'room_nights'], 'fact_keys' => ['sales_room_nights', 'room_nights']],
             'sales_amount' => ['types' => ['business'], 'field' => 'amount', 'raw_keys' => ['sales_amount', 'salesAmount', 'amount'], 'fact_keys' => ['sales_amount', 'order_amount']],
             'sales_avg_price' => ['types' => ['business'], 'field' => 'data_value', 'raw_keys' => ['sales_avg_price', 'salesAvgPrice', 'avgPrice'], 'fact_keys' => ['sales_avg_price', 'data_value']],
-            'exposure_users' => ['types' => ['business', 'traffic'], 'field' => 'list_exposure', 'raw_keys' => ['exposure_users', 'listExposure', 'exposureUV'], 'fact_keys' => ['exposure_users', 'list_exposure', 'mt_exposure']],
-            'detail_visitors' => ['types' => ['business', 'traffic'], 'field' => 'detail_exposure', 'raw_keys' => ['detail_visitors', 'detailExposure', 'intentionUV'], 'fact_keys' => ['detail_visitors', 'detail_exposure', 'mt_intention_uv']],
-            'paid_order_count' => ['types' => ['business', 'traffic'], 'field' => 'book_order_num', 'raw_keys' => ['paid_order_count', 'payOrderCnt', 'orderSubmitNum'], 'fact_keys' => ['paid_order_count', 'order_count', 'order_submit_num', 'mt_pay_orders']],
-            'browse_to_pay_rate' => ['types' => ['business', 'traffic'], 'field' => 'flow_rate', 'raw_keys' => ['browse_to_pay_rate', 'browsePayRate', 'payOrderPerIntention'], 'fact_keys' => ['browse_to_pay_rate', 'flow_rate']],
+            'exposure_users' => ['types' => ['traffic'], 'field' => 'list_exposure', 'raw_keys' => ['exposure_users', 'listExposure', 'exposureUV'], 'fact_keys' => ['exposure_users', 'list_exposure', 'mt_exposure']],
+            'detail_visitors' => ['types' => ['traffic'], 'field' => 'detail_exposure', 'raw_keys' => ['detail_visitors', 'detailExposure', 'intentionUV'], 'fact_keys' => ['detail_visitors', 'detail_exposure', 'mt_intention_uv']],
+            'paid_order_count' => ['types' => ['traffic'], 'field' => 'book_order_num', 'raw_keys' => ['paid_order_count', 'payOrderCnt', 'orderSubmitNum'], 'fact_keys' => ['paid_order_count', 'order_count', 'order_submit_num', 'mt_pay_orders']],
+            'browse_to_pay_rate' => ['types' => ['traffic'], 'field' => 'flow_rate', 'raw_keys' => ['browse_to_pay_rate', 'browsePayRate', 'payOrderPerIntention'], 'fact_keys' => ['browse_to_pay_rate', 'flow_rate']],
             default => ['types' => [], 'field' => '', 'raw_keys' => [], 'fact_keys' => []],
         };
     }
@@ -919,11 +1026,16 @@ final class MeituanTemporalService
 
     private function refreshReason(array $result): string
     {
-        $text = strtolower((string)($result['message'] ?? $result['status_code'] ?? ''));
+        $statusCode = strtolower(trim((string)($result['status_code'] ?? '')));
+        $text = strtolower(trim((string)($result['message'] ?? '')));
+        if ($statusCode === 'profile_reused_no_target_date_traffic_rows'
+            || $text === 'profile_reused_no_target_date_traffic_rows') {
+            return 'meituan_target_date_traffic_missing';
+        }
         if (str_contains($text, 'login') || str_contains($text, 'session') || str_contains($text, 'profile')) {
             return 'meituan_profile_login_required';
         }
-        return (string)($result['status_code'] ?? 'meituan_capture_failed');
+        return $statusCode !== '' ? $statusCode : 'meituan_capture_failed';
     }
 
     private function exceptionReason(\Throwable $e): string

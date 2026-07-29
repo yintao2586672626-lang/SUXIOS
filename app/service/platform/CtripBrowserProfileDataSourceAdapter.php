@@ -156,6 +156,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $hotelName = $this->firstString($options, $config, ['hotel_name', 'hotelName', 'name']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
         $sectionConcurrency = $this->resolveCtripSectionConcurrency($options, $config);
+        $capturePlan = $this->resolveCtripCapturePlan($options, $config);
 
         try {
             if ($this->shouldCaptureSectionsSequentially($options, $sectionList)) {
@@ -172,7 +173,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $interactive,
                     $timeoutSeconds,
                     $fieldConfigPayload,
-                    $notApplicableSectionList
+                    $notApplicableSectionList,
+                    $capturePlan
                 );
             }
 
@@ -194,6 +196,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     'section_concurrency' => $sectionConcurrency,
                     'parallel_fallback' => true,
                     'not_applicable_sections' => $notApplicableSectionList,
+                    'capture_plan' => $capturePlan,
                 ]
             );
             if ($this->shouldFallbackToSequentialAfterParallel($result, $sectionList, $sectionConcurrency, $options)) {
@@ -210,7 +213,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $interactive,
                     $timeoutSeconds,
                     $fieldConfigPayload,
-                    $notApplicableSectionList
+                    $notApplicableSectionList,
+                    $capturePlan
                 );
                 if (is_array($fallback['payload'] ?? null)) {
                     $fallback['payload']['parallel_capture_fallback'] = [
@@ -573,7 +577,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         bool $interactive,
         int $timeoutSeconds,
         array $fieldConfigPayload,
-        array $notApplicableSectionList = []
+        array $notApplicableSectionList = [],
+        string $capturePlan = 'full'
     ): array {
         $payloads = [];
         $moduleResults = [];
@@ -597,6 +602,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 $sectionFieldConfig,
                 [
                     'not_applicable_sections' => $notApplicableSectionList,
+                    'capture_plan' => $capturePlan,
                 ]
             );
             $moduleResults[] = $this->captureModuleResultSummary($section, $result);
@@ -698,6 +704,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if (array_key_exists('parallel_fallback', $captureOptions) && !$this->truthy($captureOptions['parallel_fallback'])) {
             $args[] = '--disable-parallel-fallback=true';
         }
+        $capturePlan = $this->normalizeCtripCapturePlan((string)($captureOptions['capture_plan'] ?? 'full'));
+        $args[] = '--capture-plan=' . $capturePlan;
         $notApplicableSections = $this->normalizeOptionalSectionList($captureOptions['not_applicable_sections'] ?? []);
         if ($notApplicableSections !== []) {
             $args[] = '--not-applicable-sections=' . implode(',', $notApplicableSections);
@@ -785,6 +793,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'acquisition_method' => 'browser_profile',
             'profile_id' => $profileId,
             'capture_sections' => $sections,
+            'capture_plan' => (string)($payload['capture_plan']['id'] ?? 'full'),
             'not_applicable_sections' => $this->normalizeOptionalSectionList($payload['not_applicable_sections'] ?? []),
             'data_date' => $dataDate,
             'captured_by' => 'platform_data_source_sync',
@@ -903,6 +912,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'acquisition_method' => 'browser_profile',
             'profile_id' => $profileId,
             'capture_sections' => implode(',', $sectionList),
+            'capture_plan' => (string)($base['capture_plan']['id'] ?? 'full'),
             'not_applicable_sections' => $this->normalizeOptionalSectionList($base['not_applicable_sections'] ?? []),
             'capture_mode' => 'sequential_sections',
             'data_date' => $dataDate,
@@ -1071,6 +1081,30 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         return 3;
+    }
+
+    private function resolveCtripCapturePlan(array $options, array $config): string
+    {
+        foreach (['capture_plan', 'capturePlan', 'ctrip_capture_plan', 'ctripCapturePlan'] as $key) {
+            $value = $options[$key] ?? $config[$key] ?? null;
+            if ($value !== null && trim((string)$value) !== '') {
+                return $this->normalizeCtripCapturePlan((string)$value);
+            }
+        }
+
+        return 'full';
+    }
+
+    private function normalizeCtripCapturePlan(string $value): string
+    {
+        $value = strtolower(trim(str_replace(['-', ' '], '_', $value)));
+        return match ($value) {
+            'realtime', 'broadcast', 'realtime_broadcast' => 'realtime_broadcast',
+            'past', 'history', 'historical', 'historical_review', 'past_review' => 'historical_review',
+            'intraday', 'trend', 'hourly_trend', 'traffic_trend', 'intraday_trend' => 'intraday_trend',
+            'future', 'search_demand', 'future_demand' => 'future_demand',
+            default => 'full',
+        };
     }
 
     /**

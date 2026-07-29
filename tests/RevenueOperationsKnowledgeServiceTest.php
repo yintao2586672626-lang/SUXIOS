@@ -19,6 +19,9 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
             'source' => RevenueOperationsKnowledgeService::SOURCE,
             'status' => 'done',
             'description' => 'structured knowledge',
+            'known_knowns' => '["诊断方法已确认"]',
+            'known_unknowns' => '["当前门店事实待验证"]',
+            'truth_profile_version' => '2026-07-29.1',
         ]];
         $chunks = [
             [
@@ -51,6 +54,9 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
         self::assertSame(1, $default['entry_count']);
         self::assertSame(1, $default['excluded_case_reference_count']);
         self::assertSame('收入变化诊断', $default['entries'][0]['knowledge_type']);
+        self::assertSame(['诊断方法已确认'], $default['entries'][0]['known_knowns']);
+        self::assertSame(['当前门店事实待验证'], $default['entries'][0]['known_unknowns']);
+        self::assertSame('2026-07-29.1', $default['entries'][0]['truth_profile_version']);
 
         $withCase = $service->buildContextFromRows($units, $chunks, [
             'hotel_id' => 7,
@@ -174,6 +180,71 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
             ['revenue_operations_knowledge_traceability_missing'],
             array_column($context['data_gaps'], 'code')
         );
+    }
+
+    public function testContextExcludesNonActiveUnitsAndChunks(): void
+    {
+        $service = new RevenueOperationsKnowledgeService();
+        $units = [
+            [
+                'unit_id' => 11,
+                'hotel_id' => 0,
+                'created_by' => 0,
+                'source' => RevenueOperationsKnowledgeService::SOURCE,
+                'status' => 'done',
+                'lifecycle_status' => 'active',
+            ],
+            [
+                'unit_id' => 12,
+                'hotel_id' => 0,
+                'created_by' => 0,
+                'source' => RevenueOperationsKnowledgeService::SOURCE,
+                'status' => 'done',
+                'lifecycle_status' => 'quarantined',
+            ],
+        ];
+        $chunks = [
+            [
+                'chunk_id' => 101,
+                'unit_id' => 11,
+                'type' => 'active method',
+                'content' => [
+                    'lifecycle_status' => 'active',
+                    'scope' => 'generic_methodology',
+                    'evidence_level' => 'reviewed_method',
+                    'source_refs' => ['active-source'],
+                ],
+            ],
+            [
+                'chunk_id' => 102,
+                'unit_id' => 11,
+                'type' => 'stale method',
+                'content' => [
+                    'lifecycle_status' => 'stale',
+                    'scope' => 'generic_methodology',
+                    'evidence_level' => 'old_method',
+                    'source_refs' => ['stale-source'],
+                ],
+            ],
+            [
+                'chunk_id' => 103,
+                'unit_id' => 12,
+                'type' => 'quarantined unit method',
+                'content' => [
+                    'lifecycle_status' => 'active',
+                    'scope' => 'generic_methodology',
+                    'evidence_level' => 'old_method',
+                    'source_refs' => ['quarantined-source'],
+                ],
+            ],
+        ];
+
+        $context = $service->buildContextFromRows($units, $chunks);
+
+        self::assertSame('available', $context['status']);
+        self::assertSame(1, $context['unit_count']);
+        self::assertSame(1, $context['entry_count']);
+        self::assertSame('active method', $context['entries'][0]['knowledge_type']);
     }
 
     public function testKnowledgeArtifactsAreSeededAndKeepCaseScopeProtected(): void

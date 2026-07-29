@@ -158,7 +158,14 @@ test('authenticated startup paints the home render before loading the full rende
   assert.match(bootstrap, /suxi:full-render-ready/);
   assert.match(bootstrap, /const loadDeferredAuthenticatedAssetManifest = \(\) => \{/);
   assert.match(bootstrap, /window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = loadDeferredAuthenticatedAssetManifest;/);
-  assert.doesNotMatch(bootstrap, /void loadDeferredAuthenticatedAssets\(deferredAssets\);/);
+  assert.match(
+    bootstrap,
+    /const fullRenderAsset = assets\.find\([\s\S]*?assetBaseName\(asset\.src\) === 'app-render\.min\.js'[\s\S]*?preloadAuthenticatedAsset\(fullRenderAsset, 'high'\)/,
+  );
+  assert.match(
+    bootstrap,
+    /await loadScript\(entry\);\s*void loadDeferredAuthenticatedAssets\(\s*assets\.filter\(\(asset\) => asset\.phase === ASSET_PHASE_AFTER_FIRST_PAINT\)/,
+  );
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
 });

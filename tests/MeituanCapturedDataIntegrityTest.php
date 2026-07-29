@@ -54,6 +54,50 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         ], 80]);
     }
 
+    public function testTrafficFunnelKeepsPlatformExposureToBrowseRateInRawFacts(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => '1029642156589279',
+            'poiName' => 'Dunhuang Meituan Hotel',
+            'defaultDataDate' => '2026-07-30',
+            'traffic' => [[
+                '_source_path' => 'data.myHotel',
+                'date' => '2026-07-30',
+                'exposureUV' => 45,
+                'intentionUV' => 8,
+                'payOrderCnt' => 1,
+                'intentionPerExposure' => '17.78%',
+                'exposure_to_browse_rate' => 17.78,
+                'payOrderPerIntention' => '12.5%',
+            ]],
+        ], 80]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(45, $rows[0]['list_exposure']);
+        self::assertSame(8, $rows[0]['detail_exposure']);
+        self::assertSame(12.5, $rows[0]['flow_rate']);
+
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        self::assertSame(17.78, $raw['exposure_to_browse_rate']);
+        $facts = array_column($raw['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame(
+            'data.myHotel.intentionPerExposure',
+            $facts['exposure_to_browse_rate']['source_path'] ?? null
+        );
+        self::assertSame(
+            'online_daily_data.raw_data.exposure_to_browse_rate',
+            $facts['exposure_to_browse_rate']['storage_field'] ?? null
+        );
+        self::assertTrue(
+            $facts['exposure_to_browse_rate']['stored_value_present'] ?? false
+        );
+    }
+
     public function testAdvertisingCaptureKeepsRoasCvrAndRoomNightsSemanticsSeparate(): void
     {
         $reflection = new ReflectionClass(OnlineData::class);

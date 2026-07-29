@@ -1188,9 +1188,13 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     content.indexOf("if (newPage === 'ctrip-ebooking')"),
     content.indexOf("if (newPage === 'meituan-ebooking'")
   );
+  const ctripEbookingStartupRefreshSource = content.slice(
+    content.indexOf('const scheduleCtripEbookingDeferredStartupRefresh = () => {'),
+    content.indexOf('const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS')
+  );
   if (!content.includes('const scheduleCtripEbookingDeferredStartupRefresh = () => {')
     || !ctripEbookingDefaultLoader.includes('scheduleCtripEbookingDeferredStartupRefresh();')) {
-    failures.push('public/index.html must defer Ctrip eBooking config/latest/cookie/bookmarklet startup refreshes until after the first paint loader.');
+    failures.push('public/index.html must keep one bounded Ctrip eBooking startup snapshot loader.');
   }
   if (!content.includes('凭据统一由平台配置保管')
     || !content.includes('旧 Cookie 列表、明文详情和快速保存入口已停用。')
@@ -1201,19 +1205,19 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes('书签脚本生成成功')) {
     failures.push('public/index.html legacy Cookie UI must route to the platform credential vault and must not ship an extraction helper or imply successful script generation.');
   }
-  if (!content.includes('const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 2600;')
-    || !content.includes('const CTRIP_EBOOKING_LATEST_DATA_DELAY_MS = 5200;')
-    || !content.includes('const CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS = 6400;')
-    || !content.includes('const CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS = 7600;')
-    || !content.includes('}, CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS);\n                scheduleDelayedPageTask(() => {')
-    || !content.includes('}, CTRIP_EBOOKING_LATEST_DATA_DELAY_MS);\n                scheduleDelayedPageTask(() => {')
-    || !content.includes('}, CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS);\n                scheduleDelayedPageTask(() => {')
-    || !content.includes('}, CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS);')
-    || content.includes("prewarmSelectedCtripConfigSecret();\n                    return null;\n                }, 1800);")
-    || content.includes("return loadLatestCtripData({ silent: true });\n                }, 2400);")
-    || content.includes("return loadCookiesList();\n                }, 3000);")
-    || content.includes("return loadBookmarklet();\n                }, 3600);")) {
-    failures.push('public/index.html Ctrip eBooking config-list startup refresh must stay responsive and use the explicit short delay constant.');
+  if (content.includes('CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS')
+    || content.includes('CTRIP_EBOOKING_LATEST_DATA_DELAY_MS')
+    || content.includes('CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS')
+    || content.includes('CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS')
+    || !ctripEbookingStartupRefreshSource.includes('const systemHotelId = await syncCtripOverviewTargetHotel({ loadConfig: false });')
+    || !ctripEbookingStartupRefreshSource.includes('const [latestResult, configResult] = await Promise.allSettled([')
+    || !ctripEbookingStartupRefreshSource.includes('hotelId: systemHotelId,')
+    || !ctripEbookingStartupRefreshSource.includes('await applyCtripHotelConfig(false, {')
+    || !ctripEbookingStartupRefreshSource.includes('refreshLatest: false,')
+    || !ctripEbookingStartupRefreshSource.includes('}, 0);')
+    || ctripEbookingStartupRefreshSource.includes('loadCookiesList(')
+    || ctripEbookingStartupRefreshSource.includes('loadBookmarklet(')) {
+    failures.push('public/index.html Ctrip eBooking startup must load the visible snapshot immediately, reuse short-cached metadata, and skip disabled legacy requests.');
   }
   const loadCookiesListSource = content.slice(
     content.indexOf('const loadCookiesList = async () => {'),
@@ -1271,7 +1275,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || forbiddenLegacyCookieRequestPattern.test(content)) {
     failures.push('public/index.html legacy Cookie list/detail/save/delete/use actions must stay disabled, request-free, and route users to platform credential sources.');
   }
-  if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/.test(content)
+  if (!/const \[latestResult, configResult\] = await Promise\.allSettled\(\[[\s\S]{0,700}?loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\),\s*\]\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/.test(content)
     || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
     || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]{0,700}?deferUiTask\(\(\) => \(\s*isAuthSessionCurrent\(requestSession\)\s*\? applyCtripHotelConfig\(false, \{[\s\S]{0,300}?refreshList: false,[\s\S]{0,300}?skipIfAligned: true,/.test(content)
     || content.includes('prewarmSelectedCtripConfigSecret')

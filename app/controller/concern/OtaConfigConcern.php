@@ -1951,6 +1951,33 @@ trait OtaConfigConcern
         return $this->isOtaConfigVisibleToUser($item, $this->currentUser, $permittedHotelIdSet);
     }
 
+    /**
+     * Add action capability flags only after the config list has been scoped and
+     * redacted. This lets the UI hide destructive actions without exposing any
+     * credential or implementation detail.
+     *
+     * @param array<int, array<string, mixed>> $list
+     * @return array<int, array<string, mixed>>
+     */
+    private function appendOtaConfigActionPermissions(array $list): array
+    {
+        $user = $this->currentUser ?? null;
+        foreach ($list as &$item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $hotelId = $this->otaConfigBoundSystemHotelId($item);
+            $item['can_delete_config'] = $hotelId !== null
+                && is_object($user)
+                && method_exists($user, 'hasHotelPermission')
+                && $user->hasHotelPermission($hotelId, 'can_delete_online_data');
+        }
+        unset($item);
+
+        return $list;
+    }
+
     private function currentUserCanMaintainOtaConfig(?int $hotelId = null): bool
     {
         $user = $this->currentUser ?? null;
@@ -1967,8 +1994,17 @@ trait OtaConfigConcern
                 && $user->hasHotelPermission($hotelId, 'can_fetch_online_data');
         }
 
-        return method_exists($user, 'hasHotelPermission')
-            && $user->hasHotelPermission($hotelId, 'can_fetch_online_data');
+        if (!method_exists($user, 'hasHotelPermission')) {
+            return false;
+        }
+
+        if ($user->hasHotelPermission($hotelId, 'can_fetch_online_data')) {
+            return true;
+        }
+
+        return method_exists($user, 'canManageOwnHotels')
+            && $user->canManageOwnHotels()
+            && $user->hasHotelPermission($hotelId, 'can_view_online_data');
     }
 
     private function isOtaConfigOwnedByCurrentUser(array $item): bool
@@ -2352,6 +2388,7 @@ trait OtaConfigConcern
                 $primary = $currentConfigs[0];
             }
             $primary['history_count'] = max(0, count($configs) - 1);
+            $primary['history_items'] = $this->buildCtripConfigHistoryItems($configs, $primary);
             $primary['active_config_count'] = count($currentConfigs);
             $primary['duplicate_current_count'] = max(0, count($currentConfigs) - 1);
             $primary['duplicate_status'] = $primary['duplicate_current_count'] > 0 ? 'warning' : 'ok';
@@ -2360,6 +2397,68 @@ trait OtaConfigConcern
 
         $this->sortOtaConfigsNewestFirst($collapsed);
         return $collapsed;
+    }
+
+    /**
+     * Return only non-secret fields required by the saved-config history UI.
+     *
+     * @param array<int, array<string, mixed>> $configs
+     * @param array<string, mixed> $primary
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildCtripConfigHistoryItems(array $configs, array $primary): array
+    {
+        $primaryId = trim((string)($primary['config_id'] ?? $primary['id'] ?? ''));
+        $primarySkipped = false;
+        $historyItems = [];
+
+        foreach ($configs as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            $candidateId = trim((string)($candidate['config_id'] ?? $candidate['id'] ?? ''));
+            $isPrimary = $primaryId !== '' && $candidateId !== ''
+                ? hash_equals($primaryId, $candidateId)
+                : $candidate === $primary;
+            if (!$primarySkipped && $isPrimary) {
+                $primarySkipped = true;
+                continue;
+            }
+
+            $status = strtolower(trim((string)($candidate['config_status'] ?? 'active')));
+            $changedAt = '';
+            foreach (['deleted_at', 'superseded_at', 'update_time', 'updated_at', 'created_at', 'create_time'] as $timeKey) {
+                $value = trim((string)($candidate[$timeKey] ?? ''));
+                if ($value !== '') {
+                    $changedAt = $value;
+                    break;
+                }
+            }
+            $historyItems[] = [
+                'id' => $candidateId !== '' ? $candidateId : 'history-' . (count($historyItems) + 1),
+                'config_status' => $status,
+                'status_label' => match ($status) {
+                    'deleted' => '已删除',
+                    'history', 'superseded', 'archived' => '已替换',
+                    default => '旧配置',
+                },
+                'update_time' => $changedAt,
+                'ctrip_hotel_id' => $this->otaPlatformHotelIdFromConfig('ctrip', $candidate),
+                'hotel_room_count' => $candidate['hotel_room_count'] ?? null,
+                'competitor_room_count' => $candidate['competitor_room_count'] ?? null,
+                'configuration_verified' => ($candidate['configuration_verified'] ?? false) === true,
+            ];
+        }
+
+        usort($historyItems, static function (array $left, array $right): int {
+            $timeComparison = strcmp((string)($right['update_time'] ?? ''), (string)($left['update_time'] ?? ''));
+            if ($timeComparison !== 0) {
+                return $timeComparison;
+            }
+            return strcmp((string)($right['id'] ?? ''), (string)($left['id'] ?? ''));
+        });
+
+        return $historyItems;
     }
 
     private function collapseMeituanConfigListByHotel(array $list): array

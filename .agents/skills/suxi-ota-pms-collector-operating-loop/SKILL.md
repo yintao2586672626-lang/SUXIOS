@@ -66,6 +66,24 @@ write data.
 6. After collection/import, verify target-date rows and field closure before
    enabling downstream revenue/AI/operation/investment conclusions.
 
+## Longitudinal Review And Learning
+
+When collection is intended for复盘、求证 or长期经验积累, read
+[`references/longitudinal-evidence-learning-loop.md`](references/longitudinal-evidence-learning-loop.md).
+
+- Treat one verified capture as one observation, not a durable business rule.
+- Preserve the comparable time axis: hotel, source, metric definition, business
+  date or target stay date, capture time, source method, quality, and readback.
+- Ctrip explains Ctrip-channel behavior; Dingdandao PMS provides whole-property
+  operating facts only inside its verified scope. Neither source fills the
+  other source's missing facts.
+- Compare only verified, scope-compatible snapshots. Keep current-day realtime,
+  settled daily facts, and forward target-date signals separate.
+- Store hypotheses, executed actions, follow-up evidence, contradictory samples,
+  and review results separately. Metric movement alone is not causal proof.
+- Promote a lesson into a candidate or verified SOP only after it can be traced
+  to saved evidence and a completed review cycle.
+
 ## Write Rules
 
 - Do not write directly to business tables from ad hoc scripts.

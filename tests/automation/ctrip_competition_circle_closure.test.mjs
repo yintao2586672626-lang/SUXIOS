@@ -57,13 +57,15 @@ test('Ctrip UI removes the unsupported all-channel AI room-night estimate', () =
   assert.doesNotMatch(ctripStatic, /field === 'aiEstimatedTotalRoomNights'/);
 });
 
-test('competition-circle copy separates selected-store persistence from temporary display-only queries', () => {
+test('competition-circle selector keeps persistence guidance concise', () => {
   const html = readFrontendContractSource();
 
-  assert.match(html, /选择门店时使用该门店已保存的 Cookie\/API 凭据并按身份校验后入库/);
-  assert.match(html, /不选择门店时可粘贴临时 Cookie，仅查询和展示本次结果，不建立门店归属/);
-  assert.match(html, /已选门店：凭据库授权并可入库；未选门店：临时 Cookie，仅本页展示/);
+  assert.match(html, /class="text-base font-semibold text-gray-800 mb-3">选择门店/);
+  assert.doesNotMatch(html, />数据归属门店<\/label>/);
+  assert.doesNotMatch(html, /获取携程竞争圈数据/);
+  assert.doesNotMatch(html, /选择门店：使用已保存授权并入库；临时 Cookie：仅查询，不入库/);
   assert.match(html, /仅用于本次查询，不保存 Cookie、不创建门店、不入库/);
+  assert.doesNotMatch(html, /v-if="ctripBusinessSourceNotice"/);
 });
 
 test('history labels a competition circle with its owning system hotel', () => {

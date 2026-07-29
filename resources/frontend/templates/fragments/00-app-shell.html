@@ -312,20 +312,23 @@
                     </div>
                 </header>
 
-                <div v-if="strongOtaReminderCount" class="px-6 pt-4" data-testid="ota-auth-strong-reminder-banner">
+                <div v-if="strongOtaReminderBannerCount" class="px-6 pt-4" data-testid="ota-auth-strong-reminder-banner">
                     <section class="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between" role="alert">
                         <div class="flex min-w-0 items-start gap-3">
                             <span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-600 text-white">
                                 <i class="fas fa-exclamation-triangle"></i>
                             </span>
                             <div class="min-w-0">
-                                <div class="text-sm font-semibold text-red-900">{{ strongOtaReminderCount }} 项 OTA Cookie 状态需处理</div>
+                                <div class="text-sm font-semibold text-red-900">{{ strongOtaReminderBannerCount }} 项 OTA Cookie 状态需处理</div>
                                 <div class="mt-1 text-xs leading-5 text-red-700">Cookie 可能已失效，相关数据可能暂时无法获取；更新并验证后可恢复采集。</div>
                             </div>
                         </div>
-                        <button type="button" @click="showStrongOtaReminder" class="shrink-0 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-800">
-                            立即处理
-                        </button>
+                        <div class="flex shrink-0 items-center gap-2">
+                            <button type="button" @click="ignoreStrongOtaReminderBanner" data-testid="ota-auth-strong-reminder-ignore" title="仅在本次登录中隐藏顶部提示，不改变 Cookie 状态" class="ota-auth-reminder-ignore">忽略</button>
+                            <button type="button" @click="showStrongOtaReminder" class="ota-auth-reminder-primary">
+                                立即处理
+                            </button>
+                        </div>
                     </section>
                 </div>
 

@@ -27,6 +27,7 @@ import {
   normalizeMeituanPeerRankRows,
   normalizeMeituanSearchKeywordRows,
   normalizeMeituanTrafficCardRows,
+  normalizeMeituanTrafficDomText,
   normalizeMeituanTrafficForecastRows,
 } from './lib/meituan_browser_capture_normalize.mjs';
 import {
@@ -54,7 +55,7 @@ const URLS = {
   check: 'https://me.meituan.com/ebooking/merchant/comment-manage-react',
   comments: 'https://me.meituan.com/ebooking/merchant/comment-manage-react#/home',
   traffic: 'https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Fdata-center%2Findex.html',
-  newTraffic: 'https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html',
+  newTraffic: 'https://eb.meituan.com/newhb-sub-app/data-center-pc/home/index.html#/index',
   orders: 'https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Forder-eb%2Findex.html%23%2Fcheckin',
 };
 
@@ -134,10 +135,14 @@ const observedOrderFlowRequestUrls = new Set();
 const pendingResponseCaptures = new Set();
 const requestQueryEvidence = new WeakMap();
 const requestForecastTabEvidence = new WeakMap();
+const requestBusinessTabEvidence = new WeakMap();
 const observedPlatformIdentifiers = new Set();
 let activeOrderQueryEvidence = null;
 let activeForecastTabEvidence = null;
+let activeBusinessTabEvidence = null;
 let orderQueryEpoch = 0;
+let forecastTabEpoch = 0;
+let businessTabEpoch = 0;
 let sessionProbeSuccessfulApiResponseCount = 0;
 const sessionProbeResponseDiagnostics = {
   recognized_response_count: 0,
@@ -338,6 +343,14 @@ function applyMeituanTemporalCapturePolicy(data) {
   data.searchKeywords = [];
   if (temporalScope !== 'today_future') {
     data.trafficForecast = [];
+  } else {
+    data.trafficForecast = (Array.isArray(data.trafficForecast) ? data.trafficForecast : [])
+      .filter(row => ['pv', 'uv', 'advance_orders'].includes(String(row?.forecast_type || '').trim().toLowerCase()));
+    data.responses = (Array.isArray(data.responses) ? data.responses : [])
+      .filter(response => (
+        String(response?.payload_key || '') !== 'trafficForecast'
+        || ['pv', 'uv', 'advance_orders'].includes(String(response?.forecast_type || '').trim().toLowerCase())
+      ));
   }
 }
 
@@ -568,25 +581,12 @@ async function runMeituanTrafficInteractionPlan(page) {
   const temporalCapture = captureMode === 'temporal_summary';
 
   if (targetRelativeRange) {
-    await selectMeituanSectionPeriod(
+    await captureMeituanBusinessPeriod(
       page,
       results,
-      '\u7ecf\u8425\u8868\u73b0\u6570\u636e',
-      targetRelativeRange,
-      ['\u9500\u552e\u95f4\u591c', '\u9500\u552e\u989d'],
-      `select business period ${targetRelativeRange}`,
-    );
-    const businessSelected = await readMeituanSectionPeriodSelection(
-      page,
-      '\u7ecf\u8425\u8868\u73b0\u6570\u636e',
-      targetRelativeRange,
-      ['\u9500\u552e\u95f4\u591c', '\u9500\u552e\u989d'],
-    );
-    payload.section_evidence.business = buildMeituanRelativePeriodEvidence(
-      businessSelected,
       targetRelativeRange,
       targetDateIsToday ? 'meituan_business_today_realtime_tab' : 'meituan_business_yesterday_tab',
-      'page.business_period_selection.readback',
+      temporalCapture,
     );
   }
 
@@ -601,6 +601,30 @@ async function runMeituanTrafficInteractionPlan(page) {
   }
 
   await clickMeituanTrafficStep(page, results, '\u6d41\u91cf\u5206\u6790', 'open traffic analysis tab');
+  if (targetDateIsYesterday) {
+    await selectMeituanSectionPeriod(
+      page,
+      results,
+      '\u6d41\u91cf\u6765\u6e90',
+      '\u6628\u65e5',
+      ['\u6574\u4f53\u66dd\u5149', '\u975e\u5e7f\u544a\u66dd\u5149', '\u5e7f\u544a\u66dd\u5149'],
+      'select traffic source period yesterday',
+    );
+    const trafficSourceSelected = await readMeituanSectionPeriodSelection(
+      page,
+      '\u6d41\u91cf\u6765\u6e90',
+      '\u6628\u65e5',
+      ['\u6574\u4f53\u66dd\u5149', '\u975e\u5e7f\u544a\u66dd\u5149', '\u5e7f\u544a\u66dd\u5149'],
+    );
+    payload.section_evidence.traffic_source = {
+      status: trafficSourceSelected ? 'target_date_relative_range_selected' : 'target_date_relative_range_not_selected',
+      target_date: defaultDataDate,
+      relative_range: '\u6628\u65e5',
+      evidence_source: 'page.traffic_source_period_selection.readback',
+      marker: 'meituan_traffic_source_yesterday_tab',
+      date_scope_policy: 'selected_relative_range_readback_not_refresh_timestamp',
+    };
+  }
   if (!temporalCapture) {
     for (const period of periods) {
       await clickMeituanTrafficStep(page, results, period, `select traffic period ${period}`, 1800);
@@ -668,16 +692,159 @@ async function selectMeituanForecastTab(page, results, label, forecastType) {
   if (!selected) {
     return;
   }
+  const alternateLabel = label === '\u8be6\u60c5\u9875\u6d4f\u89c8\u91cf\uff08PV\uff09'
+    ? '\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08UV\uff09'
+    : '\u8be6\u60c5\u9875\u6d4f\u89c8\u91cf\uff08PV\uff09';
+  await clickMeituanTrafficStep(
+    page,
+    results,
+    alternateLabel,
+    `switch away before verified traffic forecast ${label}`,
+    500,
+  );
+  const epoch = ++forecastTabEpoch;
   activeForecastTabEvidence = {
     selected: true,
     forecast_type: forecastType,
     label,
     evidence_source: 'page.future_metric_tab.readback',
+    forecast_capture_epoch: epoch,
   };
-  // Re-select after readback so the captured request is bound to semantic tab
-  // evidence rather than an opaque numeric endpoint enum.
-  await clickMeituanTrafficStep(page, results, label, `capture verified traffic forecast ${label}`, 1500);
-  activeForecastTabEvidence = null;
+  try {
+    // Switch back after the semantic control has been selected and read back.
+    // The resulting request is bound to the visible label, never to an opaque
+    // numeric endpoint enum.
+    await clickMeituanTrafficStep(page, results, label, `capture verified traffic forecast ${label}`, 1500);
+    await waitForPendingResponseCaptures(page);
+  } finally {
+    activeForecastTabEvidence = null;
+  }
+  const finalSelected = await readMeituanSectionPeriodSelection(
+    page,
+    '\u672a\u676530\u5929\u6d41\u91cf',
+    label,
+    [],
+  );
+  results.push({
+    action: 'readback_captured_future_metric_tab',
+    text: label,
+    forecast_type: forecastType,
+    selected: finalSelected,
+    forecast_capture_epoch: epoch,
+  });
+  if (!finalSelected) {
+    payload.trafficForecast = payload.trafficForecast.filter(
+      row => Number(row?.forecast_capture_epoch || 0) !== epoch,
+    );
+    payload.responses = payload.responses.filter(
+      response => Number(response?.forecast_capture_epoch || 0) !== epoch,
+    );
+  }
+}
+
+async function captureMeituanBusinessPeriod(page, results, label, marker, temporalCapture) {
+  const homeHeading = '\u57fa\u7840\u7ecf\u8425';
+  const homeRequiredTexts = ['\u5f15\u6d41\u4ef7', '\u9500\u552e\u95f4\u591c', '\u9500\u552e\u989d'];
+  let heading = homeHeading;
+  let requiredTexts = homeRequiredTexts;
+  let locator = await locateMeituanSectionPeriod(page, heading, label, requiredTexts);
+  if (!locator) {
+    await clickMeituanTrafficStep(page, results, '\u9996\u9875', 'open business overview home tab', 1500);
+    locator = await locateMeituanSectionPeriod(page, heading, label, requiredTexts);
+  }
+  if (!locator) {
+    await clickMeituanTrafficStep(page, results, '\u4ea4\u6613\u5206\u6790', 'open business analysis tab', 1800);
+    heading = '\u7ecf\u8425\u8868\u73b0\u6570\u636e';
+    requiredTexts = ['\u9500\u552e\u95f4\u591c', '\u9500\u552e\u989d'];
+  }
+
+  await selectMeituanSectionPeriod(
+    page,
+    results,
+    heading,
+    label,
+    requiredTexts,
+    `select business period ${label}`,
+  );
+  const selected = await readMeituanSectionPeriodSelection(page, heading, label, requiredTexts);
+  if (!selected) {
+    payload.section_evidence.business = buildMeituanRelativePeriodEvidence(
+      false,
+      label,
+      marker,
+      'page.business_period_selection.readback',
+    );
+    return;
+  }
+
+  const alternateLabel = label === '\u4eca\u65e5\u5b9e\u65f6' ? '\u6628\u65e5' : '\u4eca\u65e5\u5b9e\u65f6';
+  await selectMeituanSectionPeriod(
+    page,
+    results,
+    heading,
+    alternateLabel,
+    requiredTexts,
+    `switch away before verified business period ${label}`,
+  );
+
+  const epoch = ++businessTabEpoch;
+  if (temporalCapture) {
+    payload.businessData = [];
+    payload.responses = payload.responses.filter(
+      response => String(response?.payload_key || '') !== 'businessData',
+    );
+  }
+  activeBusinessTabEvidence = {
+    selected: true,
+    relative_range: label,
+    evidence_source: 'page.business_period_selection.readback',
+    business_capture_epoch: epoch,
+  };
+  try {
+    await selectMeituanSectionPeriod(
+      page,
+      results,
+      heading,
+      label,
+      requiredTexts,
+      `capture verified business period ${label}`,
+    );
+    await waitForPendingResponseCaptures(page);
+  } finally {
+    activeBusinessTabEvidence = null;
+  }
+
+  const finalSelected = await readMeituanSectionPeriodSelection(page, heading, label, requiredTexts);
+  const responseCount = payload.responses.filter(response => (
+    String(response?.payload_key || '') === 'businessData'
+    && Number(response?.business_capture_epoch || 0) === epoch
+  )).length;
+  const captured = finalSelected && responseCount > 0;
+  payload.section_evidence.business = {
+    ...buildMeituanRelativePeriodEvidence(
+      captured,
+      label,
+      marker,
+      'page.business_period_selection.readback',
+    ),
+    business_capture_epoch: epoch,
+    response_count: responseCount,
+  };
+  results.push({
+    action: 'readback_captured_business_period',
+    text: label,
+    selected: finalSelected,
+    business_capture_epoch: epoch,
+    response_count: responseCount,
+  });
+  if (!captured) {
+    payload.businessData = payload.businessData.filter(
+      row => Number(row?.business_capture_epoch || 0) !== epoch,
+    );
+    payload.responses = payload.responses.filter(
+      response => Number(response?.business_capture_epoch || 0) !== epoch,
+    );
+  }
 }
 
 async function selectMeituanSectionPeriod(page, results, heading, label, requiredTexts, reason) {
@@ -1134,6 +1301,9 @@ function registerResponseCapture(page, target) {
     if (activeForecastTabEvidence) {
       requestForecastTabEvidence.set(request, { ...activeForecastTabEvidence });
     }
+    if (activeBusinessTabEvidence) {
+      requestBusinessTabEvidence.set(request, { ...activeBusinessTabEvidence });
+    }
   });
   page.on('response', response => {
     const task = captureMeituanResponse(response, target);
@@ -1181,6 +1351,7 @@ async function captureMeituanResponse(response, target) {
     const requestType = request.resourceType();
     const queryEvidence = requestQueryEvidence.get(request) || null;
     const forecastTabEvidence = requestForecastTabEvidence.get(request) || null;
+    const businessTabEvidence = requestBusinessTabEvidence.get(request) || null;
     const requestPayload = request?.postData?.() || '';
     const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const contentType = response.headers()['content-type'] || '';
@@ -1267,8 +1438,20 @@ async function captureMeituanResponse(response, target) {
     }
 
     const safeBody = sanitizeOtaPayloadForStorage(body, section);
-    const supplementalMeta = meituanSupplementalResponseMeta(url, requestDateEvidence, forecastTabEvidence);
+    const supplementalMeta = meituanSupplementalResponseMeta(
+      url,
+      requestDateEvidence,
+      forecastTabEvidence,
+      businessTabEvidence,
+    );
     const targetPayloadKey = meituanPayloadKeyForResponse(url, safeBody, section);
+    if (
+      captureMode === 'temporal_summary'
+      && targetPayloadKey === 'businessData'
+      && Number(supplementalMeta.businessCaptureEpoch || 0) <= 0
+    ) {
+      return;
+    }
     for (const identifier of extractMeituanRequestPlatformIdentifiers(url, requestPayload)) {
       observedPlatformIdentifiers.add(identifier);
     }
@@ -1303,6 +1486,10 @@ async function captureMeituanResponse(response, target) {
       rank_type: supplementalMeta.rankType,
       forecast_type: supplementalMeta.forecastType,
       forecast_type_source: supplementalMeta.forecastTypeSource,
+      forecast_capture_epoch: supplementalMeta.forecastCaptureEpoch,
+      business_relative_range: supplementalMeta.businessRelativeRange,
+      business_evidence_source: supplementalMeta.businessEvidenceSource,
+      business_capture_epoch: supplementalMeta.businessCaptureEpoch,
       data: safeBody,
       ...(queryEvidence || {}),
     });
@@ -1449,7 +1636,12 @@ function meituanPayloadKeyForResponse(url, body, section) {
   return 'traffic';
 }
 
-function meituanSupplementalResponseMeta(url, requestDateEvidence = {}, forecastTabEvidence = null) {
+function meituanSupplementalResponseMeta(
+  url,
+  requestDateEvidence = {},
+  forecastTabEvidence = null,
+  businessTabEvidence = null,
+) {
   const query = urlQueryParams(url);
   const verifiedForecastType = (
     forecastTabEvidence
@@ -1467,6 +1659,10 @@ function meituanSupplementalResponseMeta(url, requestDateEvidence = {}, forecast
     // selected and read-back tab can name the forecast metric.
     forecastType: verifiedForecastType,
     forecastTypeSource: verifiedForecastType ? 'page.future_metric_tab.readback' : '',
+    forecastCaptureEpoch: Number(forecastTabEvidence?.forecast_capture_epoch || 0),
+    businessRelativeRange: String(businessTabEvidence?.relative_range || '').trim(),
+    businessEvidenceSource: String(businessTabEvidence?.evidence_source || '').trim(),
+    businessCaptureEpoch: Number(businessTabEvidence?.business_capture_epoch || 0),
     analysisType: meituanFlowAnalysisType(url),
     orderFlowDirection: query.get('lossType') === '1' ? 'inflow' : (query.get('lossType') === '0' ? 'loss' : ''),
     periodStart: query.get('startDate') || '',
@@ -1645,75 +1841,8 @@ function meituanEventDateEvidence(row, section) {
 }
 
 async function collectMeituanTrafficDomRows(page) {
-  return page.evaluate(() => {
-    const text = (node) => (node?.innerText || node?.textContent || '').trim().replace(/\s+/g, ' ');
-    const fullText = text(document.body);
-    const numberFrom = (patterns) => {
-      for (const pattern of patterns) {
-        const match = fullText.match(pattern);
-        if (match && match[1]) {
-          const num = Number(String(match[1]).replace(/,/g, ''));
-          const multiplier = String(match[2] || '').includes('\u4e07') ? 10000 : 1;
-          if (Number.isFinite(num)) return num * multiplier;
-        }
-      }
-      return 0;
-    };
-    const normalizeNumber = (value, unit = '') => {
-      const num = Number(String(value || '').replace(/,/g, ''));
-      if (!Number.isFinite(num)) return 0;
-      return Math.round(num * (String(unit || '').includes('\u4e07') ? 10000 : 1));
-    };
-    const pageDateMatch = fullText.match(/(?:\u6570\u636e\u66f4\u65b0\u65f6\u95f4|\u66f4\u65b0\u65f6\u95f4|\u66f4\u65b0\u4e8e)[\uff1a:\s]*(\d{4})[\/\-\u5e74](\d{1,2})[\/\-\u6708](\d{1,2})/);
-    const pageDataDate = pageDateMatch
-      ? `${pageDateMatch[1]}-${String(pageDateMatch[2]).padStart(2, '0')}-${String(pageDateMatch[3]).padStart(2, '0')}`
-      : '';
-    const withDate = pageDataDate ? { dataDate: pageDataDate, date_source: 'page.visible_update_time' } : {};
-    const rows = [];
-    const flowFunnel = fullText.match(/\u6211\u7684\u9152\u5e97\s*\u540c\u884c\u5747\u503c\s*\u66dd\u5149\u4eba\u6570\s*\u6d4f\u89c8\u4eba\u6570\s*\u652f\u4ed8\u8ba2\u5355\u6570\s*([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s*\u66dd\u5149-\u6d4f\u89c8\s*\u8f6c\u5316\u7387\s*([\d.]+)%\s*([\d.]+)%\s*\u6d4f\u89c8-\u652f\u4ed8\s*\u8f6c\u5316\u7387\s*([\d.]+)%/);
-    if (flowFunnel) {
-      const orders = normalizeNumber(flowFunnel[5]);
-      rows.push({
-        _capture_source: 'dom:traffic:flow_funnel',
-        _source_path: 'dom.traffic.flow_funnel',
-        compare_type: 'self',
-        is_self: true,
-        _dom_text: fullText.slice(0, 1600),
-        ...withDate,
-        listExposure: normalizeNumber(flowFunnel[1]),
-        detailExposure: normalizeNumber(flowFunnel[3]),
-        flowRate: Number(flowFunnel[7]),
-        orderFillingNum: orders,
-        orderSubmitNum: orders,
-        _order_filling_source_policy: 'meituan_flow_funnel_no_separate_order_filling_step_pay_order_count_used',
-        _order_submit_source_label: 'pay_order_count',
-      });
-    }
-    if (rows.length === 0) {
-      const exposure = numberFrom([/\u66dd\u5149\u91cf\s*([\d,.]+)\s*(\u4e07)?\s*\u6b21/, /\u66dd\u5149[^\d]{0,10}([\d,.]+)\s*(\u4e07)?/]);
-      const visitors = numberFrom([/\u6d4f\u89c8\u4eba\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u4eba/, /\u8bbf\u5ba2[^\d]{0,10}([\d,.]+)\s*(\u4e07)?/, /UV[^\d]{0,10}([\d,.]+)/i]);
-      const flowRate = numberFrom([/\u652f\u4ed8\u8f6c\u5316\u7387\s*([\d.]+)\s*%/, /\u6d4f\u89c8-\u652f\u4ed8\s*\u8f6c\u5316\u7387\s*([\d.]+)\s*%/]);
-      const orders = numberFrom([/\u652f\u4ed8\u8ba2\u5355\u6570\s*([\d,.]+)\s*(\u4e07)?\s*\u5355/, /\u8ba2\u5355[^\d]{0,10}([\d,.]+)\s*(\u4e07)?/]);
-      if (exposure > 0 || visitors > 0 || orders > 0) {
-        rows.push({
-          _capture_source: 'dom:traffic:home_summary',
-          _source_path: 'dom.traffic.home_summary',
-          compare_type: 'self',
-          is_self: true,
-          _dom_text: fullText.slice(0, 1200),
-          ...withDate,
-          listExposure: exposure,
-          detailExposure: visitors,
-          flowRate: flowRate || (exposure > 0 ? Math.round((visitors / exposure) * 10000) / 100 : 0),
-          orderFillingNum: orders,
-          orderSubmitNum: orders,
-          _order_filling_source_policy: 'meituan_home_summary_no_separate_order_filling_step_pay_order_count_used',
-          _order_submit_source_label: 'pay_order_count',
-        });
-      }
-    }
-    return rows;
-  }).catch(() => []);
+  const fullText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+  return normalizeMeituanTrafficDomText(fullText);
 }
 
 async function collectDomFallback(page, target, section) {

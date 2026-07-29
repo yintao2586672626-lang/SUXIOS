@@ -912,7 +912,7 @@ final class TemporalInsightService
                 }
             }
             $recent = array_slice($values, -7);
-            $previous = array_slice($values, -14, 7);
+            $previous = count($values) >= 14 ? array_slice($values, -14, 7) : [];
             $recentAverage = $this->average($recent);
             $previousAverage = $this->average($previous);
             $change = $recentAverage !== null && $previousAverage !== null && $previousAverage != 0.0

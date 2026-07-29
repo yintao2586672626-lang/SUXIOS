@@ -56,10 +56,21 @@
                                 </button>
                             </div>
                             <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
-                                <div v-for="stage in operationExecutionStages" :key="stage.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                <button
+                                    v-for="stage in operationExecutionStages"
+                                    :key="stage.key"
+                                    type="button"
+                                    @click="setOperationExecutionStageFilter(stage.key)"
+                                    :aria-pressed="operationExecutionStageFilter === String(stage.key)"
+                                    :data-testid="`operation-execution-stage-${stage.key}`"
+                                    class="rounded-lg border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-[#315d50]/30"
+                                    :class="operationExecutionStageFilter === String(stage.key)
+                                        ? 'border-[#315d50] bg-emerald-50 ring-2 ring-[#315d50]/15'
+                                        : 'border-gray-100 bg-gray-50 hover:border-gray-200 hover:bg-white'"
+                                >
                                     <div class="text-xs text-gray-500">{{ stage.label }}</div>
                                     <div class="text-xl font-bold text-gray-900 mt-1">{{ stage.count || 0 }}</div>
-                                </div>
+                                </button>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
                                 <div v-for="card in operationExecutionSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 p-3">
@@ -85,6 +96,10 @@
                                     <div class="mt-2 text-xs text-gray-500 leading-relaxed break-words">{{ row.detail }}</div>
                                 </div>
                             </div>
+                            <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                                <span>当前显示：<b class="text-gray-700">{{ operationExecutionStageFilterLabel }}</b> · {{ operationExecutionFilteredItems.length }} 条</span>
+                                <button v-if="operationExecutionStageFilter" type="button" @click="setOperationExecutionStageFilter('')" class="rounded-lg px-2.5 py-1.5 font-medium text-[#315d50] hover:bg-emerald-50">查看全部阶段</button>
+                            </div>
                             <div class="overflow-x-auto">
                                 <table class="min-w-full text-sm">
                                     <thead class="bg-gray-50 text-gray-500">
@@ -101,7 +116,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-100">
-                                        <tr v-for="item in operationExecutionItems" :key="item.id" :data-operation-execution-intent-id="item.id" :class="operationExecutionRowClass(item)">
+                                        <tr v-for="item in operationExecutionFilteredItems" :key="item.id" :data-operation-execution-intent-id="item.id" :class="operationExecutionRowClass(item)">
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
                                                 <div class="text-xs text-gray-400">任务 #{{ item.id }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
@@ -142,6 +157,10 @@
                                 </table>
                             </div>
                             <div v-if="!operationExecutionItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-gray-400">暂无执行闭环记录</div>
+                            <div v-else-if="!operationExecutionFilteredItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-gray-500">
+                                当前阶段暂无任务。
+                                <button type="button" @click="setOperationExecutionStageFilter('')" class="ml-1 font-medium text-[#315d50] hover:underline">查看全部阶段</button>
+                            </div>
                         </div>
 
                         <div v-if="operationLoading.actions" class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-500">正在加载策略追踪...</div>

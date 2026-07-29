@@ -121,8 +121,6 @@ test('notification plans expose persisted schedule rules and truthful runtime st
   for (const marker of [
     'manual-notification-business-date-rule',
     'manual-notification-weekdays',
-    'manual-notification-effective-from',
-    'manual-notification-effective-to',
     'manual-notification-hourly-start',
     'manual-notification-hourly-end',
     'manual-notification-interval-minutes',
@@ -134,7 +132,8 @@ test('notification plans expose persisted schedule rules and truthful runtime st
   ]) {
     assert.match(notificationUiSource, new RegExp(marker));
   }
-  for (const policy of ['缺数据', '漏跑', '结果不明', '只有明确失败允许人工重试']) {
+  assert.doesNotMatch(notificationUiSource, /manual-notification-effective-from|manual-notification-effective-to/);
+  for (const policy of ['缺数据', '漏跑', '结果不明', '明确失败可人工重试', '确认可能重复送达']) {
     assert.match(schedulePanelSource, new RegExp(policy));
   }
   for (const field of [
@@ -185,7 +184,7 @@ test('operating daily keeps custom compatibility while common templates choose a
   assert.match(appMainSource, /operating_daily_custom_report/);
   assert.match(appMainSource, /template\.key === item\?\.notification_type/);
   assert.match(appMainSource, /source_scope: 'combined'/);
-  assert.match(notificationUiSource, /三源可分别配置发送来源、内容、时间和通知群/);
+  assert.match(notificationUiSource, /携程、美团、PMS 分别保存自己的发送内容、时间和频率/);
   assert.match(
     appMainSource,
     /updateManualNotificationScheduleField[\s\S]{0,500}'source_scope'/,
@@ -287,14 +286,23 @@ test('dynamic operating-target template supports save then immediate test withou
 
 test('dispatch history is independent and never treats missing receipts as delivery success', () => {
   assert.match(fragmentSource, /data-testid="manual-notification-dispatch-history"/);
-  assert.match(fragmentSource, /调度与发送历史/);
+  assert.match(fragmentSource, /看清是否送达、失败原因和下一步/);
   assert.match(fragmentSource, /manualNotificationDispatchHistory\.list/);
   assert.match(fragmentSource, /item\.status === 'sent'/);
   assert.match(fragmentSource, /item\.dispatched_at \|\| item\.last_attempt_at \|\| item\.claimed_at/);
   assert.match(fragmentSource, /retryManualNotificationDispatch\(item\)/);
-  assert.match(fragmentSource, /执行记录未取得/);
+  assert.match(fragmentSource, /openManualNotificationDispatchPlan\(item\)/);
+  assert.match(fragmentSource, /已完成，无需重试/);
+  assert.match(fragmentSource, /补齐数据后重新测试/);
+  assert.match(fragmentSource, /确认风险后重试/);
+  assert.match(appMainSource, /执行记录未取得/);
   assert.match(fragmentSource, /未执行不显示成功/);
+  assert.doesNotMatch(fragmentSource, />不可重试</);
   assert.match(appMainSource, /\/manual-notifications\/dispatch-history/);
+  assert.match(appMainSource, /manualNotificationDispatchCanRetry/);
+  assert.match(appMainSource, /\['failed', 'outcome_unknown'\]\.includes\(status\)/);
+  assert.match(appMainSource, /再次发送可能产生重复消息/);
+  assert.match(appMainSource, /manualNotificationWorkspaceTab\.value = 'plans'/);
 });
 
 test('test push remains explicit and uses the persisted authorized plan robot', () => {
@@ -303,8 +311,11 @@ test('test push remains explicit and uses the persisted authorized plan robot', 
   assert.match(appMainSource, /target_robot_id:\s*targetRobotId/);
   assert.match(appMainSource, /target_robot_name:\s*targetRobotName/);
   assert.match(appMainSource, /\['wecom_test', 'wecom_formal'\]\.includes/);
-  assert.match(appMainSource, /scope_label: '个人通知群'/);
-  assert.match(fragmentSource, /formal_scope_ready/);
+  assert.match(appMainSource, /scope_label: '当前酒店通道'/);
+  assert.match(appMainSource, /applyCurrentHotelNotificationChannel/);
+  assert.match(notificationUiSource, /计划自动使用当前酒店唯一推送通道/);
+  assert.match(appMainSource, /formal_scope_ready/);
+  assert.match(fragmentSource, /manualNotificationSchedulerDisplay\.label/);
   assert.match(appMainSource, /manualNotificationTestAllowed/);
   assert.doesNotMatch(appMainSource, /测试推送仅允许酒店80绑定的1号漠蓝测试机器人/);
 });

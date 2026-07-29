@@ -331,6 +331,35 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertFalse($this->policy->dailyTrustReceiptReady($incompleteAnchor, '2026-07-16', 58));
     }
 
+    public function testRealtimeTrustReceiptAcceptsTheExplicitSinglePlatformScope(): void
+    {
+        $result = [
+            'success' => true,
+            'saved_count' => 1,
+            'required_platforms' => ['ctrip'],
+            'platform_results' => [
+                $this->verifiedPlatformResult('ctrip', 25, 1001, true),
+            ],
+        ];
+        $outcome = $this->policy->classifyOutcome($result);
+        $receipt = $this->policy->buildDailyTrustReceipt(
+            58,
+            '2026-07-16',
+            [25],
+            $outcome,
+            $result,
+            'realtime_snapshot'
+        );
+
+        self::assertTrue($outcome['complete']);
+        self::assertSame(['ctrip'], $receipt['required_platforms']);
+        self::assertFalse($receipt['authority_verifier_required']);
+        self::assertTrue($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
+
+        $receipt['source_tasks'][0]['p0_status'] = 'blocked';
+        self::assertFalse($this->policy->dailyTrustReceiptReady($receipt, '2026-07-16', 58));
+    }
+
     public function testNineOClockGapReportListsRecollectionScopeAndBlocksFormalReport(): void
     {
         $partialResult = [

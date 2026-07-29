@@ -90,6 +90,32 @@ final class TemporalInsightServiceTest extends TestCase
         self::assertSame(0, $orderPoints[0]['upper_bound']);
     }
 
+    public function testSevenDayComparisonRequiresFourteenNonOverlappingValidDays(): void
+    {
+        $service = new TemporalInsightService();
+        $trendSummary = new \ReflectionMethod($service, 'trendSummary');
+        $trendSummary->setAccessible(true);
+        $series = [];
+        for ($day = 1; $day <= 12; $day++) {
+            $series[] = [
+                'date' => sprintf('2026-07-%02d', $day),
+                'ota_revenue' => $day * 100,
+            ];
+        }
+
+        $short = $trendSummary->invoke($service, $series);
+        self::assertSame(900.0, $short['ota_revenue']['recent_7_day_average']);
+        self::assertNull($short['ota_revenue']['previous_7_day_average']);
+        self::assertNull($short['ota_revenue']['change_percent']);
+
+        $series[] = ['date' => '2026-07-13', 'ota_revenue' => 1300];
+        $series[] = ['date' => '2026-07-14', 'ota_revenue' => 1400];
+        $complete = $trendSummary->invoke($service, $series);
+        self::assertSame(400.0, $complete['ota_revenue']['previous_7_day_average']);
+        self::assertSame(1100.0, $complete['ota_revenue']['recent_7_day_average']);
+        self::assertSame(175.0, $complete['ota_revenue']['change_percent']);
+    }
+
     public function testUntrustedManualOverrideFactIsExcludedFromSeriesAndForecastWithGapEvidence(): void
     {
         $service = new TemporalInsightService();

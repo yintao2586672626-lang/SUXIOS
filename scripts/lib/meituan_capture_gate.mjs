@@ -112,7 +112,10 @@ export function evaluateMeituanCaptureGate(data, requestedSections = [], options
 
 export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
   const next = applyMeituanBusinessSelectionDateEvidence(
-    applyMeituanTrafficSelectionDateEvidence(data, targetDate),
+    applyMeituanTrafficSourceSelectionDateEvidence(
+      applyMeituanTrafficSelectionDateEvidence(data, targetDate),
+      targetDate,
+    ),
     targetDate,
   );
   const normalizedTargetDate = normalizeDate(targetDate);
@@ -162,23 +165,26 @@ export function applyMeituanTrafficSelectionDateEvidence(data, targetDate) {
   // This evidence belongs only to the top traffic funnel. Lower traffic
   // modules and peer ranking have independent period controls, even when
   // their buttons use the same visible labels.
-  for (const key of ['traffic']) {
+  for (const key of ['traffic', 'flowAnalysis', 'flow_analysis']) {
     if (!Array.isArray(next[key])) continue;
     next[key] = next[key].map(row => {
       if (!row || typeof row !== 'object') return row;
+      if (isMeituanTrafficSourceBreakdownRow(row)) return row;
+      if (key !== 'traffic' && !isMeituanTrafficFunnelRow(row)) return row;
       const source = String(row.date_source || row.dateSource || '').trim();
       const normalizedSource = source.toLowerCase();
       const rowDate = normalizeDate(firstValue(row, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date', 'reportDate', 'day']));
       const refreshTimestampSource = normalizedSource === 'response.rtdataupdatetime'
         || normalizedSource === 'page.visible_update_time'
         || /(?:^|\.)cards\.rtdataupdatetime$/.test(normalizedSource);
+      const selectedRelativeRangeSource = normalizedSource === 'request.query.daterange=0';
       const undatedDomRow = rowDate === '' && source === '' && /^dom:traffic:/.test(String(row._capture_source || ''));
-      if (!refreshTimestampSource && !undatedDomRow) {
+      if (!refreshTimestampSource && !selectedRelativeRangeSource && !undatedDomRow) {
         return row;
       }
       return {
         ...row,
-        ...(rowDate ? { data_updated_at: rowDate } : {}),
+        ...(rowDate && refreshTimestampSource ? { data_updated_at: rowDate } : {}),
         ...(Object.prototype.hasOwnProperty.call(row, 'data_date') ? { data_date: normalizedTargetDate } : {}),
         dataDate: normalizedTargetDate,
         date_source: 'page.traffic_period_selection.readback',
@@ -191,6 +197,32 @@ export function applyMeituanTrafficSelectionDateEvidence(data, targetDate) {
 
 export function applyMeituanYesterdaySelectionDateEvidence(data, targetDate) {
   return applyMeituanTrafficSelectionDateEvidence(data, targetDate);
+}
+
+export function applyMeituanTrafficSourceSelectionDateEvidence(data, targetDate) {
+  const next = { ...(data || {}) };
+  const normalizedTargetDate = normalizeDate(targetDate);
+  const evidence = next?.section_evidence?.traffic_source || next?.sectionEvidence?.traffic_source || {};
+  const selectionVerified = /^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)
+    && String(evidence.status || '').trim() === 'target_date_relative_range_selected'
+    && normalizeDate(evidence.target_date || evidence.targetDate) === normalizedTargetDate
+    && String(evidence.relative_range || evidence.relativeRange || '').trim() === '\u6628\u65e5'
+    && String(evidence.evidence_source || evidence.evidenceSource || '').trim() === 'page.traffic_source_period_selection.readback'
+    && String(evidence.marker || '').trim() === 'meituan_traffic_source_yesterday_tab';
+  if (!selectionVerified || !Array.isArray(next.traffic)) {
+    return next;
+  }
+
+  next.traffic = next.traffic.map(row => {
+    if (!isMeituanTrafficSourceBreakdownRow(row)) return row;
+    return {
+      ...row,
+      dataDate: normalizedTargetDate,
+      date_source: 'page.traffic_source_period_selection.readback',
+      date_scope_evidence: 'meituan_traffic_source_yesterday_tab',
+    };
+  });
+  return next;
 }
 
 export function applyMeituanBusinessSelectionDateEvidence(data, targetDate) {
@@ -212,7 +244,18 @@ export function applyMeituanBusinessSelectionDateEvidence(data, targetDate) {
     return next;
   }
 
-  next.businessData = next.businessData.map(row => {
+  const captureEpoch = Number(
+    evidence.business_capture_epoch
+      || evidence.businessCaptureEpoch
+      || 0,
+  );
+  next.businessData = next.businessData
+    .filter(row => {
+      if (captureEpoch <= 0) return true;
+      return Number(row?.business_capture_epoch || 0) === captureEpoch
+        && String(row?.business_relative_range || '').trim() === relativeRange;
+    })
+    .map(row => {
     if (!row || typeof row !== 'object') return row;
     const source = String(row.date_source || row.dateSource || '').trim().toLowerCase();
     const rowDate = normalizeDate(firstValue(row, [
@@ -233,8 +276,25 @@ export function applyMeituanBusinessSelectionDateEvidence(data, targetDate) {
       date_source: 'page.business_period_selection.readback',
       date_scope_evidence: expectedMarker,
     };
-  });
+    });
   return next;
+}
+
+function isMeituanTrafficSourceBreakdownRow(row) {
+  return String(row?._capture_source || '') === 'dom:traffic:source_breakdown'
+    || (
+      String(row?.data_type || '').trim().toLowerCase() === 'traffic_analysis'
+      && String(row?.analysis_type || '').trim().toLowerCase() === 'source'
+    );
+}
+
+function isMeituanTrafficFunnelRow(row) {
+  const dimension = String(row?.dimension || '').trim().toLowerCase();
+  const analysisType = String(row?.analysis_type || row?.analysisType || '').trim().toLowerCase();
+  return dimension === 'flow_conversion'
+    || analysisType === 'conversion_funnel'
+    || String(row?._capture_source || '') === 'dom:traffic:flow_funnel'
+    || String(row?._capture_source || '') === 'dom:traffic:home_summary';
 }
 
 export function filterMeituanEventRowsByTargetDate(data, targetDate, requestedSections = []) {

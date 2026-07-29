@@ -66,8 +66,8 @@ const onlineDataRecordPanel = sliceBetween(
 test('Ctrip eBooking first tab is a business-first store data overview with diagnostics collapsed', () => {
   assert.ok(ctripPageStart > 0, 'Ctrip eBooking page section must exist');
   assert.match(ctripPage, />\s*门店数据总览\s*<\/button>/);
-  assert.match(ctripPage, /<h4 class="[^"]*">门店数据总览<\/h4>/);
-  assert.match(ctripPage, /携程 eBooking OTA渠道口径 · 快速获取目标门店经营、流量、竞争和广告数据/);
+  assert.match(ctripPage, /<h4 class="[^"]*">数据采集<\/h4>/);
+  assert.doesNotMatch(ctripPage, /选择门店后，使用已保存 Cookie|登录态验证后同步|核心数据：经营 \/ 流量 \/ 竞争 \/ PSI \/ 广告/);
   assert.equal(ctripPage.includes('门店总览'), false);
 
   assert.ok(ctripBusinessBoard.length > 0, 'business board must be rendered');
@@ -245,14 +245,22 @@ test('Online data records tab reads persisted daily data instead of task logs', 
   assert.doesNotMatch(batchDelete, /batch-delete-auto-fetch-records/);
 });
 
-test('Ctrip overview one-click core capture stays on overview and supplemental fetches execute directly', () => {
+test('Ctrip overview batch capture runs competition circle only for every ready hotel', () => {
   const quickActions = sliceBetween(
     ctripPage,
     'data-testid="ctrip-overview-fetch-actions"',
     '<div v-if="collectionReliabilityLoading"'
   );
   assert.ok(quickActions.length > 0, 'overview quick fetch actions must exist');
-  assert.match(quickActions, /一键采集/);
+  assert.match(quickActions, /一键采集竞争圈/);
+  assert.match(quickActions, /全部门店竞争圈/);
+  assert.doesNotMatch(quickActions, /Profile/);
+  assert.match(quickActions, /data-testid="ctrip-overview-core-fetch-status"/);
+  assert.match(quickActions, /ctripOverviewCoreFetchState\.hotels/);
+  assert.match(quickActions, /已处理 \{\{ ctripOverviewCoreFetchState\.completed_count \}\}\/\{\{ ctripOverviewCoreFetchState\.total_count \}\}/);
+  assert.match(quickActions, /hotel\.hotel_name/);
+  assert.match(quickActions, /hotel\.status_text/);
+  assert.match(quickActions, /:disabled="ctripOverviewCoreFetchRunning \|\| !!ctripOverviewFetchActionLoading"/);
   assert.match(dataHealthOverviewSource, /抓取竞争/);
   assert.match(dataHealthOverviewSource, /抓取经营/);
   assert.match(dataHealthOverviewSource, /抓取流量/);
@@ -261,6 +269,8 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.match(quickActions, /runCtripOverviewCoreFetchAction/);
   assert.doesNotMatch(quickActions, /runCtripOverviewFetchAllActions/);
   assert.match(quickActions, /runCtripOverviewFetchAction\(item\.tab\)/);
+  assert.doesNotMatch(quickActions, /item\.subtitle/);
+  assert.match(quickActions, /xl:grid-cols-5/);
   assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-ranking'/);
   assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-flow-overview'/);
   assert.match(dataHealthOverviewSource, /tab:\s*'ctrip-traffic'/);
@@ -293,6 +303,11 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
     'const runCtripOverviewCoreFetchAction = async () =>',
     'const refreshCtripHotelConfigOptions = () =>'
   );
+  const competitionBatchRunner = sliceBetween(
+    html,
+    'const executeCtripCompetitionBatchTarget = async (target) =>',
+    'const finishCtripCompetitionBatchState = () =>'
+  );
   assert.match(html, /const prepareCtripOverviewFetchAction = async \(tabName\) =>/);
   assert.match(quickActionRunner, /await prepareCtripOverviewFetchAction\(tabName\)/);
   assert.match(quickActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
@@ -300,12 +315,25 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.doesNotMatch(quickActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(quickActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
   assert.doesNotMatch(quickActionRunner, /onlineDataTab\.value\s*=\s*'data-health'/);
-  assert.match(coreActionRunner, /await prepareCtripOverviewFetchAction\('core'\)/);
-  assert.match(coreActionRunner, /const coreFetchTabs = \['ctrip-flow-overview', 'ctrip-traffic', 'ctrip-ranking', 'ctrip-quality', 'ctrip-ads'\]/);
-  assert.match(coreActionRunner, /const action = ctripOverviewFetchActionMap\(\)\[tabName\]/);
-  assert.match(coreActionRunner, /await action\(\)/);
-  assert.match(coreActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true \}\)/);
+  assert.match(html, /const ctripOverviewCoreFetchState = ref\(null\)/);
+  assert.match(coreActionRunner, /loadHotels\(\)/);
+  assert.match(coreActionRunner, /loadCtripConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
+  assert.match(coreActionRunner, /const targets = buildCtripCompetitionBatchTargets\(\)/);
+  assert.match(coreActionRunner, /targets\.filter\(target => target\.readiness\.ok\)/);
+  assert.match(coreActionRunner, /Math\.min\(2, readyTargets\.length\)/);
+  assert.match(coreActionRunner, /executeCtripCompetitionBatchTarget\(target\)/);
+  assert.match(coreActionRunner, /finishCtripCompetitionBatchState\(\)/);
+  assert.match(coreActionRunner, /source: '全部门店竞争圈采集'/);
+  assert.match(competitionBatchRunner, /buildCtripCookieApiFetchRequestBody/);
+  assert.match(competitionBatchRunner, /requestSource: 'competition_circle'/);
+  assert.match(competitionBatchRunner, /\/online-data\/fetch-ctrip-cookie-api/);
+  assert.match(competitionBatchRunner, /systemHotelId: target\.hotelId/);
+  assert.doesNotMatch(competitionBatchRunner, /\bcookies\s*:/);
+  assert.doesNotMatch(competitionBatchRunner, /\bprofile_id\s*:/);
+  assert.match(coreActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true/);
   assert.doesNotMatch(coreActionRunner, /await loadDataHealthPanel\('light', \{ force: true \}\)/);
+  assert.doesNotMatch(coreActionRunner, /ctripOverviewFetchActionMap/);
+  assert.doesNotMatch(coreActionRunner, /revenue_overview|traffic_report|quality_psi|ads_pyramid/);
   assert.doesNotMatch(coreActionRunner, /runCtripBrowserCapture/);
   assert.doesNotMatch(coreActionRunner, /ctripBrowserCaptureForm\.value\.sections/);
   assert.doesNotMatch(coreActionRunner, /openCtripOverviewFetchTab/);

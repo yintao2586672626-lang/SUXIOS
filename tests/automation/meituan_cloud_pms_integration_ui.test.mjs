@@ -83,9 +83,8 @@ test('Meituan Cloud PMS remains an independent source but hotel management owns 
   assert.match(pmsTemplate, /data-testid="pms-selected-source"/);
   assert.match(
     pmsTemplate,
-    /data-testid="pms-operating-data-load"[^>]+bg-blue-600[^>]+hover:bg-blue-700/,
+    /data-testid="pms-operating-data-load"[^>]+class="pms-operating-read-button"/,
   );
-  assert.doesNotMatch(pmsTemplate, /data-testid="pms-operating-data-load"[^>]+bg-\[#315d50\]/);
   assert.doesNotMatch(
     pmsTemplate,
     /选择门店后，读取该门店在“门店管理”中配置的唯一 PMS 及目标经营日事实/,

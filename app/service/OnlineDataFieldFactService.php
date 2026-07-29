@@ -55,13 +55,13 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'lead_price',
                 'normalized_field' => 'raw_data.lead_price',
                 'storage_field' => 'raw_data.lead_price',
-                'source_keys' => ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice'],
+                'source_keys' => ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice', 'DAY_ROOM_LOWEST_PRICE_AVG'],
             ],
             [
                 'metric_key' => 'sales_avg_price',
                 'normalized_field' => 'data_value',
                 'storage_field' => 'data_value',
-                'source_keys' => ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'data_value'],
+                'source_keys' => ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'PAY_ADR', 'data_value'],
             ],
             [
                 'metric_key' => 'exposure_users',
@@ -112,6 +112,12 @@ final class OnlineDataFieldFactService
                 'normalized_field' => 'flow_rate',
                 'storage_field' => 'flow_rate',
                 'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr', 'listTransforDetailRate', 'orderRate'],
+            ],
+            [
+                'metric_key' => 'exposure_to_browse_rate',
+                'normalized_field' => 'raw_data.exposure_to_browse_rate',
+                'storage_field' => 'raw_data.exposure_to_browse_rate',
+                'source_keys' => ['intentionPerExposure', 'intention_per_exposure', 'exposure_to_browse_rate', 'exposureToBrowseRate', 'expose_visit_rate'],
             ],
             [
                 'metric_key' => 'order_filling_num',

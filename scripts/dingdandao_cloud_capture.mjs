@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
+import {
+  normalizeBrowserSandboxId,
+  resolveBrowserSandboxContext,
+} from './lib/browser_sandbox.mjs';
 
 export const SOURCE_URL =
   'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
@@ -236,7 +240,7 @@ class CdpConnection {
   }
 }
 
-async function connectCdp(cdpUrl, fetchImpl = fetch) {
+export async function connectLoopbackCdp(cdpUrl, fetchImpl = fetch) {
   if (typeof WebSocket !== 'function') {
     throw new Error('capture_cdp_websocket_unavailable');
   }
@@ -391,9 +395,14 @@ export async function readDingdandaoSessionMaterial(
   {
     fetchImpl = fetch,
     now = new Date(),
-    connect = connectCdp,
+    connect = connectLoopbackCdp,
+    sandboxId = '',
   } = {},
 ) {
+  const requestedSandboxId = String(sandboxId || '').trim();
+  if (requestedSandboxId !== '') {
+    normalizeBrowserSandboxId(requestedSandboxId);
+  }
   const connection = await connect(cdpUrl, fetchImpl);
   let attachedSessionId = null;
   let createdTargetId = null;
@@ -415,28 +424,41 @@ export async function readDingdandaoSessionMaterial(
       validContextIds = null;
     }
     const contextCandidates = [];
-    for (const page of [
-      ...pages.filter((target) => String(target.url || '').startsWith(
-        'https://www.dingdandao.com/',
-      )),
-      ...pages,
-    ]) {
-      const browserContextId = typeof page.browserContextId === 'string'
-        ? page.browserContextId
-        : '';
-      if (!browserContextId) continue;
-      if (validContextIds && !validContextIds.has(browserContextId)) continue;
-      const key = browserContextId;
-      if (contextCandidates.some((candidate) => candidate.key === key)) continue;
+    if (requestedSandboxId !== '') {
+      const selected = resolveBrowserSandboxContext({
+        targetInfos: pages,
+        browserContextIds: validContextIds ? [...validContextIds] : null,
+        sandboxId: requestedSandboxId,
+        requireIsolated: true,
+      });
       contextCandidates.push({
-        key,
-        browserContextId,
+        key: selected.contextKey,
+        browserContextId: selected.browserContextId,
+      });
+    } else {
+      for (const page of [
+        ...pages.filter((target) => String(target.url || '').startsWith(
+          'https://www.dingdandao.com/',
+        )),
+        ...pages,
+      ]) {
+        const browserContextId = typeof page.browserContextId === 'string'
+          ? page.browserContextId
+          : '';
+        if (!browserContextId) continue;
+        if (validContextIds && !validContextIds.has(browserContextId)) continue;
+        const key = browserContextId;
+        if (contextCandidates.some((candidate) => candidate.key === key)) continue;
+        contextCandidates.push({
+          key,
+          browserContextId,
+        });
+      }
+      contextCandidates.push({
+        key: '',
+        browserContextId: null,
       });
     }
-    contextCandidates.push({
-      key: '',
-      browserContextId: null,
-    });
     let selectedContext = null;
     let cookies = [];
     for (const candidate of contextCandidates) {
@@ -749,6 +771,7 @@ export async function collectDingdandaoDirect(
     cdpUrl,
     targetDate,
     expectedHotelName,
+    sandboxId = '',
     collectionMode = DINGDANDAO_COLLECTION_MODES.operatingIndicators,
     timeoutMs = 12000,
     capturedAt = new Date().toISOString(),
@@ -767,7 +790,7 @@ export async function collectDingdandaoDirect(
       session,
       { timeoutMs },
     ));
-  let sessionMaterial = await readSession(cdpUrl, { now });
+  let sessionMaterial = await readSession(cdpUrl, { now, sandboxId });
   const regionName = normalizeText(sessionMaterial?.regionName) || null;
   const records = [];
   try {
@@ -846,6 +869,7 @@ export async function probeDingdandaoIdentity(
   {
     cdpUrl,
     expectedHotelName,
+    sandboxId = '',
     timeoutMs = 12000,
     capturedAt = new Date().toISOString(),
   },
@@ -864,7 +888,7 @@ export async function probeDingdandaoIdentity(
       session,
       { timeoutMs },
     ));
-  let sessionMaterial = await readSession(cdpUrl, { now });
+  let sessionMaterial = await readSession(cdpUrl, { now, sandboxId });
   try {
     const request = dingdandaoDirectRequests(
       sessionMaterial.ntwNum,
@@ -1864,10 +1888,15 @@ function parseArguments(argv) {
   const collectionMode = normalizeDingdandaoCollectionMode(
     values['collection-mode'],
   );
+  const sandboxId = String(values['sandbox-id'] || '').trim();
+  if (sandboxId !== '') {
+    normalizeBrowserSandboxId(sandboxId);
+  }
   return {
     cdpUrl: cdpUrl.toString().replace(/\/$/, ''),
     targetDate: values['target-date'],
     expectedHotelName: normalizeText(values['expected-hotel-name']).slice(0, 160),
+    sandboxId,
     collectionMode,
     timeoutMs: Math.min(30000, Math.max(3000, Number.parseInt(values['timeout-ms'] || '12000', 10))),
   };
@@ -1887,6 +1916,8 @@ async function main() {
   process.stdout.write(`${JSON.stringify({
     status: 'captured_unverified',
     collection_mode: options.collectionMode,
+    sandbox_id: options.sandboxId || null,
+    sandbox_selection: options.sandboxId ? 'explicit_marker' : 'legacy_cookie_scan',
     capture,
     raw_response_exposed: false,
     session_material_exposed: false,

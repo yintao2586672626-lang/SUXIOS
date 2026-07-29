@@ -42,17 +42,18 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
                 '- 入住率：100%',
                 '- ADR：¥583.04',
                 '- RevPAR：¥583.04',
-                '携程｜OTA 渠道',
-                '- APP 实时访客量：58（上周同期 195）',
-                '- 实时预订订单：0',
-                '- 实时在店间夜：4',
-                '- 实时排名：615',
-                '- 实时起价：¥0.00',
-                '去哪儿｜OTA 渠道',
-                '- APP 实时访客量：18（竞争圈平均 44）',
-                '- 实时预订订单：0',
-                '- APP 实时下单转化率：0%（竞争圈平均 7.44%）',
-                '美团｜OTA 渠道',
+                '数据说明：OTA 渠道数据为平台采集快照，不代表发送时点状态；以采集时间为准。',
+                '携程｜OTA 渠道（采集快照）',
+                '- APP 访客量：58（上周同期 195）',
+                '- 预订订单：0',
+                '- 在店间夜：4',
+                '- 排名：615',
+                '- 起价：¥0.00',
+                '去哪儿｜OTA 渠道（采集快照）',
+                '- APP 访客量：18（竞争圈平均 44）',
+                '- 预订订单：0',
+                '- APP 下单转化率：0%（竞争圈平均 7.44%）',
+                '美团｜OTA 渠道（采集快照）',
                 '- 曝光人数：471',
                 '- 浏览人数：77',
                 '- 曝光→浏览转化率：16.35%',
@@ -60,6 +61,29 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
                 '- 浏览→支付转化率：1.3%',
             ]),
             $content
+        );
+        self::assertStringNotContainsString('实时访客量', $content);
+        self::assertStringNotContainsString('实时预订订单', $content);
+        self::assertStringNotContainsString('实时排名', $content);
+    }
+
+    public function testDefaultCustomTemplateCallsOtaValuesCollectionSnapshots(): void
+    {
+        $template = OperatingDailyReportPayloadService::defaultCustomTemplate();
+
+        self::assertStringContainsString('平台采集快照，不代表发送时点状态', $template['body']);
+        self::assertStringContainsString('携程｜OTA 渠道（采集快照）', $template['body']);
+        self::assertStringContainsString('美团｜OTA 渠道（采集快照）', $template['body']);
+        self::assertStringContainsString('{携程访客量}', $template['body']);
+        self::assertStringContainsString('{去哪儿下单转化率}', $template['body']);
+        self::assertStringNotContainsString('实时', $template['body']);
+        self::assertContains(
+            '{携程访客量}',
+            OperatingDailyReportPayloadService::customTemplateVariables()
+        );
+        self::assertNotContains(
+            '{携程实时访客量}',
+            OperatingDailyReportPayloadService::customTemplateVariables()
         );
     }
 
@@ -86,6 +110,31 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
             $result['payload']['text']['content']
         );
         self::assertStringNotContainsString('来源范围', $result['payload']['text']['content']);
+    }
+
+    public function testLegacyRealtimeNamedVariablesRemainCompatibleWithoutBeingOffered(): void
+    {
+        $result = $this->service()->build(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-28',
+            'immediate_test',
+            'combined',
+            [],
+            OperatingDailyReportPayloadService::TEMPLATE_MODE_CUSTOM,
+            '兼容模板',
+            '携程访客 {携程实时访客量}，去哪儿订单 {去哪儿实时预订订单}。'
+        );
+
+        self::assertSame(
+            "兼容模板\n携程访客 58，去哪儿订单 0。",
+            $result['payload']['text']['content']
+        );
+        self::assertNotContains(
+            '{携程实时访客量}',
+            OperatingDailyReportPayloadService::customTemplateVariables()
+        );
     }
 
     public function testCustomTemplateRejectsUnknownVariables(): void
@@ -153,12 +202,13 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
             array_keys($result['facts'])
         );
         $content = $result['payload']['text']['content'];
-        self::assertStringContainsString('携程渠道实时播报', $content);
-        self::assertStringContainsString('APP 实时访客量：58', $content);
+        self::assertStringContainsString('携程渠道采集快照', $content);
+        self::assertStringContainsString('APP 访客量：58', $content);
+        self::assertStringContainsString('平台采集快照，不代表发送时点状态', $content);
         self::assertStringNotContainsString('PMS｜订单来了', $content);
-        self::assertStringNotContainsString('美团｜OTA 渠道', $content);
-        self::assertStringNotContainsString('实时排名：', $content);
-        self::assertStringNotContainsString('实时起价：', $content);
+        self::assertStringNotContainsString('美团｜OTA 渠道（采集快照）', $content);
+        self::assertStringNotContainsString('- 排名：', $content);
+        self::assertStringNotContainsString('- 起价：', $content);
     }
 
     public function testMeituanAndDingdandaoPlansKeepTheirOwnTruthBoundaries(): void
@@ -170,17 +220,43 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
             '2026-07-28',
             'scheduled_test',
             'meituan',
-            ['meituan_conversion']
+            ['meituan_traffic', 'meituan_conversion']
         );
         self::assertSame('ready', $meituan['status']);
-        self::assertStringContainsString(
-            '美团渠道实时播报',
+        self::assertSame(
+            implode("\n", [
+                '美团今日实时数据',
+                '门店：敦煌漠蓝新',
+                '业务日：2026-07-28',
+                '采集完成：2026-07-28 18:16:16',
+                '',
+                '美团｜OTA 渠道',
+                '- 引流价：¥868.00',
+                '- 销售间夜：2 间夜',
+                '- 销售额：¥2,026.78',
+                '- 销售均价：¥1,013.39',
+                '- 曝光人数：471',
+                '- 浏览人数：77',
+                '- 曝光→浏览转化率：16.35%',
+                '- 支付订单数：1',
+                '- 浏览→支付转化率：1.3%（支付订单数÷浏览人数）',
+            ]),
+            $meituan['payload']['text']['content']
+        );
+        self::assertStringNotContainsString(
+            '数据范围：',
             $meituan['payload']['text']['content']
         );
         self::assertStringNotContainsString(
             '携程｜OTA 渠道',
             $meituan['payload']['text']['content']
         );
+        foreach (['当前模式', '酒店：', '通知类型', '计划发送', '发送触发', '状态：', '来源范围', '来源证据'] as $internalLabel) {
+            self::assertStringNotContainsString(
+                $internalLabel,
+                $meituan['payload']['text']['content']
+            );
+        }
 
         $pms = $this->service()->build(
             80,
@@ -208,6 +284,77 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
             'OTA 渠道',
             $pms['payload']['text']['content']
         );
+    }
+
+    public function testMeituanExposureToBrowseRateMustComeFromPlatformResponse(): void
+    {
+        $result = $this->service(true, true, false)->build(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-28',
+            'immediate_test',
+            'meituan',
+            ['meituan_traffic', 'meituan_conversion']
+        );
+
+        self::assertSame('blocked', $result['status']);
+        self::assertNull($result['payload']);
+        self::assertContains(
+            'operating_daily_field_missing:meituan_exposure_view_conversion',
+            array_column($result['formal_send_gate']['blockers'], 'code')
+        );
+    }
+
+    public function testMeituanCompactReportDoesNotTurnMissingBusinessFactsIntoZero(): void
+    {
+        $meituan = $this->service(true, false)->build(
+            80,
+            80,
+            '敦煌漠蓝新',
+            '2026-07-28',
+            'immediate_test',
+            'meituan',
+            ['meituan_traffic', 'meituan_conversion']
+        );
+
+        self::assertSame('ready', $meituan['status']);
+        self::assertArrayNotHasKey(
+            'meituan_business_row_id',
+            $meituan['source_snapshot_ids']
+        );
+        $content = $meituan['payload']['text']['content'];
+        self::assertStringContainsString('- 引流价：未返回', $content);
+        self::assertStringContainsString('- 销售间夜：未返回', $content);
+        self::assertStringContainsString('- 销售额：未返回', $content);
+        self::assertStringContainsString('- 销售均价：未返回', $content);
+        self::assertStringNotContainsString('- 销售间夜：0 间夜', $content);
+        self::assertStringContainsString('- 曝光人数：471', $content);
+    }
+
+    public function testStoredNormalizedMeituanBusinessEnvelopeIsReadable(): void
+    {
+        $raw = $this->invokeNonPublic(
+            $this->service(),
+            'raw',
+            [[
+                'raw_data' => [
+                    'row' => [
+                        'lead_price' => 1158,
+                        'sales_avg_price' => 1032.39,
+                    ],
+                    'field_facts' => [[
+                        'metric_key' => 'lead_price',
+                        'status' => 'captured',
+                        'stored_value_present' => true,
+                    ]],
+                ],
+            ]]
+        );
+
+        self::assertSame(1158, $raw['lead_price']);
+        self::assertSame(1032.39, $raw['sales_avg_price']);
+        self::assertSame('captured', $raw['field_facts'][0]['status']);
     }
 
     public function testDifferentBusinessDateNeverFallsBackToTargetDateRows(): void
@@ -283,7 +430,11 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
         );
     }
 
-    private function service(bool $includeStartingPrice = true): OperatingDailyReportPayloadService
+    private function service(
+        bool $includeStartingPrice = true,
+        bool $includeMeituanBusiness = true,
+        bool $includeMeituanExposureToBrowseRate = true
+    ): OperatingDailyReportPayloadService
     {
         $pmsResolver = static function (int $tenantId, int $hotelId, string $date): array {
             if ($tenantId !== 80 || $hotelId !== 80 || $date !== '2026-07-28') {
@@ -318,7 +469,11 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
             string $source,
             string $dataType,
             ?string $dimension
-        ) use ($includeStartingPrice): ?array {
+        ) use (
+            $includeStartingPrice,
+            $includeMeituanBusiness,
+            $includeMeituanExposureToBrowseRate
+        ): ?array {
             if ($tenantId !== 80 || $hotelId !== 80 || $date !== '2026-07-28') {
                 return null;
             }
@@ -401,6 +556,26 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
                     ],
                 ];
             }
+            if ($includeMeituanBusiness
+                && $source === 'meituan'
+                && $dataType === 'business'
+                && $dimension === null
+            ) {
+                return [
+                    'id' => 64380,
+                    'snapshot_time' => '2026-07-28 18:16:16',
+                    'quantity' => 2,
+                    'amount' => 2026.78,
+                    'data_value' => 1013.39,
+                    'readback_verified' => 1,
+                    'data_period' => 'realtime_snapshot',
+                    'is_final' => 0,
+                    'ingestion_method' => 'legacy',
+                    'raw_data' => [
+                        'lead_price' => 868,
+                    ],
+                ];
+            }
             if ($source === 'meituan' && $dataType === 'traffic' && $dimension === null) {
                 return [
                     'id' => 64381,
@@ -413,6 +588,12 @@ final class OperatingDailyReportPayloadServiceTest extends TestCase
                     'data_period' => 'realtime_snapshot',
                     'is_final' => 0,
                     'ingestion_method' => 'legacy',
+                    'raw_data' => $includeMeituanExposureToBrowseRate
+                        ? [
+                            'exposure_to_browse_rate' => 16.35,
+                            'intentionPerExposure' => '16.35%',
+                        ]
+                        : [],
                 ];
             }
             return null;

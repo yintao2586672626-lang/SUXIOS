@@ -529,6 +529,9 @@ final class ScheduledAutoFetchPolicy
         ?string $expectedDate = null,
         ?int $expectedHotelId = null
     ): bool {
+        if (strtolower(trim((string)($receipt['data_period'] ?? ''))) === 'realtime_snapshot') {
+            return $this->realtimeTrustReceiptReady($receipt, $expectedDate, $expectedHotelId);
+        }
         if (($receipt['collection_complete'] ?? false) !== true
             || ($receipt['exportable_snapshot_complete'] ?? false) !== true
             || ($receipt['dual_ota_p0_complete'] ?? false) !== true
@@ -599,6 +602,51 @@ final class ScheduledAutoFetchPolicy
             && (int)($verifier['traffic_gates_ready'] ?? -1) === count(self::REQUIRED_DAILY_PLATFORMS)
             && strtolower(trim((string)($verifier['continuous_trust_status'] ?? ''))) === 'verified'
             && $this->stringList($verifier['continuous_trust_missing_steps'] ?? []) === [];
+    }
+
+    /** @param array<string, mixed> $receipt */
+    private function realtimeTrustReceiptReady(
+        array $receipt,
+        ?string $expectedDate,
+        ?int $expectedHotelId
+    ): bool {
+        if (($receipt['collection_complete'] ?? false) !== true
+            || ($receipt['exportable_snapshot_complete'] ?? false) !== true
+            || ($receipt['dual_ota_p0_complete'] ?? false) !== true
+            || ($receipt['authority_verifier_required'] ?? true) !== false
+            || ($expectedDate !== null
+                && substr(trim((string)($receipt['target_date'] ?? '')), 0, 10) !== $expectedDate)
+            || ($expectedHotelId !== null && (int)($receipt['hotel_id'] ?? 0) !== $expectedHotelId)
+            || !$this->hasCompleteSourceTaskAnchor($receipt)
+        ) {
+            return false;
+        }
+
+        $requiredPlatforms = $this->platformList($receipt['required_platforms'] ?? []);
+        sort($requiredPlatforms, SORT_STRING);
+        if ($requiredPlatforms === []) {
+            return false;
+        }
+        $readyPlatforms = [];
+        foreach (is_array($receipt['source_tasks'] ?? null) ? $receipt['source_tasks'] : [] as $task) {
+            if (!is_array($task)
+                || strtolower(trim((string)($task['collection_status'] ?? ''))) !== 'success'
+                || !in_array(
+                    strtolower(trim((string)($task['p0_status'] ?? ''))),
+                    ['ready', 'not_required'],
+                    true
+                )
+            ) {
+                continue;
+            }
+            $platform = strtolower(trim((string)($task['platform'] ?? '')));
+            if (in_array($platform, $requiredPlatforms, true)) {
+                $readyPlatforms[$platform] = true;
+            }
+        }
+        $readyPlatforms = array_keys($readyPlatforms);
+        sort($readyPlatforms, SORT_STRING);
+        return $readyPlatforms === $requiredPlatforms;
     }
 
     /**

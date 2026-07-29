@@ -13,7 +13,7 @@ Use the smallest direct verification tool that matches the failing surface. Do n
 
 1. Reproduce or identify the failing path before editing.
 2. Change only the minimal necessary file set.
-3. Match verification depth to business risk:
+3. Match verification depth to business risk and select one default tier from **Three-Level Verification** below; add checks only for a concrete touched boundary:
    - Small or local change: syntax/static check plus the smallest related test, API check, or actual page check.
    - Core OTA, revenue, AI-to-operation, investment formula, tenant, auth, persistence, or data-quality contract: add/update a targeted regression test and run adjacent tests when the change can cross a boundary.
    - Cross-module change, release candidate, commit/PR preparation: run the full PHPUnit and Node suites plus the relevant project guards.
@@ -25,6 +25,29 @@ Use the smallest direct verification tool that matches the failing surface. Do n
 9. Treat `public/index.html` as protected, but do not require the user to know its filename. It may be edited when the reproduced user-visible path directly points there, targeted inspection confirms necessity, and the change is the smallest viable fix; state the risk and verify the actual page.
 10. Prefer existing manual verification paths when no test framework exists.
 11. Report only key errors, root cause, fix, verification, and risk.
+
+## Three-Level Verification
+
+### Level 1: Daily single-file or low-risk edit
+
+- PHP: `C:\xampp\php\php.exe -l <touched.php>`
+- JavaScript: `node --check <touched.js>`
+- If behavior changed, add only the smallest related PHPUnit/Node test, API check, or actual page check.
+- Documentation-only or instruction-only edits normally use a targeted content check plus `git diff --check`; do not run project-wide guards by default.
+
+### Level 2: One feature loop completed
+
+- Run the targeted PHP/Node regression tests for the changed feature.
+- Run `npm.cmd run verify:public-entry` only when the frontend entry, login-critical assets, public shell, or performance budget can be affected.
+- Run `npm.cmd run verify:e2e-contracts` only when routes, API/UI contracts, cross-file integration, or guarded frontend code shape can be affected.
+- Add the actual page/API check when the feature is user-facing. Choose by affected surface; these commands are not an automatic pair.
+
+### Level 3: Cross-module change, commit/PR, or release candidate
+
+- Run `git diff --check`, full PHP and Node suites, and the relevant project guards in proportion to the changed scope.
+- `npm.cmd run self:check` is the main repository umbrella and already invokes `verify:p0-guards`.
+- `verify:p0-guards` already invokes `verify:e2e-contracts`; do not rerun nested guards after an umbrella pass unless isolating a failure or the earlier command exited before reaching them.
+- A local Level 3 pass does not prove live OTA capture, production data, scheduled delivery, or external deployment; report those states separately.
 
 ## Verification Options
 

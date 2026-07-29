@@ -34,6 +34,19 @@ final class MeituanTemporalServiceTest extends TestCase
                 'lead_price', 'sales_amount', 'sales_room_nights',
                 'exposure_users', 'detail_visitors', 'paid_order_count',
             ]),
+            $this->row(80, 101, 'traffic', '2026-07-29', [
+                'list_exposure' => 81,
+                'detail_exposure' => 81,
+                'book_order_num' => 1,
+                'flow_rate' => null,
+            ], [
+                'exposure_users' => 81,
+                'detail_visitors' => 81,
+                'paid_order_count' => 1,
+                'browse_to_pay_rate' => null,
+            ], [
+                'exposure_users', 'detail_visitors', 'paid_order_count',
+            ]),
         ];
 
         $summary = (new MeituanTemporalService())->buildSummaryFromRows(
@@ -73,8 +86,25 @@ final class MeituanTemporalServiceTest extends TestCase
             'lead_price', 'sales_amount', 'sales_room_nights', 'exposure_users',
             'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
         ]);
+        $traffic = $this->row(80, 102, 'traffic', '2026-07-29', [
+            'list_exposure' => 0,
+            'detail_exposure' => 0,
+            'book_order_num' => 0,
+            'flow_rate' => 0,
+        ], [
+            'exposure_users' => 0,
+            'detail_visitors' => 0,
+            'paid_order_count' => 0,
+            'browse_to_pay_rate' => 0,
+        ], [
+            'exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
+        ]);
 
-        $summary = (new MeituanTemporalService())->buildSummaryFromRows([$row], 80, '2026-07-29');
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            [$row, $traffic],
+            80,
+            '2026-07-29'
+        );
         self::assertSame(0, $summary['today']['metrics']['sales_amount']['value']);
         self::assertSame('verified', $summary['today']['metrics']['sales_amount']['status']);
         self::assertNull($summary['today']['metrics']['sales_avg_price']['value']);
@@ -83,16 +113,108 @@ final class MeituanTemporalServiceTest extends TestCase
         self::assertSame('verified', $summary['today']['metrics']['browse_to_pay_rate']['status']);
     }
 
+    public function testTodayTrafficFunnelWinsForTrafficMetricsInsideTheSameSnapshot(): void
+    {
+        $business = $this->row(80, 103, 'business', '2026-07-29', [
+            'amount' => 0,
+            'quantity' => 0,
+            'book_order_num' => 0,
+            'data_value' => 0,
+            'list_exposure' => null,
+            'detail_exposure' => 0,
+            'flow_rate' => 0,
+        ], [
+            'lead_price' => null,
+            'sales_amount' => 0,
+            'sales_room_nights' => 0,
+            'sales_avg_price' => 0,
+            'exposure_users' => null,
+            'detail_visitors' => 0,
+            'paid_order_count' => 0,
+            'browse_to_pay_rate' => 0,
+        ], [
+            'sales_amount', 'sales_room_nights', 'sales_avg_price',
+            'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
+        ]);
+        $traffic = $this->row(80, 103, 'traffic', '2026-07-29', [
+            'list_exposure' => 10,
+            'detail_exposure' => 3,
+            'book_order_num' => 0,
+            'flow_rate' => 0,
+        ], [
+            'exposure_users' => 10,
+            'detail_visitors' => 3,
+            'paid_order_count' => 0,
+            'browse_to_pay_rate' => 0,
+        ], [
+            'exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
+        ]);
+
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            [$business, $traffic],
+            80,
+            '2026-07-29'
+        );
+
+        self::assertSame(10, $summary['today']['metrics']['exposure_users']['value']);
+        self::assertSame(3, $summary['today']['metrics']['detail_visitors']['value']);
+        self::assertSame(0, $summary['today']['metrics']['paid_order_count']['value']);
+        self::assertSame(0, $summary['today']['metrics']['browse_to_pay_rate']['value']);
+    }
+
+    public function testTodayNeverFallsBackToBusinessCardsForFunnelMetrics(): void
+    {
+        $business = $this->row(80, 104, 'business', '2026-07-29', [
+            'amount' => 1032.39,
+            'quantity' => 1,
+            'book_order_num' => 9,
+            'data_value' => 1032.39,
+            'list_exposure' => 999,
+            'detail_exposure' => 888,
+            'flow_rate' => 77.7,
+        ], [
+            'lead_price' => 1158,
+            'sales_amount' => 1032.39,
+            'sales_room_nights' => 1,
+            'sales_avg_price' => 1032.39,
+            'exposure_users' => 999,
+            'detail_visitors' => 888,
+            'paid_order_count' => 9,
+            'browse_to_pay_rate' => 77.7,
+        ], [
+            'lead_price', 'sales_amount', 'sales_room_nights', 'sales_avg_price',
+            'exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
+        ]);
+
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            [$business],
+            80,
+            '2026-07-29'
+        );
+
+        self::assertSame(1158, $summary['today']['metrics']['lead_price']['value']);
+        foreach (['exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate'] as $key) {
+            self::assertNull($summary['today']['metrics'][$key]['value']);
+            self::assertSame('missing', $summary['today']['metrics'][$key]['status']);
+        }
+        self::assertSame('partial', $summary['today']['status']);
+    }
+
     public function testLatestIncompleteSnapshotDoesNotBorrowOlderValues(): void
     {
         $complete = $this->completeBusinessRow(80, 201, '2026-07-29', '2026-07-29 10:00:00');
+        $completeTraffic = $this->completeTrafficRow(80, 201, '2026-07-29', '2026-07-29 10:00:00');
         $latest = $this->row(80, 202, 'business', '2026-07-29', [
             'amount' => 500,
         ], [
             'sales_amount' => 500,
         ], ['sales_amount'], '2026-07-29 18:00:00');
 
-        $summary = (new MeituanTemporalService())->buildSummaryFromRows([$complete, $latest], 80, '2026-07-29');
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            [$complete, $completeTraffic, $latest],
+            80,
+            '2026-07-29'
+        );
         self::assertSame('partial', $summary['today']['status']);
         self::assertSame(500, $summary['today']['metrics']['sales_amount']['value']);
         self::assertNull($summary['today']['metrics']['lead_price']['value']);
@@ -112,6 +234,32 @@ final class MeituanTemporalServiceTest extends TestCase
 
         self::assertSame('pending_source_update', $summary['yesterday']['status']);
         self::assertSame(301, $summary['yesterday']['metrics']['sales_amount']['sync_task_id']);
+    }
+
+    public function testEmptyFutureModuleIsPendingDuringEarlyPlatformUpdateWindow(): void
+    {
+        $service = new MeituanTemporalService();
+        $early = $service->buildSummaryFromRows(
+            [],
+            80,
+            '2026-07-30',
+            new DateTimeImmutable('2026-07-30 02:21:21', new DateTimeZone('Asia/Shanghai'))
+        );
+        self::assertSame('pending_source_update', $early['future']['status']);
+        self::assertSame(
+            'before_future_platform_update_window',
+            $early['future']['reason_code']
+        );
+        self::assertSame([], $early['future']['rows']);
+
+        $afterWindow = $service->buildSummaryFromRows(
+            [],
+            80,
+            '2026-07-30',
+            new DateTimeImmutable('2026-07-30 09:00:00', new DateTimeZone('Asia/Shanghai'))
+        );
+        self::assertSame('missing', $afterWindow['future']['status']);
+        self::assertSame('current_snapshot_missing', $afterWindow['future']['reason_code']);
     }
 
     public function testFutureRowsRequireSemanticTypesAndKeepPeerAverages(): void
@@ -178,6 +326,101 @@ final class MeituanTemporalServiceTest extends TestCase
         self::assertCount(30, $summary['future']['latest_verified_reference']['rows']);
     }
 
+    public function testRefreshPrefersReusableOwningProfileOverFailedProjection(): void
+    {
+        $method = new \ReflectionMethod(MeituanTemporalService::class, 'preferredProfileSource');
+        $selected = $method->invoke(null, [
+            [
+                'id' => 101,
+                'status' => 'failed',
+                'data_type' => 'traffic',
+                'current_session_verified' => false,
+                'profile_reusable' => false,
+                'config' => [
+                    'store_id' => 'store-80',
+                    'source_projection_ids' => [68],
+                ],
+            ],
+            [
+                'id' => 68,
+                'status' => 'failed',
+                'data_type' => 'business',
+                'current_session_verified' => false,
+                'profile_reusable' => true,
+                'config' => [
+                    'store_id' => 'store-80',
+                ],
+            ],
+        ]);
+
+        self::assertSame(68, $selected['id']);
+    }
+
+    public function testFutureRefreshGateRequiresOneCompleteSemanticSnapshot(): void
+    {
+        $rows = [];
+        $start = new DateTimeImmutable('2026-07-30', new DateTimeZone('Asia/Shanghai'));
+        for ($day = 0; $day < 30; $day++) {
+            $targetDate = $start->modify('+' . $day . ' days')->format('Y-m-d');
+            foreach (['pv', 'uv', 'advance_orders'] as $type) {
+                $rows[] = $this->row(80, 501, 'traffic_forecast', $targetDate, [
+                    'data_value' => 1,
+                    'dimension' => 'flow_forecast_' . $type,
+                ], [
+                    'forecast_type' => $type,
+                    'current' => 1,
+                    'peer_avg' => 1,
+                ], ['forecast_current', 'forecast_peer_average'], '2026-07-29 19:00:00');
+            }
+        }
+
+        $method = new \ReflectionMethod(MeituanTemporalService::class, 'hasCompleteVerifiedFutureSnapshotRows');
+        self::assertTrue($method->invoke(
+            new MeituanTemporalService(),
+            $rows,
+            '2026-07-29',
+            '2026-07-29'
+        ));
+
+        array_pop($rows);
+        self::assertFalse($method->invoke(
+            new MeituanTemporalService(),
+            $rows,
+            '2026-07-29',
+            '2026-07-29'
+        ));
+
+        $untyped = $this->row(80, 502, 'traffic_forecast', '2026-07-30', [
+            'data_value' => 999,
+            'dimension' => 'flow_forecast',
+        ], [
+            'forecast_type' => '',
+            'current' => 999,
+            'peer_avg' => 1,
+        ], ['forecast_current', 'forecast_peer_average'], '2026-07-29 20:00:00');
+        self::assertFalse($method->invoke(
+            new MeituanTemporalService(),
+            [$untyped],
+            '2026-07-29',
+            '2026-07-29'
+        ));
+    }
+
+    public function testMissingTargetDateTrafficDoesNotMasqueradeAsLoginFailure(): void
+    {
+        $method = new \ReflectionMethod(MeituanTemporalService::class, 'refreshReason');
+        $service = new MeituanTemporalService();
+
+        self::assertSame('meituan_target_date_traffic_missing', $method->invoke($service, [
+            'status' => 'partial_success',
+            'message' => 'profile_reused_no_target_date_traffic_rows',
+        ]));
+        self::assertSame('meituan_profile_login_required', $method->invoke($service, [
+            'status' => 'waiting_config',
+            'message' => 'Profile session login required.',
+        ]));
+    }
+
     private function completeBusinessRow(
         int $hotelId,
         int $taskId,
@@ -203,6 +446,27 @@ final class MeituanTemporalServiceTest extends TestCase
             'browse_to_pay_rate' => 1.30,
         ], [
             'lead_price', 'sales_amount', 'sales_room_nights', 'sales_avg_price',
+            'exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
+        ], $capturedAt);
+    }
+
+    private function completeTrafficRow(
+        int $hotelId,
+        int $taskId,
+        string $dataDate,
+        string $capturedAt
+    ): array {
+        return $this->row($hotelId, $taskId, 'traffic', $dataDate, [
+            'list_exposure' => 81,
+            'detail_exposure' => 77,
+            'book_order_num' => 1,
+            'flow_rate' => 1.30,
+        ], [
+            'exposure_users' => 81,
+            'detail_visitors' => 77,
+            'paid_order_count' => 1,
+            'browse_to_pay_rate' => 1.30,
+        ], [
             'exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
         ], $capturedAt);
     }

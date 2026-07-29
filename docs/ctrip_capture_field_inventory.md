@@ -194,8 +194,8 @@
 ## 汇总
 
 - 模块数：19
-- 接口规则数：79
-- 去重字段数：278
+- 接口规则数：80
+- 去重字段数：285
 - 页面交互计划：16 个模块 / 87 个触发动作
 - 点评明文采集：默认禁用；Profile 仅保留评分汇总、回复率、点评条数和好评/差评聚合等非点评明文指标。
 
@@ -1374,6 +1374,26 @@
 | source_pv | 流量来源PV | pv | queryFlowSource flowSourceDetails[].pv；样例中与 allpv 推导竞圈占比，不等同于本店 page_views。 |
 | source_all_pv | 流量来源PV分母 | allpv | queryFlowSource flowSourceDetails[].allpv；用于解释来源占比口径，不写入曝光主列。 |
 | keyword | 搜索关键词 | keyword, searchKeyword, keywords, filterWords | - |
+
+### traffic_realtime_visitor_trend
+
+- 模块：经营报告-流量数据
+- 数据类型：traffic
+- URL关键词：getRealTimeVisitor
+- 备注：当日实时访客曲线；只读取 visitorCountByChannelList，不用日期区间 PV/UV 或订单趋势接口代替。
+
+| 标准字段 | 中文名 | 来源字段 | 说明 |
+|---|---|---|---|
+| hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
+| hotel_name | 酒店名称 | hotelName, hotel_name, hotelname, name | - |
+| date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
+| intraday_channel_code | 实时访客趋势渠道编码 | visitorCountByChannelList[].channel | 实时页渠道编码：0=APP、1=电脑网页、2=手机H5；保留原始编码便于复核。 |
+| intraday_channel | 实时访客趋势渠道 | visitorCountByChannelList[].channel.label | 由携程实时页渠道编码映射；未知编码保持 channel_<code>，不猜测。 |
+| intraday_time_point | 实时访客趋势时点 | visitorCountByChannelList[].visitorCountByHourList[].time | getRealTimeVisitor 返回的当日曲线时点；只用于当日走势，不与采集时间混用。 |
+| intraday_timestamp | 实时访客趋势完整时点 | visitorCountByChannelList[].visitorCountByHourList[].time+data_date | 按曲线顺序和采集业务日补齐日期；保留东八区时区，用于区分滚动24小时首尾重复小时。 |
+| intraday_visitor_count | 实时访客趋势访客量 | visitorCountByChannelList[].visitorCountByHourList[].uv | 页面实时访客曲线使用的当前时点 UV。 |
+| intraday_last_week_visitor_count | 实时访客趋势上周同期 | visitorCountByChannelList[].visitorCountByHourList[].lastUv | 页面实时访客曲线使用的上周同期同一时点 UV。 |
+| intraday_week_on_week_ratio | 实时访客趋势较上周同期 | visitorCountByChannelList[].visitorCountByHourList[].uvRatio | 页面实时访客曲线使用的 uvRatio；仅作为同一时点同比参考。 |
 
 ### traffic_menu_key
 

@@ -1,8 +1,8 @@
 {
   "platform": "ctrip",
   "section_count": 19,
-  "endpoint_count": 79,
-  "field_count": 278,
+  "endpoint_count": 80,
+  "field_count": 285,
   "default_sections": [
     "business_overview",
     "business_weekly_overview",
@@ -41,6 +41,89 @@
       "biztravel_business_report",
       "biztravel_competitor"
     ]
+  },
+  "capture_plans": {
+    "full": {
+      "label": "full_diagnostic",
+      "lightweight": false,
+      "default_sections": [
+        "business_overview",
+        "business_weekly_overview",
+        "traffic_report"
+      ],
+      "capture_endpoint_ids": null,
+      "expected_endpoint_ids": null
+    },
+    "realtime_broadcast": {
+      "label": "realtime_broadcast",
+      "lightweight": true,
+      "default_sections": [
+        "business_overview",
+        "traffic_report"
+      ],
+      "capture_endpoint_ids": [
+        "business_realtime",
+        "business_capacity",
+        "business_flow_compete",
+        "business_visitor_title",
+        "business_hotel_seq",
+        "business_flow_transform",
+        "traffic_hotel_seq",
+        "traffic_flow_transform",
+        "traffic_order_overview",
+        "traffic_hotel_min_price"
+      ],
+      "expected_endpoint_ids": [
+        "business_realtime",
+        "business_flow_compete",
+        "business_hotel_seq",
+        "business_flow_transform",
+        "traffic_hotel_seq",
+        "traffic_flow_transform",
+        "traffic_order_overview"
+      ]
+    },
+    "historical_review": {
+      "label": "historical_traffic_review",
+      "lightweight": true,
+      "default_sections": [
+        "traffic_report"
+      ],
+      "capture_endpoint_ids": [
+        "traffic_scan_flow",
+        "traffic_flow_transform",
+        "traffic_order_trend"
+      ],
+      "expected_endpoint_ids": [
+        "traffic_order_trend"
+      ]
+    },
+    "intraday_trend": {
+      "label": "intraday_traffic_trend",
+      "lightweight": true,
+      "default_sections": [
+        "traffic_report"
+      ],
+      "capture_endpoint_ids": [
+        "traffic_realtime_visitor_trend"
+      ],
+      "expected_endpoint_ids": [
+        "traffic_realtime_visitor_trend"
+      ]
+    },
+    "future_demand": {
+      "label": "future_30_day_search_demand",
+      "lightweight": true,
+      "default_sections": [
+        "traffic_report"
+      ],
+      "capture_endpoint_ids": [
+        "traffic_search_details"
+      ],
+      "expected_endpoint_ids": [
+        "traffic_search_details"
+      ]
+    }
   },
   "interaction_plan_section_count": 16,
   "interaction_plan_step_count": 87,
@@ -17654,6 +17737,224 @@
       ],
       "status": "observed",
       "notes": ""
+    },
+    {
+      "id": "traffic_realtime_visitor_trend",
+      "section": "traffic_report",
+      "label": "经营报告-流量数据",
+      "dataType": "traffic",
+      "keywords": [
+        "getRealTimeVisitor"
+      ],
+      "fields": [
+        {
+          "id": "hotel_id",
+          "label": "酒店ID",
+          "sourceKeys": [
+            "masterHotelId",
+            "masterhotelid",
+            "master_hotel_id",
+            "hotelId",
+            "hotel_id",
+            "hotelID"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "hotel_name",
+          "label": "酒店名称",
+          "sourceKeys": [
+            "hotelName",
+            "hotel_name",
+            "hotelname",
+            "name"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "date",
+          "label": "日期",
+          "sourceKeys": [
+            "date",
+            "dataDate",
+            "effectDate",
+            "effectTime",
+            "statDate",
+            "startDate",
+            "endDate",
+            "updateTime"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "intraday_channel_code",
+          "label": "实时访客趋势渠道编码",
+          "sourceKeys": [
+            "visitorCountByChannelList[].channel"
+          ],
+          "description": "实时页渠道编码：0=APP、1=电脑网页、2=手机H5；保留原始编码便于复核。",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "intraday_channel",
+          "label": "实时访客趋势渠道",
+          "sourceKeys": [
+            "visitorCountByChannelList[].channel.label"
+          ],
+          "description": "由携程实时页渠道编码映射；未知编码保持 channel_<code>，不猜测。",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "intraday_time_point",
+          "label": "实时访客趋势时点",
+          "sourceKeys": [
+            "visitorCountByChannelList[].visitorCountByHourList[].time"
+          ],
+          "description": "getRealTimeVisitor 返回的当日曲线时点；只用于当日走势，不与采集时间混用。",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "intraday_timestamp",
+          "label": "实时访客趋势完整时点",
+          "sourceKeys": [
+            "visitorCountByChannelList[].visitorCountByHourList[].time+data_date"
+          ],
+          "description": "按曲线顺序和采集业务日补齐日期；保留东八区时区，用于区分滚动24小时首尾重复小时。",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "datetime",
+          "timeScope": "rolling_24h_asia_shanghai",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "intraday_visitor_count",
+          "label": "实时访客趋势访客量",
+          "sourceKeys": [
+            "visitorCountByChannelList[].visitorCountByHourList[].uv"
+          ],
+          "description": "页面实时访客曲线使用的当前时点 UV。",
+          "scope": "ota_channel",
+          "unit": "人",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "intraday_last_week_visitor_count",
+          "label": "实时访客趋势上周同期",
+          "sourceKeys": [
+            "visitorCountByChannelList[].visitorCountByHourList[].lastUv"
+          ],
+          "description": "页面实时访客曲线使用的上周同期同一时点 UV。",
+          "scope": "ota_channel",
+          "unit": "人",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "intraday_week_on_week_ratio",
+          "label": "实时访客趋势较上周同期",
+          "sourceKeys": [
+            "visitorCountByChannelList[].visitorCountByHourList[].uvRatio"
+          ],
+          "description": "页面实时访客曲线使用的 uvRatio；仅作为同一时点同比参考。",
+          "scope": "ota_channel",
+          "unit": "%",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        }
+      ],
+      "status": "observed",
+      "notes": "当日实时访客曲线；只读取 visitorCountByChannelList，不用日期区间 PV/UV 或订单趋势接口代替。"
     },
     {
       "id": "traffic_menu_key",

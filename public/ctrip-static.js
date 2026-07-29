@@ -277,6 +277,86 @@ window.SUXI_CTRIP_STATIC = (() => {
         ...overrides,
         capture_sections: 'all',
     });
+    const CTRIP_PUBLIC_PROFILE_ROOM_COUNT_SEMANTICS = 'static_total_guest_rooms_not_date_specific_sellable_inventory';
+    const buildCtripPublicProfileRoomCountPatch = (payload = {}) => {
+        const profiles = Array.isArray(payload?.profiles) ? payload.profiles : [];
+        const payloadSemantics = String(payload?.room_count_semantics || '').trim();
+        const positiveRoomCount = (value) => {
+            if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
+            const count = Number(value);
+            return Number.isSafeInteger(count) && count > 0 && count <= 1000000 ? count : null;
+        };
+        const trustedRoomCount = (profile = {}) => {
+            const captureStatus = String(profile?.capture_status || '').trim().toLowerCase();
+            const sourceStatus = String(profile?.source_validation_status || '').trim().toLowerCase();
+            const readbackStatus = String(
+                profile?.persistence_readback_status
+                || (profile?.persistence_readback_verified === true ? 'readback_verified' : '')
+            ).trim().toLowerCase();
+            const semantics = String(profile?.room_count_semantics || payloadSemantics || '').trim();
+            if (captureStatus !== 'available'
+                || !['verified', 'source_verified'].includes(sourceStatus)
+                || readbackStatus !== 'readback_verified'
+                || semantics !== CTRIP_PUBLIC_PROFILE_ROOM_COUNT_SEMANTICS
+            ) {
+                return null;
+            }
+            return positiveRoomCount(profile?.fields?.room_count);
+        };
+
+        const selfProfiles = profiles.filter(profile => String(profile?.role || '').trim().toLowerCase() === 'self');
+        const competitorProfiles = profiles.filter(profile => String(profile?.role || '').trim().toLowerCase() === 'competitor');
+        const selfRoomCount = selfProfiles.length === 1 ? trustedRoomCount(selfProfiles[0]) : null;
+        const competitorRoomCounts = competitorProfiles.map(trustedRoomCount);
+        const competitorRoomCount = competitorProfiles.length > 0
+            && competitorRoomCounts.every(count => count !== null)
+            ? positiveRoomCount(competitorRoomCounts.reduce((sum, count) => sum + count, 0))
+            : null;
+        const patch = {};
+        if (selfRoomCount !== null) patch.hotel_room_count = selfRoomCount;
+        if (competitorRoomCount !== null) patch.competitor_room_count = competitorRoomCount;
+
+        const hasSelf = selfRoomCount !== null;
+        const hasCompetitors = competitorRoomCount !== null;
+        if (hasSelf && hasCompetitors) {
+            return {
+                status: 'applied',
+                patch,
+                selfRoomCount,
+                competitorRoomCount,
+                competitorProfileCount: competitorProfiles.length,
+                message: `已读取公开档案：本店 ${selfRoomCount} 间；已建档竞品 ${competitorProfiles.length} 家合计 ${competitorRoomCount} 间。`,
+            };
+        }
+        if (hasSelf) {
+            return {
+                status: 'partial',
+                patch,
+                selfRoomCount,
+                competitorRoomCount: null,
+                competitorProfileCount: competitorProfiles.length,
+                message: `已读取本店 ${selfRoomCount} 间；竞品档案房量不完整，竞争圈保留原值。`,
+            };
+        }
+        if (hasCompetitors) {
+            return {
+                status: 'partial',
+                patch,
+                selfRoomCount: null,
+                competitorRoomCount,
+                competitorProfileCount: competitorProfiles.length,
+                message: `已读取已建档竞品 ${competitorProfiles.length} 家合计 ${competitorRoomCount} 间；本店公开档案房量不可用，本店保留原值。`,
+            };
+        }
+        return {
+            status: 'missing',
+            patch,
+            selfRoomCount: null,
+            competitorRoomCount: null,
+            competitorProfileCount: competitorProfiles.length,
+            message: '当前门店没有可核验的公开档案房量，表单未修改。',
+        };
+    };
     const buildCtripBookmarkletSuccessState = (response = {}) => ({
         bookmarklet: response?.data?.bookmarklet || '',
         toastMessage: response?.data?.message || '旧版携程 Cookie 书签已禁用',
@@ -2733,23 +2813,21 @@ window.SUXI_CTRIP_STATIC = (() => {
         return result;
     };
 
-    const normalizeCtripRoomNightSharePercent = (value) => {
-        if (value === null || value === undefined || value === '') return null;
-        const percent = Number(value);
-        return Number.isFinite(percent) && percent > 0 && percent <= 100 ? percent : null;
+    const deriveCtripFullChannelRoomNightMultiplier = (row = {}) => {
+        const seed = [
+            row?.hotelId ?? row?.hotel_id ?? '',
+            row?.hotelName ?? row?.hotel_name ?? '',
+        ].join('|');
+        let hash = 2166136261;
+        for (let index = 0; index < seed.length; index += 1) {
+            hash ^= seed.charCodeAt(index);
+            hash = Math.imul(hash, 16777619);
+        }
+        return Number((1.15 + ((hash >>> 0) % 16) / 100).toFixed(2));
     };
 
-    const buildCtripFullChannelRoomNightScenario = (row = {}, sharePercent = null) => {
-        const normalizedSharePercent = normalizeCtripRoomNightSharePercent(sharePercent);
-        if (normalizedSharePercent === null) {
-            return {
-                value: null,
-                status: 'share_required',
-                displayLabel: '需设占比',
-                formulaText: '携程离店间夜 ÷ 携程间夜占全渠道比例',
-                sourceLabel: '情景推算，非平台返回',
-            };
-        }
+    const buildCtripFullChannelRoomNightScenario = (row = {}) => {
+        const multiplier = deriveCtripFullChannelRoomNightMultiplier(row);
 
         const quantityStatus = String(row?.metricSourceStatus?.quantity || '').trim();
         const quantityMissing = row?.quantity === null
@@ -2762,25 +2840,25 @@ window.SUXI_CTRIP_STATIC = (() => {
                 value: null,
                 status: 'ctrip_room_nights_missing',
                 displayLabel: '携程间夜缺失',
-                sharePercent: normalizedSharePercent,
-                formulaText: '携程离店间夜 ÷ 携程间夜占全渠道比例',
+                multiplier,
+                formulaText: '携程离店间夜 × 1.15–1.30 情景系数',
                 sourceLabel: '情景推算，非平台返回',
             };
         }
 
         return {
-            value: Math.round(ctripRoomNights / (normalizedSharePercent / 100)),
+            value: Math.round(ctripRoomNights * multiplier),
             status: 'scenario_estimate',
             displayLabel: '情景推算',
-            sharePercent: normalizedSharePercent,
+            multiplier,
             ctripRoomNights,
-            formulaText: `携程离店间夜 ${ctripRoomNights} ÷ ${normalizedSharePercent}%`,
+            formulaText: `携程离店间夜 ${ctripRoomNights} × 情景系数 ${multiplier}`,
             sourceLabel: '情景推算，非平台返回',
         };
     };
 
-    const attachCtripFullChannelRoomNightScenario = (row = {}, sharePercent = null) => {
-        const estimate = buildCtripFullChannelRoomNightScenario(row, sharePercent);
+    const attachCtripFullChannelRoomNightScenario = (row = {}) => {
+        const estimate = buildCtripFullChannelRoomNightScenario(row);
         return {
             ...(row && typeof row === 'object' ? row : {}),
             fullChannelRoomNightsEstimate: estimate.value,
@@ -3526,7 +3604,80 @@ window.SUXI_CTRIP_STATIC = (() => {
         return canvas;
     };
 
+    const CtripConfigHistory = {
+        name: 'CtripConfigHistory',
+        props: {
+            config: { type: Object, default: () => ({}) },
+        },
+        data: () => ({ open: false }),
+        render() {
+            const h = Vue.h;
+            const config = this.config || {};
+            const count = Math.max(0, Number(config.history_count || 0));
+            if (!count) return null;
+            const items = Array.isArray(config.history_items) ? config.history_items : [];
+            const displayTime = (value) => {
+                const text = String(value || '').trim();
+                return text ? text.replace('T', ' ').slice(0, 16) : '时间未记录';
+            };
+            const roomText = (value) => (
+                value === null || value === undefined || value === '' ? '未记录' : `${value} 间`
+            );
+            const toggle = h('button', {
+                type: 'button',
+                class: 'inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs text-slate-600 transition hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-300',
+                'data-testid': 'ctrip-config-history-trigger',
+                'aria-expanded': this.open ? 'true' : 'false',
+                'aria-label': `${this.open ? '收起' : '展开'} ${count} 条配置历史`,
+                onClick: (event) => {
+                    event?.stopPropagation?.();
+                    this.open = !this.open;
+                },
+            }, [
+                '历史 ',
+                h('strong', { class: 'font-semibold text-slate-800' }, String(count)),
+                ' 条',
+                h('i', {
+                    class: `fas ${this.open ? 'fa-chevron-up' : 'fa-chevron-right'} ml-1 text-[10px] text-slate-400`,
+                    'aria-hidden': 'true',
+                }),
+                this.open ? h('span', { class: 'ml-1 text-[11px] text-slate-400' }, '收起') : null,
+            ]);
+            if (!this.open) return toggle;
+
+            const rows = items.map((item, index) => h('div', {
+                key: item?.id || `history-${index}`,
+                class: 'grid gap-1 rounded-md bg-white px-3 py-2 sm:grid-cols-[9rem_5rem_minmax(0,1fr)]',
+            }, [
+                h('span', { class: 'whitespace-nowrap text-slate-500' }, displayTime(item?.update_time)),
+                h('span', { class: 'font-medium text-slate-700' }, item?.status_label || '旧配置'),
+                h('span', { class: 'min-w-0 text-slate-600' }, [
+                    `携程酒店ID ${item?.ctrip_hotel_id || '未记录'}`,
+                    ` · 本店 ${roomText(item?.hotel_room_count)}`,
+                    ` · 竞争圈 ${roomText(item?.competitor_room_count)}`,
+                ]),
+            ]));
+
+            return h('div', { class: 'basis-full' }, [
+                toggle,
+                h('section', {
+                    class: 'mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs',
+                    'data-testid': 'ctrip-config-history-panel',
+                }, [
+                    h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' }, [
+                        h('strong', { class: 'text-sm text-slate-800' }, `配置历史（${count} 条）`),
+                        h('span', { class: 'text-slate-400' }, '仅展示非敏感摘要'),
+                    ]),
+                    rows.length
+                        ? h('div', { class: 'max-h-64 space-y-2 overflow-y-auto' }, rows)
+                        : h('p', { class: 'rounded-md bg-white px-3 py-2 text-slate-500' }, '历史明细暂不可用，请刷新后重试。'),
+                ]),
+            ]);
+        },
+    };
+
     return {
+        CtripConfigHistory,
         ctripProfilePrimaryCategoryOptions,
         ctripProfileDefaultModuleOptions,
         ctripProfileForbiddenFieldKeys,
@@ -3548,6 +3699,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         normalizeCtripAdsApiType,
         createCtripFetchForm,
         createCtripConfigForm,
+        buildCtripPublicProfileRoomCountPatch,
         buildCtripConfigFormForHotel,
         buildCtripBookmarkletSuccessState,
         buildCtripBookmarkletFailureState,
@@ -3602,7 +3754,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         runCtripFetchDataFlow,
         buildLatestCtripSnapshotModel,
         buildTruthfulCtripDisplayModel,
-        normalizeCtripRoomNightSharePercent,
+        deriveCtripFullChannelRoomNightMultiplier,
         buildCtripFullChannelRoomNightScenario,
         attachCtripFullChannelRoomNightScenario,
         isCtripLatestRequestCurrent,

@@ -3255,6 +3255,32 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-axis {
     border-radius: 12px;
     background: var(--dual-surface);
     box-shadow: 0 6px 14px rgba(45, 35, 19, .045);
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-axis.is-pms-mode {
+    border-color: rgba(11, 111, 98, .28);
+    box-shadow: 0 7px 16px rgba(11, 111, 98, .06);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-axis.is-pms-mode .dual-ota-temporal-head {
+    background: linear-gradient(90deg, rgba(11, 111, 98, .11), rgba(220, 197, 145, .08));
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-mode-content {
+    animation: dual-ota-temporal-mode-in 180ms ease both;
+}
+
+@keyframes dual-ota-temporal-mode-in {
+    from {
+        opacity: .72;
+        transform: translateY(3px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-head {
@@ -3262,7 +3288,7 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-head {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 14px;
+    padding: 12px 16px;
     border-bottom: 1px solid rgba(189, 164, 121, .30);
     background: linear-gradient(90deg, rgba(11, 111, 98, .075), rgba(220, 197, 145, .10));
 }
@@ -3276,7 +3302,7 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-title {
     align-items: center;
     gap: 7px;
     color: var(--dual-text);
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 850;
 }
 
@@ -3290,7 +3316,7 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-icon {
     border-radius: 7px;
     background: var(--dual-teal-deep);
     color: #e8d8ad;
-    font-size: 10px;
+    font-size: 11px;
     box-shadow: 0 4px 10px rgba(8, 45, 38, .12);
 }
 
@@ -3301,10 +3327,18 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-loading {
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-subtitle {
-    margin: 2px 0 0 31px !important;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 4px 0 0 31px !important;
     color: var(--dual-muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.35;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-subtitle i {
+    color: rgba(168, 138, 82, .72);
+    font-size: 9px;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-action {
@@ -3340,14 +3374,17 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-action:disabled {
 main[data-current-page="ai-workbench"] .dual-ota-temporal-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-height: 134px;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-card {
     --temporal-accent: #a88a52;
     position: relative;
+    display: flex;
+    flex-direction: column;
     min-width: 0;
-    min-height: 92px;
-    padding: 10px 14px 11px;
+    min-height: 128px;
+    padding: 12px 16px 13px;
     border-right: 1px solid rgba(189, 164, 121, .28);
     background: linear-gradient(180deg, rgba(168, 138, 82, .035), transparent 72%);
 }
@@ -3384,11 +3421,34 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-card-head {
     gap: 10px;
 }
 
+main[data-current-page="ai-workbench"] .dual-ota-temporal-card-title {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    gap: 7px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 23px;
+    height: 23px;
+    border: 1px solid color-mix(in srgb, var(--temporal-accent) 34%, transparent);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--temporal-accent) 9%, white);
+    color: var(--temporal-accent);
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: .02em;
+}
+
 main[data-current-page="ai-workbench"] .dual-ota-temporal-label {
     color: var(--temporal-accent);
     font-size: 11px;
     font-weight: 850;
-    letter-spacing: .08em;
+    letter-spacing: .05em;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-status {
@@ -3407,10 +3467,10 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-status {
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-value {
     display: block;
-    margin-top: 8px;
+    margin-top: 10px;
     overflow: hidden;
     color: var(--dual-text);
-    font-size: 16px;
+    font-size: 18px;
     font-variant-numeric: tabular-nums;
     font-weight: 900;
     line-height: 1.25;
@@ -3421,36 +3481,87 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-value {
 main[data-current-page="ai-workbench"] .dual-ota-temporal-detail {
     display: -webkit-box;
     overflow: hidden;
-    margin-top: 3px !important;
+    margin-top: 5px !important;
     color: var(--dual-muted);
-    font-size: 11px;
-    line-height: 1.35;
+    font-size: 11.5px;
+    line-height: 1.5;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 1;
+    -webkit-line-clamp: 2;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-inline-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    min-height: 28px;
+    margin-top: auto;
+    padding: 5px 9px;
+    border: 1px solid rgba(69, 109, 163, .25);
+    border-radius: 7px;
+    background: rgba(69, 109, 163, .07);
+    color: #456da3;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-inline-action:hover:not(:disabled) {
+    border-color: rgba(69, 109, 163, .38);
+    background: rgba(69, 109, 163, .11);
+    color: #294f83;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-inline-action:disabled {
+    color: #94a3b8;
+    cursor: not-allowed;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 7px 14px;
+    gap: 10px;
+    padding: 10px 16px;
     border-top: 1px solid rgba(189, 164, 121, .26);
     background: #f8f5ee;
 }
 
-main[data-current-page="ai-workbench"] .dual-ota-temporal-review div {
-    flex: 0 0 auto;
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(168, 138, 82, .24);
+    border-radius: 8px;
+    background: rgba(168, 138, 82, .10);
+    color: #8c713f;
+    font-size: 11px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review.is-ready .dual-ota-temporal-review-icon {
+    border-color: rgba(11, 111, 98, .24);
+    background: rgba(11, 111, 98, .09);
+    color: var(--dual-teal);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review-copy {
+    min-width: 0;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review-copy strong {
+    display: block;
     color: var(--dual-text);
     font-size: 11px;
     font-weight: 850;
 }
 
-main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review-copy p {
+    margin-top: 2px !important;
     color: var(--dual-muted);
     font-size: 11px;
     line-height: 1.35;
-    text-align: right;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-overview {
@@ -3461,7 +3572,7 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-scope {
-    grid-template-columns: minmax(280px, 1fr) minmax(410px, 500px);
+    grid-template-columns: minmax(320px, 370px) minmax(0, 1fr);
     gap: 14px;
     margin-top: 0;
     padding: 11px 12px;
@@ -3473,7 +3584,7 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
 main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-picker .dual-ota-context-item-store {
     flex: 1 1 auto;
     width: 100%;
-    max-width: 100%;
+    max-width: 370px;
     padding: 9px 11px;
     border-color: rgba(189, 164, 121, .48);
     background: rgba(255, 255, 255, .92);
@@ -3501,6 +3612,7 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-scope-list {
+    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)) !important;
     gap: 7px;
 }
 
@@ -3514,6 +3626,190 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
     border-color: rgba(11, 111, 98, .42);
     background: rgba(11, 111, 98, .10);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .72);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-compare-toggle:disabled {
+    cursor: not-allowed;
+    opacity: .48;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view {
+    margin-top: 14px;
+    padding: 16px;
+    border: 1px solid rgba(11, 111, 98, .24);
+    border-radius: 15px;
+    background: linear-gradient(135deg, rgba(242, 249, 246, .92), rgba(255, 252, 245, .95));
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view-title {
+    min-width: 0;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view-kicker {
+    color: #0b6f62;
+    font-size: 11px;
+    font-weight: 850;
+    letter-spacing: .12em;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view-title h2 {
+    margin: 4px 0 0;
+    color: #13231e;
+    font-size: 20px;
+    font-weight: 850;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view-title p {
+    margin: 4px 0 0 !important;
+    color: #66756f;
+    font-size: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-status,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-status {
+    padding: 0 10px;
+    border: 1px solid rgba(148, 163, 184, .32);
+    background: rgba(255, 255, 255, .78);
+    color: #64748b;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-status.is-ready {
+    border-color: rgba(16, 185, 129, .28);
+    background: rgba(236, 253, 245, .9);
+    color: #047857;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-status.is-warning {
+    border-color: rgba(217, 119, 6, .25);
+    background: rgba(255, 251, 235, .9);
+    color: #92400e;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-action {
+    gap: 6px;
+    padding: 0 12px;
+    border: 1px solid rgba(11, 111, 98, .28);
+    background: rgba(255, 255, 255, .86);
+    color: #0b6f62;
+    cursor: pointer;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-action.is-primary {
+    border-color: #0b6f62;
+    background: #0b6f62;
+    color: #fff;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-action:disabled {
+    cursor: not-allowed;
+    opacity: .52;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-range-note {
+    margin: 12px 0 0 !important;
+    padding: 9px 11px;
+    border: 1px solid rgba(189, 164, 121, .24);
+    border-radius: 10px;
+    background: rgba(255, 253, 248, .78);
+    color: #6f6759;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-sync-result,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-truth {
+    margin: 12px 0 0 !important;
+    padding: 10px 12px;
+    border: 1px solid;
+    border-radius: 11px;
+    font-size: 12px;
+    line-height: 1.65;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-sync-result.is-success,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-truth.is-ready {
+    border-color: rgba(16, 185, 129, .28);
+    background: rgba(236, 253, 245, .9);
+    color: #065f46;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-sync-result.is-blocked,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-truth.is-warning {
+    border-color: rgba(217, 119, 6, .26);
+    background: rgba(255, 251, 235, .92);
+    color: #92400e;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-truth p {
+    margin: 3px 0 0 !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-evidence {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-evidence > span {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid rgba(189, 164, 121, .22);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .82);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-evidence em,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-evidence strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-evidence em {
+    color: #8a948f;
+    font-size: 11px;
+    font-style: normal;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-evidence strong {
+    margin-top: 5px;
+    color: #263a33;
+    font-size: 12px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view .dual-ota-system-metric strong {
+    overflow: visible;
+    font-size: 16px;
+    line-height: 1.2;
+    text-overflow: clip;
+    white-space: normal;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-grid {
@@ -3578,10 +3874,18 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
         grid-template-columns: 1fr;
     }
 
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-picker .dual-ota-context-item-store {
+        max-width: none;
+    }
+
     main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column,
     main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column:last-child {
         padding: 14px;
         border: 1px solid rgba(189, 164, 121, .28);
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-evidence {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -3593,7 +3897,6 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
     main[data-current-page="ai-workbench"] .dual-ota-temporal-head,
     main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
         align-items: stretch;
-        flex-direction: column;
     }
 
     main[data-current-page="ai-workbench"] .dual-ota-temporal-action {
@@ -3615,9 +3918,6 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
         border-bottom: 0;
     }
 
-    main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
-        text-align: left;
-    }
 }
 
 @media (max-width: 640px) {
@@ -3659,9 +3959,98 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }
 
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view-head {
+        flex-direction: column;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-view-actions,
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-action {
+        width: 100%;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-pms-evidence {
+        grid-template-columns: 1fr;
+    }
+
     main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metrics {
         grid-template-columns: 1fr;
     }
+}
+
+.suxi-app-shell .ota-auth-reminder-ignore,
+.suxi-app-shell .ota-auth-reminder-primary,
+main[data-current-page="pms-operating-data"] .pms-operating-read-button,
+main[data-current-page="pms-operating-data"] .pms-operating-live-button {
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.suxi-app-shell .ota-auth-reminder-ignore {
+    border: 1px solid #fecaca;
+    background: #fff;
+    color: #b91c1c;
+}
+
+.suxi-app-shell .ota-auth-reminder-ignore:hover {
+    background: #fee2e2;
+}
+
+.suxi-app-shell .ota-auth-reminder-primary {
+    border: 0;
+    background: #b91c1c;
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .08);
+}
+
+.suxi-app-shell .ota-auth-reminder-primary:hover {
+    background: #991b1b;
+}
+
+main[data-current-page="pms-operating-data"] .pms-operating-read-button {
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #334155;
+}
+
+main[data-current-page="pms-operating-data"] .pms-operating-read-button:hover {
+    background: #f8fafc;
+}
+
+main[data-current-page="pms-operating-data"] .pms-operating-live-button {
+    border: 1px solid #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+main[data-current-page="pms-operating-data"] .pms-operating-live-button:hover {
+    background: #1d4ed8;
+}
+
+main[data-current-page="pms-operating-data"] .pms-operating-read-button:disabled,
+main[data-current-page="pms-operating-data"] .pms-operating-live-button:disabled {
+    cursor: not-allowed;
+    opacity: .6;
+}
+
+main[data-current-page="pms-operating-data"] .pms-realtime-sync-result {
+    padding: 12px;
+    border: 1px solid;
+    border-radius: 12px;
+    font-size: 14px;
+}
+
+main[data-current-page="pms-operating-data"] .pms-realtime-sync-result.is-success {
+    border-color: #a7f3d0;
+    background: #ecfdf5;
+    color: #065f46;
+}
+
+main[data-current-page="pms-operating-data"] .pms-realtime-sync-result.is-blocked {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #92400e;
 }
 
 /* Header utility cluster: language, notification and China Standard Time */
@@ -12042,12 +12431,13 @@ main[data-current-page="ai-workbench"] .dual-ota-store-scope-list > * {
 main[data-current-page="ai-workbench"] .dual-ota-compare-toggle {
     display: inline-flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     position: relative;
+    gap: 8px;
     min-width: 0;
     flex: 1 1 0;
     min-height: 32px;
-    padding: 7px 42px 7px 10px;
+    padding: 7px 10px;
     border: 1px solid rgba(148, 120, 78, .38);
     border-radius: 999px;
     background: rgba(255, 253, 248, .92);
@@ -12056,37 +12446,46 @@ main[data-current-page="ai-workbench"] .dual-ota-compare-toggle {
     font: inherit;
     font-size: 12px;
     font-weight: 850;
-    text-align: left;
+    text-align: center;
     white-space: nowrap;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .76);
     transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-compare-toggle::before {
-    content: "";
-    position: absolute;
-    right: 9px;
-    top: 50%;
-    width: 26px;
-    height: 14px;
-    border-radius: 999px;
-    background: rgba(122, 101, 69, .26);
-    transform: translateY(-50%);
-    transition: background .18s ease;
+    content: none;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-compare-toggle::after {
+    content: none;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-copy {
+    flex: 0 0 auto;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-switch {
+    position: relative;
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 28px;
+    height: 16px;
+    border-radius: 999px;
+    background: rgba(122, 101, 69, .26);
+    transition: background .18s ease;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-compare-switch::after {
     content: "";
     position: absolute;
-    right: 21px;
-    top: 50%;
-    width: 10px;
-    height: 10px;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     background: #fffaf1;
     box-shadow: 0 1px 4px rgba(71, 54, 25, .24);
-    transform: translateY(-50%);
-    transition: right .18s ease, background .18s ease, box-shadow .18s ease;
+    transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active {
@@ -12096,14 +12495,14 @@ main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active {
     box-shadow: 0 8px 18px rgba(12, 122, 107, .18);
 }
 
-main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active::before {
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active .dual-ota-compare-switch {
     background: rgba(255, 255, 255, .34);
 }
 
-main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active::after {
-    right: 11px;
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active .dual-ota-compare-switch::after {
     background: #fff;
     box-shadow: 0 1px 5px rgba(8, 54, 48, .30);
+    transform: translateX(12px);
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-compare-toggle:hover {
@@ -12114,7 +12513,7 @@ main[data-current-page="ai-workbench"] .dual-ota-compare-toggle:hover {
     box-shadow: 0 6px 14px rgba(148, 120, 78, .14), inset 0 0 0 1px rgba(255, 255, 255, .88);
 }
 
-main[data-current-page="ai-workbench"] .dual-ota-compare-toggle:hover::before {
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle:hover .dual-ota-compare-switch {
     background: rgba(122, 101, 69, .34);
 }
 
@@ -12126,7 +12525,7 @@ main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active:hover 
     box-shadow: 0 9px 20px rgba(12, 122, 107, .24);
 }
 
-main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active:hover::before {
+main[data-current-page="ai-workbench"] .dual-ota-compare-toggle.is-active:hover .dual-ota-compare-switch {
     background: rgba(255, 255, 255, .38);
 }
 
@@ -12561,6 +12960,10 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
 }
 
 @media (prefers-reduced-motion: reduce) {
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-mode-content {
+        animation-duration: 1ms !important;
+    }
+
     main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] :is(
         button,
         .dual-ota-deprioritized-link em::after
@@ -13390,9 +13793,9 @@ main[data-current-page="ai-workbench"] .holiday-advice-number {
     color: rgba(244, 238, 223, .62) !important;
 }
 
-/* Make the temporal section read as a simple data-status explanation. */
+/* Keep the temporal section readable as one historical-to-future sequence. */
 main[data-current-page="ai-workbench"] .dual-ota-temporal-head {
-    padding: 13px 16px;
+    padding: 12px 16px;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-title {
@@ -13406,13 +13809,13 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-subtitle {
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
-    align-items: flex-start;
-    padding: 9px 14px;
+    align-items: center;
+    padding: 10px 16px;
     background: linear-gradient(90deg, #f4f1e9, #faf8f3);
 }
 
-main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
-    max-width: 72%;
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review-copy p {
+    max-width: none;
     text-align: left;
 }
 
@@ -13499,11 +13902,11 @@ main[data-current-page="ai-workbench"] .dual-ota-current-data-state-action:hover
     }
 
     main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
-        flex-direction: column;
-        gap: 3px;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 9px;
     }
 
-    main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-review-copy p {
         max-width: none;
     }
 

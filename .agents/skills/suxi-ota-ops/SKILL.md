@@ -36,6 +36,13 @@ Choose the shortest verified path for the specific OTA task. Use Browser for loc
 | 自动获取 | 日常稳定采集、日报、巡检、预警、无需每次人工复制上下文 | 平台账号已授权，门店和系统酒店已绑定 | 使用门店独立 Profile，失效时提示人工登录，监听业务 JSON，按模块入库 | 不绕过验证码/短信/权限，不采集非授权门店 |
 | 手动获取 | 临时补数、首次接入、平台改版排障、自动采集失效后补录、用户已导出报表或抓到请求上下文 | 平台、酒店、日期、数据模块、导出文件或 Cookie/Payload/必要 ID | 校验字段，调用现有接口或导入解析，清洗、脱敏、去重、入库 | 不作为日常主线，不自动登录 OTA，不启动 Profile，不要求全量页面自动化 |
 
+## Minimal Endpoint Collection
+
+- 涉及授权浏览器、内部业务接口、CDP、XHR/fetch Hook、浏览器扩展或 DOM 兜底时，先读取 `references/authorized-browser-endpoint-collection.md`。
+- 从“要生成的经营事实或推送内容”反推最少端点；不要为了发现字段遍历所有页面或每次重放全部已知接口。
+- 已确认端点默认在对应隔离 BrowserContext 内直接请求；网络监听只用于首次发现、平台改版和响应合同漂移，DOM 只用于结构化响应确实缺失的可见字段。
+- 一个浏览器进程可以承载多个平台，但每个平台/账号/门店必须有独立 BrowserContext 或 Profile、显式绑定和互斥锁；端口不代表身份隔离。
+
 ## Daily Operations Ledger
 
 - 涉及昨日数据、Excel 日台账、晨报、流量漏斗、同行/商圈对比或“数据到动作”闭环时，先读取 `references/ota-daily-operations-ledger.md`。

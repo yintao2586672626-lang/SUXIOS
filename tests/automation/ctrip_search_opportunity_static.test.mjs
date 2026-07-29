@@ -223,9 +223,14 @@ test('traffic tab exposes one-click four-scope search opportunity panel', () => 
   assert.match(trafficTab, /ctripTrafficView === 'history'/);
   assert.match(trafficTab, /ctripTrafficView === 'realtime'/);
   assert.match(trafficTab, /ctripTrafficView === 'future'/);
-  assert.match(trafficTab, />历史数据</);
-  assert.match(trafficTab, />今日实时</);
-  assert.match(trafficTab, />未来搜索</);
+  assert.match(trafficTab, />过去复盘</);
+  assert.match(trafficTab, />如今实时</);
+  assert.match(trafficTab, />未来研判</);
+  assert.match(trafficTab, /data-testid="ctrip-temporal-push-contract"/);
+  assert.match(trafficTab, /昨日、7天、30天的曝光、访客、填写、提交和转化走势/);
+  assert.match(trafficTab, /采集超过 1 小时才提示数据过期/);
+  assert.match(trafficTab, /实时起价为 ¥0\.00 时标记“携程疑似满房\/无房可售”/);
+  assert.match(trafficTab, /竞争圈排名不进入播报/);
   assert.match(trafficTab, /暂无已验证的今日实时数据/);
   for (const label of [
     '实时访客量',

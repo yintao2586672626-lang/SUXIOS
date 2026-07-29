@@ -32,16 +32,17 @@ test('ordinary accounts receive a permission-gated enterprise WeChat entry', () 
 test('self-service UI scopes every status, save and test request to the selected permitted hotel', () => {
   assert.match(appMain, /const wechatNotificationHotelOptions = computed\(\(\) => \{[\s\S]+?permittedHotels\.value/);
   assert.match(appMain, /\/wechat-notification\/status\?hotel_id=\$\{encodeURIComponent\(hotelId\)\}/);
-  assert.match(appMain, /request\('\/wechat-notification\/bind'[\s\S]+?hotel_id: Number\(hotelId\)/);
-  assert.match(appMain, /request\('\/wechat-notification\/test'[\s\S]+?hotel_id: Number\(hotelId\)/);
-  assert.match(appMain, /const changeWechatNotificationHotel = \(\) => \{\s*wechatNotificationForm\.value\.name = DEFAULT_WECHAT_NOTIFICATION_NAME;\s*wechatNotificationForm\.value\.webhook = ''/);
+  assert.match(appMain, /: '\/wechat-notification\/bind';[\s\S]+?hotel_id: Number\(hotelId\)/);
+  assert.match(appMain, /: '\/wechat-notification\/test'[\s\S]+?hotel_id: Number\(hotelId\)/);
+  assert.match(appMain, /const changeWechatNotificationHotel = \(\) => \{[\s\S]+?persistWechatNotificationHotelPreference\(wechatNotificationHotelId\.value\)/);
   assert.match(controller, /hasHotelPermission\(\$hotelId, 'can_fill_daily_report'\)/);
   assert.match(service, /->where\('store_id', \$hotelId\)\s*->where\('owner_user_id', \$userId\)\s*->where\('notification_scope', self::SCOPE\)/);
   assert.match(routes, /Route::group\('api\/wechat-notification'[\s\S]+?->middleware\(\\app\\middleware\\Auth::class\)/);
 });
 
-test('self-service UI defaults an unselected permitted hotel to 敦煌漠蓝新', () => {
+test('enterprise WeChat persists the selected hotel and otherwise defaults to 敦煌漠蓝新', () => {
   assert.match(appMain, /const DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME = '敦煌漠蓝新';/);
+  assert.match(appMain, /suxios_wechat_notification_hotel_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);
   const ensureHotel = appMain.slice(
     appMain.indexOf('const ensureWechatNotificationHotel = () => {'),
     appMain.indexOf('const loadWechatNotificationStatus = async () => {'),
@@ -51,18 +52,20 @@ test('self-service UI defaults an unselected permitted hotel to 敦煌漠蓝新'
     /const defaultHotel = options\.find\([\s\S]+?hotel\?\.name[\s\S]+?DEFAULT_WECHAT_NOTIFICATION_HOTEL_NAME/,
   );
   assert.ok(
-    ensureHotel.indexOf('if (currentExists) return') < ensureHotel.indexOf('const defaultHotel ='),
+    ensureHotel.indexOf('if (currentExists) {') < ensureHotel.indexOf('const defaultHotel ='),
     'an explicit current selection must remain stable',
   );
   assert.ok(
-    ensureHotel.indexOf('defaultHotel?.id') < ensureHotel.indexOf('preferred?.id'),
-    '敦煌漠蓝新 should precede the account hotel and first-option fallbacks',
+    ensureHotel.indexOf('storedHotel?.id') < ensureHotel.indexOf('defaultHotel?.id')
+      && ensureHotel.indexOf('defaultHotel?.id') < ensureHotel.indexOf('preferred?.id'),
+    'a saved selection should win; 敦煌漠蓝新 should remain the first-use fallback',
   );
+  assert.match(appMain, /\(storedHotel \|\| defaultHotel \|\| preferredHotel \|\| options\[0\]\)\.id/);
 });
 
 test('Webhook is password-only input, is cleared after save, and only backend mask is rendered', () => {
   assert.match(panel, /type: 'password'[\s\S]+?'data-testid': 'wechat-notification-webhook'/);
-  assert.match(panel, /binding\?\.webhook_masked \|\| '未保存'/);
+  assert.match(panel, /binding\?\.webhook_masked \|\| '未绑定'/);
   assert.doesNotMatch(panel, /localStorage|sessionStorage/);
   assert.match(appMain, /finally \{\s*wechatNotificationForm\.value\.webhook = '';/);
   assert.doesNotMatch(appMain, /(?:localStorage|sessionStorage)\.setItem\([^)]*wechatNotificationForm/);
@@ -83,21 +86,23 @@ test('page exposes save, test-delivery and readback status evidence', () => {
   ]) {
     assert.ok(panel.includes(marker), `missing ${marker}`);
   }
-  assert.match(appMain, /last_test_status === 'sent'/);
   assert.match(appMain, /last_test_status === 'failed'/);
+  assert.match(appMain, /item => String\(item\?\.status \|\| ''\) === 'sent'/);
   assert.match(appMain, /response\.data\?\.binding/);
 });
 
-test('enterprise WeChat uses one page with separate account and admin shared scopes', () => {
-  assert.match(panel, /账号级配置 · 当前账户与当前门店/);
-  assert.match(panel, /我的通知群/);
-  assert.match(notificationPage, /data-testid="wecom-robot-management"/);
-  assert.match(notificationPage, /管理员配置/);
-  assert.match(notificationPage, /门店共享机器人/);
+test('enterprise WeChat exposes one current-hotel channel without duplicate binding forms', () => {
+  assert.match(panel, /当前酒店推送通道/);
+  assert.match(panel, /当前酒店只绑定一个企业微信群机器人 Webhook/);
+  assert.doesNotMatch(panel, /我的通知群|通知群名称|wechat-notification-hotel|wechat-notification-name/);
+  assert.doesNotMatch(notificationPage, /data-testid="wecom-robot-management"|管理员配置|绑定共享机器人/);
   assert.match(notificationPage, /\['manual-notifications', 'wechat-notification'\]\.includes\(currentPage\)/);
   assert.match(notificationUi, /manual-notification-formal-robot/);
-  assert.match(notificationPage, /与上方每个账户自己的“我的通知群”分开保存、分开管理/);
+  assert.match(panel, /酒店由页面顶部统一选择，不会绑定到其他酒店/);
+  assert.match(notificationPage, /1　推送通道/);
+  assert.match(notificationPage, /2　自动推送/);
   assert.match(panel, /自动发送设置/);
+  assert.match(panel, /计划自动使用当前酒店唯一推送通道/);
   assert.match(notificationPage, /data-testid="manual-notification-automatic-tasks"/);
   assert.match(notificationPage, /data-testid="manual-notification-history"/);
   assert.match(notificationPage, /data-testid="manual-notification-dispatch-history"/);
@@ -111,6 +116,18 @@ test('enterprise WeChat uses one page with separate account and admin shared sco
     appMain,
     /const loadManualNotificationCenter = async \(\) => \{[\s\S]+?loadWechatNotificationStatus\(\)[\s\S]+?loadCompetitorRobots\(\)/,
   );
+  const mountedStart = appMain.indexOf('onMounted(() => {');
+  const mountedEnd = appMain.indexOf('\n            onUnmounted', mountedStart);
+  const mountedFlow = appMain.slice(mountedStart, mountedEnd);
+  assert.match(
+    mountedFlow,
+    /\['wechat-notification', 'manual-notifications'\]\.includes\(currentPage\.value\)[\s\S]+?nextTick\(\(\) => loadManualNotificationCenter\(\)\)/,
+    'a deferred full-render remount must initialize the selected hotel and channel without another click',
+  );
+  assert.match(appMain, /const wechatNotificationSharedBinding = computed/);
+  assert.match(appMain, /wechatNotificationSharedBinding\.value\s*\|\|\s*wechatNotificationPersonalBinding\.value/);
+  assert.match(appMain, /\/admin\/competitor-wechat-robot\/update\/\$\{sharedRobotId\}/);
+  assert.match(appMain, /\/admin\/competitor-wechat-robot\/test-store\/\$\{hotelId\}/);
 });
 
 test('admin shared management and default hotel delivery exclude account bindings', () => {
@@ -123,4 +140,6 @@ test('admin shared management and default hotel delivery exclude account binding
 test('lazy panel URL is pinned to the current component content', () => {
   const hash = crypto.createHash('sha256').update(panel).digest('hex').slice(0, 10);
   assert.match(appMain, new RegExp(`wechat-notification-static\\.js\\?v=[^'"]*-h${hash}`));
+  assert.match(appMain, /__SUXI_WECHAT_NOTIFICATION_PANEL_LOAD_PROMISE__/);
+  assert.match(appMain, /if \(applyWechatNotificationPanel\(\)\) \{/);
 });

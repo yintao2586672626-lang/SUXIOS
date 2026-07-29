@@ -9,6 +9,7 @@ final class CtripCollectorWorkflowService
         'review_only' => [
             'label' => 'ctrip_review_only',
             'capture_sections' => 'comment_review',
+            'capture_plan' => 'full',
             'data_period' => 'historical_daily',
             'phase' => 'review',
             'method' => 'browser_profile',
@@ -18,20 +19,58 @@ final class CtripCollectorWorkflowService
         'full' => [
             'label' => 'ctrip_full_collection',
             'capture_sections' => 'wide',
+            'capture_plan' => 'full',
             'data_period' => 'historical_daily',
             'phase' => 'full',
             'method' => 'browser_profile',
             'privacy_boundary' => 'ota_channel_metrics_only',
             'required_core_fields' => ['order_amount', 'room_nights', 'order_count', 'traffic', 'review_score'],
         ],
+        'historical_review' => [
+            'label' => 'ctrip_historical_traffic_review',
+            'capture_sections' => 'traffic_report',
+            'capture_plan' => 'historical_review',
+            'data_period' => 'historical_daily',
+            'phase' => 'historical_review',
+            'method' => 'browser_profile',
+            'privacy_boundary' => 'ctrip_ota_channel_historical_aggregates_only',
+            'required_core_fields' => [
+                'list_exposure',
+                'detail_exposure',
+                'order_filling_num',
+                'order_submit_num',
+                'flow_rate',
+            ],
+        ],
         'realtime' => [
             'label' => 'ctrip_realtime',
-            'capture_sections' => 'homepage,traffic_report',
+            'capture_sections' => 'business_overview,traffic_report',
+            'capture_plan' => 'realtime_broadcast',
             'data_period' => 'realtime_snapshot',
             'phase' => 'realtime',
             'method' => 'browser_profile',
             'privacy_boundary' => 'realtime_snapshot_not_final_daily_truth',
             'required_core_fields' => ['ctrip_orders', 'ctrip_room_nights', 'ctrip_visitor', 'ctrip_rank'],
+        ],
+        'intraday_trend' => [
+            'label' => 'ctrip_intraday_traffic_trend',
+            'capture_sections' => 'traffic_report',
+            'capture_plan' => 'intraday_trend',
+            'data_period' => 'realtime_hourly_trend',
+            'phase' => 'intraday_trend',
+            'method' => 'browser_profile',
+            'privacy_boundary' => 'ctrip_ota_channel_hourly_aggregate_only',
+            'required_core_fields' => ['visitor_trend'],
+        ],
+        'future_demand' => [
+            'label' => 'ctrip_future_search_demand',
+            'capture_sections' => 'traffic_report',
+            'capture_plan' => 'future_demand',
+            'data_period' => 'future_30_day_search_demand',
+            'phase' => 'future_demand',
+            'method' => 'browser_profile',
+            'privacy_boundary' => 'ctrip_ota_channel_search_aggregate_only',
+            'required_core_fields' => ['future_search_pv', 'future_search_uv', 'future_search_conversion_rate'],
         ],
     ];
 
@@ -77,8 +116,14 @@ final class CtripCollectorWorkflowService
             ? $boundedSections
             : $definition['capture_sections'];
         $options['profile_sections'] = $options['capture_sections'];
+        $options['capture_plan'] = $this->firstValue(
+            $options,
+            [],
+            ['capture_plan', 'capturePlan', 'ctrip_capture_plan', 'ctripCapturePlan']
+        ) ?? $definition['capture_plan'];
         $options['data_period'] = $definition['data_period'];
-        if ($flow === 'realtime' && $this->firstValue($options, [], ['data_date', 'dataDate']) === null) {
+        if (in_array($flow, ['realtime', 'intraday_trend', 'future_demand'], true)
+            && $this->firstValue($options, [], ['data_date', 'dataDate']) === null) {
             $options['data_date'] = date('Y-m-d');
         }
 
@@ -150,6 +195,69 @@ final class CtripCollectorWorkflowService
             'collector_flow' => $flow,
             'gate' => $gate,
             'flows' => self::FLOW_DEFINITIONS,
+            'temporal_push_contract' => [
+                'version' => 'ctrip_temporal_push.v1',
+                'segments' => [
+                    'past' => [
+                        'label' => '过去复盘',
+                        'collector_flows' => ['historical_review'],
+                        'windows' => ['yesterday', 'last_7_days', 'last_30_days'],
+                        'push_items' => [
+                            'list_exposure',
+                            'detail_exposure',
+                            'flow_rate',
+                            'order_filling_num',
+                            'order_submit_num',
+                            'order_trend',
+                        ],
+                        'decision_use' => '复盘流量漏斗、识别转化损失阶段和趋势变化',
+                    ],
+                    'present' => [
+                        'label' => '如今实时',
+                        'collector_flows' => ['realtime', 'intraday_trend'],
+                        'push_items' => [
+                            'starting_price',
+                            'realtime_visitors',
+                            'last_week_visitors',
+                            'competitor_avg_visitor',
+                            'traffic_rank',
+                            'booking_orders',
+                            'in_house_room_nights',
+                            'list_exposure',
+                            'detail_exposure',
+                            'flow_rate',
+                            'order_filling_num',
+                            'order_submit_num',
+                            'intraday_visitor_trend',
+                        ],
+                        'decision_use' => '判断满房或在售状态、当日流量节奏及预订转化',
+                    ],
+                    'future' => [
+                        'label' => '未来研判',
+                        'collector_flows' => ['future_demand'],
+                        'windows' => ['next_30_days'],
+                        'push_items' => [
+                            'future_search_pv',
+                            'future_search_uv',
+                            'future_search_order_count',
+                            'future_search_conversion_rate',
+                            'competitor_future_search_pv',
+                            'competitor_future_search_uv',
+                            'competitor_future_search_conversion_rate',
+                        ],
+                        'decision_use' => '研判未来需求热度、本店与竞争圈差距及机会日期',
+                    ],
+                ],
+                'rendering_rules' => [
+                    'captured_at_is_distinct_from_sent_at' => true,
+                    'stale_warning_after_seconds' => 3600,
+                    'missing_value_policy' => 'omit_from_external_message_keep_internal_gap',
+                    'starting_price_scope' => 'starting_price_only',
+                    'zero_starting_price_policy' => 'ctrip_channel_no_sellable_room_likely_full_not_whole_hotel',
+                    'excluded_items' => ['competitor_circle_rank', 'non_starting_price_fields'],
+                    'ota_scope_only' => true,
+                ],
+            ],
             'family_channel_rule' => [
                 'channels' => self::FAMILY_CHANNELS,
                 'source_policy' => 'keep source=ctrip; store channel in platform/dimension/raw_data.channel',
@@ -171,7 +279,10 @@ final class CtripCollectorWorkflowService
         return match ($flow) {
             'review', 'reviews', 'comments', 'comment_review', 'review_only' => 'review_only',
             'full', 'wide', 'daily_full', 'full_daily', 'complete' => 'full',
+            'past', 'history', 'historical', 'historical_review', 'past_review' => 'historical_review',
             'realtime', 'real_time', 'live', 'snapshot', 'today_realtime' => 'realtime',
+            'intraday', 'intraday_trend', 'traffic_trend', 'hourly_trend' => 'intraday_trend',
+            'future', 'future_demand', 'search_demand', 'future_search' => 'future_demand',
             default => '',
         };
     }

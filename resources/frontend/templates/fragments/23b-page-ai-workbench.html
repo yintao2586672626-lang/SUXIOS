@@ -15,38 +15,45 @@
                                         </div>
                                     </section>
 
-                                    <section data-testid="home-temporal-axis" class="dual-ota-temporal-axis">
+                                    <section data-testid="home-temporal-axis" :class="['dual-ota-temporal-axis', dualOtaPmsSelected ? 'is-pms-mode' : 'is-ota-mode']">
                                         <div class="dual-ota-temporal-head">
                                             <div class="dual-ota-temporal-heading">
                                                 <div class="dual-ota-temporal-title">
-                                                    <span class="dual-ota-temporal-icon">数</span>
-                                                    数据进度与预测
-                                                    <span v-if="homeTemporalLoading" class="dual-ota-temporal-loading">正在读取</span>
+                                                    <span class="dual-ota-temporal-icon" aria-hidden="true"><i :class="['fas', dualOtaPmsSelected ? 'fa-database' : 'fa-chart-line']"></i></span>
+                                                    <span>{{ dualOtaPmsSelected ? 'PMS数据状态' : '数据进度与预测' }}</span>
+                                                    <span v-if="dualOtaTemporalLoading" class="dual-ota-temporal-loading">正在读取</span>
                                                 </div>
-                                                <p class="dual-ota-temporal-subtitle">先看历史数据是否完整，再看今天是否更新；数据足够后才能生成未来趋势。</p>
+                                                <p v-if="dualOtaPmsSelected" class="dual-ota-temporal-subtitle">来源身份 <i class="fas fa-angle-right" aria-hidden="true"></i> 经营快照 <i class="fas fa-angle-right" aria-hidden="true"></i> 事实验真</p>
+                                                <p v-else class="dual-ota-temporal-subtitle">历史事实 <i class="fas fa-angle-right" aria-hidden="true"></i> 今日更新 <i class="fas fa-angle-right" aria-hidden="true"></i> 未来趋势</p>
                                             </div>
-                                            <button type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="dual-ota-temporal-action">
-                                                <i :class="homeTemporalGenerating ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-layer-group mr-1.5'"></i>
-                                                {{ homeTemporalGenerating ? '正在生成趋势' : (homeTemporalSelectedHotelId ? '生成未来趋势' : '先选择一家门店') }}
-                                            </button>
                                         </div>
-                                        <div class="dual-ota-temporal-grid">
-                                            <article v-for="(card, index) in homeTemporalCards" :key="card.key" :class="['dual-ota-temporal-card', `is-stage-${index + 1}`]">
+                                        <div :key="dualOtaPmsSelected ? 'pms-grid' : 'ota-grid'" class="dual-ota-temporal-grid dual-ota-temporal-mode-content">
+                                            <article v-for="(card, index) in dualOtaTemporalCards" :key="card.key" :class="['dual-ota-temporal-card', `is-stage-${index + 1}`, card.key === 'future' ? 'has-action' : '']">
                                                 <div class="dual-ota-temporal-card-head">
-                                                    <span class="dual-ota-temporal-label">{{ card.label }}</span>
+                                                    <div class="dual-ota-temporal-card-title">
+                                                        <span class="dual-ota-temporal-step">0{{ index + 1 }}</span>
+                                                        <span class="dual-ota-temporal-label">{{ card.label }}</span>
+                                                    </div>
                                                     <span class="dual-ota-temporal-status">{{ card.status }}</span>
                                                 </div>
                                                 <strong class="dual-ota-temporal-value">{{ card.value }}</strong>
-                                                <p class="dual-ota-temporal-detail">{{ card.detail }}</p>
+                                                <p class="dual-ota-temporal-detail" :title="card.fullDetail || card.detail">{{ card.detail }}</p>
+                                                <button v-if="!dualOtaPmsSelected && card.key === 'future'" type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="dual-ota-temporal-inline-action" data-testid="home-temporal-generate-inline">
+                                                    <i :class="homeTemporalGenerating ? 'fas fa-spinner fa-spin' : 'fas fa-redo-alt'" aria-hidden="true"></i>
+                                                    {{ homeTemporalGenerating ? '正在生成' : (homeTemporalSelectedHotelId ? (homeTemporalData.future?.status === 'ready' ? '重新生成' : '生成 7 天趋势') : '先选择门店') }}
+                                                </button>
                                             </article>
                                         </div>
-                                        <div class="dual-ota-temporal-review">
-                                            <div>{{ homeTemporalReview.title }}</div>
-                                            <p>{{ homeTemporalReview.detail }}</p>
+                                        <div :key="dualOtaPmsSelected ? 'pms-review' : 'ota-review'" :class="['dual-ota-temporal-review', 'dual-ota-temporal-mode-content', dualOtaTemporalReview.ready ? 'is-ready' : 'is-pending']" :title="dualOtaTemporalReview.fullDetail || dualOtaTemporalReview.detail">
+                                            <span class="dual-ota-temporal-review-icon" aria-hidden="true"><i :class="['fas', dualOtaPmsSelected ? 'fa-shield-alt' : 'fa-bullseye']"></i></span>
+                                            <div class="dual-ota-temporal-review-copy">
+                                                <strong>{{ dualOtaTemporalReview.title }}</strong>
+                                                <p>{{ dualOtaTemporalReview.detail }}</p>
+                                            </div>
                                         </div>
                                     </section>
 
-                                    <div v-if="dualOtaDashboard.principle" class="dual-ota-principle" data-testid="dual-ota-design-principle">
+                                    <div v-if="dualOtaDashboard.principle && !dualOtaPmsSelected" class="dual-ota-principle" data-testid="dual-ota-design-principle">
                                         <i class="fas fa-shield-alt"></i>
                                         <span>{{ dualOtaDashboard.principle }}</span>
                                     </div>
@@ -68,7 +75,7 @@
                                         <section v-if="dualOtaDashboard.systemOverview" class="dual-ota-card dual-ota-system-overview" data-testid="dual-ota-system-overview">
                                             <div v-if="dualOtaDashboard.systemOverview.description" class="dual-ota-card-head">
                                                 <div v-if="dualOtaDashboard.systemOverview.description">
-                                                    <p>{{ dualOtaDashboard.systemOverview.description }}</p>
+                                                    <p>{{ dualOtaPmsSelected ? '查看当前门店唯一 PMS 的经营快照、来源身份与数据库回读状态。' : dualOtaDashboard.systemOverview.description }}</p>
                                                 </div>
                                             </div>
                                             <div v-if="dualOtaDashboard.systemOverview.storeScope" class="dual-ota-store-scope dual-ota-store-picker" data-testid="dual-ota-store-scope">
@@ -119,16 +126,101 @@
                                                         </div>
                                                     </div>
                                                 </teleport>
-                                                <div class="dual-ota-store-scope-list" role="list" aria-label="OTA平台选择">
-                                                    <button type="button" :class="['dual-ota-compare-toggle', dualOtaCompareEnabled ? 'is-active' : '']" :aria-pressed="dualOtaCompareEnabled ? 'true' : 'false'" @click="toggleDualOtaCompare">
-                                                        <span>同期对比</span>
+                                                <div class="dual-ota-store-scope-list" role="list" aria-label="经营数据源选择">
+                                                    <button type="button" :class="['dual-ota-compare-toggle', dualOtaCompareEnabled ? 'is-active' : '']" :aria-pressed="dualOtaCompareEnabled ? 'true' : 'false'" :disabled="dualOtaPmsSelected" :title="dualOtaPmsSelected ? 'PMS 快照暂不参与 OTA 同期对比' : ''" @click="toggleDualOtaCompare">
+                                                        <span class="dual-ota-compare-copy">同期对比</span>
+                                                        <span class="dual-ota-compare-switch" aria-hidden="true"></span>
                                                     </button>
-                                                    <button v-for="row in dualOtaDashboard.systemOverview.storeScope.rows" :key="row.label" type="button" role="listitem" :class="['dual-ota-store-option', dualOtaEffectiveStoreScope === row.value ? 'is-selected' : '']" :aria-pressed="dualOtaEffectiveStoreScope === row.value ? 'true' : 'false'" @click="setDualOtaStoreScope(row.value)">
+                                                    <button v-for="row in dualOtaDashboard.systemOverview.storeScope.rows" :key="row.label" type="button" role="listitem" :class="['dual-ota-store-option', !dualOtaPmsSelected && dualOtaEffectiveStoreScope === row.value ? 'is-selected' : '']" :aria-pressed="!dualOtaPmsSelected && dualOtaEffectiveStoreScope === row.value ? 'true' : 'false'" @click="setDualOtaStoreScope(row.value)">
                                                         <strong>{{ row.label }}</strong>
                                                         <small v-if="row.source">{{ row.source }}</small>
                                                     </button>
+                                                    <button v-if="dualOtaConfiguredPms" type="button" role="listitem" :class="['dual-ota-store-option', 'dual-ota-pms-option', dualOtaPmsSelected ? 'is-selected' : '']" :aria-pressed="dualOtaPmsSelected ? 'true' : 'false'" data-testid="dual-ota-pms-entry" @click="openDualOtaPms">
+                                                        <strong>PMS</strong>
+                                                    </button>
                                                 </div>
                                             </div>
+                                            <div v-if="dualOtaPmsSelected" class="dual-ota-pms-view" data-testid="dual-ota-pms-view">
+                                                <header class="dual-ota-pms-view-head">
+                                                    <div class="dual-ota-pms-view-title">
+                                                        <span class="dual-ota-pms-view-kicker">当前门店 PMS</span>
+                                                        <h2>{{ operatingHotelPmsBinding?.selected_provider_label || dualOtaConfiguredPms?.label || 'PMS经营数据' }}</h2>
+                                                        <p>{{ dualOtaSelectedHotelLabel }} · 经营日 {{ operatingTargetForm.target_date || dualOtaPmsTargetDate }}</p>
+                                                    </div>
+                                                    <div class="dual-ota-pms-view-actions">
+                                                        <span :class="['dual-ota-pms-status', dualOtaPmsStatusClass]">{{ dualOtaPmsStatusText }}</span>
+                                                        <button type="button" class="dual-ota-pms-action is-primary" data-testid="dual-ota-pms-live-sync" :disabled="operatingPmsControlsBusy || operatingHotelPmsBindingLoading || operatingHotelPmsBinding?.binding_status !== 'configured'" @click="syncDualOtaPmsRealtime">
+                                                            <i :class="['fas', operatingTargetLoading.liveSync ? 'fa-circle-notch fa-spin' : 'fa-sync-alt']" aria-hidden="true"></i>
+                                                            {{ operatingTargetLoading.liveSync ? '正在同步' : '同步今日实时' }}
+                                                        </button>
+                                                        <button type="button" class="dual-ota-pms-action" data-testid="dual-ota-pms-detail" @click="openDualOtaPmsDetail">完整详情</button>
+                                                    </div>
+                                                </header>
+                                                <p class="dual-ota-pms-range-note">{{ dualOtaPmsRangeNote }}</p>
+                                                <p v-if="operatingPmsRealtimeSyncResult" :class="['dual-ota-pms-sync-result', operatingPmsRealtimeResultClass]" data-testid="dual-ota-pms-sync-result" role="status">{{ operatingPmsRealtimeResultText }}</p>
+                                                <div v-if="operatingTargetLoading.current || operatingHotelPmsBindingLoading" class="dual-ota-current-data-state is-loading" data-testid="dual-ota-pms-loading" role="status">
+                                                    <span class="dual-ota-current-data-state-icon"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i></span>
+                                                    <div>
+                                                        <h3>正在读取 {{ dualOtaSelectedHotelLabel }} 的 PMS 数据</h3>
+                                                        <p>正在核对经营日期、来源身份、核心经营字段和数据库回读。</p>
+                                                    </div>
+                                                </div>
+                                                <div v-else-if="operatingTargetError || operatingHotelPmsBindingError" class="dual-ota-current-data-state is-warning" data-testid="dual-ota-pms-error" role="alert">
+                                                    <span class="dual-ota-current-data-state-icon"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i></span>
+                                                    <div>
+                                                        <h3>PMS 数据读取未完成</h3>
+                                                        <p>{{ operatingTargetError || operatingHotelPmsBindingError }}</p>
+                                                    </div>
+                                                </div>
+                                                <div v-else-if="operatingHotelPmsBinding?.binding_status !== 'configured'" class="dual-ota-current-data-state is-warning" data-testid="dual-ota-pms-binding-required" role="status">
+                                                    <span class="dual-ota-current-data-state-icon"><i class="fas fa-link" aria-hidden="true"></i></span>
+                                                    <div class="dual-ota-current-data-state-copy">
+                                                        <h3>当前门店尚未配置唯一 PMS</h3>
+                                                        <p>{{ operatingHotelPmsBinding?.blockers?.[0]?.message || '请在门店管理中确认当前使用的 PMS。' }}</p>
+                                                    </div>
+                                                    <button type="button" class="dual-ota-current-data-state-action" @click="openDualOtaPmsDetail">检查 PMS 配置</button>
+                                                </div>
+                                                <div v-else-if="!selectedOperatingPmsCapture" class="dual-ota-current-data-state is-warning" data-testid="dual-ota-pms-empty" role="status">
+                                                    <span class="dual-ota-current-data-state-icon"><i class="fas fa-database" aria-hidden="true"></i></span>
+                                                    <div class="dual-ota-current-data-state-copy">
+                                                        <h3>{{ operatingTargetForm.target_date || dualOtaPmsTargetDate }} 暂无可核验 PMS 快照</h3>
+                                                        <p>当前不使用 OTA、历史记录或 0 填充 PMS 缺口；可同步今日实时数据，或进入完整详情检查登录状态。</p>
+                                                    </div>
+                                                </div>
+                                                <template v-else="">
+                                                    <div class="dual-ota-pms-evidence" data-testid="dual-ota-pms-evidence">
+                                                        <span><em>经营日期</em><strong>{{ selectedOperatingPmsCapture.business_date || operatingTargetForm.target_date || '未取得' }}</strong></span>
+                                                        <span><em>登录状态</em><strong>{{ selectedOperatingPmsProfileText }}</strong></span>
+                                                        <span><em>门店身份</em><strong>{{ selectedOperatingPmsCapture.identity_status || '未验证' }}</strong></span>
+                                                        <span><em>数据库回读</em><strong>{{ selectedOperatingPmsCapture.readback_status || '未取得' }}</strong></span>
+                                                        <span><em>采集时间</em><strong>{{ selectedOperatingPmsCapture.captured_at || '未取得' }}</strong></span>
+                                                    </div>
+                                                    <div class="dual-ota-system-grid" data-testid="dual-ota-pms-metrics">
+                                                        <div v-for="group in dualOtaPmsMetricGroups" :key="group.title" class="dual-ota-system-column">
+                                                            <div class="dual-ota-system-column-head">
+                                                                <h3>{{ group.title }}</h3>
+                                                                <span>{{ group.subtitle }}</span>
+                                                            </div>
+                                                            <div class="dual-ota-system-metrics">
+                                                                <span v-for="metric in group.metrics" :key="metric.key" :class="['dual-ota-system-metric', metric.tone ? `is-${metric.tone}` : '']">
+                                                                    <em>{{ metric.label }}</em>
+                                                                    <strong>{{ metric.value }}</strong>
+                                                                    <small>{{ metric.available ? 'PMS 已返回' : '字段未取得' }}</small>
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="(selectedOperatingPmsFactGate.blockers || []).length" class="dual-ota-pms-truth is-warning" data-testid="dual-ota-pms-blockers">
+                                                        <strong>当前快照尚未通过事实验真</strong>
+                                                        <p v-for="blocker in selectedOperatingPmsFactGate.blockers" :key="blocker.code">{{ blocker.message }}</p>
+                                                    </div>
+                                                    <div v-else class="dual-ota-pms-truth is-ready">
+                                                        <strong>当前门店、经营日期、来源身份与数据库回读均已通过。</strong>
+                                                        <p>缺失字段保持“未取得”，不会使用另一套 PMS、OTA 数据、历史记录或 0 代替。</p>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <template v-else="">
                                             <div v-if="dualOtaWorkbenchReadInProgress" class="dual-ota-current-data-state is-loading" data-testid="dual-ota-current-store-loading" role="status">
                                                 <span class="dual-ota-current-data-state-icon"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i></span>
                                                 <div>
@@ -162,9 +254,10 @@
                                                     </div>
                                                 </div>
                                             </div>
+                                            </template>
                                         </section>
 
-                                        <template v-if="!dualOtaWorkbenchReadInProgress &amp;&amp; dualOtaSelectedHotelHasCurrentData">
+                                        <template v-if="!dualOtaPmsSelected &amp;&amp; !dualOtaWorkbenchReadInProgress &amp;&amp; dualOtaSelectedHotelHasCurrentData">
                                         <section class="dual-ota-module-grid dual-ota-module-grid-top">
                                             <article class="dual-ota-card" data-testid="dual-ota-platform-revenue-structure">
                                                 <div class="dual-ota-card-head">

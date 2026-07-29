@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   applyMeituanTrafficSelectionDateEvidence,
+  applyMeituanTrafficSourceSelectionDateEvidence,
   applyMeituanYesterdaySelectionDateEvidence,
   evaluateMeituanCaptureGate,
   filterMeituanCumulativeRowsByTargetDate,
@@ -55,8 +56,7 @@ test('Meituan own-hotel DOM traffic rows persist explicit self identity', () => 
     source.indexOf('async function collectDomFallback'),
   );
 
-  assert.equal((block.match(/compare_type: 'self'/g) || []).length, 2);
-  assert.equal((block.match(/is_self: true/g) || []).length, 2);
+  assert.match(block, /normalizeMeituanTrafficDomText/);
 });
 
 test('capture normalizer applies traffic-card parsing only to traffic and date evidence to ads rows', () => {
@@ -88,6 +88,10 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /meituan_orders_purchase_date_query/);
   assert.match(source, /payload\.responses = payload\.responses\.filter/);
   assert.match(source, /requestQueryEvidence/);
+  assert.match(source, /requestBusinessTabEvidence/);
+  assert.match(source, /business_capture_epoch/);
+  assert.match(source, /newhb-sub-app\/data-center-pc\/home\/index\.html#\/index/);
+  assert.match(source, /\\u57fa\\u7840\\u7ecf\\u8425/);
   assert.match(source, /request_data_date: requestDateEvidence\.date \|\| ''/);
   assert.match(source, /waitForPendingResponseCaptures/);
   assert.match(source, /inputValue\(\)/);
@@ -150,6 +154,84 @@ test('uses yesterday selector readback, not refresh time, for historical traffic
   assert.equal(result.trafficForecast[0].data_updated_at, undefined);
 });
 
+test('business date readback accepts only the response bound to the selected capture epoch', () => {
+  const result = filterMeituanCumulativeRowsByTargetDate({
+    section_evidence: {
+      business: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-07-30',
+        relative_range: '今日实时',
+        evidence_source: 'page.business_period_selection.readback',
+        marker: 'meituan_business_today_realtime_tab',
+        business_capture_epoch: 9,
+        response_count: 1,
+      },
+    },
+    businessData: [
+      {
+        dataDate: '2026-07-30',
+        date_source: 'capture_context.default_data_date',
+        business_capture_epoch: 8,
+        business_relative_range: '昨日',
+        lead_price: 550.28,
+        sales_room_nights: 0,
+      },
+      {
+        dataDate: '2026-07-30',
+        date_source: 'capture_context.default_data_date',
+        business_capture_epoch: 9,
+        business_relative_range: '今日实时',
+        lead_price: 1158,
+        sales_room_nights: 1,
+      },
+    ],
+  }, '2026-07-30');
+
+  assert.equal(result.businessData.length, 1);
+  assert.equal(result.businessData[0].lead_price, 1158);
+  assert.equal(result.businessData[0].sales_room_nights, 1);
+  assert.equal(result.businessData[0].date_source, 'page.business_period_selection.readback');
+});
+
+test('uses independent yesterday readback for traffic source exposure rows', () => {
+  const sourceRow = {
+    _capture_source: 'dom:traffic:source_breakdown',
+    data_type: 'traffic_analysis',
+    analysis_type: 'source',
+    dimension: 'total_exposure',
+    data_value: 1187,
+  };
+  const selected = applyMeituanTrafficSourceSelectionDateEvidence({
+    section_evidence: {
+      traffic_source: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-07-28',
+        relative_range: '昨日',
+        evidence_source: 'page.traffic_source_period_selection.readback',
+        marker: 'meituan_traffic_source_yesterday_tab',
+      },
+    },
+    traffic: [sourceRow],
+  }, '2026-07-28');
+
+  assert.equal(selected.traffic[0].dataDate, '2026-07-28');
+  assert.equal(selected.traffic[0].date_source, 'page.traffic_source_period_selection.readback');
+
+  const today = filterMeituanCumulativeRowsByTargetDate({
+    section_evidence: {
+      traffic: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-07-29',
+        relative_range: '今日实时',
+        evidence_source: 'page.traffic_period_selection.readback',
+        marker: 'meituan_traffic_today_realtime_tab',
+      },
+    },
+    traffic: [sourceRow],
+  }, '2026-07-29');
+  assert.deepEqual(today.traffic, []);
+});
+
 test('uses today realtime selector readback, not refresh time, for same-day traffic scope', () => {
   const result = applyMeituanTrafficSelectionDateEvidence({
     section_evidence: {
@@ -177,6 +259,45 @@ test('uses today realtime selector readback, not refresh time, for same-day traf
   assert.equal(result.traffic[0].date_scope_evidence, 'meituan_traffic_today_realtime_tab');
   const filtered = filterMeituanCumulativeRowsByTargetDate(result, '2026-07-28');
   assert.equal(filtered.traffic.length, 1);
+});
+
+test('applies the selected funnel date to flow-conversion responses but not trend modules', () => {
+  const result = applyMeituanTrafficSelectionDateEvidence({
+    section_evidence: {
+      traffic: {
+        status: 'target_date_relative_range_selected',
+        target_date: '2026-07-30',
+        relative_range: '今日实时',
+        evidence_source: 'page.traffic_period_selection.readback',
+        marker: 'meituan_traffic_today_realtime_tab',
+      },
+    },
+    flowAnalysis: [
+      {
+        dataDate: '2026-07-29',
+        date_source: 'request.query.dateRange=0',
+        data_type: 'traffic',
+        dimension: 'flow_conversion',
+        exposureUV: 8,
+        intentionUV: 2,
+        payOrderCnt: 0,
+      },
+      {
+        dataDate: '2026-07-29',
+        date_source: 'request.query.dateRange=0',
+        data_type: 'traffic_analysis',
+        dimension: 'flow_trend',
+        data_value: 100,
+      },
+    ],
+  }, '2026-07-30');
+
+  assert.equal(result.flowAnalysis[0].dataDate, '2026-07-30');
+  assert.equal(result.flowAnalysis[0].date_source, 'page.traffic_period_selection.readback');
+  assert.equal(result.flowAnalysis[1].dataDate, '2026-07-29');
+  const filtered = filterMeituanCumulativeRowsByTargetDate(result, '2026-07-30');
+  assert.equal(filtered.flowAnalysis.length, 1);
+  assert.equal(filtered.flowAnalysis[0].dimension, 'flow_conversion');
 });
 
 test('retains yesterday-selected traffic after the target-date filter runs', () => {

@@ -36,6 +36,21 @@ final class KnowledgePayloadMapperTest extends TestCase
         ], true, false);
     }
 
+    public function testNormalizeUnitDataAcceptsVersionedTruthStatements(): void
+    {
+        $result = (new KnowledgePayloadMapper())->normalizeUnitData([
+            'name' => '经营方法',
+            'known_knowns' => "方法已验证\n方法已验证\n边界已确认",
+            'known_unknowns' => '["当前门店数据待验证","效果待复盘"]',
+            'truth_profile_version' => '2026-07-29.2',
+        ], true, true);
+
+        self::assertSame(['方法已验证', '边界已确认'], $result['known_knowns']);
+        self::assertSame(['当前门店数据待验证', '效果待复盘'], $result['known_unknowns']);
+        self::assertSame('2026-07-29.2', $result['truth_profile_version']);
+        self::assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2} /', $result['reviewed_at']);
+    }
+
     public function testNormalizeChunkDataAcceptsJsonAndPlainText(): void
     {
         $mapper = new KnowledgePayloadMapper();
@@ -65,9 +80,15 @@ final class KnowledgePayloadMapperTest extends TestCase
             'name' => '门店知识',
             'source' => 'manual',
             'status' => 'done',
+            'lifecycle_status' => 'quarantined',
+            'lifecycle_reason' => '等待重新复核',
+            'known_knowns' => '["方法已确认"]',
+            'known_unknowns' => '["当前数据待验证"]',
+            'truth_profile_version' => '2026-07-29.1',
             'description' => '已审核',
             'tags' => '["前台","运营"]',
             'created_by' => '3',
+            'reviewed_at' => '2026-07-29 09:30:00',
         ], 2);
         $chunk = $mapper->formatChunkRow([
             'chunk_id' => '11',
@@ -81,6 +102,13 @@ final class KnowledgePayloadMapperTest extends TestCase
         self::assertSame(80, $unit['hotel_id']);
         self::assertSame(['前台', '运营'], $unit['tags']);
         self::assertSame(2, $unit['chunk_count']);
+        self::assertSame('quarantined', $unit['lifecycle_status']);
+        self::assertSame('等待重新复核', $unit['lifecycle_reason']);
+        self::assertSame(['方法已确认'], $unit['known_knowns']);
+        self::assertSame(['当前数据待验证'], $unit['known_unknowns']);
+        self::assertSame('2026-07-29.1', $unit['truth_profile_version']);
+        self::assertSame('2026-07-29 09:30:00', $unit['reviewed_at']);
+        self::assertSame('unit_quarantined', $unit['readiness']['stage']);
         self::assertIsArray($unit['readiness']);
         self::assertSame(['text' => '欢迎语'], $chunk['content']);
         self::assertSame(11, $chunk['chunk_id']);

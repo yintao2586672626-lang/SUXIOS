@@ -12,7 +12,9 @@ import {
   extractCtripCatalogFacts,
   findCtripEndpointByUrl,
   generateCtripCaptureMarkdown,
+  getCtripCapturePlan,
   getCtripSectionInteractionPlan,
+  normalizeCtripCapturePlan,
   normalizeCtripCaptureSections,
 } from '../../scripts/lib/ctrip_capture_catalog.mjs';
 
@@ -58,6 +60,122 @@ test('normalizes Ctrip capture presets for core and wide collection', () => {
   const summary = ctripCatalogSummary();
   assert.equal(summary.interaction_plan_section_count >= 10, true);
   assert.equal(summary.interaction_plan_step_count > summary.interaction_plan_section_count, true);
+});
+
+test('splits lightweight Ctrip JSON capture into past, realtime, intraday trend, and future demand plans', () => {
+  assert.equal(normalizeCtripCapturePlan('realtime'), 'realtime_broadcast');
+  assert.equal(normalizeCtripCapturePlan('past-review'), 'historical_review');
+  assert.equal(normalizeCtripCapturePlan('hourly-trend'), 'intraday_trend');
+  assert.equal(normalizeCtripCapturePlan('search demand'), 'future_demand');
+  assert.throws(() => normalizeCtripCapturePlan('unknown-plan'), /Unsupported Ctrip capture plan/);
+
+  const realtime = getCtripCapturePlan('realtime_broadcast');
+  assert.deepEqual(realtime.default_sections, ['business_overview', 'traffic_report']);
+  assert.equal(realtime.lightweight, true);
+  assert.equal(realtime.capture_endpoint_ids.includes('traffic_hotel_min_price'), true);
+  assert.equal(realtime.capture_endpoint_ids.includes('traffic_search_details'), false);
+  assert.equal(realtime.capture_screenshot, false);
+
+  const realtimeTraffic = getCtripSectionInteractionPlan('traffic_report', 'realtime_broadcast');
+  assert.equal(realtimeTraffic.length, 4);
+  assert.equal(realtimeTraffic.some((step) => step.reason.includes('Qunar')), false);
+  assert.equal(realtimeTraffic.some((step) => step.reason.includes('future search')), false);
+
+  const past = getCtripCapturePlan('historical_review');
+  assert.deepEqual(past.default_sections, ['traffic_report']);
+  assert.equal(past.lightweight, true);
+  assert.equal(past.capture_endpoint_ids.includes('traffic_flow_transform'), true);
+  assert.equal(past.capture_endpoint_ids.includes('traffic_order_trend'), true);
+  assert.deepEqual(past.expected_endpoint_ids, ['traffic_order_trend']);
+  const pastTraffic = getCtripSectionInteractionPlan('traffic_report', 'historical_review');
+  assert.equal(pastTraffic.length, 6);
+  assert.equal(pastTraffic.some((step) => step.reason.includes('Qunar')), false);
+  assert.equal(pastTraffic.some((step) => step.reason.includes('future search')), false);
+  assert.equal(pastTraffic.some((step) => step.reason.includes('7-day traffic review')), true);
+  assert.equal(pastTraffic.some((step) => step.reason.includes('30-day traffic review')), true);
+
+  const intraday = getCtripCapturePlan('intraday_trend');
+  assert.deepEqual(intraday.capture_endpoint_ids, ['traffic_realtime_visitor_trend']);
+  assert.deepEqual(intraday.expected_endpoint_ids, ['traffic_realtime_visitor_trend']);
+
+  const future = getCtripCapturePlan('future_demand');
+  assert.deepEqual(future.capture_endpoint_ids, ['traffic_search_details']);
+  const futureTraffic = getCtripSectionInteractionPlan('traffic_report', 'future_demand');
+  assert.equal(futureTraffic.length, 4);
+  assert.equal(futureTraffic.some((step) => step.reason.includes('cumulative future search data')), true);
+  assert.equal(futureTraffic.some((step) => step.reason.includes('yesterday future search data')), true);
+
+  const full = getCtripCapturePlan('full_diagnostic');
+  assert.equal(full.lightweight, false);
+  assert.equal(getCtripSectionInteractionPlan('traffic_report', 'full').length > realtimeTraffic.length, true);
+});
+
+test('maps the dedicated Ctrip real-time visitor trend endpoint without stealing the source endpoint', () => {
+  assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/datacenter/api/dataCenter/current/getRealTimeVisitorV1')?.id,
+    'traffic_realtime_visitor_trend',
+  );
+  assert.equal(
+    findCtripEndpointByUrl('https://ebooking.ctrip.com/datacenter/api/dataCenter/current/getRealTimeVisitorSourceV1')?.id,
+    'traffic_flow_source',
+  );
+});
+
+test('expands Ctrip real-time visitor JSON into channel and hourly UV facts', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/getRealTimeVisitorV1';
+  const endpoint = findCtripEndpointByUrl(url);
+  const context = {
+    endpoint,
+    section: 'traffic_report',
+    platform: 'ctrip',
+    hotelId: 'CTRIP-DEMO',
+    systemHotelId: 80,
+    hotelName: '测试门店',
+    dataDate: '2026-07-30',
+    capturedAt: '2026-07-30T02:00:00.000Z',
+    url,
+  };
+  const facts = extractCtripCatalogFacts({
+    data: {
+      visitorCountByChannelList: [{
+        channel: 0,
+        visitorCountByHourList: [
+          { time: '23:00', uv: 3, lastUv: 7, uvRatio: -57.14 },
+          { time: '00:00', uv: 0, lastUv: 4, uvRatio: -100 },
+          { time: '01:00', uv: 5, lastUv: 2, uvRatio: 150 },
+        ],
+      }],
+    },
+  }, context);
+
+  assert.equal(facts.length, 21);
+  assert.equal(
+    facts.find((fact) => fact.metric_key === 'intraday_channel')?.value,
+    'app',
+  );
+  assert.equal(
+    facts.find((fact) => fact.metric_key === 'intraday_visitor_count' && fact.source_path.endsWith('.0.uv'))?.value,
+    3,
+  );
+  assert.equal(
+    facts.find((fact) => fact.metric_key === 'intraday_last_week_visitor_count' && fact.source_path.endsWith('.1.lastUv'))?.value,
+    4,
+  );
+  assert.deepEqual(
+    facts.filter((fact) => fact.metric_key === 'intraday_timestamp').map((fact) => fact.value),
+    [
+      '2026-07-29T23:00:00+08:00',
+      '2026-07-30T00:00:00+08:00',
+      '2026-07-30T01:00:00+08:00',
+    ],
+  );
+
+  const rows = buildCtripStandardRowsFromFacts(facts, context);
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map((row) => row.data_value), [3, 0, 5]);
+  assert.equal(rows[0].raw_data.dimension_values.intraday_channel, 'app');
+  assert.equal(rows[0].raw_data.metrics.intraday_last_week_visitor_count, 7);
+  assert.equal(rows[0].raw_data.metrics.intraday_week_on_week_ratio, -57.14);
 });
 
 test('does not use Profile ID as Ctrip platform hotel identity fallback', () => {
