@@ -860,3 +860,29 @@ test('Ctrip preferred Cookie preset stays private and expands on the server', ()
   assert.match(backend, /\[\[0, '0'\], \[3, '0'\], \[0, '1'\], \[3, '1'\]\]/);
   assert.doesNotMatch(ctripStatic, /querySearchFlowDetails/);
 });
+
+test('Ctrip stored-history view keeps the channel boundary and does not invent zero readbacks', () => {
+  const openHistory = sliceBetween(
+    html,
+    'const switchToDownloadCenter = () =>',
+    'const switchToMeituanDownloadCenter = () =>'
+  );
+  const historyLoader = sliceBetween(
+    html,
+    'const loadOnlineHistory = async () =>',
+    'const refreshOnlineHistory = async'
+  );
+  const historyPanel = sliceBetween(
+    ctripPage,
+    "onlineDataTab === 'ctrip-download'",
+    '<!-- 携程AI分析 -->'
+  );
+
+  assert.match(openHistory, /onlineHistoryFilter\.value\.platform = 'ctrip'/);
+  assert.match(historyLoader, /createEmptyOnlineHistorySummary\(\)/);
+  assert.match(historyLoader, /onlineHistoryList\.value = \[\]/);
+  assert.match(historyPanel, /formatOptionalNumber\(onlineHistorySummary\.total_records, '未取得'\)/);
+  assert.match(historyPanel, /formatOptionalNumber\(onlineHistorySummary\.today_records, '未取得'\)/);
+  assert.match(historyPanel, /不以 0 或其他平台记录补齐/);
+  assert.doesNotMatch(historyPanel, /onlineHistorySummary\.(?:total_records|today_records|failed_records) \|\| 0/);
+});

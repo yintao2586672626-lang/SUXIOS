@@ -2164,21 +2164,22 @@
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500">已存记录总数</div>
-                                                <div class="text-2xl font-bold text-gray-900">{{ formatNumber(onlineHistorySummary.total_records || 0) }}</div>
+                                                <div class="text-2xl font-bold text-gray-900">{{ formatOptionalNumber(onlineHistorySummary.total_records, '未取得') }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500">最近一次入库时间</div>
-                                                <div class="text-lg font-semibold text-gray-900">{{ onlineHistorySummary.latest_fetch_time || '-' }}</div>
+                                                <div class="text-lg font-semibold text-gray-900">{{ onlineHistorySummary.latest_fetch_time || '未取得' }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500">今日入库记录数</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineHistorySummary.today_records || 0) }}</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatOptionalNumber(onlineHistorySummary.today_records, '未取得') }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500">异常/失败记录数</div>
-                                                <div class="text-2xl font-bold text-red-600">{{ formatNumber(onlineHistorySummary.failed_records || 0) }}</div>
+                                                <div class="text-2xl font-bold text-red-600">{{ formatOptionalNumber(onlineHistorySummary.failed_records, '未取得') }}</div>
                                             </div>
                                         </div>
+                                        <div class="text-xs text-gray-500">仅统计当前携程筛选结果；数据库回读未完成时显示“未取得”，不以 0 或其他平台记录补齐。</div>
 
                                         <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
                                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">

@@ -62,3 +62,19 @@ test('Ctrip candidate scoring keeps PMS optional and exposes the five evidence s
     assert.match(appMain, new RegExp(`${status}:`));
   }
 });
+
+test('Ctrip review-order tools never fall back to another hotel identity', () => {
+  assert.match(
+    appMain,
+    /if \(tab === 'ctrip-review-match'\)[\s\S]{0,500}ctripReviewMatchForm\.value\.systemHotelId = reviewHotelId/,
+  );
+  assert.match(
+    appMain,
+    /system_hotel_id:\s*Number\(buildCtripReviewMatchBasePayload\(\)\.system_hotel_id\)/,
+  );
+  assert.match(
+    appMain,
+    /const systemHotelId = buildCtripReviewMatchBasePayload\(\)\.system_hotel_id;/,
+  );
+  assert.doesNotMatch(appMain, /resolveCtripReviewMatchSystemHotelId\(\)\s*\|\|\s*['"]58['"]?/);
+});

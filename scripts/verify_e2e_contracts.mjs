@@ -864,8 +864,9 @@ requireText('public/index.html', 'saveCachedAuthUser(res.data.user);', 'login su
 requireText('public/index.html', 'permittedHotels.value = dedupeHotels(res.data.user?.permitted_hotels || []);\n                        hotels.value = [...permittedHotels.value];', 'login seeds hotel options from permitted hotels before full hotel-list refresh');
 requireText('public/index.html', 'const clearAuthSession = () => {', 'auth cleanup clears token and cached auth user together');
 requireText('public/index.html', 'clearCachedAuthUser();', 'auth cleanup removes cached auth profile');
-requireText('public/index.html', 'const activateCoreOperationsAfterLogin = () => {', 'login startup owns one default core-operations landing helper');
-requireText('public/index.html', "return openOnlineDataEntryTab('data-health');", 'login startup lands on the one-page yesterday operating loop');
+requireText('public/index.html', 'const activateCoreOperationsAfterLogin = () => {', 'login startup owns one default operating-dashboard landing helper');
+requireText('public/index.html', "const landingPage = initialPageOverride || 'ai-workbench';", 'login startup lands on the today operating dashboard');
+requireNoText('public/index.html', "const activateCoreOperationsAfterLogin = () => {\n                // Login/default-session entry owns only the default landing page. Explicit\n                // deep links are preserved by the mounted-session guard below.\n                return openOnlineDataEntryTab('data-health');", 'login startup must not default to the yesterday operating loop');
 requireText('public/index.html', 'activateCoreOperationsAfterLogin();', 'fresh login and legacy default sessions share the core-operations entry helper');
 requireText('public/index.html', 'const HOME_SECONDARY_PANEL_DELAY_MS = 4200;', 'home lower panels are delayed so immediate OTA navigation has a lighter first interaction window');
 requireText('public/index.html', 'const homeSecondaryPanelsReady = ref(false);', 'home lower panel rendering is gated behind an explicit readiness flag');

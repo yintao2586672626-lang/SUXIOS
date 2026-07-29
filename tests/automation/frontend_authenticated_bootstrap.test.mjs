@@ -181,12 +181,15 @@ test('login intent preloads only the authenticated entry before the sequential s
   assert(submitStart >= 0 && entryPreloadOffset > submitStart && loginRequestOffset > entryPreloadOffset);
 });
 
-test('authenticated login lands on the one-page operating loop through one entry helper', () => {
+test('authenticated login lands on the today operating dashboard through one entry helper', () => {
   const helperStart = appMain.indexOf('const activateCoreOperationsAfterLogin = () => {');
   const helperEnd = appMain.indexOf('\n            const isVisibleOnlineDataTab', helperStart);
   const helper = appMain.slice(helperStart, helperEnd);
   assert(helperStart >= 0 && helperEnd > helperStart, 'core-operations activation helper must exist');
-  assert.match(helper, /return openOnlineDataEntryTab\('data-health'\);/);
+  assert.match(helper, /const landingPage = initialPageOverride \|\| 'ai-workbench';/);
+  assert.match(helper, /currentPage\.value = landingPage;/);
+  assert.match(helper, /runPageLoadOnce\([\s\S]*landingPage,[\s\S]*'main',[\s\S]*loadCompassData\(\{ skipOtaBackground: true \}\)/);
+  assert.doesNotMatch(helper, /openOnlineDataEntryTab\('data-health'\)/);
 
   const loginStart = appMain.indexOf('const handleLogin = async () => {');
   const loginEnd = appMain.indexOf('\n            const loadLoginSupportContact', loginStart);

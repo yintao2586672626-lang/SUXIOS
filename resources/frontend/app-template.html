@@ -9842,21 +9842,22 @@
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500">已存记录总数</div>
-                                                <div class="text-2xl font-bold text-gray-900">{{ formatNumber(onlineHistorySummary.total_records || 0) }}</div>
+                                                <div class="text-2xl font-bold text-gray-900">{{ formatOptionalNumber(onlineHistorySummary.total_records, '未取得') }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500">最近一次入库时间</div>
-                                                <div class="text-lg font-semibold text-gray-900">{{ onlineHistorySummary.latest_fetch_time || '-' }}</div>
+                                                <div class="text-lg font-semibold text-gray-900">{{ onlineHistorySummary.latest_fetch_time || '未取得' }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500">今日入库记录数</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(onlineHistorySummary.today_records || 0) }}</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ formatOptionalNumber(onlineHistorySummary.today_records, '未取得') }}</div>
                                             </div>
                                             <div class="bg-white border border-gray-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500">异常/失败记录数</div>
-                                                <div class="text-2xl font-bold text-red-600">{{ formatNumber(onlineHistorySummary.failed_records || 0) }}</div>
+                                                <div class="text-2xl font-bold text-red-600">{{ formatOptionalNumber(onlineHistorySummary.failed_records, '未取得') }}</div>
                                             </div>
                                         </div>
+                                        <div class="text-xs text-gray-500">仅统计当前携程筛选结果；数据库回读未完成时显示“未取得”，不以 0 或其他平台记录补齐。</div>
 
                                         <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
                                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -11546,107 +11547,66 @@
                                     <!-- 流量分析模块 -->
                                     <div v-if="downloadCenterTab === 'traffic'" class="space-y-4">
                                         <section class="rounded-lg border bg-white p-4">
-                                            <div class="flex flex-wrap items-center justify-between gap-3">
-                                                <div>
-                                                    <h3 class="text-xl font-bold">美团流量分析 <small class="text-xs text-blue-600">OTA 渠道数据</small></h3>
-                                                    <p class="text-sm text-gray-500">今日实时 → 昨日复盘 → 未来30天；不代表全酒店经营数据。</p>
-                                                    <p class="text-xs text-gray-500">最新采集：{{ meituanTemporalSummary?.today?.captured_at || '尚无当前验证快照' }}</p>
-                                                </div>
-                                                <div class="flex gap-2">
-                                                    <select v-model="onlineDataFilter.hotel_id" @change="loadMeituanTemporalSummary({ force: true })" class="rounded border px-3 py-2">
-                                                        <option value="">请选择门店</option>
-                                                        <option v-for="h in onlineDataHotelList" :key="h.id" :value="h.id">{{ h.hotel_name }}</option>
-                                                    </select>
-                                                    <button @click="refreshMeituanTemporal" :disabled="meituanTemporalRefreshing || !onlineDataFilter.hotel_id" class="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50">
-                                                        {{ meituanTemporalRefreshing ? '正在采集并回读' : '更新本页数据' }}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <p v-if="meituanTemporalLoading" class="mt-3 text-sm text-gray-500">正在读取当前门店数据…</p>
-                                            <p v-else-if="meituanTemporalError" class="mt-3 rounded bg-red-50 p-3 text-sm text-red-700">{{ meituanTemporalError }}</p>
-                                            <p v-else-if="meituanTemporalSourceMessage" class="mt-3 rounded bg-amber-50 p-3 text-sm text-amber-800">当前采集被阻塞：{{ meituanTemporalSourceMessage }}</p>
+                                            <h3 class="text-xl font-bold">美团流量分析 <small class="text-blue-600">OTA 渠道数据</small></h3>
+                                            <p>今日实时 → 昨日复盘 → 未来30天；不代表全酒店经营数据。最新采集：{{ meituanTemporalSummary?.today?.captured_at || '尚无当前验证快照' }}</p>
+                                            <select v-model="onlineDataFilter.hotel_id" @change="loadMeituanTemporalSummary({ force: true })" class="mt-2 rounded border p-2">
+                                                <option value="">请选择门店</option><option v-for="h in onlineDataHotelList" :key="h.id" :value="h.id">{{ h.hotel_name }}</option>
+                                            </select>
+                                            <button @click="refreshMeituanTemporal" :disabled="meituanTemporalRefreshing || !onlineDataFilter.hotel_id" class="ml-2 rounded bg-blue-600 p-2 text-white disabled:opacity-50">{{ meituanTemporalRefreshing ? '正在采集并回读' : '更新本页数据' }}</button>
+                                            <p v-if="meituanTemporalLoading">正在读取当前门店数据…</p>
+                                            <p v-else-if="meituanTemporalError" class="text-red-700">{{ meituanTemporalError }}</p>
+                                            <p v-else-if="meituanTemporalSourceMessage" class="text-amber-800">当前采集被阻塞：{{ meituanTemporalSourceMessage }}</p>
                                         </section>
 
                                         <section v-for="section in [
                                             { key: 'today', title: '今日实时', data: meituanTemporalSummary?.today, cards: meituanTemporalTodayCards },
                                             { key: 'yesterday', title: '昨日复盘', data: meituanTemporalSummary?.yesterday, cards: meituanTemporalYesterdayCards }
                                         ]" :key="section.key" class="rounded-lg border bg-white p-4">
-                                            <header class="mb-3 flex items-center justify-between gap-2">
-                                                <div>
-                                                    <h4 class="text-lg font-bold">{{ section.title }}</h4>
-                                                    <p class="text-xs text-gray-500">{{ section.key === 'today' ? '只展示最新快照，不跨快照累加。' : '09:00 后更新；广告曝光只用平台原值。' }}</p>
-                                                </div>
-                                                <span :class="['rounded border px-2 py-1 text-xs', meituanTemporalSectionStatusClass(section.data?.status)]">{{ meituanTemporalSectionStatusText(section.data?.status) }}</span>
-                                            </header>
-                                            <p v-if="section.key === 'yesterday' &amp;&amp; section.data?.status === 'pending_source_update'" class="mb-3 bg-blue-50 p-2 text-sm text-blue-700">等待平台更新：09:00 前不使用历史成功数据替代昨日当前值。</p>
-                                            <div :class="['grid gap-3', section.key === 'today' ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-2 xl:grid-cols-3']">
-                                                <article v-for="card in section.cards" :key="card.key" class="rounded border bg-gray-50 p-3">
-                                                    <div class="flex justify-between gap-2 text-sm">
-                                                        <b>{{ card.label }}</b>
-                                                        <span :class="['rounded px-1.5 text-xs', meituanTemporalMetricStatusClass(card.status)]">{{ card.statusText }}</span>
-                                                    </div>
-                                                    <div class="mt-2 text-xl font-bold">{{ card.valueText }} <small v-if="card.valueText !== '— / 未返回' &amp;&amp; card.unit !== '元' &amp;&amp; card.unit !== '%'" class="text-xs font-normal">{{ card.unit }}</small></div>
-                                                    <p v-if="section.key === 'today'" class="mt-1 text-xs text-gray-500">{{ card.deltaText || '暂无可比快照' }}</p>
+                                            <h4 class="text-lg font-bold">{{ section.title }} <small :class="meituanTemporalSectionStatusClass(section.data?.status)">{{ meituanTemporalSectionStatusText(section.data?.status) }}</small></h4>
+                                            <p>{{ section.key === 'today' ? '只展示最新快照，不跨快照累加。' : '09:00 后更新；广告曝光只用平台原值。' }}</p>
+                                            <p v-if="section.key === 'yesterday' &amp;&amp; section.data?.status === 'pending_source_update'" class="text-blue-700">等待平台更新：09:00 前不使用历史成功数据替代昨日当前值。</p>
+                                            <div :class="['grid gap-2', section.key === 'today' ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-2 xl:grid-cols-3']">
+                                                <article v-for="card in section.cards" :key="card.key" class="rounded border p-2">
+                                                    <b>{{ card.label }}</b> <small :class="meituanTemporalMetricStatusClass(card.status)">{{ card.statusText }}</small>
+                                                    <div class="text-xl font-bold">{{ card.valueText }} <small v-if="card.valueText !== '— / 未返回' &amp;&amp; card.unit !== '元' &amp;&amp; card.unit !== '%'">{{ card.unit }}</small></div>
+                                                    <small v-if="section.key === 'today'">{{ card.deltaText || '暂无可比快照' }}</small>
                                                 </article>
                                             </div>
                                         </section>
 
                                         <section class="rounded-lg border bg-white p-4">
-                                            <header class="mb-3 flex items-center justify-between gap-2">
-                                                <div>
-                                                    <h4 class="text-lg font-bold">未来30天</h4>
-                                                    <p class="text-xs text-gray-500">未来 OTA 流量信号，不等同于实际入住预测。</p>
-                                                </div>
-                                                <span :class="['rounded border px-2 py-1 text-xs', meituanTemporalSectionStatusClass(meituanTemporalSummary?.future?.status)]">{{ meituanTemporalSectionStatusText(meituanTemporalSummary?.future?.status) }}</span>
-                                            </header>
+                                            <h4 class="text-lg font-bold">未来30天 <small :class="meituanTemporalSectionStatusClass(meituanTemporalSummary?.future?.status)">{{ meituanTemporalSectionStatusText(meituanTemporalSummary?.future?.status) }}</small></h4>
+                                            <p>未来 OTA 流量信号，不等同于实际入住预测。</p>
                                             <div class="overflow-x-auto">
                                                 <table class="min-w-full text-sm">
-                                                    <thead><tr class="bg-gray-50 text-left">
-                                                        <th class="p-2">目标日期</th>
-                                                        <th v-for="column in [
-                                                            { key: 'pv', label: '未来 PV' }, { key: 'pv_peer_avg', label: 'PV 同行均值' },
-                                                            { key: 'uv', label: '未来 UV' }, { key: 'uv_peer_avg', label: 'UV 同行均值' },
-                                                            { key: 'advance_orders', label: '提前订订单量' }, { key: 'advance_orders_peer_avg', label: '订单同行均值' }
-                                                        ]" :key="column.key" class="p-2">{{ column.label }}</th>
-                                                        <th class="p-2">状态</th>
-                                                    </tr></thead>
+                                                    <thead><tr class="bg-gray-50 text-left"><th>目标日期</th><th>未来 PV / 同行均值</th><th>未来 UV / 同行均值</th><th>提前订订单量 / 同行均值</th><th>状态</th></tr></thead>
                                                     <tbody>
                                                         <tr v-for="row in meituanTemporalFutureRows" :key="row.target_date" class="border-t">
-                                                            <td class="p-2 font-semibold">{{ row.target_date }}</td>
-                                                            <td v-for="key in ['pv','pv_peer_avg','uv','uv_peer_avg','advance_orders','advance_orders_peer_avg']" :key="key" class="p-2">{{ meituanTemporalMetricText(row.metrics?.[key], key) }}</td>
-                                                            <td class="p-2">{{ meituanTemporalSectionStatusText(row.status) }}</td>
+                                                            <td><b>{{ row.target_date }}</b></td>
+                                                            <td>{{ meituanTemporalMetricText(row.metrics?.pv, 'pv') }} / {{ meituanTemporalMetricText(row.metrics?.pv_peer_avg, 'pv_peer_avg') }}</td>
+                                                            <td>{{ meituanTemporalMetricText(row.metrics?.uv, 'uv') }} / {{ meituanTemporalMetricText(row.metrics?.uv_peer_avg, 'uv_peer_avg') }}</td>
+                                                            <td>{{ meituanTemporalMetricText(row.metrics?.advance_orders, 'advance_orders') }} / {{ meituanTemporalMetricText(row.metrics?.advance_orders_peer_avg, 'advance_orders_peer_avg') }}</td>
+                                                            <td>{{ meituanTemporalSectionStatusText(row.status) }}</td>
                                                         </tr>
-                                                        <tr v-if="!meituanTemporalFutureRows.length"><td colspan="8" class="p-6 text-center text-gray-400">— / 未返回未来30天当前快照</td></tr>
+                                                        <tr v-if="!meituanTemporalFutureRows.length"><td colspan="5" class="p-4 text-center text-gray-400">— / 未返回未来30天当前快照</td></tr>
                                                     </tbody>
                                                 </table>
                                             </div>
                                         </section>
 
                                         <section v-if="meituanTemporalReferencePanels.length" class="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                                            <h4 class="font-bold">上次验证参考</h4>
-                                            <p class="text-xs">只作参考，不覆盖当前值。</p>
-                                            <div class="mt-2 grid gap-2 lg:grid-cols-3">
-                                                <div v-for="panel in meituanTemporalReferencePanels" :key="panel.key" class="rounded bg-white p-3 text-sm">
-                                                    <b>{{ panel.label }}</b> · {{ panel.capturedAt }}<br>{{ panel.details }}
-                                                </div>
-                                            </div>
+                                            <h4 class="font-bold">上次验证参考 <small>仅参考，不覆盖当前值</small></h4>
+                                            <p v-for="panel in meituanTemporalReferencePanels" :key="panel.key" class="mt-1 text-sm"><b>{{ panel.label }}</b> · {{ panel.capturedAt }} · {{ panel.details }}</p>
                                         </section>
 
                                         <details class="rounded-lg border bg-white">
                                             <summary class="cursor-pointer p-4 font-semibold">采集明细（原始存储记录）</summary>
-                                            <div class="overflow-x-auto border-t">
-                                                <table class="min-w-full text-sm">
-                                                    <thead><tr class="bg-gray-50 text-left"><th class="p-2">酒店</th><th class="p-2">日期</th><th class="p-2">模块</th><th class="p-2">指标</th><th class="p-2">保存状态</th><th class="p-2">采集时间</th><th class="p-2">操作</th></tr></thead>
-                                                    <tbody>
-                                                        <tr v-for="item in meituanDownloadData.trafficRows" :key="item.id" class="border-t">
-                                                            <td class="p-2">{{ item.hotel_name || '-' }}</td><td class="p-2">{{ item.data_date || '-' }}</td>
-                                                            <td class="p-2">{{ onlineAnalysisDataTypeText(item.data_type) }}</td><td class="p-2">{{ item.dimension || item.rank_metric || '-' }}</td>
-                                                            <td class="p-2">{{ onlineStorageStatusText(item) }}</td><td class="p-2">{{ item.snapshot_time || item.update_time || item.create_time || '-' }}</td>
-                                                            <td class="p-2"><button @click="viewOnlineDataDetail(item)" class="mr-2 text-blue-600">查看</button><button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500">删除</button></td>
-                                                        </tr>
-                                                        <tr v-if="!meituanDownloadData.trafficRows.length"><td colspan="7" class="p-6 text-center text-gray-400">当前门店暂无采集明细</td></tr>
-                                                    </tbody>
-                                                </table>
+                                            <div class="border-t p-3 text-sm">
+                                                <div v-for="item in meituanDownloadData.trafficRows" :key="item.id" class="flex flex-wrap justify-between gap-2 border-b py-2">
+                                                    <span>{{ item.data_date || '-' }} · {{ onlineAnalysisDataTypeText(item.data_type) }} · {{ item.dimension || item.rank_metric || '-' }} · {{ onlineStorageStatusText(item) }} · {{ item.snapshot_time || item.update_time || item.create_time || '-' }}</span>
+                                                    <span><button @click="viewOnlineDataDetail(item)" class="mr-2 text-blue-600">查看</button><button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500">删除</button></span>
+                                                </div>
+                                                <p v-if="!meituanDownloadData.trafficRows.length" class="text-center text-gray-400">当前门店暂无采集明细</p>
                                             </div>
                                         </details>
                                     </div>

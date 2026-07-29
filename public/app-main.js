@@ -1327,7 +1327,7 @@
             const requestedInitialPage = String(window.SUXI_INITIAL_PAGE_OVERRIDE || '').trim();
             delete window.SUXI_INITIAL_PAGE_OVERRIDE;
             const initialPageOverride = /^[a-z0-9-]+$/.test(requestedInitialPage) ? requestedInitialPage : '';
-            const currentPage = ref(initialPageOverride || 'online-data');
+            const currentPage = ref(initialPageOverride || 'ai-workbench');
             const SUPER_ADMIN_ONLY_PAGES = new Set([
                 'users',
                 'roles',
@@ -5070,16 +5070,17 @@
                 start_date: formatDate(thirtyDaysAgo),
                 end_date: formatDate(today),
             });
+            const createEmptyOnlineHistorySummary = () => ({
+                total_records: null,
+                latest_fetch_time: '',
+                today_records: null,
+                failed_records: null,
+            });
             const onlineHistoryFilter = ref(buildDefaultOnlineHistoryFilter());
             const onlineHistoryList = ref([]);
             const onlineHistoryPagination = ref({ total: 0, page: 1, page_size: 20 });
             const onlineHistoryPage = ref(1);
-            const onlineHistorySummary = ref({
-                total_records: 0,
-                latest_fetch_time: '',
-                today_records: 0,
-                failed_records: 0,
-            });
+            const onlineHistorySummary = ref(createEmptyOnlineHistorySummary());
             const onlineHistoryHotelList = ref([]);
             const onlineHistoryExpandedId = ref(null);
             const onlineHistoryRawId = ref(null);
@@ -10366,6 +10367,7 @@
                 onlineDataFilter.value.source = 'ctrip';
                 onlineDataFilter.value.data_type = '';
                 onlineDataFilter.value.data_types = '';
+                onlineHistoryFilter.value.platform = 'ctrip';
                 downloadCenterTab.value = 'overview';
                 scheduleDownloadCenterTabLoad('overview', {
                     onlineDataTab: 'ctrip-download',
@@ -10469,22 +10471,23 @@
                     });
                     const res = await request(`/online-data/history?${params}`);
                     if (res.code === 200) {
-                        onlineHistoryList.value = res.data?.list || [];
+                        onlineHistoryList.value = Array.isArray(res.data?.list) ? res.data.list : [];
                         onlineHistoryPagination.value = {
                             total: res.data?.total || 0,
                             page: res.data?.page || onlineHistoryPage.value,
                             page_size: res.data?.page_size || 20,
                         };
-                        onlineHistorySummary.value = res.data?.summary || {
-                            total_records: 0,
-                            latest_fetch_time: '',
-                            today_records: 0,
-                            failed_records: 0,
-                        };
+                        onlineHistorySummary.value = res.data?.summary && typeof res.data.summary === 'object'
+                            ? { ...createEmptyOnlineHistorySummary(), ...res.data.summary }
+                            : createEmptyOnlineHistorySummary();
                     } else {
+                        onlineHistoryList.value = [];
+                        onlineHistorySummary.value = createEmptyOnlineHistorySummary();
                         showToast(res.message || '历史记录加载失败', 'error');
                     }
                 } catch (error) {
+                    onlineHistoryList.value = [];
+                    onlineHistorySummary.value = createEmptyOnlineHistorySummary();
                     console.error('加载历史记录失败:', error);
                     showToast('历史记录加载失败', 'error');
                 }
@@ -10503,6 +10506,9 @@
 
             const resetOnlineHistoryFilter = async () => {
                 onlineHistoryFilter.value = buildDefaultOnlineHistoryFilter();
+                if (onlineDataTab.value === 'ctrip-download') {
+                    onlineHistoryFilter.value.platform = 'ctrip';
+                }
                 onlineHistoryExpandedId.value = null;
                 onlineHistoryRawId.value = null;
                 onlineHistoryPage.value = 1;
@@ -13693,7 +13699,21 @@
             const activateCoreOperationsAfterLogin = () => {
                 // Login/default-session entry owns only the default landing page. Explicit
                 // deep links are preserved by the mounted-session guard below.
-                return openOnlineDataEntryTab('data-health');
+                const landingPage = initialPageOverride || 'ai-workbench';
+                if (currentPage.value !== landingPage) {
+                    currentPage.value = landingPage;
+                    return nextTick();
+                }
+                if (!isCompassDataPage(landingPage)) return Promise.resolve();
+                homeSecondaryPanelsReady.value = false;
+                scheduleHomeSecondaryPanelsReady();
+                scheduleDualOtaWorkbenchAutoFetch();
+                scheduleDualOtaSystemMetricDrilldownHydration();
+                return runPageLoadOnce(
+                    landingPage,
+                    'main',
+                    () => loadCompassData({ skipOtaBackground: true })
+                );
             };
             const isVisibleOnlineDataTab = isOnlineDataTabVisible;
             const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(
@@ -13905,12 +13925,18 @@
                         });
                     }, 140);
                 }
-                if (tab === 'ctrip-review-match' && !ctripReviewMatchResult.value) {
-                    deferUiTask(() => {
-                        if (currentPage.value === 'ctrip-ebooking' && onlineDataTab.value === 'ctrip-review-match') {
-                            checkCtripReviewMatchClosure();
-                        }
-                    }, 220);
+                if (tab === 'ctrip-review-match') {
+                    const reviewHotelId = resolveCtripReviewMatchSystemHotelId();
+                    if (!ctripReviewMatchForm.value.systemHotelId && reviewHotelId) {
+                        ctripReviewMatchForm.value.systemHotelId = reviewHotelId;
+                    }
+                    if (!ctripReviewMatchResult.value) {
+                        deferUiTask(() => {
+                            if (currentPage.value === 'ctrip-ebooking' && onlineDataTab.value === 'ctrip-review-match') {
+                                checkCtripReviewMatchClosure();
+                            }
+                        }, 220);
+                    }
                 }
             };
             const openMeituanManualTab = (tab) => {
@@ -18198,7 +18224,7 @@
                 showToast('已带入单条复核表单', 'success');
             };
             const buildCtripReviewMatchPayloadTemplate = () => ({
-                system_hotel_id: Number(resolveCtripReviewMatchSystemHotelId() || 58),
+                system_hotel_id: Number(buildCtripReviewMatchBasePayload().system_hotel_id),
                 scope: 'ctrip_ota_channel',
                 template_notice: 'Replace every replace-with-* value before dry-run or execute; template payload is rejected by the importer.',
                 store_mapping_verified: false,
@@ -18246,7 +18272,7 @@
                 showToast('已复制携程点评订单证据模板；姓名、UID、头像和 IM members 不会入库。', 'warning');
             };
             const buildCtripReviewMatchCliCommand = (execute = false) => {
-                const systemHotelId = resolveCtripReviewMatchSystemHotelId() || '58';
+                const systemHotelId = buildCtripReviewMatchBasePayload().system_hotel_id;
                 const scriptName = execute === 'preflight'
                     ? 'import:ctrip-review-match-payload:preflight'
                     : (execute ? 'import:ctrip-review-match-payload:execute' : 'import:ctrip-review-match-payload');
