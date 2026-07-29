@@ -66,13 +66,15 @@ final class AutomationRunMonitorService
             }
             $hotelId = (int)($hotel['id'] ?? 0);
             $tenantId = (int)($hotel['tenant_id'] ?? 0);
-            if ($hotelId <= 0
-                || $tenantId <= 0
-                || !isset($wechatRobotHotelIds[$hotelId])
-            ) {
+            if ($hotelId <= 0 || $tenantId <= 0) {
                 continue;
             }
-            $rows[] = $this->hotelRow($hotel, $businessDate, $userId);
+            $rows[] = $this->hotelRow(
+                $hotel,
+                $businessDate,
+                $userId,
+                isset($wechatRobotHotelIds[$hotelId])
+            );
         }
 
         usort($rows, static fn(array $left, array $right): int => (
@@ -102,8 +104,8 @@ final class AutomationRunMonitorService
             'summary' => $summary,
             'rows' => $rows,
             'message' => $rows === []
-                ? '当前账号没有同时满足“有门店权限、已绑定且启用企业微信机器人”的可监控门店。'
-                : '仅展示当前账号有权限且已绑定启用企业微信机器人的门店；携程、美团、主 PMS 与企业微信回执分开核验。',
+                ? '当前账号没有可监控的营业门店。'
+                : '展示当前账号有权限的营业门店；未绑定企业微信机器人或未启用计划会保留为明确阻断，携程、美团、主 PMS 与企业微信回执分开核验。',
         ];
     }
 
@@ -163,7 +165,12 @@ final class AutomationRunMonitorService
      * @param array<string, mixed> $hotel
      * @return array<string, mixed>
      */
-    private function hotelRow(array $hotel, string $businessDate, int $userId): array
+    private function hotelRow(
+        array $hotel,
+        string $businessDate,
+        int $userId,
+        bool $wechatRobotConfigured
+    ): array
     {
         $hotelId = (int)$hotel['id'];
         $tenantId = (int)$hotel['tenant_id'];
@@ -194,6 +201,24 @@ final class AutomationRunMonitorService
         $tasks = $this->loadTaskOverview($tenantId, $hotelId);
         $schedule = $this->scheduleState($tasks);
         $delivery = $this->deliveryState($tasks, $pms);
+        if (!$wechatRobotConfigured) {
+            $robotBlocker = '尚未为门店绑定并启用企业微信机器人。';
+            $schedule = [
+                'status' => 'missing',
+                'next_push_at' => null,
+                'label' => '企业微信机器人未绑定',
+                'blocker' => $robotBlocker,
+            ];
+            if ($delivery['status'] === 'waiting') {
+                $delivery = [
+                    'status' => 'blocked',
+                    'label' => '机器人未绑定',
+                    'at' => null,
+                    'blocker' => $robotBlocker,
+                ];
+            }
+            $blockers[] = $robotBlocker;
+        }
         if ($schedule['status'] !== 'scheduled') {
             $blockers[] = (string)$schedule['blocker'];
         }
@@ -219,6 +244,7 @@ final class AutomationRunMonitorService
             'ctrip' => $this->publicSource($ctrip),
             'meituan' => $this->publicSource($meituan),
             'pms' => $this->publicSource($pms),
+            'wechat_robot_configured' => $wechatRobotConfigured,
             'data_ready_count' => $readyCount,
             'data_required_count' => 3,
             'data_status' => $dataStatus,

@@ -45,6 +45,10 @@ test('local Dingdandao runner saves and reads back before optional manual push',
 test('local Dingdandao runner reports regional and trend coverage without secrets', () => {
   assert.match(runner, /trend_point_counts/);
   assert.match(runner, /regional_benchmark/);
+  assert.match(runner, /localForwardRoomStatusSummary/);
+  assert.match(runner, /'forward_room_status'\s*=>\s*localForwardRoomStatusSummary/);
+  assert.match(runner, /'display_horizons'/);
+  assert.match(runner, /'readback_status'/);
   assert.match(runner, /raw_response_exposed'\s*=>\s*false/);
   assert.match(runner, /session_material_exposed'\s*=>\s*false/);
   assert.match(runner, /sensitive_values_exposed'\s*=>\s*false/);

@@ -24,6 +24,9 @@
                                     <button @click="openCtripManualTab('ctrip-traffic')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         流量数据
                                     </button>
+                                    <button data-testid="ctrip-quality-tab" @click="openCtripManualTab('ctrip-quality')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-quality' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                        服务质量
+                                    </button>
                                     <button @click="openCtripManualTab('ctrip-ads')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         广告数据
                                     </button>
@@ -1340,6 +1343,32 @@
                                     </div>
                                 </div>
 
+                                <div v-if="onlineDataTab === 'ctrip-quality'" data-testid="ctrip-quality-panel" class="space-y-4">
+                                    <div class="bg-cyan-50 border border-cyan-200 rounded-lg p-4">
+                                        <h4 class="font-medium text-cyan-900"><i class="fas fa-star mr-2"></i>携程服务质量</h4>
+                                        <p class="text-sm text-cyan-800 mt-1">展示所选门店已入库的 PSI、点评、回复与收藏事实；未抓到的字段保持缺失，不使用 0 补齐。</p>
+                                    </div>
+                                    <div class="bg-white border border-cyan-200 rounded-lg p-4">
+                                        <div class="flex flex-col md:flex-row gap-3 mb-4">
+                                            <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply" class="flex-1 px-3 py-2 border rounded-lg">
+                                                <option value="">请选择目标酒店</option>
+                                                <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                            </select>
+                                            <button type="button" @click="runCtripOverviewFetchAction('ctrip-quality')" :disabled="fetchingData || !!ctripOverviewFetchActionLoading || ctripOverviewCoreFetchRunning" class="px-4 py-2 bg-cyan-700 text-white rounded-lg disabled:bg-gray-400">
+                                                {{ ctripOverviewFetchActionLoading === 'ctrip-quality' ? '获取中...' : '获取服务质量' }}
+                                            </button>
+                                        </div>
+                                        <div v-if="collectionReliabilityLoading" class="text-sm text-gray-500">正在读取已入库快照...</div>
+                                        <div v-else="" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                                            <div v-for="metric in collectionHealthCtripServicePanel.metrics" :key="'quality-' + metric.label" class="border rounded-lg p-3">
+                                                <div class="text-xs text-gray-500">{{ metric.label }}</div>
+                                                <div :class="['text-xl font-semibold mt-1', metric.status === 'ok' ? 'text-gray-900' : 'text-red-600']">{{ metric.value }}</div>
+                                                <div class="text-[11px] text-gray-400 mt-1 truncate" :title="metric.reasonText || metric.source">{{ metric.status === 'ok' ? metric.source : metric.reasonText }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div v-if="onlineDataTab === 'ctrip-ads'">
                                     <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-indigo-800 mb-2">
@@ -1351,6 +1380,20 @@
                                         <p class="text-xs text-indigo-600 mt-2">
                                             采集字段：曝光、点击、预订/成交数、消耗/费用；原始证据仅用于高级排障。
                                         </p>
+                                    </div>
+                                    <div data-testid="ctrip-ads-persisted-snapshot" class="bg-white border border-indigo-200 rounded-lg p-4 mb-4">
+                                        <div class="flex items-center justify-between gap-3 mb-3">
+                                            <h4 class="font-medium text-gray-900">最近已入库广告事实</h4>
+                                            <span class="text-xs text-gray-500">缺失字段不会按 0 展示</span>
+                                        </div>
+                                        <div v-if="collectionReliabilityLoading" class="text-sm text-gray-500">正在读取已入库快照...</div>
+                                        <div v-else="" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                            <div v-for="metric in collectionHealthCtripAdsPanel.metrics" :key="'ads-' + metric.label" class="border rounded-lg p-3">
+                                                <div class="text-xs text-gray-500">{{ metric.label }}</div>
+                                                <div :class="['text-lg font-semibold mt-1', metric.status === 'ok' ? 'text-gray-900' : 'text-red-600']">{{ metric.value }}</div>
+                                                <div class="text-[11px] text-gray-400 mt-1 truncate" :title="metric.reasonText || metric.source">{{ metric.status === 'ok' ? metric.source : metric.reasonText }}</div>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div class="bg-white border border-indigo-200 rounded-lg p-4 mb-4">
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -1418,23 +1461,23 @@
                                             <div v-if="otaFetchResultView(ctripAdsBrowserCaptureResult).showMetrics &amp;&amp; ctripAdsBrowserCaptureResult.metrics" class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
                                                 <div class="bg-white border border-gray-100 rounded p-3">
                                                     <div class="text-xs text-gray-500">曝光</div>
-                                                    <div class="text-lg font-semibold text-gray-900">{{ formatNumber(ctripAdsBrowserCaptureResult.metrics.exposure) }}</div>
+                                                    <div class="text-lg font-semibold text-gray-900">{{ formatOptionalNumber(ctripAdsBrowserCaptureResult.metrics.exposure) }}</div>
                                                 </div>
                                                 <div class="bg-white border border-gray-100 rounded p-3">
                                                     <div class="text-xs text-gray-500">点击</div>
-                                                    <div class="text-lg font-semibold text-gray-900">{{ formatNumber(ctripAdsBrowserCaptureResult.metrics.clicks) }}</div>
+                                                    <div class="text-lg font-semibold text-gray-900">{{ formatOptionalNumber(ctripAdsBrowserCaptureResult.metrics.clicks) }}</div>
                                                 </div>
                                                 <div class="bg-white border border-gray-100 rounded p-3">
                                                     <div class="text-xs text-gray-500">预订/成交</div>
-                                                    <div class="text-lg font-semibold text-gray-900">{{ formatNumber(ctripAdsBrowserCaptureResult.metrics.orders) }}</div>
+                                                    <div class="text-lg font-semibold text-gray-900">{{ formatOptionalNumber(ctripAdsBrowserCaptureResult.metrics.orders) }}</div>
                                                 </div>
                                                 <div class="bg-white border border-gray-100 rounded p-3">
                                                     <div class="text-xs text-gray-500">消耗/费用</div>
-                                                    <div class="text-lg font-semibold text-gray-900">{{ formatCurrency(ctripAdsBrowserCaptureResult.metrics.cost) }}</div>
+                                                    <div class="text-lg font-semibold text-gray-900">{{ hasDisplayValue(ctripAdsBrowserCaptureResult.metrics.cost) ? formatCurrency(ctripAdsBrowserCaptureResult.metrics.cost) : '未返回' }}</div>
                                                 </div>
                                                 <div class="bg-white border border-gray-100 rounded p-3">
                                                     <div class="text-xs text-gray-500">点击率</div>
-                                                    <div class="text-lg font-semibold text-gray-900">{{ toFixedSafe(ctripAdsBrowserCaptureResult.metrics.click_rate, 2, '0.00') }}%</div>
+                                                    <div class="text-lg font-semibold text-gray-900">{{ formatOptionalPercent(ctripAdsBrowserCaptureResult.metrics.click_rate) }}</div>
                                                 </div>
                                             </div>
                                             <div v-if="otaFetchResultView(ctripAdsBrowserCaptureResult).showMetrics" class="text-xs text-gray-600 mt-2">
@@ -1447,116 +1490,7 @@
                                     </div>
                                 </div>
 
-                                <div v-if="onlineDataTab === 'ctrip-overview'">
-                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                                        <h4 class="font-medium text-blue-800 mb-2">
-                                            <i class="fas fa-chart-pie mr-2"></i>携程今日概况
-                                        </h4>
-                                        <p class="text-sm text-blue-700">
-                                            使用已保存的 Cookie/API 辅助内容与接口地址同步概况数据；不打开携程页面或本机 Profile 采集。
-                                        </p>
-                                        <p class="text-xs text-blue-600 mt-2">
-                                            目标页面：https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true
-                                        </p>
-                                    </div>
-
-                                    <div class="bg-white border border-blue-200 rounded-lg p-4 mb-4">
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
-                                                <select v-model="selectedCtripHotelId" @change="scheduleCtripHotelConfigApply" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                    <option value="">请选择目标酒店</option>
-                                                    <option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">数据日期</label>
-                                                <input v-model="ctripOverviewForm.dataDate" type="date" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                <p class="text-xs text-gray-500 mt-1">默认显示昨日，实际保存严格使用当前可见日期；日期为空时不执行采集。</p>
-                                            </div>
-                                            <div class="md:col-span-2">
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">今日概况接口地址 <span class="text-red-500">*</span></label>
-                                                <textarea v-model="ctripOverviewForm.requestUrls" rows="3" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" placeholder="每行粘贴一个平台后台命中的完整请求地址；系统使用 Cookie/API 辅助内容直接请求，不要填概况页面地址"></textarea>
-                                            </div>
-                                            <div class="md:col-span-2">
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">临时 Cookie/API 辅助内容 <span class="text-red-500">*</span></label>
-                                                <textarea v-model="ctripOverviewForm.cookies" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" placeholder="凭据只从所选门店的平台配置读取；请前往平台账号维护"></textarea>
-                                            </div>
-                                        </div>
-                                        <div class="mb-4">
-                                            <div class="text-sm font-medium text-gray-700 mb-2">监听接口</div>
-                                            <div class="flex flex-wrap gap-2">
-                                                <span v-for="keyword in ctripOverviewApiKeywords" :key="keyword" class="px-2 py-1 rounded bg-blue-50 border border-blue-100 text-xs text-blue-700 font-mono">{{ keyword }}</span>
-                                            </div>
-                                        </div>
-                                        <div class="flex flex-wrap items-center gap-3">
-                                            <button type="button" @click="fetchCtripOverviewData" :disabled="ctripOverviewFetching" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
-                                                <i :class="ctripOverviewFetching ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-play mr-2'"></i>
-                                                {{ ctripOverviewFetching ? '获取中...' : '获取今日概况' }}
-                                            </button>
-                                        </div>
-                                        <div v-if="ctripOverviewFetching" class="mt-3 text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded px-3 py-2">
-                                            正在根据 Cookie/API 辅助内容和接口地址同步携程今日概况数据。
-                                        </div>
-                                        <div v-if="ctripOverviewResult" :class="['mt-4 border rounded-lg p-4', otaFetchResultView(ctripOverviewResult).panelClass]">
-                                            <div :class="['flex items-start gap-3 text-sm', otaFetchResultView(ctripOverviewResult).textClass]">
-                                                <i :class="[otaFetchResultView(ctripOverviewResult).iconClass, 'mt-0.5']"></i>
-                                                <div>
-                                                    <div class="font-medium">{{ otaFetchResultView(ctripOverviewResult).title }}</div>
-                                                    <div class="mt-1">{{ otaFetchResultView(ctripOverviewResult).detail }}</div>
-                                                </div>
-                                            </div>
-                                            <div v-if="otaFetchResultView(ctripOverviewResult).showMetrics &amp;&amp; ctripOverviewMetricCards.length" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3 mt-3">
-                                                <div v-for="card in ctripOverviewMetricCards" :key="card.key" class="bg-white border border-gray-100 rounded p-3">
-                                                    <div class="text-xs text-gray-500">{{ card.label }}</div>
-                                                    <div :class="card.type === 'text' ? 'text-sm font-semibold text-gray-900 break-words leading-snug' : 'text-lg font-semibold text-gray-900'">
-                                                        <template v-if="card.type === 'currency'">{{ formatCurrency(card.value) }}</template>
-                                                        <template v-else-if="card.type === 'currency2'">¥{{ toFixedSafe(card.value, 2, '0.00') }}</template>
-                                                        <template v-else-if="card.type === 'percent'">{{ toFixedSafe(card.value, 2, '0.00') }}%</template>
-                                                        <template v-else-if="card.type === 'text'">{{ card.value }}</template>
-                                                        <template v-else="">{{ formatNumber(card.value) }}</template>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div v-if="ctripOverviewTopRankTables.length" class="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
-                                                <div v-for="table in ctripOverviewTopRankTables" :key="table.key" class="bg-white border border-green-100 rounded overflow-hidden">
-                                                    <div class="px-3 py-2 border-b bg-white flex items-center justify-between gap-2">
-                                                        <div class="text-sm font-semibold text-slate-900">
-                                                            {{ table.title }}
-                                                            <i class="fas fa-question-circle text-slate-400 ml-1" title="来自携程经营周报接口返回的 OTA 同城榜单"></i>
-                                                        </div>
-                                                        <span v-if="table.period" class="text-xs text-slate-500">{{ table.period }}</span>
-                                                    </div>
-                                                    <div class="overflow-x-auto">
-                                                        <table class="min-w-full text-sm">
-                                                            <thead class="bg-gray-50 text-slate-700">
-                                                                <tr>
-                                                                    <th class="px-3 py-2 text-center border-b w-20">排名</th>
-                                                                    <th class="px-3 py-2 text-left border-b">{{ table.valueLabel }}</th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody>
-                                                                <tr v-for="(item, index) in table.items" :key="`${table.key}-${index}-${item}`" class="border-b last:border-b-0">
-                                                                    <td class="px-3 py-2 text-center text-slate-700">{{ index + 1 }}</td>
-                                                                    <td class="px-3 py-2 font-medium text-slate-900 break-words">{{ item }}</td>
-                                                                </tr>
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div v-if="user?.is_super_admin &amp;&amp; ctripOverviewResult.payload_counts" class="text-xs text-green-700 mt-3">
-                                                高级排障响应：请求记录 {{ ctripOverviewResult.payload_counts.xhr_urls || 0 }} 条，业务响应 {{ ctripOverviewResult.payload_counts.responses || 0 }} 条。
-                                            </div>
-                                            <div v-if="ctripOverviewResult.errors &amp;&amp; ctripOverviewResult.errors.length" class="text-xs text-red-700 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
-                                                <div v-for="item in ctripOverviewResult.errors.slice(0, 6)" :key="item" class="truncate">
-                                                    {{ item }}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div v-if="onlineDataTab === 'ctrip-fetch-settings'" class="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+                                <div v-if="onlineDataTab === 'ctrip-fetch-settings'" class="bg-white border border-slate-200 rounded-lg p-4 mb-4">
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                                             <div>
                                                 <h4 class="font-medium text-gray-800 mb-1">
@@ -1704,7 +1638,6 @@
                                             <pre v-if="user?.is_super_admin &amp;&amp; showRawData" class="text-xs text-green-900 bg-white border rounded p-3 mt-3 whitespace-pre-wrap max-h-80 overflow-auto">{{ JSON.stringify(ctripBrowserCaptureResult, null, 2) }}</pre>
                                         </div>
                                     </div>
-                                </div>
 
                                 <!-- 点评数据获取 -->
                                 <div v-if="onlineDataTab === 'ctrip-review-match'" class="space-y-4">

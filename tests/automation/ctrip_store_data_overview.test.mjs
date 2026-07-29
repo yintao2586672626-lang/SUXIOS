@@ -327,6 +327,20 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.match(ctripStatic, /runPostFetchRefresh\(refreshDataHealthPanel, 'light', \{ force: true \}\)/);
 });
 
+test('Ctrip service and ads tabs read Ctrip-only persisted snapshots without fake zero fallbacks', () => {
+  assert.match(ctripPage, /data-testid="ctrip-quality-tab"/);
+  assert.match(ctripPage, /data-testid="ctrip-quality-panel"/);
+  assert.match(ctripPage, /data-testid="ctrip-ads-persisted-snapshot"/);
+  assert.doesNotMatch(ctripPage, /onlineDataTab === 'ctrip-overview'/);
+  assert.match(html, /collectionHealthCtripSupplementalRows/);
+  assert.match(html, /ctrip_supplemental_history/);
+  assert.match(html, /loadSupplementalSnapshot:\s*\(\) => loadCollectionReliability\('full'\)/);
+  assert.match(dataHealthStatic, /dataTypes:\s*\['quality', 'business'\]/);
+  assert.match(backend, /buildCtripSupplementalHistoryRows/);
+  assert.match(backend, /foreach \(\['quality', 'advertising'\] as \$dataType\)/);
+  assert.match(backend, /\[\$dataType\], \['ctrip'\]/);
+});
+
 test('Ctrip Cookie API save is guarded against cross-store hotel identity conflicts', () => {
   const cookieApiHandler = sliceBetween(
     backend,

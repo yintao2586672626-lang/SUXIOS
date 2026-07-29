@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
+  normalizeMeituanBusinessRows,
   normalizeMeituanFlowAnalysisRows,
   normalizeMeituanOrderRows,
   normalizeMeituanOrderFlowRows,
@@ -11,6 +12,78 @@ import {
   normalizeMeituanTrafficCardRows,
   normalizeMeituanTrafficForecastRows,
 } from '../../scripts/lib/meituan_browser_capture_normalize.mjs';
+
+test('Meituan business data is normalized independently and preserves zero versus missing', () => {
+  const rows = normalizeMeituanBusinessRows({
+    data: {
+      businessData: {
+        cards: [
+          { id: 'LEAD_PRICE', title: '\u5f15\u6d41\u4ef7', value: '868.00' },
+          { id: 'PAY_ROOMNIGHT', title: '\u9500\u552e\u95f4\u591c', value: '0' },
+          { id: 'PAY_AMT', title: '\u9500\u552e\u989d', value: '0.00' },
+          { id: 'EXPOSE_PV_CNT', title: '\u66dd\u5149\u4eba\u6570', value: '750' },
+          { id: 'INTENTION_UV', title: '\u6d4f\u89c8\u4eba\u6570', value: '117' },
+          { id: 'PAY_ORDER_CNT', title: '\u652f\u4ed8\u8ba2\u5355\u6570', value: '0' },
+          { id: 'PAY_ORDER_CNT_UV', title: '\u6d4f\u89c8-\u652f\u4ed8\u8f6c\u5316\u7387', value: '0%' },
+        ],
+      },
+    },
+  }, {
+    requestDateEvidence: { date: '2026-07-29', date_source: 'request.query.date' },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'business');
+  assert.equal(rows[0].lead_price, 868);
+  assert.equal(rows[0].sales_room_nights, 0);
+  assert.equal(rows[0].sales_amount, 0);
+  assert.equal(rows[0].sales_avg_price, null);
+  assert.equal(rows[0].exposure_users, 750);
+  assert.equal(rows[0].detail_visitors, 117);
+  assert.equal(rows[0].paid_order_count, 0);
+  assert.equal(rows[0].browse_to_pay_rate, 0);
+  assert.equal(rows[0]._meituan_business_metric_missing.includes('sales_avg_price'), true);
+  assert.equal(rows[0].dataDate, '2026-07-29');
+});
+
+test('Meituan business field aliases keep explicit platform values', () => {
+  const rows = normalizeMeituanBusinessRows({
+    data: {
+      businessData: {
+        startingPrice: 542.24,
+        salesRoomNights: 2,
+        salesAmount: 2026.78,
+        salesAvgPrice: 1013.39,
+        exposureUV: 81,
+        intentionUV: 66,
+        payOrderCnt: 1,
+        payOrderPerIntention: 1.52,
+        dataDate: '2026-07-29',
+      },
+    },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.deepEqual({
+    lead_price: rows[0].lead_price,
+    sales_room_nights: rows[0].sales_room_nights,
+    sales_amount: rows[0].sales_amount,
+    sales_avg_price: rows[0].sales_avg_price,
+    exposure_users: rows[0].exposure_users,
+    detail_visitors: rows[0].detail_visitors,
+    paid_order_count: rows[0].paid_order_count,
+    browse_to_pay_rate: rows[0].browse_to_pay_rate,
+  }, {
+    lead_price: 542.24,
+    sales_room_nights: 2,
+    sales_amount: 2026.78,
+    sales_avg_price: 1013.39,
+    exposure_users: 81,
+    detail_visitors: 66,
+    paid_order_count: 1,
+    browse_to_pay_rate: 1.52,
+  });
+});
 
 test('Meituan order API aggregates sale price and room nights without promoting floor or guarantee money', () => {
   const rows = normalizeMeituanOrderRows({

@@ -71,7 +71,7 @@ test('competition-circle and stored-data actions remain truthful without exposin
   assert.match(storedData, /卡片仅统计本页数据/);
   assert.match(storedData, /@click="queryMeituanStoredData"/);
   assert.match(storedData, /当前第 \{\{ onlineDataPage \}\} 页/);
-  assert.match(storedData, /当前筛选暂无美团流量数据/);
+  assert.match(storedData, /当前门店暂无采集明细/);
   assert.doesNotMatch(storedData, /总订单量|总营收|平均房价/);
   assert.match(storedData, /v-if="user\?\.is_super_admin"[^>]*@click="deleteOnlineDataItem\(item\.id\)"/);
   assert.match(template, /更新美团竞争圈/);
@@ -98,6 +98,6 @@ test('Meituan stored data entry resets cross-platform dates and keeps manual que
   assert.match(applyStoredFilter, /if \(options\.resetDates === true\) \{/);
   assert.match(applyStoredFilter, /onlineDataFilter\.value\.start_date = formatDate\(thirtyDaysAgo\);/);
   assert.match(applyStoredFilter, /onlineDataFilter\.value\.end_date = formatDate\(today\);/);
-  assert.match(switchToStoredData, /resetPage: true, resetDates: true/);
+  assert.match(switchToStoredData, /resetPage:\s*true,\s*resetDates:\s*true/);
   assert.doesNotMatch(queryStoredData, /resetDates: true/);
 });

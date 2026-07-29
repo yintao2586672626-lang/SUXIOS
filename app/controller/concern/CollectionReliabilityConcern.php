@@ -14,7 +14,7 @@ use think\facade\Db;
 
 trait CollectionReliabilityConcern
 {
-    private function loadCollectionQualityRows(?int $hotelId, string $startDate, string $endDate, int $limit): array
+    private function loadCollectionQualityRows(?int $hotelId, string $startDate, string $endDate, int $limit, array $dataTypes = [], array $sources = []): array
     {
         $columns = $this->getOnlineDailyDataColumns();
         $fields = array_values(array_filter([
@@ -32,6 +32,20 @@ trait CollectionReliabilityConcern
             ->field($fields)
             ->where('data_date', '>=', $startDate)
             ->where('data_date', '<=', $endDate);
+        $normalizedDataTypes = array_values(array_unique(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            $dataTypes
+        ))));
+        if ($normalizedDataTypes !== [] && isset($columns['data_type'])) {
+            $query->whereIn('data_type', $normalizedDataTypes);
+        }
+        $normalizedSources = array_values(array_unique(array_filter(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            $sources
+        ))));
+        if ($normalizedSources !== [] && isset($columns['source'])) {
+            $query->whereIn('source', $normalizedSources);
+        }
 
         if (!$this->applyCollectionHotelScope($query, $hotelId, $columns)) {
             return [];
@@ -320,6 +334,23 @@ trait CollectionReliabilityConcern
     {
         $rows = $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, $limit);
         $rows = $this->mergeCtripCoreRowsForCollectionHistory($rows, $hotelId, $startDate, $endDate, $limit);
+        return $this->normalizeCollectionHistoryReplayRows($rows);
+    }
+
+    private function buildCtripSupplementalHistoryRows(?int $hotelId, string $startDate, string $endDate, int $limitPerType = 12): array
+    {
+        $rows = [];
+        foreach (['quality', 'advertising'] as $dataType) {
+            $rows = array_merge(
+                $rows,
+                $this->loadCollectionQualityRows($hotelId, $startDate, $endDate, $limitPerType, [$dataType], ['ctrip'])
+            );
+        }
+        return $this->normalizeCollectionHistoryReplayRows($rows);
+    }
+
+    private function normalizeCollectionHistoryReplayRows(array $rows): array
+    {
         $result = [];
         foreach ($rows as $row) {
             $id = (int)($row['id'] ?? 0);
@@ -1587,6 +1618,7 @@ trait CollectionReliabilityConcern
             ],
             'field_definitions' => [],
             'history_replay' => [],
+            'ctrip_supplemental_history' => [],
             'ctrip_capture_catalog' => ['status' => 'not_loaded', 'message' => 'Light mode skips capture catalog evidence.'],
             'ctrip_latest_capture' => ['available' => false, 'status' => 'not_loaded', 'message' => 'Light mode skips latest capture evidence.'],
             'ctrip_hotel_identity_filter' => ['status' => 'not_loaded', 'message' => 'Light mode skips hotel identity filter evidence.'],
@@ -1629,6 +1661,7 @@ trait CollectionReliabilityConcern
             'field_definitions' => $fieldDefinitions,
             'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
             'history_replay' => $this->buildCollectionHistoryReplayRows($hotelId, $startDate, $endDate, 30),
+            'ctrip_supplemental_history' => $this->buildCtripSupplementalHistoryRows($hotelId, $startDate, $endDate),
             'source_date_evidence' => $this->buildCollectionSourceDateEvidence($hotelId, $endDate),
             'dual_ota_continuous_trust' => $this->buildDualOtaContinuousTrust($hotelId, $startDate, $endDate),
             'data_quality' => $this->buildCollectionQualitySnapshot($qualityRows),

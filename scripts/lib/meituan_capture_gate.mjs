@@ -111,7 +111,10 @@ export function evaluateMeituanCaptureGate(data, requestedSections = [], options
 }
 
 export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
-  const next = applyMeituanTrafficSelectionDateEvidence(data, targetDate);
+  const next = applyMeituanBusinessSelectionDateEvidence(
+    applyMeituanTrafficSelectionDateEvidence(data, targetDate),
+    targetDate,
+  );
   const normalizedTargetDate = normalizeDate(targetDate);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)) {
     return next;
@@ -188,6 +191,50 @@ export function applyMeituanTrafficSelectionDateEvidence(data, targetDate) {
 
 export function applyMeituanYesterdaySelectionDateEvidence(data, targetDate) {
   return applyMeituanTrafficSelectionDateEvidence(data, targetDate);
+}
+
+export function applyMeituanBusinessSelectionDateEvidence(data, targetDate) {
+  const next = { ...(data || {}) };
+  const normalizedTargetDate = normalizeDate(targetDate);
+  const evidence = next?.section_evidence?.business || next?.sectionEvidence?.business || {};
+  const relativeRange = String(evidence.relative_range || evidence.relativeRange || '').trim();
+  const expectedMarker = {
+    '\u4eca\u65e5\u5b9e\u65f6': 'meituan_business_today_realtime_tab',
+    '\u6628\u65e5': 'meituan_business_yesterday_tab',
+  }[relativeRange] || '';
+  const selectionVerified = /^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)
+    && String(evidence.status || '').trim() === 'target_date_relative_range_selected'
+    && normalizeDate(evidence.target_date || evidence.targetDate) === normalizedTargetDate
+    && expectedMarker !== ''
+    && String(evidence.evidence_source || evidence.evidenceSource || '').trim() === 'page.business_period_selection.readback'
+    && String(evidence.marker || '').trim() === expectedMarker;
+  if (!selectionVerified || !Array.isArray(next.businessData)) {
+    return next;
+  }
+
+  next.businessData = next.businessData.map(row => {
+    if (!row || typeof row !== 'object') return row;
+    const source = String(row.date_source || row.dateSource || '').trim().toLowerCase();
+    const rowDate = normalizeDate(firstValue(row, [
+      'data_date', 'dataDate', 'date', 'statDate', 'stat_date', 'reportDate', 'day',
+    ]));
+    const refreshTimestampSource = source === 'response.rtdataupdatetime'
+      || source === 'page.visible_update_time'
+      || /(?:^|\.)rtdataupdatetime$/.test(source)
+      || source === 'capture_context.default_data_date';
+    if (!refreshTimestampSource && rowDate !== '') {
+      return row;
+    }
+    return {
+      ...row,
+      ...(rowDate ? { data_updated_at: rowDate } : {}),
+      ...(Object.prototype.hasOwnProperty.call(row, 'data_date') ? { data_date: normalizedTargetDate } : {}),
+      dataDate: normalizedTargetDate,
+      date_source: 'page.business_period_selection.readback',
+      date_scope_evidence: expectedMarker,
+    };
+  });
+  return next;
 }
 
 export function filterMeituanEventRowsByTargetDate(data, targetDate, requestedSections = []) {

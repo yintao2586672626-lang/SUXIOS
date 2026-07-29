@@ -130,6 +130,13 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertSame([100.0, 50.0], array_column($result['rows'], 'amount'));
         self::assertSame([2.0, 1.0], array_column($result['rows'], 'quantity'));
         self::assertSame(['ctrip', 'meituan'], array_column($result['rows'], 'source'));
+        self::assertSame([1, 12], array_column($result['rows'], 'row_id'));
+        self::assertSame([80, 80], array_column($result['rows'], 'system_hotel_id'));
+        self::assertSame([true, true], array_column($result['rows'], 'readback_verified'));
+        self::assertSame(
+            ['trace-80', 'trace-80'],
+            array_column($result['rows'], 'source_trace_id')
+        );
         self::assertSame(2, $result['data_quality']['trusted_rows']);
         self::assertSame(1, $result['data_quality']['superseded_period_rows']);
         self::assertGreaterThanOrEqual(6, $result['data_quality']['rejected_rows']);

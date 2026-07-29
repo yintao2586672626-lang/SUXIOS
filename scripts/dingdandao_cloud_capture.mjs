@@ -12,6 +12,7 @@ export const DINGDANDAO_API_PATHS = Object.freeze({
   dailyDetail: '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
   countyTotal: '/v2/um-b/web/pro/data/businessIndicatorsTotal/county',
   countyTrend: '/v2/um-b/web/pro/data/businessIndicatorsTrend/county',
+  forwardRoomStatus: '/v2/hm-b/pro/web/accom/roomStat/forward/v2',
 });
 
 export const DINGDANDAO_DETAIL_TYPES = Object.freeze({
@@ -33,6 +34,12 @@ export const DINGDANDAO_COLLECTION_MODES = Object.freeze({
   operatingIndicators: 'operating_indicators',
   fullDiagnostic: 'full_diagnostic',
 });
+
+export const DINGDANDAO_FORWARD_HORIZONS = Object.freeze([3, 7, 14, 21]);
+const DINGDANDAO_FORWARD_MIN_SOURCE_DAYS = 22;
+const DINGDANDAO_FORWARD_MAX_SOURCE_DAYS = 31;
+const DINGDANDAO_FORWARD_DISPLAY_SEMANTICS =
+  'future_days_after_as_of_date';
 
 const DINGDANDAO_DETAIL_TYPE_SET = new Set(Object.values(DINGDANDAO_DETAIL_TYPES));
 const DINGDANDAO_READABLE_TREND_TYPE_SET =
@@ -61,6 +68,14 @@ export function shanghaiToday(now = new Date()) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function addIsoDays(date, days) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(days)) return null;
+  const value = new Date(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(value.getTime())) return null;
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 function exactBodyKeys(body, keys) {
   return Object.keys(body).sort().join(',') === [...keys].sort().join(',');
 }
@@ -81,6 +96,28 @@ export function classifyDingdandaoResponseRequest({ path, requestBody, targetDat
       fact_kind: 'hotel_identity',
       query_type: null,
       scope_status: 'today_verified',
+    };
+  }
+  if (path === DINGDANDAO_API_PATHS.forwardRoomStatus) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+      || requestBody.startDate !== targetDate
+      || requestBody.endDate !== addIsoDays(targetDate, 30)
+      || !exactBodyKeys(requestBody, [
+        'TIMEZONEOFFSET',
+        'endDate',
+        'ntwNum',
+        'pageNum',
+        'pageSize',
+        'startDate',
+      ])
+      || requestBody.pageNum !== 1
+      || requestBody.pageSize !== 9999
+    ) return blocked;
+    return {
+      allowed: true,
+      fact_kind: 'forward_room_status',
+      query_type: null,
+      scope_status: 'as_of_today_forward_verified',
     };
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)
@@ -631,6 +668,17 @@ export function dingdandaoDirectRequests(
         body: { ...dated, type },
       });
     }
+    requests.push({
+      path: DINGDANDAO_API_PATHS.forwardRoomStatus,
+      body: {
+        ...base,
+        pageNum: 1,
+        pageSize: 9999,
+        startDate: targetDate,
+        endDate: addIsoDays(targetDate, 30),
+      },
+      optional: true,
+    });
   }
   return requests;
 }
@@ -734,23 +782,36 @@ export async function collectDingdandaoDirect(
         targetDate,
       });
       if (!classification.allowed) throw new Error('capture_direct_request_blocked');
-      const payload = await postJson(request.path, request.body, sessionMaterial);
-      if (!payload
-        || typeof payload !== 'object'
-        || String(payload.code) !== '1'
-        || payload.errorDetail != null
-      ) {
-        throw new Error('capture_api_code_unverified');
+      try {
+        const payload = await postJson(request.path, request.body, sessionMaterial);
+        if (!payload
+          || typeof payload !== 'object'
+          || String(payload.code) !== '1'
+          || payload.errorDetail != null
+        ) {
+          throw new Error('capture_api_code_unverified');
+        }
+        records.push({
+          method: 'POST',
+          path: request.path,
+          status: 200,
+          query_type: classification.query_type,
+          fact_kind: classification.fact_kind,
+          scope_status: classification.scope_status,
+          payload,
+        });
+      } catch (error) {
+        if (request.optional !== true) throw error;
+        records.push({
+          method: 'POST',
+          path: request.path,
+          status: 0,
+          query_type: classification.query_type,
+          fact_kind: classification.fact_kind,
+          scope_status: classification.scope_status,
+          error_code: safeReason(error),
+        });
       }
-      records.push({
-        method: 'POST',
-        path: request.path,
-        status: 200,
-        query_type: classification.query_type,
-        fact_kind: classification.fact_kind,
-        scope_status: classification.scope_status,
-        payload,
-      });
     }
   } finally {
     if (sessionMaterial && typeof sessionMaterial === 'object') {
@@ -870,11 +931,17 @@ function numberFromText(value) {
   return Math.round(number * 100) / 100;
 }
 
-function successfulResponseData(records, path, factKind, queryType = undefined) {
+function successfulResponseData(
+  records,
+  path,
+  factKind,
+  queryType = undefined,
+  scopeStatus = 'today_verified',
+) {
   const record = records.find((candidate) => (
     candidate?.method === 'POST'
     && candidate?.path === path
-    && candidate?.scope_status === 'today_verified'
+    && candidate?.scope_status === scopeStatus
     && candidate?.fact_kind === factKind
     && (queryType === undefined || candidate?.query_type === queryType)
     && candidate?.status === 200
@@ -884,6 +951,526 @@ function successfulResponseData(records, path, factKind, queryType = undefined) 
     && candidate.payload.data != null
   ));
   return record?.payload?.data ?? null;
+}
+
+function forwardInteger(value) {
+  const number = numberFromText(value);
+  return number !== null && Number.isInteger(number) ? number : null;
+}
+
+function forwardDecimal(value) {
+  return numberFromText(value);
+}
+
+function forwardPercent(value) {
+  const number = numberFromText(value);
+  return number !== null && number <= 100 ? number : null;
+}
+
+function forwardMathMatches(actual, expected, tolerance = 0.02) {
+  return typeof actual === 'number'
+    && typeof expected === 'number'
+    && Math.abs(actual - expected) <= tolerance;
+}
+
+function normalizeForwardDay(row, expectedDate, roomCount) {
+  if (!row || typeof row !== 'object' || normalizeText(row.date) !== expectedDate) {
+    return null;
+  }
+  const remaining = forwardInteger(row.availableSale);
+  const booked = forwardInteger(row.occupy);
+  const unavailable = forwardInteger(row.unavailableSale);
+  const oversold = forwardInteger(row.oversold);
+  const roomFee = forwardDecimal(row.roomFee);
+  const soldRoomNights = forwardInteger(row.night);
+  const sellableRoomNights = forwardInteger(row.avaRoom);
+  const occupancy = forwardPercent(row.occ);
+  const adr = forwardDecimal(row.adr);
+  const revpar = forwardDecimal(row.revPar);
+  if ([
+    remaining,
+    booked,
+    unavailable,
+    oversold,
+    roomFee,
+    soldRoomNights,
+    sellableRoomNights,
+    occupancy,
+    adr,
+    revpar,
+  ].includes(null)) return null;
+  if ([remaining, booked, unavailable, oversold, soldRoomNights,
+    sellableRoomNights, roomFee, occupancy, adr, revpar]
+    .some((value) => value < 0)
+  ) return null;
+  if (remaining + booked + unavailable !== roomCount
+    || sellableRoomNights !== remaining + booked
+    || booked !== soldRoomNights
+  ) return null;
+  const expectedOccupancy = sellableRoomNights > 0
+    ? Math.round((soldRoomNights / sellableRoomNights) * 10000) / 100
+    : 0;
+  const expectedAdr = soldRoomNights > 0
+    ? Math.round((roomFee / soldRoomNights) * 100) / 100
+    : 0;
+  const expectedRevpar = sellableRoomNights > 0
+    ? Math.round((roomFee / sellableRoomNights) * 100) / 100
+    : 0;
+  if (!forwardMathMatches(occupancy, expectedOccupancy)
+    || !forwardMathMatches(adr, expectedAdr)
+    || !forwardMathMatches(revpar, expectedRevpar)
+  ) return null;
+  return {
+    stay_date: expectedDate,
+    remaining_sellable_rooms: remaining,
+    booked_rooms: booked,
+    unavailable_rooms: unavailable,
+    oversold_rooms: oversold,
+    room_fee: roomFee,
+    sold_room_nights: soldRoomNights,
+    sellable_room_nights: sellableRoomNights,
+    occupancy_rate_percent: occupancy,
+    adr,
+    revpar,
+  };
+}
+
+function emptyForwardHorizon(asOfDate, horizonDays, gapCode) {
+  return {
+    horizon_days: horizonDays,
+    date_from: addIsoDays(asOfDate, 1),
+    date_to: addIsoDays(asOfDate, horizonDays),
+    expected_days: horizonDays,
+    covered_days: 0,
+    sellable_room_nights: null,
+    booked_room_nights: null,
+    remaining_sellable_room_nights: null,
+    unavailable_room_nights: null,
+    room_fee: null,
+    occupancy_rate_percent: null,
+    adr: null,
+    revpar: null,
+    quality_status: 'partial',
+    gap_codes: [gapCode],
+  };
+}
+
+function forwardHorizon(asOfDate, dailyRows, horizonDays) {
+  const rowsByDate = new Map(dailyRows.map((row) => [row.stay_date, row]));
+  const rows = [];
+  for (let offset = 1; offset <= horizonDays; offset += 1) {
+    const row = rowsByDate.get(addIsoDays(asOfDate, offset));
+    if (row) rows.push(row);
+  }
+  if (rows.length !== horizonDays) {
+    const partial = emptyForwardHorizon(
+      asOfDate,
+      horizonDays,
+      'dingdandao_forward_coverage_partial',
+    );
+    partial.covered_days = rows.length;
+    return partial;
+  }
+  const sum = (field) => rows.reduce((total, row) => total + row[field], 0);
+  const sellable = sum('sellable_room_nights');
+  const booked = sum('booked_rooms');
+  const roomFee = Math.round(sum('room_fee') * 100) / 100;
+  return {
+    horizon_days: horizonDays,
+    date_from: rows[0].stay_date,
+    date_to: rows.at(-1).stay_date,
+    expected_days: horizonDays,
+    covered_days: rows.length,
+    sellable_room_nights: sellable,
+    booked_room_nights: booked,
+    remaining_sellable_room_nights: sum('remaining_sellable_rooms'),
+    unavailable_room_nights: sum('unavailable_rooms'),
+    room_fee: roomFee,
+    occupancy_rate_percent: sellable > 0
+      ? Math.round((booked / sellable) * 10000) / 100
+      : 0,
+    adr: booked > 0 ? Math.round((roomFee / booked) * 100) / 100 : 0,
+    revpar: sellable > 0 ? Math.round((roomFee / sellable) * 100) / 100 : 0,
+    quality_status: 'verified',
+    gap_codes: [],
+  };
+}
+
+function partialForwardRoomStatus(targetDate, gapCode) {
+  return {
+    contract_version: 'dingdandao_forward_room_status.v1',
+    fact_scope: 'whole_hotel_forward_room_status',
+    source_api_path: DINGDANDAO_API_PATHS.forwardRoomStatus,
+    data_status: 'partial',
+    as_of_date: targetDate,
+    range_start_date: null,
+    range_end_date: null,
+    source_day_count: 0,
+    display_day_count: 0,
+    source_room_type_count: 0,
+    total_room_count: null,
+    display_horizons: [...DINGDANDAO_FORWARD_HORIZONS],
+    display_semantics: DINGDANDAO_FORWARD_DISPLAY_SEMANTICS,
+    requested_range_start_date: targetDate,
+    requested_range_end_date: addIsoDays(targetDate, 30),
+    source_coverage_status: 'missing',
+    source_gap_codes: [gapCode],
+    daily_rows: [],
+    room_types: [],
+    horizons: DINGDANDAO_FORWARD_HORIZONS.map(
+      (horizon) => emptyForwardHorizon(targetDate, horizon, gapCode),
+    ),
+    reconciliation_status: 'unverified',
+    gap_codes: [gapCode],
+    field_trace: {
+      request:
+        `POST:${DINGDANDAO_API_PATHS.forwardRoomStatus}`
+        + '#pageNum=1&pageSize=9999&startDate&endDate',
+    },
+  };
+}
+
+function forwardRatioCoverage(ratioRow, dailyRows, expectedDates) {
+  const ratios = Array.isArray(ratioRow?.dateList) ? ratioRow.dateList : [];
+  const maxRows = Math.min(
+    ratios.length,
+    dailyRows.length,
+    expectedDates.length,
+  );
+  let covered = 0;
+  for (let index = 0; index < maxRows; index += 1) {
+    const row = ratios[index];
+    const total = dailyRows[index];
+    if (!total || normalizeText(row?.date) !== expectedDates[index]) break;
+    const available = forwardPercent(row?.availablePercent);
+    const occupied = forwardPercent(row?.occupyPercent);
+    const unavailable = forwardPercent(row?.unavailableSalePercent);
+    if ([available, occupied, unavailable].includes(null)) break;
+    const roomCount = total.remaining_sellable_rooms
+      + total.booked_rooms
+      + total.unavailable_rooms;
+    if (roomCount <= 0) break;
+    const matches = forwardMathMatches(
+      available,
+      Math.round((total.remaining_sellable_rooms / roomCount) * 1000) / 10,
+      0.11,
+    ) && forwardMathMatches(
+      occupied,
+      Math.round((total.booked_rooms / roomCount) * 1000) / 10,
+      0.11,
+    ) && forwardMathMatches(
+      unavailable,
+      Math.round((total.unavailable_rooms / roomCount) * 1000) / 10,
+      0.11,
+    );
+    if (!matches) break;
+    covered += 1;
+  }
+  return covered;
+}
+
+function normalizeForwardDayPrefix(rows, expectedDates, roomCount) {
+  if (!Array.isArray(rows)) return [];
+  const normalized = [];
+  const limit = Math.min(
+    rows.length,
+    expectedDates.length,
+    DINGDANDAO_FORWARD_MAX_SOURCE_DAYS,
+  );
+  for (let index = 0; index < limit; index += 1) {
+    const day = normalizeForwardDay(rows[index], expectedDates[index], roomCount);
+    if (!day) break;
+    normalized.push(day);
+  }
+  return normalized;
+}
+
+function forwardRequestGapCode(records) {
+  const record = records.find((candidate) => (
+    candidate?.method === 'POST'
+    && candidate?.path === DINGDANDAO_API_PATHS.forwardRoomStatus
+    && candidate?.scope_status === 'as_of_today_forward_verified'
+    && candidate?.fact_kind === 'forward_room_status'
+  ));
+  const errorCode = normalizeText(record?.error_code);
+  return {
+    capture_api_request_failed: 'dingdandao_forward_request_failed',
+    capture_api_code_unverified: 'dingdandao_forward_api_code_unverified',
+    capture_api_response_unverified: 'dingdandao_forward_response_unverified',
+    capture_session_expired: 'dingdandao_forward_session_expired',
+  }[errorCode] || (
+    record && record.status !== 200
+      ? 'dingdandao_forward_request_failed'
+      : 'dingdandao_forward_response_contract_unverified'
+  );
+}
+
+function forwardRoomStatusFromResponse(records, targetDate) {
+  const data = successfulResponseData(
+    records,
+    DINGDANDAO_API_PATHS.forwardRoomStatus,
+    'forward_room_status',
+    undefined,
+    'as_of_today_forward_verified',
+  );
+  const rows = Array.isArray(data?.list) ? data.list : [];
+  if (rows.length < 3 || rows.length > 300) {
+    return partialForwardRoomStatus(
+      targetDate,
+      forwardRequestGapCode(records),
+    );
+  }
+  const expectedDates = Array.from(
+    { length: 31 },
+    (_, index) => addIsoDays(targetDate, index),
+  );
+  const totalName = '\u603b\u8ba1';
+  const ratioName = '\u5360\u603b\u623f\u6570\u7684\u6bd4\u4f8b';
+  const totalRows = rows.filter(
+    (row) => normalizeText(row?.roomTypeShortName) === totalName,
+  );
+  const ratioRows = rows.filter(
+    (row) => normalizeText(row?.roomTypeShortName) === ratioName,
+  );
+  const roomTypeRows = rows.filter(
+    (row) => normalizeText(row?.roomTypeId) !== '',
+  );
+  if (totalRows.length !== 1
+    || ratioRows.length !== 1
+    || roomTypeRows.length === 0
+  ) {
+    return partialForwardRoomStatus(
+      targetDate,
+      'dingdandao_forward_response_contract_unverified',
+    );
+  }
+  const totalRoomCount = forwardInteger(totalRows[0]?.roomNum);
+  if (totalRoomCount === null || totalRoomCount <= 0) {
+    return partialForwardRoomStatus(
+      targetDate,
+      'dingdandao_forward_response_contract_unverified',
+    );
+  }
+  const totalDateRows = Array.isArray(totalRows[0]?.dateList)
+    ? totalRows[0].dateList
+    : [];
+  let dailyRows = normalizeForwardDayPrefix(
+    totalDateRows,
+    expectedDates,
+    totalRoomCount,
+  );
+  if (dailyRows.length < DINGDANDAO_FORWARD_MIN_SOURCE_DAYS) {
+    return partialForwardRoomStatus(
+      targetDate,
+      'dingdandao_forward_coverage_partial',
+    );
+  }
+  const ratioCoverage = forwardRatioCoverage(
+    ratioRows[0],
+    dailyRows,
+    expectedDates,
+  );
+  if (ratioCoverage < DINGDANDAO_FORWARD_MIN_SOURCE_DAYS) {
+    return partialForwardRoomStatus(
+      targetDate,
+      'dingdandao_forward_reconciliation_mismatch',
+    );
+  }
+  const roomTypes = [];
+  const roomTypeIds = new Set();
+  for (const row of roomTypeRows) {
+    const providerRoomTypeId = normalizeText(row?.roomTypeId);
+    const roomTypeName = normalizeText(row?.roomTypeShortName);
+    const roomCount = forwardInteger(row?.roomNum);
+    const dateRows = Array.isArray(row?.dateList) ? row.dateList : [];
+    if (!/^[A-Za-z0-9_-]{1,120}$/.test(providerRoomTypeId)
+      || roomTypeIds.has(providerRoomTypeId)
+      || !roomTypeName
+      || roomTypeName.length > 160
+      || roomCount === null
+      || roomCount <= 0
+    ) {
+      return partialForwardRoomStatus(
+        targetDate,
+        'dingdandao_forward_response_contract_unverified',
+      );
+    }
+    const normalizedDates = normalizeForwardDayPrefix(
+      dateRows,
+      expectedDates,
+      roomCount,
+    );
+    if (normalizedDates.length < DINGDANDAO_FORWARD_MIN_SOURCE_DAYS) {
+      return partialForwardRoomStatus(
+        targetDate,
+        'dingdandao_forward_coverage_partial',
+      );
+    }
+    roomTypeIds.add(providerRoomTypeId);
+    roomTypes.push({
+      provider_room_type_id: providerRoomTypeId,
+      room_type_name: roomTypeName,
+      room_count: roomCount,
+      daily_rows: normalizedDates,
+    });
+  }
+  if (roomTypes.reduce((sum, row) => sum + row.room_count, 0) !== totalRoomCount) {
+    return partialForwardRoomStatus(
+      targetDate,
+      'dingdandao_forward_reconciliation_mismatch',
+    );
+  }
+  const sourceDayCount = Math.min(
+    dailyRows.length,
+    ratioCoverage,
+    ...roomTypes.map((row) => row.daily_rows.length),
+    DINGDANDAO_FORWARD_MAX_SOURCE_DAYS,
+  );
+  if (sourceDayCount < DINGDANDAO_FORWARD_MIN_SOURCE_DAYS) {
+    return partialForwardRoomStatus(
+      targetDate,
+      'dingdandao_forward_coverage_partial',
+    );
+  }
+  dailyRows = dailyRows.slice(0, sourceDayCount);
+  for (const roomType of roomTypes) {
+    roomType.daily_rows = roomType.daily_rows.slice(0, sourceDayCount);
+  }
+  if (dailyRows.some((row) => row.oversold_rooms > 0)
+    || roomTypes.some((roomType) => (
+      roomType.daily_rows.some((row) => row.oversold_rooms > 0)
+    ))
+  ) {
+    return partialForwardRoomStatus(
+      targetDate,
+      'dingdandao_forward_oversold_present',
+    );
+  }
+  const sumRoomTypeMetric = (dateIndex, field) => roomTypes.reduce(
+    (sum, roomType) => sum + roomType.daily_rows[dateIndex][field],
+    0,
+  );
+  const reconciles = dailyRows.every((total, index) => (
+    ['remaining_sellable_rooms', 'booked_rooms', 'unavailable_rooms',
+      'oversold_rooms',
+      'sold_room_nights', 'sellable_room_nights']
+      .every((field) => sumRoomTypeMetric(index, field) === total[field])
+    && forwardMathMatches(
+      sumRoomTypeMetric(index, 'room_fee'),
+      total.room_fee,
+    )
+  ));
+  if (!reconciles) {
+    return partialForwardRoomStatus(
+      targetDate,
+      'dingdandao_forward_reconciliation_mismatch',
+    );
+  }
+  return {
+    contract_version: 'dingdandao_forward_room_status.v1',
+    fact_scope: 'whole_hotel_forward_room_status',
+    source_api_path: DINGDANDAO_API_PATHS.forwardRoomStatus,
+    data_status: 'verified',
+    as_of_date: targetDate,
+    range_start_date: expectedDates[0],
+    range_end_date: expectedDates[sourceDayCount - 1],
+    requested_range_start_date: targetDate,
+    requested_range_end_date: addIsoDays(targetDate, 30),
+    source_day_count: sourceDayCount,
+    display_day_count: 21,
+    source_room_type_count: roomTypes.length,
+    total_room_count: totalRoomCount,
+    display_horizons: [...DINGDANDAO_FORWARD_HORIZONS],
+    display_semantics: DINGDANDAO_FORWARD_DISPLAY_SEMANTICS,
+    source_coverage_status: sourceDayCount === DINGDANDAO_FORWARD_MAX_SOURCE_DAYS
+      ? 'complete'
+      : 'partial',
+    source_gap_codes: sourceDayCount === DINGDANDAO_FORWARD_MAX_SOURCE_DAYS
+      ? []
+      : ['dingdandao_forward_trailing_coverage_partial'],
+    daily_rows: dailyRows,
+    room_types: roomTypes,
+    horizons: DINGDANDAO_FORWARD_HORIZONS.map(
+      (horizon) => forwardHorizon(targetDate, dailyRows, horizon),
+    ),
+    reconciliation_status: 'matched',
+    gap_codes: [],
+    field_trace: {
+      request:
+        `POST:${DINGDANDAO_API_PATHS.forwardRoomStatus}`
+        + '#pageNum=1&pageSize=9999&startDate&endDate',
+      total_room_count:
+        `API:${DINGDANDAO_API_PATHS.forwardRoomStatus}`
+        + '#data.list[roomTypeShortName=\u603b\u8ba1].roomNum',
+      daily_rows:
+        `API:${DINGDANDAO_API_PATHS.forwardRoomStatus}`
+        + '#data.list[roomTypeShortName=\u603b\u8ba1].dateList[]',
+      room_types:
+        `API:${DINGDANDAO_API_PATHS.forwardRoomStatus}`
+        + '#data.list[roomTypeId].dateList[]',
+    },
+  };
+}
+
+export function isTrustedDingdandaoForwardRoomStatusComplete(
+  forwardRoomStatus,
+  targetDate,
+) {
+  return Boolean(
+    forwardRoomStatus
+    && forwardRoomStatus.contract_version === 'dingdandao_forward_room_status.v1'
+    && forwardRoomStatus.fact_scope === 'whole_hotel_forward_room_status'
+    && forwardRoomStatus.source_api_path === DINGDANDAO_API_PATHS.forwardRoomStatus
+    && forwardRoomStatus.data_status === 'verified'
+    && forwardRoomStatus.as_of_date === targetDate
+    && forwardRoomStatus.range_start_date === targetDate
+    && forwardRoomStatus.requested_range_start_date === targetDate
+    && forwardRoomStatus.requested_range_end_date === addIsoDays(targetDate, 30)
+    && Number.isInteger(forwardRoomStatus.source_day_count)
+    && forwardRoomStatus.source_day_count >= DINGDANDAO_FORWARD_MIN_SOURCE_DAYS
+    && forwardRoomStatus.source_day_count <= DINGDANDAO_FORWARD_MAX_SOURCE_DAYS
+    && forwardRoomStatus.range_end_date === addIsoDays(
+      targetDate,
+      forwardRoomStatus.source_day_count - 1,
+    )
+    && forwardRoomStatus.display_day_count === 21
+    && forwardRoomStatus.display_semantics
+      === DINGDANDAO_FORWARD_DISPLAY_SEMANTICS
+    && ['complete', 'partial'].includes(
+      forwardRoomStatus.source_coverage_status,
+    )
+    && Array.isArray(forwardRoomStatus.source_gap_codes)
+    && (
+      (
+        forwardRoomStatus.source_coverage_status === 'complete'
+        && forwardRoomStatus.source_day_count
+          === DINGDANDAO_FORWARD_MAX_SOURCE_DAYS
+        && forwardRoomStatus.source_gap_codes.length === 0
+      )
+      || (
+        forwardRoomStatus.source_coverage_status === 'partial'
+        && forwardRoomStatus.source_day_count
+          < DINGDANDAO_FORWARD_MAX_SOURCE_DAYS
+        && forwardRoomStatus.source_gap_codes.includes(
+          'dingdandao_forward_trailing_coverage_partial',
+        )
+      )
+    )
+    && forwardRoomStatus.reconciliation_status === 'matched'
+    && Array.isArray(forwardRoomStatus.daily_rows)
+    && forwardRoomStatus.daily_rows.length === forwardRoomStatus.source_day_count
+    && Array.isArray(forwardRoomStatus.room_types)
+    && forwardRoomStatus.room_types.length > 0
+    && Array.isArray(forwardRoomStatus.horizons)
+    && forwardRoomStatus.horizons.length === DINGDANDAO_FORWARD_HORIZONS.length
+    && forwardRoomStatus.horizons.every((horizon, index) => (
+      horizon?.horizon_days === DINGDANDAO_FORWARD_HORIZONS[index]
+      && horizon?.quality_status === 'verified'
+      && horizon?.covered_days === horizon?.expected_days
+    ))
+    && Array.isArray(forwardRoomStatus.gap_codes)
+    && forwardRoomStatus.gap_codes.length === 0
+  );
 }
 
 function dailyRateForDate(row, targetDate) {
@@ -1002,6 +1589,7 @@ export function buildCaptureFromDingdandaoResponses(
     targetDate,
     true,
   );
+  const forwardRoomStatus = forwardRoomStatusFromResponse(records, targetDate);
   const summary = {
     total_room_fee: numberFromText(total?.totalRoomFee),
     adr: numberFromText(total?.adr),
@@ -1110,6 +1698,7 @@ export function buildCaptureFromDingdandaoResponses(
         ),
       },
     },
+    forward_room_status: forwardRoomStatus,
     field_trace: fieldTrace,
     target_date_matches: businessDate === targetDate,
   };

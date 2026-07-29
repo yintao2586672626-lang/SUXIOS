@@ -187,12 +187,34 @@ class TrustedOtaFactRepository
         $rows = [];
         foreach ($trustedRows as $row) {
             $rows[] = [
+                'row_id' => isset($row['id']) && is_numeric($row['id'])
+                    ? (int)$row['id']
+                    : null,
+                'system_hotel_id' => isset($row['system_hotel_id'])
+                    && is_numeric($row['system_hotel_id'])
+                    ? (int)$row['system_hotel_id']
+                    : null,
                 'data_date' => (string)($row['data_date'] ?? ''),
                 'amount' => $this->metricValue($row, 'amount', $dataGaps),
                 'quantity' => $this->metricValue($row, 'quantity', $dataGaps),
                 'book_order_num' => $this->metricValue($row, 'book_order_num', $dataGaps),
                 'source' => $this->normalizedSource($this->firstText($row, $this->decodeRaw($row['raw_data'] ?? null), ['source', 'platform'])),
                 'metric_scope' => 'ota_channel',
+                'readback_verified' => in_array(
+                    $row['readback_verified'] ?? null,
+                    [1, '1', true, 'true'],
+                    true
+                ),
+                'source_trace_id' => trim((string)($row['source_trace_id'] ?? '')),
+                'data_source_id' => isset($row['data_source_id'])
+                    && is_numeric($row['data_source_id'])
+                    ? (int)$row['data_source_id']
+                    : null,
+                'sync_task_id' => isset($row['sync_task_id'])
+                    && is_numeric($row['sync_task_id'])
+                    ? (int)$row['sync_task_id']
+                    : null,
+                'ingestion_method' => trim((string)($row['ingestion_method'] ?? '')),
             ];
         }
 

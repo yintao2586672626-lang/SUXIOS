@@ -32,6 +32,11 @@ final class ManualNotificationService
         'daily_review' => '今日复盘',
         'blank_custom' => '空白自定义',
     ];
+    private const BUSINESS_FACT_TYPES = [
+        'today_revenue_management',
+        'future_room_status',
+        'daily_review',
+    ];
     private const SEND_METHODS = [
         'wecom_test' => '企业微信测试机器人（仅测试群）',
         'wecom_formal' => '企业微信正式计划机器人',
@@ -58,8 +63,8 @@ final class ManualNotificationService
     ];
     private const SOURCE_SCOPES = [
         'combined' => [
-            'label' => '三源汇总（兼容原计划）',
-            'description' => '订单来了 PMS、携程（含去哪儿）和美团同店同日汇总。',
+            'label' => '三源并列（兼容原计划）',
+            'description' => '订单来了 PMS、携程（含去哪儿）和美团按同店同日并列呈现，口径不相加。',
         ],
         'ctrip' => [
             'label' => '携程',
@@ -114,7 +119,8 @@ final class ManualNotificationService
         private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
         private readonly ?WechatRobotDeliveryService $deliveries = null,
         private readonly ?ManualNotificationScheduleRuleService $scheduleRuleService = null,
-        private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null
+        private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null,
+        private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null
     ) {
         $this->testDispatcher = $testDispatcher;
     }
@@ -127,9 +133,15 @@ final class ManualNotificationService
                 self::DYNAMIC_REPORT_TYPE,
                 self::OPERATING_DAILY_REPORT_TYPE,
                 self::OPERATING_DAILY_CUSTOM_REPORT_TYPE,
+                ...self::BUSINESS_FACT_TYPES,
             ],
             true
         );
+    }
+
+    public static function isBusinessFactReportType(string $type): bool
+    {
+        return in_array(trim($type), self::BUSINESS_FACT_TYPES, true);
     }
 
     public static function isOperatingDailyReportType(string $type): bool
@@ -882,27 +894,35 @@ final class ManualNotificationService
                     '缺少租户范围，动态经营目标报告不可预览。'
                 );
             }
-            $page = self::isOperatingDailyReportType($type)
-                ? $this->dailyPayloads()->pagePreview(
+            $page = self::isBusinessFactReportType($type)
+                ? $this->businessPayloads()->pagePreview(
                     $tenantId,
                     $hotelId,
                     $hotelName,
                     (string)$data['business_date'],
-                    (string)($data['source_scope'] ?? 'combined'),
-                    $this->contentSectionsFromValue(
-                        $data['content_sections'] ?? null,
-                        (string)($data['source_scope'] ?? 'combined')
-                    ),
-                    self::operatingDailyTemplateMode($type),
-                    (string)($data['title'] ?? ''),
-                    (string)($data['body'] ?? '')
+                    $type
                 )
-                : $this->targetPayloads()->pagePreview(
-                    $tenantId,
-                    $hotelId,
-                    $hotelName,
-                    (string)$data['business_date']
-                );
+                : (self::isOperatingDailyReportType($type)
+                    ? $this->dailyPayloads()->pagePreview(
+                        $tenantId,
+                        $hotelId,
+                        $hotelName,
+                        (string)$data['business_date'],
+                        (string)($data['source_scope'] ?? 'combined'),
+                        $this->contentSectionsFromValue(
+                            $data['content_sections'] ?? null,
+                            (string)($data['source_scope'] ?? 'combined')
+                        ),
+                        self::operatingDailyTemplateMode($type),
+                        (string)($data['title'] ?? ''),
+                        (string)($data['body'] ?? '')
+                    )
+                    : $this->targetPayloads()->pagePreview(
+                        $tenantId,
+                        $hotelId,
+                        $hotelName,
+                        (string)$data['business_date']
+                    ));
             $scheduleStatus = trim((string)($data['schedule_status'] ?? ''));
             if ($scheduleStatus === '') {
                 $scheduleStatus = (bool)$data['enabled']
@@ -938,12 +958,21 @@ final class ManualNotificationService
                 'schedule_status_label' => $this->scheduleStatusLabel($scheduleStatus),
                 'scheduler_connected' => false,
                 'dynamic_report' => true,
-                'delivery_status' => 'preview_only',
+                'reason_code' => (string)($page['reason_code'] ?? ''),
+                'delivery_status' => is_array($page['payload'] ?? null)
+                    ? 'preview_only'
+                    : 'preview_unavailable',
                 'report_gate' => $page['formal_send_gate'] ?? null,
                 'payload' => $page['payload'] ?? null,
                 'operating_target_record_id' => (int)($page['operating_target_record_id'] ?? 0),
                 'snapshot_revision_no' => (int)($page['snapshot_revision_no'] ?? 0),
-                'preview_fingerprint' => (string)($page['preview_fingerprint'] ?? ''),
+                'preview_fingerprint' => (string)(
+                    $page['preview_fingerprint']
+                    ?? $page['payload_fingerprint']
+                    ?? ''
+                ),
+                'business_preview' => $page['business_preview'] ?? null,
+                'fact_envelope' => $page['fact_envelope'] ?? null,
             ];
         }
         return $this->staticPreview($hotelId, $hotelName, $data);
@@ -977,29 +1006,39 @@ final class ManualNotificationService
                     'payload' => null,
                 ];
             }
-            return self::isOperatingDailyReportType((string)$record['template_type'])
-                ? $this->dailyPayloads()->build(
+            $templateType = (string)$record['template_type'];
+            return self::isBusinessFactReportType($templateType)
+                ? $this->businessPayloads()->build(
                     $tenantId,
                     $hotelId,
                     $hotelName,
                     $businessDate,
-                    $deliveryMode,
-                    (string)($record['source_scope'] ?? 'combined'),
-                    $this->contentSectionsFromValue(
-                        $record['content_sections'] ?? null,
-                        (string)($record['source_scope'] ?? 'combined')
-                    ),
-                    self::operatingDailyTemplateMode((string)$record['template_type']),
-                    (string)($record['title'] ?? ''),
-                    (string)($record['body'] ?? '')
-                )
-                : $this->targetPayloads()->build(
-                    $tenantId,
-                    $hotelId,
-                    $hotelName,
-                    $businessDate,
+                    $templateType,
                     $deliveryMode
-                );
+                )
+                : (self::isOperatingDailyReportType($templateType)
+                    ? $this->dailyPayloads()->build(
+                        $tenantId,
+                        $hotelId,
+                        $hotelName,
+                        $businessDate,
+                        $deliveryMode,
+                        (string)($record['source_scope'] ?? 'combined'),
+                        $this->contentSectionsFromValue(
+                            $record['content_sections'] ?? null,
+                            (string)($record['source_scope'] ?? 'combined')
+                        ),
+                        self::operatingDailyTemplateMode($templateType),
+                        (string)($record['title'] ?? ''),
+                        (string)($record['body'] ?? '')
+                    )
+                    : $this->targetPayloads()->build(
+                        $tenantId,
+                        $hotelId,
+                        $hotelName,
+                        $businessDate,
+                        $deliveryMode
+                    ));
         }
 
         $previewRecord = $record;
@@ -1552,10 +1591,10 @@ final class ManualNotificationService
             self::OPERATING_DAILY_REPORT_TYPE,
             self::OPERATING_DAILY_CUSTOM_REPORT_TYPE => 'PMS＋OTA 三源经营日报',
             self::DYNAMIC_REPORT_TYPE => '经营目标与已核验经营事实',
-            'task_notification',
-            'daily_review' => '任务执行与复盘正文',
-            'future_room_status' => '远期房态正文',
-            'today_revenue_management' => '收益管理正文',
+            'daily_review' => '订单来了复盘事实与三源状态',
+            'future_room_status' => '订单来了远期房态与三源状态',
+            'today_revenue_management' => '订单来了实时经营事实与三源状态',
+            'task_notification' => '任务执行正文',
             'ai_analysis_result',
             'anomaly_alert' => '已保存分析或异常正文',
             default => '人工自定义正文',
@@ -1609,6 +1648,12 @@ final class ManualNotificationService
     private function dailyPayloads(): OperatingDailyReportPayloadService
     {
         return $this->operatingDailyPayloads ?? new OperatingDailyReportPayloadService();
+    }
+
+    private function businessPayloads(): ManualNotificationBusinessPayloadService
+    {
+        return $this->businessMessagePayloads
+            ?? new ManualNotificationBusinessPayloadService();
     }
 
     private function dispatchLedger(): ManualNotificationDispatchLedgerService

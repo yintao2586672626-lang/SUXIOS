@@ -24,6 +24,7 @@ use app\controller\concern\CtripSearchOpportunityConcern;
 use app\controller\concern\MeituanCapturedDataConcern;
 use app\controller\concern\MeituanConfigConcern;
 use app\controller\concern\MeituanReviewOrderMatchConcern;
+use app\controller\concern\MeituanTemporalConcern;
 use app\controller\concern\MeituanUtilityConcern;
 use app\controller\concern\OnlineDailyDataPersistenceConcern;
 use app\controller\concern\OnlineDataAnalyticsConcern;
@@ -66,6 +67,7 @@ class OtaActionHandler extends Base
     use MeituanConfigConcern;
     use MeituanCapturedDataConcern;
     use MeituanReviewOrderMatchConcern;
+    use MeituanTemporalConcern;
     use MeituanUtilityConcern;
     use OnlineDataRecordConcern;
     use OperationWorkbenchConcern;

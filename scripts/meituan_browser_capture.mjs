@@ -21,6 +21,7 @@ import {
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
   normalizeMeituanFlowAnalysisRows,
+  normalizeMeituanBusinessRows,
   normalizeMeituanOrderRows,
   normalizeMeituanOrderFlowRows,
   normalizeMeituanPeerRankRows,
@@ -76,6 +77,8 @@ const dataPeriod = String(args.dataPeriod || '').trim();
 const snapshotTime = String(args.snapshotTime || '').trim() || (dataPeriod === 'realtime_snapshot' ? capturedAt : '');
 const outputPath = resolve(args.output || join(reportDir, `meituan_capture_${safeName(storeId)}_${timestamp()}.json`));
 const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'traffic,orders');
+const captureMode = String(args.captureMode || args.capture_mode || '').trim().toLowerCase();
+const temporalScope = String(args.temporalScope || args.temporal_scope || '').trim().toLowerCase();
 const sessionProbeOnly = booleanArg(args.sessionProbeOnly) || booleanArg(args.session_probe_only);
 const loginOnly = !sessionProbeOnly && (booleanArg(args.loginOnly) || booleanArg(args.authOnly) || booleanArg(args.prepareProfile));
 const authOnly = sessionProbeOnly || loginOnly;
@@ -95,6 +98,8 @@ const payload = {
   captured_at: capturedAt,
   source: 'meituan_browser_profile',
   mode: sessionProbeOnly ? 'session_probe_only' : (loginOnly ? 'login_only' : 'capture'),
+  capture_mode: captureMode,
+  temporal_scope: temporalScope,
   capture_sections: Array.from(captureSections),
   section_evidence: {},
   pages: [],
@@ -104,6 +109,7 @@ const payload = {
   auto_discovered_response_count: 0,
   reviews: [],
   traffic: [],
+  businessData: [],
   flowAnalysis: [],
   order_flow: [],
   peerRank: [],
@@ -127,8 +133,10 @@ const payload = {
 const observedOrderFlowRequestUrls = new Set();
 const pendingResponseCaptures = new Set();
 const requestQueryEvidence = new WeakMap();
+const requestForecastTabEvidence = new WeakMap();
 const observedPlatformIdentifiers = new Set();
 let activeOrderQueryEvidence = null;
+let activeForecastTabEvidence = null;
 let orderQueryEpoch = 0;
 let sessionProbeSuccessfulApiResponseCount = 0;
 const sessionProbeResponseDiagnostics = {
@@ -233,6 +241,7 @@ try {
     payload.order_flow = filterMeituanOrderFlowRowsByPeriod(payload.order_flow, dataPeriod);
   }
   Object.assign(payload, filterMeituanEventRowsByTargetDate(payload, defaultDataDate, captureSections));
+  applyMeituanTemporalCapturePolicy(payload);
   dedupePayloadRows(payload);
   if (authOnly) {
     payload.session_probe = await buildLoginOnlySessionProbe(platformIdentityValidation);
@@ -304,7 +313,7 @@ try {
 
 function summarizeMeituanDateSources(data) {
   const result = {};
-  for (const key of ['traffic', 'flowAnalysis']) {
+  for (const key of ['businessData', 'traffic', 'flowAnalysis']) {
     const rows = Array.isArray(data?.[key]) ? data[key] : [];
     const summary = {};
     for (const row of rows) {
@@ -316,6 +325,20 @@ function summarizeMeituanDateSources(data) {
     result[key] = summary;
   }
   return result;
+}
+
+function applyMeituanTemporalCapturePolicy(data) {
+  if (captureMode !== 'temporal_summary') {
+    return;
+  }
+  // The temporal refresh is intentionally isolated from the protected peer
+  // ranking pipeline. Incidental peer responses caused by page navigation are
+  // never persisted by this capture mode.
+  data.peerRank = [];
+  data.searchKeywords = [];
+  if (temporalScope !== 'today_future') {
+    data.trafficForecast = [];
+  }
 }
 
 async function ensureLoggedIn(page, options = {}) {
@@ -542,21 +565,55 @@ async function runMeituanTrafficInteractionPlan(page) {
   const periods = historicalTargetedRun
     ? ['\u6628\u65e5']
     : ['\u4eca\u65e5\u5b9e\u65f6', '\u6628\u65e5', '\u8fd17\u5929', '\u8fd130\u5929'];
+  const temporalCapture = captureMode === 'temporal_summary';
 
-  await clickMeituanTrafficStep(page, results, '\u540c\u884c\u5206\u6790', 'open peer ranking tab');
-  for (const period of periods) {
-    await clickMeituanTrafficStep(page, results, period, `select peer period ${period}`);
-    for (const tab of ['\u5165\u4f4f\u699c', '\u9500\u552e\u699c', '\u6d41\u91cf\u699c', '\u8f6c\u5316\u699c']) {
-      await clickMeituanTrafficStep(page, results, tab, `select peer rank ${tab}`);
+  if (targetRelativeRange) {
+    await selectMeituanSectionPeriod(
+      page,
+      results,
+      '\u7ecf\u8425\u8868\u73b0\u6570\u636e',
+      targetRelativeRange,
+      ['\u9500\u552e\u95f4\u591c', '\u9500\u552e\u989d'],
+      `select business period ${targetRelativeRange}`,
+    );
+    const businessSelected = await readMeituanSectionPeriodSelection(
+      page,
+      '\u7ecf\u8425\u8868\u73b0\u6570\u636e',
+      targetRelativeRange,
+      ['\u9500\u552e\u95f4\u591c', '\u9500\u552e\u989d'],
+    );
+    payload.section_evidence.business = buildMeituanRelativePeriodEvidence(
+      businessSelected,
+      targetRelativeRange,
+      targetDateIsToday ? 'meituan_business_today_realtime_tab' : 'meituan_business_yesterday_tab',
+      'page.business_period_selection.readback',
+    );
+  }
+
+  if (!temporalCapture) {
+    await clickMeituanTrafficStep(page, results, '\u540c\u884c\u5206\u6790', 'open peer ranking tab');
+    for (const period of periods) {
+      await clickMeituanTrafficStep(page, results, period, `select peer period ${period}`);
+      for (const tab of ['\u5165\u4f4f\u699c', '\u9500\u552e\u699c', '\u6d41\u91cf\u699c', '\u8f6c\u5316\u699c']) {
+        await clickMeituanTrafficStep(page, results, tab, `select peer rank ${tab}`);
+      }
     }
   }
 
   await clickMeituanTrafficStep(page, results, '\u6d41\u91cf\u5206\u6790', 'open traffic analysis tab');
-  for (const period of periods) {
-    await clickMeituanTrafficStep(page, results, period, `select traffic period ${period}`, 1800);
+  if (!temporalCapture) {
+    for (const period of periods) {
+      await clickMeituanTrafficStep(page, results, period, `select traffic period ${period}`, 1800);
+    }
   }
-  for (const tab of ['\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08PV\uff09', '\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08UV\uff09', '\u63d0\u524d\u8ba2\u8ba2\u5355\u91cf']) {
-    await clickMeituanTrafficStep(page, results, tab, `select traffic forecast ${tab}`, 1500);
+  if (!temporalCapture || temporalScope === 'today_future') {
+    for (const [tab, forecastType] of [
+      ['\u8be6\u60c5\u9875\u6d4f\u89c8\u91cf\uff08PV\uff09', 'pv'],
+      ['\u8be6\u60c5\u9875\u6d4f\u89c8\u4eba\u6570\uff08UV\uff09', 'uv'],
+      ['\u63d0\u524d\u8ba2\u8ba2\u5355\u91cf', 'advance_orders'],
+    ]) {
+      await selectMeituanForecastTab(page, results, tab, forecastType);
+    }
   }
   if (targetRelativeRange) {
     await clickMeituanTrafficFunnelPeriod(
@@ -581,6 +638,122 @@ async function runMeituanTrafficInteractionPlan(page) {
   }
 
   return results;
+}
+
+function buildMeituanRelativePeriodEvidence(selected, relativeRange, marker, evidenceSource) {
+  return {
+    status: selected ? 'target_date_relative_range_selected' : 'target_date_relative_range_not_selected',
+    target_date: defaultDataDate,
+    relative_range: relativeRange,
+    evidence_source: evidenceSource,
+    marker,
+    date_scope_policy: 'selected_relative_range_readback_not_refresh_timestamp',
+  };
+}
+
+async function selectMeituanForecastTab(page, results, label, forecastType) {
+  await clickMeituanTrafficStep(page, results, label, `select traffic forecast ${label}`, 500);
+  const selected = await readMeituanSectionPeriodSelection(
+    page,
+    '\u672a\u676530\u5929\u6d41\u91cf',
+    label,
+    [],
+  );
+  results.push({
+    action: 'readback_future_metric_tab',
+    text: label,
+    forecast_type: forecastType,
+    selected,
+  });
+  if (!selected) {
+    return;
+  }
+  activeForecastTabEvidence = {
+    selected: true,
+    forecast_type: forecastType,
+    label,
+    evidence_source: 'page.future_metric_tab.readback',
+  };
+  // Re-select after readback so the captured request is bound to semantic tab
+  // evidence rather than an opaque numeric endpoint enum.
+  await clickMeituanTrafficStep(page, results, label, `capture verified traffic forecast ${label}`, 1500);
+  activeForecastTabEvidence = null;
+}
+
+async function selectMeituanSectionPeriod(page, results, heading, label, requiredTexts, reason) {
+  await dismissMeituanOverlays(page);
+  const locator = await locateMeituanSectionPeriod(page, heading, label, requiredTexts);
+  let clicked = false;
+  let error = '';
+  if (locator) {
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => null);
+      await locator.click({ timeout: 2500 });
+      clicked = true;
+    } catch (clickError) {
+      error = String(clickError?.message || clickError || 'click_failed');
+    }
+  }
+  results.push({
+    action: 'click_section_period',
+    section_heading: heading,
+    text: label,
+    reason,
+    clicked,
+    skipped: locator ? '' : 'section_period_not_found',
+    ...(error ? { error } : {}),
+  });
+  if (clicked) {
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => null);
+    await page.waitForTimeout(1200);
+  }
+}
+
+async function locateMeituanSectionPeriod(page, headingText, label, requiredTexts = []) {
+  const heading = page.getByText(headingText, { exact: false }).first();
+  if (!(await heading.isVisible({ timeout: 1200 }).catch(() => false))) {
+    return null;
+  }
+  const predicates = requiredTexts
+    .map(text => ` and contains(normalize-space(.), "${text}")`)
+    .join('');
+  const root = heading.locator(`xpath=ancestor::*[contains(normalize-space(.), "${label}")${predicates}][1]`);
+  if (!(await root.isVisible({ timeout: 1200 }).catch(() => false))) {
+    return null;
+  }
+  const node = root.getByText(label, { exact: true }).first();
+  if (!(await node.isVisible({ timeout: 1200 }).catch(() => false))) {
+    return null;
+  }
+  const clickable = node.locator('xpath=ancestor-or-self::*[self::button or self::label or self::li or @role="tab" or @role="button"][1]');
+  return (await clickable.isVisible({ timeout: 400 }).catch(() => false)) ? clickable : node;
+}
+
+async function readMeituanSectionPeriodSelection(page, heading, label, requiredTexts = []) {
+  const locator = await locateMeituanSectionPeriod(page, heading, label, requiredTexts);
+  if (!locator) return false;
+  return locator.evaluate(node => {
+    let current = node;
+    for (let depth = 0; current && depth < 4; depth += 1, current = current.parentElement) {
+      const className = String(current.className || '');
+      if (
+        current.getAttribute('aria-selected') === 'true'
+        || current.getAttribute('aria-pressed') === 'true'
+        || /(?:^|[-_\s])(active|selected|checked|primary|current)(?:[-_\s]|$)/i.test(className)
+      ) {
+        return true;
+      }
+      const style = window.getComputedStyle(current);
+      const background = style.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      const foreground = style.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (background && foreground && Number(background[4] ?? 1) > 0) {
+        const backgroundLuminance = (Number(background[1]) + Number(background[2]) + Number(background[3])) / 3;
+        const foregroundLuminance = (Number(foreground[1]) + Number(foreground[2]) + Number(foreground[3])) / 3;
+        if (backgroundLuminance < 170 && foregroundLuminance > 190) return true;
+      }
+    }
+    return false;
+  }).catch(() => false);
 }
 
 async function locateMeituanTrafficFunnelPeriod(page, label) {
@@ -958,6 +1131,9 @@ function registerResponseCapture(page, target) {
     if (activeOrderQueryEvidence) {
       requestQueryEvidence.set(request, { ...activeOrderQueryEvidence });
     }
+    if (activeForecastTabEvidence) {
+      requestForecastTabEvidence.set(request, { ...activeForecastTabEvidence });
+    }
   });
   page.on('response', response => {
     const task = captureMeituanResponse(response, target);
@@ -1004,6 +1180,7 @@ async function captureMeituanResponse(response, target) {
     const status = response.status();
     const requestType = request.resourceType();
     const queryEvidence = requestQueryEvidence.get(request) || null;
+    const forecastTabEvidence = requestForecastTabEvidence.get(request) || null;
     const requestPayload = request?.postData?.() || '';
     const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const contentType = response.headers()['content-type'] || '';
@@ -1090,7 +1267,7 @@ async function captureMeituanResponse(response, target) {
     }
 
     const safeBody = sanitizeOtaPayloadForStorage(body, section);
-    const supplementalMeta = meituanSupplementalResponseMeta(url, requestDateEvidence);
+    const supplementalMeta = meituanSupplementalResponseMeta(url, requestDateEvidence, forecastTabEvidence);
     const targetPayloadKey = meituanPayloadKeyForResponse(url, safeBody, section);
     for (const identifier of extractMeituanRequestPlatformIdentifiers(url, requestPayload)) {
       observedPlatformIdentifiers.add(identifier);
@@ -1125,6 +1302,7 @@ async function captureMeituanResponse(response, target) {
       date_range: supplementalMeta.dateRange,
       rank_type: supplementalMeta.rankType,
       forecast_type: supplementalMeta.forecastType,
+      forecast_type_source: supplementalMeta.forecastTypeSource,
       data: safeBody,
       ...(queryEvidence || {}),
     });
@@ -1177,6 +1355,9 @@ function withMeituanPlatformIdentifier(row) {
 }
 
 function meituanRowsForPayloadKey(payloadKey, safeBody, normalizedRows, meta) {
+  if (payloadKey === 'businessData') {
+    return normalizeMeituanBusinessRows(safeBody, meta);
+  }
   if (payloadKey === 'peerRank') {
     return normalizeMeituanPeerRankRows(safeBody, meta);
   }
@@ -1246,6 +1427,13 @@ function meituanPayloadKeyForResponse(url, body, section) {
     return section;
   }
   const value = String(url || '').toLowerCase();
+  if (
+    value.includes('/businessdata')
+    || bodyHasPath(body, ['data', 'businessData'])
+    || bodyHasPath(body, ['businessData'])
+  ) {
+    return 'businessData';
+  }
   if (value.includes('/business/peer/rank/data/detail') || bodyHasPath(body, ['data', 'peerRankData']) || bodyHasPath(body, ['peerRankData'])) {
     return 'peerRank';
   }
@@ -1261,8 +1449,13 @@ function meituanPayloadKeyForResponse(url, body, section) {
   return 'traffic';
 }
 
-function meituanSupplementalResponseMeta(url, requestDateEvidence = {}) {
+function meituanSupplementalResponseMeta(url, requestDateEvidence = {}, forecastTabEvidence = null) {
   const query = urlQueryParams(url);
+  const verifiedForecastType = (
+    forecastTabEvidence
+    && forecastTabEvidence.selected === true
+    && ['pv', 'uv', 'advance_orders'].includes(String(forecastTabEvidence.forecast_type || ''))
+  ) ? String(forecastTabEvidence.forecast_type) : '';
   return {
     endpointPath: otaResponsePathname(url),
     requestDateEvidence,
@@ -1270,7 +1463,10 @@ function meituanSupplementalResponseMeta(url, requestDateEvidence = {}) {
     capturedAt,
     dateRange: query.get('dateRange') || '',
     rankType: query.get('rankType') || '',
-    forecastType: query.get('type') || '',
+    // Numeric endpoint enums are not treated as meaning. Only a visibly
+    // selected and read-back tab can name the forecast metric.
+    forecastType: verifiedForecastType,
+    forecastTypeSource: verifiedForecastType ? 'page.future_metric_tab.readback' : '',
     analysisType: meituanFlowAnalysisType(url),
     orderFlowDirection: query.get('lossType') === '1' ? 'inflow' : (query.get('lossType') === '0' ? 'loss' : ''),
     periodStart: query.get('startDate') || '',
@@ -1376,9 +1572,9 @@ function normalizeCapturedList(value, section, sourcePath = '', requestDateEvide
       ['data', 'commentList'], ['data', 'comments'], ['data', 'list'], ['commentList'], ['comments'], ['list'], ['data'],
     ],
     traffic: [
-      ['data', 'businessData'], ['data', 'peerRank'], ['data', 'peer_rank'], ['data', 'rankings'], ['data', 'weightTraffic'], ['data', 'weight_traffic'], ['data', 'traffic'], ['data', 'peerTrends'],
+      ['data', 'peerRank'], ['data', 'peer_rank'], ['data', 'rankings'], ['data', 'weightTraffic'], ['data', 'weight_traffic'], ['data', 'traffic'], ['data', 'peerTrends'],
       ['data', 'searchKeywords'], ['data', 'search_keywords'], ['data', 'keywords'], ['data', 'list'], ['data', 'rows'],
-      ['businessData'], ['peerRank'], ['peer_rank'], ['rankings'], ['weightTraffic'], ['weight_traffic'], ['traffic'], ['peerTrends'], ['searchKeywords'], ['search_keywords'], ['keywords'],
+      ['peerRank'], ['peer_rank'], ['rankings'], ['weightTraffic'], ['weight_traffic'], ['traffic'], ['peerTrends'], ['searchKeywords'], ['search_keywords'], ['keywords'],
       ['list'], ['rows'], ['data'],
     ],
     ads: [
@@ -1755,7 +1951,7 @@ function appendDomCaptureEvidenceResponses(target, rows, section) {
 }
 
 function dedupePayloadRows(target) {
-  for (const section of ['reviews', 'traffic', 'order_flow', 'ads', 'room_types', 'orders']) {
+  for (const section of ['reviews', 'businessData', 'traffic', 'flowAnalysis', 'trafficForecast', 'peerRank', 'searchKeywords', 'order_flow', 'ads', 'room_types', 'orders']) {
     const seen = new Set();
     target[section] = target[section].filter(row => {
       const key = JSON.stringify([
@@ -1819,6 +2015,7 @@ async function injectBrowserCookies(context, parsedArgs, platform) {
 function summarize(data) {
   return {
     reviews: data.reviews.length,
+    businessData: data.businessData.length,
     traffic: data.traffic.length,
     flowAnalysis: data.flowAnalysis.length,
     order_flow: data.order_flow.length,

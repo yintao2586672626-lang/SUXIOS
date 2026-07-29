@@ -5,6 +5,57 @@ const CARD_METRIC_MAP = new Map([
   ['PAY_ORDER_CNT', { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' }],
 ]);
 
+const BUSINESS_METRICS = [
+  {
+    key: 'lead_price',
+    fields: ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice'],
+    cardIds: ['LEAD_PRICE', 'STARTING_PRICE', 'MIN_PRICE', 'REALTIME_STARTING_PRICE'],
+    titles: [/\u5f15\u6d41\u4ef7/, /\u8d77\u4ef7/, /starting\s*price/i, /lead\s*price/i],
+  },
+  {
+    key: 'sales_room_nights',
+    fields: ['sales_room_nights', 'salesRoomNights', 'room_nights', 'roomNights', 'PAY_ROOMNIGHT'],
+    cardIds: ['PAY_ROOMNIGHT', 'SALES_ROOM_NIGHTS', 'ROOM_NIGHTS'],
+    titles: [/\u9500\u552e\u95f4\u591c/, /room\s*nights?/i],
+  },
+  {
+    key: 'sales_amount',
+    fields: ['sales_amount', 'salesAmount', 'sales', 'amount', 'PAY_AMT'],
+    cardIds: ['PAY_AMT', 'SALES_AMOUNT', 'SALES'],
+    titles: [/\u9500\u552e\u989d/, /sales?\s*amount/i],
+  },
+  {
+    key: 'sales_avg_price',
+    fields: ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice'],
+    cardIds: ['SALES_AVG_PRICE', 'AVG_PRICE', 'AVERAGE_PRICE'],
+    titles: [/\u9500\u552e\u5747\u4ef7/, /average\s*price/i, /avg\s*price/i],
+  },
+  {
+    key: 'exposure_users',
+    fields: ['exposure_users', 'exposureUsers', 'exposureUV', 'exposureUv', 'EXPOSE_PV_CNT'],
+    cardIds: ['EXPOSE_PV_CNT', 'EXPOSURE_USERS', 'EXPOSURE_UV'],
+    titles: [/\u66dd\u5149\u4eba\u6570/, /exposure\s*(users?|uv)/i],
+  },
+  {
+    key: 'detail_visitors',
+    fields: ['detail_visitors', 'detailVisitors', 'intentionUV', 'detailUV', 'INTENTION_UV'],
+    cardIds: ['INTENTION_UV', 'DETAIL_VISITORS', 'DETAIL_UV'],
+    titles: [/\u6d4f\u89c8\u4eba\u6570/, /\u8be6\u60c5.*\u6d4f\u89c8/, /detail\s*(visitors?|uv)/i],
+  },
+  {
+    key: 'paid_order_count',
+    fields: ['paid_order_count', 'paidOrderCount', 'payOrderCnt', 'orderCount', 'PAY_ORDER_CNT'],
+    cardIds: ['PAY_ORDER_CNT', 'PAID_ORDER_COUNT', 'ORDER_COUNT'],
+    titles: [/\u652f\u4ed8\u8ba2\u5355\u6570/, /\u652f\u4ed8.*\u8ba2\u5355/, /paid?\s*orders?/i],
+  },
+  {
+    key: 'browse_to_pay_rate',
+    fields: ['browse_to_pay_rate', 'browsePayRate', 'payOrderPerIntention', 'PAY_ORDER_CNT_UV'],
+    cardIds: ['PAY_ORDER_CNT_UV', 'BROWSE_PAY_RATE', 'PAY_CVR'],
+    titles: [/\u6d4f\u89c8.*\u652f\u4ed8.*\u8f6c\u5316\u7387/, /\u652f\u4ed8\u8f6c\u5316\u7387/, /browse.*pay.*rate/i],
+  },
+];
+
 const MEITUAN_ORDER_FLOW_ENDPOINT_PATH = '/api/v1/ebooking/peerRank/order/loss/query';
 const MEITUAN_ORDER_LIST_ENDPOINT_PATH = '/api/v1/ebooking/orders';
 
@@ -266,6 +317,35 @@ export function normalizeMeituanTrafficCardRows(value, options = {}) {
   return [];
 }
 
+export function normalizeMeituanBusinessRows(value, options = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return [];
+  }
+
+  const candidatePaths = [
+    ['data', 'businessData'],
+    ['data', 'data', 'businessData'],
+    ['businessData'],
+    ['data', 'data'],
+    ['data'],
+    [],
+  ];
+  for (const path of candidatePaths) {
+    const candidate = path.length ? readPath(value, path) : value;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      continue;
+    }
+    const row = buildBusinessMetricRow(candidate, {
+      ...options,
+      sourcePath: joinSourcePath(options.sourcePath || '', path),
+    });
+    if (row) {
+      return [row];
+    }
+  }
+  return [];
+}
+
 export function isImportableMeituanTrafficRow(row) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) {
     return false;
@@ -369,7 +449,10 @@ export function normalizeMeituanTrafficForecastRows(value, options = {}) {
     ['data', 'data', 'detail'],
     ['detail'],
   ]);
-  const forecastType = String(options.forecastType || readPath(value, ['data', 'type']) || value?.type || '').trim();
+  const forecastTypeCandidate = String(options.forecastType || readPath(value, ['data', 'forecastType']) || value?.forecastType || '').trim().toLowerCase();
+  const forecastType = ['pv', 'uv', 'advance_orders'].includes(forecastTypeCandidate)
+    ? forecastTypeCandidate
+    : '';
   const rows = details.map((item, index) => decorateSupplementalRow({
     ...item,
     data_type: 'traffic_forecast',
@@ -585,6 +668,125 @@ function buildCardMetricRow(cards, options = {}) {
   }
 
   return row;
+}
+
+function buildBusinessMetricRow(source, options = {}) {
+  const cards = [
+    ...asRowList(source.cards),
+    ...asRowList(source.cardList),
+    ...asRowList(source.metrics),
+    ...asRowList(source.metricCards),
+  ];
+  const row = {
+    data_type: 'business',
+    compare_type: 'self',
+    is_self: true,
+    _capture_source: 'xhr:traffic:business_data',
+    _source_path: options.sourcePath || '$',
+    _meituan_business_metric_sources: {},
+    _meituan_business_metric_missing: [],
+  };
+  let recognized = 0;
+
+  for (const metric of BUSINESS_METRICS) {
+    let fact = firstPresentBusinessMetric(source, metric.fields);
+    if (!fact) {
+      fact = businessCardMetric(cards, metric);
+    }
+    if (!fact) {
+      row[metric.key] = null;
+      row._meituan_business_metric_missing.push(metric.key);
+      continue;
+    }
+    recognized += 1;
+    const numericValue = trafficMetricNumber(fact.value);
+    row[metric.key] = numericValue;
+    if (numericValue === null) {
+      row._meituan_business_metric_missing.push(metric.key);
+      continue;
+    }
+    row._meituan_business_metric_sources[metric.key] = {
+      source_path: `${row._source_path}.${fact.path}`,
+      source_kind: fact.kind,
+    };
+  }
+
+  if (recognized === 0) {
+    return null;
+  }
+
+  row.amount = row.sales_amount;
+  row.quantity = row.sales_room_nights;
+  row.room_nights = row.sales_room_nights;
+  row.book_order_num = row.paid_order_count;
+  row.listExposure = row.exposure_users;
+  row.detailExposure = row.detail_visitors;
+  row.flowRate = row.browse_to_pay_rate;
+  row.browse_pay_rate = row.browse_to_pay_rate;
+  row.data_value = row.sales_avg_price;
+
+  const dataDate = normalizeDateLike(
+    source.dataDate
+      || source.data_date
+      || source.statDate
+      || source.stat_date
+      || source.date
+      || options.requestDateEvidence?.date
+      || options.defaultDataDate
+      || '',
+  );
+  if (dataDate) {
+    row.dataDate = dataDate;
+    row.date_source = hasOwnDate(source)
+      ? supplementalRowDateSource(source)
+      : (options.requestDateEvidence?.date_source || 'capture_context.default_data_date');
+  }
+  return row;
+}
+
+function firstPresentBusinessMetric(source, fields) {
+  const containers = [
+    { value: source, prefix: '' },
+    { value: source.metrics, prefix: 'metrics.' },
+    { value: source.summary, prefix: 'summary.' },
+    { value: source.myHotel, prefix: 'myHotel.' },
+  ].filter(item => item.value && typeof item.value === 'object' && !Array.isArray(item.value));
+  for (const container of containers) {
+    for (const field of fields) {
+      if (!Object.prototype.hasOwnProperty.call(container.value, field)) {
+        continue;
+      }
+      return {
+        value: container.value[field],
+        path: `${container.prefix}${field}`,
+        kind: 'field',
+      };
+    }
+  }
+  return null;
+}
+
+function businessCardMetric(cards, metric) {
+  const normalizedIds = new Set(metric.cardIds.map(normalizeMetricToken));
+  for (let index = 0; index < cards.length; index += 1) {
+    const card = cards[index];
+    const ids = [
+      card.id, card.key, card.metricId, card.metric_id, card.metricCode, card.metric_code, card.code,
+    ].map(normalizeMetricToken).filter(Boolean);
+    const title = [
+      card.title, card.name, card.label, card.metricName, card.metric_name, card.displayName, card.display_name,
+    ].map(value => String(value || '').trim()).filter(Boolean).join(' ');
+    if (!ids.some(id => normalizedIds.has(id)) && !metric.titles.some(pattern => pattern.test(title))) {
+      continue;
+    }
+    const fact = cardMetricValue(card);
+    return {
+      value: fact.value,
+      path: `cards.${index}.${fact.key}`,
+      kind: 'card',
+    };
+  }
+  return null;
 }
 
 function resolveCardMetricConfig(card) {

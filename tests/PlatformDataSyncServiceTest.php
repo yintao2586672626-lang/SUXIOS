@@ -4099,7 +4099,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame(81, $rows[0]['list_exposure']);
         self::assertSame(14, $rows[0]['detail_exposure']);
         self::assertSame(2, $rows[0]['order_submit_num']);
-        self::assertSame(17.28, $rows[0]['flow_rate']);
+        self::assertSame(14.29, $rows[0]['flow_rate']);
         self::assertNull($rows[0]['order_filling_num']);
 
         $raw = json_decode((string)$rows[0]['raw_data'], true);
@@ -4107,7 +4107,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         $facts = array_column($raw['field_facts'] ?? [], null, 'metric_key');
         self::assertSame('data.myHotel.exposureUV', $facts['list_exposure']['source_path'] ?? '');
         self::assertSame('data.myHotel.intentionUV', $facts['detail_exposure']['source_path'] ?? '');
-        self::assertSame('data.myHotel.intentionPerExposure', $facts['flow_rate']['source_path'] ?? '');
+        self::assertSame('data.myHotel.payOrderPerIntention', $facts['flow_rate']['source_path'] ?? '');
         self::assertSame('data.myHotel.payOrderCnt', $facts['order_submit_num']['source_path'] ?? '');
         self::assertSame('missing', $facts['order_filling_num']['status'] ?? '');
     }
@@ -4216,6 +4216,70 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('raw_data.rank', $peerFactsByKey['peer_rank_value']['storage_field'] ?? '');
             self::assertSame('$.rank', $peerFactsByKey['peer_rank_value']['source_path'] ?? '');
             self::assertTrue($peerFactsByKey['peer_rank_compare_type']['stored_value_present'] ?? false);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanTemporalCaptureKeepsActualPayloadTypesAndPassesInternalMode(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+        $capturedArgs = [];
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter(
+                $root,
+                'node',
+                static function (array $args) use (&$capturedArgs): array {
+                    $capturedArgs = $args;
+                    $output = '';
+                    foreach ($args as $arg) {
+                        if (str_starts_with((string)$arg, '--output=')) {
+                            $output = substr((string)$arg, strlen('--output='));
+                        }
+                    }
+                    file_put_contents($output, json_encode([
+                        'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                        'capture_gate' => ['status' => 'pass'],
+                        'platform_identity_validation' => [
+                            'status' => 'matched',
+                            'source_validation' => true,
+                            'validated_identifier' => '68471',
+                        ],
+                        'businessData' => [[
+                            'poi_id' => '68471',
+                            'data_date' => '2026-07-29',
+                            'date_source' => 'page.business_period_selection.readback',
+                            'sales_amount' => 100,
+                        ]],
+                        'peerRank' => [[
+                            'poi_id' => '68471',
+                            'data_date' => '2026-07-29',
+                            'date_source' => 'row.dataDate',
+                            'rank' => 2,
+                        ]],
+                        'traffic' => [[
+                            'poi_id' => '68471',
+                            'data_date' => '2026-07-29',
+                            'date_source' => 'page.traffic_period_selection.readback',
+                            'listExposure' => 10,
+                        ]],
+                    ], JSON_UNESCAPED_UNICODE));
+                    return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
+                }
+            );
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'capture_sections' => 'traffic',
+                'capture_mode' => 'temporal_summary',
+                'temporal_scope' => 'today_future',
+                'data_date' => '2026-07-29',
+            ]);
+
+            self::assertSame('success', $result['status']);
+            $types = array_values(array_unique(array_column($result['payload']['rows'], 'data_type')));
+            sort($types);
+            self::assertSame(['business', 'peer_rank', 'traffic'], $types);
+            self::assertContains('--capture-mode=temporal_summary', $capturedArgs);
+            self::assertContains('--temporal-scope=today_future', $capturedArgs);
         } finally {
             $this->removeDirectory($root);
         }

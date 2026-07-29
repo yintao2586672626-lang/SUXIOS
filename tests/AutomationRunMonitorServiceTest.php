@@ -114,7 +114,7 @@ final class AutomationRunMonitorServiceTest extends TestCase
         self::assertStringContainsString('尚未在门店管理中选择', $row['blocker_reason']);
     }
 
-    public function testMonitorOnlyIncludesPermittedHotelsWithEnabledWechatRobot(): void
+    public function testMonitorIncludesPermittedHotelsAndMarksMissingWechatRobotAsBlocked(): void
     {
         $monitoredHotelIds = [];
         $service = new AutomationRunMonitorService(
@@ -124,13 +124,15 @@ final class AutomationRunMonitorServiceTest extends TestCase
             },
             fn(): array => $this->pmsBinding(
                 'configured',
-                $this->dingdandaoStatus(true, 'sent')
+                $this->dingdandaoStatus(true)
             ),
-            fn(): array => $this->taskOverview(
-                '2026-07-28 09:00:03',
-                '2026-07-28 10:00:00',
-                '已发送'
-            ),
+            fn(int $tenantId, int $hotelId): array => $hotelId === 81
+                ? $this->taskOverview(
+                    '2026-07-28 09:00:03',
+                    '2026-07-28 10:00:00',
+                    '已发送'
+                )
+                : ['source_status' => 'database_only', 'tasks' => []],
             new DateTimeImmutable('2026-07-28 09:30:00', new DateTimeZone('Asia/Shanghai')),
             function (array $permittedHotelIds): array {
                 self::assertSame([80, 81], $permittedHotelIds);
@@ -147,10 +149,16 @@ final class AutomationRunMonitorServiceTest extends TestCase
             ],
         ], '2026-07-28', 9);
 
-        self::assertSame([81], $monitoredHotelIds);
-        self::assertSame(1, $overview['summary']['hotel_count']);
-        self::assertSame(81, $overview['rows'][0]['hotel_id']);
-        self::assertStringContainsString('已绑定启用企业微信机器人', $overview['message']);
+        sort($monitoredHotelIds);
+        self::assertSame([80, 81], $monitoredHotelIds);
+        self::assertSame(2, $overview['summary']['hotel_count']);
+        $rows = array_column($overview['rows'], null, 'hotel_id');
+        self::assertFalse($rows[80]['wechat_robot_configured']);
+        self::assertSame('blocked', $rows[80]['push_status']);
+        self::assertSame('企业微信机器人未绑定', $rows[80]['next_push_label']);
+        self::assertStringContainsString('尚未为门店绑定并启用企业微信机器人', $rows[80]['blocker_reason']);
+        self::assertTrue($rows[81]['wechat_robot_configured']);
+        self::assertStringContainsString('当前账号有权限的营业门店', $overview['message']);
     }
 
     /** @return array<string, mixed> */

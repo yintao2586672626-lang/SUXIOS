@@ -208,6 +208,9 @@ try {
         'regional_benchmark' => localRegionalSummary(
             (array)($capture['county_context'] ?? [])
         ),
+        'forward_room_status' => localForwardRoomStatusSummary(
+            (array)($capture['forward_room_status'] ?? [])
+        ),
         'operating_target_sync' => [
             'status' => (string)($targetSync['status'] ?? 'partial'),
             'sync_status' => (string)($targetSync['sync_status'] ?? 'unknown'),
@@ -426,6 +429,53 @@ function localRegionalSummary(array $county): array
         'trend_point_counts' => localTrendPointCounts(
             (array)($county['trend'] ?? [])
         ),
+    ];
+}
+
+/** @param array<string,mixed> $forward @return array<string,mixed> */
+function localForwardRoomStatusSummary(array $forward): array
+{
+    $horizons = [];
+    foreach ((array)($forward['horizons'] ?? []) as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $horizons[] = [
+            'horizon_days' => (int)($row['horizon_days'] ?? 0),
+            'date_from' => $row['date_from'] ?? null,
+            'date_to' => $row['date_to'] ?? null,
+            'covered_days' => (int)($row['covered_days'] ?? 0),
+            'expected_days' => (int)($row['expected_days'] ?? 0),
+            'booked_room_nights' => $row['booked_room_nights'] ?? null,
+            'remaining_sellable_room_nights' =>
+                $row['remaining_sellable_room_nights'] ?? null,
+            'occupancy_rate_percent' => $row['occupancy_rate_percent'] ?? null,
+            'adr' => $row['adr'] ?? null,
+            'revpar' => $row['revpar'] ?? null,
+            'quality_status' => (string)($row['quality_status'] ?? 'partial'),
+        ];
+    }
+    return [
+        'fact_scope' => (string)(
+            $forward['fact_scope'] ?? 'whole_hotel_forward_room_status'
+        ),
+        'data_status' => (string)($forward['data_status'] ?? 'partial'),
+        'readback_status' => (string)($forward['readback_status'] ?? 'not_verified'),
+        'as_of_date' => $forward['as_of_date'] ?? null,
+        'range_start_date' => $forward['range_start_date'] ?? null,
+        'range_end_date' => $forward['range_end_date'] ?? null,
+        'requested_range_end_date' => $forward['requested_range_end_date'] ?? null,
+        'source_day_count' => (int)($forward['source_day_count'] ?? 0),
+        'display_day_count' => (int)($forward['display_day_count'] ?? 0),
+        'source_coverage_status' => (string)(
+            $forward['source_coverage_status'] ?? 'missing'
+        ),
+        'source_gap_codes' => (array)($forward['source_gap_codes'] ?? []),
+        'source_room_type_count' => (int)($forward['source_room_type_count'] ?? 0),
+        'total_room_count' => $forward['total_room_count'] ?? null,
+        'display_horizons' => (array)($forward['display_horizons'] ?? []),
+        'horizons' => $horizons,
+        'gap_codes' => (array)($forward['gap_codes'] ?? []),
     ];
 }
 

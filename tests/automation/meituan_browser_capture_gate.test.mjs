@@ -63,6 +63,10 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
   const normalizeBlock = source.slice(source.indexOf('function normalizeCapturedList'), source.indexOf('function joinSourcePath'));
   const decorateBlock = source.slice(source.indexOf('function decorateCapturedRow'), source.indexOf('async function collectMeituanTrafficDomRows'));
+  const trafficPlanBlock = source.slice(
+    source.indexOf('async function runMeituanTrafficInteractionPlan'),
+    source.indexOf('function buildMeituanRelativePeriodEvidence'),
+  );
 
   assert.match(normalizeBlock, /if \(section === 'traffic'\) \{/);
   assert.doesNotMatch(normalizeBlock, /section === 'traffic' \|\| section === 'ads'/);
@@ -77,7 +81,7 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /locateMeituanTrafficFunnelPeriod/);
   assert.match(source, /\\u6d41\\u91cf\\u8f6c\\u5316\\u6f0f\\u6597/);
   assert.ok(
-    source.indexOf('restore target traffic period') > source.indexOf('select traffic forecast'),
+    trafficPlanBlock.indexOf('restore target traffic period') > trafficPlanBlock.lastIndexOf('await selectMeituanForecastTab'),
     'target funnel period must be restored after all traffic interactions',
   );
   assert.match(source, /\['data', 'results'\]/);

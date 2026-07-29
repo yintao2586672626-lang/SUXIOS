@@ -30,7 +30,8 @@ final class ManualNotificationScheduleService
         private readonly ?ManualNotificationDispatchLedgerService $ledger = null,
         private readonly ?WechatRobotDeliveryService $deliveries = null,
         private readonly ?ManualNotificationScheduleRuleService $scheduleRuleService = null,
-        private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null
+        private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null,
+        private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null
     ) {
         $this->sender = $sender;
     }
@@ -193,6 +194,35 @@ final class ManualNotificationScheduleService
             $businessDate,
             $mode
         );
+        if (($identity['eligible'] ?? false) === true
+            && ($candidate['status'] ?? '') === 'ready'
+        ) {
+            $testedContract = $this->testedRenderContractGate(
+                $row,
+                $candidate,
+                (int)($identity['robot_id'] ?? 0),
+                (string)($identity['robot_name'] ?? '')
+            );
+            if (($testedContract['eligible'] ?? false) !== true) {
+                $candidate = [
+                    ...$candidate,
+                    'status' => 'blocked',
+                    'reason_code' => (string)($testedContract['reason_code']
+                        ?? 'business_message_retest_required'),
+                    'payload' => null,
+                    'formal_send_gate' => [
+                        'allowed' => false,
+                        'status' => 'formal_send_blocked',
+                        'blockers' => [[
+                            'code' => (string)($testedContract['reason_code']
+                                ?? 'business_message_retest_required'),
+                            'message' => (string)($testedContract['message']
+                                ?? '当前动态消息合同尚未完成真实测试。'),
+                        ]],
+                    ],
+                ];
+            }
+        }
         if (!$dispatch) {
             if (($identity['eligible'] ?? false) !== true) {
                 return $base + [
@@ -381,30 +411,42 @@ final class ManualNotificationScheduleService
         if (ManualNotificationService::isDynamicReportType(
             (string)($row['template_type'] ?? '')
         )) {
-            $candidate = ManualNotificationService::isOperatingDailyReportType(
-                (string)($row['template_type'] ?? '')
+            $templateType = (string)($row['template_type'] ?? '');
+            $candidate = ManualNotificationService::isBusinessFactReportType(
+                $templateType
             )
-                ? $this->dailyPayloads()->build(
+                ? $this->businessPayloads()->build(
                     $tenantId,
                     $hotelId,
                     $hotelName,
                     $businessDate,
-                    'scheduled_test',
-                    (string)($row['source_scope'] ?? 'combined'),
-                    $this->contentSections($row['content_sections'] ?? null),
-                    ManualNotificationService::operatingDailyTemplateMode(
-                        (string)($row['template_type'] ?? '')
-                    ),
-                    (string)($row['title'] ?? ''),
-                    (string)($row['body'] ?? '')
-                )
-                : $this->targetPayloads()->build(
-                    $tenantId,
-                    $hotelId,
-                    $hotelName,
-                    $businessDate,
+                    $templateType,
                     'scheduled_test'
-                );
+                )
+                : (ManualNotificationService::isOperatingDailyReportType(
+                    $templateType
+                )
+                    ? $this->dailyPayloads()->build(
+                        $tenantId,
+                        $hotelId,
+                        $hotelName,
+                        $businessDate,
+                        'scheduled_test',
+                        (string)($row['source_scope'] ?? 'combined'),
+                        $this->contentSections($row['content_sections'] ?? null),
+                        ManualNotificationService::operatingDailyTemplateMode(
+                            $templateType
+                        ),
+                        (string)($row['title'] ?? ''),
+                        (string)($row['body'] ?? '')
+                    )
+                    : $this->targetPayloads()->build(
+                        $tenantId,
+                        $hotelId,
+                        $hotelName,
+                        $businessDate,
+                        'scheduled_test'
+                    ));
             return $mode === self::MODE_FORMAL
                 ? $this->formalizeDynamicCandidate($candidate)
                 : $candidate;
@@ -700,6 +742,81 @@ final class ManualNotificationScheduleService
     private function dailyPayloads(): OperatingDailyReportPayloadService
     {
         return $this->operatingDailyPayloads ?? new OperatingDailyReportPayloadService();
+    }
+
+    private function businessPayloads(): ManualNotificationBusinessPayloadService
+    {
+        return $this->businessMessagePayloads
+            ?? new ManualNotificationBusinessPayloadService();
+    }
+
+    /**
+     * Existing static plans must not inherit permission to send a newly
+     * introduced dynamic business payload. A successful immediate test of the
+     * same render contract and robot is required before scheduled delivery.
+     *
+     * @return array{eligible:bool,reason_code?:string,message?:string}
+     */
+    private function testedRenderContractGate(
+        array $row,
+        array $candidate,
+        int $robotId,
+        string $robotName
+    ): array {
+        $templateType = (string)($row['template_type'] ?? '');
+        if (!ManualNotificationService::isBusinessFactReportType($templateType)) {
+            return ['eligible' => true];
+        }
+        $contractVersion = trim((string)(
+            $candidate['render_contract_version']
+            ?? ''
+        ));
+        $planUpdatedAt = trim((string)($row['update_time'] ?? ''));
+        if ($contractVersion === ''
+            || preg_match(
+                '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/',
+                $planUpdatedAt
+            ) !== 1
+            || $robotId <= 0
+            || trim($robotName) === ''
+            || !$this->tableExists('manual_notification_schedule_dispatches')
+            || !$this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'render_contract_version'
+            )
+            || !$this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'request_kind'
+            )
+        ) {
+            return [
+                'eligible' => false,
+                'reason_code' => 'business_message_retest_required',
+                'message' => '动态业务消息合同尚未完成同机器人真实测试；定时发送已阻断。',
+            ];
+        }
+        $tested = Db::name('manual_notification_schedule_dispatches')
+            ->where('notification_id', (int)($row['id'] ?? 0))
+            ->where('tenant_id', (int)($row['tenant_id'] ?? 0))
+            ->where('hotel_id', (int)($row['hotel_id'] ?? 0))
+            ->where('delivery_mode', 'test')
+            ->where('request_kind', 'immediate_test')
+            ->where('robot_id', $robotId)
+            ->where('robot_name', trim($robotName))
+            ->where('render_contract_version', $contractVersion)
+            ->where('status', 'sent')
+            ->where('dispatched_at', '>=', $planUpdatedAt)
+            ->order('dispatched_at', 'desc')
+            ->order('id', 'desc')
+            ->find();
+        if (!is_array($tested)) {
+            return [
+                'eligible' => false,
+                'reason_code' => 'business_message_retest_required',
+                'message' => '当前动态业务消息合同未在该机器人真实测试成功；旧静态计划不会自动继承发送权限。',
+            ];
+        }
+        return ['eligible' => true];
     }
 
     private function dispatchLedger(): ManualNotificationDispatchLedgerService

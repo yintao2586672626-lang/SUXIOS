@@ -681,6 +681,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         loadConfigList = async () => {},
         applyHotelConfig = async () => {},
         syncAdsConfig = async () => {},
+        loadSupplementalSnapshot = async () => {},
         hasSelectedHotel = () => false,
     } = {}) => {
         const isActive = () => getCurrentPage() === 'ctrip-ebooking' && getCurrentTab() === tab;
@@ -695,7 +696,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 : { status: 'stale_after_load', tab };
         }
 
-        if (!['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads', 'ctrip-config'].includes(tab)) {
+        if (!['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-quality', 'ctrip-ads', 'ctrip-config'].includes(tab)) {
             return { status: 'noop', tab };
         }
 
@@ -716,9 +717,16 @@ window.SUXI_CTRIP_STATIC = (() => {
 
         if (tab === 'ctrip-ads') {
             await syncAdsConfig(false);
+            if (!isActive()) {
+                return { status: 'stale_after_sync', tab };
+            }
+        }
+
+        if (tab === 'ctrip-quality' || tab === 'ctrip-ads') {
+            await loadSupplementalSnapshot();
             return isActive()
-                ? { status: 'synced', tab, target: 'ads' }
-                : { status: 'stale_after_sync', tab };
+                ? { status: 'synced', tab, target: tab === 'ctrip-quality' ? 'quality' : 'ads' }
+                : { status: 'stale_after_snapshot', tab };
         }
 
         return { status: 'synced', tab, target: 'config' };

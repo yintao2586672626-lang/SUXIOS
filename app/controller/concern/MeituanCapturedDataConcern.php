@@ -24,6 +24,13 @@ trait MeituanCapturedDataConcern
         $context = $this->buildMeituanCaptureContext($payload, $systemHotelId);
         $rows = [];
 
+        foreach ($this->extractMeituanCapturedSection($payload, 'business') as $item) {
+            $row = $this->normalizeMeituanCapturedBusinessRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
         foreach ($this->extractMeituanCapturedSection($payload, 'traffic') as $item) {
             $row = $this->normalizeMeituanCapturedTrafficRow($item, $context);
             if ($row !== null) {
@@ -99,8 +106,8 @@ trait MeituanCapturedDataConcern
             'store_id' => (string)$this->firstMeituanValue($payload, ['store_id', 'storeId'], ''),
             'poi_id' => (string)$this->firstMeituanValue($payload, ['poi_id', 'poiId', 'hotel_id', 'hotelId'], ''),
             'poi_name' => (string)$this->firstMeituanValue($payload, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'store_name', 'storeName'], ''),
-            'captured_at' => (string)$this->firstMeituanValue($payload, ['captured_at', 'capturedAt', 'scraped_at', 'scrapedAt'], date('Y-m-d H:i:s')),
-            'default_data_date' => (string)$this->firstMeituanValue($payload, ['default_data_date', 'defaultDataDate', 'data_date', 'dataDate'], date('Y-m-d')),
+            'captured_at' => (string)$this->firstMeituanValue($payload, ['captured_at', 'capturedAt', 'scraped_at', 'scrapedAt'], ''),
+            'default_data_date' => (string)$this->firstMeituanValue($payload, ['default_data_date', 'defaultDataDate', 'data_date', 'dataDate'], ''),
             'data_period' => (string)$this->firstMeituanValue($payload, ['data_period', 'dataPeriod'], ''),
             'snapshot_time' => (string)$this->firstMeituanValue($payload, ['snapshot_time', 'snapshotTime'], ''),
         ];
@@ -132,7 +139,8 @@ trait MeituanCapturedDataConcern
     {
         return match ($section) {
             'reviews' => ['reviews', 'review', 'comments', 'commentList', 'commentsInfo'],
-            'traffic' => ['traffic', 'businessData', 'business_data', 'weightTraffic', 'weight_traffic', 'peerTrends', 'peer_trends'],
+            'business' => ['businessData', 'business_data', 'business', 'overview'],
+            'traffic' => ['traffic', 'weightTraffic', 'weight_traffic', 'peerTrends', 'peer_trends'],
             'peer_rank' => ['peerRank', 'peer_rank', 'competitorRank', 'competitor_rank', 'rankings', 'ranking'],
             'traffic_analysis' => ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis', 'flowConversion', 'flowTrend', 'flowTrendDetail'],
             'order_flow' => ['order_flow', 'orderFlow', 'orderFlowRows', 'order_flow_rows'],
@@ -147,7 +155,8 @@ trait MeituanCapturedDataConcern
     private function meituanCaptureResponseMatchesSection(array $response, string $section): bool
     {
         $type = strtolower((string)($response['type'] ?? $response['section'] ?? ''));
-        if ($type !== '' && in_array($type, $this->meituanCapturedSectionAliases($section), true)) {
+        $aliases = array_map('strtolower', $this->meituanCapturedSectionAliases($section));
+        if ($type !== '' && in_array($type, $aliases, true)) {
             return true;
         }
 
@@ -158,7 +167,8 @@ trait MeituanCapturedDataConcern
 
         $needles = match ($section) {
             'reviews' => ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics'],
-            'traffic' => ['businessdata', 'weighttraffic', 'traffic', 'peertrends'],
+            'business' => ['businessdata'],
+            'traffic' => ['weighttraffic', 'traffic', 'peertrends'],
             'peer_rank' => ['peer/rank', 'peerrank', 'competitorrank'],
             'traffic_analysis' => ['flowconversion', 'flowtrend', 'flowtrenddetail'],
             'order_flow' => ['/peerrank/order/loss/query'],
@@ -212,15 +222,19 @@ trait MeituanCapturedDataConcern
                 ['list'],
                 ['data'],
             ],
-            'traffic' => [
+            'business' => [
                 ['data', 'businessData'],
+                ['data', 'data', 'businessData'],
+                ['businessData'],
+                ['data'],
+            ],
+            'traffic' => [
                 ['data', 'weightTraffic'],
                 ['data', 'weight_traffic'],
                 ['data', 'traffic'],
                 ['data', 'peerTrends'],
                 ['data', 'list'],
                 ['data', 'rows'],
-                ['businessData'],
                 ['weightTraffic'],
                 ['weight_traffic'],
                 ['traffic'],
@@ -305,7 +319,8 @@ trait MeituanCapturedDataConcern
     {
         $keys = match ($section) {
             'reviews' => ['review_id', 'reviewId', 'commentId', 'comment', 'content', 'commentContent'],
-            'traffic' => ['exposure_count', 'exposureCount', 'page_views', 'pageViews', 'unique_visitors', 'businessData', 'weightTraffic'],
+            'business' => ['lead_price', 'leadPrice', 'sales_room_nights', 'salesRoomNights', 'sales_amount', 'salesAmount', 'sales_avg_price', 'salesAvgPrice', 'exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate'],
+            'traffic' => ['exposure_count', 'exposureCount', 'page_views', 'pageViews', 'unique_visitors', 'weightTraffic'],
             'peer_rank' => ['rank', 'rankType', 'rank_type', 'peerRankData', 'roundRanks'],
             'traffic_analysis' => ['analysis_type', 'analysisType', 'listExposure', 'detailExposure', 'flowRate', 'exposeCount', 'visitCount'],
             'order_flow' => ['order_flow_row_type', 'orderFlowRowType', 'order_flow_direction', 'orderFlowDirection', 'lossTotalCnt', 'lossOrderCount'],
@@ -323,45 +338,116 @@ trait MeituanCapturedDataConcern
         return false;
     }
 
-    private function normalizeMeituanCapturedTrafficRow(array $item, array $context): ?array
+    private function normalizeMeituanCapturedBusinessRow(array $item, array $context): ?array
     {
-        $exposure = (int)$this->meituanNumber($item, ['mt_exposure', 'exposure_count', 'exposureCount', 'listExposure', 'impression', 'impressions', 'exposure', 'exposureUV', 'exposure_uv'], 0);
-        $pageViews = (int)$this->meituanNumber($item, ['mt_intention_uv', 'intentionUV', 'intention_uv', 'page_views', 'pageViews', 'detailExposure', 'detailVisitors', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'uv', 'UV', 'pv', 'views'], 0);
-        $clicks = (int)$this->meituanNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click'], 0);
-        $payOrders = (int)$this->meituanNumber($item, ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers', 'orderNum', 'order_count', 'orders'], 0);
-        $payRooms = (int)$this->meituanNumber($item, ['mt_pay_rooms', 'pay_rooms', 'payRooms', 'payRoomNum', 'pay_room_num', 'roomNights', 'room_nights', 'quantity'], 0);
-        $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['mt_conversion_rate', 'conversion_rate', 'conversionRate', 'flowRate', 'orderRate', 'payOrderPerIntention', 'pay_order_per_intention'], null));
-        if ($conversion === null) {
-            $conversion = CtripTrafficDisplayService::trafficRate((float)($pageViews ?: $clicks), (float)$exposure);
-        }
-
-        if ($exposure <= 0 && $pageViews <= 0 && $clicks <= 0 && $payOrders <= 0 && $payRooms <= 0) {
+        $leadPrice = $this->nullableNumberFromKeys($item, ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice']);
+        $salesRoomNightsValue = $this->nullableNumberFromKeys($item, ['sales_room_nights', 'salesRoomNights', 'quantity', 'room_nights', 'roomNights', 'PAY_ROOMNIGHT']);
+        $salesRoomNights = $salesRoomNightsValue === null ? null : (int)$salesRoomNightsValue;
+        $salesAmount = $this->nullableNumberFromKeys($item, ['sales_amount', 'salesAmount', 'amount', 'sales', 'PAY_AMT']);
+        $salesAvgPrice = $this->nullableNumberFromKeys($item, ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice', 'data_value']);
+        $exposureUsersValue = $this->nullableNumberFromKeys($item, ['exposure_users', 'exposureUsers', 'listExposure', 'list_exposure', 'exposureUV', 'EXPOSE_PV_CNT']);
+        $detailVisitorsValue = $this->nullableNumberFromKeys($item, ['detail_visitors', 'detailVisitors', 'detailExposure', 'detail_exposure', 'intentionUV', 'INTENTION_UV']);
+        $paidOrdersValue = $this->nullableNumberFromKeys($item, ['paid_order_count', 'paidOrderCount', 'book_order_num', 'payOrderCnt', 'orderSubmitNum', 'PAY_ORDER_CNT']);
+        $exposureUsers = $exposureUsersValue === null ? null : (int)$exposureUsersValue;
+        $detailVisitors = $detailVisitorsValue === null ? null : (int)$detailVisitorsValue;
+        $paidOrders = $paidOrdersValue === null ? null : (int)$paidOrdersValue;
+        $browsePayRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue(
+            $item,
+            ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flowRate', 'flow_rate', 'PAY_ORDER_CNT_UV'],
+            null
+        ));
+        if ($leadPrice === null
+            && $salesRoomNights === null
+            && $salesAmount === null
+            && $salesAvgPrice === null
+            && $exposureUsers === null
+            && $detailVisitors === null
+            && $paidOrders === null
+            && $browsePayRate === null) {
             return null;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
-            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+            ?: $this->normalizeOnlineDataDate((string)($context['default_data_date'] ?? ''));
+        if ($dataDate === '') {
+            return null;
+        }
+        $factSource = array_merge($item, [
+            'lead_price' => $leadPrice,
+            'sales_room_nights' => $salesRoomNights,
+            'sales_amount' => $salesAmount,
+            'sales_avg_price' => $salesAvgPrice,
+            'exposure_users' => $exposureUsers,
+            'detail_visitors' => $detailVisitors,
+            'paid_order_count' => $paidOrders,
+            'browse_to_pay_rate' => $browsePayRate,
+        ]);
+
+        return $this->baseMeituanCapturedRow($factSource, $context, [
+            'data_date' => $dataDate,
+            'amount' => $salesAmount,
+            'quantity' => $salesRoomNights,
+            'book_order_num' => $paidOrders,
+            'comment_score' => null,
+            'data_value' => $salesAvgPrice,
+            'data_type' => 'business',
+            'dimension' => 'business:temporal_summary',
+            'platform' => 'Meituan',
+            'compare_type' => 'self',
+            'list_exposure' => $exposureUsers,
+            'detail_exposure' => $detailVisitors,
+            'flow_rate' => $browsePayRate,
+            'order_submit_num' => $paidOrders,
+        ]);
+    }
+
+    private function normalizeMeituanCapturedTrafficRow(array $item, array $context): ?array
+    {
+        $exposureValue = $this->nullableNumberFromKeys($item, ['mt_exposure', 'exposure_count', 'exposureCount', 'listExposure', 'impression', 'impressions', 'exposure', 'exposureUV', 'exposure_uv']);
+        $pageViewsValue = $this->nullableNumberFromKeys($item, ['mt_intention_uv', 'intentionUV', 'intention_uv', 'page_views', 'pageViews', 'detailExposure', 'detailVisitors', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'uv', 'UV', 'pv', 'views']);
+        $clicksValue = $this->nullableNumberFromKeys($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click']);
+        $payOrdersValue = $this->nullableNumberFromKeys($item, ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers', 'orderNum', 'order_count', 'orders']);
+        $payRoomsValue = $this->nullableNumberFromKeys($item, ['mt_pay_rooms', 'pay_rooms', 'payRooms', 'payRoomNum', 'pay_room_num', 'roomNights', 'room_nights', 'quantity']);
+        $exposure = $exposureValue === null ? null : (int)$exposureValue;
+        $pageViews = $pageViewsValue === null ? null : (int)$pageViewsValue;
+        $clicks = $clicksValue === null ? null : (int)$clicksValue;
+        $payOrders = $payOrdersValue === null ? null : (int)$payOrdersValue;
+        $payRooms = $payRoomsValue === null ? null : (int)$payRoomsValue;
+        $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'pay_order_per_intention', 'mt_conversion_rate', 'conversion_rate', 'conversionRate', 'flowRate', 'orderRate'], null));
+        if ($conversion === null && $payOrders !== null && $pageViews !== null && $pageViews > 0) {
+            $conversion = CtripTrafficDisplayService::trafficRate((float)$payOrders, (float)$pageViews);
+        }
+
+        if ($exposure === null && $pageViews === null && $clicks === null && $payOrders === null && $payRooms === null && $conversion === null) {
+            return null;
+        }
+
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
+            ?: $this->normalizeOnlineDataDate((string)($context['default_data_date'] ?? ''));
+        if ($dataDate === '') {
+            return null;
+        }
         $factSource = array_merge($item, [
             'mt_exposure' => $exposure,
-            'mt_intention_uv' => $pageViews ?: $clicks,
+            'mt_intention_uv' => $pageViews,
             'mt_pay_orders' => $payOrders,
             'mt_pay_rooms' => $payRooms,
         ]);
 
         return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
-            'amount' => 0,
+            'amount' => null,
             'quantity' => $payRooms,
             'book_order_num' => $payOrders,
-            'comment_score' => 0,
+            'comment_score' => null,
             'data_value' => $exposure,
             'data_type' => 'traffic',
             'dimension' => 'traffic',
             'platform' => 'Meituan',
             'compare_type' => 'self',
             'list_exposure' => $exposure,
-            'detail_exposure' => $pageViews ?: $clicks,
-            'flow_rate' => round($conversion, 2),
+            'detail_exposure' => $pageViews,
+            'flow_rate' => $conversion === null ? null : round($conversion, 2),
             'order_filling_num' => $clicks,
             'order_submit_num' => $payOrders,
         ]);
@@ -424,24 +510,30 @@ trait MeituanCapturedDataConcern
 
     private function normalizeMeituanCapturedTrafficAnalysisRow(array $item, array $context): ?array
     {
-        $listExposure = (int)$this->meituanNumber($item, ['list_exposure', 'listExposure', 'exposeCount', 'exposureCount', 'exposureUV', 'exposure'], 0);
-        $detailExposure = (int)$this->meituanNumber($item, ['detail_exposure', 'detailExposure', 'visitCount', 'visitorCount', 'intentionUV', 'uv', 'pv', 'views'], 0);
-        $orderSubmit = (int)$this->meituanNumber($item, ['order_submit_num', 'orderSubmitNum', 'orderCount', 'payOrderCount', 'payOrderCnt', 'orders'], 0);
+        $listExposureValue = $this->nullableNumberFromKeys($item, ['list_exposure', 'listExposure', 'exposeCount', 'exposureCount', 'exposureUV', 'exposure']);
+        $detailExposureValue = $this->nullableNumberFromKeys($item, ['detail_exposure', 'detailExposure', 'visitCount', 'visitorCount', 'intentionUV', 'uv', 'pv', 'views']);
+        $orderSubmitValue = $this->nullableNumberFromKeys($item, ['order_submit_num', 'orderSubmitNum', 'orderCount', 'payOrderCount', 'payOrderCnt', 'orders']);
+        $listExposure = $listExposureValue === null ? null : (int)$listExposureValue;
+        $detailExposure = $detailExposureValue === null ? null : (int)$detailExposureValue;
+        $orderSubmit = $orderSubmitValue === null ? null : (int)$orderSubmitValue;
         $orderFillingValue = $this->nullableNumberFromKeys($item, ['order_filling_num', 'orderFillingNum', 'clickCount', 'clicks']);
         $orderFilling = $orderFillingValue === null ? null : (int)$orderFillingValue;
-        $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['flow_rate', 'flowRate', 'intentionPerExposure', 'visitOrderRate', 'conversionRate', 'orderConversionRate'], null));
-        $dataValue = $this->meituanNumber($item, ['data_value', 'dataValue', 'value', 'metric_value'], 0.0);
-        if ($dataValue <= 0 && $flowRate !== null) {
+        $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'visitOrderRate', 'conversionRate', 'orderConversionRate'], null));
+        $dataValue = $this->nullableNumberFromKeys($item, ['data_value', 'dataValue', 'value', 'metric_value']);
+        if ($dataValue === null && $flowRate !== null) {
             $dataValue = $flowRate;
-        } elseif ($dataValue <= 0 && $detailExposure > 0) {
+        } elseif ($dataValue === null && $detailExposure !== null) {
             $dataValue = (float)$detailExposure;
         }
-        if ($dataValue <= 0 && $listExposure <= 0 && $detailExposure <= 0 && $orderSubmit <= 0 && ($orderFilling ?? 0) <= 0) {
+        if ($dataValue === null && $listExposure === null && $detailExposure === null && $orderSubmit === null && $orderFilling === null) {
             return null;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
-            ?: ($context['default_data_date'] ?? date('Y-m-d'));
+            ?: $this->normalizeOnlineDataDate((string)($context['default_data_date'] ?? ''));
+        if ($dataDate === '') {
+            return null;
+        }
         $analysisType = trim((string)$this->firstMeituanValue($item, ['analysis_type', 'analysisType', 'type'], 'flow_analysis'));
         $dimension = trim((string)$this->firstMeituanValue($item, ['dimension', 'name'], $analysisType));
         $dataType = strtolower(trim((string)$this->firstMeituanValue($item, ['data_type', 'dataType'], 'traffic_analysis'))) === 'traffic'
@@ -450,10 +542,10 @@ trait MeituanCapturedDataConcern
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
-            'amount' => 0,
-            'quantity' => 0,
-            'book_order_num' => 0,
-            'comment_score' => 0,
+            'amount' => null,
+            'quantity' => null,
+            'book_order_num' => $orderSubmit,
+            'comment_score' => null,
             'data_value' => $dataValue,
             'data_type' => $dataType,
             'dimension' => $dataType . ':' . ($dimension !== '' ? $dimension : $analysisType),
@@ -461,7 +553,7 @@ trait MeituanCapturedDataConcern
             'compare_type' => 'self',
             'list_exposure' => $listExposure,
             'detail_exposure' => $detailExposure,
-            'flow_rate' => $flowRate ?? 0.0,
+            'flow_rate' => $flowRate,
             'order_filling_num' => $orderFilling,
             'order_submit_num' => $orderSubmit,
         ]);
@@ -569,23 +661,26 @@ trait MeituanCapturedDataConcern
 
     private function normalizeMeituanCapturedTrafficForecastRow(array $item, array $context): ?array
     {
-        $current = $this->meituanNumber($item, ['current', 'data_value', 'dataValue', 'value', 'metric_value'], 0.0);
-        $peerAvg = $this->meituanNumber($item, ['peer_avg', 'peerAvg', 'competitor_avg', 'competitorAvg'], 0.0);
-        if ($current <= 0 && $peerAvg <= 0) {
+        $current = $this->nullableNumberFromKeys($item, ['current', 'data_value', 'dataValue', 'value', 'metric_value']);
+        $peerAvg = $this->nullableNumberFromKeys($item, ['peer_avg', 'peerAvg', 'competitor_avg', 'competitorAvg']);
+        if ($current === null && $peerAvg === null) {
             return null;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'dateTime', 'statDate', 'stat_date'], ''))
-            ?: ($context['default_data_date'] ?? date('Y-m-d'));
-        $forecastType = trim((string)$this->firstMeituanValue($item, ['forecast_type', 'forecastType', 'type'], 'flow_forecast'));
+            ?: '';
+        $forecastType = strtolower(trim((string)$this->firstMeituanValue($item, ['forecast_type', 'forecastType'], '')));
+        if ($dataDate === '' || !in_array($forecastType, ['pv', 'uv', 'advance_orders'], true)) {
+            return null;
+        }
         $dimension = trim((string)$this->firstMeituanValue($item, ['dimension', 'name'], $forecastType));
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
-            'amount' => 0,
-            'quantity' => 0,
-            'book_order_num' => 0,
-            'comment_score' => 0,
+            'amount' => null,
+            'quantity' => null,
+            'book_order_num' => null,
+            'comment_score' => null,
             'data_value' => $current,
             'data_type' => 'traffic_forecast',
             'dimension' => 'traffic_forecast:' . ($dimension !== '' ? $dimension : $forecastType),
@@ -696,8 +791,9 @@ trait MeituanCapturedDataConcern
             'star',
         ];
         $scoreValue = $this->nullableNumberFromKeys($item, $scoreKeys);
-        $score = $scoreValue !== null ? $this->normalizeMeituanScore($scoreValue) : 0.0;
-        $scorePresent = $score > 0;
+        $normalizedScore = $scoreValue !== null ? $this->normalizeMeituanScore($scoreValue) : null;
+        $score = $normalizedScore !== null && $normalizedScore > 0 ? $normalizedScore : null;
+        $scorePresent = $score !== null;
         $commentCountKeys = [
             'comment_count',
             'commentCount',
@@ -724,7 +820,7 @@ trait MeituanCapturedDataConcern
         $badReviewCountKnown = $badReviewCountValue !== null;
         $commentCount = $commentCountKnown ? max(0, (int)$commentCountValue) : null;
         $badReviewCount = $badReviewCountKnown ? max(0, (int)$badReviewCountValue) : null;
-        if ($score <= 0 && !$commentCountKnown && !$badReviewCountKnown) {
+        if (!$scorePresent && !$commentCountKnown && !$badReviewCountKnown) {
             return null;
         }
 
@@ -875,7 +971,7 @@ trait MeituanCapturedDataConcern
             'hotel_name' => $hotelName,
             'system_hotel_id' => $context['system_hotel_id'] ?? null,
             'source' => 'meituan',
-            'qunar_comment_score' => 0,
+            'qunar_comment_score' => null,
             'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
         ], array_filter([
             'data_period' => $context['data_period'] ?? '',

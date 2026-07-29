@@ -73,13 +73,18 @@ test('Ctrip generic data configuration is metadata-only and strips credential fi
   assert.match(html, /真实采集步骤仅在服务端展开/);
   assert.match(html, /v-model="dataConfigForm\.request_source"/);
 
-  for (const model of ['ctripForm', 'ctripTrafficForm', 'ctripAdsBrowserCaptureForm', 'ctripOverviewForm']) {
+  for (const model of ['ctripForm', 'ctripTrafficForm', 'ctripAdsBrowserCaptureForm']) {
     assert.match(
       html,
       new RegExp(`<textarea v-model="${model}\\.cookies"[^>]*\\bdisabled\\b[^>]*>`),
       `${model} Cookie execution input must stay disabled`,
     );
   }
+  assert.doesNotMatch(
+    html,
+    /<textarea v-model="ctripOverviewForm\.cookies"[^>]*>/,
+    'Ctrip overview must not reintroduce a browser Cookie input',
+  );
   assert.doesNotMatch(
     html,
     /<textarea v-model="ctripFlowOverviewForm\.cookies"[^>]*>/,

@@ -3,10 +3,10 @@
         <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
             <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">运营自动化中心 · 第 3 步</p>
+                    <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">运营自动化中心 · 运行总览</p>
                     <h2 class="text-xl font-semibold text-slate-900">今日数据与推送监控</h2>
                 </div>
-                <p class="mt-1.5 max-w-5xl text-sm leading-6 text-slate-600">仅监测当前账号有权限且已绑定启用企业微信机器人的门店；每店只显示一个主 PMS，未绑定机器人门店不进入监控名单。携程、美团、主 PMS 与企业微信回执按同日事实分别核验。</p>
+                <p class="mt-1.5 max-w-5xl text-sm leading-6 text-slate-600">监测当前账号有权限的全部营业门店；每店只显示一个主 PMS，未绑定企业微信机器人或未启用计划会保留为明确阻断。携程、美团、主 PMS 与企业微信回执按同日事实分别核验。</p>
                 <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                     <span>最近核验：{{ automationMonitor.observed_at || '尚未取得' }}（北京时间）</span>
                     <span>每 {{ automationMonitor.refresh_interval_seconds || 60 }} 秒准实时刷新</span>
@@ -142,8 +142,8 @@
             </table>
         </div>
         <div v-else class="px-6 py-14 text-center">
-            <p class="text-sm font-medium text-slate-700">{{ automationMonitorStatusFilter === 'all' ? '当前没有已绑定企业微信机器人的可监控门店' : '当前筛选下没有门店记录' }}</p>
-            <p class="mt-2 text-xs text-slate-400">{{ automationMonitorStatusFilter === 'all' ? '请先在企业微信推送中为门店绑定并启用机器人。' : '可点击上方其他统计卡或状态筛选查看。' }}</p>
+            <p class="text-sm font-medium text-slate-700">{{ automationMonitorStatusFilter === 'all' ? '当前没有可监控的营业门店' : '当前筛选下没有门店记录' }}</p>
+            <p class="mt-2 text-xs text-slate-400">{{ automationMonitorStatusFilter === 'all' ? '请确认当前账号已有营业门店查看权限。' : '可点击上方其他统计卡或状态筛选查看。' }}</p>
         </div>
         <footer class="border-t border-slate-100 bg-[#fbfcfb] px-4 py-3 text-xs leading-5 text-slate-500">
             数据成功必须满足同门店、同日期、保存与数据库回读；推送成功必须取得企业微信送达回执。缺数据、绑定冲突、日期不一致或结果未知都会保留为待处理状态，不使用 0、旧数据或计划状态补成成功。

@@ -945,6 +945,33 @@ final class OnlineDataTest extends TestCase
         );
     }
 
+    public function testMeituanAggregateReviewKeepsMissingScoreNull(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-1',
+            'poiId' => 'poi-1',
+            'poiName' => 'Meituan Hotel',
+            'defaultDataDate' => '2026-05-03',
+            'reviews' => [[
+                'commentCount' => 12,
+                'badReviewCount' => 2,
+            ]],
+        ], 7]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('review', $rows[0]['data_type']);
+        self::assertNull($rows[0]['comment_score']);
+        self::assertNull($rows[0]['qunar_comment_score']);
+        self::assertSame(12, $rows[0]['quantity']);
+        self::assertSame(2, $rows[0]['data_value']);
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        self::assertSame('missing', $raw['comment_score_status'] ?? null);
+        self::assertFalse((bool)($raw['comment_score_present'] ?? true));
+    }
+
     public function testMeituanDomCsvOrderRowsKeepBottomPriceOutOfRevenueAmount(): void
     {
         $controller = $this->controller();
@@ -1020,7 +1047,7 @@ final class OnlineDataTest extends TestCase
             ]],
             'trafficForecast' => [[
                 'dataDate' => '2026-07-01',
-                'forecast_type' => '2',
+                'forecast_type' => 'pv',
                 'current' => 88,
                 'peerAvg' => 120,
             ]],
@@ -1080,7 +1107,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(81, $rows[0]['list_exposure']);
         self::assertSame(14, $rows[0]['detail_exposure']);
         self::assertSame(2, $rows[0]['order_submit_num']);
-        self::assertSame(17.28, $rows[0]['flow_rate']);
+        self::assertSame(14.29, $rows[0]['flow_rate']);
         self::assertNull($rows[0]['order_filling_num']);
     }
 
@@ -6634,6 +6661,80 @@ final class OnlineDataTest extends TestCase
         self::assertSame(4, $metrics['orders']);
         self::assertSame(240.5, $metrics['cost']);
         self::assertSame(5.0, $metrics['click_rate']);
+    }
+
+    public function testCtripAdsKeepMissingMetricsNullWhilePreservingAvailableFacts(): void
+    {
+        $controller = $this->controller();
+        $row = $this->invokeNonPublic($controller, 'normalizeCtripCapturedAdRow', [[
+            'clicks' => 12,
+            'todayCost' => 30.5,
+            'effectTime' => '2026-05-18',
+        ], [
+            'hotel_id' => 'ctrip-58',
+            'hotel_name' => 'Ctrip Hotel',
+            'system_hotel_id' => 58,
+            'request_end_date' => '2026-05-18',
+        ]]);
+        $metrics = $this->invokeNonPublic($controller, 'summarizeCtripAdRows', [[$row]]);
+
+        self::assertNull($row['list_exposure']);
+        self::assertSame(12, $row['detail_exposure']);
+        self::assertNull($row['book_order_num']);
+        self::assertNull($row['quantity']);
+        self::assertSame(30.5, $row['amount']);
+        self::assertNull($row['comment_score']);
+        self::assertNull($row['qunar_comment_score']);
+        self::assertNull($metrics['exposure']);
+        self::assertSame(12, $metrics['clicks']);
+        self::assertNull($metrics['orders']);
+        self::assertSame(30.5, $metrics['cost']);
+        self::assertNull($metrics['click_rate']);
+    }
+
+    public function testCtripAdsPreserveExplicitZeroWithoutTreatingItAsMissing(): void
+    {
+        $controller = $this->controller();
+        $row = $this->invokeNonPublic($controller, 'normalizeCtripCapturedAdRow', [[
+            'impressions' => 0,
+            'clicks' => 0,
+            'bookings' => 0,
+            'nights' => 0,
+            'todayCost' => 0,
+            'effectTime' => '2026-05-18',
+        ], [
+            'hotel_id' => 'ctrip-58',
+            'hotel_name' => 'Ctrip Hotel',
+            'system_hotel_id' => 58,
+            'request_end_date' => '2026-05-18',
+        ]]);
+        $metrics = $this->invokeNonPublic($controller, 'summarizeCtripAdRows', [[$row]]);
+
+        self::assertSame(0, $row['list_exposure']);
+        self::assertSame(0, $row['detail_exposure']);
+        self::assertSame(0, $row['book_order_num']);
+        self::assertSame(0, $row['quantity']);
+        self::assertSame(0.0, $row['amount']);
+        self::assertSame(0, $metrics['exposure']);
+        self::assertSame(0, $metrics['clicks']);
+        self::assertSame(0, $metrics['orders']);
+        self::assertSame(0.0, $metrics['cost']);
+        self::assertNull($metrics['click_rate']);
+    }
+
+    public function testCtripAdsRejectRowsWithoutSourceOrRequestedBusinessDate(): void
+    {
+        $controller = $this->controller();
+        $row = $this->invokeNonPublic($controller, 'normalizeCtripCapturedAdRow', [[
+            'clicks' => 12,
+            'todayCost' => 30.5,
+        ], [
+            'hotel_id' => 'ctrip-58',
+            'hotel_name' => 'Ctrip Hotel',
+            'system_hotel_id' => 58,
+        ]]);
+
+        self::assertNull($row);
     }
 
     public function testCtripCpcCampaignReportRecordsMapToAdMetrics(): void

@@ -32,14 +32,19 @@ final class ManualNotificationBusinessPreviewService
     /** @var callable|null */
     private $collectionStateLoader;
 
+    /** @var callable|null */
+    private $forwardRoomStatusLoader;
+
     public function __construct(
         ?callable $temporalOverviewLoader = null,
         ?callable $trustedOtaFactLoader = null,
-        ?callable $collectionStateLoader = null
+        ?callable $collectionStateLoader = null,
+        ?callable $forwardRoomStatusLoader = null
     ) {
         $this->temporalOverviewLoader = $temporalOverviewLoader;
         $this->trustedOtaFactLoader = $trustedOtaFactLoader;
         $this->collectionStateLoader = $collectionStateLoader;
+        $this->forwardRoomStatusLoader = $forwardRoomStatusLoader;
     }
 
     /**
@@ -126,13 +131,44 @@ final class ManualNotificationBusinessPreviewService
         }
         $collectionState = is_array($collectionState) ? $collectionState : [];
 
+        try {
+            $pmsCapture = $this->forwardRoomStatusLoader === null
+                ? (new DingdandaoOperatingTargetCaptureService())->latest(
+                    $tenantId,
+                    $hotelId,
+                    $businessDate
+                )
+                : call_user_func(
+                    $this->forwardRoomStatusLoader,
+                    $tenantId,
+                    $hotelId,
+                    $businessDate
+                );
+        } catch (\Throwable $error) {
+            $pmsCapture = [
+                'status' => 'read_failed',
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+                'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+                'forward_room_status' => [
+                    'data_status' => 'partial',
+                    'readback_status' => 'not_verified',
+                    'gap_codes' => ['dingdandao_forward_read_failed'],
+                ],
+                'source_error' => self::safeText($error->getMessage(), 160),
+            ];
+        }
+        $pmsCapture = is_array($pmsCapture) ? $pmsCapture : [];
+
         return self::buildPreview(
             $hotel,
             $businessDate,
             $dailyReport,
             $temporal,
             $trustedOta,
-            $collectionState
+            $collectionState,
+            $pmsCapture
         );
     }
 
@@ -174,7 +210,8 @@ final class ManualNotificationBusinessPreviewService
         ?array $dailyReport,
         array $temporal,
         array $trustedOta = [],
-        array $collectionState = []
+        array $collectionState = [],
+        array $pmsCapture = []
     ): array {
         $businessDate = self::normalizeDate($businessDate);
         $hotelId = (int)($hotel['id'] ?? 0);
@@ -197,9 +234,22 @@ final class ManualNotificationBusinessPreviewService
             $hotelId,
             $businessDate
         );
-        $future = self::futureSection($temporal, $tenantId, $hotelId, $businessDate);
+        $pmsToday = self::pmsTodayFacts(
+            $pmsCapture,
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
+        $future = self::futureSection(
+            $temporal,
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $pmsCapture
+        );
         $review = self::reviewSection(
             $wholeHotel,
+            $pmsToday,
             $dailyReport !== null,
             $temporal,
             $tenantId,
@@ -217,6 +267,7 @@ final class ManualNotificationBusinessPreviewService
                 $wholeHotel['adr'],
                 $wholeHotel['revpar'],
             ],
+            $pmsToday['facts'],
             $otaToday['facts']
         );
         $todayGaps = [];
@@ -247,7 +298,11 @@ final class ManualNotificationBusinessPreviewService
                 }
             }
         }
-        $todayGaps = array_merge($todayGaps, $otaToday['gaps']);
+        $todayGaps = array_merge(
+            $todayGaps,
+            $pmsToday['gaps'],
+            $otaToday['gaps']
+        );
         $today = self::sectionResult(
             'today_revenue_management',
             '今日收益管理',
@@ -256,6 +311,66 @@ final class ManualNotificationBusinessPreviewService
             $todayGaps
         );
         $today['ota_collection'] = $otaToday['collection'];
+        $today['message_data'] = [
+            'contract_version' => 'three_source_today_message_facts.v1',
+            'data_status' => self::threeSourceMessageDataStatus(
+                $pmsToday['message_data'],
+                $otaToday['source_snapshots']
+            ),
+            'business_date' => $businessDate,
+            'fact_scope' => 'three_sources_kept_independent',
+            'sources' => array_merge(
+                ['dingdandao_pms' => $pmsToday['message_data']],
+                $otaToday['source_snapshots']
+            ),
+            'aggregation_policy' => self::messageAggregationPolicy(),
+        ];
+        if (is_array($future['message_data'] ?? null)) {
+            $future['message_data']['sources'] = [
+                'dingdandao_pms' => [
+                    'data_status' => (string)($future['message_data']['data_status'] ?? 'missing'),
+                    'business_scope' => 'whole_hotel_forward_room_status',
+                    'source' => $future['message_data']['source'] ?? null,
+                ],
+                'ctrip_ota' => $otaToday['source_snapshots']['ctrip_ota'],
+                'meituan_ota' => $otaToday['source_snapshots']['meituan_ota'],
+            ];
+            $future['message_data']['aggregation_policy'] =
+                self::messageAggregationPolicy();
+            $future['message_data']['three_source_data_status'] =
+                self::threeSourceMessageDataStatus(
+                    [
+                        'data_status' => (string)(
+                            $future['message_data']['data_status']
+                            ?? 'missing'
+                        ),
+                    ],
+                    $otaToday['source_snapshots']
+                );
+        }
+        $review['message_data'] = [
+            'contract_version' => 'three_source_daily_review_message_facts.v1',
+            'data_status' => ($pmsToday['message_data']['data_status'] ?? '')
+                === 'readback_verified'
+                ? (
+                    self::threeSourceMessageDataStatus(
+                        $pmsToday['message_data'],
+                        $otaToday['source_snapshots']
+                    ) === 'readback_verified'
+                    && (string)($review['status'] ?? 'blocked') === 'ready'
+                        ? 'readback_verified'
+                        : 'partial'
+                )
+                : 'blocked',
+            'business_date' => $businessDate,
+            'snapshot_role' => 'latest_verified_snapshot_not_end_of_day_final',
+            'sources' => array_merge(
+                ['dingdandao_pms' => $pmsToday['message_data']],
+                $otaToday['source_snapshots']
+            ),
+            'review_items' => array_values((array)($review['reviews'] ?? [])),
+            'aggregation_policy' => self::messageAggregationPolicy(),
+        ];
 
         $sections = [
             'today_revenue_management' => $today,
@@ -360,7 +475,8 @@ final class ManualNotificationBusinessPreviewService
      * @return array{
      *   facts:array<int,array<string,mixed>>,
      *   gaps:array<int,array<string,mixed>>,
-     *   collection:array<string,mixed>
+     *   collection:array<string,mixed>,
+     *   source_snapshots:array<string,array<string,mixed>>
      * }
      */
     private static function otaTodayFacts(
@@ -381,6 +497,20 @@ final class ManualNotificationBusinessPreviewService
                 if (!is_array($row) || (string)($row['data_date'] ?? '') !== $businessDate) {
                     continue;
                 }
+                if (array_key_exists('system_hotel_id', $row)
+                    && (int)($row['system_hotel_id'] ?? 0) !== $hotelId
+                ) {
+                    continue;
+                }
+                if (array_key_exists('readback_verified', $row)
+                    && !in_array(
+                        $row['readback_verified'],
+                        [1, '1', true, 'true'],
+                        true
+                    )
+                ) {
+                    continue;
+                }
                 $platform = self::platform((string)($row['source'] ?? ''));
                 if (!in_array($platform, ['ctrip', 'meituan'], true)) {
                     continue;
@@ -396,9 +526,30 @@ final class ManualNotificationBusinessPreviewService
             'ota_orders' => self::sumMetric($trustedRows, 'book_order_num'),
             'ota_room_nights' => self::sumMetric($trustedRows, 'quantity'),
         ];
+        $collection = self::normalizeCollectionState(
+            $collectionState,
+            $platforms,
+            $hotelId,
+            $businessDate
+        );
+        $sourceSnapshots = self::otaSourceSnapshots(
+            $trustedRows,
+            $collection,
+            $tenantId,
+            $hotelId,
+            $businessDate,
+            $trustedOta
+        );
+        $verifiedSourceCount = count(array_filter(
+            $sourceSnapshots,
+            static fn(array $snapshot): bool =>
+                ($snapshot['data_status'] ?? '') === 'readback_verified'
+        ));
         $qualityStatus = $trustedRows === []
             ? (string)($trustedOta['data_status'] ?? 'pending')
-            : (count($platforms) === 2 ? 'readback_verified' : 'partial_readback_verified');
+            : ($verifiedSourceCount === 2
+                ? 'readback_verified'
+                : 'partial_readback_verified');
         $source = [
             'table' => 'online_daily_data',
             'tenant_id' => $tenantId,
@@ -407,7 +558,7 @@ final class ManualNotificationBusinessPreviewService
             'metric_scope' => 'ota_channel',
             'platforms' => $platforms,
             'quality_status' => $qualityStatus,
-            'readback_verified' => $trustedRows !== [],
+            'readback_verified' => $verifiedSourceCount > 0,
             'readback_policy' => $sourcePolicy['readback_policy'] ?? 'not_verified',
             'trusted_row_count' => count($trustedRows),
         ];
@@ -424,12 +575,6 @@ final class ManualNotificationBusinessPreviewService
             $available += $value !== null ? 1 : 0;
         }
 
-        $collection = self::normalizeCollectionState(
-            $collectionState,
-            $platforms,
-            $hotelId,
-            $businessDate
-        );
         $gaps = [];
         foreach ((array)($collection['platforms'] ?? []) as $platform => $state) {
             if (!is_array($state) || ($state['status'] ?? '') === 'readback_verified') {
@@ -461,12 +606,362 @@ final class ManualNotificationBusinessPreviewService
                 $businessDate
             );
         }
+        $repositoryGapCodes = self::otaGapCodes($trustedOta['data_gaps'] ?? []);
+        if ($repositoryGapCodes !== []) {
+            $gaps[] = self::gap(
+                'trusted_ota_fact_evidence_partial',
+                '可信 OTA 回读仍有字段或证据缺口：'
+                    . implode('、', array_slice($repositoryGapCodes, 0, 3))
+                    . '。',
+                'partial_readback_verified',
+                'online_daily_data',
+                $hotelId,
+                $businessDate
+            );
+        }
 
         return [
             'facts' => $facts,
             'gaps' => $gaps,
             'collection' => $collection,
+            'source_snapshots' => $sourceSnapshots,
         ];
+    }
+
+    /**
+     * @return array{
+     *   facts:list<array<string,mixed>>,
+     *   gaps:list<array<string,mixed>>,
+     *   message_data:array<string,mixed>
+     * }
+     */
+    private static function pmsTodayFacts(
+        array $capture,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        $summary = is_array($capture['summary'] ?? null)
+            ? $capture['summary']
+            : [];
+        $source = [
+            'table' => 'dingdandao_operating_target_captures',
+            'record_id' => isset($capture['id']) && is_numeric($capture['id'])
+                ? (int)$capture['id']
+                : null,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'data_date' => $businessDate,
+            'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+            'business_scope' => 'accommodation_room_fee',
+            'quality_status' => (string)($capture['quality_status'] ?? 'not_verified'),
+            'readback_status' => (string)($capture['readback_status'] ?? 'not_verified'),
+            'captured_at' => self::safeText((string)($capture['captured_at'] ?? ''), 32),
+        ];
+        $trusted = self::pmsTodayCaptureTrusted(
+            $capture,
+            $summary,
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
+        $map = [
+            'pms_room_fee' => ['订单来了住宿房费', '元', 'total_room_fee', 'source_fact'],
+            'pms_sold_room_nights' => ['订单来了已售间夜', '间夜', 'sold_room_nights', 'source_fact'],
+            'pms_sellable_room_nights' => ['订单来了可售间夜', '间夜', 'derived_sellable_room_nights', 'derived_metric'],
+            'pms_occupancy_rate' => ['订单来了入住率', '%', 'occupancy_rate_percent', 'source_fact'],
+            'pms_adr' => ['订单来了 ADR', '元', 'adr', 'source_fact'],
+            'pms_revpar' => ['订单来了 RevPAR', '元', 'revpar', 'source_fact'],
+        ];
+        $facts = [];
+        if ($trusted) {
+            $source['quality_status'] = 'readback_verified';
+            foreach ($map as $key => [$label, $unit, $field, $basis]) {
+                $facts[] = self::factField(
+                    $key,
+                    $label,
+                    self::numeric($summary[$field] ?? null),
+                    $unit,
+                    $basis,
+                    'accommodation_room_fee',
+                    $source
+                );
+            }
+            $sold = (int)$summary['sold_room_nights'];
+            $sellable = (int)$summary['derived_sellable_room_nights'];
+            $remaining = max(0, $sellable - $sold);
+            $facts[] = self::factField(
+                'pms_remaining_sellable_room_nights',
+                '订单来了剩余可售间夜',
+                $remaining,
+                '间夜',
+                'derived_metric',
+                'accommodation_room_fee',
+                $source
+            );
+            return [
+                'facts' => $facts,
+                'gaps' => [],
+                'message_data' => [
+                    'contract_version' => 'dingdandao_today_message_facts.v1',
+                    'data_status' => 'readback_verified',
+                    'business_scope' => 'accommodation_room_fee',
+                    'business_date' => $businessDate,
+                    'facts' => [
+                        'room_fee' => round((float)$summary['total_room_fee'], 2),
+                        'sold_room_nights' => $sold,
+                        'sellable_room_nights' => $sellable,
+                        'remaining_sellable_room_nights' => $remaining,
+                        'occupancy_rate_percent' => round(
+                            (float)$summary['occupancy_rate_percent'],
+                            2
+                        ),
+                        'adr' => round((float)$summary['adr'], 2),
+                        'revpar' => round((float)$summary['revpar'], 2),
+                    ],
+                    'source' => $source,
+                    'allowed_uses' => [
+                        'notification_preview',
+                        'pms_accommodation_revenue_analysis',
+                        'cross_source_comparison_without_addition',
+                    ],
+                ],
+            ];
+        }
+
+        $status = ($capture['status'] ?? '') === 'read_failed'
+            ? 'collection_failed'
+            : (($capture['readback_status'] ?? '') === 'pending'
+                ? 'pending_readback'
+                : 'missing');
+        foreach ($map as $key => [$label, $unit]) {
+            $facts[] = self::missingField(
+                $key,
+                $label,
+                $unit,
+                'accommodation_room_fee',
+                $source,
+                $status
+            );
+        }
+        $facts[] = self::missingField(
+            'pms_remaining_sellable_room_nights',
+            '订单来了剩余可售间夜',
+            '间夜',
+            'accommodation_room_fee',
+            $source,
+            $status
+        );
+        return [
+            'facts' => $facts,
+            'gaps' => [
+                self::gap(
+                    'dingdandao_today_capture_readback_not_verified',
+                    '订单来了当天住宿事实尚未通过同酒店、同日期、身份、字段对账和数据库回读门禁。',
+                    $status,
+                    'dingdandao_operating_target_captures',
+                    $hotelId,
+                    $businessDate
+                ),
+            ],
+            'message_data' => [
+                'contract_version' => 'dingdandao_today_message_facts.v1',
+                'data_status' => $status,
+                'business_scope' => 'accommodation_room_fee',
+                'business_date' => $businessDate,
+                'facts' => [
+                    'room_fee' => null,
+                    'sold_room_nights' => null,
+                    'sellable_room_nights' => null,
+                    'remaining_sellable_room_nights' => null,
+                    'occupancy_rate_percent' => null,
+                    'adr' => null,
+                    'revpar' => null,
+                ],
+                'source' => $source,
+                'allowed_uses' => [],
+            ],
+        ];
+    }
+
+    private static function pmsTodayCaptureTrusted(
+        array $capture,
+        array $summary,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): bool {
+        if ((int)($capture['tenant_id'] ?? 0) !== $tenantId
+            || (int)($capture['hotel_id'] ?? 0) !== $hotelId
+            || (string)($capture['business_date'] ?? '') !== $businessDate
+            || (string)($capture['provider'] ?? '')
+                !== DingdandaoOperatingTargetCaptureService::PROVIDER
+            || ($capture['quality_status'] ?? '') !== 'verified'
+            || ($capture['capture_status'] ?? '') !== 'verified'
+            || ($capture['identity_status'] ?? '') !== 'matched'
+            || ($capture['reconciliation_status'] ?? '') !== 'matched'
+            || ($capture['readback_status'] ?? '') !== 'readback_verified'
+        ) {
+            return false;
+        }
+        $required = [
+            'total_room_fee',
+            'sold_room_nights',
+            'derived_sellable_room_nights',
+            'occupancy_rate_percent',
+            'adr',
+            'revpar',
+        ];
+        foreach ($required as $key) {
+            if (self::numeric($summary[$key] ?? null) === null) {
+                return false;
+            }
+        }
+        $fee = (float)$summary['total_room_fee'];
+        $sold = (int)$summary['sold_room_nights'];
+        $sellable = (int)$summary['derived_sellable_room_nights'];
+        $occupancy = (float)$summary['occupancy_rate_percent'];
+        $adr = (float)$summary['adr'];
+        $revpar = (float)$summary['revpar'];
+        if ($fee < 0 || $sold < 0 || $sellable <= 0 || $sold > $sellable
+            || $occupancy < 0 || $occupancy > 100 || $adr < 0 || $revpar < 0
+        ) {
+            return false;
+        }
+        $expectedOccupancy = round($sold / $sellable * 100, 2);
+        $expectedAdr = $sold > 0 ? round($fee / $sold, 2) : 0.0;
+        $expectedRevpar = round($fee / $sellable, 2);
+        return abs($occupancy - $expectedOccupancy) <= 0.02
+            && abs($adr - $expectedAdr) <= 0.02
+            && abs($revpar - $expectedRevpar) <= 0.02;
+    }
+
+    /**
+     * @param list<array<string,mixed>> $trustedRows
+     * @return array<string,array<string,mixed>>
+     */
+    private static function otaSourceSnapshots(
+        array $trustedRows,
+        array $collection,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        array $trustedOta
+    ): array {
+        $snapshots = [];
+        $repositoryGapCodes = self::otaGapCodes($trustedOta['data_gaps'] ?? []);
+        $repositoryReady = ($trustedOta['data_status'] ?? '') === 'ready'
+            && $repositoryGapCodes === [];
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $rows = array_values(array_filter(
+                $trustedRows,
+                static fn(array $row): bool => ($row['source'] ?? '') === $platform
+            ));
+            $state = is_array($collection['platforms'][$platform] ?? null)
+                ? $collection['platforms'][$platform]
+                : [];
+            $facts = [
+                'revenue' => self::sumMetric($rows, 'amount'),
+                'orders' => self::sumMetric($rows, 'book_order_num'),
+                'room_nights' => self::sumMetric($rows, 'quantity'),
+            ];
+            $missingMetrics = [];
+            foreach ($facts as $key => $value) {
+                if (self::numeric($value) === null) {
+                    $missingMetrics[] = 'ota_' . $platform . '_' . $key . '_missing';
+                }
+            }
+            $provenanceComplete = $rows !== []
+                && count(array_filter(
+                    $rows,
+                    static fn(array $row): bool =>
+                        self::otaRowProvenanceTrusted($row, $hotelId)
+                )) === count($rows);
+            $dataStatus = $rows === []
+                ? (string)($state['status'] ?? 'pending_collection')
+                : (
+                    $repositoryReady
+                    && $missingMetrics === []
+                    && $provenanceComplete
+                        ? 'readback_verified'
+                        : 'partial_readback_verified'
+                );
+            $gapCodes = array_values(array_unique(array_merge(
+                $repositoryGapCodes,
+                $missingMetrics,
+                $provenanceComplete || $rows === []
+                    ? []
+                    : ['ota_' . $platform . '_provenance_incomplete']
+            )));
+            $snapshots[$platform . '_ota'] = [
+                'contract_version' => 'ota_channel_message_facts.v1',
+                'data_status' => $dataStatus,
+                'business_scope' => 'ota_channel',
+                'business_date' => $businessDate,
+                'platform' => $platform,
+                'facts' => $facts,
+                'gap_codes' => $gapCodes,
+                'source' => [
+                    'table' => 'online_daily_data',
+                    'tenant_id' => $tenantId,
+                    'system_hotel_id' => $hotelId,
+                    'data_date' => $businessDate,
+                    'platform' => $platform,
+                    'readback_status' => $dataStatus,
+                    'trusted_row_count' => count($rows),
+                    'row_ids' => self::positiveIntList(array_column($rows, 'row_id')),
+                    'source_trace_ids' => self::safeStringList(
+                        array_column($rows, 'source_trace_id'),
+                        100
+                    ),
+                    'sync_task_ids' => self::positiveIntList(
+                        array_column($rows, 'sync_task_id')
+                    ),
+                    'data_source_ids' => self::positiveIntList(
+                        array_column($rows, 'data_source_id')
+                    ),
+                    'task_id' => isset($state['task_id']) && is_numeric($state['task_id'])
+                        ? (int)$state['task_id']
+                        : null,
+                ],
+                'allowed_uses' => $dataStatus === 'readback_verified'
+                    ? [
+                        'ota_channel_analysis',
+                        'cross_source_comparison_without_addition',
+                    ]
+                    : ['source_status_monitoring'],
+            ];
+        }
+        return $snapshots;
+    }
+
+    /** @return array<string,mixed> */
+    private static function messageAggregationPolicy(): array
+    {
+        return [
+            'pms_plus_ota_revenue_addition_allowed' => false,
+            'missing_source_value' => null,
+            'cross_source_comparison_requires_same_hotel_and_date' => true,
+            'ota_scope' => 'ota_channel',
+            'pms_scope' => 'accommodation_room_fee',
+        ];
+    }
+
+    private static function threeSourceMessageDataStatus(
+        array $pms,
+        array $otaSnapshots
+    ): string {
+        if (($pms['data_status'] ?? '') !== 'readback_verified') {
+            return 'blocked';
+        }
+        foreach (['ctrip_ota', 'meituan_ota'] as $sourceKey) {
+            if (($otaSnapshots[$sourceKey]['data_status'] ?? '')
+                !== 'readback_verified'
+            ) {
+                return 'partial';
+            }
+        }
+        return 'readback_verified';
     }
 
     /** @param array<string, mixed> $temporal @return array<string, mixed> */
@@ -474,7 +969,8 @@ final class ManualNotificationBusinessPreviewService
         array $temporal,
         int $tenantId,
         int $hotelId,
-        string $businessDate
+        string $businessDate,
+        array $pmsCapture = []
     ): array {
         $roomSource = [
             'table' => null,
@@ -499,6 +995,17 @@ final class ManualNotificationBusinessPreviewService
                 $businessDate
             ),
         ];
+        $pmsForward = null;
+        if ($pmsCapture !== []) {
+            $pmsForward = self::pmsForwardFacts(
+                $pmsCapture,
+                $tenantId,
+                $hotelId,
+                $businessDate
+            );
+            $facts = $pmsForward['facts'];
+            $gaps = $pmsForward['gaps'];
+        }
 
         $future = is_array($temporal['future'] ?? null) ? $temporal['future'] : [];
         $version = is_array($future['version'] ?? null) ? $future['version'] : [];
@@ -559,28 +1066,451 @@ final class ManualNotificationBusinessPreviewService
             );
         }
 
-        return self::sectionResult('future_room_status', '远期房态', $facts, $forecasts, $gaps);
+        $section = self::sectionResult(
+            'future_room_status',
+            '远期房态',
+            $facts,
+            $forecasts,
+            $gaps
+        );
+        $section['message_data'] = is_array($pmsForward)
+            ? $pmsForward['message_data']
+            : null;
+        return $section;
+    }
+
+    /**
+     * @return array{
+     *   facts:list<array<string,mixed>>,
+     *   gaps:list<array<string,mixed>>,
+     *   message_data:array<string,mixed>
+     * }
+     */
+    private static function pmsForwardFacts(
+        array $capture,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        $forward = is_array($capture['forward_room_status'] ?? null)
+            ? $capture['forward_room_status']
+            : [];
+        $source = [
+            'table' => 'dingdandao_operating_target_captures',
+            'record_id' => isset($capture['id']) && is_numeric($capture['id'])
+                ? (int)$capture['id']
+                : null,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'data_date' => $businessDate,
+            'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+            'source_api_path' => '/v2/hm-b/pro/web/accom/roomStat/forward/v2',
+            'metric_scope' => 'whole_hotel_forward_room_status',
+            'quality_status' => 'not_verified',
+            'readback_status' => (string)(
+                $forward['readback_status']
+                ?? $capture['readback_status']
+                ?? 'not_verified'
+            ),
+            'captured_at' => self::safeText(
+                (string)($capture['captured_at'] ?? $forward['captured_at'] ?? ''),
+                32
+            ),
+        ];
+        $trusted = self::pmsForwardCaptureTrusted(
+            $capture,
+            $forward,
+            $tenantId,
+            $hotelId,
+            $businessDate
+        );
+        $horizon = $trusted ? self::forwardHorizon($forward, 7) : null;
+        $dailyRows = $trusted
+            ? self::forwardMessageDailyRows($forward, $businessDate)
+            : [];
+        $messageHorizons = $trusted ? self::forwardMessageHorizons($forward) : [];
+        $messageRoomTypes = $trusted
+            ? self::forwardMessageRoomTypes($forward, $businessDate)
+            : [];
+        if (!is_array($horizon)
+            || count($dailyRows) !== 21
+            || count($messageHorizons) !== 4
+            || count($messageRoomTypes)
+                !== (int)($forward['source_room_type_count'] ?? 0)
+        ) {
+            $trusted = false;
+        }
+        $metricMap = [
+            'future_sellable_room_nights' => [
+                '未来7天可售房晚',
+                '间夜',
+                'sellable_room_nights',
+            ],
+            'future_booked_room_nights' => [
+                '未来7天已订房晚',
+                '间夜',
+                'booked_room_nights',
+            ],
+            'future_remaining_sellable_room_nights' => [
+                '未来7天剩余可售房晚',
+                '间夜',
+                'remaining_sellable_room_nights',
+            ],
+            'future_occupancy_rate' => [
+                '未来7天累计入住率',
+                '%',
+                'occupancy_rate_percent',
+            ],
+            'future_room_fee' => [
+                '未来7天累计房费',
+                '元',
+                'room_fee',
+            ],
+            'future_adr' => ['未来7天 ADR', '元', 'adr'],
+            'future_revpar' => ['未来7天 RevPAR', '元', 'revpar'],
+        ];
+        $facts = [];
+        if ($trusted) {
+            $source['quality_status'] = 'readback_verified';
+            foreach ($metricMap as $key => [$label, $unit, $field]) {
+                $fact = self::factField(
+                    $key,
+                    $label,
+                    self::numeric($horizon[$field] ?? null),
+                    $unit,
+                    'source_fact_or_reconciled_metric',
+                    'whole_hotel_forward_room_status',
+                    $source
+                );
+                $fact['horizon_days'] = 7;
+                $fact['date_from'] = $horizon['date_from'];
+                $fact['date_to'] = $horizon['date_to'];
+                $facts[] = $fact;
+            }
+            return [
+                'facts' => $facts,
+                'gaps' => [],
+                'message_data' => [
+                    'contract_version' => 'dingdandao_forward_message_facts.v1',
+                    'data_status' => 'readback_verified',
+                    'fact_scope' => 'whole_hotel_forward_room_status',
+                    'as_of_date' => $businessDate,
+                    'display_horizons' => [3, 7, 14, 21],
+                    'default_horizon_days' => 7,
+                    'source_day_count' => (int)$forward['source_day_count'],
+                    'display_day_count' => count($dailyRows),
+                    'source_coverage_status' => (string)(
+                        $forward['source_coverage_status'] ?? 'complete'
+                    ),
+                    'source_gap_codes' => array_values((array)(
+                        $forward['source_gap_codes'] ?? []
+                    )),
+                    'requested_range_end_date' =>
+                        $forward['requested_range_end_date'] ?? null,
+                    'total_room_count' => (int)$forward['total_room_count'],
+                    'horizons' => $messageHorizons,
+                    'daily_rows' => $dailyRows,
+                    'room_types' => $messageRoomTypes,
+                    'source' => $source,
+                ],
+            ];
+        }
+
+        $status = ($capture['status'] ?? '') === 'read_failed'
+            ? 'collection_failed'
+            : (($capture['readback_status'] ?? '') === 'pending'
+                ? 'pending_readback'
+                : 'missing');
+        foreach ($metricMap as $key => [$label, $unit]) {
+            $facts[] = self::missingField(
+                $key,
+                $label,
+                $unit,
+                'whole_hotel_forward_room_status',
+                $source,
+                $status
+            );
+        }
+        return [
+            'facts' => $facts,
+            'gaps' => [
+                self::gap(
+                    'whole_hotel_forward_room_status_readback_not_verified',
+                    '订单来了远期房态尚未通过同酒店、同日期、字段对账和数据库回读门禁；OTA 预测不替代该事实。',
+                    $status,
+                    'dingdandao_operating_target_captures',
+                    $hotelId,
+                    $businessDate
+                ),
+            ],
+            'message_data' => [
+                'contract_version' => 'dingdandao_forward_message_facts.v1',
+                'data_status' => $status,
+                'fact_scope' => 'whole_hotel_forward_room_status',
+                'as_of_date' => $businessDate,
+                'display_horizons' => [3, 7, 14, 21],
+                'default_horizon_days' => 7,
+                'source_day_count' => 0,
+                'display_day_count' => 0,
+                'source_coverage_status' => 'missing',
+                'source_gap_codes' => array_values((array)(
+                    $forward['source_gap_codes']
+                    ?? $forward['gap_codes']
+                    ?? []
+                )),
+                'requested_range_end_date' =>
+                    $forward['requested_range_end_date'] ?? null,
+                'total_room_count' => null,
+                'horizons' => [],
+                'daily_rows' => [],
+                'room_types' => [],
+                'source' => $source,
+            ],
+        ];
+    }
+
+    private static function pmsForwardCaptureTrusted(
+        array $capture,
+        array $forward,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate
+    ): bool {
+        $sourceDayCount = (int)($forward['source_day_count'] ?? 0);
+        $sourceCoverageStatus = (string)($forward['source_coverage_status'] ?? '');
+        $sourceGapCodes = array_values((array)($forward['source_gap_codes'] ?? []));
+        return (int)($capture['tenant_id'] ?? 0) === $tenantId
+            && (int)($capture['hotel_id'] ?? 0) === $hotelId
+            && (string)($capture['business_date'] ?? '') === $businessDate
+            && (string)($capture['provider'] ?? '')
+                === DingdandaoOperatingTargetCaptureService::PROVIDER
+            && ($capture['quality_status'] ?? '') === 'verified'
+            && ($capture['capture_status'] ?? '') === 'verified'
+            && ($capture['identity_status'] ?? '') === 'matched'
+            && ($capture['reconciliation_status'] ?? '') === 'matched'
+            && ($capture['readback_status'] ?? '') === 'readback_verified'
+            && ($forward['contract_version'] ?? '')
+                === 'dingdandao_forward_room_status.v1'
+            && ($forward['fact_scope'] ?? '')
+                === 'whole_hotel_forward_room_status'
+            && ($forward['source_api_path'] ?? '')
+                === '/v2/hm-b/pro/web/accom/roomStat/forward/v2'
+            && ($forward['data_status'] ?? '') === 'verified'
+            && ($forward['readback_status'] ?? '') === 'readback_verified'
+            && ($forward['as_of_date'] ?? '') === $businessDate
+            && ($forward['range_start_date'] ?? '') === $businessDate
+            && ($forward['requested_range_start_date'] ?? '') === $businessDate
+            && ($forward['requested_range_end_date'] ?? '')
+                === self::shiftDate($businessDate, 30)
+            && $sourceDayCount >= 22
+            && $sourceDayCount <= 31
+            && ($forward['range_end_date'] ?? '')
+                === self::shiftDate($businessDate, $sourceDayCount - 1)
+            && (int)($forward['display_day_count'] ?? 0) === 21
+            && ($forward['display_semantics'] ?? '')
+                === 'future_days_after_as_of_date'
+            && (int)($forward['source_room_type_count'] ?? 0) > 0
+            && (int)($forward['total_room_count'] ?? 0) > 0
+            && (array)($forward['display_horizons'] ?? []) === [3, 7, 14, 21]
+            && (
+                (
+                    $sourceCoverageStatus === 'complete'
+                    && $sourceDayCount === 31
+                    && $sourceGapCodes === []
+                )
+                || (
+                    $sourceCoverageStatus === 'partial'
+                    && $sourceDayCount < 31
+                    && $sourceGapCodes === [
+                        'dingdandao_forward_trailing_coverage_partial',
+                    ]
+                )
+            )
+            && ($forward['reconciliation_status'] ?? '') === 'matched'
+            && (array)($forward['gap_codes'] ?? []) === [];
+    }
+
+    /** @return array<string,mixed>|null */
+    private static function forwardHorizon(array $forward, int $days): ?array
+    {
+        foreach ((array)($forward['horizons'] ?? []) as $row) {
+            if (!is_array($row)
+                || (int)($row['horizon_days'] ?? 0) !== $days
+                || ($row['quality_status'] ?? '') !== 'verified'
+                || (int)($row['expected_days'] ?? 0) !== $days
+                || (int)($row['covered_days'] ?? 0) !== $days
+                || (array)($row['gap_codes'] ?? []) !== []
+            ) {
+                continue;
+            }
+            foreach ([
+                'sellable_room_nights',
+                'booked_room_nights',
+                'remaining_sellable_room_nights',
+                'unavailable_room_nights',
+                'room_fee',
+                'occupancy_rate_percent',
+                'adr',
+                'revpar',
+            ] as $field) {
+                if (self::numeric($row[$field] ?? null) === null) {
+                    continue 2;
+                }
+            }
+            return $row;
+        }
+        return null;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function forwardMessageHorizons(array $forward): array
+    {
+        $result = [];
+        foreach ([3, 7, 14, 21] as $days) {
+            $row = self::forwardHorizon($forward, $days);
+            if (!is_array($row)) {
+                return [];
+            }
+            $result[] = [
+                'horizon_days' => $days,
+                'date_from' => (string)$row['date_from'],
+                'date_to' => (string)$row['date_to'],
+                'covered_days' => (int)$row['covered_days'],
+                'expected_days' => (int)$row['expected_days'],
+                'sellable_room_nights' => self::numeric($row['sellable_room_nights']),
+                'booked_room_nights' => self::numeric($row['booked_room_nights']),
+                'remaining_sellable_room_nights' =>
+                    self::numeric($row['remaining_sellable_room_nights']),
+                'unavailable_room_nights' =>
+                    self::numeric($row['unavailable_room_nights']),
+                'room_fee' => self::numeric($row['room_fee']),
+                'occupancy_rate_percent' =>
+                    self::numeric($row['occupancy_rate_percent']),
+                'adr' => self::numeric($row['adr']),
+                'revpar' => self::numeric($row['revpar']),
+                'quality_status' => 'verified',
+            ];
+        }
+        return $result;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function forwardMessageDailyRows(
+        array $forward,
+        string $businessDate
+    ): array {
+        $byDate = [];
+        foreach ((array)($forward['daily_rows'] ?? []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $date = trim((string)($row['stay_date'] ?? ''));
+            if (!self::isDate($date)) {
+                continue;
+            }
+            $normalized = self::forwardMessageDay($row, $date);
+            if ($normalized !== null) {
+                $byDate[$date] = $normalized;
+            }
+        }
+        $result = [];
+        for ($offset = 1; $offset <= 21; $offset++) {
+            $date = self::shiftDate($businessDate, $offset);
+            if (!isset($byDate[$date])) {
+                return [];
+            }
+            $result[] = $byDate[$date];
+        }
+        return $result;
+    }
+
+    /** @return array<string,mixed>|null */
+    private static function forwardMessageDay(array $row, string $date): ?array
+    {
+        $result = ['stay_date' => $date];
+        foreach ([
+            'remaining_sellable_rooms',
+            'booked_rooms',
+            'unavailable_rooms',
+            'room_fee',
+            'sold_room_nights',
+            'sellable_room_nights',
+            'occupancy_rate_percent',
+            'adr',
+            'revpar',
+        ] as $field) {
+            $value = self::numeric($row[$field] ?? null);
+            if ($value === null) {
+                return null;
+            }
+            $result[$field] = $value;
+        }
+        return $result;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function forwardMessageRoomTypes(
+        array $forward,
+        string $businessDate
+    ): array {
+        $result = [];
+        foreach ((array)($forward['room_types'] ?? []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $id = self::safeText((string)($row['provider_room_type_id'] ?? ''), 120);
+            $name = self::safeText((string)($row['room_type_name'] ?? ''), 160);
+            $roomCount = self::numeric($row['room_count'] ?? null);
+            $dailyRows = self::forwardMessageDailyRows(
+                ['daily_rows' => (array)($row['daily_rows'] ?? [])],
+                $businessDate
+            );
+            if ($id === '' || $name === '' || $roomCount === null || count($dailyRows) !== 21) {
+                continue;
+            }
+            $result[] = [
+                'provider_room_type_id' => $id,
+                'room_type_name' => $name,
+                'room_count' => $roomCount,
+                'daily_rows' => $dailyRows,
+            ];
+        }
+        return $result;
+    }
+
+    private static function shiftDate(string $date, int $days): string
+    {
+        $value = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        if (!$value instanceof DateTimeImmutable || $value->format('Y-m-d') !== $date) {
+            throw new InvalidArgumentException('business_preview_date_invalid');
+        }
+        return $value->modify(($days >= 0 ? '+' : '') . $days . ' days')->format('Y-m-d');
     }
 
     /**
      * @param array<string, array<string, mixed>> $wholeHotel
+     * @param array<string, mixed> $pmsToday
      * @param array<string, mixed> $temporal
      * @return array<string, mixed>
      */
     private static function reviewSection(
         array $wholeHotel,
+        array $pmsToday,
         bool $hasDailyReport,
         array $temporal,
         int $tenantId,
         int $hotelId,
         string $businessDate
     ): array {
-        $facts = [
-            $wholeHotel['revenue'],
-            $wholeHotel['sold_room_nights'],
-            $wholeHotel['occupancy_rate'],
-        ];
-        $gaps = [];
+        $facts = array_merge(
+            [
+                $wholeHotel['revenue'],
+                $wholeHotel['sold_room_nights'],
+                $wholeHotel['occupancy_rate'],
+            ],
+            array_values((array)($pmsToday['facts'] ?? []))
+        );
+        $gaps = array_values((array)($pmsToday['gaps'] ?? []));
         if (!$hasDailyReport) {
             $gaps[] = self::gap(
                 'exact_date_whole_hotel_review_missing',
@@ -923,6 +1853,56 @@ final class ManualNotificationBusinessPreviewService
             $observed = true;
         }
         return $observed ? self::numeric($sum) : null;
+    }
+
+    /** @return list<string> */
+    private static function otaGapCodes(mixed $value): array
+    {
+        $codes = [];
+        foreach ((array)$value as $candidate) {
+            $candidate = strtolower(trim((string)$candidate));
+            if (preg_match('/^[a-z0-9][a-z0-9_:-]{0,119}$/', $candidate) === 1) {
+                $codes[$candidate] = $candidate;
+            }
+        }
+        return array_values($codes);
+    }
+
+    private static function otaRowProvenanceTrusted(array $row, int $hotelId): bool
+    {
+        return (int)($row['row_id'] ?? 0) > 0
+            && (int)($row['system_hotel_id'] ?? 0) === $hotelId
+            && in_array(
+                $row['readback_verified'] ?? null,
+                [1, '1', true, 'true'],
+                true
+            )
+            && trim((string)($row['source_trace_id'] ?? '')) !== '';
+    }
+
+    /** @return list<int> */
+    private static function positiveIntList(array $values): array
+    {
+        $result = [];
+        foreach ($values as $value) {
+            if (is_numeric($value) && (int)$value > 0) {
+                $result[(int)$value] = (int)$value;
+            }
+        }
+        return array_values($result);
+    }
+
+    /** @return list<string> */
+    private static function safeStringList(array $values, int $limit): array
+    {
+        $result = [];
+        foreach ($values as $value) {
+            $value = self::safeText((string)$value, $limit);
+            if ($value !== '') {
+                $result[$value] = $value;
+            }
+        }
+        return array_values($result);
     }
 
     private static function platform(string $source): string

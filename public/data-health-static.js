@@ -3392,7 +3392,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             const value = String(section || '');
             if (value.includes('ads')) set.add('advertising');
             if (value.includes('traffic')) set.add('traffic');
-            if (value.includes('business') || value.includes('sales') || value.includes('competitor') || value.includes('quality')) set.add('business');
+            if (value.includes('quality')) set.add('quality');
+            if (value.includes('business') || value.includes('sales') || value.includes('competitor')) set.add('business');
         });
         return Array.from(set);
     };
@@ -3474,8 +3475,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             roas: ['roas', 'roi'],
             psi: ['psi', 'psi_score', 'service_score'],
             psi_score: ['psi', 'psi_score', 'service_score'],
-            comment_score: ['comment_score', 'score', 'hotel_score'],
-            qunar_comment_score: ['qunar_comment_score', 'comment_score', 'score'],
+            comment_score: ['comment_score', 'comment_score_summary', 'ctrip_rating', 'score', 'hotel_score'],
+            qunar_comment_score: ['qunar_comment_score', 'comment_score', 'comment_score_summary', 'ctrip_rating', 'score'],
             five_min_reply_rate: ['five_min_reply_rate', 'reply_rate', 'response_rate'],
             reply_rate: ['five_min_reply_rate', 'reply_rate', 'response_rate'],
             hotel_collect: ['hotel_collect', 'collect_count', 'favorite_count'],
@@ -3738,10 +3739,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             title: '服务质量',
             scope: 'PSI',
             metrics: [
-                collectionHealthCtripOverviewMetric('PSI服务质量分', ['quality_psi', 'business_overview'], ['PSI服务质量分', '服务质量分'], { dataTypes: ['business'], keys: ['psi', 'psi_score', 'psiScore', 'service_score'] }, context),
-                collectionHealthCtripOverviewMetric('酒店点评分', ['quality_psi', 'business_overview'], ['酒店点评分', '点评分'], { dataTypes: ['business'], keys: ['comment_score', 'commentScore', 'qunar_comment_score'] }, context),
-                collectionHealthCtripOverviewMetric('5分钟回复率', ['quality_psi'], ['5分钟回复率', '回复率'], { dataTypes: ['business'], keys: ['five_min_reply_rate', 'reply_rate', 'response_rate'], unit: '%' }, context),
-                collectionHealthCtripOverviewMetric('酒店收藏数', ['quality_psi', 'business_overview'], ['酒店收藏数', '收藏数'], { dataTypes: ['business'], keys: ['hotel_collect', 'collect_count', 'favorite_count'] }, context),
+                collectionHealthCtripOverviewMetric('PSI服务质量分', ['quality_psi', 'business_overview'], ['PSI服务质量分', '服务质量分'], { dataTypes: ['quality', 'business'], keys: ['psi', 'psi_score', 'psiScore', 'service_score'] }, context),
+                collectionHealthCtripOverviewMetric('酒店点评分', ['quality_psi', 'business_overview'], ['酒店点评分', '点评分'], { dataTypes: ['quality', 'business'], keys: ['comment_score', 'comment_score_summary', 'ctrip_rating', 'commentScore', 'qunar_comment_score'] }, context),
+                collectionHealthCtripOverviewMetric('5分钟回复率', ['quality_psi'], ['5分钟回复率', '回复率'], { dataTypes: ['quality', 'business'], keys: ['five_min_reply_rate', 'reply_rate', 'response_rate'], unit: '%' }, context),
+                collectionHealthCtripOverviewMetric('酒店收藏数', ['quality_psi', 'business_overview'], ['酒店收藏数', '收藏数'], { dataTypes: ['quality', 'business'], keys: ['hotel_collect', 'collect_count', 'favorite_count'] }, context),
             ],
         },
         {

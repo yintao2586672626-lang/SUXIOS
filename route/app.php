@@ -394,6 +394,8 @@ Route::group('api/online-data', function () {
     Route::get('/history', 'OnlineData/history');
     Route::get('/daily-data-list', 'OnlineData/dailyDataList');
     Route::get('/daily-data-summary', 'OnlineData/dailyDataSummary');
+    Route::get('/meituan-temporal-summary', 'OnlineData/meituanTemporalSummary');
+    Route::post('/meituan-temporal-refresh', 'OnlineData/meituanTemporalRefresh');
     Route::get('/hotel-list', 'OnlineData/hotelList');
     Route::post('/auto-fetch', 'ota.SyncController/autoFetch');
     Route::get('/auto-fetch-status', 'ota.SyncController/autoFetchStatus');

@@ -278,6 +278,46 @@ final class PlatformDataSyncService
                 'missing_state' => 'optional_missing',
                 'source_keys' => ['data_value', 'dataValue', 'value', 'metric_value', 'averagePrice', 'avgPrice', 'avg_price'],
             ],
+            [
+                'metric_key' => 'lead_price',
+                'normalized_field' => 'raw_data',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'raw_data.lead_price',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice'],
+            ],
+            [
+                'metric_key' => 'sales_avg_price',
+                'normalized_field' => 'data_value',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'data_value',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['sales_avg_price', 'salesAvgPrice', 'avg_price', 'avgPrice', 'averagePrice'],
+            ],
+            [
+                'metric_key' => 'exposure_users',
+                'normalized_field' => 'list_exposure',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'list_exposure',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['exposure_users', 'exposureUsers', 'listExposure', 'list_exposure', 'exposureUV'],
+            ],
+            [
+                'metric_key' => 'detail_visitors',
+                'normalized_field' => 'detail_exposure',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'detail_exposure',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['detail_visitors', 'detailVisitors', 'detailExposure', 'detail_exposure', 'intentionUV'],
+            ],
+            [
+                'metric_key' => 'browse_to_pay_rate',
+                'normalized_field' => 'flow_rate',
+                'storage_table' => 'online_daily_data',
+                'storage_field' => 'flow_rate',
+                'missing_state' => 'optional_missing',
+                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flowRate', 'flow_rate'],
+            ],
         ],
         'order' => [
             [
@@ -396,7 +436,7 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'flow_rate',
                 'missing_state' => 'field_missing',
-                'source_keys' => ['flow_rate', 'flowRate', 'intentionPerExposure', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
+                'source_keys' => ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
             ],
             [
                 'metric_key' => 'order_filling_num',
@@ -555,7 +595,7 @@ final class PlatformDataSyncService
         'traffic_forecast' => [
             ['metric_key' => 'forecast_type', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['forecast_type', 'forecastType', 'type', 'dimension']],
             ['metric_key' => 'forecast_current', 'normalized_field' => 'data_value', 'storage_table' => 'online_daily_data', 'storage_field' => 'data_value', 'missing_state' => 'optional_missing', 'source_keys' => ['current', 'currentValue', 'value', 'data_value', 'dataValue']],
-            ['metric_key' => 'forecast_peer_average', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.peer_average', 'missing_state' => 'optional_missing', 'source_keys' => ['peer_avg', 'peerAverage', 'competitorAverage', 'average']],
+            ['metric_key' => 'forecast_peer_average', 'normalized_field' => 'raw_data', 'storage_table' => 'online_daily_data', 'storage_field' => 'raw_data.peer_avg', 'missing_state' => 'optional_missing', 'source_keys' => ['peer_avg', 'peerAvg', 'peerAverage', 'competitor_avg', 'competitorAverage', 'average']],
         ],
         'traffic_analysis' => [
             ['metric_key' => 'analysis_type', 'normalized_field' => 'dimension', 'storage_table' => 'online_daily_data', 'storage_field' => 'dimension', 'missing_state' => 'field_missing', 'source_keys' => ['analysis_type', 'analysisType', 'type', 'dimension']],
@@ -6431,7 +6471,7 @@ final class PlatformDataSyncService
         $dataType = $this->normalizeDataType($dataType);
         $keys = $dataType === 'advertising'
             ? ['flow_rate', 'flowRate', 'ctr']
-            : ['flow_rate', 'flowRate', 'intentionPerExposure', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'];
+            : ['browse_to_pay_rate', 'browsePayRate', 'browse_pay_rate', 'payOrderPerIntention', 'flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'];
         return $this->nullableNumericValue($row, $keys) ?? ($preserveMissing ? null : 0.0);
     }
 

@@ -55,6 +55,25 @@ final class DingdandaoOperatingTargetCaptureService
             'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=3#data.list[]',
     ];
     private const ROW_KINDS = ['room', 'unassigned', 'room_type_total', 'grand_total'];
+    private const FORWARD_API_PATH = '/v2/hm-b/pro/web/accom/roomStat/forward/v2';
+    private const FORWARD_HORIZONS = [3, 7, 14, 21];
+    private const FORWARD_MIN_SOURCE_DAYS = 22;
+    private const FORWARD_MAX_SOURCE_DAYS = 31;
+    private const FORWARD_DISPLAY_SEMANTICS = 'future_days_after_as_of_date';
+    private const FORWARD_INTEGER_FIELDS = [
+        'remaining_sellable_rooms',
+        'booked_rooms',
+        'unavailable_rooms',
+        'oversold_rooms',
+        'sold_room_nights',
+        'sellable_room_nights',
+    ];
+    private const FORWARD_DECIMAL_FIELDS = [
+        'room_fee',
+        'occupancy_rate_percent',
+        'adr',
+        'revpar',
+    ];
 
     /** @var callable */
     private $clock;
@@ -113,6 +132,10 @@ final class DingdandaoOperatingTargetCaptureService
             $input['county_context'] ?? null,
             $businessDate
         );
+        $forwardRoomStatus = $this->forwardRoomStatus(
+            $input['forward_room_status'] ?? null,
+            $businessDate
+        );
         $observedNow = ($this->clock)()->setTimezone(new DateTimeZone('Asia/Shanghai'));
         $dateMatchesToday = $businessDate === $observedNow->format('Y-m-d');
 
@@ -151,7 +174,7 @@ final class DingdandaoOperatingTargetCaptureService
             }
         }
         $snapshot = [
-            'contract_version' => 'dingdandao_operating_target_capture.v2',
+            'contract_version' => 'dingdandao_operating_target_capture.v3',
             'provider' => self::PROVIDER,
             'hotel_id' => $hotelId,
             'business_date' => $businessDate,
@@ -172,6 +195,7 @@ final class DingdandaoOperatingTargetCaptureService
             'trend' => $trend,
             'auxiliary_query_status' => $auxiliaryQueryStatus,
             'county_context' => $countyContext,
+            'forward_room_status' => $forwardRoomStatus,
             'field_trace' => $fieldTrace,
             'capture_status' => $assessment['capture_status'],
             'quality_status' => $assessment['quality_status'],
@@ -639,6 +663,24 @@ final class DingdandaoOperatingTargetCaptureService
             $snapshot['county_context'] ?? null,
             (string)$row['business_date']
         );
+        try {
+            $forwardRoomStatus = $this->forwardRoomStatus(
+                $snapshot['forward_room_status'] ?? null,
+                (string)$row['business_date']
+            );
+        } catch (\Throwable) {
+            $forwardRoomStatus = $this->partialForwardRoomStatus(
+                (string)$row['business_date'],
+                'dingdandao_forward_contract_upgrade_required'
+            );
+        }
+        $forwardRoomStatus['readback_status'] =
+            ($forwardRoomStatus['data_status'] ?? '') === 'verified'
+            && ($row['readback_status'] ?? '') === 'readback_verified'
+                ? 'readback_verified'
+                : 'not_verified';
+        $forwardRoomStatus['capture_id'] = (int)$row['id'];
+        $forwardRoomStatus['captured_at'] = (string)$row['captured_at'];
 
         return [
             'status' => (string)($row['capture_status'] ?? 'unverified'),
@@ -677,6 +719,7 @@ final class DingdandaoOperatingTargetCaptureService
             'trend' => $this->decodeJson($row['trend_json'] ?? null),
             'auxiliary_query_status' => $auxiliaryQueryStatus,
             'county_context' => $countyContext,
+            'forward_room_status' => $forwardRoomStatus,
             'field_trace' => $this->decodeJson($row['field_trace_json'] ?? null),
             'source_fingerprint' => (string)$row['source_fingerprint'],
             'captured_at' => (string)$row['captured_at'],
@@ -1045,6 +1088,425 @@ final class DingdandaoOperatingTargetCaptureService
         ];
     }
 
+    /** @return array<string,mixed> */
+    private function forwardRoomStatus(mixed $input, string $businessDate): array
+    {
+        if ($input === null || $input === []) {
+            return $this->partialForwardRoomStatus(
+                $businessDate,
+                'dingdandao_forward_not_collected'
+            );
+        }
+        if (!is_array($input)) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+        }
+        $dataStatus = strtolower(trim((string)($input['data_status'] ?? 'partial')));
+        if ($dataStatus !== 'verified') {
+            $gapCode = 'dingdandao_forward_response_contract_unverified';
+            foreach ((array)($input['gap_codes'] ?? []) as $candidate) {
+                $candidate = strtolower(trim((string)$candidate));
+                if (preg_match('/^dingdandao_forward_[a-z0-9_]{1,100}$/', $candidate) === 1) {
+                    $gapCode = $candidate;
+                    break;
+                }
+            }
+            return $this->partialForwardRoomStatus($businessDate, $gapCode);
+        }
+        $sourceDayCount = $this->integerOrNull($input['source_day_count'] ?? null);
+        $sourceCoverageStatus = (string)($input['source_coverage_status'] ?? '');
+        $sourceGapCodes = array_values((array)($input['source_gap_codes'] ?? []));
+        if (($input['contract_version'] ?? '') !== 'dingdandao_forward_room_status.v1'
+            || ($input['fact_scope'] ?? '') !== 'whole_hotel_forward_room_status'
+            || ($input['source_api_path'] ?? '') !== self::FORWARD_API_PATH
+            || ($input['as_of_date'] ?? '') !== $businessDate
+            || ($input['range_start_date'] ?? '') !== $businessDate
+            || ($input['requested_range_start_date'] ?? '') !== $businessDate
+            || ($input['requested_range_end_date'] ?? '')
+                !== $this->shiftedDate($businessDate, 30)
+            || $sourceDayCount === null
+            || $sourceDayCount < self::FORWARD_MIN_SOURCE_DAYS
+            || $sourceDayCount > self::FORWARD_MAX_SOURCE_DAYS
+            || ($input['range_end_date'] ?? '')
+                !== $this->shiftedDate($businessDate, $sourceDayCount - 1)
+            || (int)($input['display_day_count'] ?? 0) !== 21
+            || ($input['display_semantics'] ?? '')
+                !== self::FORWARD_DISPLAY_SEMANTICS
+            || ($input['reconciliation_status'] ?? '') !== 'matched'
+            || (array)($input['gap_codes'] ?? []) !== []
+            || (array)($input['display_horizons'] ?? []) !== self::FORWARD_HORIZONS
+            || !(
+                $sourceCoverageStatus === 'complete'
+                && $sourceDayCount === self::FORWARD_MAX_SOURCE_DAYS
+                && $sourceGapCodes === []
+            )
+            && !(
+                $sourceCoverageStatus === 'partial'
+                && $sourceDayCount < self::FORWARD_MAX_SOURCE_DAYS
+                && $sourceGapCodes === [
+                    'dingdandao_forward_trailing_coverage_partial',
+                ]
+            )
+        ) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+        }
+        $totalRoomCount = $this->integerOrNull($input['total_room_count'] ?? null);
+        if ($totalRoomCount === null || $totalRoomCount <= 0) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+        }
+        $dailyRows = $this->forwardDailyRows(
+            $input['daily_rows'] ?? null,
+            $businessDate,
+            $totalRoomCount,
+            $sourceDayCount
+        );
+        if (count($dailyRows) !== $sourceDayCount) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+        }
+        $roomTypes = $this->forwardRoomTypes(
+            $input['room_types'] ?? null,
+            $businessDate,
+            $sourceDayCount
+        );
+        if ((int)($input['source_room_type_count'] ?? 0) !== count($roomTypes)
+            || array_sum(array_column($roomTypes, 'room_count')) !== $totalRoomCount
+        ) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+        }
+        foreach ($dailyRows as $index => $totalRow) {
+            foreach (self::FORWARD_INTEGER_FIELDS as $field) {
+                $sum = 0;
+                foreach ($roomTypes as $roomType) {
+                    $sum += (int)$roomType['daily_rows'][$index][$field];
+                }
+                if ($sum !== (int)$totalRow[$field]) {
+                    throw new \InvalidArgumentException(
+                        'dingdandao_capture_forward_reconciliation_invalid'
+                    );
+                }
+            }
+            $roomFee = 0.0;
+            foreach ($roomTypes as $roomType) {
+                $roomFee += (float)$roomType['daily_rows'][$index]['room_fee'];
+            }
+            if (abs($roomFee - (float)$totalRow['room_fee']) > 0.02) {
+                throw new \InvalidArgumentException(
+                    'dingdandao_capture_forward_reconciliation_invalid'
+                );
+            }
+        }
+        $horizons = $this->forwardHorizons($businessDate, $dailyRows);
+        if (!$this->forwardHorizonInputMatches($input['horizons'] ?? null, $horizons)) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+        }
+
+        return [
+            'contract_version' => 'dingdandao_forward_room_status.v1',
+            'fact_scope' => 'whole_hotel_forward_room_status',
+            'source_api_path' => self::FORWARD_API_PATH,
+            'data_status' => 'verified',
+            'as_of_date' => $businessDate,
+            'range_start_date' => $businessDate,
+            'range_end_date' => $this->shiftedDate(
+                $businessDate,
+                $sourceDayCount - 1
+            ),
+            'requested_range_start_date' => $businessDate,
+            'requested_range_end_date' => $this->shiftedDate($businessDate, 30),
+            'source_day_count' => count($dailyRows),
+            'display_day_count' => 21,
+            'source_room_type_count' => count($roomTypes),
+            'total_room_count' => $totalRoomCount,
+            'display_horizons' => self::FORWARD_HORIZONS,
+            'display_semantics' => self::FORWARD_DISPLAY_SEMANTICS,
+            'source_coverage_status' => $sourceCoverageStatus,
+            'source_gap_codes' => $sourceGapCodes,
+            'daily_rows' => $dailyRows,
+            'room_types' => $roomTypes,
+            'horizons' => $horizons,
+            'reconciliation_status' => 'matched',
+            'gap_codes' => [],
+            'field_trace' => $this->forwardFieldTrace(),
+        ];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function forwardDailyRows(
+        mixed $input,
+        string $startDate,
+        int $roomCount,
+        int $expectedDayCount
+    ): array {
+        if (!is_array($input)
+            || !array_is_list($input)
+            || count($input) !== $expectedDayCount
+        ) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+        }
+        $rows = [];
+        foreach ($input as $index => $row) {
+            if (!is_array($row)) {
+                throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+            }
+            $rows[] = $this->forwardDay(
+                $row,
+                $this->shiftedDate($startDate, $index),
+                $roomCount
+            );
+        }
+        return $rows;
+    }
+
+    /** @return array<string,mixed> */
+    private function forwardDay(array $row, string $expectedDate, int $roomCount): array
+    {
+        if (($row['stay_date'] ?? '') !== $expectedDate) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_date_invalid');
+        }
+        $normalized = ['stay_date' => $expectedDate];
+        foreach (self::FORWARD_INTEGER_FIELDS as $field) {
+            $value = $this->integerOrNull($row[$field] ?? null);
+            if ($value === null || $value < 0) {
+                throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+            }
+            $normalized[$field] = $value;
+        }
+        foreach (self::FORWARD_DECIMAL_FIELDS as $field) {
+            $value = $field === 'occupancy_rate_percent'
+                ? $this->percentOrNull($row[$field] ?? null)
+                : $this->decimalOrNull($row[$field] ?? null);
+            if ($value === null || $value < 0) {
+                throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+            }
+            $normalized[$field] = $value;
+        }
+        if ($normalized['remaining_sellable_rooms']
+                + $normalized['booked_rooms']
+                + $normalized['unavailable_rooms'] !== $roomCount
+            || $normalized['sellable_room_nights']
+                !== $normalized['remaining_sellable_rooms'] + $normalized['booked_rooms']
+            || $normalized['sold_room_nights'] !== $normalized['booked_rooms']
+            || $normalized['oversold_rooms'] !== 0
+        ) {
+            throw new \InvalidArgumentException(
+                'dingdandao_capture_forward_reconciliation_invalid'
+            );
+        }
+        $sellable = $normalized['sellable_room_nights'];
+        $booked = $normalized['booked_rooms'];
+        $roomFee = $normalized['room_fee'];
+        $expectedOcc = $sellable > 0 ? round(($booked / $sellable) * 100, 2) : 0.0;
+        $expectedAdr = $booked > 0 ? round($roomFee / $booked, 2) : 0.0;
+        $expectedRevpar = $sellable > 0 ? round($roomFee / $sellable, 2) : 0.0;
+        if (abs($normalized['occupancy_rate_percent'] - $expectedOcc) > 0.02
+            || abs($normalized['adr'] - $expectedAdr) > 0.02
+            || abs($normalized['revpar'] - $expectedRevpar) > 0.02
+        ) {
+            throw new \InvalidArgumentException(
+                'dingdandao_capture_forward_reconciliation_invalid'
+            );
+        }
+        return $normalized;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function forwardRoomTypes(
+        mixed $input,
+        string $businessDate,
+        int $expectedDayCount
+    ): array
+    {
+        if (!is_array($input)
+            || !array_is_list($input)
+            || $input === []
+            || count($input) > 100
+        ) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+        }
+        $result = [];
+        $ids = [];
+        foreach ($input as $row) {
+            if (!is_array($row)) {
+                throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+            }
+            $providerRoomTypeId = trim((string)($row['provider_room_type_id'] ?? ''));
+            $roomTypeName = $this->textOrNull($row['room_type_name'] ?? null, 160);
+            $roomCount = $this->integerOrNull($row['room_count'] ?? null);
+            if (preg_match('/^[A-Za-z0-9_-]{1,120}$/', $providerRoomTypeId) !== 1
+                || isset($ids[$providerRoomTypeId])
+                || $roomTypeName === null
+                || $roomCount === null
+                || $roomCount <= 0
+            ) {
+                throw new \InvalidArgumentException('dingdandao_capture_forward_invalid');
+            }
+            $ids[$providerRoomTypeId] = true;
+            $result[] = [
+                'provider_room_type_id' => $providerRoomTypeId,
+                'room_type_name' => $roomTypeName,
+                'room_count' => $roomCount,
+                'daily_rows' => $this->forwardDailyRows(
+                    $row['daily_rows'] ?? null,
+                    $businessDate,
+                    $roomCount,
+                    $expectedDayCount
+                ),
+            ];
+        }
+        return $result;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function forwardHorizons(string $businessDate, array $dailyRows): array
+    {
+        $byDate = [];
+        foreach ($dailyRows as $row) {
+            $byDate[(string)$row['stay_date']] = $row;
+        }
+        $result = [];
+        foreach (self::FORWARD_HORIZONS as $days) {
+            $rows = [];
+            for ($offset = 1; $offset <= $days; $offset++) {
+                $date = $this->shiftedDate($businessDate, $offset);
+                if (!isset($byDate[$date])) {
+                    throw new \InvalidArgumentException(
+                        'dingdandao_capture_forward_coverage_invalid'
+                    );
+                }
+                $rows[] = $byDate[$date];
+            }
+            $sum = static function (array $rows, string $field): float {
+                return array_reduce(
+                    $rows,
+                    static fn(float $total, array $row): float =>
+                        $total + (float)$row[$field],
+                    0.0
+                );
+            };
+            $sellable = (int)$sum($rows, 'sellable_room_nights');
+            $booked = (int)$sum($rows, 'booked_rooms');
+            $roomFee = round($sum($rows, 'room_fee'), 2);
+            $result[] = [
+                'horizon_days' => $days,
+                'date_from' => $this->shiftedDate($businessDate, 1),
+                'date_to' => $this->shiftedDate($businessDate, $days),
+                'expected_days' => $days,
+                'covered_days' => count($rows),
+                'sellable_room_nights' => $sellable,
+                'booked_room_nights' => $booked,
+                'remaining_sellable_room_nights' =>
+                    (int)$sum($rows, 'remaining_sellable_rooms'),
+                'unavailable_room_nights' => (int)$sum($rows, 'unavailable_rooms'),
+                'room_fee' => $roomFee,
+                'occupancy_rate_percent' => $sellable > 0
+                    ? round(($booked / $sellable) * 100, 2)
+                    : 0.0,
+                'adr' => $booked > 0 ? round($roomFee / $booked, 2) : 0.0,
+                'revpar' => $sellable > 0 ? round($roomFee / $sellable, 2) : 0.0,
+                'quality_status' => 'verified',
+                'gap_codes' => [],
+            ];
+        }
+        return $result;
+    }
+
+    private function forwardHorizonInputMatches(mixed $input, array $expected): bool
+    {
+        if (!is_array($input) || !array_is_list($input) || count($input) !== count($expected)) {
+            return false;
+        }
+        foreach ($expected as $index => $expectedRow) {
+            $row = $input[$index] ?? null;
+            if (!is_array($row)) {
+                return false;
+            }
+            foreach ($expectedRow as $field => $value) {
+                $actual = $row[$field] ?? null;
+                if (is_float($value)) {
+                    if (!is_numeric($actual) || abs((float)$actual - $value) > 0.02) {
+                        return false;
+                    }
+                } elseif ($actual !== $value) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** @return array<string,mixed> */
+    private function partialForwardRoomStatus(string $businessDate, string $gapCode): array
+    {
+        $horizons = [];
+        foreach (self::FORWARD_HORIZONS as $days) {
+            $horizons[] = [
+                'horizon_days' => $days,
+                'date_from' => $this->shiftedDate($businessDate, 1),
+                'date_to' => $this->shiftedDate($businessDate, $days),
+                'expected_days' => $days,
+                'covered_days' => 0,
+                'sellable_room_nights' => null,
+                'booked_room_nights' => null,
+                'remaining_sellable_room_nights' => null,
+                'unavailable_room_nights' => null,
+                'room_fee' => null,
+                'occupancy_rate_percent' => null,
+                'adr' => null,
+                'revpar' => null,
+                'quality_status' => 'partial',
+                'gap_codes' => [$gapCode],
+            ];
+        }
+        return [
+            'contract_version' => 'dingdandao_forward_room_status.v1',
+            'fact_scope' => 'whole_hotel_forward_room_status',
+            'source_api_path' => self::FORWARD_API_PATH,
+            'data_status' => 'partial',
+            'as_of_date' => $businessDate,
+            'range_start_date' => null,
+            'range_end_date' => null,
+            'requested_range_start_date' => $businessDate,
+            'requested_range_end_date' => $this->shiftedDate($businessDate, 30),
+            'source_day_count' => 0,
+            'display_day_count' => 0,
+            'source_room_type_count' => 0,
+            'total_room_count' => null,
+            'display_horizons' => self::FORWARD_HORIZONS,
+            'display_semantics' => self::FORWARD_DISPLAY_SEMANTICS,
+            'source_coverage_status' => 'missing',
+            'source_gap_codes' => [$gapCode],
+            'daily_rows' => [],
+            'room_types' => [],
+            'horizons' => $horizons,
+            'reconciliation_status' => 'unverified',
+            'gap_codes' => [$gapCode],
+            'field_trace' => $this->forwardFieldTrace(),
+        ];
+    }
+
+    /** @return array<string,string> */
+    private function forwardFieldTrace(): array
+    {
+        return [
+            'request' => 'POST:' . self::FORWARD_API_PATH
+                . '#pageNum=1&pageSize=9999&startDate&endDate',
+            'total_room_count' => 'API:' . self::FORWARD_API_PATH
+                . '#data.list[total].roomNum',
+            'daily_rows' => 'API:' . self::FORWARD_API_PATH
+                . '#data.list[total].dateList[]',
+            'room_types' => 'API:' . self::FORWARD_API_PATH
+                . '#data.list[roomTypeId].dateList[]',
+        ];
+    }
+
+    private function shiftedDate(string $date, int $days): string
+    {
+        $value = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        if (!$value instanceof DateTimeImmutable || $value->format('Y-m-d') !== $date) {
+            throw new \InvalidArgumentException('dingdandao_capture_forward_date_invalid');
+        }
+        return $value->modify(($days >= 0 ? '+' : '') . $days . ' days')->format('Y-m-d');
+    }
+
     /** @return array<string, array<int, array<string, mixed>>> */
     private function trend(array $trend, string $businessDate): array
     {
@@ -1269,6 +1731,15 @@ final class DingdandaoOperatingTargetCaptureService
                 'derived_sellable_room_nights' => null,
             ],
             'room_fee_details' => [],
+            'forward_room_status' => [
+                ...$this->partialForwardRoomStatus(
+                    $businessDate,
+                    'dingdandao_forward_not_collected'
+                ),
+                'readback_status' => 'missing',
+                'capture_id' => null,
+                'captured_at' => null,
+            ],
             'gaps' => [$this->gap($code)],
         ];
     }

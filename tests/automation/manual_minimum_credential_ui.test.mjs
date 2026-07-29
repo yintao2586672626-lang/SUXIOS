@@ -616,8 +616,9 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(loadCtripConfigList, /isAuthSessionCurrent\(requestSession\)\s*\? applyCtripHotelConfig\(false, \{/);
   assert.match(ctripConfigSaveFlow, /afterSave = async \(\) => \{ reloadConfigs\(\); \}/);
   assert.match(ctripConfigSaveFlow, /await afterSave\(\{ response: res, requestBody \}\);/);
-  assert.match(ctripManualTabSwitch, /!\['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads', 'ctrip-config'\]\.includes\(tab\)/);
+  assert.match(ctripManualTabSwitch, /!\['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-quality', 'ctrip-ads', 'ctrip-config'\]\.includes\(tab\)/);
   assert.match(ctripManualTabSwitch, /await loadConfigList\(\);/);
+  assert.match(ctripManualTabSwitch, /await loadSupplementalSnapshot\(\);/);
   assert.match(saveCtripConfig, /afterSave: async \(\{ response, requestBody \}\) => \{/);
   assert.match(saveCtripConfig, /await returnToCtripRankingAfterConfigSave\(savedHotelId\);/);
   assert.match(returnToCtripRankingAfterConfigSave, /currentPage\.value = 'ctrip-ebooking';/);
@@ -4305,9 +4306,21 @@ test('Meituan orders and ads remain network-required workflows', () => {
 });
 
 test('Ctrip ads only exposes the effect report workflow', () => {
-  const adsPanel = sliceFrom('<div v-if="onlineDataTab === \'ctrip-ads\'">', '<div v-if="onlineDataTab === \'ctrip-overview\'">');
+  const qualityPanel = sliceFrom('<div v-if="onlineDataTab === \'ctrip-quality\'"', '<div v-if="onlineDataTab === \'ctrip-ads\'">');
+  const adsPanel = sliceFrom('<div v-if="onlineDataTab === \'ctrip-ads\'">', '<div v-if="onlineDataTab === \'ctrip-fetch-settings\'"');
+  const syncCtripAdsDirectConfig = sliceFrom(
+    'const syncCtripAdsDirectConfig = async (showMessage = true) => {',
+    '\n\n            const fetchCtripAdsData'
+  );
   const adsConfigPanel = sliceFrom('<!-- 携程广告配置 -->', '<!-- 美团广告配置 -->');
 
+  assert.match(qualityPanel, /data-testid="ctrip-quality-panel"/);
+  assert.match(qualityPanel, /collectionHealthCtripServicePanel\.metrics/);
+  assert.match(adsPanel, /data-testid="ctrip-ads-persisted-snapshot"/);
+  assert.match(adsPanel, /collectionHealthCtripAdsPanel\.metrics/);
+  assert.match(adsPanel, /formatOptionalNumber\(ctripAdsBrowserCaptureResult\.metrics\.exposure\)/);
+  assert.match(adsPanel, /formatOptionalPercent\(ctripAdsBrowserCaptureResult\.metrics\.click_rate\)/);
+  assert.doesNotMatch(html, /onlineDataTab === 'ctrip-overview'/);
   assert.match(adsPanel, /效果报表/);
   assert.match(adsPanel, /高级排障接口地址（可选）/);
   assert.doesNotMatch(adsPanel, /推广活动列表/);
@@ -4324,6 +4337,8 @@ test('Ctrip ads only exposes the effect report workflow', () => {
   assert.doesNotMatch(adsConfigPanel, /推广活动列表/);
   assert.doesNotMatch(adsConfigPanel, /推广活动报表/);
   assert.doesNotMatch(adsConfigPanel, /v-if="dataConfigForm\.api_type === 'campaign_report'"/);
+  assert.doesNotMatch(syncCtripAdsDirectConfig, /loadSavedDataConfigByType\('ctrip-ads'\)|\/system-config|is_super_admin/);
+  assert.match(syncCtripAdsDirectConfig, /const activeConfig = getActiveCtripConfig\(\);/);
   assert.match(html, /requireCtripStatic\('defaultCtripAdsEffectReportUrl'\)/);
   assert.match(html, /requireCtripStatic\('normalizeCtripAdsApiType'\)/);
   assert.match(html, /requireCtripStatic\('runCtripAdsFetchFlow'\)/);
@@ -4615,7 +4630,7 @@ test('Download center defers hotel filter loading after primary data', () => {
   assert.match(downloadCenterScheduler, /await loadOnlineDataList\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);/);
   assert.match(downloadCenterScheduler, /scheduleDelayedPageTask\(\(\) => \{\s*if \(seq !== downloadCenterTabLoadSeq \|\| !isCurrentTab\(\)\) return null;\s*return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);\s*\}, 720\);/);
   assert.match(downloadCenterScheduler, /return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);/);
-  assert.match(downloadCenterScheduler, /if \(context\.source === 'meituan'\) \{\s*void loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\);\s*\}/);
+  assert.match(downloadCenterScheduler, /if \(context\.source === 'meituan'\) \{\s*void loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\);/);
   const primaryListIndex = downloadCenterScheduler.indexOf('await loadOnlineDataList({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS });');
   const hotelFilterIndex = downloadCenterScheduler.indexOf('return loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS });', primaryListIndex);
   const secondarySourceIndex = downloadCenterScheduler.indexOf('void loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS });', primaryListIndex);

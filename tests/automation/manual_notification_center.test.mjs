@@ -92,11 +92,29 @@ test('notification center follows the required cards, editor, preview and histor
   assert.match(fragmentSource, /新建推送计划/);
   assert.match(fragmentSource, /我的通知消息/);
   assert.doesNotMatch(fragmentSource, /我的模板消息/);
-  assert.match(fragmentSource, /实时渲染/);
+  assert.match(fragmentSource, /消息预览/);
+  assert.match(fragmentSource, /预览在企业微信里的展示格式，根据上方选择的计划生成/);
+  assert.doesNotMatch(fragmentSource, /实时渲染/);
   assert.match(schedulePanelSource, /系统固定策略（不可关闭）/);
   assert.match(fragmentSource, /manualNotificationBodyCount/);
   assert.match(fragmentSource, /manualNotificationTestAllowed\(item\)/);
   assert.doesNotMatch(fragmentSource, /手机号|客户短信/);
+});
+
+test('message preview reacts to the selected plan, source, content, date and schedule', () => {
+  assert.match(appMainSource, /const manualNotificationPreviewContext = computed/);
+  for (const field of ['plan', 'source', 'content', 'businessDate', 'schedule']) {
+    assert.match(fragmentSource, new RegExp(`manualNotificationPreviewContext\\.${field}`));
+  }
+  assert.match(
+    appMainSource,
+    /manualNotificationForm\.value\[field\] = value;\s*manualNotificationPreview\.value = null;/,
+  );
+  assert.match(
+    appMainSource,
+    /const selection = manualNotificationPreviewContext\.value;[\s\S]*来源：\$\{selection\.source\}[\s\S]*内容：\$\{selection\.content\}/,
+  );
+  assert.match(fragmentSource, /生成消息预览/);
 });
 
 test('notification plans expose persisted schedule rules and truthful runtime state', () => {

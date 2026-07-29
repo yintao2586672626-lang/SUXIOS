@@ -21,13 +21,13 @@ const automationMonitorLogic = appMain.slice(
 );
 
 test('automation center keeps configuration, monitoring and execution pages focused', () => {
-  assert.match(pmsPage, /运营自动化中心 · 第 1 步/);
+  assert.match(pmsPage, /运营自动化中心 · 数据事实/);
   assert.match(pmsPage, /PMS经营数据/);
   assert.match(pmsPage, /data-testid="pms-selected-source"/);
   assert.match(pmsPage, /当前门店唯一 PMS/);
-  assert.match(notificationPage, /运营自动化中心/);
+  assert.match(notificationPage, /运营自动化中心 · 推送计划/);
   assert.match(notificationPage, /企业微信推送/);
-  assert.match(monitorPage, /运营自动化中心 · 第 3 步/);
+  assert.match(monitorPage, /运营自动化中心 · 运行总览/);
   assert.match(monitorPage, /今日数据与推送监控/);
   assert.match(targetPage, /每天目标、事实与剩余经营压力/);
   assert.doesNotMatch(targetPage, /运营自动化中心 · 第 3 步/);
@@ -47,15 +47,19 @@ test('automation center keeps configuration, monitoring and execution pages focu
   ]) {
     assert.match(monitorPage, new RegExp(label));
   }
-  assert.match(taskPage, /运营自动化中心 · 第 4 步/);
+  assert.match(taskPage, /运营自动化中心 · 执行闭环/);
   assert.match(taskPage, /任务执行与复盘/);
   assert.doesNotMatch(pmsPage, /携程数据|美团数据与采集|自动采集任务/);
+  for (const page of [pmsPage, notificationPage, monitorPage, taskPage]) {
+    assert.doesNotMatch(page, /运营自动化中心 · 第 \d+ 步/);
+  }
 });
 
 test('notification plan exposes the necessary schedule and runtime settings', () => {
-  assert.match(notificationPage, /data-testid="manual-notification-plan-summary"/);
-  assert.match(notificationPage, /携程、美团、订单来了分别配置.*内容分项、通知群与暂停开关/);
+  assert.doesNotMatch(notificationPage, /data-testid="manual-notification-plan-summary"/);
   assert.match(notificationPage, /id="manual-notification-plan-config"/);
+  assert.match(notificationPage, /新建计划/);
+  assert.match(notificationPage, /运行监控/);
   for (const label of [
     '数据范围',
     '定时数据日期',
@@ -84,9 +88,10 @@ test('task execution page is explicitly hotel-scoped and labels manual task fiel
   }
 });
 
-test('automation monitor limits scope to WeCom-bound hotels and summary cards filter rows', () => {
-  assert.match(monitorPage, /仅监测当前账号有权限且已绑定启用企业微信机器人的门店/);
-  assert.match(monitorPage, /未绑定机器人门店不进入监控名单/);
+test('automation monitor includes permitted hotels and keeps missing WeCom setup visible', () => {
+  assert.match(monitorPage, /监测当前账号有权限的全部营业门店/);
+  assert.match(monitorPage, /未绑定企业微信机器人或未启用计划会保留为明确阻断/);
+  assert.doesNotMatch(monitorPage, /未绑定机器人门店不进入监控名单/);
   assert.match(monitorPage, /<button[\s\S]*v-for="card in automationMonitorSummaryCards"/);
   assert.match(monitorPage, /@click="automationMonitorStatusFilter = card\.filter"/);
   assert.match(monitorPage, /:aria-pressed="automationMonitorStatusFilter === card\.filter/);

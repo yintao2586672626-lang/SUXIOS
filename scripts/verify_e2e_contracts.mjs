@@ -771,7 +771,11 @@ requireText('public/index.html', 'const scheduleDownloadCenterTabLoad = (tab, co
 requireText('public/index.html', "const switchDownloadTab = (tab) => {", 'download center tab switch is non-blocking');
 requireText('public/index.html', "const switchToDownloadCenter = () => {", 'Ctrip download center entry is non-blocking');
 requireText('public/index.html', "const switchToMeituanDownloadCenter = () => {", 'Meituan download center entry is non-blocking');
-requireText('public/index.html', 'applyMeituanStoredDataFilter(downloadCenterTab.value, { resetPage: true, resetDates: true, resetHotel: true });', 'Meituan stored-data entry clears stale cross-platform date and hotel filters');
+requirePattern(
+  'public/index.html',
+  /applyMeituanStoredDataFilter\(downloadCenterTab\.value,\s*\{\s*resetPage:\s*true,\s*resetDates:\s*true,\s*resetHotel:\s*true,\s*hotelId:\s*temporalHotelId,\s*\}\);/,
+  'Meituan stored-data entry clears stale cross-platform filters while retaining the resolved hotel',
+);
 requireText('public/meituan-static.js', 'const buildMeituanDownloadData = (rows = []) => {', 'Meituan download center computes empty data into explicit zero-valued dashboard rows');
 requireText('public/index.html', 'const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));', 'Meituan download center uses the static dashboard data builder');
 requirePattern(

@@ -95,7 +95,9 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                     'ctrip' => ['status' => 'readback_verified', 'task_id' => 701],
                     'meituan' => ['status' => 'readback_verified', 'task_id' => 702],
                 ],
-            ]
+            ],
+            fn(int $tenantId, int $hotelId, string $date): array =>
+                $this->pmsForwardFixture($tenantId, $hotelId, $date)
         ))->preview(80, '2026-07-26');
 
         self::assertSame(ManualNotificationBusinessPreviewService::CONTRACT_VERSION, $preview['contract_version']);
@@ -122,22 +124,131 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
         self::assertTrue($otaRevenue['source']['readback_verified']);
         self::assertSame(['ctrip', 'meituan'], $otaRevenue['source']['platforms']);
         self::assertSame('readback_verified', $today['ota_collection']['status']);
+        $pmsRevenue = $this->field($today['facts'], 'pms_room_fee');
+        self::assertSame(8745.6, $pmsRevenue['value']);
+        self::assertSame('accommodation_room_fee', $pmsRevenue['scope']);
+        self::assertSame(
+            'dingdandao_operating_target_captures',
+            $pmsRevenue['source']['table']
+        );
+        self::assertSame('readback_verified', $today['message_data']['data_status']);
+        self::assertSame(
+            8745.6,
+            $today['message_data']['sources']['dingdandao_pms']['facts']['room_fee']
+        );
+        self::assertSame(
+            800,
+            $today['message_data']['sources']['ctrip_ota']['facts']['revenue']
+        );
+        self::assertSame(
+            500,
+            $today['message_data']['sources']['meituan_ota']['facts']['revenue']
+        );
+        self::assertSame(
+            [801],
+            $today['message_data']['sources']['ctrip_ota']['source']['row_ids']
+        );
+        self::assertSame(
+            ['trace-ctrip-801'],
+            $today['message_data']['sources']['ctrip_ota']['source']['source_trace_ids']
+        );
+        self::assertFalse(
+            $today['message_data']['aggregation_policy']['pms_plus_ota_revenue_addition_allowed']
+        );
 
         $future = $preview['sections']['future_room_status'];
-        self::assertSame('partial', $future['status']);
-        self::assertSame('not_configured', $this->field($future['facts'], 'future_sellable_room_nights')['status']);
+        self::assertSame('ready', $future['status']);
+        $forwardSellable = $this->field(
+            $future['facts'],
+            'future_sellable_room_nights'
+        );
+        self::assertSame('available', $forwardSellable['status']);
+        self::assertSame(105, $forwardSellable['value']);
+        self::assertSame(
+            'whole_hotel_forward_room_status',
+            $forwardSellable['scope']
+        );
+        self::assertSame(
+            'dingdandao_operating_target_captures',
+            $forwardSellable['source']['table']
+        );
+        self::assertSame('readback_verified', $forwardSellable['source']['quality_status']);
+        self::assertSame([3, 7, 14, 21], $future['message_data']['display_horizons']);
+        self::assertSame(21, $future['message_data']['display_day_count']);
+        self::assertCount(4, $future['message_data']['horizons']);
+        self::assertCount(1, $future['message_data']['room_types']);
         self::assertSame('forecast_available', $future['forecasts'][0]['status']);
         self::assertSame('ota_channel', $future['forecasts'][0]['scope']);
         self::assertStringContainsString('不是全酒店远期房态事实', $future['forecasts'][0]['note']);
-        self::assertContains(
-            'whole_hotel_forward_room_status_source_not_configured',
-            array_column($future['gaps'], 'code')
-        );
+        self::assertSame([], $future['gaps']);
 
         $review = $preview['sections']['daily_review'];
         self::assertSame('ready', $review['status']);
         self::assertSame('2026-07-26', $review['reviews'][0]['target_date']);
         self::assertSame('ota_channel', $review['reviews'][0]['scope']);
+        self::assertSame(
+            8745.6,
+            $this->field($review['facts'], 'pms_room_fee')['value']
+        );
+        self::assertSame(
+            'latest_verified_snapshot_not_end_of_day_final',
+            $review['message_data']['snapshot_role']
+        );
+        self::assertSame('readback_verified', $review['message_data']['data_status']);
+    }
+
+    public function testIncompleteOtaMetricsRemainPartialForTodayAndReview(): void
+    {
+        $this->insertReport(80, 80, '2026-07-26', 2, [
+            'revenue' => 4200,
+            'room_revenue' => 4000,
+            'total_rooms' => 20,
+            'salable_rooms' => 40,
+        ], 4200, 20, 50);
+
+        $preview = (new ManualNotificationBusinessPreviewService(
+            fn(int $hotelId, string $date): array =>
+                $this->temporalFixture($hotelId, $date),
+            function (int $hotelId, string $date): array {
+                $trusted = $this->trustedOtaFixture($hotelId, $date);
+                $trusted['data_status'] = 'partial';
+                $trusted['data_gaps'] = [
+                    'pricing_history_book_order_num_column_missing',
+                ];
+                $trusted['rows'][1]['book_order_num'] = null;
+                return $trusted;
+            },
+            static fn(): array => [
+                'platforms' => [
+                    'ctrip' => ['status' => 'readback_verified', 'task_id' => 701],
+                    'meituan' => ['status' => 'readback_verified', 'task_id' => 702],
+                ],
+            ],
+            fn(int $tenantId, int $hotelId, string $date): array =>
+                $this->pmsForwardFixture($tenantId, $hotelId, $date)
+        ))->preview(80, '2026-07-26');
+
+        $today = $preview['sections']['today_revenue_management'];
+        self::assertSame(
+            'partial_readback_verified',
+            $today['message_data']['sources']['ctrip_ota']['data_status']
+        );
+        self::assertSame(
+            'partial_readback_verified',
+            $today['message_data']['sources']['meituan_ota']['data_status']
+        );
+        self::assertNull(
+            $today['message_data']['sources']['meituan_ota']['facts']['orders']
+        );
+        self::assertSame('partial', $today['message_data']['data_status']);
+        self::assertSame(
+            'partial',
+            $preview['sections']['daily_review']['message_data']['data_status']
+        );
+        self::assertContains(
+            'trusted_ota_fact_evidence_partial',
+            array_column($today['gaps'], 'code')
+        );
     }
 
     public function testStaleDraftAndCrossHotelRowsNeverBecomeExactDateFacts(): void
@@ -220,6 +331,14 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
             $preview['sections']['today_revenue_management']['facts'],
             'ota_revenue'
         )['value']);
+        self::assertNull($this->field(
+            $preview['sections']['today_revenue_management']['facts'],
+            'pms_room_fee'
+        )['value']);
+        self::assertSame(
+            'blocked',
+            $preview['sections']['today_revenue_management']['message_data']['data_status']
+        );
         self::assertSame([], $preview['sections']['future_room_status']['forecasts']);
         self::assertSame([], $preview['sections']['daily_review']['reviews']);
     }
@@ -490,6 +609,12 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
             'data_status' => 'ready',
             'rows' => [
                 [
+                    'row_id' => 801,
+                    'system_hotel_id' => 80,
+                    'readback_verified' => true,
+                    'source_trace_id' => 'trace-ctrip-801',
+                    'sync_task_id' => 701,
+                    'data_source_id' => 1701,
                     'data_date' => '2026-07-26',
                     'source' => 'ctrip',
                     'amount' => 800,
@@ -497,6 +622,12 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                     'book_order_num' => 6,
                 ],
                 [
+                    'row_id' => 802,
+                    'system_hotel_id' => 80,
+                    'readback_verified' => true,
+                    'source_trace_id' => 'trace-meituan-802',
+                    'sync_task_id' => 702,
+                    'data_source_id' => 1702,
                     'data_date' => '2026-07-26',
                     'source' => 'meituan',
                     'amount' => 500,
@@ -509,6 +640,109 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                 'readback_policy' => 'readback_verified_required_equals_1',
             ],
             'data_gaps' => [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function pmsForwardFixture(
+        int $tenantId,
+        int $hotelId,
+        string $date
+    ): array {
+        self::assertSame(80, $tenantId);
+        self::assertSame(80, $hotelId);
+        self::assertSame('2026-07-26', $date);
+        $dailyRows = [];
+        for ($offset = 0; $offset < 31; $offset++) {
+            $stayDate = (new \DateTimeImmutable($date))
+                ->modify('+' . $offset . ' days')
+                ->format('Y-m-d');
+            $dailyRows[] = [
+                'stay_date' => $stayDate,
+                'remaining_sellable_rooms' => 6,
+                'booked_rooms' => 9,
+                'unavailable_rooms' => 1,
+                'oversold_rooms' => 0,
+                'room_fee' => 4500,
+                'sold_room_nights' => 9,
+                'sellable_room_nights' => 15,
+                'occupancy_rate_percent' => 60,
+                'adr' => 500,
+                'revpar' => 300,
+            ];
+        }
+        $horizons = [];
+        foreach ([3, 7, 14, 21] as $days) {
+            $horizons[] = [
+                'horizon_days' => $days,
+                'date_from' => '2026-07-27',
+                'date_to' => (new \DateTimeImmutable($date))
+                    ->modify('+' . $days . ' days')
+                    ->format('Y-m-d'),
+                'expected_days' => $days,
+                'covered_days' => $days,
+                'sellable_room_nights' => 15 * $days,
+                'booked_room_nights' => 9 * $days,
+                'remaining_sellable_room_nights' => 6 * $days,
+                'unavailable_room_nights' => $days,
+                'room_fee' => 4500 * $days,
+                'occupancy_rate_percent' => 60,
+                'adr' => 500,
+                'revpar' => 300,
+                'quality_status' => 'verified',
+                'gap_codes' => [],
+            ];
+        }
+        return [
+            'id' => 980,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'provider' => 'dingdandao_pms',
+            'business_date' => $date,
+            'quality_status' => 'verified',
+            'capture_status' => 'verified',
+            'identity_status' => 'matched',
+            'reconciliation_status' => 'matched',
+            'readback_status' => 'readback_verified',
+            'captured_at' => '2026-07-26 18:35:00',
+            'summary' => [
+                'total_room_fee' => 8745.6,
+                'sold_room_nights' => 15,
+                'derived_sellable_room_nights' => 15,
+                'occupancy_rate_percent' => 100,
+                'adr' => 583.04,
+                'revpar' => 583.04,
+            ],
+            'forward_room_status' => [
+                'contract_version' => 'dingdandao_forward_room_status.v1',
+                'fact_scope' => 'whole_hotel_forward_room_status',
+                'source_api_path' => '/v2/hm-b/pro/web/accom/roomStat/forward/v2',
+                'data_status' => 'verified',
+                'readback_status' => 'readback_verified',
+                'as_of_date' => $date,
+                'range_start_date' => $date,
+                'range_end_date' => '2026-08-25',
+                'requested_range_start_date' => $date,
+                'requested_range_end_date' => '2026-08-25',
+                'source_day_count' => 31,
+                'display_day_count' => 21,
+                'source_room_type_count' => 1,
+                'total_room_count' => 16,
+                'display_horizons' => [3, 7, 14, 21],
+                'display_semantics' => 'future_days_after_as_of_date',
+                'source_coverage_status' => 'complete',
+                'source_gap_codes' => [],
+                'daily_rows' => $dailyRows,
+                'room_types' => [[
+                    'provider_room_type_id' => 'room-type-all',
+                    'room_type_name' => '全部房型',
+                    'room_count' => 16,
+                    'daily_rows' => $dailyRows,
+                ]],
+                'horizons' => $horizons,
+                'reconciliation_status' => 'matched',
+                'gap_codes' => [],
+            ],
         ];
     }
 

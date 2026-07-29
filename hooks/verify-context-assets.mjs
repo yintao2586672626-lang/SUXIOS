@@ -60,6 +60,7 @@ if (!exists('AGENTS.md', outerRoot)) {
 } else {
   const outerAgents = read('AGENTS.md', outerRoot);
   requireIncludes('outer AGENTS.md', outerAgents, 'Durable Context Assetization');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Outcome Ownership and Feature Delivery');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/.agents/skills/');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/hooks/');
   requireIncludes('outer AGENTS.md', outerAgents, 'suxi-capability-absorption');
@@ -72,6 +73,25 @@ if (!exists('AGENTS.md')) {
   const projectAgents = read('AGENTS.md');
   requireIncludes('project AGENTS.md', projectAgents, '从互联网发现或下载的Skill');
   requireIncludes('project AGENTS.md', projectAgents, '不得自动继承shell/bash预授权');
+  requireIncludes('project AGENTS.md', projectAgents, '一个主目标、一个可验收结果');
+  requireIncludes('project AGENTS.md', projectAgents, '功能完整性补全');
+  requireIncludes('project AGENTS.md', projectAgents, '不作为 OTA 功能的默认前置门禁');
+}
+
+const collaborationCharterPath = 'docs/product_collaboration_charter.md';
+if (!exists(collaborationCharterPath)) {
+  failures.push(`${collaborationCharterPath} is missing`);
+} else {
+  const charter = read(collaborationCharterPath);
+  for (const needle of [
+    '责任分工、单主线与优先级',
+    '功能实现是第一目标',
+    '功能完整性补全',
+    '用户可见的最短安全路径',
+    '最小验收与停止条件',
+  ]) {
+    requireIncludes(collaborationCharterPath, charter, needle);
+  }
 }
 
 const skillPath = '.agents/skills/suxi-ctrip-field-table-closure/SKILL.md';

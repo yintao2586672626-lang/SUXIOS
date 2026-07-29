@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\ManualNotificationDispatchLedgerService;
+use app\service\ManualNotificationBusinessPayloadService;
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
 use DateTimeImmutable;
@@ -218,6 +219,132 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         self::assertSame([], $calls);
         self::assertSame(0, Db::name('manual_notification_schedule_dispatches')->count());
         self::assertStringContainsString('未取得的数据未使用0或旧日数据补齐', $result['results'][0]['payload']['markdown']['content']);
+    }
+
+    public function testSchedulerBuildsFutureRoomStatusFromDynamicBusinessFacts(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' => 'future_room_status',
+            'template_type' => 'future_room_status',
+            'title' => '保存时远期占位标题',
+            'body' => '保存时远期占位正文。',
+        ]);
+        $this->seedBusinessContractTest($notificationId);
+        $service = new ManualNotificationScheduleService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->businessPayloads()
+        );
+
+        $result = $service->runDue($this->time('2026-07-26 18:01:00'));
+
+        self::assertSame('preview', $result['status']);
+        self::assertSame(1, $result['due_count']);
+        self::assertSame(
+            'dispatch_not_requested',
+            $result['results'][0]['reason_code']
+        );
+        $content = $result['results'][0]['payload']['markdown']['content'];
+        foreach (['3天｜', '7天｜', '14天｜', '21天｜'] as $needle) {
+            self::assertStringContainsString($needle, $content);
+        }
+        self::assertSame(21, substr_count($content, '｜订'));
+        self::assertStringNotContainsString('保存时远期占位正文', $content);
+    }
+
+    public function testLegacyStaticTestDoesNotAuthorizeNewBusinessPayloadContract(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' => 'future_room_status',
+            'template_type' => 'future_room_status',
+        ]);
+        $this->seedBusinessContractTest(
+            $notificationId,
+            'operating_target_wecom.v1'
+        );
+        $service = new ManualNotificationScheduleService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->businessPayloads()
+        );
+
+        $result = $service->runDue($this->time('2026-07-26 18:01:00'));
+
+        self::assertSame('preview', $result['status']);
+        self::assertSame('blocked', $result['results'][0]['status']);
+        self::assertSame(
+            'business_message_retest_required',
+            $result['results'][0]['reason_code']
+        );
+        self::assertNull($result['results'][0]['payload']);
+    }
+
+    public function testDifferentBusinessTemplateTestDoesNotAuthorizeCurrentTemplate(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' => 'future_room_status',
+            'template_type' => 'future_room_status',
+        ]);
+        $this->seedBusinessContractTest(
+            $notificationId,
+            ManualNotificationBusinessPayloadService::RENDER_CONTRACT_VERSIONS[
+                'today_revenue_management'
+            ]
+        );
+        $service = new ManualNotificationScheduleService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->businessPayloads()
+        );
+
+        $result = $service->runDue($this->time('2026-07-26 18:01:00'));
+
+        self::assertSame('preview', $result['status']);
+        self::assertSame('blocked', $result['results'][0]['status']);
+        self::assertSame(
+            'business_message_retest_required',
+            $result['results'][0]['reason_code']
+        );
+    }
+
+    public function testBusinessTemplateChangeAfterTestRequiresRetest(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' => 'future_room_status',
+            'template_type' => 'future_room_status',
+            'update_time' => '2026-07-26 17:00:02',
+        ]);
+        $this->seedBusinessContractTest($notificationId);
+        $service = new ManualNotificationScheduleService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->businessPayloads()
+        );
+
+        $result = $service->runDue($this->time('2026-07-26 18:01:00'));
+
+        self::assertSame('preview', $result['status']);
+        self::assertSame('blocked', $result['results'][0]['status']);
+        self::assertSame(
+            'business_message_retest_required',
+            $result['results'][0]['reason_code']
+        );
     }
 
     public function testSchedulerEnforcesDateRulesWeekdaysAndHourlyWindow(): void
@@ -708,5 +835,114 @@ final class ManualNotificationScheduleServiceTest extends TestCase
     private function time(string $value): DateTimeImmutable
     {
         return new DateTimeImmutable($value, new DateTimeZone('Asia/Shanghai'));
+    }
+
+    private function seedBusinessContractTest(
+        int $notificationId,
+        string $contractVersion =
+            ManualNotificationBusinessPayloadService::RENDER_CONTRACT_VERSIONS[
+                'future_room_status'
+            ]
+    ): void {
+        Db::name('manual_notification_schedule_dispatches')->insert([
+            'schedule_run_id' => null,
+            'notification_id' => $notificationId,
+            'tenant_id' => 9,
+            'hotel_id' => 80,
+            'dispatch_window' => 'i:business-contract-test-' . $notificationId,
+            'delivery_mode' => 'test',
+            'trigger_type' => 'manual_test',
+            'request_kind' => 'immediate_test',
+            'business_date' => '2026-07-26',
+            'payload_fingerprint' => str_repeat('a', 64),
+            'operating_target_record_id' => null,
+            'snapshot_revision_no' => null,
+            'render_contract_version' => $contractVersion,
+            'payload_snapshot_json' => '{}',
+            'attempt_count' => 1,
+            'max_attempts' => 3,
+            'next_retry_at' => null,
+            'last_attempt_at' => '2026-07-26 17:00:00',
+            'response_reference' => 'test:verified',
+            'robot_id' => ManualNotificationService::TEST_ROBOT_ID,
+            'robot_name' => ManualNotificationService::TEST_ROBOT_NAME,
+            'status' => 'sent',
+            'result_code' => 'sent',
+            'result_message' => null,
+            'claimed_at' => '2026-07-26 17:00:00',
+            'dispatched_at' => '2026-07-26 17:00:01',
+            'create_time' => '2026-07-26 17:00:00',
+            'update_time' => '2026-07-26 17:00:01',
+        ]);
+    }
+
+    private function businessPayloads(): ManualNotificationBusinessPayloadService
+    {
+        return new ManualNotificationBusinessPayloadService(
+            static function (string $type, int $hotelId, string $date): array {
+                $dailyRows = [];
+                for ($offset = 1; $offset <= 21; $offset++) {
+                    $dailyRows[] = [
+                        'stay_date' => (new DateTimeImmutable($date))
+                            ->modify('+' . $offset . ' days')
+                            ->format('Y-m-d'),
+                        'booked_rooms' => 9,
+                        'remaining_sellable_rooms' => 6,
+                        'occupancy_rate_percent' => 60,
+                        'adr' => 500,
+                    ];
+                }
+                $horizons = [];
+                foreach ([3, 7, 14, 21] as $days) {
+                    $horizons[] = [
+                        'horizon_days' => $days,
+                        'booked_room_nights' => 9 * $days,
+                        'remaining_sellable_room_nights' => 6 * $days,
+                        'occupancy_rate_percent' => 60,
+                        'adr' => 500,
+                    ];
+                }
+                return [
+                    'contract_version' => 'manual_notification_business_preview.v1',
+                    'hotel' => [
+                        'id' => $hotelId,
+                        'tenant_id' => 9,
+                        'name' => '敦煌漠蓝新',
+                    ],
+                    'business_date' => $date,
+                    'section' => [
+                        'key' => $type,
+                        'status' => 'ready',
+                        'facts' => [],
+                        'forecasts' => [],
+                        'gaps' => [],
+                        'message_data' => [
+                            'contract_version' => 'dingdandao_forward_message_facts.v1',
+                            'data_status' => 'readback_verified',
+                            'display_horizons' => [3, 7, 14, 21],
+                            'source_day_count' => 31,
+                            'display_day_count' => 21,
+                            'source_coverage_status' => 'complete',
+                            'source_gap_codes' => [],
+                            'horizons' => $horizons,
+                            'daily_rows' => $dailyRows,
+                            'room_types' => [],
+                            'sources' => [
+                                'dingdandao_pms' => [
+                                    'data_status' => 'readback_verified',
+                                    'business_scope' => 'whole_hotel_forward_room_status',
+                                ],
+                                'ctrip_ota' => ['data_status' => 'pending_collection'],
+                                'meituan_ota' => ['data_status' => 'pending_collection'],
+                            ],
+                            'aggregation_policy' => [
+                                'pms_plus_ota_revenue_addition_allowed' => false,
+                                'missing_source_value' => null,
+                            ],
+                        ],
+                    ],
+                ];
+            }
+        );
     }
 }

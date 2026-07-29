@@ -96,7 +96,7 @@ test('enterprise WeChat uses one page with separate account and admin shared sco
   assert.match(notificationPage, /门店共享机器人/);
   assert.match(notificationPage, /\['manual-notifications', 'wechat-notification'\]\.includes\(currentPage\)/);
   assert.match(notificationUi, /manual-notification-formal-robot/);
-  assert.match(notificationPage, /个人通知群与管理员共享机器人保持分开记录/);
+  assert.match(notificationPage, /与上方每个账户自己的“我的通知群”分开保存、分开管理/);
   assert.match(panel, /自动发送设置/);
   assert.match(notificationPage, /data-testid="manual-notification-automatic-tasks"/);
   assert.match(notificationPage, /data-testid="manual-notification-history"/);

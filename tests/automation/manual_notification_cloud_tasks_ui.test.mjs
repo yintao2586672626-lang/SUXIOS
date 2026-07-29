@@ -36,7 +36,10 @@ test('manual notification page exposes truthful cloud automation task evidence',
   assert.doesNotMatch(taskUiSource, /任务成功等于消息送达/);
 });
 
-test('shared robot management follows the automatic task section', () => {
+test('sending target configuration precedes the automatic task evidence', () => {
+  const accountRobotIndex = notificationSource.indexOf(
+    'data-testid="wechat-notification-page"',
+  );
   const automaticTaskIndex = notificationSource.indexOf(
     'data-testid="manual-notification-automatic-tasks"',
   );
@@ -44,8 +47,10 @@ test('shared robot management follows the automatic task section', () => {
     'data-testid="wecom-robot-management"',
   );
 
+  assert.ok(accountRobotIndex >= 0);
   assert.ok(automaticTaskIndex >= 0);
-  assert.ok(sharedRobotIndex > automaticTaskIndex);
+  assert.ok(sharedRobotIndex > accountRobotIndex);
+  assert.ok(automaticTaskIndex > sharedRobotIndex);
 });
 
 test('notification center prefers the signed-in user hotel without a hard-coded store', () => {

@@ -2008,6 +2008,28 @@
                 Array.isArray(browserAssistImportResult.value?.warnings) ? browserAssistImportResult.value.warnings : []
             ));
             const downloadCenterTab = ref('overview'); // 下载中心子Tab: overview/ai/fetched；美团下载中心复用 traffic
+            const meituanTemporalSummary = ref(null);
+            const meituanTemporalLoading = ref(false);
+            const meituanTemporalRefreshing = ref(false);
+            const meituanTemporalError = ref('');
+            const MEITUAN_TEMPORAL_TODAY_METRICS = Object.freeze([
+                { key: 'lead_price', label: '引流价', unit: '元' },
+                { key: 'sales_room_nights', label: '销售间夜', unit: '间夜' },
+                { key: 'sales_amount', label: '销售额', unit: '元' },
+                { key: 'sales_avg_price', label: '销售均价', unit: '元' },
+                { key: 'exposure_users', label: '曝光人数', unit: '人' },
+                { key: 'detail_visitors', label: '浏览人数', unit: '人' },
+                { key: 'paid_order_count', label: '支付订单数', unit: '单' },
+                { key: 'browse_to_pay_rate', label: '浏览支付转化率', unit: '%' },
+            ]);
+            const MEITUAN_TEMPORAL_YESTERDAY_METRICS = Object.freeze([
+                { key: 'total_exposure', label: '整体曝光量', unit: '次' },
+                { key: 'organic_exposure', label: '非广告曝光量', unit: '次' },
+                { key: 'ad_exposure', label: '广告曝光量', unit: '次' },
+                { key: 'sales_room_nights', label: '销售间夜', unit: '间夜' },
+                { key: 'sales_amount', label: '销售额', unit: '元' },
+                { key: 'sales_avg_price', label: '销售均价', unit: '元' },
+            ]);
             const fetchingData = ref(false);
             const onlineDataResult = ref(null);
             const latestTrafficData = ref(null); // 本次获取的流量数据
@@ -4660,6 +4682,15 @@
                 Array.isArray(collectionHealthCtripLatest.value?.modules) ? collectionHealthCtripLatest.value.modules : []
             ));
             const collectionHealthCtripPersistedRows = computed(() => buildCollectionHealthCtripPersistedRows(collectionHealthHistoryReplay.value || []));
+            const collectionHealthCtripSupplementalRows = computed(() => buildCollectionHealthCtripPersistedRows(
+                Array.isArray(collectionReliability.value?.ctrip_supplemental_history)
+                    ? collectionReliability.value.ctrip_supplemental_history
+                    : []
+            ));
+            const collectionHealthCtripRuntimeRows = computed(() => [
+                ...collectionHealthCtripSupplementalRows.value,
+                ...collectionHealthCtripPersistedRows.value,
+            ]);
             const collectionHealthCtripPersistedRowCount = computed(() => collectionHealthCtripPersistedRows.value.length);
             const collectionHealthCtripPersistedLatestRow = computed(() => collectionHealthCtripPersistedRows.value[0] || null);
             const collectionHealthCtripIdentityFilter = computed(() => collectionReliability.value?.ctrip_hotel_identity_filter || {});
@@ -4691,7 +4722,7 @@
             const ctripOverviewFetchModuleCards = computed(() => buildCtripOverviewFetchModuleCards(collectionHealthCtripOverviewAuthState.value));
             const collectionHealthCtripRuntimeContext = (options = {}) => ({
                 ...options,
-                persistedRows: collectionHealthCtripPersistedRows.value || [],
+                persistedRows: collectionHealthCtripRuntimeRows.value || [],
                 latestModules: collectionHealthCtripLatestModules.value || [],
                 authState: collectionHealthCtripOverviewAuthState.value || {},
                 identityBlocked: collectionHealthCtripIdentityBlocked.value,
@@ -4701,7 +4732,7 @@
                 collectionHealthCtripModuleStatsFromStatic(sections, collectionHealthCtripLatestModules.value || [])
             );
             const collectionHealthCtripRowsForContext = (options = {}) => (
-                collectionHealthCtripRowsForContextFromStatic(collectionHealthCtripPersistedRows.value || [], options)
+                collectionHealthCtripRowsForContextFromStatic(collectionHealthCtripRuntimeRows.value || [], options)
             );
             const collectionHealthCtripMissingDiagnosis = (sections, labels, options = {}) => (
                 collectionHealthCtripMissingDiagnosisFromStatic(sections, labels, collectionHealthCtripRuntimeContext(options))
@@ -4712,7 +4743,7 @@
             const collectionHealthCtripMetricFromRows = (keys, options = {}) => (
                 collectionHealthCtripMetricFromRowsFromStatic(keys, {
                     ...options,
-                    persistedRows: collectionHealthCtripPersistedRows.value || [],
+                    persistedRows: collectionHealthCtripRuntimeRows.value || [],
                 })
             );
             const collectionHealthCtripMetricValue = (sections, labels, options = {}) => (
@@ -4729,6 +4760,8 @@
             const collectionHealthCtripOverviewTrafficMetrics = computed(() => buildCollectionHealthCtripOverviewTrafficMetrics(collectionHealthCtripOverviewContext()));
             const collectionHealthCtripOverviewFunnelRows = computed(() => buildCollectionHealthCtripOverviewFunnelRows(collectionHealthCtripOverviewContext()));
             const collectionHealthCtripOverviewPanels = computed(() => buildCollectionHealthCtripOverviewPanels(collectionHealthCtripOverviewContext()));
+            const collectionHealthCtripServicePanel = computed(() => collectionHealthCtripOverviewPanels.value.find(panel => panel.key === 'service') || { metrics: [] });
+            const collectionHealthCtripAdsPanel = computed(() => collectionHealthCtripOverviewPanels.value.find(panel => panel.key === 'ads') || { metrics: [] });
             const collectionHealthCtripMissingActionRows = computed(() => buildCollectionHealthCtripMissingActionRows({
                 revenueMetrics: collectionHealthCtripOverviewRevenueMetrics.value,
                 trafficMetrics: collectionHealthCtripOverviewTrafficMetrics.value,
@@ -5146,17 +5179,81 @@
             const dualOtaFirstObservedValue = dualOtaHomeStatic.firstObservedDualOtaValue;
             const dualOtaSumObservedValues = dualOtaHomeStatic.sumObservedDualOtaValues;
             const dualOtaDashboard = ref(dualOtaHomeStatic.cloneDashboardData());
-            const dualOtaSelectedPlatform = ref(dualOtaDashboard.value.lossChain.activePlatform || 'combined');
-            const dualOtaSelectedRange = ref(dualOtaDashboard.value.lossChain.activeRange || 'yesterday');
-            const dualOtaCompareEnabled = ref(false);
             const dualOtaStoreScopeRows = Array.isArray(dualOtaDashboard.value.systemOverview?.storeScope?.rows) ? dualOtaDashboard.value.systemOverview.storeScope.rows : [];
-            const dualOtaSelectedStoreScope = ref(dualOtaStoreScopeRows.find(row => row.selected)?.value || dualOtaStoreScopeRows[0]?.value || '');
+            const dualOtaDefaultPlatform = dualOtaDashboard.value.lossChain.activePlatform || 'combined';
+            const dualOtaDefaultRange = dualOtaDashboard.value.lossChain.activeRange || 'yesterday';
+            const dualOtaDefaultStoreScope = dualOtaStoreScopeRows.find(row => row.selected)?.value || dualOtaStoreScopeRows[0]?.value || '';
+            const dualOtaWorkbenchPreferenceStorageKey = () => `suxios_dual_ota_workbench_preferences_${user.value?.id || 'guest'}_v1`;
+            const normalizeDualOtaWorkbenchPreferences = (preferences = {}) => {
+                const source = preferences && typeof preferences === 'object' && !Array.isArray(preferences) ? preferences : {};
+                const platformValues = new Set(Object.keys(dualOtaDashboard.value.lossChain?.scenarios || {}));
+                const rangeValues = new Set([
+                    ...(dualOtaDashboard.value.timeRanges || []),
+                    ...(dualOtaDashboard.value.lossChain?.rangeOptions || []),
+                ].map(option => String(option?.value || '').trim()).filter(Boolean));
+                const storeScopeValues = new Set(dualOtaStoreScopeRows
+                    .map(row => String(row?.value || '').trim())
+                    .filter(Boolean));
+                const requestedPlatform = String(source.platform || '').trim();
+                const requestedRange = String(source.range || '').trim();
+                const requestedStoreScope = String(source.store_scope || '').trim();
+                const normalized = {
+                    platform: platformValues.has(requestedPlatform) ? requestedPlatform : dualOtaDefaultPlatform,
+                    range: rangeValues.has(requestedRange) ? requestedRange : dualOtaDefaultRange,
+                    compare_enabled: source.compare_enabled === true,
+                    store_scope: storeScopeValues.has(requestedStoreScope) ? requestedStoreScope : dualOtaDefaultStoreScope,
+                };
+                if (Object.prototype.hasOwnProperty.call(source, 'hotel_id')) {
+                    normalized.hotel_id = String(source.hotel_id ?? '').trim().slice(0, 64);
+                }
+                return normalized;
+            };
+            const readDualOtaWorkbenchPreferences = () => {
+                try {
+                    const raw = localStorage.getItem(dualOtaWorkbenchPreferenceStorageKey());
+                    return normalizeDualOtaWorkbenchPreferences(raw ? JSON.parse(raw) : {});
+                } catch (error) {
+                    return normalizeDualOtaWorkbenchPreferences();
+                }
+            };
+            const dualOtaSelectedPlatform = ref(dualOtaDefaultPlatform);
+            const dualOtaSelectedRange = ref(dualOtaDefaultRange);
+            const dualOtaCompareEnabled = ref(false);
+            const dualOtaSelectedStoreScope = ref(dualOtaDefaultStoreScope);
             const dualOtaSelectedLossNodeId = ref(dualOtaDashboard.value.lossChain.nodes?.[0]?.id || '');
             const dualOtaSelectedAnomalyRank = ref(dualOtaDashboard.value.anomalies?.[0]?.rank || 1);
             const dualOtaActionItems = ref((dualOtaDashboard.value.actionChecklist || []).map(item => ({ ...item, checked: item.status === 'done' })));
             const dualOtaReviewMemory = ref((dualOtaDashboard.value.reviewMemory || []).map(item => ({ ...item })));
             const dualOtaExpandedMemoryId = ref(dualOtaReviewMemory.value[0]?.id || '');
             const dualOtaLastRecordText = ref('');
+            const persistDualOtaWorkbenchPreferences = (patch = {}) => {
+                try {
+                    const normalized = normalizeDualOtaWorkbenchPreferences({
+                        ...readDualOtaWorkbenchPreferences(),
+                        platform: dualOtaSelectedPlatform.value,
+                        range: dualOtaSelectedRange.value,
+                        compare_enabled: dualOtaCompareEnabled.value,
+                        store_scope: dualOtaSelectedStoreScope.value,
+                        ...(patch && typeof patch === 'object' ? patch : {}),
+                    });
+                    localStorage.setItem(dualOtaWorkbenchPreferenceStorageKey(), JSON.stringify({
+                        ...normalized,
+                        saved_at: new Date().toISOString(),
+                    }));
+                    return true;
+                } catch (error) {
+                    console.warn('保存今日经营看板筛选偏好失败:', error);
+                    return false;
+                }
+            };
+            const restoreDualOtaWorkbenchPreferences = () => {
+                const stored = readDualOtaWorkbenchPreferences();
+                dualOtaSelectedPlatform.value = stored.platform;
+                dualOtaSelectedRange.value = stored.range;
+                dualOtaCompareEnabled.value = stored.compare_enabled;
+                dualOtaSelectedStoreScope.value = stored.store_scope;
+                dualOtaSelectedLossNodeId.value = dualOtaDashboard.value.lossChain?.nodes?.[0]?.id || '';
+            };
             let dualOtaCurrentLossNodes = () => [];
             let dualOtaCurrentLossExplanation = () => null;
             const dualOtaActiveLossNodes = computed(() => {
@@ -5310,6 +5407,7 @@
             };
             const toggleDualOtaCompare = () => {
                 dualOtaCompareEnabled.value = !dualOtaCompareEnabled.value;
+                persistDualOtaWorkbenchPreferences();
             };
             const dualOtaMetricNoteText = (note = '') => {
                 const text = String(note || '').trim();
@@ -5474,7 +5572,10 @@
                 .map(row => row.platform));
             // 这里保留旧模板变量名，但显示条件只取决于是否已选定授权门店。
             // 单个平台缺数据时由指标卡逐项显示“未返回”，不能再隐藏整套工作台。
-            const dualOtaHasConnectedPlatforms = computed(() => !!dualOtaSelectedHotel.value);
+            const dualOtaHasAvailableHotels = ref(false);
+            const dualOtaHasConnectedPlatforms = computed(() => (
+                !!dualOtaSelectedHotel.value || dualOtaHasAvailableHotels.value
+            ));
             const dualOtaResolveStoreScope = (scope) => {
                 const requested = String(scope || 'combined').trim() || 'combined';
                 if (requested !== 'combined') return requested;
@@ -6510,6 +6611,9 @@
                 if (!value || !scenarios[value]) return;
                 dualOtaSelectedPlatform.value = value;
                 dualOtaSelectedLossNodeId.value = dualOtaActiveLossNodes.value[0]?.id || dualOtaDashboard.value.lossChain?.nodes?.[0]?.id || '';
+                if (options.persist !== false) {
+                    persistDualOtaWorkbenchPreferences({ platform: value });
+                }
                 if (options.refresh !== false) {
                     refreshDualOtaWorkbenchData({ allowFetch: true, silent: false });
                 }
@@ -6523,6 +6627,7 @@
                 if (!value || !rangeOptions.some(option => option.value === value)) return;
                 dualOtaSelectedRange.value = value;
                 dualOtaSelectedLossNodeId.value = dualOtaActiveLossNodes.value[0]?.id || dualOtaDashboard.value.lossChain?.nodes?.[0]?.id || '';
+                persistDualOtaWorkbenchPreferences({ range: value });
                 if (isCompassDataPage()) {
                     refreshDualOtaWorkbenchData({ allowFetch: true, silent: false });
                 }
@@ -6532,7 +6637,8 @@
                 const rows = Array.isArray(dualOtaDashboard.value.systemOverview?.storeScope?.rows) ? dualOtaDashboard.value.systemOverview.storeScope.rows : [];
                 if (!rows.some(row => row.value === value)) return;
                 dualOtaSelectedStoreScope.value = value;
-                setDualOtaPlatform(value, { refresh: false });
+                setDualOtaPlatform(value, { refresh: false, persist: false });
+                persistDualOtaWorkbenchPreferences({ store_scope: value, platform: value });
                 refreshDualOtaWorkbenchData({ allowFetch: true, silent: false });
             };
             const switchDualOtaConnection = (connection) => {
@@ -9915,7 +10021,7 @@
             const meituanStoredDataTypesByTab = Object.freeze({
                 all: [],
                 overview: ['peer_rank'],
-                traffic: ['traffic', 'traffic_analysis'],
+                traffic: ['business', 'traffic', 'traffic_analysis', 'traffic_forecast'],
                 orders: ['order'],
                 reviews: ['review', 'comment', 'comments'],
                 ads: ['advertising'],
@@ -9942,7 +10048,242 @@
             const queryMeituanStoredData = async () => {
                 applyMeituanStoredDataFilter(downloadCenterTab.value, { resetPage: true });
                 await loadOnlineDataList({ force: true });
+                if (downloadCenterTab.value === 'traffic') {
+                    await loadMeituanTemporalSummary({ force: true });
+                }
             };
+
+            const resolveMeituanTemporalHotelId = () => String(
+                onlineDataFilter.value.hotel_id
+                || meituanForm.value.hotelId
+                || autoFetchHotelId.value
+                || selectedCtripHotelId.value
+                || user.value?.hotel_id
+                || permittedHotels.value?.[0]?.id
+                || hotels.value?.[0]?.id
+                || ''
+            ).trim();
+            const ensureMeituanTemporalHotelId = () => {
+                const hotelId = resolveMeituanTemporalHotelId();
+                if (hotelId && String(onlineDataFilter.value.hotel_id || '') !== hotelId) {
+                    onlineDataFilter.value.hotel_id = hotelId;
+                }
+                return hotelId;
+            };
+            const meituanTemporalAsOfDate = () => formatDate(new Date());
+            let meituanTemporalLoadSeq = 0;
+            const loadMeituanTemporalSummary = async (options = {}) => {
+                const systemHotelId = ensureMeituanTemporalHotelId();
+                if (!systemHotelId) {
+                    meituanTemporalSummary.value = null;
+                    meituanTemporalError.value = '请先选择门店。';
+                    return null;
+                }
+                const seq = ++meituanTemporalLoadSeq;
+                meituanTemporalLoading.value = true;
+                meituanTemporalError.value = '';
+                try {
+                    const params = new URLSearchParams({
+                        system_hotel_id: systemHotelId,
+                        as_of_date: meituanTemporalAsOfDate(),
+                    });
+                    const res = await request(`/online-data/meituan-temporal-summary?${params.toString()}`);
+                    if (seq !== meituanTemporalLoadSeq || systemHotelId !== resolveMeituanTemporalHotelId()) {
+                        return null;
+                    }
+                    if (res.code !== 200 || !res.data) {
+                        throw new Error(res.message || '美团三段数据加载失败');
+                    }
+                    meituanTemporalSummary.value = res.data;
+                    return res.data;
+                } catch (error) {
+                    if (seq === meituanTemporalLoadSeq) {
+                        meituanTemporalSummary.value = null;
+                        meituanTemporalError.value = error?.message || '美团三段数据加载失败';
+                    }
+                    return null;
+                } finally {
+                    if (seq === meituanTemporalLoadSeq) {
+                        meituanTemporalLoading.value = false;
+                    }
+                }
+            };
+            const refreshMeituanTemporal = async () => {
+                const systemHotelId = ensureMeituanTemporalHotelId();
+                if (!systemHotelId) {
+                    meituanTemporalError.value = '请先选择门店。';
+                    return;
+                }
+                meituanTemporalRefreshing.value = true;
+                meituanTemporalError.value = '';
+                try {
+                    const res = await request('/online-data/meituan-temporal-refresh', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            system_hotel_id: Number(systemHotelId),
+                            as_of_date: meituanTemporalAsOfDate(),
+                        }),
+                    });
+                    if (res.code !== 200 || !res.data) {
+                        throw new Error(res.message || '美团数据更新失败');
+                    }
+                    if (res.data.status === 'blocked') {
+                        showToast(res.data.message || '当前美团 Profile 尚未就绪', 'error');
+                    } else {
+                        showToast('美团本页数据已完成刷新与回读');
+                    }
+                    await loadMeituanTemporalSummary({ force: true });
+                    await loadOnlineDataList({ force: true });
+                } catch (error) {
+                    meituanTemporalError.value = error?.message || '美团数据更新失败';
+                    showToast(meituanTemporalError.value, 'error');
+                } finally {
+                    meituanTemporalRefreshing.value = false;
+                }
+            };
+            const meituanTemporalMetricText = (metric, key = '') => {
+                const value = metric?.value;
+                if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
+                    return '— / 未返回';
+                }
+                const number = Number(value);
+                const decimals = ['lead_price', 'sales_amount', 'sales_avg_price', 'browse_to_pay_rate'].includes(key)
+                    ? 2
+                    : (Number.isInteger(number) ? 0 : 2);
+                const text = number.toLocaleString('zh-CN', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: decimals,
+                });
+                if (['lead_price', 'sales_amount', 'sales_avg_price'].includes(key)) return `¥${text}`;
+                if (key === 'browse_to_pay_rate') return `${text}%`;
+                return text;
+            };
+            const meituanTemporalMetricStatusText = (status) => ({
+                verified: '平台原值',
+                derived: '同快照计算',
+                unverified: '待核验',
+                missing: '未返回',
+            }[String(status || '')] || '未返回');
+            const meituanTemporalMetricStatusClass = (status) => ({
+                verified: 'bg-emerald-50 text-emerald-700',
+                derived: 'bg-blue-50 text-blue-700',
+                unverified: 'bg-amber-50 text-amber-700',
+                missing: 'bg-slate-100 text-slate-500',
+            }[String(status || '')] || 'bg-slate-100 text-slate-500');
+            const meituanTemporalSectionStatusText = (status) => ({
+                ready: '数据完整',
+                partial: '部分返回',
+                pending_source_update: '等待平台更新',
+                blocked: '采集受阻',
+                unverified: '尚未核验',
+                missing: '暂无当前数据',
+            }[String(status || '')] || '暂无当前数据');
+            const meituanTemporalSectionStatusClass = (status) => ({
+                ready: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                partial: 'bg-amber-50 text-amber-700 border-amber-200',
+                pending_source_update: 'bg-blue-50 text-blue-700 border-blue-200',
+                blocked: 'bg-red-50 text-red-700 border-red-200',
+                unverified: 'bg-orange-50 text-orange-700 border-orange-200',
+                missing: 'bg-slate-100 text-slate-600 border-slate-200',
+            }[String(status || '')] || 'bg-slate-100 text-slate-600 border-slate-200');
+            const meituanTemporalDeltaText = (key, currentMetric) => {
+                if (!['verified', 'derived'].includes(String(currentMetric?.status || ''))
+                    || !Number.isFinite(Number(currentMetric?.value))) {
+                    return '';
+                }
+                const previous = (Array.isArray(meituanTemporalSummary.value?.today?.snapshots)
+                    ? meituanTemporalSummary.value.today.snapshots.slice(1)
+                    : []).find(snapshot => {
+                    const metric = snapshot?.metrics?.[key];
+                    return ['verified', 'derived'].includes(String(metric?.status || ''))
+                        && Number.isFinite(Number(metric?.value));
+                });
+                const previousMetric = previous?.metrics?.[key];
+                if (!previousMetric) return '';
+                const delta = Number(currentMetric.value) - Number(previousMetric.value);
+                const decimals = ['lead_price', 'sales_amount', 'sales_avg_price', 'browse_to_pay_rate'].includes(key) ? 2 : 0;
+                const absoluteText = Math.abs(delta).toLocaleString('zh-CN', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: decimals,
+                });
+                const prefix = delta > 0 ? '+' : (delta < 0 ? '-' : '±');
+                if (['lead_price', 'sales_amount', 'sales_avg_price'].includes(key)) return `较上次 ${prefix}¥${absoluteText}`;
+                if (key === 'browse_to_pay_rate') return `较上次 ${prefix}${absoluteText} 个百分点`;
+                return `较上次 ${prefix}${absoluteText}`;
+            };
+            const buildMeituanTemporalCards = (section, definitions, withDelta = false) => definitions.map(definition => {
+                const metric = section?.metrics?.[definition.key] || {
+                    value: null,
+                    status: 'missing',
+                    reason_code: 'platform_field_not_returned',
+                };
+                return {
+                    ...definition,
+                    valueText: meituanTemporalMetricText(metric, definition.key),
+                    status: metric.status || 'missing',
+                    statusText: meituanTemporalMetricStatusText(metric.status),
+                    deltaText: withDelta ? meituanTemporalDeltaText(definition.key, metric) : '',
+                };
+            });
+            const meituanTemporalTodayCards = computed(() => buildMeituanTemporalCards(
+                meituanTemporalSummary.value?.today,
+                MEITUAN_TEMPORAL_TODAY_METRICS,
+                true
+            ));
+            const meituanTemporalYesterdayCards = computed(() => buildMeituanTemporalCards(
+                meituanTemporalSummary.value?.yesterday,
+                MEITUAN_TEMPORAL_YESTERDAY_METRICS
+            ));
+            const meituanTemporalFutureRows = computed(() => (
+                Array.isArray(meituanTemporalSummary.value?.future?.rows)
+                    ? meituanTemporalSummary.value.future.rows
+                    : []
+            ));
+            const meituanTemporalReferencePanels = computed(() => {
+                const sections = [
+                    {
+                        key: 'today',
+                        label: '今日实时',
+                        reference: meituanTemporalSummary.value?.today?.latest_verified_reference,
+                        definitions: MEITUAN_TEMPORAL_TODAY_METRICS,
+                    },
+                    {
+                        key: 'yesterday',
+                        label: '昨日复盘',
+                        reference: meituanTemporalSummary.value?.yesterday?.latest_verified_reference,
+                        definitions: MEITUAN_TEMPORAL_YESTERDAY_METRICS,
+                    },
+                    {
+                        key: 'future',
+                        label: '未来30天',
+                        reference: meituanTemporalSummary.value?.future?.latest_verified_reference,
+                        definitions: [],
+                    },
+                ];
+                return sections
+                    .filter(section => !!section.reference)
+                    .map(section => {
+                        const reference = section.reference;
+                        const details = section.key === 'future'
+                            ? `共 ${Array.isArray(reference.rows) ? reference.rows.length : 0} 个目标日期`
+                            : section.definitions
+                                .filter(definition => reference?.metrics?.[definition.key]?.value !== null
+                                    && reference?.metrics?.[definition.key]?.value !== undefined)
+                                .map(definition => `${definition.label} ${meituanTemporalMetricText(reference.metrics[definition.key], definition.key)}`)
+                                .join('；');
+                        return {
+                            key: section.key,
+                            label: section.label,
+                            capturedAt: reference.captured_at || '时间未返回',
+                            details: details || '已验证快照',
+                        };
+                    });
+            });
+            const meituanTemporalSourceMessage = computed(() => {
+                const state = meituanTemporalSummary.value?.source_state || {};
+                if (state.status === 'blocked') return state.message || '当前美团 Profile 尚未完成登录或门店绑定。';
+                return '';
+            });
 
             let downloadCenterTabLoadSeq = 0;
             const scheduleDownloadCenterTabLoad = (tab, context = {}) => {
@@ -9967,6 +10308,10 @@
                     }, 720);
                     if (context.source === 'meituan') {
                         void loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS });
+                        if (tab === 'traffic') {
+                            await loadMeituanTemporalSummary();
+                            if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
+                        }
                     }
                     if (tab === 'ai') {
                         await ensureAiAnalysisStaticReady();
@@ -10035,7 +10380,13 @@
                 if (!['all', 'overview', 'traffic', 'orders', 'reviews', 'ads'].includes(downloadCenterTab.value)) {
                     downloadCenterTab.value = 'all';
                 }
-                applyMeituanStoredDataFilter(downloadCenterTab.value, { resetPage: true, resetDates: true, resetHotel: true });
+                const temporalHotelId = resolveMeituanTemporalHotelId();
+                applyMeituanStoredDataFilter(downloadCenterTab.value, {
+                    resetPage: true,
+                    resetDates: true,
+                    resetHotel: true,
+                    hotelId: temporalHotelId,
+                });
                 // 自动加载数据
                 scheduleDownloadCenterTabLoad(downloadCenterTab.value, {
                     onlineDataTab: 'meituan-download',
@@ -13518,6 +13869,7 @@
                         skipIfAligned: true,
                     }),
                     syncAdsConfig: syncCtripAdsDirectConfig,
+                    loadSupplementalSnapshot: () => loadCollectionReliability('full'),
                     hasSelectedHotel: () => !!selectedCtripHotelId.value,
                 }), 80);
                 if (tab === 'ctrip-ranking') {
@@ -14951,11 +15303,21 @@
             const applyDefaultReportHotel = (options = {}) => {
                 const currentHotelId = String(filterReportHotel.value || '').trim();
                 if (currentHotelId && reportHotelOptionExists(currentHotelId)) return;
-                const defaultHotelId = resolveDefaultReportHotelId();
-                if (!defaultHotelId) {
-                    if (currentHotelId) filterReportHotel.value = '';
-                    return;
+                const storedPreferences = readDualOtaWorkbenchPreferences();
+                const hasStoredHotelId = Object.prototype.hasOwnProperty.call(storedPreferences, 'hotel_id');
+                const storedHotelId = hasStoredHotelId ? String(storedPreferences.hotel_id || '').trim() : '';
+                const availableOptions = Array.isArray(compassHotelOptions.value) ? compassHotelOptions.value : [];
+                let defaultHotelId = resolveDefaultReportHotelId();
+                if (hasStoredHotelId) {
+                    if (!storedHotelId) {
+                        defaultHotelId = '';
+                    } else if (reportHotelOptionExists(storedHotelId)) {
+                        defaultHotelId = storedHotelId;
+                    } else if (!availableOptions.length) {
+                        return;
+                    }
                 }
+                if (currentHotelId === defaultHotelId) return;
                 if (options.suppressDashboardRefresh === true) {
                     suppressNextReportHotelDashboardRefresh = true;
                 }
@@ -14965,7 +15327,10 @@
                     dualOtaSuppressHotelSearchRecord = false;
                 });
             };
-            watch(compassHotelOptions, () => applyDefaultReportHotel(), { immediate: true });
+            watch(compassHotelOptions, (options) => {
+                dualOtaHasAvailableHotels.value = Array.isArray(options) && options.length > 0;
+                applyDefaultReportHotel();
+            }, { immediate: true });
             const knowledgeCenterHotelOptions = computed(() => {
                 const pool = permittedHotels.value.length ? permittedHotels.value : hotels.value;
                 return (Array.isArray(pool) ? pool : []).filter(item => item && item.id);
@@ -22667,6 +23032,51 @@
                 || manualNotificationForm.value.data_scope_label
                 || '人工自定义正文';
             });
+            const manualNotificationPreviewContext = computed(() => {
+                const form = manualNotificationForm.value;
+                const templateType = form.template_type === 'operating_daily_custom_report'
+                    ? 'operating_daily_report'
+                    : form.template_type;
+                const template = manualNotificationTemplateCards.value.find(
+                    item => String(item?.key || '') === String(templateType || '')
+                );
+                const source = (manualNotificationMetadata.value?.source_scopes || []).find(
+                    item => String(item?.key || '') === String(form.source_scope || 'combined')
+                );
+                const sectionKeys = (Array.isArray(form.content_sections)
+                    ? form.content_sections
+                    : String(form.content_sections || '').split(',')
+                ).map(value => String(value).trim()).filter(Boolean);
+                const contentLabels = sectionKeys.map(key => (
+                    (manualNotificationMetadata.value?.content_sections || []).find(
+                        item => String(item?.key || '') === key
+                    )?.label || key
+                ));
+                const trigger = (manualNotificationMetadata.value?.trigger_types || []).find(
+                    item => String(item?.key || '') === String(form.trigger_type || '')
+                );
+                let schedule = trigger?.label || '待配置';
+                if (form.trigger_type === 'manual_test') {
+                    schedule = '仅保存/仅测试，未启用定时';
+                } else if (form.trigger_type === 'daily_fixed_time') {
+                    schedule = form.planned_send_at || '每日发送时间待配置';
+                } else if (form.trigger_type === 'hourly_on_the_hour') {
+                    schedule = `${form.hourly_start_time || '待配置'}–${form.hourly_end_time || '待配置'} 每小时整点`;
+                } else if (form.trigger_type === 'interval_minutes') {
+                    schedule = `从 ${form.hourly_start_time || '待配置'} 起，每 ${form.interval_minutes || '待配置'} 分钟`;
+                }
+                return {
+                    plan: template?.label || form.title || '未选择计划',
+                    source: manualNotificationIsOperatingDaily.value
+                        ? (source?.label || '来源待选择')
+                        : manualNotificationDataScopeLabel.value,
+                    content: manualNotificationIsOperatingDaily.value
+                        ? (contentLabels.join('、') || '内容待选择')
+                        : (String(form.body || '').trim() ? '当前模板正文' : '尚未填写正文'),
+                    businessDate: form.business_date || '未取得',
+                    schedule,
+                };
+            });
             const manualNotificationLatestDispatch = computed(() => (
                 manualNotificationDispatchHistory.value?.list?.[0] || null
             ));
@@ -22709,6 +23119,7 @@
                     return;
                 }
                 manualNotificationForm.value[field] = value;
+                manualNotificationPreview.value = null;
                 if (field === 'target_robot_id') syncManualNotificationTargetRobot();
                 if (field === 'business_date') loadManualNotificationMetadata();
             };
@@ -22719,6 +23130,7 @@
                 const hotel = operationHotelOptions.value.find(
                     item => String(item.id) === String(manualNotificationForm.value.hotel_id || '')
                 );
+                const selection = manualNotificationPreviewContext.value;
                 const payload = manualNotificationPreview.value?.payload || null;
                 const backendContent = String(
                     payload?.text?.content || payload?.markdown?.content || ''
@@ -22736,7 +23148,7 @@
                 ) {
                     return {
                         title: '今日经营数据汇总｜PMS＋OTA',
-                        body: '通用模板将按当前门店、业务日的真实 PMS＋OTA 数据生成；点击“页面预览”读取实际发送内容。',
+                        body: `来源：${selection.source}\n内容：${selection.content}\n\n尚未生成实际数据正文。点击“生成消息预览”读取当前门店、经营日期的真实可发送内容；缺失数据会保留为阻断。`,
                         status: manualNotificationDataStatus.value,
                     };
                 }
@@ -22909,6 +23321,7 @@
                 waiting: 'border-amber-200 bg-amber-50 text-amber-700',
                 unverified: 'border-slate-200 bg-slate-50 text-slate-600',
                 failed: 'border-red-200 bg-red-50 text-red-700',
+                blocked: 'border-red-200 bg-red-50 text-red-700',
             }[String(status || '')] || 'border-slate-200 bg-slate-50 text-slate-600');
             const stopAutomationMonitorPolling = () => {
                 if (automationMonitorRefreshTimer) {
@@ -35428,6 +35841,7 @@
                 if (String(newUserId || '') !== String(previousUserId || '')) {
                     resetAgentCenterClientState({ reason: 'user-switch' });
                 }
+                restoreDualOtaWorkbenchPreferences();
                 dualOtaHotelSearchCounts.value = readDualOtaHotelSearchCounts();
                 dualOtaHotelOrderIds.value = readDualOtaHotelOrderIds();
                 closeDualOtaHotelOrder();
@@ -35439,6 +35853,13 @@
                     resetAgentCenterClientState({ reason: 'hotel-switch' });
                     clearPostFetchRefreshTimers();
                     clearPlatformProfileLoginTimers();
+                }
+                const normalizedHotelId = String(newHotelId || '').trim();
+                const hasHotelOptions = Array.isArray(compassHotelOptions.value) && compassHotelOptions.value.length > 0;
+                if (user.value?.id && token.value
+                    && (normalizedHotelId || hasHotelOptions)
+                    && (!normalizedHotelId || reportHotelOptionExists(normalizedHotelId))) {
+                    persistDualOtaWorkbenchPreferences({ hotel_id: normalizedHotelId });
                 }
                 if (suppressNextReportHotelDashboardRefresh) {
                     suppressNextReportHotelDashboardRefresh = false;
@@ -36505,15 +36926,6 @@
 
             const syncCtripAdsDirectConfig = async (showMessage = true) => {
                 let applied = false;
-                try {
-                    const savedAdsConfig = await loadSavedDataConfigByType('ctrip-ads');
-                    if (savedAdsConfig) {
-                        applied = applyCtripAdsDirectConfig(savedAdsConfig) || applied;
-                    }
-                } catch (e) {
-                    debugLog('加载携程广告配置失败:', e);
-                }
-
                 const activeConfig = getActiveCtripConfig();
                 if (activeConfig) {
                     applied = applyCtripAdsDirectConfig(activeConfig, { fillOnlyEmpty: true }) || applied;
@@ -40509,6 +40921,7 @@
 
             // 初始化
             onMounted(() => {
+                restoreDualOtaWorkbenchPreferences();
                 window.addEventListener('suxi:login-password-save-result', handleLoginPasswordSaveResult);
                 handleLoginPasswordSaveResult();
                 syncSidebarForViewport();
@@ -42224,7 +42637,7 @@
                 loadDingdandaoPmsIntegration, saveDingdandaoPmsIntegration, pushDingdandaoVerifiedCapture,
                 loadMeituanCloudPmsIntegration, saveMeituanCloudPmsIntegration,
                 manualNotificationMetadata, manualNotificationForm, manualNotificationHistory, manualNotificationDispatchHistory, manualNotificationPreview, manualNotificationEditing, manualNotificationError, manualNotificationLoading,
-                manualNotificationTemplateCards, manualNotificationFormalRobotOptions, manualNotificationBodyCount, manualNotificationIsOperatingDaily, manualNotificationContentModeOptions, manualNotificationVariableOptions, manualNotificationDataStatus, manualNotificationDataScopeLabel, manualNotificationLivePreview, manualNotificationAutomaticTaskRows,
+                manualNotificationTemplateCards, manualNotificationFormalRobotOptions, manualNotificationBodyCount, manualNotificationIsOperatingDaily, manualNotificationContentModeOptions, manualNotificationVariableOptions, manualNotificationDataStatus, manualNotificationDataScopeLabel, manualNotificationPreviewContext, manualNotificationLivePreview, manualNotificationAutomaticTaskRows,
                 manualNotificationSchedulePanelBody, manualNotificationSchedulePanelProps, manualNotificationSchedulePanelEvents,
                 manualNotificationTypeLabel, manualNotificationStatusText, manualNotificationStatusClass, manualNotificationTestAllowed, handleManualNotificationAutomaticTaskClick,
                 loadManualNotificationCenter, loadManualNotificationMetadata, loadManualNotificationHistory, loadManualNotificationDispatchHistory, selectManualNotificationTemplate, selectManualNotificationContentMode, syncManualNotificationTargetRobot,
@@ -42375,7 +42788,9 @@
                 localCollectorOrderedTargetDateText, localCollectorOrderedQueueText, localCollectorOrderedGateText,
                 localCollectorOrderedCurrentText, localCollectorOrderedNextText, localCollectorOrderedNextReasonText, localCollectorOrderedNextActionText,
                 cloudAuthorizationGuide, cloudAuthorizationPanelTitle, cloudAuthorizationRefreshText, cloudAuthorizationGuideText, cloudAuthorizationEmptyText, cloudBrowserAuthorizationLoading, cloudBrowserAuthorizationError, loadCloudBrowserAuthorization, cloudAuthorizationRows, openCloudAuthorizationGuide, openCloudAuth, c, o,
-                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionBoundaryRows, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceLoadFailed, platformDataSourceSnapshotReady, platformDataSourceLoadError, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, localCollectorStatus, localCollectorLoading, localCollectorError, localCollectorPairing, localCollectorPairResult, localCollectorPairCommand, localCollectorSaving, localCollectorTaskRunningKey, localCollectorDeviceName, localCollectorAccountForm, localCollectorBindingForm, localCollectorBackfillDate, localCollectorPlatformText, localCollectorStatusText, localCollectorStatusClass, loadLocalCollectorStatus, generateLocalCollectorPairCode, copyLocalCollectorPairCommand, createLocalCollectorAccount, bindLocalCollectorHotel, createLocalCollectorTask, contactLocalCollectorAdmin, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, togglePlatformAccountCenterDetails, openPlatformAccountCenterAction, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureReadinessNotice, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
+                onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionBoundaryRows, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceLoadFailed, platformDataSourceSnapshotReady, platformDataSourceLoadError, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, localCollectorStatus, localCollectorLoading, localCollectorError, localCollectorPairing, localCollectorPairResult, localCollectorPairCommand, localCollectorSaving, localCollectorTaskRunningKey, localCollectorDeviceName, localCollectorAccountForm, localCollectorBindingForm, localCollectorBackfillDate, localCollectorPlatformText, localCollectorStatusText, localCollectorStatusClass, loadLocalCollectorStatus, generateLocalCollectorPairCode, copyLocalCollectorPairCommand, createLocalCollectorAccount, bindLocalCollectorHotel, createLocalCollectorTask, contactLocalCollectorAdmin, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, togglePlatformAccountCenterDetails, openPlatformAccountCenterAction, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab,
+                meituanTemporalSummary, meituanTemporalLoading, meituanTemporalRefreshing, meituanTemporalError, meituanTemporalTodayCards, meituanTemporalYesterdayCards, meituanTemporalFutureRows, meituanTemporalReferencePanels, meituanTemporalSourceMessage, loadMeituanTemporalSummary, refreshMeituanTemporal, meituanTemporalMetricText, meituanTemporalMetricStatusText, meituanTemporalMetricStatusClass, meituanTemporalSectionStatusText, meituanTemporalSectionStatusClass,
+                fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureReadinessNotice, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
@@ -42415,7 +42830,7 @@
                 collectionHealthCtripLatestCards, collectionHealthCtripOverviewAuthState, collectionHealthCtripOverviewStatusCards, ctripOverviewFetchModuleCards,
                 collectionHealthCtripModuleStatusText, collectionHealthCtripModuleStatusClass, collectionHealthCtripShortList, collectionHealthCtripMetricText,
                 collectionHealthCtripValueText, collectionHealthCtripMetricDisplay, collectionHealthCtripMetricFromRows, collectionHealthCtripCoreSnapshotGroups,
-                collectionHealthCtripOverviewRevenueMetrics, collectionHealthCtripOverviewTrafficMetrics, collectionHealthCtripOverviewFunnelRows, collectionHealthCtripOverviewPanels, collectionHealthCtripMissingActionRows,
+                collectionHealthCtripOverviewRevenueMetrics, collectionHealthCtripOverviewTrafficMetrics, collectionHealthCtripOverviewFunnelRows, collectionHealthCtripOverviewPanels, collectionHealthCtripServicePanel, collectionHealthCtripAdsPanel, collectionHealthCtripMissingActionRows,
                 collectionHealthCtripEffectivenessClass,
                 collectionHealthFieldRows, collectionHealthSummaryCards, collectionHealthStatusText, collectionHealthStatusClass,
                 phase1EmployeeQuestionRows, phase1EmployeeRequiredActions, phase1EmployeeClosureSummary, phase1EmployeeCollectionSourceRows, phase1EmployeeFieldTrustRows, phase1EmployeeMissingFieldRows, phase1EmployeeMissingFieldOverflowText, dataHealthFieldGapActionRows, dataHealthFieldGapActionSummary, phase1EmployeeMetricDomainRows, phase1EmployeeAiEvidenceSummary, phase1EmployeeOperationSummary, phase1EmployeeQuestionStatusText, phase1EmployeeQuestionStatusClass,

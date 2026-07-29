@@ -100,6 +100,8 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $adsUrl = $this->firstString($options, $config, ['ads_url', 'adsUrl']);
         $dataPeriod = $this->firstString($options, $config, ['data_period', 'dataPeriod']);
         $snapshotTime = $this->firstString($options, $config, ['snapshot_time', 'snapshotTime']);
+        $captureMode = $this->firstString($options, $config, ['capture_mode', 'captureMode']);
+        $temporalScope = $this->firstString($options, $config, ['temporal_scope', 'temporalScope']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
 
         $args = [
@@ -127,6 +129,12 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($snapshotTime !== '') {
             $args[] = '--snapshot-time=' . $snapshotTime;
+        }
+        if ($captureMode !== '') {
+            $args[] = '--capture-mode=' . $captureMode;
+        }
+        if ($temporalScope !== '') {
+            $args[] = '--temporal-scope=' . $temporalScope;
         }
 
         try {
@@ -171,6 +179,8 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'data_date' => $dataDate,
             'data_period' => $dataPeriod,
             'snapshot_time' => $snapshotTime,
+            'capture_mode' => $captureMode,
+            'temporal_scope' => $temporalScope,
             'captured_by' => 'platform_data_source_sync',
         ];
         if ($dataPeriod !== '' && empty($payload['data_period'])) {
@@ -352,7 +362,6 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     private function buildRows(array $payload, array $source, int $systemHotelId, string $dataDate, string $platformHotelId): array
     {
         $rows = [];
-        $forcedDataType = $this->forcedResourceDataType($source, $payload);
         $sectionGroups = [
             ['data_type' => 'business', 'keys' => ['businessData', 'business_data', 'business', 'overview']],
             ['data_type' => 'peer_rank', 'keys' => ['peerRank', 'peer_rank', 'competitorRank', 'rankings', 'ranking']],
@@ -370,9 +379,6 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         foreach ($sectionGroups as $sectionGroup) {
             $dataType = (string)$sectionGroup['data_type'];
             $sectionRows = $this->payloadRowsForKeys($payload, $sectionGroup['keys']);
-            if ($forcedDataType !== '' && in_array($dataType, ['business', 'peer_rank', 'traffic', 'order_flow', 'search_keyword', 'room_type'], true)) {
-                $dataType = $forcedDataType;
-            }
             foreach ($sectionRows as $row) {
                 if (!is_array($row)) {
                     continue;

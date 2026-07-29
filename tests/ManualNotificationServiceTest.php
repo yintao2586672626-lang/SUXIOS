@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\ManualNotificationDispatchLedgerService;
+use app\service\ManualNotificationBusinessPayloadService;
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
 use app\service\OperatingDailyReportPayloadService;
@@ -117,6 +118,150 @@ final class ManualNotificationServiceTest extends TestCase
             $metadata['types'][1]['data_scope_label']
         );
         self::assertSame('not_deployed', $metadata['scheduler_status']);
+        $types = array_column($metadata['types'], null, 'key');
+        self::assertTrue($types['today_revenue_management']['dynamic']);
+        self::assertTrue($types['future_room_status']['dynamic']);
+        self::assertTrue($types['daily_review']['dynamic']);
+    }
+
+    public function testBusinessTemplateUsesVerifiedFactsInsteadOfSavedPlaceholder(): void
+    {
+        $service = new ManualNotificationService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->businessPayloads()
+        );
+
+        $preview = $service->preview(
+            80,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'notification_type' => 'today_revenue_management',
+                'template_type' => 'today_revenue_management',
+                'title' => '保存时占位标题',
+                'body' => '保存时占位正文，不得作为事实发送。',
+            ]),
+            9
+        );
+
+        self::assertTrue($preview['dynamic_report']);
+        self::assertTrue($preview['report_gate']['allowed']);
+        self::assertNotSame('', $preview['preview_fingerprint']);
+        self::assertSame(
+            ManualNotificationBusinessPayloadService::FACT_ENVELOPE_VERSION,
+            $preview['fact_envelope']['contract_version']
+        );
+        self::assertStringContainsString(
+            '房费｜¥8745.60',
+            $preview['payload']['markdown']['content']
+        );
+        self::assertStringNotContainsString(
+            '保存时占位正文',
+            $preview['payload']['markdown']['content']
+        );
+    }
+
+    public function testBlockedBusinessTemplateDoesNotClaimPreviewAvailability(): void
+    {
+        $service = new ManualNotificationService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->businessPayloads()
+        );
+
+        $preview = $service->preview(
+            80,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'notification_type' => 'future_room_status',
+                'template_type' => 'future_room_status',
+            ]),
+            9
+        );
+
+        self::assertTrue($preview['dynamic_report']);
+        self::assertFalse($preview['report_gate']['allowed']);
+        self::assertSame(
+            'business_message_dingdandao_pms_not_verified',
+            $preview['reason_code']
+        );
+        self::assertSame('preview_unavailable', $preview['delivery_status']);
+        self::assertNull($preview['payload']);
+    }
+
+    public function testBusinessTemplateTestPushUsesVerifiedFactsAndDispatchLedger(): void
+    {
+        Db::name('competitor_wechat_robot')->insert([
+            'id' => ManualNotificationService::TEST_ROBOT_ID,
+            'store_id' => 80,
+            'name' => ManualNotificationService::TEST_ROBOT_NAME,
+            'webhook' => 'not-read-by-service-test',
+            'status' => 1,
+        ]);
+        $calls = [];
+        $service = new ManualNotificationService(
+            static function (int $hotelId, int $robotId, array $payload) use (&$calls): array {
+                $calls[] = [$hotelId, $robotId, $payload];
+                return ['delivery_status' => 'sent'];
+            },
+            null,
+            null,
+            null,
+            null,
+            null,
+            $this->businessPayloads()
+        );
+        $saved = $service->save(
+            9,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $this->validInput([
+                'notification_type' => 'today_revenue_management',
+                'template_type' => 'today_revenue_management',
+                'title' => '保存时占位标题',
+                'body' => '保存时占位正文，不得作为事实发送。',
+            ])
+        );
+
+        $result = $service->testPush(
+            9,
+            80,
+            (int)$saved['record']['id'],
+            7,
+            true,
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '敦煌漠蓝新',
+            'business-message-test-1'
+        );
+
+        self::assertSame('sent', $result['delivery_status']);
+        self::assertCount(1, $calls);
+        self::assertStringContainsString(
+            '房费｜¥8745.60',
+            $calls[0][2]['markdown']['content']
+        );
+        self::assertStringNotContainsString(
+            '保存时占位正文',
+            $calls[0][2]['markdown']['content']
+        );
+        self::assertSame(
+            ManualNotificationBusinessPayloadService::RENDER_CONTRACT_VERSIONS[
+                'today_revenue_management'
+            ],
+            Db::name('manual_notification_schedule_dispatches')
+                ->where('notification_id', (int)$saved['record']['id'])
+                ->value('render_contract_version')
+        );
     }
 
     public function testOperatingDailyCustomTemplateKeepsCombinedCompatibilityAndCommonCanChooseSource(): void
@@ -184,7 +329,7 @@ final class ManualNotificationServiceTest extends TestCase
         self::assertSame('2026-08-31', $saved['record']['effective_to']);
         self::assertSame('09:00', $saved['record']['hourly_start_time']);
         self::assertSame('22:00', $saved['record']['hourly_end_time']);
-        self::assertSame('收益管理正文', $saved['record']['data_scope_label']);
+        self::assertSame('任务执行正文', $saved['record']['data_scope_label']);
         self::assertSame('awaiting_test', $saved['record']['schedule_status']);
         self::assertNull($saved['record']['next_run_at']);
     }
@@ -664,14 +809,61 @@ final class ManualNotificationServiceTest extends TestCase
         self::assertSame(2, $retried['dispatch']['attempt_count']);
     }
 
+    private function businessPayloads(): ManualNotificationBusinessPayloadService
+    {
+        return new ManualNotificationBusinessPayloadService(
+            static fn(string $type, int $hotelId, string $date): array => [
+                'contract_version' => 'manual_notification_business_preview.v1',
+                'hotel' => ['id' => $hotelId, 'tenant_id' => 9, 'name' => '敦煌漠蓝新'],
+                'business_date' => $date,
+                'section' => [
+                    'key' => $type,
+                    'status' => 'partial',
+                    'facts' => [],
+                    'forecasts' => [],
+                    'gaps' => [],
+                    'message_data' => [
+                        'contract_version' => 'three_source_today_message_facts.v1',
+                        'data_status' => 'partial',
+                        'business_date' => $date,
+                        'sources' => [
+                            'dingdandao_pms' => [
+                                'contract_version' => 'dingdandao_today_message_facts.v1',
+                                'data_status' => 'readback_verified',
+                                'facts' => [
+                                    'room_fee' => 8745.6,
+                                    'sold_room_nights' => 15,
+                                    'sellable_room_nights' => 16,
+                                    'remaining_sellable_room_nights' => 1,
+                                    'occupancy_rate_percent' => 93.75,
+                                    'adr' => 583.04,
+                                    'revpar' => 546.6,
+                                ],
+                                'source' => [
+                                    'captured_at' => '2026-07-26 18:35:00',
+                                ],
+                            ],
+                            'ctrip_ota' => ['data_status' => 'pending_collection'],
+                            'meituan_ota' => ['data_status' => 'collection_failed'],
+                        ],
+                        'aggregation_policy' => [
+                            'pms_plus_ota_revenue_addition_allowed' => false,
+                            'missing_source_value' => null,
+                        ],
+                    ],
+                ],
+            ]
+        );
+    }
+
     /** @param array<string, mixed> $overrides @return array<string, mixed> */
     private function validInput(array $overrides = []): array
     {
         return array_replace([
-            'notification_type' => 'today_revenue_management',
+            'notification_type' => 'task_notification',
             'business_date' => '2026-07-26',
-            'title' => '{经营日期} 今日收益管理',
-            'body' => "【今日收益管理】\n酒店：{酒店名称}\n今日目标：未取得\n建议动作：待配置",
+            'title' => '{经营日期} 任务通知',
+            'body' => "【任务通知】\n酒店：{酒店名称}\n任务事实：未取得\n下一步：待配置",
             'send_method' => 'wecom_test',
             'trigger_type' => 'manual_test',
             'planned_send_at' => '',

@@ -169,6 +169,16 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             633.46,
             $first['trend']['adr'][1]['value']
         );
+        self::assertSame('verified', $first['forward_room_status']['data_status']);
+        self::assertSame(
+            'readback_verified',
+            $first['forward_room_status']['readback_status']
+        );
+        self::assertSame(31, $first['forward_room_status']['source_day_count']);
+        self::assertSame(
+            63,
+            $first['forward_room_status']['horizons'][1]['booked_room_nights']
+        );
         self::assertSame($first['id'], $second['id']);
         self::assertSame(1, (int)Db::name('dingdandao_operating_target_captures')->count());
         self::assertSame(17, (int)Db::name('dingdandao_room_fee_capture_details')->count());
@@ -194,6 +204,94 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             self::assertSame('dingdandao_capture_not_verified', $error->getMessage());
         }
         self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
+    }
+
+    public function testPartialForwardFactsDoNotInvalidateVerifiedCurrentDayCapture(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['forward_room_status'] = [
+            'data_status' => 'partial',
+            'gap_codes' => ['dingdandao_forward_coverage_partial'],
+        ];
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame('verified', $capture['quality_status']);
+        self::assertSame('readback_verified', $capture['readback_status']);
+        self::assertSame('partial', $capture['forward_room_status']['data_status']);
+        self::assertSame('not_verified', $capture['forward_room_status']['readback_status']);
+        self::assertSame(
+            ['dingdandao_forward_coverage_partial'],
+            $capture['forward_room_status']['gap_codes']
+        );
+    }
+
+    public function testVerifiedDisplayWindowsSurviveMissingTrailingDays(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-07-27 08:10:00'
+            )
+        );
+        $input = $this->validInput();
+        $forward = $input['forward_room_status'];
+        $forward['range_end_date'] = '2026-08-17';
+        $forward['source_day_count'] = 22;
+        $forward['source_coverage_status'] = 'partial';
+        $forward['source_gap_codes'] = [
+            'dingdandao_forward_trailing_coverage_partial',
+        ];
+        $forward['daily_rows'] = array_slice($forward['daily_rows'], 0, 22);
+        foreach ($forward['room_types'] as &$roomType) {
+            $roomType['daily_rows'] = array_slice(
+                $roomType['daily_rows'],
+                0,
+                22
+            );
+        }
+        unset($roomType);
+        $input['forward_room_status'] = $forward;
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame(
+            'verified',
+            $capture['forward_room_status']['data_status']
+        );
+        self::assertSame(
+            'readback_verified',
+            $capture['forward_room_status']['readback_status']
+        );
+        self::assertSame(22, $capture['forward_room_status']['source_day_count']);
+        self::assertSame(
+            'partial',
+            $capture['forward_room_status']['source_coverage_status']
+        );
+        self::assertSame(
+            [3, 7, 14, 21],
+            array_column(
+                $capture['forward_room_status']['horizons'],
+                'horizon_days'
+            )
+        );
     }
 
     /**
@@ -317,7 +415,124 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
                         'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=3#data.list[]',
                 ],
             ],
+            'forward_room_status' => $this->validForwardInput(),
             'field_trace' => array_fill_keys(array_keys($summary), 'API:/api/verified-read'),
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function validForwardInput(): array
+    {
+        $asOfDate = '2026-07-27';
+        $dates = [];
+        for ($index = 0; $index < 31; $index++) {
+            $dates[] = (new DateTimeImmutable($asOfDate))
+                ->modify('+' . $index . ' days')
+                ->format('Y-m-d');
+        }
+        $roomTypeA = [];
+        $roomTypeB = [];
+        $total = [];
+        foreach ($dates as $date) {
+            $roomTypeA[] = [
+                'stay_date' => $date,
+                'remaining_sellable_rooms' => 3,
+                'booked_rooms' => 5,
+                'unavailable_rooms' => 0,
+                'oversold_rooms' => 0,
+                'room_fee' => 2500,
+                'sold_room_nights' => 5,
+                'sellable_room_nights' => 8,
+                'occupancy_rate_percent' => 62.5,
+                'adr' => 500,
+                'revpar' => 312.5,
+            ];
+            $roomTypeB[] = [
+                'stay_date' => $date,
+                'remaining_sellable_rooms' => 3,
+                'booked_rooms' => 4,
+                'unavailable_rooms' => 1,
+                'oversold_rooms' => 0,
+                'room_fee' => 2000,
+                'sold_room_nights' => 4,
+                'sellable_room_nights' => 7,
+                'occupancy_rate_percent' => 57.14,
+                'adr' => 500,
+                'revpar' => 285.71,
+            ];
+            $total[] = [
+                'stay_date' => $date,
+                'remaining_sellable_rooms' => 6,
+                'booked_rooms' => 9,
+                'unavailable_rooms' => 1,
+                'oversold_rooms' => 0,
+                'room_fee' => 4500,
+                'sold_room_nights' => 9,
+                'sellable_room_nights' => 15,
+                'occupancy_rate_percent' => 60,
+                'adr' => 500,
+                'revpar' => 300,
+            ];
+        }
+        $horizons = [];
+        foreach ([3, 7, 14, 21] as $days) {
+            $horizons[] = [
+                'horizon_days' => $days,
+                'date_from' => '2026-07-28',
+                'date_to' => (new DateTimeImmutable($asOfDate))
+                    ->modify('+' . $days . ' days')
+                    ->format('Y-m-d'),
+                'expected_days' => $days,
+                'covered_days' => $days,
+                'sellable_room_nights' => 15 * $days,
+                'booked_room_nights' => 9 * $days,
+                'remaining_sellable_room_nights' => 6 * $days,
+                'unavailable_room_nights' => $days,
+                'room_fee' => 4500 * $days,
+                'occupancy_rate_percent' => 60,
+                'adr' => 500,
+                'revpar' => 300,
+                'quality_status' => 'verified',
+                'gap_codes' => [],
+            ];
+        }
+        return [
+            'contract_version' => 'dingdandao_forward_room_status.v1',
+            'fact_scope' => 'whole_hotel_forward_room_status',
+            'source_api_path' => '/v2/hm-b/pro/web/accom/roomStat/forward/v2',
+            'data_status' => 'verified',
+            'as_of_date' => $asOfDate,
+            'range_start_date' => $asOfDate,
+            'range_end_date' => '2026-08-26',
+            'requested_range_start_date' => $asOfDate,
+            'requested_range_end_date' => '2026-08-26',
+            'source_day_count' => 31,
+            'display_day_count' => 21,
+            'source_room_type_count' => 2,
+            'total_room_count' => 16,
+            'display_horizons' => [3, 7, 14, 21],
+            'display_semantics' => 'future_days_after_as_of_date',
+            'source_coverage_status' => 'complete',
+            'source_gap_codes' => [],
+            'daily_rows' => $total,
+            'room_types' => [
+                [
+                    'provider_room_type_id' => 'room-type-1',
+                    'room_type_name' => '景观大床房',
+                    'room_count' => 8,
+                    'daily_rows' => $roomTypeA,
+                ],
+                [
+                    'provider_room_type_id' => 'room-type-2',
+                    'room_type_name' => '庭院大床房',
+                    'room_count' => 8,
+                    'daily_rows' => $roomTypeB,
+                ],
+            ],
+            'horizons' => $horizons,
+            'reconciliation_status' => 'matched',
+            'gap_codes' => [],
+            'field_trace' => [],
         ];
     }
 
