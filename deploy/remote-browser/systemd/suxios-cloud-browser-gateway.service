@@ -1,0 +1,31 @@
+[Unit]
+Description=SUXIOS protected cloud browser gateway
+After=network-online.target suxios-cloud-browser-novnc.service
+Wants=network-online.target
+Requires=suxios-cloud-browser-novnc.service
+
+[Service]
+Type=simple
+User=suxios-browser
+Group=suxios-browser
+SupplementaryGroups=www-data
+WorkingDirectory=@APP_ROOT@
+EnvironmentFile=-/etc/suxios-cloud-browser/gateway.env
+ExecStart=@NODE_BIN@ --experimental-websocket @INSTALL_ROOT@/cloud_browser_gateway.mjs
+LoadCredential=profile-master-key:/etc/suxios-cloud-browser/profile-master-key
+LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
+RuntimeDirectory=suxios-cloud-browser
+RuntimeDirectoryMode=0700
+StateDirectory=suxios-cloud-browser
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/suxios-cloud-browser /run/suxios-cloud-browser -@APP_ROOT@/runtime -@APP_ROOT@/storage
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

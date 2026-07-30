@@ -406,11 +406,21 @@ function measureTopLevel() {
 function measureCleanupTargets() {
   const candidates = [
     'output',
-    'runtime',
     'test-results',
     '.pytest_cache',
     '.gstack',
   ];
+  const runtimeCleanupNames = [
+    'cache',
+    'static-gzip',
+    'static-html',
+    'log',
+    'codex-runner-contract',
+    'test_ctrip_mapping',
+  ];
+  for (const runtimeName of runtimeCleanupNames) {
+    candidates.push(path.join('runtime', runtimeName));
+  }
   const storagePath = path.join(repoRoot, 'storage');
   if (safeStat(storagePath)?.isDirectory()) {
     for (const entry of fs.readdirSync(storagePath, { withFileTypes: true })) {
@@ -427,8 +437,6 @@ function measureCleanupTargets() {
   }
   const reportsPath = path.join(repoRoot, 'reports');
   if (safeStat(reportsPath)?.isDirectory()) {
-    candidates.push(path.join('reports', 'ctrip_capture_assets'));
-    candidates.push(path.join('reports', 'meituan_capture_assets'));
     for (const entry of fs.readdirSync(reportsPath, { withFileTypes: true })) {
       if (!entry.isFile()) {
         continue;

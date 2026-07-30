@@ -1,0 +1,12 @@
+[Unit]
+Description=Run hourly SUXIOS Molanxin PMS collection and three-source digest
+
+[Timer]
+OnCalendar=*-*-* *:35:00 Asia/Shanghai
+AccuracySec=30s
+RandomizedDelaySec=30s
+Persistent=false
+Unit=suxios-dingdandao-collection.service
+
+[Install]
+WantedBy=timers.target

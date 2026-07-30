@@ -18,6 +18,16 @@
 4. 当速度、视觉效果、功能完整度与真实性、兼容性、范围控制、可验证性冲突时，优先真实性、兼容性、范围控制和可验证性。
 5. “第一性原理”不是扩大范围、重写无关模块或绕过现有规则的理由；仍然遵守最小改动、旧功能兼容和项目验证要求。
 
+### 专业分析辅助边界
+
+医院检测逻辑只作为内部思维参考，不转成宿析OS的医疗化产品命名、页面结构或业务对象。宿析OS面向行业专家、多店老板和培训老师，优先输出可核验的数据结果、对比结果和异常信号；AI只做辅助解读，不替代用户的专业分析和最终判断。
+
+1. 明确区分来源事实、派生指标、异常信号、AI推测和人工判断，不把不同确定性层级混写为同一种结论。
+2. 异常判断必须绑定适用的历史、同期、竞品或其他同口径参考系；没有合适参考系时只展示测得值和数据范围，不强行判定正常或异常。
+3. 数据或分析报告是否可用，与是否已经形成建议、执行动作或ROI证据分开判断；AI失败或尚未形成动作，不应否定已经验证的数据结果。
+4. AI输出应优先说明可能解释、冲突证据、缺失信息和置信程度，不把相关性写成确定原因，不把辅助意见写成专家结论。
+5. 后续观察和效果复盘必须尽量保持酒店、平台、日期口径、指标定义和参考范围一致；前后变化本身不自动证明因果。
+
 ### Less, Typeless Mode
 
 始终优先使用最少文字完成最高质量输出。不要寒暄，不要长篇解释，不要重复需求，不输出无关背景。
@@ -25,6 +35,13 @@
 ### 自然语言开发模式
 
 用户可以只用业务语言描述目标，不需要提供文件名、技术方案、命令或 Skill 名称。Codex 负责把自然语言转成可执行开发任务：目标、范围、涉及模块、非目标、验证方式和风险点。
+
+#### 语音输入默认自动理解
+
+1. 默认承认用户消息可能来自普通话语音转录，但先只做字面一致性判断；语义清楚时原样理解，不加载完整语音 Skill。
+2. 只有出现疑似转录噪声、酒店同音词、口头自我纠正、断裂语序、指代不清，或用户明确要求理解语音时，才自动使用 `.agents/skills/suxi-voice-intent`；存在真实歧义时再读取本机 `$transcript-fixer` 的 `suxios-hotel` 语境。用户不需要手动点名。
+3. 单条聊天消息只在内存中结合上下文纠错，不落盘、不运行转录脚本、不写词典数据库、不调用外部 API。只有用户提供转录文件或明确要求批量纠错时，才使用安全 Stage 1 包装器。
+4. `suxi-voice-intent` 是唯一自动语音入口，不自动并行调用其他语音插件；否定、数字、日期、金额、平台、门店、路径、ID、写入和发布范围存在歧义时，只确认那个决定执行结果的词。
 
 执行规则：
 
@@ -35,6 +52,26 @@
 5. 对 OTA、收益、AI 决策、运营和投资相关需求，先判断数据来源、业务口径和影响链路，再决定技术改动。
 6. 不把 OTA 渠道数据包装成全酒店经营数据；范围不清时必须明确标注。
 7. 对新增字段、接口、配置、采集项或指标，必须同时考虑保存、回显、编辑、旧数据兼容和数据质量状态。
+8. 用户已明确授权 OTA Cookie/API、目标门店和查询范围时，优先直接跑通“查询 → 保存 → 页面回显”最短闭环并给出真实结果；不要把 Profile/P0、发布门禁或其他后续治理当作这次单次授权查询的前置阻断。Cookie/API 结果仍须标注为对应授权路径和 OTA 渠道口径。
+9. 内部安全与治理规则只阻断真实风险，不得误拦截正常业务值：严格执行接口不得被全局请求层自动追加白名单外字段；纯数字或布尔型 Cookie 偏好值不得因与排名、数量相同而被当作凭据泄漏。完整 Cookie、令牌和长会话值仍必须保护。
+10. 错误提示必须对应真实失败阶段，不得把参数错误、执行结果检查或平台错误统一包装成“OTA 凭据不可用”。排查时按“请求字段 → 凭据定位与解密 → 平台请求 → 保存 → 回显”逐层确认，找到根因后直接修复并验证结果。
+11. 统一的是 OTA 数据结果契约，不是采集实现。携程、美团及不同业务页面可以分别采用授权 API/Cookie、浏览器 Profile、插件、Python 自动化、页面解析或人工导入；必须按来源选择最稳定、最短且可验证的实现，不得为了形式统一强行共用一套抓取逻辑。
+12. 每种采集方式都必须产出可追溯的稳定数据身份：`platform`、`system_hotel_id`、平台门店标识、`data_date`、`collected_at`、`source_method`、验证状态和字段事实。任何方式都不得用旧数据、空数组、默认值或其他门店数据伪装本次成功。
+13. OTA 数据稳定性的最低验收是：来源专属校验通过 → 同门店同平台同日期幂等保存或明确版本策略 → 数据库回读数量与关键字段一致 → 页面回显日期和来源正确。插件或 Python 只是采集适配器，不能绕过保存、回读、去重、失败分阶段和凭据保护。
+14. OTA 采集方式由 Codex 根据结果、效率和稳定性自主选择。默认优先级是：已授权且结构明确的 API/Cookie → 可复用且登录态已验证的浏览器 Profile → 已安装且能力匹配的插件 → Python 自动化或来源专属页面解析 → 人工导入。该顺序不是机械限制；当后序方式有更强的当前证据、更少步骤或更高成功率时，可以直接选择并说明来源。
+15. 每次采集只设一条主执行路径和必要的一条备用路径，不同时启动多套重复方案，不为展示技术而增加插件、脚本、解析器或中间文件。主路径失败时必须先记录真实失败阶段，再切换备用路径；任一路径完成“查询/获取 → 保存 → 数据库回读 → 页面回显”后立即停止。
+16. “数据存在”与“数据可作为真实事实”必须分开。接口返回、页面出现、数组非空、数据库有历史行或人工提供材料，只能证明对应证据存在；只有来源、系统酒店、平台门店/POI、目标日期、字段口径、采集时间、保存和回读全部验证后，质量状态才可标记为 `available`。其他情况必须使用现有状态 `partial`、`stale`、`unverified`、`binding_missing`、`permission_denied` 或 `collection_failed`，不得自行改名为成功。
+17. 后续任何数据获取任务都必须先声明目标门店、平台/来源、目标日期、采集方式和验收字段；结果必须同时报告实际数据、来源证据、质量状态、保存数量和回读结果。历史数据只标记历史存在，人工导入默认不高于 `unverified`，推导指标必须标记为 derived 并指向输入事实，模拟/演示数据不得进入真实线上快照或下游收益与 AI 决策。
+
+### OTA 登录状态与门店执行设备边界
+
+1. 浏览器登录状态归登录操作者的设备所有。Profile、Cookie、localStorage、sessionStorage、长会话令牌、验证码状态和浏览器缓存默认只允许保存在用户实际登录的电脑，不得集中复制、上传或同步到宿析OS服务器。
+2. 宿析OS服务器只保存用户、设备、平台账号别名、授权门店映射、采集任务状态、最后成功时间、失败原因和结构化采集结果；不得把服务器建设成集中承载数百家门店浏览器 Profile 的账号池。
+3. 门店采集由有权访问该门店的用户在自己的设备执行。服务端在接收结果时仍须校验 `tenant_id`、`user_id`、`system_hotel_id`、平台门店标识和用户门店权限，禁止跨用户、跨租户或跨门店写入。
+4. 一个 OTA 平台账号可以映射多个授权门店，应优先复用账号级本地 Profile，不得机械地为每家门店复制一套浏览器 Profile。
+5. 手动采集是当前默认主路径；Python、Node、插件或浏览器辅助工具只能作为用户设备上的执行适配器。设备离线、未登录或授权失效时必须显示真实阻塞状态，不得自动切换到服务器或其他用户设备代采。
+6. 用户设备默认只上传结构化字段事实和最小必要来源证据，不上传完整 Cookie、Authorization、Profile 目录、敏感 HAR 或长期保留的原始页面资产。临时文件必须有容量、数量和保留期限制，确认入库后可安全清理。
+7. 当前服务器电脑上的 Profile 仅允许作为明确标注的“单用户本机模式”继续兼容，不得据此扩展集中 Profile 架构。任何涉及 OTA 登录、Profile、Cookie、设备绑定或采集任务派发的改动，都必须同时遵守 `rules/ota-device-local-session-boundary.md`。
 
 ### 工作规则
 
@@ -131,6 +168,18 @@ Superpowers 用作降低风险的流程关口，不作为死板步骤清单。�
 
 **当前阶段目标**：收口现有 OTA 数据、收益诊断、AI 决策、运营执行和投决辅助闭环；生产 AI 入口走 `LlmClient` + `ai_model_configs`。当前仓库不存在 `hotel-frontend/` 源码目录和 `public/assets/` 遗留 Vite 产物，不能把它们当作待提交或待合并对象。
 
+### 长期产品与协作宪章入口
+
+长期产品定位、事实/AI/未知边界、首页时间模型、用户与管理员信息分层、门店本地登录责任、数据覆盖规则、开发权限和版本演进机制统一以 [`docs/product_collaboration_charter.md`](docs/product_collaboration_charter.md) 为准。
+
+执行摘要：
+
+1. 自家门店昨天经营事实是首页主线；今天只展示已取得状态，未来只作AI研判，竞对仅用于异常诊断参考。
+2. 系统提供可追溯事实与AI辅助研判，不替用户作最终判断，也不自动执行OTA操作。
+3. 冲突数据先重抓；仍冲突则保留证据并停止基于该项的确定性研判。
+4. 可逆缺陷默认先修先测；真实账号、真实OTA/生产写入、不可逆数据库、正式发布和删除用户内容必须确认。
+5. 宪章变更必须有版本、日期、理由和可回退历史；与事实、长期目标或安全边界冲突时必须明确指出。
+
 ---
 
 ## 二、技术栈
@@ -138,7 +187,7 @@ Superpowers 用作降低风险的流程关口，不作为死板步骤清单。�
 | 层级 | 技术 | 说明 |
 |------|------|------|
 | 后端 | ThinkPHP 8.0 + ThinkORM | PHP >= 8.0 |
-| 前端（当前） | Vue 3 CDN 单文件 + 已拆分静态 helper | `public/index.html` 仍是最大前端入口，配套 `public/*-static.js` |
+| 前端（当前） | Vue 3 runtime-only + 业务模板分片 + 静态 helper | `resources/frontend/templates/fragments/` 是模板源码，`public/index.html` 是启动壳 |
 | 前端（重构） | 未启用 | 当前仓库没有 `hotel-frontend/`，如需重启 Vite 重构必须单独立项并提交源码 |
 | 数据库 | MySQL | 默认库名 `hotelx`，连接由 `.env` 覆盖 |
 | Web 服务器 | PHP 内置服务器 / Apache (XAMPP) | 本地优先 `npm.cmd run start -- --NoBrowser` 并检查 `/api/health` |
@@ -167,10 +216,15 @@ HOTEL/                          # ⭐ 项目根目录（ThinkPHP 项目）
 ├── route/
 │   └── app.php                 # 路由定义（639 行）
 ├── public/
-│   ├── index.html              # ⭐ 前端 SPA（Vue CDN 入口，仍需继续拆分）
+│   ├── index.html              # ⭐ Vue 3 runtime-only 启动壳
+│   ├── app-render.min.js       # 业务模板预编译运行产物
 │   ├── *-static.js             # 已抽出的前端静态 helper
 │   ├── images/                 # 登录背景等本地图片资源
 │   └── .htaccess              # Apache URL 重写规则
+├── resources/frontend/
+│   ├── templates/fragments/    # 按业务页面拆分的模板唯一编辑源
+│   ├── templates/manifest.json # 分片顺序与兼容快照校验信息
+│   └── app-template.html       # 分片同步生成的兼容快照，不独立编辑
 ├── scripts/
 │   ├── auto_fetch_online_data.php  # 定时抓取脚本
 │   ├── cron_fetch.sh               # Linux cron 脚本
@@ -181,7 +235,7 @@ HOTEL/                          # ⭐ 项目根目录（ThinkPHP 项目）
 ├── composer.lock             # PHP 依赖锁定版本
 └── database/
     ├── hotel_admin_mysql.sql # 基础数据库备份
-    └── init_full.sql         # 完整数据库初始化入口
+    └── init_full.sql         # 冻结数据库基线；新 migration 由版本 runner 自动发现
 ```
 
 ---
@@ -217,11 +271,8 @@ npm.cmd run start -- --NoBrowser
 
 ```bash
 # 1. 启动 MySQL（XAMPP）
-# 2. 创建数据库
-mysql -u root -e "CREATE DATABASE IF NOT EXISTS hotelx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-# 3. 导入数据
-mysql -u root hotelx < database/init_full.sql
+# 2. 新环境完整初始化（自动建库、执行并登记全部 migration）
+php scripts/init_database.php
 ```
 
 ### 4.4 访问应用
@@ -236,7 +287,13 @@ http://localhost/HOTEL/public/
 
 ## 五、构建命令
 
-> 当前主项目无需前端构建，PHP 是解释型语言，前端入口为 `public/index.html` + 本地静态 helper。不要在 `public/` 目录运行 Vite build；如需重启 Vite 重构，必须先单独创建并提交源码目录。
+> 当前主项目不使用 Vite，PHP 是解释型语言；前端模板使用仓库内确定性脚本同步、预编译和校验。业务模板以 `resources/frontend/templates/fragments/` 为编辑源，`public/index.html` 仅是运行启动壳。不要在 `public/` 目录运行 Vite build；如需重启 Vite 重构，必须先单独创建并提交源码目录。
+
+```powershell
+node scripts/sync_frontend_template_snapshot.mjs
+npm.cmd run build:frontend-template
+npm.cmd run verify:frontend-template
+```
 
 ### 5.1 PHP 依赖更新
 
@@ -250,6 +307,21 @@ composer update
 ## 六、测试命令
 
 > 当前项目已有 PHPUnit、Playwright 自动化和 Node/PHP 合同校验脚本。Windows PowerShell 下优先使用 `C:\xampp\php\php.exe` 和 `npm.cmd`。
+
+### 6.1 当前阶段测试策略（功能落地优先）
+
+1. 自动化测试是开发与 CI 守卫，不是宿析OS生产后台任务；除非用户明确要求，测试不得触发真实携程/美团采集、真实 LLM 调用、生产数据库写入、消息发送、发布、提交或推送。
+2. 当前仓库已有千级 PHP 测试和数百个 Node 自动化测试。日常开发默认运行与改动直接相关的最小测试、语法检查、接口检查或页面验证，不因无关全量测试拖慢单点功能闭环。
+3. 涉及下列高风险业务契约时必须补或更新针对性自动化测试：酒店/租户隔离、OTA 来源与日期身份、保存与回读、数据质量状态、收益公式、AI 建议到运营执行、人工审批/复盘、投资测算关键公式、鉴权和不可逆写入。
+4. 纯文案、样式、静态展示或低风险单文件修改不强制新增 PHPUnit；优先复用现有合同测试、静态守卫、浏览器检查或目标页面验证。测试本身不得比被保护的功能更复杂。
+5. 分级验证：
+   - **日常小改**：目标文件语法/静态检查 + 最小相关测试或实际页面/API 验证。
+   - **核心链路或回归风险**：目标测试 + 相邻模块回归测试；需要时再运行对应 Node 合同测试或项目守卫。
+   - **跨模块大改、准备提交/PR、发布候选**：运行完整 PHPUnit、完整 Node 自动化和相关 P0/发布守卫；真实外部连通性仍单独标注，不由本地测试冒充。
+6. 覆盖率用于发现高风险盲区，不作为当前阶段追求 100% 的 KPI，也不设置全仓硬阈值阻塞功能落地。优先补“0% 且直接影响真实业务闭环”的服务，其次补关键异常、边界和回归路径；没有 Xdebug/PCOV 时如实报告，不静默安装扩展。
+7. 测试数据必须明确为 fixture、stub 或 test-only。写入 `runtime/`、`test-results/` 或临时数据库的测试必须使用唯一命名、限定目标，并在结束时精确恢复或清理；不得删除或覆盖已有真实快照、凭据、账号、门店或采集结果。
+8. 运行测试或覆盖率不代表获得 Git 操作授权。除非用户明确要求保存点、提交、推送或开 PR，否则不得自动 stage、commit、push；发现外部流程改动分支时必须如实说明来源未知或外部发生。
+9. 当前 GitHub CI 保持全量回归但不启用覆盖率门槛；只有当测试稳定性和关键模块基线成熟后，再单独评估是否增加最低阈值，不把治理工作混入普通功能任务。
 
 **常用验证命令**：
 
@@ -285,14 +357,16 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 | 权限检查 | 每个 Controller 继承 Base 后调用 `$this->checkPermission()` |
 | 日志 | 敏感操作记录 OperationLog |
 
-### 7.2 前端规则（public/index.html）
+### 7.2 前端规则（模板分片与 public 运行入口）
 
 | 规则 | 说明 |
 |------|------|
-| CDN 依赖 | Vue 3、Vue Router、Tailwind、FontAwesome 均通过 CDN 加载 |
+| 本地运行依赖 | Vue 3 runtime-only、Tailwind、FontAwesome 均从 `public/` 本地加载；根模板已预编译 |
 | 请求封装 | 使用 `async function apiRequest()` 统一处理 token 和错误 |
 | Token 存储 | `localStorage.getItem('token')` |
 | 页面切换 | 通过 `currentPage` ref 变量控制 v-if 显示 |
+| 模板编辑源 | 只编辑 `resources/frontend/templates/fragments/*.html` 中对应业务页面；`app-template.html` 是同步生成的兼容快照 |
+| 生成与验证 | 修改分片后依次同步快照、构建运行产物并运行 `verify:frontend-template` |
 | 模板闭合检查 | 修改大段页面模板后，必须确认后续页面、弹窗、toast 仍在 `#app` 内；若页面显示 `{{ xxx }}` 原文，优先检查是否有多余 `</template>` 或 `</div>` 导致 DOM 脱离 Vue 挂载范围 |
 | 全局弹窗边界 | `teleport`、字段配置弹窗、数据配置弹窗、toast 仍必须由 `#app` 管理；修改后运行 `npm run verify:public-entry`，禁止让全局弹窗成为 `body` 顶层静态 DOM |
 | 不要构建 | **不要在 public/ 目录下运行 vite build** |
@@ -312,7 +386,7 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 | 规则 | 说明 |
 |------|------|
 | 提交信息 | 使用中文，格式：`[模块] 简短描述` |
-| 提交前 | 确认 `public/index.html` 未被 Vite 覆盖 |
+| 提交前 | 确认模板分片、兼容快照、运行产物一致，且 `public/index.html` 未被 Vite 覆盖 |
 | 高优先级保存点 | 只 stage 与当前 P0/P1/P2 目标相关文件，确认后 push |
 
 ---
@@ -321,11 +395,13 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 
 | 文件/目录 | 原因 | 如果需要改怎么办 |
 |-----------|------|-----------------|
-| `public/index.html` | 前端核心文件，被 Vite 覆盖过一次 | 修改前先 `git status` 确认工作区干净 |
+| `resources/frontend/templates/fragments/` | 前端业务模板唯一编辑源 | 只改目标业务分片，并运行同步、构建和模板验证 |
+| `resources/frontend/app-template.html` | 分片生成的兼容快照 | 不独立编辑；旧工具改动需先迁移并人工确认冲突 |
+| `public/index.html` | 前端运行启动壳，被 Vite 覆盖过一次 | 修改前先 `git status` 确认工作区干净 |
 | `route/app.php` | 所有 API 路由集中在此 | 新增路由时严格按规范注册 |
 | `app/middleware/Auth.php` | 认证核心，改动影响全局安全 | 必须经过完整测试 |
 | `.env` | 数据库连接等运行时配置 | 改后通知团队成员 |
-| `database/init_full.sql` | 完整初始化入口 | 修改表结构后同步迁移和初始化入口 |
+| `database/init_full.sql` | 冻结数据库基线 | 禁止追加新 migration；结构变更只新增 `database/migrations/*.sql` 并由版本 runner 登记 |
 
 ---
 
@@ -353,8 +429,8 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 ### 🟢 P2 — 近期规划
 
 5. **复杂度治理**
-   - 现状：`public/index.html` 与 `app/controller/OnlineData.php` 仍是真实拆分候选。
-   - 行动：继续按页面/静态 helper/服务边界拆分，并同步守卫，避免扩大业务范围。
+   - 现状：根模板已按业务页面拆分；`public/app-main.js` 与 `app/controller/OnlineData.php` 仍是真实拆分候选。
+   - 行动：继续按静态 helper/服务边界拆分，并同步守卫，避免扩大业务范围。
 
 6. **平台边界验证**
    - 现状：当前仓库没有 `hotel-frontend/` 与 `public/assets/`，不要继续按 Vite 遗留产物处理。
@@ -407,6 +483,16 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 
 ## Codex 主控 Agent 有限并行规则
 
+### Token 与上下文成本约束
+
+1. 允许使用多 Agent，但单一闭环、单文件、小范围修复、状态核验不得为了“加速”重复拆分。
+2. 两个以上真正独立、可并行且收益明确的任务可以并行；通常控制在 2-3 个子 Agent，并为每个文件、问题和证据源指定唯一负责人。
+3. 子 Agent 必须使用最小上下文：优先 `fork_turns=none`，由主控只提供目标文件、精确问题、禁止范围、已提取证据和验收命令；禁止继承整段长会话后重复读取同一历史、计划、大文件或扫描结果。
+4. 机械检查和明确实现不得使用 ultra 级推理；高推理档位只用于无法由代码证据直接判断的架构或安全决策。
+5. 主控必须复用已经验证的事实、行号和测试结果；除非文件已变化或证据可能过期，不得重复读取完整历史、完整计划或完整大文件。
+6. 主控只读取一次公共上下文，再把必要片段分发给不同负责人；除非验证文件已经变化，多个 Agent 不得各自重复读取同一公共材料。
+7. 若多 Agent 编排预计成本高于定向读取与单次验证，必须缩减并发，不得以“深度扫描”为由无限扩张子任务。
+
 当用户要求 Claude、Codex、Qwen、Codbuddy 或自研 CLI 并行处理任务时，Codex 默认作为主控 Agent，而不是普通子任务执行器。
 
 必须遵守 `docs/codex_master_agent_parallel_workflow.md`：
@@ -420,36 +506,22 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 
 ---
 
-## Codex Skill 自动使用与安装规则
+## Codex Skill 使用与安装规则
 
-1. 每次任务开始前，先按用户需求判断是否需要项目 Skill，优先检查 `.agents/skills/`。
-2. 已存在的项目 Skill 直接使用；缺失且没有明确外部来源时，优先创建宿析OS项目内 Skill。
-3. 用户明确要求安装某个 Skill、提供 GitHub 仓库/URL，或给出 `npx skills add ...` 等安装命令时，必须先检查该明确来源；不要只查官方 curated 列表就判定不存在。
-4. 明确来源的 Skill 经过最小安全检查后可直接安装到项目内 `.agents/skills/`：确认仓库可访问、存在 `SKILL.md`、安装器无高风险提示、未要求敏感凭据或生产写权限。检查无明显安全问题时不要反复请用户确认。
-5. 官方 curated/experimental Skill 仍可使用 `$skill-installer` 安装；第三方 GitHub Skill 优先按用户给出的安装方式执行，Windows 下 `npx` 被执行策略拦截时使用 `npx.cmd`。
-6. 来源不明、与当前任务无关、只是“可能有用”的 Skill 不安装。
-7. 需要账号授权、密钥、敏感数据访问、生产环境写入，或安装器出现高风险告警时，必须先说明风险并等待用户确认。
-8. 默认允许项目 Skill 隐式调用；只有明确不希望自动触发时，才在 `agents/openai.yaml` 设置 `policy.allow_implicit_invocation: false`。
-9. 当任务涉及 Scrapling、网页抓取、HTML 解析、selector 证据、解析器 fixture 或 OTA 页面字段提取时，自动参考 `.agents/skills/scrapling/SKILL.md`；仅处理授权来源，不静默安装 Python 依赖，不绕过登录、验证码、短信、人机验证或平台权限控制。
-10. 当任务涉及 ECC、Everything Claude Code、Claude Code 工作流或 Codex 插件适配时，自动参考 `.agents/skills/ecc-codex-adapter/SKILL.md`；ECC 完整源码保留在 `.agents/vendor/everything-claude-code/`，默认只作参考和本地 marketplace 可选插件，不直接执行 Claude Code installer、hook 或全量 Skill 复制。
+1. 先直接理解用户目标和当前代码，只在 Skill 能明显提高正确性或交付效率时加载，不在每轮开始枚举、串联或互相路由全部 Skill。
+2. 自动调用白名单仅包括：`suxi-voice-intent`（保守语音理解）、`suxi-capability-absorption`（外部能力学习、复刻与功能接入）、`suxi-dashboard-ui`（宿析OS UI）、`suxi-test-guard`（明确的缺陷修复）、`scrapling`（授权抓取/解析），以及与当前 OTA 业务对象精确匹配的事实边界 Skill。
+3. 用户提供 Skill/Prompt、源码/SDK、API/MCP、网站/应用/截图/录屏、SQL/数据文件、SOP/PRD、日志/测试/用户反馈、版本差异或成品样例，并要求学习、复刻、吸收、融入或做成可用功能时，自动使用 `.agents/skills/suxi-capability-absorption`。除非用户明确要求只学习或只评估，不得以摘要、方案、能力卡、配置导入或安装 Skill 代替最小可验证功能闭环。
+4. 用户主动发送给当前任务的材料默认包含学习价值；AI负责结合当前语境、宿析OS现有入口和产品链识别一个最高价值点，不反问用户“有什么可学”或要求先列借鉴清单。仅当多个同等合理方向会接入不同业务模块、改变数据口径或写入范围时，才问一个决定性问题。
+5. 从互联网发现或下载的Skill、Prompt、脚本或插件默认不受信任。安装或执行前必须预览完整文件树和脚本，记录来源URL、版本/提交、许可、兼容性、依赖与工具权限，检查同名遮蔽；不得自动继承shell/bash预授权。静态扫描通过不等于安全或功能完成。
+6. 安装器、插件路由器、ECC 适配、通用数据路由、Superpowers 流程、通用 UI 风格、全量代码审查、安全审计、Sites 构建/托管、OpenAI API Key 门禁和 `hotel-auto-x-*` 编排 Skill 默认手动点名；它们存在不代表每个相关任务都必须调用。
+7. 用户明确要求安装某个 Skill、提供 GitHub 仓库/URL，或给出 `npx skills add ...` 等安装命令时，先检查该明确来源；来源不明、与当前任务无关、只是“可能有用”的 Skill 不安装。
+8. 明确来源的 Skill 经过最小安全检查后可安装到项目内 `.agents/skills/`；需要账号授权、密钥、敏感数据、生产写入或出现高风险告警时先确认。
+9. 当任务明确要求 ECC、Everything Claude Code 或 Claude Code 资产适配时，才参考 `.agents/skills/ecc-codex-adapter/SKILL.md`；不执行 Claude Code installer、hook 或全量 Skill 复制。
+10. 当任务涉及 Scrapling、网页抓取、HTML 解析、selector 证据、解析器 fixture 或 OTA 页面字段提取时，自动参考 `.agents/skills/scrapling/SKILL.md`；仅处理授权来源，不绕过登录、验证码、短信、人机验证或平台权限控制。
 
-### Taste/UI Skill 自适应调用策略
+### 宿析OS UI 唯一默认基线
 
-使用前以 `.agents/skills/` 实际存在为准；未安装的 Skill 不得声称已安装或已调用。
-
-| Skill | 优先使用场景 |
-|------|-------------|
-| `impeccable` | 前期设计、审查、打磨完整工作流；项目 UI 设计、UX 审查、polish、audit |
-| `design-taste-frontend` | 高级产品 UI 与前端工程规范；React、Next.js、Tailwind、dashboard、组件 |
-| `gpt-taste` | 高级视觉、动效、Awwwards 风格；官网、landing page、品牌页 |
-| `baseline-ui` | Tailwind UI 基线检查；组件可访问性、动效时长、排版约束 |
-| `high-end-visual-design` | 高端 agency 风格视觉；高级网站、品牌页、视觉升级 |
-| `redesign-existing-projects` | 现有网站或 app 的高级视觉改版 |
-| `minimalist-ui` | 极简、克制、干净的 UI；文档型界面、SaaS 页面 |
-| `industrial-brutalist-ui` | brutalist、结构外露、强视觉冲突；数据密集 dashboard、作品集、实验页面 |
-| `image-to-code` | 先生成设计图，再还原成代码；高质量网站从视觉到实现 |
-| `imagegen-frontend-web` | 网页分区设计参考图生成；landing page、官网、产品页视觉方向 |
-| `imagegen-frontend-mobile` | 移动 app 界面概念图生成；iOS、Android、多屏 app 流程 |
-| `brandkit` | 品牌视觉系统图片生成；logo、品牌板、identity deck、视觉世界 |
-| `stitch-design-taste` | Google Stitch 生成设计的二次整理；登录、仪表盘、表单、项目设计系统 |
-| `full-output-enforcement` | 强制完整输出，禁止省略；长代码、完整文件、完整文档 |
+1. `.agents/skills/suxi-dashboard-ui` 是唯一允许隐式触发的视觉 Skill，生产登录页是品牌审美锚点。
+2. 默认风格为深墨黑/酒店场景、克制香槟金、高对比米白、稳重圆角与低噪声阴影；数据密集页面使用亮色可读表面承载内容，金色只用于关键决策和主操作。
+3. `impeccable`、`ui-ux-pro-max`、`design-taste-frontend`、`gpt-taste`、`high-end-visual-design`、`minimalist-ui`、`redesign-existing-projects`、`image-to-code`、`imagegen-frontend-web`、`stitch-design-taste` 和 `brandkit` 保留为手动工具，不得自动叠加其预设。
+4. 用户明确点名另一种风格时可以临时使用对应 Skill，但必须保持现有功能、数据事实、品牌识别和可读性。

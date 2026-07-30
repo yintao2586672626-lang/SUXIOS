@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { loadFrontendTemplateSource } from './lib/frontend_template_source.mjs';
 
-const publicSource = readFileSync('public/index.html', 'utf8');
+const entrySource = readFileSync('public/index.html', 'utf8');
+const appMainSource = readFileSync('public/app-main.js', 'utf8');
+const templateSource = loadFrontendTemplateSource(process.cwd()).template;
+const publicSource = [entrySource, appMainSource, templateSource].join('\n');
 const homeStaticSource = readFileSync('public/home-static.js', 'utf8');
 const packageSource = readFileSync('package.json', 'utf8');
 
@@ -30,13 +34,69 @@ const sampleHomeDataSources = typeof buildHomeDataSources === 'function'
     compassLastSyncedAt: '2026-06-05',
   })
   : [];
+const buildHomeBusinessTimeModel = homeStaticContext.window.SUXI_HOME_STATIC?.buildHomeBusinessTimeModel;
+const buildCompassDataReadiness = homeStaticContext.window.SUXI_HOME_STATIC?.buildCompassDataReadiness;
+const sampleHomeBusinessTimeModel = typeof buildHomeBusinessTimeModel === 'function'
+  ? buildHomeBusinessTimeModel({
+    temporalData: {
+      metric_scope: 'ota_channel',
+      scope_note: '仅反映已授权 OTA 渠道数据。',
+      past: {
+        status: 'ready',
+        period: { end_date: '2026-06-09' },
+        source: { fact_rows: 4 },
+        series: [{
+          date: '2026-06-09',
+          ota_revenue: 0,
+          ota_orders: 0,
+          ota_room_nights: 0,
+          ota_detail_exposure: 0,
+          platforms: ['ctrip'],
+        }],
+      },
+      present: { status: 'partial', snapshot_row_count: 2, as_of_time: '2026-06-10 09:00:00' },
+      future: { status: 'ready', series: [{ date: '2026-06-11' }] },
+    },
+    hotelName: '测试门店',
+    futureCard: { value: 'OTA收入 向上', detail: '测试研判' },
+  })
+  : null;
+const sampleHomeReadiness = typeof buildCompassDataReadiness === 'function'
+  ? buildCompassDataReadiness(sampleHomeDataSources)
+  : null;
 
 const checks = [
   {
-    name: 'home first screen exposes a compact decision strip',
-    pass: publicSource.includes('data-testid="home-decision-strip"')
-      && publicSource.includes('v-for="row in homeDecisionSummaryRows"')
-      && publicSource.includes('openHomeQuickEntry(row.entry)'),
+    name: 'home keeps legacy operating panels out of the factual landing page',
+    pass: templateSource.includes('data-testid="home-yesterday-facts"')
+      && !templateSource.includes('data-testid="home-operating-board"')
+      && !templateSource.includes('data-testid="home-quick-entry-fold"')
+      && !templateSource.includes('data-testid="home-closed-loop-workbench"'),
+  },
+  {
+    name: 'home first screen separates yesterday facts, today acquisition status, future AI judgement and source scopes',
+    pass: publicSource.includes('data-testid="home-yesterday-facts"')
+      && publicSource.includes(':data-testid="stage.testid"')
+      && homeStaticSource.includes("testid: 'home-today-acquired-status'")
+      && homeStaticSource.includes("testid: 'home-future-ai-judgement'")
+      && publicSource.includes('data-testid="home-scope-boundaries"')
+      && publicSource.includes('data-testid="home-competitor-diagnostic-reference"')
+      && publicSource.includes('v-for="fact in homeBusinessTimeModel.yesterday.facts"')
+      && publicSource.includes('v-for="scope in homeBusinessTimeModel.scopeRows"')
+      && publicSource.includes("requireHomeStatic('buildHomeBusinessTimeModel')")
+      && publicSource.includes('const homeBusinessTimeModel = computed')
+      && homeStaticSource.includes('不回退旧日期')
+      && homeStaticSource.includes('不把进行中快照写成日终经营结果')
+      && homeStaticSource.includes('不使用 OTA 数据外推全酒店 OCC、RevPAR 或总营收'),
+  },
+  {
+    name: 'home business time helper preserves captured zero and keeps competitors outside core readiness',
+    pass: sampleHomeBusinessTimeModel?.yesterday?.status === '已取得'
+      && sampleHomeBusinessTimeModel?.yesterday?.facts?.every((fact) => fact.ready)
+      && sampleHomeBusinessTimeModel?.today?.status === '部分取得'
+      && sampleHomeBusinessTimeModel?.future?.note?.includes('不自动执行')
+      && sampleHomeDataSources.find((source) => source.name === '竞对价格')?.role === 'diagnostic'
+      && sampleHomeReadiness?.diagnosticText?.includes('不计入核心事实就绪度'),
   },
   {
     name: 'home cockpit header exposes compact signal row without new data source',
@@ -90,22 +150,22 @@ const checks = [
       && homeStaticSource.includes("entry: { page: 'meituan-ebooking', tab: 'meituan-ranking' }"),
   },
   {
-    name: 'home competitor summary uses dense evidence-first five-card grid',
-    pass: publicSource.includes('data-testid="home-competitor-summary"')
-      && publicSource.includes('data-testid="home-competitor-card-grid"')
-      && publicSource.includes('lg:grid-cols-5')
-      && publicSource.includes('{{ card.note || \'-\' }}')
-      && publicSource.includes('homeCompetitorSourceNotice'),
+    name: 'home competitor evidence stays a collapsed diagnostic reference',
+    pass: templateSource.includes('data-testid="home-competitor-diagnostic-reference"')
+      && templateSource.includes('竞对异常诊断参考（非首页主线）')
+      && !templateSource.includes('data-testid="home-competitor-summary"')
+      && !templateSource.includes('data-testid="home-competitor-card-grid"')
+      && homeStaticSource.includes("role: 'diagnostic'"),
   },
   {
-    name: 'home action panel renders action rationale instead of only badges',
-    pass: publicSource.includes('data-testid="home-action-panel"')
-      && publicSource.includes('{{ action.detail || \'-\' }}')
-      && publicSource.includes('v-for="action in homeBoardActionRows"'),
+    name: 'home removes duplicate action panels from the factual landing page',
+    pass: templateSource.includes('data-testid="home-temporal-axis"')
+      && !templateSource.includes('data-testid="home-action-panel"')
+      && !templateSource.includes('data-testid="home-decision-strip"'),
   },
   {
     name: 'home closed-loop builders live in explicit static helper',
-    pass: /<script\s+src="home-static\.js\?v=[^"]+"><\/script>/.test(publicSource)
+    pass: /app-startup-helpers\.min\.js\?v=[^"']+/.test(publicSource)
       && publicSource.includes("requireHomeStatic('buildHomeClosedLoopStages')")
       && publicSource.includes("requireHomeStatic('buildHomeAiTraceRows')")
       && publicSource.includes("requireHomeStatic('buildHomeOperatingResultCards')")
@@ -163,7 +223,12 @@ const checks = [
 ];
 
 const executiveAnswerContractPass = publicSource.includes('data-testid="home-executive-answer"')
-  && publicSource.includes('v-for="card in homeExecutiveAnswer.cards"')
+  && publicSource.includes('data-testid="home-yesterday-facts"')
+  && publicSource.includes(':data-testid="stage.testid"')
+  && homeStaticSource.includes("testid: 'home-today-acquired-status'")
+  && homeStaticSource.includes("testid: 'home-future-ai-judgement'")
+  && publicSource.includes('v-for="fact in homeBusinessTimeModel.yesterday.facts"')
+  && publicSource.includes("requireHomeStatic('buildHomeBusinessTimeModel')")
   && publicSource.includes('const homeExecutiveAnswer = computed')
   && publicSource.includes('data-testid="home-evidence-fold"')
   && publicSource.includes('data-testid="revenue-ai-business-closure-fold"')

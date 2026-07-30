@@ -9,22 +9,12 @@ use think\App;
 
 final class HotelDeletePolicyTest extends TestCase
 {
-    public function testReferencedHotelRequiresExplicitForceBeforeDelete(): void
+    public function testHotelNameMustMatchBeforeDelete(): void
     {
         $controller = new HotelDeletePolicyHarness(new App());
 
-        self::assertTrue($controller->exposeShouldBlockHotelDelete([
-            ['table' => 'online_daily_data', 'label' => 'online data', 'count' => 1],
-        ], false));
-    }
-
-    public function testReferencedHotelCanBeDeletedAfterSuperAdminForceConfirmation(): void
-    {
-        $controller = new HotelDeletePolicyHarness(new App());
-
-        self::assertFalse($controller->exposeShouldBlockHotelDelete([
-            ['table' => 'online_daily_data', 'label' => 'online data', 'count' => 1],
-        ], true));
+        self::assertTrue($controller->exposeHotelDeleteConfirmationMatches('敦煌莫月山', ' 敦煌莫月山 '));
+        self::assertFalse($controller->exposeHotelDeleteConfirmationMatches('敦煌莫月山', '敦煌莫月'));
     }
 
     public function testForceFlagAcceptsDeleteRequestPayloadValues(): void
@@ -40,9 +30,9 @@ final class HotelDeletePolicyTest extends TestCase
 
 final class HotelDeletePolicyHarness extends Hotel
 {
-    public function exposeShouldBlockHotelDelete(array $references, bool $forceDelete): bool
+    public function exposeHotelDeleteConfirmationMatches(string $hotelName, string $confirmation): bool
     {
-        return $this->shouldBlockHotelDelete($references, $forceDelete);
+        return $this->hotelDeleteConfirmationMatches($hotelName, $confirmation);
     }
 
     public function exposeIsForceDeleteRequested(array $data): bool

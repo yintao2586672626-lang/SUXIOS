@@ -32,7 +32,7 @@ const checks = [
   {
     file: 'app/service/FeasibilityReportService.php',
     contains: [
-      'public function regenerate(int $id, int $userId, bool $isSuperAdmin): ?array',
+      'public function regenerate(int $id, int $userId, bool $isSuperAdmin, array $updatedInput = []): ?array',
       'public function detail(int $id, int $userId, bool $isSuperAdmin): ?array',
       'public function list(int $page = 1, int $pageSize = 10, int $userId = 0, bool $isSuperAdmin = false): array',
       'public function archive(int $id, int $userId, bool $isSuperAdmin): bool',
@@ -46,11 +46,16 @@ const checks = [
       "where('tenant_id', $tenantId)",
       'private function buildTenantSnapshotQuery',
       'private function tenantIdForUser',
-      'private function ensureTenantColumns',
-      'tenant_id INT UNSIGNED DEFAULT NULL',
-      "COMMENT 'tenant id, default follows creator user' AFTER id",
-      'INDEX idx_feasibility_reports_tenant_user (tenant_id, created_by, id)',
+      "DatabaseSchemaRequirement::assertTableColumns('feasibility_reports'",
+      "'id', 'tenant_id', 'project_name'",
       "->where('created_by', $userId)",
+    ],
+  },
+  {
+    file: 'app/service/DatabaseSchemaRequirement.php',
+    contains: [
+      'Read-only schema assertions for business services',
+      'run php think db:migrate',
     ],
   },
   {
@@ -68,9 +73,19 @@ const checks = [
     ],
   },
   {
-    file: 'public/index.html',
+    file: 'resources/frontend/app-template.html',
     contains: [
       'aiFeasibilityRecords',
+      'loadFeasibilityDetail',
+      'reuseFeasibilityRecord',
+      'archiveFeasibilityRecord',
+      'aiFeasibilityReadiness',
+      'feasibilityReadinessBadgeClass',
+    ],
+  },
+  {
+    file: 'public/app-main.js',
+    contains: [
       'loadFeasibilityRecords',
       'loadFeasibilityDetail',
       'reuseFeasibilityRecord',

@@ -145,16 +145,16 @@ final class MeituanManualFetchRequestService
                 $startDate = date('Y-m-d');
                 break;
             case 7:
-                $params['startDate'] = date('Ymd', strtotime('-7 days'));
+                $params['startDate'] = date('Ymd', strtotime('-6 days'));
                 $params['endDate'] = date('Ymd');
                 $params['dateRange'] = 7;
-                $startDate = date('Y-m-d', strtotime('-7 days'));
+                $startDate = date('Y-m-d', strtotime('-6 days'));
                 break;
             case 30:
-                $params['startDate'] = date('Ymd', strtotime('-30 days'));
+                $params['startDate'] = date('Ymd', strtotime('-29 days'));
                 $params['endDate'] = date('Ymd');
                 $params['dateRange'] = 30;
-                $startDate = date('Y-m-d', strtotime('-30 days'));
+                $startDate = date('Y-m-d', strtotime('-29 days'));
                 break;
             case 1:
             default:

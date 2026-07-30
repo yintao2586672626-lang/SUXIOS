@@ -172,16 +172,6 @@ function ctrip_pricing_packet_scoped_args(array $baseArgs, string $date, ?int $h
 
 /**
  * @param array<int, string> $args
- */
-function ctrip_pricing_packet_command_text(array $args): string
-{
-    return implode(' ', array_map(static function (string $arg): string {
-        return str_contains($arg, ' ') ? '"' . str_replace('"', '\"', $arg) . '"' : $arg;
-    }, $args));
-}
-
-/**
- * @param array<int, string> $args
  * @return array{run:array{exit_code:int,stdout:string,stderr:string},payload:array<string,mixed>,command:array<int,string>}
  */
 function ctrip_pricing_packet_run_json(string $root, array $args): array

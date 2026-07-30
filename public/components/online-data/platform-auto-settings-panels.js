@@ -30,7 +30,7 @@
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                             </div>
                         </div>
-                        <div class="text-xs text-gray-500">默认每 2 小时，在指定分钟触发实时快照；历史固定数据按每日时间保底抓取。</div>
+                        <div class="text-xs text-gray-500">默认每 2 小时，在指定分钟触发实时快照；历史固定数据按每日时间保底抓取。美团定时任务固定使用已绑定 Profile。</div>
                         <button type="button" @click="ctx.saveFetchSchedule"
                             :disabled="!ctx.autoFetchHotelId || !ctx.hasAnyPlatformFetchConfigByHotelId(ctx.autoFetchHotelId)"
                             class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 text-sm">
@@ -88,7 +88,7 @@
                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                         <div>
                             <div class="text-sm font-semibold text-slate-900">采集闭环</div>
-                            <div class="mt-1 text-xs text-slate-500">账号使用者本机 Profile -> 业务响应 -> 标准字段 -> 标准入库</div>
+                            <div class="mt-1 text-xs text-slate-500">立即采集走已保存 Cookie/API；定时任务走账号使用者本机 Profile；两条路径都需完成业务响应、标准字段和入库回读。</div>
                         </div>
                         <span class="inline-flex w-fit items-center rounded-md border border-blue-100 bg-white px-2 py-1 text-xs text-blue-700">OTA 渠道口径</span>
                     </div>
@@ -157,6 +157,15 @@
                                     {{ row.label }} {{ row.count }}
                                 </span>
                             </div>
+                            <div v-if="ctx.meituanBrowserCaptureResult?.session_proof_status === 'not_recorded'" data-testid="meituan-session-proof-not-recorded" class="mt-2 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-900">
+                                <div class="font-semibold">数据结果已保留，但登录证据未持久化</div>
+                                <div class="mt-1"><span class="font-semibold">原因：</span>{{ ctx.meituanBrowserCaptureResult.session_proof_message || '当前响应没有返回可复用登录证据。' }}</div>
+                                <div class="mt-1"><span class="font-semibold">影响：</span>本次数据结果与 Profile 登录证据分开判断；当前 Profile 暂不标记为可复用登录态，也不代表其他门店或账号已验证。</div>
+                                <div class="mt-1"><span class="font-semibold">下一步：</span>{{ ctx.meituanBrowserCaptureResult.session_proof_next_action || '刷新登录状态后重新执行一次最小采集。' }}</div>
+                            </div>
+                            <div v-if="ctx.meituanBrowserCaptureResult?.capture_gate?.section_statuses?.ads === 'not_applicable' || ctx.meituanBrowserCaptureResult?.pages?.some(page => page?.section_evidence?.status === 'not_applicable' && page?.section_evidence?.reason === 'ads_not_enabled')" class="mt-2 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+                                广告未开通，本轮不采集广告数据，不影响其他已验证板块入库。
+                            </div>
                         </div>
                     </div>
 
@@ -199,10 +208,20 @@
                 <div v-if="ctx.autoFetchRunState.active || ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result" class="rounded-lg border bg-white px-4 py-3 text-sm">
                     <span class="font-medium text-gray-900">最近结果：</span>
                     <span :class="ctx.autoFetchRunState.active ? 'text-blue-700' : ((ctx.autoFetchStatus?.last_result?.success === true || ctx.autoFetchRunState.type === 'success') ? 'text-green-700' : 'text-red-700')">
-                        {{ ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result?.message || '-' }}
+                        {{ ctx.autoFetchResultMessage(ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result?.message) }}
                     </span>
                     <div v-if="ctx.autoFetchRunState.active" class="mt-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
                         已运行 {{ ctx.formatAutoFetchElapsed(ctx.autoFetchRunElapsedSeconds) }}。{{ ctx.autoFetchRunningHint }}
+                    </div>
+                    <div v-if="ctx.autoFetchRunState.active && ctx.autoFetchPlatformProgressRows.length" class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                        <div v-for="row in ctx.autoFetchPlatformProgressRows" :key="'auto-fetch-progress-' + row.platform" class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="font-medium text-slate-800">{{ row.label }}</span>
+                                <span :class="['rounded border px-2 py-0.5', row.status_class]">{{ row.status_text }}</span>
+                            </div>
+                            <div class="mt-1 text-slate-600">{{ row.message || '-' }}</div>
+                            <div v-if="row.status === 'success'" class="mt-1 text-slate-500">已写入 {{ row.saved_count }} 次数据操作</div>
+                        </div>
                     </div>
                     <div v-if="ctx.autoFetchTimingRows.length" class="mt-2 flex flex-wrap gap-1.5 text-xs">
                         <span v-for="row in ctx.autoFetchTimingRows" :key="'auto-fetch-timing-' + row.key" class="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">
@@ -221,11 +240,11 @@
                                 <span class="font-medium text-slate-800">{{ row.platform === 'meituan' ? '美团' : '携程' }}</span>
                                 <span :class="['rounded px-2 py-0.5 text-xs', ctx.autoFetchResultStatusClass(row)]">{{ ctx.autoFetchResultStatusText(row) }}</span>
                             </div>
-                            <div class="mt-1 text-xs text-slate-500">入库 {{ row.saved_count || 0 }} 条 · {{ row.mode_label || ctx.autoFetchModeLabel(row.auto_fetch_mode) }}</div>
-                            <div class="mt-1 text-xs text-slate-600">{{ row.message || '-' }}</div>
+                            <div class="mt-1 text-xs text-slate-500">写入操作 {{ row.saved_count || 0 }} 次 · {{ row.mode_label || ctx.autoFetchModeLabel(row.auto_fetch_mode) }}</div>
+                            <div class="mt-1 text-xs text-slate-600">{{ ctx.autoFetchResultMessage(row.message, row.saved_count) }}</div>
                             <div v-if="Array.isArray(row.modules) && row.modules.length" class="mt-2 flex flex-wrap gap-1">
                                 <span v-for="(module, index) in row.modules" :key="row.platform + '-' + (module.module || 'module') + '-' + index" :class="['rounded border px-2 py-0.5 text-xs', ctx.autoFetchResultStatusClass(module)]">
-                                    {{ ctx.autoFetchModuleLabel(module.module) }} · {{ module.saved_count || 0 }}
+                                    {{ ctx.autoFetchModuleLabel(module.module) }} · 写入操作 {{ module.saved_count || 0 }} 次
                                 </span>
                             </div>
                         </div>

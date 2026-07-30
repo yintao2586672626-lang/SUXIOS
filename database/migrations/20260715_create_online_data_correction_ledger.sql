@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `online_data_correction_ledger` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `online_data_id` bigint unsigned NOT NULL,
+  `tenant_id` bigint unsigned DEFAULT NULL,
+  `system_hotel_id` bigint unsigned NOT NULL,
+  `operator_id` bigint unsigned NOT NULL,
+  `operation` varchar(20) NOT NULL,
+  `changed_fields_json` JSON DEFAULT NULL,
+  `before_json` JSON NOT NULL,
+  `after_json` JSON DEFAULT NULL,
+  `reason` varchar(255) NOT NULL DEFAULT '',
+  `restorable` tinyint(1) NOT NULL DEFAULT 0,
+  `restored_at` datetime DEFAULT NULL,
+  `restored_by` bigint unsigned DEFAULT NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_online_data_id` (`online_data_id`),
+  KEY `idx_hotel_created` (`system_hotel_id`, `created_at`),
+  KEY `idx_restorable` (`restorable`, `restored_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='线上数据人工更正、删除和恢复账本';

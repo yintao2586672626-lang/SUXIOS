@@ -22,7 +22,7 @@ $serviceSource = file_get_contents($root . '/app/service/OtaBrowserAssistImportS
 
 $check(
     'browser assist import route exists',
-    str_contains($route, "Route::post('/browser-assist-import', 'OnlineData/importBrowserAssistCapture');"),
+    str_contains($route, "Route::post('/browser-assist-import', 'ota.SyncController/importBrowserAssistCapture');"),
     '/api/online-data/browser-assist-import'
 );
 $check(

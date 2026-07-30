@@ -1,0 +1,4 @@
+interface:
+  display_name: "影刀 RPA 帮助中心参考"
+  short_description: "检索影刀公开帮助中心并安全映射为宿析OS可验证方案"
+  default_prompt: "Use $suxi-yingdao-rpa-reference to find the relevant Yingdao RPA help documentation and adapt it safely for SUXIOS."

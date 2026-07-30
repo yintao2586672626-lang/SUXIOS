@@ -10,6 +10,10 @@ class InvestmentDecisionSupportService
 {
     private const OPERATING_MODULE_KEYS = ['ai_daily_report', 'revenue_pricing', 'operation_execution'];
 
+    private const COMPETITOR_VALIDATION_STATUSES = ['normal', 'available', 'ok', 'valid', 'verified'];
+
+    private const COMPETITOR_BOOKABLE_STATUSES = ['available', 'bookable'];
+
     public function overview(array $hotelIds, ?int $hotelId, int $userId, bool $isSuperAdmin): array
     {
         $closureOverview = (new BusinessClosureOverviewService())->overview($hotelIds, $hotelId, $userId, $isSuperAdmin);
@@ -386,7 +390,14 @@ class InvestmentDecisionSupportService
 
     private function buildCompetitorComparison(array $operatingGate, array $modules, array $competitorEvidence): array
     {
-        $sampleCount = (int)($competitorEvidence['sample_count'] ?? 0);
+        // Fail closed at the decision boundary. A legacy/raw sample_count is
+        // never evidence that rate dimensions, validation and readback passed.
+        $sampleCount = max(0, (int)($competitorEvidence['decision_eligible_sample_count'] ?? 0));
+        $referenceOnlyCount = max(0, (int)($competitorEvidence['reference_only_sample_count'] ?? 0));
+        $visibleSampleCount = max(
+            $sampleCount + $referenceOnlyCount,
+            (int)($competitorEvidence['visible_sample_count'] ?? 0)
+        );
         $revenue = $modules['revenue_pricing'] ?? [];
         $pricingRoiReady = (bool)($revenue['roi_ready'] ?? false) || (int)($revenue['roi_ready_count'] ?? 0) > 0;
         $gateReady = (bool)$operatingGate['can_use_for_investment_judgement'];
@@ -394,7 +405,7 @@ class InvestmentDecisionSupportService
         if (!$gateReady) {
             $status = 'blocked_by_operating_closure';
         } elseif ($sampleCount <= 0) {
-            $status = 'data_gap';
+            $status = $referenceOnlyCount > 0 ? 'reference_only' : 'data_gap';
         } elseif (!$pricingRoiReady) {
             $status = 'supporting_only';
         } else {
@@ -404,9 +415,16 @@ class InvestmentDecisionSupportService
         $missing = [];
         if ($sampleCount <= 0) {
             $missing[] = [
-                'code' => 'competitor_sample_missing',
+                'code' => 'competitor_decision_eligible_sample_missing',
                 'label' => '闭合竞对样本',
-                'next_action' => '补齐竞对价格、排名或竞品均值样本，并关联收益动作复盘。',
+                'next_action' => '补齐同平台、入住日、房型、价型、权益、税费、币种和入住人数一致，且已验证并完成保存回读的可售竞对价格样本。',
+            ];
+        }
+        if ($sampleCount <= 0 && $referenceOnlyCount > 0) {
+            $missing[] = [
+                'code' => 'competitor_reference_only',
+                'label' => '竞对记录仅供参考',
+                'next_action' => '保留旧记录用于来源追溯；不得将旧裸价、缺列或未回读记录用于 ADR、价差或投资判断。',
             ];
         }
         if ($sampleCount > 0 && !$pricingRoiReady) {
@@ -423,9 +441,13 @@ class InvestmentDecisionSupportService
             'status' => $status,
             'decision_allowed' => $status === 'usable',
             'sample_count' => $sampleCount,
+            'decision_eligible_sample_count' => $sampleCount,
+            'reference_only_sample_count' => $referenceOnlyCount,
+            'visible_sample_count' => $visibleSampleCount,
             'latest_at' => (string)($competitorEvidence['latest_at'] ?? ''),
             'data_sources' => array_values((array)($competitorEvidence['data_sources'] ?? [])),
-            'source_scope' => 'competitor samples are support evidence only until connected to closed revenue/operation ROI.',
+            'source_scope' => 'only strictly comparable, validated, readback-verified and publicly bookable OTA rates may support competitor comparison; public rates are never project ADR facts.',
+            'evidence_policy' => 'same_platform_stay_dates_room_rate_meal_cancel_payment_tax_currency_guest_mix',
             'table_statuses' => (array)($competitorEvidence['table_statuses'] ?? []),
             'missing_evidence' => array_values(array_merge($missing, (array)($competitorEvidence['data_gaps'] ?? []))),
             'pricing_closure' => $this->compactModule($revenue),
@@ -745,16 +767,35 @@ class InvestmentDecisionSupportService
 
     private function readCompetitorEvidence(array $hotelIds, ?int $hotelId): array
     {
-        $sampleCount = 0;
+        $decisionEligibleSampleCount = 0;
+        $referenceOnlySampleCount = 0;
+        $visibleSampleCount = 0;
         $latest = '';
+        $referenceLatest = '';
         $sources = [];
         $tableStatuses = [];
         $gaps = [];
 
         foreach ([
-            ['table' => 'competitor_analysis', 'field' => 'hotel_id', 'date' => 'analysis_date'],
-            ['table' => 'competitor_price_log', 'field' => 'hotel_id', 'date' => 'created_at'],
-            ['table' => 'online_daily_data', 'field' => 'system_hotel_id', 'date' => 'data_date', 'competitor_filter' => true],
+            [
+                'table' => 'competitor_analysis',
+                'field' => 'hotel_id',
+                'latest_fields' => ['collected_at', 'analysis_date', 'create_time'],
+                'decision_eligible' => true,
+            ],
+            // competitor_price_log.hotel_id identifies the competitor hotel;
+            // store_id is the owning system hotel / tenant scope.
+            ['table' => 'competitor_price_log', 'field' => 'store_id',
+                'latest_fields' => ['collected_at', 'fetch_time', 'create_time', 'created_at'],
+                'decision_eligible' => true,
+            ],
+            [
+                'table' => 'online_daily_data',
+                'field' => 'system_hotel_id',
+                'latest_fields' => ['data_date'],
+                'competitor_filter' => true,
+                'decision_eligible' => false,
+            ],
         ] as $source) {
             $table = $source['table'];
             if (!$this->tableExists($table)) {
@@ -764,6 +805,7 @@ class InvestmentDecisionSupportService
             }
 
             try {
+                $columns = $this->tableColumns($table);
                 $query = Db::name($table);
                 $this->applyHotelScope($query, $hotelIds, $hotelId, (string)$source['field']);
                 if (($source['competitor_filter'] ?? false) === true) {
@@ -773,14 +815,75 @@ class InvestmentDecisionSupportService
                             ->whereOr('hotel_name', 'like', '%竞争圈%');
                     });
                 }
-                $count = (int)(clone $query)->count();
-                $sourceLatest = (string)((clone $query)->max((string)$source['date']) ?: '');
-                $sampleCount += $count;
-                if ($count > 0) {
-                    $sources[] = ['table' => $table, 'count' => $count, 'latest_at' => $sourceLatest];
-                    $latest = $this->maxDateString($latest, $sourceLatest);
+
+                $visibleCount = (int)(clone $query)->count();
+                $visibleSampleCount += $visibleCount;
+                $sourceReferenceLatest = $this->latestQueryValue(
+                    $query,
+                    (array)($source['latest_fields'] ?? []),
+                    $columns
+                );
+                $referenceLatest = $this->maxDateString($referenceLatest, $sourceReferenceLatest);
+
+                $eligibleCount = 0;
+                $sourceLatest = '';
+                $missingColumns = [];
+                if (($source['decision_eligible'] ?? false) === true) {
+                    $eligibleQuery = clone $query;
+                    $missingColumns = $this->applyCompetitorDecisionEligibilityFilters(
+                        $eligibleQuery,
+                        $table,
+                        $columns
+                    );
+                    if ($missingColumns === []) {
+                        $eligibleCount = (int)(clone $eligibleQuery)->count();
+                        $sourceLatest = $this->latestQueryValue(
+                            $eligibleQuery,
+                            (array)($source['latest_fields'] ?? []),
+                            $columns
+                        );
+                    } elseif ($visibleCount > 0) {
+                        $gaps[] = [
+                            'code' => $table . '_comparability_columns_missing',
+                            'message' => $table . ' is reference-only because strict comparability columns are missing.',
+                            'missing_fields' => $missingColumns,
+                        ];
+                    }
+                } elseif ($visibleCount > 0) {
+                    $gaps[] = [
+                        'code' => $table . '_reference_only',
+                        'message' => $table . ' competitor signals are reference-only and do not prove comparable public rates.',
+                    ];
                 }
-                $tableStatuses[$table] = 'ok';
+
+                $referenceCount = max(0, $visibleCount - $eligibleCount);
+                $decisionEligibleSampleCount += $eligibleCount;
+                $referenceOnlySampleCount += $referenceCount;
+                $latest = $this->maxDateString($latest, $sourceLatest);
+
+                if ($visibleCount > 0) {
+                    if ($eligibleCount === 0 && ($source['decision_eligible'] ?? false) === true && $missingColumns === []) {
+                        $gaps[] = [
+                            'code' => $table . '_decision_eligible_sample_missing',
+                            'message' => $table . ' has records, but none passed strict comparability, validation, availability and readback gates.',
+                        ];
+                    }
+                    $sources[] = [
+                        'table' => $table,
+                        'count' => $eligibleCount,
+                        'visible_count' => $visibleCount,
+                        'decision_eligible_count' => $eligibleCount,
+                        'reference_only_count' => $referenceCount,
+                        'latest_at' => $sourceLatest,
+                        'reference_latest_at' => $sourceReferenceLatest,
+                        'eligibility_status' => $eligibleCount > 0
+                            ? ($referenceCount > 0 ? 'partially_eligible' : 'eligible')
+                            : 'reference_only',
+                    ];
+                }
+                $tableStatuses[$table] = $eligibleCount > 0
+                    ? ($referenceCount > 0 ? 'partially_eligible' : 'eligible')
+                    : ($visibleCount > 0 ? 'reference_only' : 'no_data');
             } catch (Throwable $e) {
                 $tableStatuses[$table] = 'read_failed';
                 $gaps[] = ['code' => $table . '_read_failed', 'message' => $table . ' summary read failed.'];
@@ -788,13 +891,149 @@ class InvestmentDecisionSupportService
         }
 
         return [
-            'status' => $sampleCount > 0 ? 'ok' : 'data_gap',
-            'sample_count' => $sampleCount,
+            'status' => $decisionEligibleSampleCount > 0
+                ? 'ok'
+                : ($referenceOnlySampleCount > 0 ? 'reference_only' : 'data_gap'),
+            // sample_count remains for response compatibility, but now means
+            // decision-eligible samples only.
+            'sample_count' => $decisionEligibleSampleCount,
+            'decision_eligible_sample_count' => $decisionEligibleSampleCount,
+            'reference_only_sample_count' => $referenceOnlySampleCount,
+            'visible_sample_count' => $visibleSampleCount,
             'latest_at' => $latest,
+            'reference_latest_at' => $referenceLatest,
             'data_sources' => $sources,
             'table_statuses' => $tableStatuses,
             'data_gaps' => $gaps,
         ];
+    }
+
+    /**
+     * Apply the strict public-rate evidence gate. Returning missing columns
+     * instead of querying them keeps old schemas and legacy rows reference-only.
+     *
+     * @param array<string, bool> $columns
+     * @return array<int, string>
+     */
+    private function applyCompetitorDecisionEligibilityFilters($query, string $table, array $columns): array
+    {
+        $contract = $this->competitorDecisionEligibilityContract($table);
+        $requiredColumns = array_values(array_unique(array_merge(
+            (array)$contract['required_columns'],
+            array_keys((array)$contract['equals']),
+            array_keys((array)$contract['allowed']),
+            (array)$contract['non_empty'],
+            (array)$contract['non_null'],
+            (array)$contract['positive'],
+            (array)$contract['non_negative']
+        )));
+        foreach ((array)$contract['column_comparisons'] as $comparison) {
+            $requiredColumns[] = (string)($comparison[0] ?? '');
+            $requiredColumns[] = (string)($comparison[2] ?? '');
+        }
+        $requiredColumns = array_values(array_unique(array_filter($requiredColumns)));
+        $missingColumns = array_values(array_diff($requiredColumns, array_keys($columns)));
+        if ($missingColumns !== []) {
+            return $missingColumns;
+        }
+
+        foreach ((array)$contract['equals'] as $field => $value) {
+            $query->where((string)$field, $value);
+        }
+        foreach ((array)$contract['allowed'] as $field => $values) {
+            $query->whereIn((string)$field, (array)$values);
+        }
+        foreach ((array)$contract['non_empty'] as $field) {
+            $query->where((string)$field, '<>', '');
+        }
+        foreach ((array)$contract['non_null'] as $field) {
+            $query->whereNotNull((string)$field);
+        }
+        foreach ((array)$contract['positive'] as $field) {
+            $query->where((string)$field, '>', 0);
+        }
+        foreach ((array)$contract['non_negative'] as $field) {
+            $query->where((string)$field, '>=', 0);
+        }
+        foreach ((array)$contract['column_comparisons'] as $comparison) {
+            $query->whereColumn(
+                (string)$comparison[0],
+                (string)$comparison[1],
+                (string)$comparison[2]
+            );
+        }
+
+        return [];
+    }
+
+    /** @return array<string, mixed> */
+    private function competitorDecisionEligibilityContract(string $table): array
+    {
+        $common = [
+            'required_columns' => [
+                'collected_at', 'source_method', 'source_ref', 'validation_status', 'readback_verified',
+                'check_in_date', 'check_out_date', 'nights', 'adults', 'children', 'room_type_key',
+                'rate_plan_key', 'breakfast', 'cancellation_policy', 'payment_mode', 'tax_fee_included',
+                'price_basis', 'currency', 'availability', 'comparison_key',
+            ],
+            'equals' => ['readback_verified' => 1],
+            'allowed' => [
+                'validation_status' => self::COMPETITOR_VALIDATION_STATUSES,
+                'availability' => self::COMPETITOR_BOOKABLE_STATUSES,
+            ],
+            'non_empty' => [
+                'source_method', 'source_ref', 'room_type_key', 'rate_plan_key', 'breakfast',
+                'cancellation_policy', 'payment_mode', 'price_basis', 'currency', 'comparison_key',
+            ],
+            'non_null' => ['collected_at', 'check_in_date', 'check_out_date', 'tax_fee_included'],
+            'positive' => ['nights', 'adults'],
+            'non_negative' => ['children'],
+            'column_comparisons' => [['check_out_date', '>', 'check_in_date']],
+        ];
+
+        if ($table === 'competitor_price_log') {
+            $common['required_columns'] = array_merge($common['required_columns'], ['store_id', 'hotel_id', 'platform', 'price']);
+            $common['non_empty'][] = 'platform';
+            $common['positive'] = array_merge($common['positive'], ['store_id', 'hotel_id', 'price']);
+            return $common;
+        }
+        if ($table === 'competitor_analysis') {
+            $common['required_columns'] = array_merge($common['required_columns'], [
+                'hotel_id', 'competitor_hotel_id', 'ota_platform', 'our_price', 'competitor_price',
+            ]);
+            $common['positive'] = array_merge($common['positive'], [
+                'hotel_id', 'competitor_hotel_id', 'ota_platform', 'our_price', 'competitor_price',
+            ]);
+            return $common;
+        }
+
+        return [
+            'required_columns' => [],
+            'equals' => [],
+            'allowed' => [],
+            'non_empty' => [],
+            'non_null' => [],
+            'positive' => [],
+            'non_negative' => [],
+            'column_comparisons' => [],
+        ];
+    }
+
+    /** @param array<string, bool> $columns */
+    private function latestQueryValue($query, array $candidateFields, array $columns): string
+    {
+        foreach ($candidateFields as $field) {
+            $field = (string)$field;
+            if ($field === '' || !isset($columns[$field])) {
+                continue;
+            }
+            $value = trim((string)((clone $query)->max($field) ?: ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     private function formatExpansionRecord(array $row, ExpansionService $service): array
@@ -971,6 +1210,41 @@ class InvestmentDecisionSupportService
             return true;
         } catch (Throwable $e) {
             return false;
+        }
+    }
+
+    /** @return array<string, bool> */
+    private function tableColumns(string $table): array
+    {
+        $safeTable = str_replace('`', '', $table);
+        try {
+            $rows = Db::query('SHOW COLUMNS FROM `' . $safeTable . '`');
+            $columns = [];
+            foreach ($rows as $row) {
+                $field = trim((string)($row['Field'] ?? $row['field'] ?? ''));
+                if ($field !== '') {
+                    $columns[$field] = true;
+                }
+            }
+            if ($columns !== []) {
+                return $columns;
+            }
+        } catch (Throwable $e) {
+            // SQLite is used by focused tests; production MariaDB uses SHOW COLUMNS.
+        }
+
+        try {
+            $rows = Db::query('PRAGMA table_info(`' . $safeTable . '`)');
+            $columns = [];
+            foreach ($rows as $row) {
+                $field = trim((string)($row['name'] ?? ''));
+                if ($field !== '') {
+                    $columns[$field] = true;
+                }
+            }
+            return $columns;
+        } catch (Throwable $e) {
+            return [];
         }
     }
 

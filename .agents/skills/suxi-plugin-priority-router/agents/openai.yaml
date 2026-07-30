@@ -3,4 +3,4 @@ interface:
   short_description: "为宿析OS任务优先匹配已安装 Codex 插件"
   default_prompt: "使用 $suxi-plugin-priority-router，在手工处理前选择合适的已安装插件。"
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

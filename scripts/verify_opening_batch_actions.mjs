@@ -3,7 +3,10 @@ import { resolve } from 'node:path';
 import vm from 'node:vm';
 
 const root = resolve(import.meta.dirname, '..');
-const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
+const publicEntry = readFileSync(resolve(root, 'public/index.html'), 'utf8');
+const appTemplate = readFileSync(resolve(root, 'resources/frontend/app-template.html'), 'utf8');
+const appMain = readFileSync(resolve(root, 'public/app-main.js'), 'utf8');
+const html = `${publicEntry}\n${appTemplate}\n${appMain}`;
 const operationStatic = readFileSync(resolve(root, 'public/operation-static.js'), 'utf8');
 
 const requiredSnippets = [

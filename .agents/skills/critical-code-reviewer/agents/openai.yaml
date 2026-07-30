@@ -1,0 +1,5 @@
+interface:
+  display_name: "严格代码审查（手动）"
+  short_description: "高强度、质疑式代码审查流程；仅在用户明确要求对抗审查时运行"
+policy:
+  allow_implicit_invocation: false

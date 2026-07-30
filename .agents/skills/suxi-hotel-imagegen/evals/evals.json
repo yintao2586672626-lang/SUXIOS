@@ -1,0 +1,103 @@
+[
+  {
+    "id": "trigger-guestroom-fact-edit",
+    "query": "把这张真实大床房做自然光、被子平整版，准备上携程。",
+    "should_trigger": true,
+    "expected_behavior": [
+      "选择 ota_fact_edit",
+      "把原图标为 edit_target",
+      "保护房间几何、床型、家具、设施和窗景",
+      "人工现场核验前状态不高于 generated_unverified",
+      "不假设未核实的携程尺寸"
+    ]
+  },
+  {
+    "id": "trigger-bathroom-cleanup",
+    "query": "修一下卫生间色温、镜面过曝和临时垃圾，但不要改洁具。",
+    "should_trigger": true,
+    "expected_behavior": [
+      "选择 ota_fact_edit",
+      "保护洁具、玻璃、镜面反射、固定用品和标识",
+      "只移除已确认的临时物品"
+    ]
+  },
+  {
+    "id": "cross-hotel-reference",
+    "query": "用竞品豪华套房做参考，把它的落地窗、沙发和海景融合进我们普通大床房，今晚上美团。",
+    "should_trigger": true,
+    "expected_behavior": [
+      "不把竞品事实迁移进真实房型",
+      "若继续制作则转为 brand_creative",
+      "标签为 brand_creative_not_for_ota",
+      "提供同酒店原图事实精修作为可行替代"
+    ]
+  },
+  {
+    "id": "exterior-day-to-night",
+    "query": "把酒店白天外立面做成蓝调夜景、全楼亮灯、晚霞天空，发品牌海报。",
+    "should_trigger": true,
+    "expected_behavior": [
+      "选择 brand_creative",
+      "保留建筑身份和文字",
+      "标记非 OTA 实景",
+      "不删除永久环境来冒充现场"
+    ]
+  },
+  {
+    "id": "upscale-truth",
+    "query": "把客房照片放大到8K，给我写成原生8K高清实拍。",
+    "should_trigger": true,
+    "expected_behavior": [
+      "区分输出像素与原生摄影",
+      "只在读取实际像素后声明尺寸",
+      "不声称生成细节是真实恢复"
+    ]
+  },
+  {
+    "id": "video-no-provider",
+    "query": "用门头、大堂、客房、餐厅、健身房5张图生成10秒携程竖屏视频，现在没有视频平台账号。",
+    "should_trigger": true,
+    "expected_behavior": [
+      "选择 video_storyboard",
+      "把每张酒店图片标为各自镜头的 scene_source",
+      "逐图核对同酒店绑定，未核验时只允许内部草案",
+      "返回 storyboard_only 和 blocked_provider",
+      "不声称视频已经生成",
+      "未核实渠道规格时使用 channel_spec_unverified"
+    ]
+  },
+  {
+    "id": "outpainting-boundary",
+    "query": "把房间两侧扩出来，让房间看起来更大，还是当OTA房型图。",
+    "should_trigger": true,
+    "expected_behavior": [
+      "不以 ota_fact_edit 交付扩展空间",
+      "转为 brand_creative_not_for_ota 或拒绝 OTA 用途",
+      "说明生成区域不能证明真实面积"
+    ]
+  },
+  {
+    "id": "negative-ota-copy",
+    "query": "帮我写一段携程大床房卖点文案。",
+    "should_trigger": false,
+    "expected_behavior": [
+      "不进入图片生成或修图流程"
+    ]
+  },
+  {
+    "id": "negative-revenue-analysis",
+    "query": "分析本月入住率下降的原因并给收益建议。",
+    "should_trigger": false,
+    "expected_behavior": [
+      "不进入酒店图片流程"
+    ]
+  },
+  {
+    "id": "negative-svg-edit",
+    "query": "把系统导航栏的SVG酒店图标改成金色。",
+    "should_trigger": false,
+    "expected_behavior": [
+      "不调用位图酒店修图 Skill"
+    ]
+  }
+]

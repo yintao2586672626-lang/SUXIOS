@@ -3,9 +3,11 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
+use app\service\CtripCompetitionCirclePersistenceService;
 use app\service\MeituanManualFetchRequestService;
 use app\service\MeituanOnlineDataPersistenceService;
 use app\service\MeituanRankDataExtractionService;
+use app\service\OnlineDailyDataPersistenceService;
 use think\facade\Db;
 
 trait BusinessDisplayConcern
@@ -160,6 +162,25 @@ trait BusinessDisplayConcern
             ];
         }
 
+        $cacheKey = $this->meituanSelfTradeMetricCacheKey(
+            $partnerId,
+            $poiId,
+            $startDate,
+            $endDate,
+            $cookies,
+            (string)$dateRange
+        );
+        $cached = cache($cacheKey);
+        if (is_array($cached)) {
+            $cachedValues = $this->normalizeMeituanSelfMetricValues($cached['values'] ?? []);
+            if ($cachedValues !== []) {
+                return array_merge($cached, [
+                    'values' => $cachedValues,
+                    'cache_hit' => true,
+                ]);
+            }
+        }
+
         $url = 'https://eb.meituan.com/api/shepherdGw/bizDatacenter/hotel/eb/dataCenter/trade/manage';
         $params = [
             'poiId' => $poiId,
@@ -184,11 +205,97 @@ trait BusinessDisplayConcern
         }
 
         $values = $this->normalizeMeituanSelfMetricValues($result['data'] ?? []);
-        return [
+        $payload = [
             'status' => !empty($values) ? 'returned' : 'empty',
             'values' => $values,
             'message' => !empty($values) ? '' : 'self_trade_cards_missing',
             'update_time' => (string)($result['data']['data']['rtDataUpdateTime'] ?? ''),
+            'cache_hit' => false,
+        ];
+        if ($values !== []) {
+            cache($cacheKey, $payload, 120);
+        }
+        return $payload;
+    }
+
+    private function meituanSelfTradeMetricCacheKey(
+        string $partnerId,
+        string $poiId,
+        string $startDate,
+        string $endDate,
+        string $cookies,
+        string $dateRange
+    ): string {
+        $identity = implode('|', [
+            trim($partnerId),
+            trim($poiId),
+            trim($startDate),
+            trim($endDate),
+            trim($dateRange),
+            hash('sha256', $cookies),
+        ]);
+        return 'meituan_self_trade:v1:' . hash('sha256', $identity);
+    }
+
+    private function fetchMeituanSelfDailyTradeMetricValues(
+        string $partnerId,
+        string $poiId,
+        string $startDate,
+        string $endDate,
+        string $cookies,
+        array $authData,
+        ?callable $fetchDay = null
+    ): array {
+        $startTime = strtotime($startDate);
+        $endTime = strtotime($endDate);
+        if ($startTime === false || $endTime === false || $startTime > $endTime) {
+            return ['status' => 'invalid_range', 'values' => [], 'days_requested' => 0, 'days_returned' => 0];
+        }
+
+        $daysRequested = (int)floor(($endTime - $startTime) / 86400) + 1;
+        if ($daysRequested < 1 || $daysRequested > 31) {
+            return ['status' => 'unsupported_range', 'values' => [], 'days_requested' => $daysRequested, 'days_returned' => 0];
+        }
+
+        $totals = [
+            'roomNights' => 0.0,
+            'roomRevenue' => 0.0,
+            'salesRoomNights' => 0.0,
+            'sales' => 0.0,
+            'orderCount' => 0.0,
+        ];
+        $daysReturned = 0;
+        for ($time = $startTime; $time <= $endTime; $time += 86400) {
+            $date = date('Y-m-d', $time);
+            $result = $fetchDay !== null
+                ? $fetchDay($date)
+                : $this->fetchMeituanSelfTradeMetricValues(
+                    $partnerId,
+                    $poiId,
+                    $date,
+                    $date,
+                    $cookies,
+                    $authData,
+                    '1'
+                );
+            $values = $this->normalizeMeituanSelfMetricValues($result['values'] ?? []);
+            if (empty($values)) {
+                continue;
+            }
+            $daysReturned++;
+            foreach (array_keys($totals) as $field) {
+                $totals[$field] += (float)($values[$field] ?? 0);
+            }
+        }
+
+        $status = $daysReturned === $daysRequested
+            ? 'returned'
+            : ($daysReturned > 0 ? 'partial' : 'empty');
+        return [
+            'status' => $status,
+            'values' => $totals,
+            'days_requested' => $daysRequested,
+            'days_returned' => $daysReturned,
         ];
     }
 
@@ -305,18 +412,10 @@ trait BusinessDisplayConcern
 
     private function meituanSelfTradeDateType(string $dateRange, string $startDate, string $endDate): string
     {
-        if ($dateRange === '0' || $dateRange === '1' || $startDate === $endDate) {
+        if ($startDate === $endDate) {
             return 'DAY';
         }
-        $startTime = strtotime($startDate);
-        $endTime = strtotime($endDate);
-        if ($startTime !== false && $endTime !== false) {
-            $days = (int)floor(($endTime - $startTime) / 86400) + 1;
-            if ($days <= 7) {
-                return 'WEEK';
-            }
-        }
-        return 'MONTH';
+        return 'CUSTOM';
     }
 
     private function normalizeMeituanManualDateRange(string $startDate, string $endDate): array
@@ -411,7 +510,7 @@ trait BusinessDisplayConcern
         }
         if ($httpCode > 0 && $httpCode !== 200) {
             $result['error'] = in_array($httpCode, [301, 302, 401, 403], true)
-                ? 'Cookie 可能已失效或无权限，请重新登录美团后台后复制 Cookie'
+                ? 'Cookie已失效或当前账号无权限，请重新登录美团后台后复制 Cookie'
                 : '美团接口 HTTP 错误: ' . $httpCode;
             return $result;
         }
@@ -489,7 +588,13 @@ trait BusinessDisplayConcern
      * 解析并保存数据到数据库
      * @param int|null $systemHotelId 系统酒店ID，用于门店隔离
      */
-    private function parseAndSaveData($responseData, $startDate, $endDate, ?int $systemHotelId = null): int
+    private function parseAndSaveData(
+        $responseData,
+        $startDate,
+        $endDate,
+        ?int $systemHotelId = null,
+        array $persistenceContext = []
+    ): int
     {
         $dataList = $this->extractCtripBusinessDataList($responseData);
 
@@ -502,13 +607,26 @@ trait BusinessDisplayConcern
             return 0;
         }
 
-        $savedCount = 0;
+        $competitionRows = array_values(array_filter(
+            $dataList,
+            static fn($item): bool => is_array($item)
+                && CtripCompetitionCirclePersistenceService::hasCompetitionCircleSignature($item)
+        ));
+        $savedCount = $this->persistCtripCompetitionCircleRowsFromLegacyParser(
+            $competitionRows,
+            (string)($startDate ?: ($endDate ?: date('Y-m-d'))),
+            $systemHotelId,
+            $persistenceContext
+        );
         $dataDate = $startDate ?: ($endDate ?: date('Y-m-d'));
         $columns = $this->getOnlineDailyDataColumns();
         $now = date('Y-m-d H:i:s');
 
         foreach ($dataList as $item) {
             if (!is_array($item)) continue;
+            if (CtripCompetitionCirclePersistenceService::hasCompetitionCircleSignature($item)) {
+                continue;
+            }
             if (!$this->canSaveCtripLegacyBusinessMetricItem($item)) {
                 continue;
             }
@@ -520,17 +638,7 @@ trait BusinessDisplayConcern
             // 尝试多种字段名获取酒店名称
             $hotelName = $item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? '';
 
-            // 尝试多种字段名获取其他数据
-            $amount = $this->meituanNumber($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额'], 0);
-            $quantity = (int)$this->meituanNumber($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚'], 0);
-            $bookOrderNum = (int)$this->meituanNumber($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings', '成交订单数', '订单数'], 0);
-            $commentScore = floatval($item['commentScore'] ?? $item['comment_score'] ?? $item['score'] ?? $item['avgScore'] ?? $item['ctripRatingall'] ?? 0);
-            $qunarCommentScore = floatval($item['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? $item['qunarScore'] ?? 0);
-            $listExposure = (int)$this->meituanNumber($item, ['self_list_exposure', 'listExposure', 'list_exposure'], 0);
-            $detailExposure = (int)$this->meituanNumber($item, ['self_detail_exposure', 'detailExposure', 'detail_exposure'], 0);
-            $orderFillingNum = (int)$this->meituanNumber($item, ['self_order_filling_num', 'orderFillingNum', 'order_filling_num'], 0);
-            $orderSubmitNum = (int)$this->meituanNumber($item, ['self_order_submit_num', 'orderSubmitNum', 'order_submit_num'], 0);
-            $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['self_flow_rate', 'flowRate', 'flow_rate'], null)) ?? 0.0;
+            $observedMetrics = $this->buildCtripBusinessObservedMetricPatch($item, $columns);
 
             // 如果有日期字段，优先使用接口返回日期；没有返回时使用请求日期
             $itemDate = $item['dataDate']
@@ -555,6 +663,8 @@ trait BusinessDisplayConcern
             // 检查是否已存在（按来源、系统酒店、平台酒店、日期去重）
             $query = Db::name('online_daily_data')
                 ->where('source', 'ctrip')
+                ->where('data_type', 'business')
+                ->where('dimension', '')
                 ->where('hotel_id', (string)$hotelId)
                 ->where('data_date', $itemDate);
             $this->applyOnlineDailyDataPeriodQuery($query, $periodFilter, $columns);
@@ -567,60 +677,233 @@ trait BusinessDisplayConcern
 
             $exists = $query->find();
 
-            $data = [
+            $base = [
                 'hotel_id' => (string)$hotelId,
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId, // 系统酒店ID，用于门店隔离
                 'data_date' => $itemDate,
-                'amount' => $amount,
-                'quantity' => $quantity,
-                'book_order_num' => $bookOrderNum,
-                'comment_score' => $commentScore,
-                'qunar_comment_score' => $qunarCommentScore,
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'dimension' => '',
+                'compare_type' => trim((string)($item['compare_type'] ?? $item['compareType'] ?? '')) ?: null,
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
 
             if (isset($columns['update_time'])) {
-                $data['update_time'] = $now;
+                $base['update_time'] = $now;
             }
-            if (isset($columns['list_exposure'])) {
-                $data['list_exposure'] = $listExposure;
-            }
-            if (isset($columns['detail_exposure'])) {
-                $data['detail_exposure'] = $detailExposure;
-            }
-            if (isset($columns['flow_rate'])) {
-                $data['flow_rate'] = $flowRate;
-            }
-            if (isset($columns['order_filling_num'])) {
-                $data['order_filling_num'] = $orderFillingNum;
-            }
-            if (isset($columns['order_submit_num'])) {
-                $data['order_submit_num'] = $orderSubmitNum;
-            }
+            $data = OnlineDailyDataPersistenceService::buildMetricAwareWriteData(
+                $base,
+                $observedMetrics,
+                $this->ctripBusinessMetricFields($columns),
+                !$exists
+            );
             $data = $this->applyOnlineDailyDataValidationFields($data, $columns);
+            $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
 
             if ($exists) {
+                $rowId = (int)$exists['id'];
                 Db::name('online_daily_data')
-                    ->where('id', $exists['id'])
+                    ->where('id', $rowId)
                     ->update($data);
             } else {
                 if (isset($columns['create_time'])) {
                     $data['create_time'] = $now;
                 }
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            $readbackRow = $rowId > 0
+                ? $this->verifiedCtripBusinessMetricReadback($rowId, $data, array_keys($observedMetrics))
+                : null;
+            if (is_array($readbackRow)
+                && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$readbackRow], $columns)) {
+                $savedCount++;
+            }
         }
 
         return $savedCount;
     }
 
+    /** @return array<string, int|float> */
+    private function buildCtripBusinessObservedMetricPatch(array $item, array $columns): array
+    {
+        $definitions = [
+            'amount' => ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'ordamount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额'],
+            'quantity' => ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚'],
+            'book_order_num' => ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'ordquantity', 'orders', 'bookings', '成交订单数', '订单数'],
+            'comment_score' => ['commentScore', 'comment_score', 'score', 'avgScore', 'ctripRatingall'],
+            'qunar_comment_score' => ['qunarCommentScore', 'qunar_comment_score', 'qunarScore'],
+            'list_exposure' => ['self_list_exposure', 'listExposure', 'list_exposure'],
+            'detail_exposure' => ['self_detail_exposure', 'detailExposure', 'detail_exposure'],
+            'flow_rate' => ['self_flow_rate', 'flowRate', 'flow_rate'],
+            'order_filling_num' => ['self_order_filling_num', 'orderFillingNum', 'order_filling_num'],
+            'order_submit_num' => ['self_order_submit_num', 'orderSubmitNum', 'order_submit_num'],
+        ];
+
+        $patch = [];
+        foreach ($definitions as $field => $keys) {
+            if (!isset($columns[$field])) {
+                continue;
+            }
+            $value = $this->nullableNumberFromKeys($item, $keys);
+            if ($value === null) {
+                continue;
+            }
+            $patch[$field] = match ($field) {
+                'amount' => round($value, 2),
+                'comment_score', 'qunar_comment_score' => round($value, 1),
+                'flow_rate' => round((float)$this->normalizeMeituanPercentValue($value), 2),
+                'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'order_filling_num', 'order_submit_num' => (int)$value,
+                default => $value,
+            };
+        }
+        return $patch;
+    }
+
+    /** @return array<int, string> */
+    private function ctripBusinessMetricFields(array $columns): array
+    {
+        return array_values(array_filter([
+            'amount',
+            'quantity',
+            'book_order_num',
+            'comment_score',
+            'qunar_comment_score',
+            'data_value',
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ], static fn(string $field): bool => isset($columns[$field])));
+    }
+
+    /** @param array<int, string> $observedMetricFields */
+    private function verifiedCtripBusinessMetricReadback(int $rowId, array $expected, array $observedMetricFields): ?array
+    {
+        $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
+        if (!is_array($persisted)) {
+            return null;
+        }
+
+        return OnlineDailyDataPersistenceService::matchesMetricReadback(
+            $persisted,
+            $expected,
+            ['tenant_id', 'source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            $observedMetricFields
+        ) ? $persisted : null;
+    }
+
+    private function persistCtripCompetitionCircleRowsFromLegacyParser(
+        array $rows,
+        string $dataDate,
+        ?int $systemHotelId,
+        array $context = []
+    ): int {
+        if ($rows === []) {
+            return 0;
+        }
+        if ($systemHotelId === null || $systemHotelId <= 0) {
+            \think\facade\Log::warning('Ctrip competition-circle rows were not stored because the selected system hotel is missing', [
+                'data_date' => $dataDate,
+                'row_count' => count($rows),
+            ]);
+            return 0;
+        }
+
+        $selfHotelIds = [];
+        foreach (is_array($context['self_hotel_ids'] ?? null) ? $context['self_hotel_ids'] : [] as $hotelId) {
+            if (!is_array($hotelId) && !is_object($hotelId) && trim((string)$hotelId) !== '') {
+                $selfHotelIds[trim((string)$hotelId)] = true;
+            }
+        }
+
+        $fingerprint = hash('sha256', (string)json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $dataSourceId = (int)($context['data_source_id'] ?? 0);
+        $syncTaskId = (int)($context['sync_task_id'] ?? 0);
+        $persistence = new CtripCompetitionCirclePersistenceService();
+        $ownsEvidenceTask = false;
+        if ($dataSourceId <= 0 || $syncTaskId <= 0) {
+            $dataSourceId = $persistence->resolveOrCreateDataSource(
+                $systemHotelId,
+                (int)($this->currentUser->id ?? 0),
+                [
+                    'platform_hotel_id' => (string)(array_key_first($selfHotelIds) ?? ''),
+                    'config_id' => trim((string)($context['config_id'] ?? '')),
+                ]
+            );
+            $syncTaskId = $persistence->startSyncTask(
+                $dataSourceId,
+                $systemHotelId,
+                (int)($this->currentUser->id ?? 0),
+                'legacy_parser'
+            );
+            $ownsEvidenceTask = true;
+        }
+        $sourceTraceId = trim((string)($context['source_trace_id'] ?? ''));
+        if ($sourceTraceId === '') {
+            $sourceTraceId = CtripCompetitionCirclePersistenceService::buildCaptureTraceId([
+                'data_source_id' => $dataSourceId,
+                'sync_task_id' => $syncTaskId,
+                'system_hotel_id' => $systemHotelId,
+                'data_date' => $dataDate,
+                'fingerprint' => $fingerprint,
+            ]);
+        }
+
+        try {
+            $result = $persistence->persistRows(
+                $rows,
+                $dataDate,
+                $systemHotelId,
+                [
+                    'self_hotel_ids' => array_keys($selfHotelIds),
+                    'fetched_at' => (string)($context['fetched_at'] ?? date('Y-m-d H:i:s')),
+                    'data_source_id' => $dataSourceId,
+                    'sync_task_id' => $syncTaskId,
+                    'source_trace_id' => $sourceTraceId,
+                    'ingestion_method' => trim((string)($context['ingestion_method'] ?? '')) ?: 'legacy_parser',
+                ]
+            );
+            if ($ownsEvidenceTask) {
+                $processedCount = max(0, (int)($result['processed_count'] ?? 0));
+                $readbackCount = max(0, (int)($result['readback_count'] ?? 0));
+                if ($processedCount > 0
+                    && !empty($result['readback_verified'])
+                    && $readbackCount === $processedCount) {
+                    $persistence->finishSyncTask($syncTaskId, $dataSourceId, [
+                        'processed_count' => $processedCount,
+                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                        'readback_count' => $readbackCount,
+                        'readback_verified' => true,
+                        'inserted_count' => (int)($result['inserted_count'] ?? 0),
+                        'updated_count' => (int)($result['updated_count'] ?? 0),
+                        'skipped_count' => (int)($result['skipped_count'] ?? 0),
+                        'row_count' => count($rows),
+                        'self_hotel_ids' => array_keys($selfHotelIds),
+                    ]);
+                } else {
+                    $persistence->failSyncTask(
+                        $syncTaskId,
+                        $dataSourceId,
+                        'competition_circle_readback_failed'
+                    );
+                }
+            }
+            return (int)($result['saved_count'] ?? 0);
+        } catch (\Throwable $e) {
+            if ($ownsEvidenceTask) {
+                $persistence->failSyncTask($syncTaskId, $dataSourceId, 'competition_circle_legacy_persistence_failed');
+            }
+            throw $e;
+        }
+    }
+
     private function canSaveCtripLegacyBusinessMetricItem(array $item): bool
     {
+        if (CtripCompetitionCirclePersistenceService::hasCompetitionCircleSignature($item)) {
+            return false;
+        }
         $sourceUrl = strtolower((string)($item['_source_url'] ?? $item['source_url'] ?? $item['url'] ?? ''));
         $endpointId = strtolower((string)($item['_endpoint_id'] ?? $item['endpoint_id'] ?? ''));
         if ($sourceUrl === '' && $endpointId === '') {
@@ -745,15 +1028,35 @@ trait BusinessDisplayConcern
         }
 
         $bookOrderNum = (int)$this->numberFromKeys($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']);
-        $hotelSeed = $hotelId !== '' ? $hotelId : $hotelName;
+        $aiEstimatedTotalRoomNights = $this->nullableNumberFromKeys($item, [
+            'aiEstimatedTotalRoomNights',
+            'ai_estimated_total_room_nights',
+        ]);
+        $compareType = strtolower(trim((string)($item['compareType'] ?? $item['compare_type'] ?? '')));
+        $normalizedHotelName = strtolower(preg_replace('/\s+/u', '', $hotelName) ?? '');
+        $isSelf = !empty($item['isSelf'])
+            || !empty($item['is_self'])
+            || $compareType === 'self'
+            || in_array($normalizedHotelName, ['我的酒店', '本店', 'myhotel', 'currenthotel'], true);
+        $systemHotelId = (int)($item['systemHotelId'] ?? $item['system_hotel_id'] ?? 0);
+        $systemHotelName = trim((string)($item['systemHotelName'] ?? $item['system_hotel_name'] ?? ''));
+        if ($isSelf && $systemHotelName === '' && $systemHotelId > 0 && method_exists($this, 'getSystemHotelName')) {
+            $systemHotelName = (string)$this->getSystemHotelName($systemHotelId);
+        }
 
         return [
             'hotelId' => $hotelId,
             'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
+            'systemHotelId' => $systemHotelId,
+            'systemHotelName' => $systemHotelName,
+            'compareType' => $isSelf ? 'self' : ($compareType !== '' ? $compareType : 'competitor'),
+            'isSelf' => $isSelf,
             'amount' => $this->numberFromKeys($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']),
             'quantity' => (int)$this->numberFromKeys($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'checkInQuantity']),
             'bookOrderNum' => $bookOrderNum,
-            'aiEstimatedTotalRoomNights' => $this->ctripAiEstimatedTotalRoomNights($bookOrderNum, $hotelSeed),
+            'aiEstimatedTotalRoomNights' => $aiEstimatedTotalRoomNights !== null
+                ? (int)round($aiEstimatedTotalRoomNights)
+                : null,
             'totalOrderNum' => (int)$this->numberFromKeys($item, ['totalOrderNum', 'total_order_num', 'bookOrderNum', 'book_order_num', 'orderCount', 'order_count']),
             'commentScore' => $this->numberFromKeys($item, ['commentScore', 'comment_score', 'score', 'avgScore']),
             'qunarCommentScore' => $this->numberFromKeys($item, ['qunarCommentScore', 'qunar_comment_score', 'qunarScore']),
@@ -779,13 +1082,24 @@ trait BusinessDisplayConcern
             return;
         }
 
-        foreach (['amount', 'quantity', 'bookOrderNum', 'aiEstimatedTotalRoomNights', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
+        foreach (['amount', 'quantity', 'bookOrderNum', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
             $hotelMap[$key][$field] = $sumValues
                 ? (float)($hotelMap[$key][$field] ?? 0) + (float)($hotel[$field] ?? 0)
                 : max((float)($hotelMap[$key][$field] ?? 0), (float)($hotel[$field] ?? 0));
         }
-        foreach (['quantity', 'bookOrderNum', 'aiEstimatedTotalRoomNights', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
+        foreach (['quantity', 'bookOrderNum', 'totalOrderNum', 'totalDetailNum', 'qunarDetailVisitors'] as $field) {
             $hotelMap[$key][$field] = (int)($hotelMap[$key][$field] ?? 0);
+        }
+        $existingEstimate = is_numeric($hotelMap[$key]['aiEstimatedTotalRoomNights'] ?? null)
+            ? (int)$hotelMap[$key]['aiEstimatedTotalRoomNights']
+            : null;
+        $incomingEstimate = is_numeric($hotel['aiEstimatedTotalRoomNights'] ?? null)
+            ? (int)$hotel['aiEstimatedTotalRoomNights']
+            : null;
+        if ($incomingEstimate !== null) {
+            $hotelMap[$key]['aiEstimatedTotalRoomNights'] = $existingEstimate === null
+                ? $incomingEstimate
+                : ($sumValues ? $existingEstimate + $incomingEstimate : max($existingEstimate, $incomingEstimate));
         }
         foreach (['commentScore', 'qunarCommentScore', 'convertionRate', 'qunarDetailCR'] as $field) {
             $hotelMap[$key][$field] = max((float)($hotelMap[$key][$field] ?? 0), (float)($hotel[$field] ?? 0));
@@ -803,18 +1117,6 @@ trait BusinessDisplayConcern
             is_array($hotelMap[$key]['metricSourceStatus'] ?? null) ? $hotelMap[$key]['metricSourceStatus'] : [],
             is_array($hotel['metricSourceStatus'] ?? null) ? $hotel['metricSourceStatus'] : []
         );
-    }
-
-    private function ctripAiEstimatedTotalRoomNights(int $bookOrderNum, string $seed): int
-    {
-        if ($bookOrderNum <= 0) {
-            return 0;
-        }
-
-        $hash = (int)(sprintf('%u', crc32($seed !== '' ? $seed : (string)$bookOrderNum)) % 100000);
-
-        $ratio = 1.15 + (($hash % 21) / 100);
-        return (int)round($bookOrderNum * $ratio);
     }
 
     private function buildCtripMetricSourceStatusFromItem(array $item): array
@@ -1279,7 +1581,7 @@ trait BusinessDisplayConcern
             }
         }
         if ($selfKey === null || !isset($hotelMap[$selfKey]) || !is_array($hotelMap[$selfKey])) {
-            return $this->applyMeituanPercentScaleDerivedMetrics($hotelMap);
+            return $hotelMap;
         }
 
         $hotelMap = $this->injectMeituanSelfActualMetrics($hotelMap, $selfKey, $context);
@@ -1331,7 +1633,7 @@ trait BusinessDisplayConcern
 
         $hotelMap = $this->applyMeituanRankValueDerivedMoneyMetrics($hotelMap, $selfKey, $context);
 
-        return $this->applyMeituanPercentScaleDerivedMetrics($hotelMap);
+        return $hotelMap;
     }
 
     private function applyMeituanRankValueDerivedMoneyMetrics(array $hotelMap, string $selfKey, array $context = []): array
@@ -1586,65 +1888,8 @@ trait BusinessDisplayConcern
         return isset($values[$field]) && is_numeric($values[$field]) ? (float)$values[$field] : null;
     }
 
-    private function applyMeituanPercentScaleDerivedMetrics(array $hotelMap): array
-    {
-        foreach (['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'exposure', 'views'] as $field) {
-            $scale = $this->inferMeituanMinimalPercentScale($hotelMap, $field);
-            if ($scale === null) {
-                continue;
-            }
-
-            foreach ($hotelMap as &$row) {
-                if (!is_array($row)) {
-                    continue;
-                }
-                $rowPercent = $this->meituanMetricRankPercent($row, $field);
-                if ($rowPercent === null || $rowPercent < 0) {
-                    continue;
-                }
-
-                $status = (string)($row['metricSourceStatus'][$field] ?? '');
-                if ((float)($row[$field] ?? 0) > 0 && $this->isMeituanMetricSourceUsable($status)) {
-                    continue;
-                }
-
-                $derivedValue = $this->roundMeituanDerivedMetric($field, $scale * $rowPercent / 100);
-                if ($this->isMeituanIntegerScaleMetric($field)) {
-                    $derivedValue = (float)max(0, (int)round($derivedValue));
-                }
-
-                $row[$field] = $derivedValue;
-                $row['metricSourceStatus'][$field] = '按美团百分比最小整数比例尺估算';
-                $row['metricDerived'][$field] = [
-                    'method' => 'percent_min_integer_scale',
-                    'scale_value' => $scale,
-                    'row_percent' => $rowPercent,
-                    'percent_precision' => 2,
-                    'source_scope' => 'meituan_rank_percent_only',
-                ];
-
-                if (is_array($row['rankHistory'] ?? null)) {
-                    foreach ($row['rankHistory'] as &$history) {
-                        if (is_array($history) && ($history['metric'] ?? '') === $field) {
-                            $history['value'] = $derivedValue;
-                            $history['sourceLabel'] = '按美团百分比最小整数比例尺估算';
-                            $history['derived'] = $row['metricDerived'][$field];
-                        }
-                    }
-                    unset($history);
-                }
-            }
-            unset($row);
-        }
-
-        return $hotelMap;
-    }
-
     private function isMeituanMetricSourceUsable(string $status): bool
     {
-        if (str_starts_with($status, '按美团百分比')) {
-            return true;
-        }
         return in_array($status, [
             'actual_business_value',
             'manual_actual_business_value',
@@ -1750,7 +1995,10 @@ trait BusinessDisplayConcern
 
     private function meituanDisplayMetricIndexPrefix(array $row, string $field): string
     {
-        return $this->isMeituanPercentScaleDerivedMetric($row, $field) ? '指数 ' : '';
+        if ($this->isMeituanPercentScaleDerivedMetric($row, $field)) {
+            return '指数 ';
+        }
+        return '';
     }
 
     private function meituanAveragePriceCurrencyPrefix(array $row, string $amountField): string
@@ -1776,11 +2024,8 @@ trait BusinessDisplayConcern
             return '-';
         }
 
-        if ($format === 'money') {
-            return $this->formatMeituanDisplayNumber($value, 0);
-        }
-
-        return $this->formatMeituanDisplayNumber($value, 0);
+        $text = $this->formatMeituanDisplayNumber($value, 0);
+        return $text;
     }
 
     private function meituanBusinessDisplayHotelKey(string $poiId, string $hotelName): string
@@ -1806,10 +2051,10 @@ trait BusinessDisplayConcern
             'badgeList', 'benefitTags', 'titleTags', 'identityTags', 'platformTags',
         ];
         $singleTagKeys = [
-            'vipTag', 'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag',
+            'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag',
             'brandTag', 'brandName', 'chainName', 'hotelBrand', 'groupName', 'starTag',
         ];
-        $booleanVipKeys = ['isVip', 'isVIP', 'vip', 'vipFlag', 'memberFlag', 'isMemberHotel'];
+        $booleanVipKeys = ['vipTag', 'isVip', 'isVIP', 'vip', 'vipFlag', 'memberFlag', 'isMemberHotel'];
 
         $tags = [];
         $returned = false;
@@ -1974,12 +2219,22 @@ trait BusinessDisplayConcern
     private function meituanDateRangeLabel(string $dateRange): string
     {
         return [
-            '0' => '实时',
+            '0' => '今日实时',
             '1' => '昨日',
             '7' => '近7天',
             '30' => '近30天',
             'custom' => '自定义',
         ][$dateRange] ?? ($dateRange !== '' ? $dateRange : '未标明时间');
+    }
+
+    private function meituanDataFreshnessMeta(): array
+    {
+        return [
+            'update_policy' => 'daily_09_previous_day',
+            'update_time' => '09:00',
+            'settlement_basis' => false,
+            'notice' => '*每日9点更新前日数据。数据仅作经营参考，不作结算依据。',
+        ];
     }
 
     private function sortBusinessDisplayHotels(array $hotelMap, string $sortField): array
@@ -2600,12 +2855,31 @@ trait BusinessDisplayConcern
 
         $hotelCount = count($rows);
         $totalRoomNights = $this->sumBusinessRows($rows, 'roomNights');
+        $hasDisplayableRoomNights = $this->hasMeituanDisplayableMetricRows($rows, 'roomNights');
         $totalRoomRevenue = $this->sumMeituanDisplayableMoneyRows($rows, 'roomRevenue');
+        $hasDisplayableRoomRevenue = count(array_filter($rows, fn($row): bool =>
+            $this->isMeituanDisplayableMoneyMetricSource(
+                is_array($row) ? $row : [],
+                'roomRevenue',
+                (string)($row['metricSourceStatus']['roomRevenue'] ?? '')
+            )
+        )) > 0;
         $totalSalesRoomNights = $this->sumBusinessRows($rows, 'salesRoomNights');
+        $hasDisplayableSalesRoomNights = $this->hasMeituanDisplayableMetricRows($rows, 'salesRoomNights');
         $totalSales = $this->sumMeituanDisplayableMoneyRows($rows, 'sales');
+        $hasDisplayableSales = count(array_filter($rows, fn($row): bool =>
+            $this->isMeituanDisplayableMoneyMetricSource(
+                is_array($row) ? $row : [],
+                'sales',
+                (string)($row['metricSourceStatus']['sales'] ?? '')
+            )
+        )) > 0;
         $totalExposure = $this->sumBusinessRows($rows, 'exposure');
+        $hasDisplayableExposure = $this->hasMeituanDisplayableMetricRows($rows, 'exposure');
         $totalViews = $this->sumBusinessRows($rows, 'views');
+        $hasDisplayableViews = $this->hasMeituanDisplayableMetricRows($rows, 'views');
         $totalOrderCount = (int)$this->sumBusinessRows($rows, 'orderCount');
+        $hasDisplayableOrderCount = $this->hasMeituanDisplayableMetricRows($rows, 'orderCount');
         $avgRoomPrice = $this->weightedMeituanAveragePrice($rows, 'roomRevenue', 'roomNights', 'avgRoomPrice');
         $avgSalesPrice = $this->weightedMeituanAveragePrice($rows, 'sales', 'salesRoomNights', 'avgSalesPrice');
         $avgViewConversionRate = $this->avgBusinessRows($rows, 'viewConversion') * 100;
@@ -2632,11 +2906,12 @@ trait BusinessDisplayConcern
         $platformTagSummary = $this->buildMeituanPlatformTagSummary($rows);
         $derivedMetricCount = $this->countMeituanDerivedMetrics($rows);
         $rankOnlyCount = count(array_filter($rankHealthRows, static fn($row): bool => ($row['status'] ?? '') === 'rank_only'));
-        $sourceNotice = $derivedMetricCount > 0
-            ? '美团榜单部分指标仅返回百分比；已优先按本店真实值 × 对方 percent ÷ 本店 percent 推导，缺少本店真实值时按百分比序列的最小一致整数比例尺估算，并在 metricDerived 中保留依据。未返回且不可推导字段继续保留缺失状态。'
+        $dataFreshness = $this->meituanDataFreshnessMeta();
+        $sourceNotice = $dataFreshness['notice'] . ' ' . ($derivedMetricCount > 0
+            ? '美团榜单部分指标仅返回百分比；只有存在本店真实值锚点时才按本店值 × 对方 percent ÷ 本店 percent 推导，并在 metricDerived 中保留依据。缺少真实值锚点时保持缺失，不再按比例尺估算。'
             : ($rankOnlyCount > 0
                 ? '美团榜单返回了排名/percent，但未返回可展示数值；数值列保留缺失状态，不用 0 代替。'
-                : '仅展示美团榜单已返回字段；不通过订单、客人、房态或房源映射推断。');
+                : '仅展示美团榜单已返回字段；不通过订单、客人、房态或房源映射推断。'));
         $selfPositionText = $selfRow ? (string)($selfRow['circlePositionText'] ?? '已返回') : '本店未返回';
 
         return [
@@ -2685,15 +2960,15 @@ trait BusinessDisplayConcern
                 $this->businessSummaryCard('revenueConcentration', '收益集中度', $revenueHhi > 0 ? number_format($revenueHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->businessSummaryCard('visitConcentration', '浏览/访客集中度', $visitHhi > 0 ? number_format($visitHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->businessSummaryCard('operationFocus', '运营重心', $operationFocus, 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
-                $this->businessSummaryCard('totalRoomNights', '总入住间夜', number_format($totalRoomNights), 'text-red-600', 'bg-red-50 border border-red-200'),
-                $this->businessSummaryCard('totalRoomRevenue', '总房费收入', '¥' . number_format((float)floor($totalRoomRevenue)), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalRoomNights', '总入住间夜', $hasDisplayableRoomNights ? number_format($totalRoomNights) : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalRoomRevenue', '总房费收入', $hasDisplayableRoomRevenue ? ('¥' . number_format((float)floor($totalRoomRevenue))) : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
                 $this->businessSummaryCard('avgRoomPrice', '商圈平均房价', $avgRoomPrice > 0 ? '¥' . number_format($avgRoomPrice, 0, '.', ',') : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
-                $this->businessSummaryCard('totalSalesRoomNights', '总销售间夜', number_format($totalSalesRoomNights), 'text-green-600', 'bg-green-50 border border-green-200'),
-                $this->businessSummaryCard('totalSales', '总销售额', '¥' . number_format((float)floor($totalSales)), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalSalesRoomNights', '总销售间夜', $hasDisplayableSalesRoomNights ? number_format($totalSalesRoomNights) : '-', 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalSales', '总销售额', $hasDisplayableSales ? ('¥' . number_format((float)floor($totalSales))) : '-', 'text-green-600', 'bg-green-50 border border-green-200'),
                 $this->businessSummaryCard('avgSalesPrice', '商圈平均销售房价', $avgSalesPrice > 0 ? '¥' . number_format($avgSalesPrice, 0, '.', ',') : '-', 'text-green-600', 'bg-green-50 border border-green-200'),
-                $this->businessSummaryCard('totalExposure', '总曝光量', number_format($totalExposure), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
-                $this->businessSummaryCard('totalViews', '总浏览量', number_format($totalViews), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
-                $this->businessSummaryCard('totalOrderCount', '总订单量', number_format($totalOrderCount), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalExposure', '总曝光量', $hasDisplayableExposure ? number_format($totalExposure) : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalViews', '总浏览量', $hasDisplayableViews ? number_format($totalViews) : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalOrderCount', '总订单量', $hasDisplayableOrderCount ? number_format($totalOrderCount) : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->businessSummaryCard('avgViewConversionRate', '平均浏览转化率', $hasViewConversionValue ? number_format($avgViewConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
                 $this->businessSummaryCard('avgPayConversionRate', '平均支付转化率', $hasPayConversionValue ? number_format($avgPayConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
                 $this->businessSummaryCard('avgAbsoluteConversionRate', '绝对转化率', $hasAbsoluteConversionValue ? number_format($avgAbsoluteConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
@@ -2703,6 +2978,7 @@ trait BusinessDisplayConcern
             'top_summary_rows' => $topSummaryRows,
             'funnel_diagnosis' => $funnelDiagnosis,
             'platform_tag_summary' => $platformTagSummary,
+            'data_freshness' => $dataFreshness,
             'source_notice' => $sourceNotice,
         ];
     }
@@ -2992,7 +3268,13 @@ trait BusinessDisplayConcern
         $totalQuantity = (int)$this->sumCtripBusinessRows($rows, 'quantity');
         $totalDetailNum = (int)$this->sumCtripBusinessRows($rows, 'totalDetailNum');
         $totalQunarDetailVisitors = (int)$this->sumCtripBusinessRows($rows, 'qunarDetailVisitors');
-        $aiEstimatedTotalRoomNights = (int)$this->sumCtripBusinessRows($rows, 'aiEstimatedTotalRoomNights');
+        $aiEstimatedValues = array_values(array_filter(
+            array_column($rows, 'aiEstimatedTotalRoomNights'),
+            static fn($value): bool => is_numeric($value)
+        ));
+        $aiEstimatedTotalRoomNights = $aiEstimatedValues === []
+            ? null
+            : (int)array_sum(array_map(static fn($value): int => (int)$value, $aiEstimatedValues));
         $totalOrderNum = (int)$this->sumCtripBusinessRows($rows, 'totalOrderNum');
         $adr = $totalQuantity > 0 ? round($totalAmount / $totalQuantity, 2) : 0.0;
         $avgAri = $this->avgCtripBusinessRows($rows, 'ari');
@@ -3032,7 +3314,7 @@ trait BusinessDisplayConcern
             [3, '健康', 'text-green-600'],
             [8, '良好', 'text-emerald-600'],
             [15, '激烈', 'text-orange-600'],
-            [INF, '恶化', 'text-red-600'],
+            [INF, '高分化', 'text-red-600'],
         ]);
 
         $metrics = [
@@ -3068,7 +3350,6 @@ trait BusinessDisplayConcern
                 $this->ctripBusinessSummaryCard('avgSci', '商圈综合竞争力指数(SCI)', $avgSci > 0 ? number_format($avgSci, 0, '.', ',') : '-', 'text-cyan-600', 'bg-cyan-50 border border-cyan-200', $sciLevel),
                 $this->ctripBusinessSummaryCard('totalDetailNum', '携程APP总访客量', number_format($totalDetailNum), 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
                 $this->ctripBusinessSummaryCard('totalQunarDetailVisitors', '去哪儿总访客量', number_format($totalQunarDetailVisitors), 'text-teal-600', 'bg-teal-50 border border-teal-200'),
-                $this->ctripBusinessSummaryCard('aiEstimatedTotalRoomNights', '全渠道AI预计总间夜数', number_format($aiEstimatedTotalRoomNights), 'text-yellow-600', 'bg-yellow-50 border border-yellow-200'),
                 $this->ctripBusinessSummaryCard('trafficValue', '流量价值效率', $trafficValue > 0 ? '¥' . number_format($trafficValue, 2, '.', ',') : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->ctripBusinessSummaryCard('revenueConcentration', '收益集中度', number_format($revenueHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $revenueLevel),
                 $this->ctripBusinessSummaryCard('visitConcentration', '浏览/访客集中度', number_format($visitHhi, 2, '.', ''), 'text-orange-600', 'bg-orange-50 border border-orange-200', $visitLevel),
@@ -3077,7 +3358,7 @@ trait BusinessDisplayConcern
                 $this->ctripBusinessSummaryCard('qunarReviewImpact', '去哪儿点评分-转化率影响因子(R)', $qunarReviewImpact > 0 ? number_format($qunarReviewImpact, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->ctripBusinessSummaryCard('sourceStatus', '数据来源', '携程竞争圈返回', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
             ],
-            'source_notice' => '仅展示携程竞争圈/榜单已返回字段；单项指标未返回时标记“系统未返回”，不把 OTA 渠道竞争圈数据当全酒店经营排名。',
+            'source_notice' => '仅展示携程竞争圈/榜单已返回字段。竞争健康度使用当前快照的房价离散系数=价格标准差/圈内平均房价；无可比基期时不输出改善或恶化趋势。单项缺失保留“系统未返回”，不把 OTA 渠道数据当全酒店经营事实。',
         ];
     }
 
@@ -3094,7 +3375,7 @@ trait BusinessDisplayConcern
                 'avgSci' => 0.0,
                 'totalDetailNum' => 0,
                 'totalQunarDetailVisitors' => 0,
-                'aiEstimatedTotalRoomNights' => 0,
+                'aiEstimatedTotalRoomNights' => null,
                 'totalOrderNum' => 0,
                 'trafficValue' => 0.0,
                 'revenueConcentration' => 0.0,
@@ -3152,6 +3433,20 @@ trait BusinessDisplayConcern
             $sum += (float)($row[$field] ?? 0);
         }
         return $sum;
+    }
+
+    private function hasMeituanDisplayableMetricRows(array $rows, string $field): bool
+    {
+        foreach ($rows as $row) {
+            if (!is_array($row) || $this->isMeituanPercentScaleDerivedMetric($row, $field)) {
+                continue;
+            }
+            $status = (string)($row['metricSourceStatus'][$field] ?? '');
+            if ($this->isMeituanMetricSourceUsable($status) || (float)($row[$field] ?? 0) > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function avgCtripBusinessRows(array $rows, string $field): float
@@ -3401,6 +3696,7 @@ trait BusinessDisplayConcern
             'rank_health_rows' => [],
             'top_summary_rows' => [],
             'platform_tag_summary' => $this->buildMeituanPlatformTagSummary([]),
+            'data_freshness' => $this->meituanDataFreshnessMeta(),
             'funnel_diagnosis' => [
                 'key' => 'funnel-diagnosis',
                 'label' => '四榜卡点',
@@ -3410,7 +3706,7 @@ trait BusinessDisplayConcern
                 'details' => [],
                 'missing' => ['美团榜单数据未返回'],
             ],
-            'source_notice' => '未返回字段保持缺失。',
+            'source_notice' => $this->meituanDataFreshnessMeta()['notice'] . ' 未返回字段保持缺失。',
         ];
     }
 
@@ -3478,7 +3774,10 @@ trait BusinessDisplayConcern
     private function buildMeituanCompetitorSummaryPayload(string $hotelId, $currentUser = null, bool $includeByHotel = false): array
     {
         $range = $this->normalizeMeituanCompetitorSummaryRange((string)$this->request->get('range', ''));
-        $targetDate = $this->resolveMeituanCompetitorSummaryTargetDate($range);
+        $targetDate = $this->resolveMeituanCompetitorSummaryTargetDate(
+            $range,
+            (string)$this->request->get('target_date', '')
+        );
         $latest = $this->findLatestMeituanCompetitorStoredRow($hotelId, $currentUser, $targetDate);
         if (empty($latest)) {
             $payload = $this->emptyMeituanCompetitorSummaryPayload([
@@ -3506,6 +3805,7 @@ trait BusinessDisplayConcern
             }
         }
 
+        $payload['target_date'] = $targetDate;
         $payload['scope'] = $hotelId !== '' ? 'hotel' : 'latest';
         if ($includeByHotel) {
             $payload['by_hotel'] = $this->buildMeituanCompetitorSummaryByHotel($currentUser);
@@ -3519,8 +3819,16 @@ trait BusinessDisplayConcern
         return in_array($range, ['realtime', 'yesterday'], true) ? $range : '';
     }
 
-    private function resolveMeituanCompetitorSummaryTargetDate(string $range): string
+    private function resolveMeituanCompetitorSummaryTargetDate(string $range, string $requestedTargetDate = ''): string
     {
+        $requestedTargetDate = trim($requestedTargetDate);
+        if ($requestedTargetDate !== '') {
+            $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $requestedTargetDate);
+            if (!$parsed || $parsed->format('Y-m-d') !== $requestedTargetDate) {
+                throw new \InvalidArgumentException('target_date must use YYYY-MM-DD');
+            }
+            return $requestedTargetDate;
+        }
         return $range === 'yesterday' ? date('Y-m-d', strtotime('-1 day')) : '';
     }
 
@@ -3545,7 +3853,9 @@ trait BusinessDisplayConcern
         $comparisonContext['source'] = 'online_daily_data';
         unset($comparisonContext['self_metric_values'], $comparisonContext['selfMetricValues']);
         $summary = $this->buildMeituanCompetitorSummaryFromStoredRows($rows, $comparisonContext);
+        $comparisonHotelId = (int)($previousLatest['system_hotel_id'] ?? $context['system_hotel_id'] ?? 0);
         return [
+            'system_hotel_id' => $comparisonHotelId > 0 ? $comparisonHotelId : null,
             'data_date' => $previousDate,
             'display_hotels' => $summary['display_hotels'] ?? [],
             'display_summary' => $summary['display_summary'] ?? $this->emptyMeituanBusinessDisplaySummary(),
@@ -3626,6 +3936,7 @@ trait BusinessDisplayConcern
 
     private function buildMeituanCompetitorSummaryFromStoredRows(array $storedRows, array $context = []): array
     {
+        $context = $this->withMeituanStoredSelfMetricAnchor($storedRows, $context);
         $displayRows = [];
         $latestDataDate = (string)($context['data_date'] ?? '');
         $latestFetchedAt = '';
@@ -3674,6 +3985,47 @@ trait BusinessDisplayConcern
             'source_notice' => $displaySummary['source_notice'] ?? '未返回字段保持缺失。',
             'readiness' => $readiness,
         ];
+    }
+
+    private function withMeituanStoredSelfMetricAnchor(array $storedRows, array $context): array
+    {
+        $existing = $this->normalizeMeituanSelfMetricValues($context['self_metric_values'] ?? $context['selfMetricValues'] ?? []);
+        if (!empty($existing)) {
+            $context['self_metric_values'] = $existing;
+            return $context;
+        }
+
+        $targetPoiId = trim((string)($context['target_poi_id'] ?? $context['targetPoiId'] ?? ''));
+        if ($targetPoiId === '') {
+            return $context;
+        }
+
+        $values = [];
+        foreach ($storedRows as $row) {
+            if (!is_array($row) || empty($row['raw_data'])) {
+                continue;
+            }
+            $raw = json_decode((string)$row['raw_data'], true);
+            if (!is_array($raw)) {
+                continue;
+            }
+            $poiId = trim((string)($row['hotel_id'] ?? $raw['poiId'] ?? $raw['poi_id'] ?? ''));
+            if ($poiId !== $targetPoiId) {
+                continue;
+            }
+            $storedValues = $this->normalizeMeituanSelfMetricValues($raw['selfMetricValues'] ?? $raw['self_metric_values'] ?? []);
+            foreach ($storedValues as $field => $value) {
+                if (!isset($values[$field]) || (float)$values[$field] <= 0) {
+                    $values[$field] = $value;
+                }
+            }
+        }
+
+        if (!empty($values)) {
+            $context['self_metric_values'] = $values;
+            $context['self_metric_source_status'] = array_fill_keys(array_keys($values), 'meituan_persisted_self_anchor');
+        }
+        return $context;
     }
 
     private function emptyMeituanCompetitorSummaryPayload(array $context = []): array
@@ -3794,6 +4146,9 @@ trait BusinessDisplayConcern
         if ($value === null && in_array($metricField, ['roomNights', 'salesRoomNights'], true) && (float)($row['quantity'] ?? 0) > 0) {
             $value = (float)$row['quantity'];
         }
+        if ($value !== null && in_array($metricField, ['viewConversion', 'payConversion'], true)) {
+            $value = $this->normalizeMeituanRatioMetric($value);
+        }
         $rankPercent = $this->meituanRankPercentValue($raw);
         $rank = (int)$this->numberFromKeys($raw, ['rank', 'ranking'], 0);
         $dateRange = (string)($raw['dateRange'] ?? $raw['date_range'] ?? $context['date_range'] ?? '');
@@ -3822,7 +4177,7 @@ trait BusinessDisplayConcern
                 'metric' => $metricField,
                 'metricLabel' => $dimName !== '' ? $dimName : ($metricName !== '' ? $metricName : '平台排名'),
                 'rank' => $rank,
-                'value' => $value ?? 0.0,
+                'value' => $value,
                 'percent' => $rankPercent,
                 'sourceLabel' => $sourceLabel,
             ]] : [],
@@ -3948,9 +4303,9 @@ trait BusinessDisplayConcern
         }
 
         // Meituan ranking modules are written as adjacent batches for one
-        // hotel/date. Use a short fetch-time window so the four rank modules
-        // stay together without mixing older runs from the same data_date.
-        foreach (['update_time', 'create_time'] as $column) {
+        // hotel/date. Prefer the immutable create time so later identity or
+        // quality repairs do not split one complete batch by update_time.
+        foreach (['create_time', 'update_time'] as $column) {
             if (!isset($columns[$column]) || empty($latest[$column])) {
                 continue;
             }
@@ -4031,15 +4386,15 @@ trait BusinessDisplayConcern
             $rows[] = [
                 'hotel_id' => $hotelId,
                 'hotel_name' => (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? ''),
-                'amount' => (float)($item['amount'] ?? $item['Amount'] ?? $item['totalAmount'] ?? $item['total_amount'] ?? $item['saleAmount'] ?? 0),
-                'quantity' => (int)($item['quantity'] ?? $item['Quantity'] ?? $item['roomNights'] ?? $item['room_nights'] ?? $item['checkOutQuantity'] ?? 0),
-                'book_order_num' => (int)($item['bookOrderNum'] ?? $item['book_order_num'] ?? $item['orderCount'] ?? $item['order_count'] ?? 0),
-                'comment_score' => (float)($item['commentScore'] ?? $item['comment_score'] ?? $item['score'] ?? $item['avgScore'] ?? 0),
-                'qunar_comment_score' => (float)($item['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? $item['qunarScore'] ?? 0),
-                'total_detail_num' => (int)($item['totalDetailNum'] ?? $item['total_detail_num'] ?? $item['exposure'] ?? $item['exposureCount'] ?? $item['pv'] ?? $item['pageView'] ?? $item['viewCount'] ?? $item['detailVisitors'] ?? 0),
-                'convertion_rate' => (float)($item['convertionRate'] ?? $item['convertion_rate'] ?? $item['conversionRate'] ?? 0),
-                'qunar_detail_visitors' => (int)($item['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? $item['views'] ?? $item['uv'] ?? $item['visitorCount'] ?? $item['detailUv'] ?? 0),
-                'qunar_detail_cr' => (float)($item['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? $item['qunarDetailConversionRate'] ?? 0),
+                'amount' => $this->ctripFingerprintNullableNumber($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']),
+                'quantity' => $this->ctripFingerprintNullableNumber($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity'], true),
+                'book_order_num' => $this->ctripFingerprintNullableNumber($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count'], true),
+                'comment_score' => $this->ctripFingerprintNullableNumber($item, ['commentScore', 'comment_score', 'score', 'avgScore']),
+                'qunar_comment_score' => $this->ctripFingerprintNullableNumber($item, ['qunarCommentScore', 'qunar_comment_score', 'qunarScore']),
+                'total_detail_num' => $this->ctripFingerprintNullableNumber($item, ['totalDetailNum', 'total_detail_num', 'exposure', 'exposureCount', 'pv', 'pageView', 'viewCount', 'detailVisitors'], true),
+                'convertion_rate' => $this->ctripFingerprintNullableNumber($item, ['convertionRate', 'convertion_rate', 'conversionRate']),
+                'qunar_detail_visitors' => $this->ctripFingerprintNullableNumber($item, ['qunarDetailVisitors', 'qunar_detail_visitors', 'views', 'uv', 'visitorCount', 'detailUv'], true),
+                'qunar_detail_cr' => $this->ctripFingerprintNullableNumber($item, ['qunarDetailCR', 'qunar_detail_cr', 'qunarDetailConversionRate']),
             ];
         }
 
@@ -4049,6 +4404,20 @@ trait BusinessDisplayConcern
 
         usort($rows, static fn($a, $b) => strcmp($a['hotel_id'], $b['hotel_id']));
         return sha1(json_encode($rows, JSON_UNESCAPED_UNICODE));
+    }
+
+    private function ctripFingerprintNullableNumber(array $row, array $keys, bool $integer = false): int|float|null
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+                continue;
+            }
+            if (!is_numeric($row[$key])) {
+                continue;
+            }
+            return $integer ? (int)$row[$key] : (float)$row[$key];
+        }
+        return null;
     }
 
     private function extractCtripResponseDates($data): array

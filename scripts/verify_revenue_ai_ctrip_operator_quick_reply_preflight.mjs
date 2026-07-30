@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 const CSV_HEADERS = [
   'section',
@@ -134,7 +135,7 @@ function parseArgs(argv) {
 }
 
 function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  return parseJsonTextSafely(fs.readFileSync(file, 'utf8'), 'revenue_ai_quick_reply_json');
 }
 
 function parseJsonFromOutput(text) {

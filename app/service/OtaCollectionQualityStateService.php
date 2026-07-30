@@ -52,6 +52,7 @@ final class OtaCollectionQualityStateService
      */
     public function evaluate(array $input): array
     {
+        $requiredTrafficMetrics = $this->requiredTrafficMetrics((string)($input['platform'] ?? ''));
         $bindingContractStatus = $this->status($input['binding_contract_status'] ?? '');
         $bindingCheckStatus = $this->status($input['binding_check_status'] ?? '');
         if ($bindingCheckStatus === 'complete') {
@@ -75,10 +76,10 @@ final class OtaCollectionQualityStateService
         $targetDateTrafficRows = $this->nonNegativeInt($input['target_date_traffic_rows'] ?? 0);
         $fieldFactStatus = $this->status($input['field_fact_status'] ?? '');
         $verifiedTrafficMetricKeys = array_values(array_intersect(
-            self::REQUIRED_TRAFFIC_METRICS,
+            $requiredTrafficMetrics,
             $this->stringList($input['verified_traffic_metric_keys'] ?? [])
         ));
-        $missingTrafficMetricKeys = array_values(array_diff(self::REQUIRED_TRAFFIC_METRICS, $verifiedTrafficMetricKeys));
+        $missingTrafficMetricKeys = array_values(array_diff($requiredTrafficMetrics, $verifiedTrafficMetricKeys));
         $trafficMetricClosureReady = $missingTrafficMetricKeys === [];
         $profileSessionProofRequired = $this->truthy($input['profile_session_proof_required'] ?? false);
         $profileSessionVerified = $this->truthy($input['profile_session_verified'] ?? false);
@@ -224,6 +225,14 @@ final class OtaCollectionQualityStateService
             ],
             'next_action' => $nextAction,
         ];
+    }
+
+    /** @return array<int, string> */
+    private function requiredTrafficMetrics(string $platform): array
+    {
+        return strtolower(trim($platform)) === 'meituan'
+            ? array_slice(self::REQUIRED_TRAFFIC_METRICS, 0, 3)
+            : self::REQUIRED_TRAFFIC_METRICS;
     }
 
     /**

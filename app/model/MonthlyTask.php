@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
-class MonthlyTask extends Model
+class MonthlyTask extends BaseTenantModel
 {
     protected $name = 'monthly_tasks';
     
@@ -17,6 +17,7 @@ class MonthlyTask extends Model
     // JSON 字段自动转换
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'year' => 'integer',
         'month' => 'integer',

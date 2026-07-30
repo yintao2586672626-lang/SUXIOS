@@ -17,7 +17,6 @@ check(support.shouldPersistField({ name: 'api_key', type: 'text' }) === false, '
 check(support.classifyOperation('/api/hotels', { method: 'POST' })?.type === 'save', 'POST form API should be classified as save');
 check(support.classifyOperation('/api/users/12', { method: 'PUT' })?.type === 'save', 'PUT form API should be classified as save');
 check(support.classifyOperation({ url: '/api/users/12', method: 'PATCH' })?.type === 'save', 'Request-like form API should use the request method');
-check(support.classifyOperation('/api/opening/projects/8', { method: 'DELETE' })?.type === 'archive', 'DELETE form API should be classified as archive');
 check(support.classifyOperation('/api/auth/login', { method: 'POST' }) === null, 'auth requests should be excluded from form history');
 
 const storage = new Map();
@@ -42,3 +41,4 @@ if (failures.length > 0) {
 }
 
 console.log('Form operation support verification passed.');
+check(support.classifyOperation('/api/opening/projects/8', { method: 'DELETE' })?.type === 'archive', 'DELETE form API should be classified as archive');

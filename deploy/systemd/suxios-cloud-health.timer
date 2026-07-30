@@ -1,0 +1,13 @@
+[Unit]
+Description=Run SUXIOS OTA data health patrol three times daily
+
+[Timer]
+OnCalendar=*-*-* 09:10:00 Asia/Shanghai
+OnCalendar=*-*-* 14:10:00 Asia/Shanghai
+OnCalendar=*-*-* 20:10:00 Asia/Shanghai
+RandomizedDelaySec=3min
+Persistent=true
+Unit=suxios-cloud-automation@health.service
+
+[Install]
+WantedBy=timers.target

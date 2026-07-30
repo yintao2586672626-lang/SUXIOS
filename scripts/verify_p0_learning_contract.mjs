@@ -5,6 +5,7 @@ const root = existsSync('app/controller/OnlineData.php') ? '.' : 'HOTEL';
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 const controllerSource = read('app/controller/OnlineData.php');
+const otaActionHandlerSource = read('app/service/Ota/OtaActionHandler.php');
 const autoFetchConcernSource = read('app/controller/concern/AutoFetchConcern.php');
 const businessDisplayConcernSource = read('app/controller/concern/BusinessDisplayConcern.php');
 const collectionReliabilityConcernSource = read('app/controller/concern/CollectionReliabilityConcern.php');
@@ -33,6 +34,7 @@ const meituanVisibleRankInsightHelperSource = meituanVisibleRankInsightHelperSta
   : '';
 const onlineDataRuntimeSource = [
   controllerSource,
+  otaActionHandlerSource,
   autoFetchConcernSource,
   businessDisplayConcernSource,
   collectionReliabilityConcernSource,

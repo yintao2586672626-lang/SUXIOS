@@ -18,5 +18,10 @@ class CompetitorPriceLog extends Model
         'store_id' => 'integer',
         'hotel_id' => 'integer',
         'price' => 'float',
+        'readback_verified' => 'integer',
+        'nights' => 'integer',
+        'adults' => 'integer',
+        'children' => 'integer',
+        'tax_fee_included' => 'integer',
     ];
 }

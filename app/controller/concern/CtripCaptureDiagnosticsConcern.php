@@ -105,16 +105,6 @@ trait CtripCaptureDiagnosticsConcern
         return CtripCaptureDiagnosisService::buildDiagnosisSummary($payload);
     }
 
-    private function addCtripCaptureMetricKey(array &$capturedMetrics, string $metricKey): void
-    {
-        CtripCaptureDiagnosisService::addMetricKey($capturedMetrics, $metricKey);
-    }
-
-    private function ctripCaptureMetricKeyFromDimension(string $dimension): string
-    {
-        return CtripCaptureDiagnosisService::metricKeyFromDimension($dimension);
-    }
-
     private function ctripCaptureDiagnosisGroups(): array
     {
         return CtripCaptureDiagnosisService::diagnosisGroups();

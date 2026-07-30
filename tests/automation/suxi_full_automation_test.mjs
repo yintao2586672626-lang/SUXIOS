@@ -17,7 +17,16 @@ const mysql = process.env.SUXI_MYSQL || 'C:\\xampp\\mysql\\bin\\mysql.exe';
 const testUsername = 'codex_auto_admin';
 const testPassword = 'CodexTest#20260517';
 const runCount = Number(process.env.SUXI_TEST_RUNS || 10);
+const projectRequire = createRequire(import.meta.url);
+const localPlaywrightPackagePath = (() => {
+  try {
+    return projectRequire.resolve('playwright/package.json');
+  } catch {
+    return '';
+  }
+})();
 const playwrightRequirePath = process.env.SUXI_PLAYWRIGHT_REQUIRE
+  || localPlaywrightPackagePath
   || 'C:\\Users\\Administrator\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\node_modules\\.pnpm\\playwright@1.59.1\\node_modules\\playwright\\package.json';
 const chromeCandidates = [
   process.env.SUXI_CHROME,
@@ -474,9 +483,16 @@ async function runApiSuite(iteration) {
     await http('GET', '/api/online-data/get-ctrip-config-list', { token, label: 'Ctrip config metadata list' }),
     'Ctrip config list exposes metadata only'
   ));
+  const meituanPlatformIdSuffix = `${iteration}${Date.now().toString().slice(-9)}`;
   cases.push(await http('POST', '/api/online-data/save-meituan-config-item', {
     token,
-    body: { name: `codex_automation_meituan_${iteration}`, cookies: 'codex=dummy', partner_id: '1', poi_id: '1', hotel_id: hotelId || '' },
+    body: {
+      name: `codex_automation_meituan_${iteration}`,
+      cookies: 'codex=dummy',
+      partner_id: `9${meituanPlatformIdSuffix}`,
+      poi_id: `8${meituanPlatformIdSuffix}`,
+      hotel_id: hotelId || '',
+    },
     expect: 'any',
     label: 'Meituan vault-backed platform config save',
   }));
@@ -485,15 +501,6 @@ async function runApiSuite(iteration) {
     'Meituan config list exposes metadata only'
   ));
   cases.push(await http('POST', '/api/online-data/ai-analysis', { token, body: { platform: 'ctrip', hotels: [] }, expect: 'any', label: 'online ai analysis empty' }));
-
-  cases.push(await http('POST', '/api/ai/strategy', { token, body: { city: '上海', area: 5000, audience: '商务' }, label: 'ai strategy' }));
-  cases.push(await http('POST', '/api/ai/simulation', { token, body: { rooms: 80, adr: 320, occ: 75 }, label: 'ai simulation' }));
-  cases.push(await http('POST', '/api/ai/feasibility', {
-    token,
-    body: { projectName: `codex_automation_feasibility_${iteration}`, city: '上海', area: 3000, rooms: 80, adr: 320, occ: 75 },
-    expect: 'any',
-    label: 'ai feasibility',
-  }));
 
   const strategy = await http('POST', '/api/strategy/simulate', {
     token,
@@ -665,8 +672,23 @@ async function runApiSuite(iteration) {
   }));
   cases.push(await http('GET', '/api/transfer/records', { token, expect: 'any', label: 'transfer records' }));
 
-  if (userId) cases.push(await http('DELETE', `/api/users/${userId}`, { token, label: 'user delete' }));
-  if (hotelId) cases.push(await http('DELETE', `/api/hotels/${hotelId}`, { token, label: 'hotel delete' }));
+  if (userId) {
+    cases.push(await http('DELETE', `/api/users/${userId}`, {
+      token,
+      body: { force: true },
+      label: 'user delete',
+    }));
+  }
+  if (hotelId) {
+    cases.push(await http('DELETE', `/api/hotels/${hotelId}`, {
+      token,
+      body: {
+        force: true,
+        confirmation_name: `codex_automation_hotel_${iteration}_updated`,
+      },
+      label: 'hotel delete',
+    }));
+  }
   cases.push(await http('POST', '/api/auth/logout', { token, label: 'auth logout' }));
 
   return {

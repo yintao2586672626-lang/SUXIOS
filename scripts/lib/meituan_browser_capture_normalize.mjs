@@ -5,6 +5,154 @@ const CARD_METRIC_MAP = new Map([
   ['PAY_ORDER_CNT', { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' }],
 ]);
 
+const MEITUAN_ORDER_FLOW_ENDPOINT_PATH = '/api/v1/ebooking/peerRank/order/loss/query';
+const MEITUAN_ORDER_LIST_ENDPOINT_PATH = '/api/v1/ebooking/orders';
+
+export function normalizeMeituanOrderRows(value, options = {}) {
+  if (String(options.endpointPath || '').trim() !== MEITUAN_ORDER_LIST_ENDPOINT_PATH) {
+    return [];
+  }
+
+  const source = firstObjectAtPath(value, [['data'], []]);
+  const rows = firstArrayAtPath(value, [
+    ['data', 'results'],
+    ['results'],
+  ]);
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const resultTotal = nonNegativeInteger(source.total);
+  if (resultTotal !== null && resultTotal !== rows.length) {
+    // A paginated subset cannot be promoted into a daily revenue total.
+    return [];
+  }
+
+  const normalizedDate = normalizeDateLike(
+    options.requestDateEvidence?.date || options.defaultDataDate || '',
+  );
+  if (!normalizedDate) {
+    return [];
+  }
+
+  let amountCents = 0;
+  let roomNights = 0;
+  const amountSources = new Set();
+  const quantitySources = new Set();
+  for (const row of rows) {
+    const amountFact = meituanOrderSalePriceCents(row);
+    const quantityFact = meituanOrderRoomNights(row);
+    if (!amountFact || !quantityFact) {
+      return [];
+    }
+    amountCents += amountFact.value;
+    roomNights += quantityFact.value;
+    amountSources.add(amountFact.source);
+    quantitySources.add(quantityFact.source);
+  }
+
+  return [{
+    dataDate: normalizedDate,
+    date_source: options.requestDateEvidence?.date_source || 'capture_context.default_data_date',
+    amount: Math.round(amountCents) / 100,
+    quantity: roomNights,
+    room_nights: roomNights,
+    book_order_num: rows.length,
+    orders: rows.length,
+    compare_type: 'self',
+    is_self: true,
+    amount_scope: 'meituan_sale_price_total',
+    amount_source: [...amountSources].sort().join('|'),
+    amount_source_unit: 'cent',
+    amount_storage_unit: 'yuan',
+    quantity_scope: 'booked_room_nights',
+    quantity_source: [...quantitySources].sort().join('|'),
+    order_count_source: 'data.results.length',
+    result_total: resultTotal ?? rows.length,
+    pagination_complete: true,
+    floor_price_used_as_revenue: false,
+    guarantee_amount_used_as_revenue: false,
+    _capture_source: 'xhr:orders:daily_summary',
+    _source_path: 'data.results',
+  }];
+}
+
+function meituanOrderSalePriceCents(row) {
+  const nested = nonNegativeNumber(readPath(row, ['orderBasePriceModel', 'salePrice', 'price']));
+  if (nested !== null) {
+    return { value: nested, source: 'orderBasePriceModel.salePrice.price' };
+  }
+  const topLevel = nonNegativeNumber(row?.price);
+  return topLevel === null ? null : { value: topLevel, source: 'price' };
+}
+
+function meituanOrderRoomNights(row) {
+  const explicit = positiveInteger(readPath(row, ['partRefundInfo', 'totalRoomNightCount']));
+  if (explicit !== null) {
+    return { value: explicit, source: 'partRefundInfo.totalRoomNightCount' };
+  }
+
+  const roomCount = positiveInteger(row?.roomCount ?? row?.room_count);
+  const stayNights = dateSpanNights(
+    row?.checkInDateString ?? row?.checkInDate ?? row?.checkIn,
+    row?.checkOutDateString ?? row?.checkOutDate ?? row?.checkOut,
+  );
+  if (roomCount === null || stayNights === null) {
+    return null;
+  }
+  return { value: roomCount * stayNights, source: 'roomCount*stay_date_nights' };
+}
+
+function dateSpanNights(checkIn, checkOut) {
+  const start = normalizeDateLike(checkIn);
+  const end = normalizeDateLike(checkOut);
+  if (!start || !end) {
+    return null;
+  }
+  const startAt = Date.parse(`${start}T00:00:00Z`);
+  const endAt = Date.parse(`${end}T00:00:00Z`);
+  const nights = Math.round((endAt - startAt) / 86400000);
+  return Number.isInteger(nights) && nights > 0 ? nights : null;
+}
+
+function nonNegativeNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function nonNegativeInteger(value) {
+  const number = nonNegativeNumber(value);
+  return number !== null && Number.isInteger(number) ? number : null;
+}
+
+function positiveInteger(value) {
+  const number = nonNegativeInteger(value);
+  return number !== null && number > 0 ? number : null;
+}
+
+export function buildMeituanOrderFlowReplayUrls(value) {
+  try {
+    const source = new URL(String(value || '').trim());
+    if (source.protocol !== 'https:'
+      || source.hostname !== 'eb.meituan.com'
+      || source.pathname !== MEITUAN_ORDER_FLOW_ENDPOINT_PATH
+      || !source.searchParams.get('startDate')
+      || !source.searchParams.get('endDate')) {
+      return [];
+    }
+    return ['0', '1'].map(lossType => {
+      const target = new URL(source.toString());
+      target.searchParams.set('lossType', lossType);
+      return target.toString();
+    });
+  } catch {
+    return [];
+  }
+}
+
 const CARD_METRIC_ID_ALIASES = [
   {
     aliases: ['EXPOSE_PV_CNT', 'EXPOSE_UV_CNT', 'EXPOSURE_COUNT', 'EXPOSURE_CNT', 'IMPRESSION_CNT', 'LIST_EXPOSURE', 'LIST_EXPOSURE_CNT'],
@@ -225,6 +373,7 @@ export function normalizeMeituanTrafficForecastRows(value, options = {}) {
   const rows = details.map((item, index) => decorateSupplementalRow({
     ...item,
     data_type: 'traffic_forecast',
+    data_period: 'next_30_days',
     forecast_type: forecastType,
     dimension: forecastType ? `flow_forecast_${forecastType}` : 'flow_forecast',
     data_value: item.current ?? item.value ?? null,
@@ -238,6 +387,7 @@ export function normalizeMeituanTrafficForecastRows(value, options = {}) {
   return [decorateSupplementalRow({
     ...(value && typeof value === 'object' && !Array.isArray(value) ? value : { value }),
     data_type: 'traffic_forecast',
+    data_period: 'next_30_days',
     forecast_type: forecastType,
     dimension: forecastType ? `flow_forecast_${forecastType}` : 'flow_forecast',
   }, 'traffic_forecast', '$', options)];
@@ -250,6 +400,23 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
     ['data'],
     [],
   ]);
+  const myHotel = data?.myHotel;
+  if (myHotel && typeof myHotel === 'object' && !Array.isArray(myHotel)) {
+    const exposure = numberish(myHotel.exposureUV);
+    const visitors = numberish(myHotel.intentionUV);
+    const paidOrders = numberish(myHotel.payOrderCnt);
+    const exposureToVisitRate = numberish(myHotel.intentionPerExposure);
+    if ([exposure, visitors, paidOrders, exposureToVisitRate].some(metric => metric !== undefined)) {
+      return [decorateSupplementalRow({
+        ...data,
+        ...myHotel,
+        analysis_type: 'conversion_funnel',
+        dimension: 'flow_conversion',
+        data_value: exposure,
+        browse_pay_rate: numberish(myHotel.payOrderPerIntention),
+      }, 'traffic', 'data.myHotel', options)];
+    }
+  }
   if (analysisType === 'conversion') {
     return [decorateSupplementalRow({
       ...(data || {}),
@@ -290,6 +457,63 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
     analysis_type: analysisType,
     dimension: analysisType,
   }, 'traffic_analysis', 'data', options)];
+}
+
+export function normalizeMeituanOrderFlowRows(value, options = {}) {
+  const data = firstObjectAtPath(value, [
+    ['data'],
+    [],
+  ]);
+  const requiredSummaryKeys = ['lossTotalCnt', 'lossTotalPayRoomNight', 'lossTotalPayAmount'];
+  if (!requiredSummaryKeys.every(key => Object.prototype.hasOwnProperty.call(data, key))) {
+    return [];
+  }
+
+  const direction = String(options.orderFlowDirection || options.flowDirection || '').trim().toLowerCase();
+  if (!['loss', 'inflow'].includes(direction)) {
+    return [];
+  }
+  const periodStart = normalizeDateLike(options.periodStart || options.startDate || '');
+  const periodEnd = normalizeDateLike(options.periodEnd || options.endDate || '');
+  if (!periodStart || !periodEnd) {
+    return [];
+  }
+  const period = String(options.orderFlowPeriod || '').trim() || resolveMeituanOrderFlowPeriod(periodStart, periodEnd);
+  const base = {
+    dataDate: periodEnd,
+    date_source: 'request.query.endDate',
+    data_period: 'historical_daily',
+    order_flow_direction: direction,
+    order_flow_period: period,
+    period_start: periodStart,
+    period_end: periodEnd,
+  };
+  const summary = decorateSupplementalRow({
+    ...base,
+    order_flow_row_type: 'summary',
+    dimension: `order_flow:${period}:${direction}:summary`,
+    order_count: numberish(data.lossTotalCnt),
+    room_nights: numberish(data.lossTotalPayRoomNight),
+    amount: numberish(data.lossTotalPayAmount),
+    poi_star: data.poiStar ?? '',
+  }, 'order_flow', 'data', options);
+
+  const details = asRowList(data.orderLossPeerDetails).map((item, index) => {
+    const poiId = String(item.poiId ?? item.poi_id ?? '').trim();
+    const row = decorateSupplementalRow({
+      ...item,
+      ...base,
+      order_flow_row_type: 'hotel_detail',
+      dimension: `order_flow:${period}:${direction}:hotel:${poiId || index + 1}`,
+      order_count: numberish(item.lossOrderCount),
+      order_ratio: numberish(item.lossOrderRatio),
+      amount: numberish(item.lossSinglePayAmount),
+      compare_type: 'competitor',
+    }, 'order_flow', `data.orderLossPeerDetails.${index}`, options);
+    return { ...row, _capture_source: 'xhr:order_flow:hotel_detail' };
+  });
+
+  return [{ ...summary, _capture_source: 'xhr:order_flow:summary' }, ...details];
 }
 
 function buildCardMetricRow(cards, options = {}) {
@@ -507,7 +731,11 @@ function decorateSupplementalRow(row, dataType, sourcePath, options = {}) {
   if (options.forecastType && !next.forecast_type) {
     next.forecast_type = String(options.forecastType);
   }
-  if (!hasOwnDate(next)) {
+  if (hasOwnDate(next)) {
+    if (!next.date_source && !next.dateSource) {
+      next.date_source = supplementalRowDateSource(next);
+    }
+  } else {
     const date = supplementalDate(next, options);
     if (date) {
       next.dataDate = date;
@@ -518,6 +746,15 @@ function decorateSupplementalRow(row, dataType, sourcePath, options = {}) {
     next.data_period = 'realtime_snapshot';
   }
   return next;
+}
+
+function supplementalRowDateSource(row) {
+  const keys = [
+    'forecastDate', 'forecast_date', 'targetDate', 'target_date', 'dateTime',
+    'dataDate', 'data_date', 'date', 'statDate', 'stat_date', 'reportDate', 'day',
+  ];
+  const key = keys.find(candidate => String(row?.[candidate] ?? '').trim() !== '');
+  return key ? `row.${key}` : 'row';
 }
 
 function supplementalDate(row, options = {}) {
@@ -539,7 +776,9 @@ function supplementalDateSource(options = {}) {
   if (options.requestDateEvidence?.date_source) {
     return options.requestDateEvidence.date_source;
   }
-  return String(options.dateRange || '') === '0' ? 'capture_context.captured_at' : 'capture_context.default_data_date';
+  return String(options.dateRange || '') === '0'
+    ? 'request.query.dateRange=0'
+    : 'capture_context.default_data_date';
 }
 
 function hasOwnDate(row) {
@@ -592,6 +831,19 @@ function normalizeDateLike(value) {
     return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
   }
   return '';
+}
+
+function resolveMeituanOrderFlowPeriod(startDate, endDate) {
+  const start = Date.parse(`${startDate}T00:00:00Z`);
+  const end = Date.parse(`${endDate}T00:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return 'custom';
+  }
+  const inclusiveDays = Math.round((end - start) / 86400000) + 1;
+  if (inclusiveDays === 1) return 'yesterday';
+  if (inclusiveDays === 7) return 'last_7_days';
+  if (inclusiveDays === 30) return 'last_30_days';
+  return 'custom';
 }
 
 function readPath(value, parts) {

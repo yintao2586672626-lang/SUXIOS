@@ -1,0 +1,20 @@
+[Unit]
+Description=SUXIOS credential-free OTA bundle inbox importer
+After=network-online.target mariadb.service php8.3-fpm.service
+Wants=network-online.target
+ConditionPathExists=/var/www/suxios/current/think
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=-/etc/suxios/cloud-automation.env
+ExecStart=/usr/bin/php -d memory_limit=256M think cloud-data-bridge:run --mode=import --limit=10 --max-attempts=10
+Nice=10
+CPUQuota=50%
+MemoryMax=384M
+TasksMax=16
+TimeoutStartSec=10min
+UMask=0027

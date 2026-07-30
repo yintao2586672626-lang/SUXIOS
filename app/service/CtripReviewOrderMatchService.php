@@ -84,11 +84,14 @@ final class CtripReviewOrderMatchService
      */
     public function matchReviewToOrder(array $review, array $imSessions, array $orders, array $options = []): array
     {
-        return (new OtaReviewRiskPolicyService())->blockedOperation('ctrip_review_order_match_service', [
-            'identity_reverse_lookup',
-            'anonymous_user_matching',
-            'masked_data_reconstruction_risk',
-        ]);
+        $roomMapping = is_array($options['room_mapping'] ?? null) ? $options['room_mapping'] : [];
+        return (new CtripReviewOrderCandidateScoringService())->matchReview(
+            $review,
+            $orders,
+            $roomMapping,
+            $imSessions,
+            $options
+        );
 
         $reviewDateInfo = $this->extractDateMatchInfo($review, ['checkinTimeStr', 'checkInDate', 'check_in_date', 'checkinDate', 'checkin_date', 'arrivalDate', 'arrival_date', 'stayDate', 'stay_date']);
         $reviewDate = $reviewDateInfo['date'];
@@ -252,6 +255,34 @@ final class CtripReviewOrderMatchService
             'candidates' => array_map(fn(array $order): array => $this->normalizeOrderForResponse($order), $roomFiltered),
             'scope' => 'ctrip_ota_channel',
         ];
+    }
+
+    /**
+     * Batch scoring is required to detect one order being selected by more
+     * than one review. Single-review matching cannot prove that conflict.
+     *
+     * @param array<int, array<string, mixed>> $reviews
+     * @param array<int, array<string, mixed>> $imSessions
+     * @param array<int, array<string, mixed>> $orders
+     * @param array<string, mixed> $options
+     * @return array<int, array<string, mixed>>
+     */
+    public function buildReviewOrderMatches(array $reviews, array $imSessions, array $orders, array $options = []): array
+    {
+        $roomMapping = is_array($options['room_mapping'] ?? null) ? $options['room_mapping'] : [];
+        return (new CtripReviewOrderCandidateScoringService())->buildMatches(
+            $reviews,
+            $orders,
+            $roomMapping,
+            $imSessions,
+            $options
+        );
+    }
+
+    /** @param array<string, mixed> $order */
+    private function extractOrderId(array $order): string
+    {
+        return trim((string)($order['orderId'] ?? $order['order_id'] ?? $order['orderNo'] ?? $order['order_no'] ?? $order['orderSn'] ?? $order['order_sn'] ?? $order['platform_order_id'] ?? $order['bookingOrderId'] ?? $order['booking_order_id'] ?? $order['reservationOrderId'] ?? $order['reservation_order_id'] ?? ''));
     }
 
     /**

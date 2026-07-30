@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -7,15 +8,42 @@ const context = { window: {}, URLSearchParams };
 vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context, {
   filename: 'public/revenue-ai-static.js',
 });
+vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
+  filename: 'public/data-health-static.js',
+});
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
-const html = readFileSync('public/index.html', 'utf8');
+const dataHealthHelpers = context.window.SUXI_DATA_HEALTH_STATIC;
+const indexHtml = readFileSync('public/index.html', 'utf8');
+const appMain = readFileSync('public/app-main.js', 'utf8');
+const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
+const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
+const html = `${indexHtml}\n${appTemplate}\n${appMain}`;
+
+const aiDailyTaskHelpersStart = '// AI_DAILY_REPORT_TASK_HELPERS_START';
+const aiDailyTaskHelpersEnd = '// AI_DAILY_REPORT_TASK_HELPERS_END';
+const aiDailyTaskHelpersSource = appMain.slice(
+  appMain.indexOf(aiDailyTaskHelpersStart) + aiDailyTaskHelpersStart.length,
+  appMain.indexOf(aiDailyTaskHelpersEnd),
+);
+const aiDailyTaskHelpers = vm.runInNewContext(`(() => {
+  ${aiDailyTaskHelpersSource}
+  return {
+    normalizeAiDailyReportGenerationTask,
+    resolveAiDailyReportGenerationOutcome,
+    pollAiDailyReportGenerationTask,
+    aiDailyReportModelIsLimited,
+  };
+})()`, {}, { filename: 'ai-daily-report-task-helpers.js' });
 
 test('Revenue AI static helper exposes the required display contract', () => {
   assert.equal(typeof helpers, 'object');
   for (const key of [
     'revenueAiStatusClass',
     'revenueAiStatusLabel',
+    'revenueAiTruthStatusLabel',
+    'revenueAiMetricTruthLines',
+    'revenueAiMetricTruthSummary',
     'revenueAiSeverityClass',
     'buildRevenueAiOverviewQuery',
     'buildRevenueAiOverviewEndpoint',
@@ -32,7 +60,6 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'buildRevenueAiSignalRows',
     'buildRevenueAiReviewQueueItems',
     'buildRevenueAiResolutionPlanSummary',
-    'buildRevenueAiInvestmentPrecheckSummary',
     'buildRevenueAiPricingGenerationPreflightSummary',
     'buildRevenueAiPriceSuggestionGenerateResult',
     'buildRevenueAiActionRows',
@@ -62,6 +89,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'aiDailyReportActionSources',
     'aiDailyReportEvidenceTarget',
     'aiDailyReportActionIsInvestigationOnly',
+    'aiDailyReportActionExecutionReady',
     'aiDailyReportActionBlockedText',
     'aiDailyReportActionStatusText',
     'aiDailyReportActionButtonText',
@@ -76,11 +104,15 @@ test('Revenue AI static helper exposes the required display contract', () => {
     assert.equal(typeof helpers[key], 'function', `${key} must be exported`);
   }
   assert.equal(helpers.revenueAiStatusLabel('ok'), '正常');
-  assert.equal(helpers.revenueAiStatusLabel('not_loaded'), '未接入');
+  assert.equal(helpers.revenueAiStatusLabel('not_loaded'), '未加载');
   assert.equal(helpers.revenueAiStatusLabel('not_calculable'), '不可计算');
   assert.equal(helpers.revenueAiStatusLabel('unverified'), '未验证');
   assert.equal(helpers.revenueAiStatusLabel('missing'), '缺失');
   assert.equal(helpers.revenueAiStatusLabel('warning'), '需复核');
+  assert.equal(helpers.revenueAiTruthStatusLabel('verified'), '已验证');
+  assert.equal(helpers.revenueAiTruthStatusLabel('partial'), '部分数据');
+  assert.equal(helpers.revenueAiTruthStatusLabel('unverified'), '未验证');
+  assert.equal(helpers.revenueAiTruthStatusLabel('collection_failed'), '采集失败');
   assert.match(helpers.revenueAiStatusClass('missing'), /amber/);
   assert.match(helpers.revenueAiStatusClass('warning'), /amber/);
   assert.equal(helpers.revenueAiReasonText('ZERO_CONFIRMED'), '渠道明确确认目标经营日期无数据。');
@@ -94,10 +126,32 @@ test('Revenue AI static helper exposes the required display contract', () => {
   assert.match(helpers.revenueAiReasonText('holiday_event_nearby'), /节假日窗口/);
 });
 
-test('Revenue AI entry cache-busts the business closure helper contract', () => {
-  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260710-ai-daily-fact-gate-investigation"><\/script>/);
+test('Revenue AI entry lazy-loads the versioned helper outside the startup chain', () => {
+  const helperHash = crypto.createHash('sha256')
+    .update(readFileSync('public/revenue-ai-static.js'))
+    .digest('hex')
+    .slice(0, 10);
+  assert.doesNotMatch(indexHtml, /<script[^>]+src="revenue-ai-static\.js(?:\?[^"']*)?"/);
+  assert.match(appMain, /const revenueAiStaticScript = 'revenue-ai-static\.js';/);
+  assert.match(appMain, new RegExp(`const revenueAiStaticVersion = '[^']*-h${helperHash}';`));
+  assert.match(appMain, /if \(revenueAiStaticLoadPromise\) \{\s*return revenueAiStaticLoadPromise;\s*\}/);
+  assert.match(appMain, /revenueAiStaticLoadPromise = null;[\s\S]*data-suxi-revenue-ai-static/);
+  assert.match(appMain, /script\.src = `\$\{revenueAiStaticScript\}\?v=\$\{revenueAiStaticVersion\}`;/);
+  assert.match(appMain, /revenueAiStaticRevision\.value \+= 1;/);
+  assert.match(appMain, /buildRevenueAiGapSummary: \(\) => \(\{ status: 'not_loaded', total: null/);
+  assert.match(appMain, /buildAiDailyFactGate: \(\) => \(\{[\s\S]*status: 'not_loaded'[\s\S]*configuredCount: null/);
+  assert.match(appMain, /aiDailyReportActionExecutionReady: \(\) => false/);
+  assert.match(appMain, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
+  assert.match(appMain, /homeSecondaryPanelsReady\.value = true;[\s\S]*ensureRevenueAiStaticReady\(\)[\s\S]*loadRevenueAiOverview\(\)/);
+  assert.match(appMain, /if \(newPage === 'agent-center'\) \{[\s\S]*runPageLoadOnce\(newPage, 'revenue-ai-static', \(\) => ensureRevenueAiStaticReady\(\)\)/);
+  assert.match(appMain, /if \(newPage === 'ai-daily-report'\) \{[\s\S]*await ensureRevenueAiStaticReady\(\);[\s\S]*return loadAiDailyReport\(\);/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
   assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
+  assert.match(html, /data-testid="revenue-ai-trusted-decision"/);
+  assert.match(html, /item\.trustedDecisionRows/);
+  assert.match(html, /转运营任务/);
+  assert.match(appMain, /operation_task_created/);
+  assert.match(appMain, /persistedTask\.status !== 'pending_execute'/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-gaps"/);
   assert.match(html, /data-testid="agent-pricing-generation-hotel-checks"/);
@@ -107,6 +161,264 @@ test('Revenue AI entry cache-busts the business closure helper contract', () => 
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPricingGenerationPreflightSummary'\)/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPriceSuggestionGenerateResult'\)/);
   assert.doesNotMatch(html, /已生成 \$\{res\.data\?\.created_count \|\| 0\} 条建议/);
+});
+
+test('AI daily report generation uses background tasks, exact readback, and sync compatibility', () => {
+  assert.match(appMain, /background: true/);
+  assert.match(appMain, /`\/ai-daily-reports\/tasks\/\$\{encodeURIComponent\(taskId\)\}`/);
+  assert.match(appMain, /`\/ai-daily-reports\/\$\{normalizedReportId\}`/);
+  assert.match(appMain, /pollResult\.task\.resultReportId/);
+  assert.match(appMain, /AI经营日报回读酒店范围不一致/);
+  assert.match(appMain, /if \(!responseTaskId\) \{/);
+  assert.match(appMain, /responseData\?\.report \|\| responseData/);
+  assert.doesNotMatch(appMain, /aiDailyReport\.value = res\.data \|\| null;\s*showToast\('AI经营日报已生成'\)/);
+  assert.match(aiDailyReportFragment, /data-testid="ai-daily-report-generation-task"/);
+  assert.match(aiDailyReportFragment, /data-testid="ai-daily-report-generation-progress"/);
+  assert.match(aiDailyReportFragment, /不表示 AI 已形成完整经营结论/);
+});
+
+test('AI daily explanation stays optional and separate from the rule summary', () => {
+  assert.match(appMain, /const aiDailyReportAiExplanation = computed\(\(\) => String\(aiDailyReport\.value\?\.ai_explanation \|\| ''\)\.trim\(\)\);/);
+  assert.match(aiDailyReportFragment, /v-if="aiDailyReportAiExplanation \|\| aiDailyReportAiInterpretation\.status"/);
+  assert.match(aiDailyReportFragment, /data-testid="ai-daily-report-ai-explanation"/);
+  assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.possible_explanations/);
+  assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.conflicting_evidence/);
+  assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.missing_information/);
+  assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.boundary/);
+  assert.match(aiDailyReportFragment, /\{\{ aiDailyReport\.summary \|\| '暂无摘要' \}\}/);
+  assert.doesNotMatch(aiDailyReportFragment, /aiDailyReport\.summary\s*\|\|\s*aiDailyReportAiExplanation/);
+});
+
+test('AI daily report metric cards bind per-metric truth without global OTA promotion', () => {
+  const truthStart = appMain.indexOf('const aiDailyReportTruthStatusLabel');
+  const truthEnd = appMain.indexOf('const aiDailyReportActions', truthStart);
+  assert.ok(truthStart >= 0 && truthEnd > truthStart, 'AI daily metric truth block must exist');
+  const truthBlock = appMain.slice(truthStart, truthEnd);
+
+  assert.match(truthBlock, /metric\.truth[\s\S]*metric\.truth_context/);
+  assert.match(truthBlock, /aiDailyReport\.value\?\.source_refs/);
+  assert.match(truthBlock, /metric_keys/);
+  assert.match(truthBlock, /metric\.metric_scopes/);
+  assert.match(truthBlock, /daily_reports#\\d\+/);
+  assert.match(truthBlock, /online_daily_data#\\d\+/);
+  assert.match(truthBlock, /readback_verified/);
+  assert.doesNotMatch(truthBlock, /snapshot\?\.(?:source_trust|input_trust)|snapshot\[['"](?:source_trust|input_trust)['"]\]/);
+
+  for (const label of ['已验证', '部分数据', '未验证', '采集失败']) {
+    assert.match(truthBlock, new RegExp(label));
+  }
+  for (const scope of ['ota_channel', 'whole_hotel', 'mixed', 'user_input', 'derived']) {
+    assert.match(truthBlock, new RegExp(scope));
+  }
+  assert.match(appMain, /const onlineTruthDetailText = requireDataHealthStatic\('onlineTruthDetailText'\);/);
+  assert.match(truthBlock, /truthDetailText: onlineTruthDetailText\(truth\)/);
+  assert.match(appMain, /const aiDailyReportMetricValue = \(metric\) => \{[\s\S]*?return '—';/);
+  assert.doesNotMatch(truthBlock, /\|\|\s*0/);
+
+  assert.match(aiDailyReportFragment, /ai-daily-report-metric-\$\{metric\.key\}-truth-status/);
+  assert.match(aiDailyReportFragment, /onlineTruthStatusText\(metric\.truth\)/);
+  assert.match(aiDailyReportFragment, /metric\.calculationStatusText/);
+  assert.match(aiDailyReportFragment, /metric\.scopeText/);
+  assert.match(aiDailyReportFragment, /metric\.resultTypeCode === 'derived'/);
+  assert.match(aiDailyReportFragment, /<online-truth-summary/);
+  assert.match(aiDailyReportFragment, /:truth="metric\.truth"/);
+  assert.doesNotMatch(aiDailyReportFragment, /metric\.sourceRefsText|metric\.truthDetailText/);
+
+  const metricHelpers = vm.runInNewContext(`(() => {
+    const aiDailyReport = { value: null };
+    const permittedHotels = { value: [{ id: 7, name: '测试酒店' }] };
+    const hotels = { value: [] };
+    const computed = (factory) => ({ get value() { return factory(); } });
+    const aiDailyReportList = (value) => Array.isArray(value) ? value : [];
+    const aiDailyReportObjectList = (value) => aiDailyReportList(value)
+      .filter(item => item && typeof item === 'object' && !Array.isArray(item));
+    ${truthBlock}
+    return { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
+  })()`, {
+    onlineTruthDetailText: dataHealthHelpers.onlineTruthDetailText,
+  }, { filename: 'ai-daily-report-metric-truth.js' });
+  metricHelpers.aiDailyReport.value = {
+    hotel_id: 7,
+    report_date: '2026-07-18',
+    source_refs: [{
+      key: 'daily_reports#11',
+      source: 'daily_reports',
+      scope: 'whole_hotel_daily_report',
+      data_date: '2026-07-18',
+      validation_status: 'recorded',
+      ingestion_method: 'daily_report',
+      updated_at: '2026-07-19 07:30:00',
+      metric_keys: ['revenue'],
+    }, {
+      key: 'online_daily_data#22',
+      source: 'ctrip',
+      platform: 'ctrip',
+      scope: 'ota_channel',
+      data_date: '2026-07-18',
+      validation_status: 'verified',
+      ingestion_method: 'browser_profile',
+      snapshot_time: '2026-07-19 08:30:00',
+      readback_verified: true,
+      metric_keys: ['amount', 'list_exposure'],
+    }, {
+      key: 'manual_inputs#33',
+      source: 'manual_import',
+      scope: 'manual_input',
+      data_date: '2026-07-18',
+      validation_status: 'verified',
+      ingestion_method: 'manual_import',
+      metric_keys: ['orders'],
+    }, {
+      key: 'online_daily_data#44',
+      source: 'meituan',
+      platform: 'meituan',
+      scope: 'ota_channel',
+      data_date: '2026-07-18',
+      validation_status: 'collection_failed',
+      failure_reason: '采集任务失败',
+      metric_keys: ['detail_exposure'],
+    }],
+    yesterday_result: {
+      metrics: [{
+        key: 'exposure', value: null, data_status: 'missing', result_layer: 'source_fact', metric_scopes: ['ota_channel'],
+      }],
+    },
+  };
+
+  const wholeHotel = metricHelpers.aiDailyReportMetricTruth({
+    key: 'revenue', value: 1200, metric_scopes: ['whole_hotel_daily_report'], result_layer: 'source_fact',
+  });
+  assert.equal(wholeHotel.truth.status, 'unverified');
+  assert.equal(wholeHotel.scopeCode, 'whole_hotel');
+  assert.equal(wholeHotel.sources.length, 1);
+  assert.equal(wholeHotel.sourceRefsText, 'daily_reports#11');
+
+  const ota = metricHelpers.aiDailyReportMetricTruth({
+    key: 'exposure', value: 800, metric_scopes: ['ota_channel'], result_layer: 'source_fact',
+  });
+  assert.equal(ota.truth.status, 'verified');
+  assert.equal(ota.scopeCode, 'ota_channel');
+
+  const mixed = metricHelpers.aiDailyReportMetricTruth({
+    key: 'revenue', value: 1600, metric_scopes: ['whole_hotel_daily_report', 'ota_channel'], result_layer: 'source_fact',
+  });
+  assert.equal(mixed.truth.status, 'partial');
+  assert.equal(mixed.scopeCode, 'mixed');
+
+  const userInput = metricHelpers.aiDailyReportMetricTruth({
+    key: 'orders', value: 9, metric_scopes: ['manual_input'], result_layer: 'source_fact',
+  });
+  assert.equal(userInput.truth.status, 'unverified');
+  assert.equal(userInput.scopeCode, 'user_input');
+  assert.match(userInput.truthDetailText, /未验证/);
+  assert.match(userInput.truthDetailText, /入库回读证据/);
+
+  const failed = metricHelpers.aiDailyReportMetricTruth({
+    key: 'visitors',
+    value: null,
+    data_status: 'collection_failed',
+    metric_scopes: ['ota_channel'],
+    source_refs: ['online_daily_data#44'],
+    result_layer: 'source_fact',
+  });
+  assert.equal(failed.truth.status, 'collection_failed');
+  assert.equal(failed.sources.length, 1);
+  assert.equal(failed.sourceRefsText, 'online_daily_data#44');
+  assert.match(failed.truthDetailText, /采集任务失败/);
+
+  const missingCard = metricHelpers.aiDailyReportMetricCards.value[0];
+  assert.equal(metricHelpers.aiDailyReportMetricCards.value.length, 1);
+  assert.equal(missingCard.value, null);
+  assert.equal(missingCard.calculationStatus, 'missing');
+  assert.equal(missingCard.truth.status, 'partial');
+});
+
+test('AI daily report task helpers keep hotel scope and terminal truthfulness', () => {
+  const queued = aiDailyTaskHelpers.normalizeAiDailyReportGenerationTask({
+    task_id: 'daily-7',
+    hotel_id: 7,
+    status: 'queued',
+    stage: 'queued',
+    progress_percent: 0,
+    done: false,
+  }, 7, 'daily-7');
+  assert.equal(queued.hotelId, 7);
+  assert.equal(queued.progressPercent, 0);
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome(queued).kind, 'pending');
+
+  assert.throws(() => aiDailyTaskHelpers.normalizeAiDailyReportGenerationTask({
+    task_id: 'daily-7', hotel_id: 8, status: 'queued', progress_percent: 0,
+  }, 7, 'daily-7'), /酒店范围不一致/);
+  assert.throws(() => aiDailyTaskHelpers.normalizeAiDailyReportGenerationTask({
+    task_id: 'daily-other', hotel_id: 7, status: 'queued', progress_percent: 0,
+  }, 7, 'daily-7'), /任务标识不一致/);
+
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'succeeded', stage: 'completed', resultReportId: 81,
+  }).kind, 'succeeded');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'succeeded', stage: 'completed_with_data_gap', resultReportId: 82,
+  }).kind, 'limited');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'blocked', resultReportId: 83, errorMessage: '可信数据不足',
+  }).kind, 'limited');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'partial', resultReportId: 84,
+  }).kind, 'limited');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'blocked', resultReportId: null,
+  }).kind, 'failed');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'failed', errorMessage: '生成器失败', resultReportId: null,
+  }).message, '生成器失败');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'future_terminal', done: true, resultReportId: 85,
+  }).kind, 'failed');
+  for (const status of ['blocked_by_data_quality', 'failed', 'invalid_output', 'partial']) {
+    assert.equal(aiDailyTaskHelpers.aiDailyReportModelIsLimited(status), true, status);
+  }
+  assert.equal(aiDailyTaskHelpers.aiDailyReportModelIsLimited('ok'), false);
+  assert.equal(aiDailyTaskHelpers.aiDailyReportModelIsLimited('not_requested'), false);
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'succeeded', stage: 'completed', modelStatus: 'invalid_output', resultReportId: 88,
+  }).kind, 'limited');
+  assert.match(appMain, /数据或模型受限，规则版仅供核验/);
+  assert.match(appMain, /aiDailyReportModelIsLimited\(report\.model_status\).*bg-amber-50 text-amber-700/s);
+});
+
+test('AI daily report polling stops on a terminal task without real timers', async () => {
+  const responses = [{
+    code: 200,
+    data: {
+      task_id: 'daily-7', hotel_id: 7, status: 'running', stage: 'generating', progress_percent: 60, done: false,
+    },
+  }, {
+    code: 200,
+    data: {
+      task_id: 'daily-7', hotel_id: 7, status: 'blocked', stage: 'completed_with_data_gap', progress_percent: 100,
+      result_report_id: 91, model_status: 'blocked_by_data_quality', done: true,
+    },
+  }];
+  const waits = [];
+  const progress = [];
+  const result = await aiDailyTaskHelpers.pollAiDailyReportGenerationTask({
+    taskId: 'daily-7',
+    expectedHotelId: 7,
+    initialTask: {
+      task_id: 'daily-7', hotel_id: 7, status: 'queued', stage: 'queued', progress_percent: 0, done: false,
+    },
+    requestTask: async () => responses.shift(),
+    wait: async (delay) => { waits.push(delay); },
+    intervalMs: 25,
+    maxAttempts: 5,
+    onProgress: task => progress.push(task.progressPercent),
+  });
+
+  assert.equal(result.outcome.kind, 'limited');
+  assert.equal(result.task.resultReportId, 91);
+  assert.deepEqual(progress, [0, 60, 100]);
+  assert.deepEqual(waits, [25, 25]);
+  assert.equal(responses.length, 0);
 });
 
 test('AI daily report blocking helpers keep data gaps out of execution orders', () => {
@@ -292,9 +604,8 @@ test('Agent pricing suggestion workbench exposes manual room type pricing guard 
   assert.match(html, /\/agent\/room-types\?\$\{params\}/);
   assert.match(html, /request\('\/agent\/room-types'/);
   assert.match(html, /const loadPriceSuggestionWorkbench = async \(\) => \{/);
-  assert.match(html, /loadDemandForecasts\(\)/);
-  assert.match(html, /loadCompetitorAnalysis\(\)/);
-  assert.match(html, /Promise\.allSettled\(\[\s*loadRoomTypes\(\),\s*loadDemandForecasts\(\),\s*loadCompetitorAnalysis\(\),\s*loadPriceSuggestions\(\),\s*loadRevenueAiOverview\(\),\s*\]\)/s);
+  assert.match(html, /const loadPriceSuggestionWorkbench = async \(\) => \{\s*return loadRevenueAnalysisBundle\(\);\s*\}/s);
+  assert.match(html, /request\(`\/agent\/revenue-bundle\?\$\{params\}`\)/);
   assert.match(html, /人工配置项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。/);
 });
 
@@ -453,11 +764,11 @@ test('Revenue AI business closure preserves OTA scope and P1 metric split', () =
 
   assert.equal(closure.scopeText, 'OTA渠道口径');
   assert.equal(closure.calculationAllowed, true);
-  assert.equal(closure.summaryChips.length, 4);
+  assert.equal(closure.summaryChips.length, 3);
   assert.match(closure.nextAction, /异常判断|缺失项/);
   assert.equal(
     JSON.stringify(Array.from(closure.rows, (row) => row.stage)),
-    JSON.stringify(['OTA数据', '收益分析', 'AI决策', '运营执行', '投决边界']),
+    JSON.stringify(['OTA数据', '收益分析', 'AI决策', '运营执行']),
   );
   const revenueRow = closure.rows[1];
   assert.equal(revenueRow.title, '收入 / 订单 / 间夜 / ADR / 转化');
@@ -468,7 +779,6 @@ test('Revenue AI business closure preserves OTA scope and P1 metric split', () =
   assert.equal(revenueRow.metrics[2].value, '6.00间夜');
   assert.equal(revenueRow.metrics[3].value, '¥200.00');
   assert.equal(revenueRow.metrics[4].statusLabel, '不可计算');
-  assert.match(closure.rows[4].primary, /不进入全酒店投决/);
   assert.equal(closure.missingRows.length, 1);
   assert.match(closure.missingRows[0].code, /traffic\.avg_flow_rate/);
   assert.equal(closure.anomalyRows.length, 1);
@@ -532,7 +842,7 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
   const unloadedCards = helpers.buildRevenueAiMetricCards();
   assert.equal(unloadedCards.length, 5);
   assert.ok(unloadedCards.every((card) => card.display === '--'));
-  assert.ok(unloadedCards.every((card) => card.statusLabel === '未接入'));
+  assert.ok(unloadedCards.every((card) => card.statusLabel === '未加载'));
   assert.ok(unloadedCards.every((card) => card.scopeLabel === 'OTA渠道口径'));
 
   const cards = helpers.buildRevenueAiMetricCards({
@@ -551,7 +861,7 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
           display: '--',
           status: 'not_calculable',
           reason: 'available_room_nights_missing',
-          scope: 'hotel_required',
+          scope: 'ota_channel',
           date_basis: 'data_date',
         },
       },
@@ -564,8 +874,8 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
   assert.equal(revenue.scopeLabel, 'OTA渠道口径');
   assert.equal(revpar.display, '--');
   assert.equal(revpar.statusLabel, '不可计算');
-  assert.equal(revpar.scopeLabel, '需全酒店口径');
-  assert.match(revpar.reasonText, /暂缺可信全酒店可售房数据/);
+  assert.equal(revpar.scopeLabel, 'OTA渠道口径');
+  assert.match(revpar.reasonText, /暂缺可信 OTA 渠道可售房晚分母/);
 
   const emptyConfirmedCards = helpers.buildRevenueAiMetricCards({
     overview: {
@@ -585,6 +895,61 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
   const emptyConfirmedRevenue = emptyConfirmedCards.find((card) => card.key === 'ota_room_revenue');
   assert.equal(emptyConfirmedRevenue.statusLabel, '确认无数据');
   assert.equal(emptyConfirmedRevenue.reasonText, '携程明确确认目标经营日期无数据。');
+});
+
+test('Revenue AI metric cards expose the complete four-state truth envelope for each number', () => {
+  const cards = helpers.buildRevenueAiMetricCards({
+    overview: {
+      scope: 'ota',
+      date_basis: 'data_date',
+      metrics: {
+        ota_room_revenue: {
+          display: '¥1,200.00',
+          status: 'ok',
+          truth: {
+            status: 'verified',
+            status_label: '已验证',
+            scope_label: 'OTA渠道指标，不代表全酒店经营',
+            hotels: [{ system_hotel_id: 7, name: '测试酒店' }],
+            platforms: ['ctrip'],
+            date_range: { start: '2026-07-18', end: '2026-07-18' },
+            source: { table: 'online_daily_data', methods: ['browser_profile'] },
+            collected_at_range: { start: '2026-07-19 08:30:00', end: '2026-07-19 08:30:00' },
+            persistence: { record_count: 2, stored_count: 2, readback_verified_count: 2 },
+            failure_reason: '',
+          },
+        },
+      },
+    },
+  });
+  const revenue = cards.find((card) => card.key === 'ota_room_revenue');
+  assert.equal(revenue.statusLabel, '已验证');
+  assert.equal(revenue.metricStatusLabel, '正常');
+  assert.deepEqual(
+    Array.from(revenue.truthLines, (line) => line.label),
+    ['门店', '平台', '日期', '来源', '采集时间', '入库', '失败原因', '口径'],
+  );
+  assert.match(revenue.truthSummary, /门店：测试酒店/);
+  assert.match(revenue.truthSummary, /平台：携程/);
+  assert.match(revenue.truthSummary, /来源：online_daily_data \/ browser_profile/);
+  assert.match(revenue.truthSummary, /采集时间：2026-07-19 08:30:00/);
+  assert.match(revenue.truthSummary, /入库：入库 2\/2；回读 2\/2/);
+  assert.match(revenue.truthSummary, /失败原因：无/);
+  assert.match(revenue.truthSummary, /OTA渠道指标，不代表全酒店经营/);
+
+  const partial = helpers.buildRevenueAiMetricCards({
+    overview: {
+      metrics: {
+        ota_room_revenue: {
+          display: '¥800.00',
+          status: 'ok',
+          truth: { status: 'partial', failure_reason: 'collected_at_missing' },
+        },
+      },
+    },
+  }).find((card) => card.key === 'ota_room_revenue');
+  assert.equal(partial.statusLabel, '部分数据');
+  assert.equal(partial.reasonText, 'collected_at_missing');
 });
 
 test('Revenue AI gap rows expose request failures and source quality issues', () => {
@@ -741,7 +1106,7 @@ test('Revenue AI readonly actions never fabricate pricing recommendations', () =
             { key: 'floor_price', label: '最低保护价', status: 'blocked', severity: 'high', reason: 'floor_price_missing', display_reason: '暂缺最低保护价。', next_action: '补齐最低保护价。', target_page: 'online-data', target_tab: 'data-health', target_platform: 'hotel' },
             { key: 'demand_signal_7d', label: '未来 7 天需求信号', status: 'blocked', severity: 'medium', reason: 'demand_forecasts_not_loaded', display_reason: '未来 7 天需求预测尚未读取。' },
             { key: 'manual_review_workflow', label: '人工审核工作流', status: 'blocked', severity: 'high', reason: 'manual_review_workflow_not_connected', display_reason: '暂未接入人工审核工作流。' },
-            { key: 'revpar_denominator', label: '全酒店可售房晚', status: 'blocked', severity: 'medium', reason: 'available_room_nights_missing', display_reason: '暂缺可信全酒店可售房晚数据。' },
+            { key: 'revpar_denominator', label: 'OTA渠道可售房晚分母', status: 'blocked', severity: 'medium', reason: 'available_room_nights_missing', display_reason: '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。' },
           ],
         },
         manual_review_required: true,
@@ -851,78 +1216,7 @@ test('Revenue AI action rows expose AI decision resolution plan as operator evid
   assert.match(html, /data-testid="revenue-ai-resolution-plan"/);
 });
 
-test('Revenue AI action rows expose readonly operation to investment precheck', () => {
-  const operationToInvestmentHandoff = {
-    status: 'investment_precheck_blocked_by_operation_roi',
-    persisted: false,
-    target_module: 'investment_decision',
-    target_page: 'investment-decision',
-    target_service: 'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-    target_entry: '/api/investment-decision/overview',
-    source_scope: 'ctrip_ota_channel_to_operation_roi',
-    source_channels: ['ctrip'],
-    source_platforms: ['ctrip'],
-    upstream_operation_intake_status: 'operation_intake_blocked_by_manual_review',
-    operation_roi_ready: 0,
-    operating_gate_status: 'not_ready',
-    business_closure_chain_status: 'not_closed',
-    decision_allowed: false,
-    can_create_investment_decision: false,
-    blocked_reasons: ['closed_operating_roi_missing', 'operation_intake_not_approved'],
-    forbidden_actions: [
-      'create_investment_decision_from_ota_channel_only',
-      'create_investment_record_without_closed_operation_roi',
-    ],
-    investment_precheck_packet: {
-      status: 'blocked_by_operation_roi',
-      source_policy: 'read_only_precheck_from_closed_operation_gate',
-      required_gate: 'operation_execution.roi_ready',
-      operating_gate_status: 'not_ready',
-      business_closure_chain_status: 'not_closed',
-      missing_evidence_codes: ['operation_execution.roi_ready'],
-      protected_boundary: 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-    },
-  };
-
-  const summary = helpers.buildRevenueAiInvestmentPrecheckSummary({
-    overview: { operation_to_investment_handoff: operationToInvestmentHandoff },
-  });
-  assert.equal(summary.visible, true);
-  assert.equal(summary.status, 'investment_precheck_blocked_by_operation_roi');
-  assert.equal(summary.targetEntry, '/api/investment-decision/overview');
-  assert.equal(summary.targetService, 'InvestmentDecisionSupportService::buildOverviewFromEvidence');
-  assert.equal(summary.requiredGate, 'operation_execution.roi_ready');
-  assert.deepEqual(summary.sourceChannels, ['ctrip']);
-  assert.equal(summary.operationRoiReady, 0);
-  assert.equal(summary.readOnly, true);
-  assert.equal(summary.autoWriteOta, false);
-  assert.equal(summary.decisionAllowed, false);
-  assert.equal(summary.canCreateInvestmentDecision, false);
-  assert(summary.missingEvidenceCodes.includes('operation_execution.roi_ready'));
-  assert(summary.blockedReasons.includes('closed_operating_roi_missing'));
-  assert(summary.forbiddenActions.includes('create_investment_decision_from_ota_channel_only'));
-  assert.equal(summary.protectedBoundary, 'investment_decision_requires_closed_operation_roi_not_ota_channel_only');
-  assert.match(summary.className, /slate/);
-
-  const rows = helpers.buildRevenueAiActionRows({
-    overview: {
-      actions: [{
-        key: 'pricing_review',
-        title: 'pricing review',
-        status: 'blocked',
-        reason: 'operation_roi_missing',
-        operation_to_investment_handoff: operationToInvestmentHandoff,
-      }],
-    },
-  });
-  assert.equal(rows[0].investmentPrecheckVisible, true);
-  assert.equal(rows[0].investmentPrecheckSummary.decisionAllowed, false);
-  assert.equal(rows[0].investmentPrecheckSummary.canCreateInvestmentDecision, false);
-  assert.equal(rows[0].investmentPrecheckSummary.autoWriteOta, false);
-  assert(rows[0].investmentPrecheckSummary.detailText.includes('operation_intake_blocked_by_manual_review'));
-});
-
-test('Revenue AI evidence workbench keeps OTA to investment gates explicit', () => {
+test('Revenue AI evidence workbench keeps OTA to operation gates explicit', () => {
   const overview = {
     source_scope: 'ctrip_ota_channel',
     data_status: 'blocked',
@@ -966,39 +1260,56 @@ test('Revenue AI evidence workbench keeps OTA to investment gates explicit', () 
       evidence_ready_count: 0,
       roi_ready_count: 0,
     },
-    operation_to_investment_handoff: {
-      status: 'investment_precheck_blocked_by_operation_roi',
-      target_entry: '/api/investment-decision/overview',
-      operation_roi_ready: 0,
-      decision_allowed: false,
-      can_create_investment_decision: false,
-      protected_boundary: 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-      investment_precheck_packet: {
-        status: 'blocked_by_operation_roi',
-        required_gate: 'operation_execution.roi_ready',
-      },
-    },
   };
 
   const rows = helpers.buildRevenueAiEvidenceWorkbenchRows({ overview });
-  assert.equal(rows.length, 5);
+  assert.equal(rows.length, 4);
   assert.equal(rows[0].key, 'ota_evidence_gate');
   assert.equal(rows[0].statusLabel, 'P0门禁未过');
   assert.match(rows[0].nextActionText, /verify:p0-ota-field-loop/);
   assert.equal(rows[1].canOpenTarget, true);
   assert.equal(rows[2].metaText, 'can_create=false / auto_create=false');
   assert.match(rows[2].policyText, /operation_intake_requires_approved_ai_review/);
-  assert.match(rows[4].metaText, /decision_allowed=false/);
-  assert.match(rows[4].policyText, /investment_decision_requires_closed_operation_roi/);
 
   const summary = helpers.buildRevenueAiEvidenceWorkbenchSummary(rows);
   assert.equal(summary.status, 'blocked');
   assert.match(summary.statusLabel, /门禁阻断/);
-  assert.match(summary.detailText, /已读 5 个环节/);
+  assert.match(summary.detailText, /已读 4 个环节/);
   assert.match(html, /data-testid="revenue-ai-evidence-workbench"/);
 });
 
 test('Revenue AI action rows expose readonly price suggestion review queue', () => {
+  const trustedDecision = ({ canConfirm = false, canTransfer = false } = {}) => ({
+    contract_version: 'revenue_ai_trusted_decision.v1',
+    scope: 'ota_channel',
+    store: { hotel_id: 7, hotel_name: '测试酒店', display: '测试酒店 (#7)' },
+    platform: { key: 'ctrip', label: '携程', scope: 'ota_channel' },
+    date: { value: '2026-06-25', basis: 'suggestion_date', status: 'available' },
+    sources: {
+      status: 'verified',
+      summary: '携程历史经营事实已通过数据库回读',
+      items: [{ ref: 'online_daily_data#pricing_history:7:2026-06-01:2026-06-25' }],
+      ref_count: 1,
+    },
+    metric_formula: {
+      metric: 'price_change_rate',
+      expression: '(建议价 - 当前价) ÷ 当前价 × 100%',
+      status: 'calculable',
+      display: '+13.57%',
+    },
+    data_quality: { status: 'verified', label: '已验证', decision_eligible: true, note: '数据库回读已验证' },
+    confidence: { score: 0.82, display: '82%', status: 'available' },
+    gaps: [],
+    recommended_action: { summary: '人工复核后调整携程目标价；不自动写 OTA。', auto_write_ota: false },
+    expected_effect: { status: 'verification_target', display: '执行后按同口径回读渠道收入、订单与 ADR' },
+    human_confirmation: {
+      required: true,
+      confirmed: canTransfer,
+      can_confirm: canConfirm,
+      can_transfer_to_operation_task: canTransfer,
+      auto_write_ota: false,
+    },
+  });
   const rows = helpers.buildRevenueAiActionRows({
     overview: {
       review_queue: {
@@ -1029,6 +1340,9 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
           manual_review_required: true,
           auto_write_ota: false,
           can_review: true,
+          can_confirm: true,
+          can_transfer_to_operation_task: false,
+          trusted_decision: trustedDecision({ canConfirm: true }),
           action_entry: {
             label: '去审核',
             target_page: 'compass',
@@ -1063,6 +1377,9 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
           manual_review_required: true,
           auto_write_ota: false,
           can_review: false,
+          can_confirm: false,
+          can_transfer_to_operation_task: true,
+          trusted_decision: trustedDecision({ canTransfer: true }),
           action_entry: {
             label: '去转单',
             target_page: 'compass',
@@ -1120,6 +1437,9 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
             manual_review_required: true,
             auto_write_ota: false,
             can_review: true,
+            can_confirm: true,
+            can_transfer_to_operation_task: false,
+            trusted_decision: trustedDecision({ canConfirm: true }),
             action_entry: {
               label: '去审核',
               target_page: 'compass',
@@ -1154,6 +1474,9 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
             manual_review_required: true,
             auto_write_ota: false,
             can_review: false,
+            can_confirm: false,
+            can_transfer_to_operation_task: true,
+            trusted_decision: trustedDecision({ canTransfer: true }),
             action_entry: {
               label: '去转单',
               target_page: 'compass',
@@ -1221,7 +1544,17 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
   assert.equal(rows[0].reviewQueueItems[0].canApproveWithChanges, true);
   assert.equal(rows[0].reviewQueueItems[0].canReject, true);
   assert.equal(rows[0].reviewQueueItems[0].canCreateExecutionIntent, false);
-  assert.equal(rows[0].reviewQueueItems[0].actionHelpText, '首页人工审核，可修改后批准；不写 OTA');
+  assert.equal(rows[0].reviewQueueItems[0].actionButtons.map(button => button.key).join('|'), 'approve|approve_with_changes|reject');
+  assert.equal(rows[0].reviewQueueItems[0].actionHelpText, '仅在可信输入通过后人工审核；不写 OTA');
+  assert.equal(rows[0].reviewQueueItems[0].trustedContractValid, true);
+  assert.equal(rows[0].reviewQueueItems[0].trustedDecisionRows.length, 10);
+  assert.equal(
+    rows[0].reviewQueueItems[0].trustedDecisionRows.map(field => field.label).join('|'),
+    '门店|平台|日期|来源|指标公式|数据质量|置信度|缺口|建议动作|预期效果',
+  );
+  assert.equal(rows[0].reviewQueueItems[0].trustedDecisionRows[0].value, '测试酒店 (#7)');
+  assert.equal(rows[0].reviewQueueItems[0].trustedDecisionRows[4].value, '(建议价 - 当前价) ÷ 当前价 × 100% = +13.57%');
+  assert.equal(rows[0].reviewQueueItems[0].trustedDecisionRows[7].value, '无输入缺口');
   assert.equal(rows[0].reviewQueueItems[0].suggestedPrice, 318);
   assert.equal(rows[0].reviewQueueItems[0].minPrice, 220);
   assert.equal(rows[0].reviewQueueItems[0].requiresSuperAdmin, false);
@@ -1230,13 +1563,60 @@ test('Revenue AI action rows expose readonly price suggestion review queue', () 
   assert.equal(rows[0].reviewQueueItems[0].allowedEndpoints.execution_intent, '/api/revenue-ai/price-suggestions/11/execution-intent');
   assert.deepEqual(rows[0].reviewQueueItems[0].actionEntry.forbidden_actions, ['apply_price', 'ota_write']);
   assert.equal(rows[0].reviewQueueItems[1].title, '房型 #4 · 动态定价');
-  assert.equal(rows[0].reviewQueueItems[1].actionLabel, '转执行');
+  assert.equal(rows[0].reviewQueueItems[1].actionLabel, '转运营任务');
   assert.equal(rows[0].reviewQueueItems[1].canApprove, false);
   assert.equal(rows[0].reviewQueueItems[1].canReject, false);
   assert.equal(rows[0].reviewQueueItems[1].canCreateExecutionIntent, true);
+  assert.equal(rows[0].reviewQueueItems[1].actionButtons.map(button => button.key).join('|'), 'execution_intent');
+  assert.match(rows[0].reviewQueueItems[1].actionHelpText, /待执行运营任务/);
   assert.equal(rows[0].reviewQueueItems[1].allowedEndpoint, '/api/revenue-ai/price-suggestions/12/execution-intent');
   assert.match(rows[0].reviewQueueItems[1].impactLine, /暂缺可信预计 RevPAR 影响数据/);
   assert.equal(rows[0].autoWriteOta, false);
+});
+
+test('Revenue AI trusted decision displays not calculable and blocks approval when denominator is missing', () => {
+  const items = helpers.buildRevenueAiReviewQueueItems({
+    pending_items: [{
+      id: 31,
+      hotel_id: 7,
+      status: 'pending_review',
+      suggestion_date: '2026-06-25',
+      suggested_price: 318,
+      can_review: true,
+      can_confirm: false,
+      auto_write_ota: false,
+      action_entry: {
+        allowed_endpoints: { review: '/api/revenue-ai/price-suggestions/31/review' },
+        manual_actions: ['reject'],
+      },
+      trusted_decision: {
+        contract_version: 'revenue_ai_trusted_decision.v1',
+        store: { display: '测试酒店 (#7)' },
+        platform: { label: '携程' },
+        date: { value: '2026-06-25' },
+        sources: { status: 'verified', items: [{ ref: 'online_daily_data#31' }], ref_count: 1 },
+        metric_formula: {
+          expression: '(建议价 - 当前价) ÷ 当前价 × 100%',
+          status: 'not_calculable',
+          display: '不可计算',
+          reason: 'current_price_denominator_missing',
+        },
+        data_quality: { status: 'verified', label: '已验证', decision_eligible: true },
+        confidence: { status: 'available', score: 0.82, display: '82%' },
+        gaps: [{ code: 'current_price_denominator_missing', message: '当前价分母缺失，价格调整率不可计算' }],
+        recommended_action: { summary: '先补齐当前价分母' },
+        expected_effect: { display: '不可计算' },
+        human_confirmation: { can_confirm: false, can_transfer_to_operation_task: false },
+      },
+    }],
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].canApprove, false);
+  assert.equal(items[0].canApproveWithChanges, false);
+  assert.equal(items[0].canReject, true);
+  assert.equal(items[0].trustedDecisionRows.find(field => field.key === 'formula').value, '(建议价 - 当前价) ÷ 当前价 × 100% = 不可计算');
+  assert.match(items[0].trustedDecisionRows.find(field => field.key === 'gaps').value, /分母缺失/);
 });
 
 test('Revenue AI action rows expose pricing generation preflight without OTA write', () => {
@@ -1345,7 +1725,7 @@ test('Revenue AI action rows expose pricing generation preflight without OTA wri
   assert.equal(rows[0].pricingGenerationPreflightSummary.autoWriteOta, false);
 });
 
-test('Revenue AI static helpers label operator-skipped pricing preflight explicitly', () => {
+test('Revenue AI static helpers normalize unverified legacy operator-skip state to a blocked input gap', () => {
   const overview = {
     pricing_generation_preflight: {
       status: 'skipped_by_operator_policy',
@@ -1372,12 +1752,12 @@ test('Revenue AI static helpers label operator-skipped pricing preflight explici
 
   const summary = helpers.buildRevenueAiPricingGenerationPreflightSummary({ overview });
   assert.equal(summary.visible, true);
-  assert.equal(summary.status, 'skipped_by_operator_policy');
-  assert.equal(summary.statusLabel, '已暂时跳过');
-  assert.match(summary.reasonText, /暂时跳过/);
+  assert.equal(summary.status, 'blocked');
+  assert.equal(summary.statusLabel, '生成受阻');
+  assert.match(summary.reasonText, /缺少可核验的操作者、确认时间和持久化记录/);
   assert.equal(summary.canGeneratePendingSuggestions, false);
   assert.equal(summary.autoWriteOta, false);
-  assert.equal(summary.requiredInputs[0].status, 'skipped_by_operator_policy');
+  assert.equal(summary.requiredInputs[0].status, 'missing_or_blocked');
 });
 
 test('Revenue AI generate result exposes blocked Ctrip-only preconditions', () => {
@@ -1459,7 +1839,7 @@ test('Revenue AI generate result exposes blocked Ctrip-only preconditions', () =
 test('Revenue AI pricing gate rows expose blockers without suggestions', () => {
   const unloaded = helpers.buildRevenueAiPricingGateRows();
   assert.equal(unloaded.length, 1);
-  assert.equal(unloaded[0].statusLabel, '未接入');
+  assert.equal(unloaded[0].statusLabel, '未加载');
   assert.match(unloaded[0].reasonText, /总览接口尚未返回/);
 
   const rows = helpers.buildRevenueAiPricingGateRows({
@@ -1497,7 +1877,7 @@ test('Revenue AI pricing gate rows expose blockers without suggestions', () => {
 
 test('Revenue AI agent activity helpers expose readonly logs without success fallback', () => {
   const unloadedSummary = helpers.buildRevenueAiAgentActivitySummary();
-  assert.equal(unloadedSummary.statusLabel, '未接入');
+  assert.equal(unloadedSummary.statusLabel, '未加载');
   assert.equal(unloadedSummary.display, '--');
   assert.match(unloadedSummary.reasonText, /总览接口尚未返回/);
 
@@ -1561,7 +1941,7 @@ test('Revenue AI agent activity helpers expose readonly logs without success fal
 
 test('Revenue AI execution helpers keep process and effect review separate', () => {
   const unloaded = helpers.buildRevenueAiExecutionSummary();
-  assert.equal(unloaded.statusLabel, '未接入');
+  assert.equal(unloaded.statusLabel, '未加载');
   assert.equal(unloaded.display, '--');
   assert.equal(unloaded.readOnly, true);
   assert.equal(unloaded.autoWriteOta, false);
@@ -1912,7 +2292,7 @@ test('Revenue AI manual review helpers build local-only review requests', () => 
   assert.equal(helpers.revenueAiReviewActionText('approve'), '批准该调价建议');
   assert.equal(helpers.revenueAiReviewActionText('approve_with_changes'), '修改后批准该调价建议');
   assert.equal(helpers.revenueAiReviewActionText('reject'), '拒绝该调价建议');
-  assert.equal(helpers.revenueAiReviewActionText('execution_intent'), '转为运营执行意图');
+  assert.equal(helpers.revenueAiReviewActionText('execution_intent'), '转为运营任务');
   assert.equal(helpers.revenueAiReviewActionText('apply_price'), '');
   assert.equal(helpers.revenueAiReviewEndpoint(item, 'approve'), '/revenue-ai/price-suggestions/11/review');
   assert.equal(helpers.revenueAiReviewEndpoint(item, 'execution_intent'), '/revenue-ai/price-suggestions/11/execution-intent');
@@ -1936,7 +2316,7 @@ test('Revenue AI manual review helpers build local-only review requests', () => 
 
   assert.equal(
     helpers.buildRevenueAiReviewConfirmText({ action: 'execution_intent' }),
-    '确认转为运营执行意图？该动作不会写入携程/美团价格，仍需人工执行和复盘。',
+    '确认转为本地待执行运营任务？该动作不会写入携程/美团价格，仍需人工执行、留证和复盘。',
   );
   assert.equal(
     helpers.buildRevenueAiReviewConfirmText({ action: 'approve_with_changes', approvedPrice: 318.13 }),
@@ -1959,6 +2339,7 @@ test('Revenue AI manual review helpers build local-only review requests', () => 
   const intentBody = helpers.buildRevenueAiReviewRequestBody({ action: 'execution_intent', item });
   assert.equal(intentBody.source, 'revenue_ai_homepage');
   assert.equal(intentBody.expected_metric, 'orders');
+  assert.equal(intentBody.approve_to_task, true);
 });
 
 test('Revenue AI execution intent open row helper keeps execution navigation local', () => {
@@ -1996,6 +2377,25 @@ test('Revenue AI execution intent open row helper keeps execution navigation loc
   assert.equal(existingRow.targetId, 73);
   assert.equal(existingRow.hotelId, 9);
   assert.equal(existingRow.actionLabel, '查看执行意图');
+
+  const taskRow = helpers.buildRevenueAiExecutionIntentOpenRow({
+    payload: {
+      target_id: 91,
+      target_page: 'ops-track',
+      target_action: 'record_execution',
+      target_kind: 'task',
+      execution_intent: { id: 73, hotel_id: 7, status: 'approved' },
+      operation_task: { id: 91, status: 'pending_execute' },
+      operation_task_created: true,
+    },
+  });
+  assert.equal(taskRow.canOpenExecution, true);
+  assert.equal(taskRow.targetAction, 'record_execution');
+  assert.equal(taskRow.targetId, 91);
+  assert.equal(taskRow.targetKind, 'task');
+  assert.equal(taskRow.intentId, 73);
+  assert.equal(taskRow.taskId, 91);
+  assert.equal(taskRow.actionLabel, '查看待执行运营任务');
 });
 
 test('Revenue AI review navigation helper keeps target parsing outside the entry file', () => {

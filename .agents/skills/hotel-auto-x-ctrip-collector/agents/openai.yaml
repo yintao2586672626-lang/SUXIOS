@@ -1,0 +1,5 @@
+interface:
+  display_name: "携程采集编排（手动）"
+  short_description: "执行明确授权的携程采集闭环，不因普通 OTA 讨论自动启动"
+policy:
+  allow_implicit_invocation: false

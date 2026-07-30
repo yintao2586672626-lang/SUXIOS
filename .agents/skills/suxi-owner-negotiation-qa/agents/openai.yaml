@@ -4,4 +4,4 @@ interface:
   default_prompt: "Use $suxi-owner-negotiation-qa to draft an owner-facing hotel operation reply."
 
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

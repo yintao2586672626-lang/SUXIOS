@@ -1,0 +1,1110 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-07-15",
+  "batch": "fifth",
+  "generated_at": "2026-07-16T10:09:03.455Z",
+  "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
+  "source_matrix": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl",
+  "execution_ledger": "docs/qa/hotel_system_4000_execution_evidence_2026-07-15.json",
+  "execution_boundary": {
+    "automated_scope": "Each case is independently executed with one PHPUnit --filter invocation and must parse as exactly one test.",
+    "status_policy": "Successful automated cases are partial; assertion failures are fail; process, zero/multiple tests, errors, skips, incomplete tests, risky tests, warnings, and parse failures are blocked.",
+    "not_covered": [
+      "complete HTTP flow",
+      "database persistence/readback",
+      "UI flow",
+      "real OTA collection"
+    ],
+    "no_suite_propagation": true
+  },
+  "totals": {
+    "requested_cases": 24,
+    "independently_invoked_cases": 24,
+    "exactly_one_test": 24,
+    "statuses": {
+      "partial": 24
+    }
+  },
+  "cases": [
+    {
+      "case_id": "DX-1593",
+      "base_case_id": "TC-200",
+      "scenario_signature": "sha256:1e742cc2cf70587888aeeff5642e21e31282698d52a83d952a93738075d6fb98",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc200ImportAtomicityL8Test.php",
+      "filter": "testTc200L8ImportAtomicityAndRecovery@DX-1593 authorized complete fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc200L8ImportAtomicityAndRecovery@DX-1593 authorized complete fresh success",
+          "tests/Tc200ImportAtomicityL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc200L8ImportAtomicityAndRecovery@DX-1593 authorized complete fresh success\" tests/Tc200ImportAtomicityL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:56.721Z",
+      "finished_at": "2026-07-16T10:08:57.374Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 22,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.442, Memory: 12.00 MB\r\n\r\nOK (1 test, 22 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1594",
+      "base_case_id": "TC-200",
+      "scenario_signature": "sha256:02b3f7359f50c9fdd0372ddb3ab0cd58365ca27297ac211a4ab666f864005560",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc200ImportAtomicityL8Test.php",
+      "filter": "testTc200L8ImportAtomicityAndRecovery@DX-1594 authorized complete stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc200L8ImportAtomicityAndRecovery@DX-1594 authorized complete stale failure",
+          "tests/Tc200ImportAtomicityL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc200L8ImportAtomicityAndRecovery@DX-1594 authorized complete stale failure\" tests/Tc200ImportAtomicityL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:57.375Z",
+      "finished_at": "2026-07-16T10:08:57.659Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.109, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1595",
+      "base_case_id": "TC-200",
+      "scenario_signature": "sha256:075143d5f720365ee74a903b5246c3ebe76299e0ac7f21711518fca20297ffd2",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc200ImportAtomicityL8Test.php",
+      "filter": "testTc200L8ImportAtomicityAndRecovery@DX-1595 authorized missing fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc200L8ImportAtomicityAndRecovery@DX-1595 authorized missing fresh failure",
+          "tests/Tc200ImportAtomicityL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc200L8ImportAtomicityAndRecovery@DX-1595 authorized missing fresh failure\" tests/Tc200ImportAtomicityL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:57.659Z",
+      "finished_at": "2026-07-16T10:08:57.922Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.108, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1596",
+      "base_case_id": "TC-200",
+      "scenario_signature": "sha256:6d7661eeaf17ad14f9023725daaa3d9031c0353ef357e906c20123494c395811",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc200ImportAtomicityL8Test.php",
+      "filter": "testTc200L8ImportAtomicityAndRecovery@DX-1596 authorized missing stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc200L8ImportAtomicityAndRecovery@DX-1596 authorized missing stale success",
+          "tests/Tc200ImportAtomicityL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc200L8ImportAtomicityAndRecovery@DX-1596 authorized missing stale success\" tests/Tc200ImportAtomicityL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:57.922Z",
+      "finished_at": "2026-07-16T10:08:58.458Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 22,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.380, Memory: 12.00 MB\r\n\r\nOK (1 test, 22 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1597",
+      "base_case_id": "TC-200",
+      "scenario_signature": "sha256:13186e65fe1271fce786786dd794ffa4e9b1c6465dbfe011a7ca41a988938ca2",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc200ImportAtomicityL8Test.php",
+      "filter": "testTc200L8ImportAtomicityAndRecovery@DX-1597 restricted complete fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc200L8ImportAtomicityAndRecovery@DX-1597 restricted complete fresh failure",
+          "tests/Tc200ImportAtomicityL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc200L8ImportAtomicityAndRecovery@DX-1597 restricted complete fresh failure\" tests/Tc200ImportAtomicityL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:58.458Z",
+      "finished_at": "2026-07-16T10:08:58.728Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.087, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1598",
+      "base_case_id": "TC-200",
+      "scenario_signature": "sha256:7f4e24ed58c8decfcb95fa8881f88d4d67b7d05ba70b3c52132023e872ad2a70",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc200ImportAtomicityL8Test.php",
+      "filter": "testTc200L8ImportAtomicityAndRecovery@DX-1598 restricted complete stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc200L8ImportAtomicityAndRecovery@DX-1598 restricted complete stale success",
+          "tests/Tc200ImportAtomicityL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc200L8ImportAtomicityAndRecovery@DX-1598 restricted complete stale success\" tests/Tc200ImportAtomicityL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:58.729Z",
+      "finished_at": "2026-07-16T10:08:59.023Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.108, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1599",
+      "base_case_id": "TC-200",
+      "scenario_signature": "sha256:8ad3ba8f7b1bcd06745868fa5e9dcb0c41ceef4a4259bb3e34abac394ad0faf5",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc200ImportAtomicityL8Test.php",
+      "filter": "testTc200L8ImportAtomicityAndRecovery@DX-1599 restricted missing fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc200L8ImportAtomicityAndRecovery@DX-1599 restricted missing fresh success",
+          "tests/Tc200ImportAtomicityL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc200L8ImportAtomicityAndRecovery@DX-1599 restricted missing fresh success\" tests/Tc200ImportAtomicityL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:59.024Z",
+      "finished_at": "2026-07-16T10:08:59.321Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.113, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1600",
+      "base_case_id": "TC-200",
+      "scenario_signature": "sha256:d774a89d5b61560a8f82b7d60d5e05c7efdbb3ee4425a82a9a160ab6c28437a6",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc200ImportAtomicityL8Test.php",
+      "filter": "testTc200L8ImportAtomicityAndRecovery@DX-1600 restricted missing stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc200L8ImportAtomicityAndRecovery@DX-1600 restricted missing stale failure",
+          "tests/Tc200ImportAtomicityL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc200L8ImportAtomicityAndRecovery@DX-1600 restricted missing stale failure\" tests/Tc200ImportAtomicityL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:59.322Z",
+      "finished_at": "2026-07-16T10:08:59.624Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.122, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1905",
+      "base_case_id": "TC-239",
+      "scenario_signature": "sha256:a9224eed7ef7118cd56b2b483940758271cb9fba239d11dcaec87a6ecbb3f28c",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc239ReviewPiiSanitizationL8Test.php",
+      "filter": "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1905 authorized complete fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1905 authorized complete fresh success",
+          "tests/Tc239ReviewPiiSanitizationL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc239ReviewPiiSanitizationAndQualityGuards@DX-1905 authorized complete fresh success\" tests/Tc239ReviewPiiSanitizationL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:59.624Z",
+      "finished_at": "2026-07-16T10:08:59.843Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.022, Memory: 10.00 MB\r\n\r\nOK (1 test, 16 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1906",
+      "base_case_id": "TC-239",
+      "scenario_signature": "sha256:f6fe2965f59eaef950485c33b21b6493ab05ebb01be62cd9d4af4d2dd9ebd7e8",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc239ReviewPiiSanitizationL8Test.php",
+      "filter": "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1906 authorized complete stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1906 authorized complete stale failure",
+          "tests/Tc239ReviewPiiSanitizationL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc239ReviewPiiSanitizationAndQualityGuards@DX-1906 authorized complete stale failure\" tests/Tc239ReviewPiiSanitizationL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:59.844Z",
+      "finished_at": "2026-07-16T10:09:00.036Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.024, Memory: 10.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1907",
+      "base_case_id": "TC-239",
+      "scenario_signature": "sha256:6a21e204de066d4aef90f98596d37f8706d232200206ea96fd3b13801e7cd3f3",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc239ReviewPiiSanitizationL8Test.php",
+      "filter": "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1907 authorized missing fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1907 authorized missing fresh failure",
+          "tests/Tc239ReviewPiiSanitizationL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc239ReviewPiiSanitizationAndQualityGuards@DX-1907 authorized missing fresh failure\" tests/Tc239ReviewPiiSanitizationL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:00.036Z",
+      "finished_at": "2026-07-16T10:09:00.253Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.031, Memory: 10.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1908",
+      "base_case_id": "TC-239",
+      "scenario_signature": "sha256:c2e450a3725985aee694b0d19b3986dc32acf69a21472ab6015889168e27d7f5",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc239ReviewPiiSanitizationL8Test.php",
+      "filter": "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1908 authorized missing stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1908 authorized missing stale success",
+          "tests/Tc239ReviewPiiSanitizationL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc239ReviewPiiSanitizationAndQualityGuards@DX-1908 authorized missing stale success\" tests/Tc239ReviewPiiSanitizationL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:00.253Z",
+      "finished_at": "2026-07-16T10:09:00.494Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.033, Memory: 10.00 MB\r\n\r\nOK (1 test, 12 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1909",
+      "base_case_id": "TC-239",
+      "scenario_signature": "sha256:8fc20e6bc14f249a34f1508ba0059682cb05aa5b32f17c3353150cde4545a4be",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc239ReviewPiiSanitizationL8Test.php",
+      "filter": "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1909 restricted complete fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1909 restricted complete fresh failure",
+          "tests/Tc239ReviewPiiSanitizationL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc239ReviewPiiSanitizationAndQualityGuards@DX-1909 restricted complete fresh failure\" tests/Tc239ReviewPiiSanitizationL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:00.495Z",
+      "finished_at": "2026-07-16T10:09:00.755Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.039, Memory: 10.00 MB\r\n\r\nOK (1 test, 6 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1910",
+      "base_case_id": "TC-239",
+      "scenario_signature": "sha256:0ab0e01fcf97fdca6dde20943f32718cfbfd85407e900e177d2294953e06a7ab",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc239ReviewPiiSanitizationL8Test.php",
+      "filter": "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1910 restricted complete stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1910 restricted complete stale success",
+          "tests/Tc239ReviewPiiSanitizationL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc239ReviewPiiSanitizationAndQualityGuards@DX-1910 restricted complete stale success\" tests/Tc239ReviewPiiSanitizationL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:00.755Z",
+      "finished_at": "2026-07-16T10:09:01.075Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.033, Memory: 10.00 MB\r\n\r\nOK (1 test, 6 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1911",
+      "base_case_id": "TC-239",
+      "scenario_signature": "sha256:8bae69e1c5d6586ff9f6f3c73f4718f2e402b0f404857ba650ce88781b17f1cd",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc239ReviewPiiSanitizationL8Test.php",
+      "filter": "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1911 restricted missing fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1911 restricted missing fresh success",
+          "tests/Tc239ReviewPiiSanitizationL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc239ReviewPiiSanitizationAndQualityGuards@DX-1911 restricted missing fresh success\" tests/Tc239ReviewPiiSanitizationL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:01.076Z",
+      "finished_at": "2026-07-16T10:09:01.326Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.031, Memory: 10.00 MB\r\n\r\nOK (1 test, 6 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1912",
+      "base_case_id": "TC-239",
+      "scenario_signature": "sha256:ee89f49272fe888e103d2c3779a3c6081d9ed16eb1028a97f0092aa0e4957a5a",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc239ReviewPiiSanitizationL8Test.php",
+      "filter": "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1912 restricted missing stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc239ReviewPiiSanitizationAndQualityGuards@DX-1912 restricted missing stale failure",
+          "tests/Tc239ReviewPiiSanitizationL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc239ReviewPiiSanitizationAndQualityGuards@DX-1912 restricted missing stale failure\" tests/Tc239ReviewPiiSanitizationL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:01.326Z",
+      "finished_at": "2026-07-16T10:09:01.582Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.021, Memory: 10.00 MB\r\n\r\nOK (1 test, 6 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2449",
+      "base_case_id": "TC-307",
+      "scenario_signature": "sha256:297d399f2cb6e08468d01124dd8f745d6e5cda933e5e9adac3fdbfe0d002e217",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc307CashflowSeriesL8Test.php",
+      "filter": "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2449 authorized complete fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2449 authorized complete fresh success",
+          "tests/Tc307CashflowSeriesL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc307PersistsAuditablePeriodicCashflowSeries@DX-2449 authorized complete fresh success\" tests/Tc307CashflowSeriesL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:01.583Z",
+      "finished_at": "2026-07-16T10:09:01.851Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 121,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.091, Memory: 12.00 MB\r\n\r\nOK (1 test, 121 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2450",
+      "base_case_id": "TC-307",
+      "scenario_signature": "sha256:20f3da355bb7b552fc72521d05367c385a906a6291e0f8423a60be8258ebf519",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc307CashflowSeriesL8Test.php",
+      "filter": "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2450 authorized complete stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2450 authorized complete stale failure",
+          "tests/Tc307CashflowSeriesL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc307PersistsAuditablePeriodicCashflowSeries@DX-2450 authorized complete stale failure\" tests/Tc307CashflowSeriesL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:01.851Z",
+      "finished_at": "2026-07-16T10:09:02.102Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 65,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.078, Memory: 12.00 MB\r\n\r\nOK (1 test, 65 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2451",
+      "base_case_id": "TC-307",
+      "scenario_signature": "sha256:5f91d5b7be0a8019d0dd70a69116295eb56123cfedb8d532e22a3d5462a422dc",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc307CashflowSeriesL8Test.php",
+      "filter": "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2451 authorized missing fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2451 authorized missing fresh failure",
+          "tests/Tc307CashflowSeriesL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc307PersistsAuditablePeriodicCashflowSeries@DX-2451 authorized missing fresh failure\" tests/Tc307CashflowSeriesL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:02.103Z",
+      "finished_at": "2026-07-16T10:09:02.327Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.073, Memory: 12.00 MB\r\n\r\nOK (1 test, 9 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2452",
+      "base_case_id": "TC-307",
+      "scenario_signature": "sha256:45e40b156f25b96f5eb4a6030051e5480e0f9bf899a26cdf45328ef20a290f48",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc307CashflowSeriesL8Test.php",
+      "filter": "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2452 authorized missing stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2452 authorized missing stale success",
+          "tests/Tc307CashflowSeriesL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc307PersistsAuditablePeriodicCashflowSeries@DX-2452 authorized missing stale success\" tests/Tc307CashflowSeriesL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:02.328Z",
+      "finished_at": "2026-07-16T10:09:02.542Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.066, Memory: 12.00 MB\r\n\r\nOK (1 test, 6 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2453",
+      "base_case_id": "TC-307",
+      "scenario_signature": "sha256:97b1712e89fce60710f6198d4b14cd123dcc5bf29bfad4a85dbf8153fb409900",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc307CashflowSeriesL8Test.php",
+      "filter": "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2453 restricted complete fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2453 restricted complete fresh failure",
+          "tests/Tc307CashflowSeriesL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc307PersistsAuditablePeriodicCashflowSeries@DX-2453 restricted complete fresh failure\" tests/Tc307CashflowSeriesL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:02.542Z",
+      "finished_at": "2026-07-16T10:09:02.772Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.080, Memory: 12.00 MB\r\n\r\nOK (1 test, 13 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2454",
+      "base_case_id": "TC-307",
+      "scenario_signature": "sha256:498872bde3d7969ac0355d97d6ec6e2fcdc8dc4cbb1b02e5ac8980a4b0eddf57",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc307CashflowSeriesL8Test.php",
+      "filter": "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2454 restricted complete stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2454 restricted complete stale success",
+          "tests/Tc307CashflowSeriesL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc307PersistsAuditablePeriodicCashflowSeries@DX-2454 restricted complete stale success\" tests/Tc307CashflowSeriesL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:02.772Z",
+      "finished_at": "2026-07-16T10:09:02.995Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.068, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2455",
+      "base_case_id": "TC-307",
+      "scenario_signature": "sha256:2dffe4617c47b943ee3fb9fa36d48fbbacc64e8ea7d9761187e57a5a56e2feee",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc307CashflowSeriesL8Test.php",
+      "filter": "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2455 restricted missing fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2455 restricted missing fresh success",
+          "tests/Tc307CashflowSeriesL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc307PersistsAuditablePeriodicCashflowSeries@DX-2455 restricted missing fresh success\" tests/Tc307CashflowSeriesL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:02.995Z",
+      "finished_at": "2026-07-16T10:09:03.214Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.064, Memory: 12.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-2456",
+      "base_case_id": "TC-307",
+      "scenario_signature": "sha256:a50545ff10d173ca82fc9fff39820586110c7d432b4fc6579b4c7614f9b8f5f4",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc307CashflowSeriesL8Test.php",
+      "filter": "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2456 restricted missing stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc307PersistsAuditablePeriodicCashflowSeries@DX-2456 restricted missing stale failure",
+          "tests/Tc307CashflowSeriesL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc307PersistsAuditablePeriodicCashflowSeries@DX-2456 restricted missing stale failure\" tests/Tc307CashflowSeriesL8Test.php"
+      },
+      "started_at": "2026-07-16T10:09:03.214Z",
+      "finished_at": "2026-07-16T10:09:03.455Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.076, Memory: 12.00 MB\r\n\r\nOK (1 test, 13 assertions)\r\n",
+      "stderr": ""
+    }
+  ]
+}

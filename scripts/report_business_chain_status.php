@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use app\service\BusinessClosureOverviewService;
-use app\service\InvestmentDecisionSupportService;
+use app\service\OperationManagementService;
 use app\service\OtaStandardEtlService;
 use app\service\RevenueAiOverviewService;
 use think\App;
@@ -92,6 +92,33 @@ function business_chain_parse_platforms(string $value): array
         }
     }
     return $platforms;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function business_chain_failure_payload(Throwable $error): array
+{
+    $message = $error->getMessage();
+    $databaseUnavailable = (string)$error->getCode() === '2002'
+        || str_contains($message, 'SQLSTATE[HY000] [2002]')
+        || str_contains(strtolower($message), 'connection refused')
+        || str_contains($message, '积极拒绝');
+
+    return [
+        'status' => $databaseUnavailable ? 'blocked' : 'failed',
+        'error_code' => $databaseUnavailable ? 'database_unavailable' : 'report_generation_failed',
+        'message' => $databaseUnavailable
+            ? 'Business-chain report requires an available project database.'
+            : $message,
+        'claim_allowed' => false,
+        'runtime_data_ready' => false,
+        'business_loop_ready' => false,
+        'database_ready' => $databaseUnavailable ? false : null,
+        'error_file' => str_replace('\\', '/', $error->getFile()),
+        'error_line' => $error->getLine(),
+        'source_policy' => 'read_only_report_no_ota_collection',
+    ];
 }
 
 /**
@@ -334,31 +361,45 @@ function business_chain_fact_counts(array $dataset): array
     ];
 }
 
+function business_chain_source_evidence_status(array $dataset): string
+{
+    $counts = business_chain_fact_counts($dataset);
+    if ($counts['accepted'] <= 0) {
+        return 'empty';
+    }
+    return $counts['traffic'] > 0 ? 'ready' : 'reference_only_non_traffic';
+}
+
 /**
  * @param array<string, mixed> $revenue
  * @param array<string, mixed> $closure
- * @param array<string, mixed> $investment
  * @return array<int, array<string, mixed>>
  */
-function business_chain_stage_rows(array $referenceDataset, array $revenue, array $closure, array $investment, bool $skipP0): array
+function business_chain_stage_rows(array $referenceDataset, array $revenue, array $closure, bool $skipP0): array
 {
     $counts = business_chain_fact_counts($referenceDataset);
-    $p0Blocked = (string)($closure['summary']['status'] ?? '') === 'blocked_by_p0_ota_gate'
-        || (string)($investment['operating_data_gate']['status'] ?? '') === 'blocked_by_p0_ota_gate';
+    $p0Blocked = (string)($closure['summary']['status'] ?? '') === 'blocked_by_p0_ota_gate';
+    $otaClaimAllowed = !$skipP0 && !$p0Blocked && $counts['accepted'] > 0;
+    $revenueStatus = (string)($revenue['data_status'] ?? 'unknown');
+    $revenueClaimAllowed = $otaClaimAllowed && $revenueStatus === 'ok';
+    $actionCount = count(business_chain_list($revenue['actions'] ?? []));
+    $aiClaimAllowed = $revenueClaimAllowed && $actionCount > 0;
 
     return [
         [
             'key' => 'ota_data',
             'label' => 'OTA data',
-            'status' => $counts['accepted'] > 0 ? ($skipP0 ? 'reference_only' : 'ready') : 'data_gap',
-            'claim_allowed' => !$skipP0 && $counts['accepted'] > 0,
+            'status' => $skipP0
+                ? 'reference_only'
+                : ($p0Blocked ? 'blocked_by_p0_ota_gate' : ($counts['accepted'] > 0 ? 'ready' : 'data_gap')),
+            'claim_allowed' => $otaClaimAllowed,
             'evidence' => $counts,
         ],
         [
             'key' => 'revenue_analysis',
             'label' => 'Revenue analysis',
-            'status' => $skipP0 ? 'reference_only' : (string)($revenue['data_status'] ?? 'unknown'),
-            'claim_allowed' => !$skipP0 && !$p0Blocked,
+            'status' => $skipP0 ? 'reference_only' : ($p0Blocked ? 'blocked_by_p0_ota_gate' : $revenueStatus),
+            'claim_allowed' => $revenueClaimAllowed,
             'evidence' => [
                 'data_status' => $revenue['data_status'] ?? '',
                 'source_channels' => $revenue['source_channels'] ?? [],
@@ -368,10 +409,12 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
         [
             'key' => 'ai_decision_advice',
             'label' => 'AI decision advice',
-            'status' => $p0Blocked ? 'blocked_by_p0_ota_gate' : 'ready_for_review',
-            'claim_allowed' => !$p0Blocked,
+            'status' => $p0Blocked
+                ? 'blocked_by_p0_ota_gate'
+                : (!$revenueClaimAllowed ? 'blocked_by_revenue_data' : ($actionCount > 0 ? 'ready_for_review' : 'no_actionable_advice')),
+            'claim_allowed' => $aiClaimAllowed,
             'evidence' => [
-                'action_count' => count(business_chain_list($revenue['actions'] ?? [])),
+                'action_count' => $actionCount,
                 'agent_activity_status' => $revenue['agent_activity']['status'] ?? '',
             ],
         ],
@@ -379,21 +422,18 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
             'key' => 'operation_closure',
             'label' => 'Operation closure',
             'status' => (string)($closure['summary']['status'] ?? 'unknown'),
-            'claim_allowed' => !$p0Blocked && (string)($closure['summary']['status'] ?? '') === 'closed',
+            'claim_allowed' => $aiClaimAllowed && (string)($closure['summary']['status'] ?? '') === 'closed',
             'evidence' => [
-                'operation_execution_total' => (int)($closure['summary']['operation_execution_total'] ?? 0),
-                'operation_roi_ready' => (int)($closure['summary']['operation_roi_ready'] ?? 0),
-            ],
-        ],
-        [
-            'key' => 'investment_judgment',
-            'label' => 'Investment judgment',
-            'status' => (string)($investment['summary']['status'] ?? 'unknown'),
-            'claim_allowed' => (bool)($investment['summary']['decision_allowed'] ?? false),
-            'evidence' => [
-                'operating_gate_status' => $investment['operating_data_gate']['status'] ?? '',
-                'decision_record_count' => (int)($investment['sections']['decision_records']['record_count'] ?? 0),
-                'eligible_count' => (int)($investment['sections']['decision_records']['eligible_count'] ?? 0),
+                'statistics_status' => (string)($closure['summary']['operation_statistics_status'] ?? 'unknown'),
+                'statistics_loaded' => ($closure['summary']['operation_statistics_loaded'] ?? false) === true,
+                'execution_total_loaded' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true,
+                'roi_loaded' => ($closure['summary']['operation_roi_loaded'] ?? false) === true,
+                'operation_execution_total' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true
+                    ? (int)($closure['summary']['operation_execution_total'] ?? 0)
+                    : null,
+                'operation_roi_ready' => ($closure['summary']['operation_roi_loaded'] ?? false) === true
+                    ? (int)($closure['summary']['operation_roi_ready'] ?? 0)
+                    : null,
             ],
         ],
     ];
@@ -479,14 +519,82 @@ function business_chain_extract_json(string $text): array
  */
 function business_chain_p0_platform_ready(array $platformPayload, array $gate): bool
 {
-    $status = strtolower(trim((string)($gate['status'] ?? $gate['action_status'] ?? $platformPayload['status'] ?? '')));
-    if ($status === 'ready') {
+    $gateStatus = strtolower(trim((string)($gate['status'] ?? '')));
+    if ($gateStatus !== '') {
+        return $gateStatus === 'ready';
+    }
+
+    $legacyStatus = strtolower(trim((string)($gate['action_status'] ?? $platformPayload['status'] ?? '')));
+    if ($legacyStatus === 'ready') {
         return true;
     }
     $missingInputs = business_chain_list($gate['action_missing_inputs'] ?? []);
     return (int)($platformPayload['target_date_rows'] ?? 0) > 0
         && (int)($gate['traffic_rows'] ?? 0) > 0
         && $missingInputs === [];
+}
+
+/**
+ * @return array<int, true>
+ */
+function business_chain_p0_hotel_id_lookup(mixed $value): array
+{
+    $lookup = [];
+    foreach (business_chain_list($value) as $hotelId) {
+        $normalizedHotelId = (int)$hotelId;
+        if ($normalizedHotelId > 0) {
+            $lookup[$normalizedHotelId] = true;
+        }
+    }
+    return $lookup;
+}
+
+/**
+ * @param array<string, mixed> $gate
+ */
+function business_chain_p0_hotel_ready(array $gate, ?int $systemHotelId, bool $platformReady): bool
+{
+    if ($platformReady) {
+        return true;
+    }
+    if ($systemHotelId === null || $systemHotelId <= 0 || !array_key_exists('profile_scope_system_hotel_ids', $gate)) {
+        return false;
+    }
+
+    $activeHotelLookup = business_chain_p0_hotel_id_lookup($gate['profile_scope_system_hotel_ids']);
+    if (!isset($activeHotelLookup[$systemHotelId])) {
+        return false;
+    }
+
+    foreach ([
+        'profile_scope_missing_profile_source_hotel_ids',
+        'profile_scope_missing_traffic_source_hotel_ids',
+        'profile_scope_missing_target_date_traffic_hotel_ids',
+    ] as $missingHotelKey) {
+        if (isset(business_chain_p0_hotel_id_lookup($gate[$missingHotelKey] ?? [])[$systemHotelId])) {
+            return false;
+        }
+    }
+
+    $rowCounts = is_array($gate['system_hotel_row_counts'] ?? null)
+        ? $gate['system_hotel_row_counts']
+        : [];
+    if ((int)($rowCounts[(string)$systemHotelId] ?? $rowCounts[$systemHotelId] ?? 0) <= 0) {
+        return false;
+    }
+
+    foreach ([
+        'traffic_field_fact_status',
+        'p0_standard_fact_status',
+        'required_metric_value_status',
+        'platform_hotel_identifier_status',
+    ] as $statusKey) {
+        if (strtolower(trim((string)($gate[$statusKey] ?? ''))) !== 'ready') {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -525,43 +633,51 @@ function business_chain_compact_p0_execution_plan(
         $gate = is_array($platformPayload['p0_traffic_gate'] ?? null) ? $platformPayload['p0_traffic_gate'] : [];
         $platformReady = business_chain_p0_platform_ready($platformPayload, $gate);
         $operatorSkipActive = isset($operatorSkippedLookup[strtolower($platform)]);
+        $activeHotelScopeDeclared = array_key_exists('profile_scope_system_hotel_ids', $gate);
+        $activeHotelLookup = business_chain_p0_hotel_id_lookup($gate['profile_scope_system_hotel_ids'] ?? []);
         $steps = [];
         foreach (business_chain_list($gate['hotel_scoped_next_steps'] ?? []) as $step) {
             if (!is_array($step)) {
+                continue;
+            }
+            $stepHotelId = isset($step['system_hotel_id']) ? (int)$step['system_hotel_id'] : null;
+            if ($activeHotelScopeDeclared && ($stepHotelId === null || !isset($activeHotelLookup[$stepHotelId]))) {
                 continue;
             }
             $trigger = is_array($step['profile_login_trigger'] ?? null) ? $step['profile_login_trigger'] : [];
             $afterLoginSync = is_array($trigger['after_login_sync'] ?? null) ? $trigger['after_login_sync'] : [];
             $manualLoginVerified = ($step['manual_login_state_verified'] ?? false) === true;
             $skipWithVerifiedLogin = $operatorSkipActive && $manualLoginVerified;
+            $hotelReady = business_chain_p0_hotel_ready($gate, $stepHotelId, $platformReady);
             $compact = [
                 'platform' => $platform,
-                'system_hotel_id' => isset($step['system_hotel_id']) ? (int)$step['system_hotel_id'] : null,
+                'system_hotel_id' => $stepHotelId,
                 'data_source_id' => isset($step['data_source_id']) ? (int)$step['data_source_id'] : null,
                 'data_source_status' => (string)($step['data_source_status'] ?? ''),
                 'last_sync_status' => (string)($step['last_sync_status'] ?? ''),
                 'manual_login_state_verified' => $manualLoginVerified,
-                'login_trigger_entry' => ($platformReady || $skipWithVerifiedLogin) ? '' : (string)($trigger['entry'] ?? ''),
-                'login_trigger_status' => $platformReady
+                'login_trigger_entry' => ($hotelReady || $skipWithVerifiedLogin) ? '' : (string)($trigger['entry'] ?? ''),
+                'login_trigger_status' => $hotelReady
                     ? 'already_ready_no_login'
                     : ($skipWithVerifiedLogin ? 'login_verified_reference_only' : (string)($trigger['status'] ?? '')),
-                'after_login_sync_entry' => ($platformReady || $operatorSkipActive) ? '' : (string)($afterLoginSync['entry'] ?? ''),
-                'after_login_sync_status' => $platformReady
+                'after_login_sync_entry' => ($hotelReady || $operatorSkipActive) ? '' : (string)($afterLoginSync['entry'] ?? ''),
+                'after_login_sync_status' => $hotelReady
                     ? 'already_ready_no_sync'
                     : ($operatorSkipActive ? 'skipped_by_operator_no_sync' : ''),
                 'verifier_command' => (string)($step['p0_verifier_command'] ?? ''),
                 'platform_ready' => $platformReady,
+                'hotel_ready' => $hotelReady,
                 'operator_skip_active' => $operatorSkipActive,
             ];
             $steps[] = $compact;
-            if ($platformReady) {
+            if ($hotelReady) {
                 $operatorSequence[] = [
                     'type' => 'already_ready',
                     'platform' => $platform,
                     'system_hotel_id' => $compact['system_hotel_id'],
                     'data_source_id' => $compact['data_source_id'],
-                    'status' => 'p0_traffic_gate_ready',
-                    'boundary' => 'Target-date OTA rows and traffic field evidence are already ready; do not start login or after-login sync from this report.',
+                    'status' => $platformReady ? 'p0_traffic_gate_ready' : 'p0_hotel_scope_ready',
+                    'boundary' => 'Target-date OTA rows and traffic field evidence are already ready for this hotel scope; do not start login or after-login sync from this report.',
                 ];
                 $operatorSequence[] = [
                     'type' => 'single_scope_verifier',
@@ -681,7 +797,6 @@ function business_chain_compact_p0_execution_plan(
 /**
  * @param array<string, mixed> $revenue
  * @param array<string, mixed> $closure
- * @param array<string, mixed> $investment
  * @return array<string, mixed>
  */
 function business_chain_downstream_reference_scope(array $sourceRows, array $operatorSkippedPlatforms): array
@@ -689,6 +804,7 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
     $operatorSkippedLookup = array_fill_keys(array_map('strtolower', $operatorSkippedPlatforms), true);
     $targetReadyPlatforms = [];
     $targetBlockedPlatforms = [];
+    $targetReferenceOnlyPlatforms = [];
     $referenceReadyPlatforms = [];
     $operatorSkippedReadyPlatforms = [];
     $targetDate = '';
@@ -710,8 +826,11 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
             $targetReadyPlatforms[] = $source;
         } else {
             $targetBlockedPlatforms[] = $source;
+            if (($row['target_status'] ?? '') === 'reference_only_non_traffic') {
+                $targetReferenceOnlyPlatforms[] = $source;
+            }
         }
-        if (($row['reference_status'] ?? '') === 'ready') {
+        if (in_array(($row['reference_status'] ?? ''), ['ready', 'reference_only_non_traffic'], true)) {
             $referenceReadyPlatforms[] = $source;
         }
         if ($operatorSkipped) {
@@ -724,6 +843,8 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
         $status = 'partial_target_date_ready';
     } elseif ($targetReadyPlatforms !== []) {
         $status = 'target_date_ready';
+    } elseif ($targetReferenceOnlyPlatforms !== []) {
+        $status = 'target_date_reference_only';
     } elseif ($referenceReadyPlatforms !== []) {
         $status = 'latest_reference_ready';
     }
@@ -734,6 +855,7 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
         'target_date' => $targetDate,
         'target_ready_platforms' => array_values(array_unique($targetReadyPlatforms)),
         'target_blocked_platforms' => array_values(array_unique($targetBlockedPlatforms)),
+        'target_reference_only_platforms' => array_values(array_unique($targetReferenceOnlyPlatforms)),
         'reference_ready_platforms' => array_values(array_unique($referenceReadyPlatforms)),
         'operator_skip_platforms' => array_values(array_unique($operatorSkippedReadyPlatforms)),
         'claim_policy' => 'ready_platform_rows_are_read_only_reference_until_all_required_p0_platforms_ready',
@@ -824,7 +946,6 @@ function business_chain_revenue_to_ai_handoff(array $referenceScope, array $reve
             'whole_hotel_truth_from_ota_only',
             'ai_decision_final',
             'operation_execution_completed',
-            'investment_judgment_allowed',
         ],
     ];
     $handoff['manual_review_packet'] = business_chain_manual_review_packet($handoff, $revenueDiagnosis, $aiAdviceDraft);
@@ -1546,111 +1667,27 @@ function business_chain_ai_to_operation_handoff(array $revenueToAiHandoff, array
         'operation_intake_preflight_contract' => $operationIntakePreflight,
         'operation_closure_snapshot' => [
             'status' => (string)($closureSummary['status'] ?? ''),
-            'operation_execution_total' => (int)($closureSummary['operation_execution_total'] ?? 0),
-            'operation_roi_ready' => (int)($closureSummary['operation_roi_ready'] ?? 0),
+            'statistics_status' => (string)($closureSummary['operation_statistics_status'] ?? 'unknown'),
+            'statistics_loaded' => ($closureSummary['operation_statistics_loaded'] ?? false) === true,
+            'execution_total_loaded' => ($closureSummary['operation_execution_total_loaded'] ?? false) === true,
+            'roi_loaded' => ($closureSummary['operation_roi_loaded'] ?? false) === true,
+            'operation_execution_total' => ($closureSummary['operation_execution_total_loaded'] ?? false) === true
+                ? (int)($closureSummary['operation_execution_total'] ?? 0)
+                : null,
+            'operation_roi_ready' => ($closureSummary['operation_roi_loaded'] ?? false) === true
+                ? (int)($closureSummary['operation_roi_ready'] ?? 0)
+                : null,
         ],
     ];
 }
 
-/**
- * @param array<string, mixed> $aiToOperationHandoff
- * @param array<string, mixed> $investment
- * @param array<string, mixed> $closure
- * @return array<string, mixed>
- */
-function business_chain_operation_to_investment_handoff(array $aiToOperationHandoff, array $investment, array $closure): array
-{
-    $summary = is_array($investment['summary'] ?? null) ? $investment['summary'] : [];
-    $operatingGate = is_array($investment['operating_data_gate'] ?? null) ? $investment['operating_data_gate'] : [];
-    $businessClosureChain = is_array($investment['business_closure_chain'] ?? null) ? $investment['business_closure_chain'] : [];
-    $actionQueue = is_array($investment['action_queue'] ?? null) ? $investment['action_queue'] : [];
-    $closureSummary = is_array($closure['summary'] ?? null) ? $closure['summary'] : [];
-    $sourcePlatforms = business_chain_list($aiToOperationHandoff['source_platforms'] ?? []);
-    $decisionAllowed = (bool)($summary['decision_allowed'] ?? false);
-    $operationRoiReady = (bool)($operatingGate['can_use_for_investment_judgement'] ?? false);
-    $missingCodes = [];
-    foreach (business_chain_list($operatingGate['missing_evidence'] ?? []) as $gap) {
-        if (!is_array($gap)) {
-            continue;
-        }
-        $code = trim((string)($gap['code'] ?? ''));
-        if ($code !== '') {
-            $missingCodes[] = $code;
-        }
-    }
-    foreach (business_chain_list($actionQueue['items'] ?? []) as $item) {
-        if (!is_array($item) || ($item['blocking'] ?? false) !== true) {
-            continue;
-        }
-        $code = trim((string)($item['evidence_code'] ?? ''));
-        if ($code !== '') {
-            $missingCodes[] = $code;
-        }
-    }
-    if ((string)($aiToOperationHandoff['status'] ?? '') !== 'operation_intake_waiting_human_approval') {
-        $missingCodes[] = 'operation_intake_not_approved';
-    }
-    $missingCodes = array_values(array_unique($missingCodes));
-    $status = $decisionAllowed
-        ? 'investment_decision_ready'
-        : ($operationRoiReady ? 'investment_precheck_waiting_decision_record' : 'investment_precheck_blocked_by_operation_roi');
-
-    return [
-        'status' => $status,
-        'persisted' => false,
-        'target_module' => 'investment_decision',
-        'target_page' => 'investment-decision',
-        'target_entry' => '/api/investment-decision/overview',
-        'source_scope' => (string)($aiToOperationHandoff['source_scope'] ?? ''),
-        'metric_scope' => 'ota_channel',
-        'source_platforms' => $sourcePlatforms,
-        'upstream_operation_intake_status' => (string)($aiToOperationHandoff['status'] ?? ''),
-        'operation_execution_total' => (int)($closureSummary['operation_execution_total'] ?? 0),
-        'operation_roi_ready' => (int)($closureSummary['operation_roi_ready'] ?? 0),
-        'operating_gate_status' => (string)($operatingGate['status'] ?? ''),
-        'business_closure_chain_status' => (string)($businessClosureChain['status'] ?? ''),
-        'action_queue_count' => (int)($actionQueue['item_count'] ?? 0),
-        'action_queue_blocking_count' => (int)($actionQueue['blocking_count'] ?? 0),
-        'decision_allowed' => false,
-        'can_create_investment_decision' => false,
-        'blocked_reasons' => $missingCodes,
-        'required_before_investment' => [
-            'operation_execution_intent_created_by_human_review',
-            'operation_execution_approved',
-            'execution_evidence_attached',
-            'operation_effect_review_completed',
-            'operation_execution.roi_ready',
-            'decision_record.readiness_ready',
-            'human_investment_review',
-        ],
-        'forbidden_actions' => [
-            'create_investment_decision_from_ota_channel_only',
-            'claim_investment_decision_allowed',
-            'create_investment_record_without_closed_operation_roi',
-            'use_unreviewed_ai_advice_for_investment',
-            'promote_ota_scope_to_whole_hotel_truth',
-        ],
-        'investment_precheck_packet' => [
-            'status' => $decisionAllowed
-                ? 'ready_for_investment_review'
-                : ($operationRoiReady ? 'waiting_decision_record_readiness' : 'blocked_by_operation_roi'),
-            'source_policy' => 'read_only_precheck_from_closed_operation_gate',
-            'required_gate' => (string)($operatingGate['required_gate'] ?? 'operation_execution.roi_ready'),
-            'operating_gate_status' => (string)($operatingGate['status'] ?? ''),
-            'business_closure_chain_status' => (string)($businessClosureChain['status'] ?? ''),
-            'missing_evidence_codes' => $missingCodes,
-            'protected_boundary' => 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-        ],
-    ];
-}
 
 /**
  * @param array<string, mixed> $revenueToAiHandoff
  * @param array<string, mixed> $aiToOperationHandoff
- * @param array<string, mixed> $operationToInvestmentHandoff
  * @return array<string, mixed>
  */
-function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, array $aiToOperationHandoff, array $operationToInvestmentHandoff): array
+function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, array $aiToOperationHandoff): array
 {
     $packet = is_array($revenueToAiHandoff['manual_review_packet'] ?? null)
         ? $revenueToAiHandoff['manual_review_packet']
@@ -1660,38 +1697,12 @@ function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, arra
     $operationIntake = is_array($aiToOperationHandoff['operation_intake_packet'] ?? null)
         ? $aiToOperationHandoff['operation_intake_packet']
         : [];
-    $investmentPrecheck = is_array($operationToInvestmentHandoff['investment_precheck_packet'] ?? null)
-        ? $operationToInvestmentHandoff['investment_precheck_packet']
-        : [];
 
-    $packetBlockerReasons = [];
-    foreach (business_chain_list($packet['blockers'] ?? []) as $blocker) {
-        if (!is_array($blocker)) {
-            continue;
-        }
-        $reason = trim((string)($blocker['reason'] ?? ''));
-        if ($reason !== '') {
-            $packetBlockerReasons[] = $reason;
-        }
+    $revenueEvidenceCode = trim((string)($primaryBlocker['reason'] ?? ''));
+    if ($revenueEvidenceCode === '') {
+        $revenueEvidenceCode = trim((string)($primaryAction['reason'] ?? 'unknown_revenue_metric_gap'));
     }
-    $packetBlockerReasons = array_values(array_unique($packetBlockerReasons));
-
-    $primaryBlockerReason = trim((string)($primaryBlocker['reason'] ?? ''));
-    $primaryActionReason = trim((string)($primaryAction['reason'] ?? ''));
-    $revenueEvidenceCode = $primaryBlockerReason !== ''
-        ? $primaryBlockerReason
-        : ($primaryActionReason !== '' ? $primaryActionReason : 'unknown_revenue_metric_gap');
-    $manualReviewEvidenceCode = in_array('manual_review_workflow_not_connected', $packetBlockerReasons, true)
-        ? 'manual_review_workflow_not_connected'
-        : ((string)($packet['status'] ?? '') !== '' ? (string)$packet['status'] : 'manual_review_status_unknown');
     $operationBlockedReason = trim((string)($operationIntake['candidate_blocked_reason'] ?? ''));
-    $operationEvidenceCode = (string)($aiToOperationHandoff['status'] ?? '') === 'operation_intake_waiting_human_approval'
-        ? 'operation_intake_waiting_human_approval'
-        : 'operation_intake_not_approved';
-    $investmentRequiredGate = trim((string)($investmentPrecheck['required_gate'] ?? ''));
-    if ($investmentRequiredGate === '') {
-        $investmentRequiredGate = 'operation_execution.roi_ready';
-    }
 
     $items = [
         [
@@ -1705,10 +1716,6 @@ function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, arra
             'target_entry' => 'revenue-ai-overview',
             'required_gate' => 'available_room_nights_or_verified_zero_room_nights',
             'next_action' => 'resolve_revenue_metric_gap_before_final_ai_advice',
-            'forbidden_until_done' => [
-                'auto_write_ota',
-                'claim_ai_decision_final',
-            ],
         ],
         [
             'priority' => 2,
@@ -1717,14 +1724,10 @@ function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, arra
             'status' => 'blocked',
             'blocking' => true,
             'source' => 'manual_review_packet',
-            'evidence_code' => $manualReviewEvidenceCode,
+            'evidence_code' => (string)($packet['status'] ?? 'manual_review_status_unknown'),
             'target_entry' => 'agent-center',
             'required_gate' => 'operator_approves_ai_advice',
             'next_action' => 'connect_or_record_human_manual_review_before_execution',
-            'forbidden_until_done' => [
-                'claim_ai_decision_final',
-                'auto_create_operation_execution_intent',
-            ],
         ],
         [
             'priority' => 3,
@@ -1733,15 +1736,11 @@ function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, arra
             'status' => 'blocked',
             'blocking' => true,
             'source' => 'operation_intake_packet',
-            'evidence_code' => $operationEvidenceCode,
+            'evidence_code' => (string)($aiToOperationHandoff['status'] ?? 'operation_intake_not_approved'),
             'target_entry' => '/api/operation/execution-intents',
             'required_gate' => 'operator_creates_execution_intent',
             'next_action' => 'create_operation_execution_intent_only_after_human_review',
             'blocked_reason' => $operationBlockedReason !== '' ? $operationBlockedReason : 'manual_review_required',
-            'forbidden_until_done' => [
-                'auto_create_operation_execution_intent',
-                'mark_operation_executed_without_evidence',
-            ],
         ],
         [
             'priority' => 4,
@@ -1749,60 +1748,31 @@ function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, arra
             'stage' => 'operation_management',
             'status' => 'blocked',
             'blocking' => true,
-            'source' => 'operation_to_investment_handoff',
-            'evidence_code' => $investmentRequiredGate,
+            'source' => 'operation_execution',
+            'evidence_code' => 'operation_execution.evidence_and_effect_review',
             'target_entry' => 'ops-track',
             'required_gate' => 'execution_evidence_attached_and_effect_review_completed',
             'next_action' => 'attach_real_execution_and_roi_evidence_after_operation_action',
-            'forbidden_until_done' => [
-                'claim_operation_roi_ready',
-                'claim_investment_decision_allowed',
-            ],
-        ],
-        [
-            'priority' => 5,
-            'code' => 'keep_investment_blocked_until_roi',
-            'stage' => 'investment_decision',
-            'status' => 'blocked',
-            'blocking' => true,
-            'source' => 'investment_precheck_packet',
-            'evidence_code' => $investmentRequiredGate,
-            'target_entry' => '/api/investment-decision/overview',
-            'required_gate' => 'operation_execution.roi_ready',
-            'next_action' => 'keep_investment_decision_blocked_until_closed_operation_roi',
-            'forbidden_until_done' => [
-                'create_investment_decision_from_ota_channel_only',
-                'claim_investment_decision_allowed',
-            ],
         ],
     ];
 
-    $blockingCount = 0;
-    foreach ($items as $item) {
-        if (($item['blocking'] ?? false) === true) {
-            $blockingCount++;
-        }
-    }
-
     return [
-        'status' => $blockingCount > 0 ? 'has_blocking_actions' : 'ready_for_next_gate',
+        'status' => 'has_blocking_actions',
         'item_count' => count($items),
-        'blocking_count' => $blockingCount,
+        'blocking_count' => count($items),
         'source_scope' => (string)($revenueToAiHandoff['source_scope'] ?? ''),
         'metric_scope' => 'ota_channel',
         'source_platforms' => business_chain_list($revenueToAiHandoff['source_platforms'] ?? []),
         'upstream_statuses' => [
             'revenue_to_ai_handoff' => (string)($revenueToAiHandoff['status'] ?? ''),
             'ai_to_operation_handoff' => (string)($aiToOperationHandoff['status'] ?? ''),
-            'operation_to_investment_handoff' => (string)($operationToInvestmentHandoff['status'] ?? ''),
         ],
-        'protected_boundary' => 'ctrip_ota_channel_action_queue_no_auto_write_no_whole_hotel_truth',
+        'protected_boundary' => 'ota_channel_action_queue_no_auto_write_no_whole_hotel_truth',
         'forbidden_actions' => [
             'auto_write_ota',
             'auto_create_operation_execution_intent',
             'claim_ai_decision_final',
             'claim_operation_roi_ready',
-            'claim_investment_decision_allowed',
             'promote_ota_scope_to_whole_hotel_truth',
         ],
         'items' => $items,
@@ -1812,16 +1782,13 @@ function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, arra
 /**
  * @param array<string, mixed> $revenue
  * @param array<string, mixed> $closure
- * @param array<string, mixed> $investment
  * @param array<string, mixed> $referenceScope
  * @return array<string, mixed>
  */
-function business_chain_downstream_reference_workflow(array $revenue, array $closure, array $investment, bool $skipP0, array $referenceScope = [], bool $p0Ready = false): array
+function business_chain_downstream_reference_workflow(array $revenue, array $closure, bool $skipP0, array $referenceScope = [], bool $p0Ready = false): array
 {
     $actions = business_chain_list($revenue['actions'] ?? []);
     $metrics = is_array($revenue['metrics'] ?? null) ? $revenue['metrics'] : [];
-    $gateStatus = (string)($investment['operating_data_gate']['status'] ?? '');
-    $investmentMissing = business_chain_list($investment['operating_data_gate']['missing_evidence'] ?? []);
     $targetReadyPlatforms = business_chain_list($referenceScope['target_ready_platforms'] ?? []);
     $targetBlockedPlatforms = business_chain_list($referenceScope['target_blocked_platforms'] ?? []);
     $diagnosisSourceChannels = $targetReadyPlatforms !== []
@@ -1857,8 +1824,7 @@ function business_chain_downstream_reference_workflow(array $revenue, array $clo
     ];
     $revenueToAiHandoff = business_chain_revenue_to_ai_handoff($referenceScope, $revenueDiagnosis, $aiAdviceDraft, $p0Ready);
     $aiToOperationHandoff = business_chain_ai_to_operation_handoff($revenueToAiHandoff, $closure, $referenceScope);
-    $operationToInvestmentHandoff = business_chain_operation_to_investment_handoff($aiToOperationHandoff, $investment, $closure);
-    $ctripChainActionQueue = business_chain_ctrip_chain_action_queue($revenueToAiHandoff, $aiToOperationHandoff, $operationToInvestmentHandoff);
+    $ctripChainActionQueue = business_chain_ctrip_chain_action_queue($revenueToAiHandoff, $aiToOperationHandoff);
 
     return [
         'status' => $skipP0
@@ -1877,14 +1843,12 @@ function business_chain_downstream_reference_workflow(array $revenue, array $clo
             'auto_apply_ai_advice',
             'operation_execution_completed',
             'roi_ready',
-            'investment_decision_allowed',
             'whole_hotel_truth_from_ota_only',
         ],
         'revenue_diagnosis' => $revenueDiagnosis,
         'ai_advice_draft' => $aiAdviceDraft,
         'revenue_to_ai_handoff' => $revenueToAiHandoff,
         'ai_to_operation_handoff' => $aiToOperationHandoff,
-        'operation_to_investment_handoff' => $operationToInvestmentHandoff,
         'ctrip_chain_action_queue' => $ctripChainActionQueue,
         'operation_execution_draft' => [
             'status' => 'draft_not_written',
@@ -1893,21 +1857,21 @@ function business_chain_downstream_reference_workflow(array $revenue, array $clo
             'intake_status' => (string)($aiToOperationHandoff['status'] ?? ''),
             'intake_target_entry' => (string)($aiToOperationHandoff['target_entry'] ?? ''),
             'can_create_operation_execution' => false,
-            'operation_execution_total' => (int)($closure['summary']['operation_execution_total'] ?? 0),
-            'operation_roi_ready' => (int)($closure['summary']['operation_roi_ready'] ?? 0),
+            'statistics_status' => (string)($closure['summary']['operation_statistics_status'] ?? 'unknown'),
+            'statistics_loaded' => ($closure['summary']['operation_statistics_loaded'] ?? false) === true,
+            'execution_total_loaded' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true,
+            'roi_loaded' => ($closure['summary']['operation_roi_loaded'] ?? false) === true,
+            'operation_execution_total' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true
+                ? (int)($closure['summary']['operation_execution_total'] ?? 0)
+                : null,
+            'operation_roi_ready' => ($closure['summary']['operation_roi_loaded'] ?? false) === true
+                ? (int)($closure['summary']['operation_roi_ready'] ?? 0)
+                : null,
             'next_actions' => [
                 'create_execution_intent_after_human_review',
                 'attach_execution_evidence_after_real_action',
                 'review_roi_only_after_target_date_p0_ready',
             ],
-        ],
-        'investment_precheck' => [
-            'status' => $gateStatus !== '' ? $gateStatus : 'not_ready',
-            'decision_allowed' => false,
-            'handoff_status' => (string)($operationToInvestmentHandoff['status'] ?? ''),
-            'target_entry' => (string)($operationToInvestmentHandoff['target_entry'] ?? ''),
-            'missing_evidence' => $investmentMissing,
-            'next_gate' => 'p0_ota_field_loop.ready + operation_execution.roi_ready',
         ],
     ];
 }
@@ -1934,9 +1898,12 @@ function business_chain_metric_digest(mixed $metric): array
  * @param array<string, mixed> $revenue
  * @return array<int, array<string, mixed>>
  */
-function business_chain_downstream_signals(array $revenue): array
+function business_chain_downstream_signals(array $revenue, array $executionFlow = []): array
 {
     $actionCount = count(business_chain_list($revenue['actions'] ?? []));
+    $executionSummary = is_array($executionFlow['summary'] ?? null) ? $executionFlow['summary'] : [];
+    $stageCounts = is_array($executionSummary['stage_counts'] ?? null) ? $executionSummary['stage_counts'] : [];
+    $executionDataGaps = business_chain_list($executionFlow['data_gaps'] ?? []);
     return [
         [
             'key' => 'ai_daily_report',
@@ -1965,16 +1932,50 @@ function business_chain_downstream_signals(array $revenue): array
         [
             'key' => 'operation_execution',
             'label' => '运营执行闭环',
-            'source_scope' => 'operation_execution_not_loaded_by_read_only_chain_report',
-            'record_count' => 0,
-            'linked_execution_count' => 0,
-            'reviewed_count' => 0,
-            'roi_ready_count' => 0,
-            'data_gaps' => [
-                ['code' => 'operation_execution_not_loaded', 'message' => 'Read-only business-chain report did not load or write operation execution records.'],
-            ],
+            'source_scope' => 'read_existing_operation_execution_records',
+            'table_status' => (string)($executionFlow['data_status'] ?? 'unknown'),
+            'record_count' => (int)($executionSummary['total'] ?? 0),
+            'linked_execution_count' => (int)($executionSummary['total'] ?? 0),
+            'approved_count' => (int)($executionSummary['approved'] ?? 0),
+            'executed_count' => (int)($executionSummary['executed'] ?? 0),
+            'evidence_ready_count' => (int)($executionSummary['evidence_ready'] ?? 0),
+            'reviewed_count' => (int)($stageCounts['reviewed'] ?? 0),
+            'roi_ready_count' => (int)($executionSummary['roi_ready'] ?? 0),
+            'blocked_count' => (int)($stageCounts['blocked'] ?? 0),
+            'data_gaps' => $executionDataGaps,
         ],
     ];
+}
+
+/**
+ * Keep operation evidence on the same target date and OTA platform scope as the report.
+ *
+ * @param array<string, mixed> $executionFlow
+ * @param array<int, string> $platforms
+ * @return array<string, mixed>
+ */
+function business_chain_scope_execution_flow(
+    array $executionFlow,
+    string $targetDate,
+    array $platforms,
+    ?int $systemHotelId
+): array
+{
+    $platforms = array_values(array_unique(array_map(static fn(string $item): string => strtolower(trim($item)), $platforms)));
+    $executionFlow['scope'] = [
+        'target_date' => $targetDate,
+        'platforms' => $platforms,
+        'system_hotel_id' => $systemHotelId,
+        'policy' => $systemHotelId !== null
+            ? 'same_hotel_same_target_date_same_ota_platform'
+            : 'single_system_hotel_scope_required',
+        'query_applied_before_limit' => $systemHotelId !== null,
+        'scope_source' => $systemHotelId !== null
+            ? 'operation_execution_intents_query'
+            : 'operation_query_not_run_without_hotel_scope',
+    ];
+
+    return $executionFlow;
 }
 
 /**
@@ -2032,7 +2033,6 @@ function business_chain_focused_ota_revenue_ai_chain(array $p0Gate, array $workf
             'whole_hotel_truth_from_ota_only',
             'ai_decision_final',
             'operation_execution_completed',
-            'investment_judgment_allowed',
         ],
     ];
 }
@@ -2068,14 +2068,18 @@ function business_chain_report(array $options): array
         }
         $targetDatasets[$source] = $target;
         $referenceDatasets[$source] = $reference;
+        $targetCounts = business_chain_fact_counts($target);
+        $referenceCounts = business_chain_fact_counts($reference);
         $sourceRows[] = [
             'source' => $source,
             'target_date' => $targetDate,
-            'target_status' => $target['status'] ?? 'empty',
-            'target_counts' => business_chain_fact_counts($target),
+            'target_status' => business_chain_source_evidence_status($target),
+            'target_dataset_status' => $target['status'] ?? 'empty',
+            'target_counts' => $targetCounts,
             'reference_date' => $referenceDate,
-            'reference_status' => $reference['status'] ?? 'empty',
-            'reference_counts' => business_chain_fact_counts($reference),
+            'reference_status' => business_chain_source_evidence_status($reference),
+            'reference_dataset_status' => $reference['status'] ?? 'empty',
+            'reference_counts' => $referenceCounts,
             'reference_only' => $referenceDate !== '' && $referenceDate !== $targetDate,
         ];
     }
@@ -2112,24 +2116,84 @@ function business_chain_report(array $options): array
             'enabled_channels' => $diagnosisEnabledChannels,
         ]
     );
+    $operationService = new OperationManagementService();
+    $executionFlow = $systemHotelId !== null
+        ? $operationService->executionFlow(
+            [$systemHotelId],
+            $systemHotelId,
+            [
+                'target_date' => $targetDate,
+                'platforms' => $sources,
+                'limit' => 500,
+            ]
+        )
+        : [
+            'summary' => $operationService->buildExecutionFlowSummary([]),
+            'stages' => [],
+            'list' => [],
+            'data_status' => 'pending',
+            'data_gaps' => [[
+                'code' => 'operation_system_hotel_scope_missing',
+                'message' => 'system_hotel_id is required before loading hotel-scoped operation statistics',
+            ]],
+            'matched_total' => null,
+            'returned_count' => 0,
+            'truncated' => false,
+            'statistics' => [
+                'execution_total_loaded' => false,
+                'task_status_loaded' => false,
+                'evidence_loaded' => false,
+                'roi_loaded' => false,
+            ],
+        ];
+    $executionFlow = business_chain_scope_execution_flow($executionFlow, $targetDate, $sources, $systemHotelId);
+    $executionSummary = is_array($executionFlow['summary'] ?? null) ? $executionFlow['summary'] : [];
+    $executionDataGaps = business_chain_list($executionFlow['data_gaps'] ?? []);
     $closure = (new BusinessClosureOverviewService())->buildOverviewFromSignals(
-        business_chain_downstream_signals($revenue),
-        ['total' => 0, 'roi_ready' => 0],
-        [
-            ['code' => 'read_only_report_operation_execution_not_loaded', 'message' => 'Operation execution records are not loaded by this read-only P0 skip report.'],
-        ],
+        business_chain_downstream_signals($revenue, $executionFlow),
+        $executionSummary,
+        $executionDataGaps,
         $p0Gate
     );
-    $investment = (new InvestmentDecisionSupportService())->buildOverviewFromEvidence($closure);
-    $downstreamReferenceWorkflow = business_chain_downstream_reference_workflow($revenue, $closure, $investment, $skipActive, $downstreamReferenceScope, $p0Ready);
+    $operationStatistics = is_array($executionFlow['statistics'] ?? null) ? $executionFlow['statistics'] : [];
+    $operationExecutionTotalLoaded = ($operationStatistics['execution_total_loaded'] ?? false) === true;
+    $operationRoiLoaded = ($operationStatistics['roi_loaded'] ?? false) === true;
+    $operationStatisticsLoaded = $operationExecutionTotalLoaded && $operationRoiLoaded;
+    $closure['summary']['operation_statistics_status'] = (string)($executionFlow['data_status'] ?? 'unknown');
+    $closure['summary']['operation_statistics_loaded'] = $operationStatisticsLoaded;
+    $closure['summary']['operation_execution_total_loaded'] = $operationExecutionTotalLoaded;
+    $closure['summary']['operation_roi_loaded'] = $operationRoiLoaded;
+    if ($operationExecutionTotalLoaded) {
+        $closure['summary']['operation_execution_total'] = (int)($executionFlow['matched_total'] ?? 0);
+    } else {
+        $closure['summary']['operation_execution_total'] = null;
+    }
+    if (!$operationRoiLoaded) {
+        $closure['summary']['operation_roi_ready'] = null;
+    }
+    $downstreamReferenceWorkflow = business_chain_downstream_reference_workflow($revenue, $closure, $skipActive, $downstreamReferenceScope, $p0Ready);
     $focusedChain = business_chain_focused_ota_revenue_ai_chain($p0Gate, $downstreamReferenceWorkflow, $sources);
-    $stages = business_chain_stage_rows($referenceDataset, $revenue, $closure, $investment, $skipActive);
+    $stages = business_chain_stage_rows($referenceDataset, $revenue, $closure, $skipActive);
     $claimAllowed = count(array_filter($stages, static fn(array $row): bool => ($row['claim_allowed'] ?? false) !== true)) === 0;
+    $stageMap = [];
+    foreach ($stages as $stage) {
+        $stageMap[(string)($stage['key'] ?? '')] = $stage;
+    }
+    $runtimeDataReady = ($stageMap['ota_data']['claim_allowed'] ?? false) === true
+        && ($stageMap['revenue_analysis']['claim_allowed'] ?? false) === true;
 
     return [
         'generated_at' => date('c'),
         'status' => $claimAllowed ? 'closed' : ($skipActive ? 'skip_p0_reference_only' : 'incomplete'),
         'claim_allowed' => $claimAllowed,
+        'readiness' => [
+            'code_contract_ready' => null,
+            'code_contract_status' => 'not_evaluated_by_runtime_report',
+            'runtime_data_ready' => $runtimeDataReady,
+            'business_loop_ready' => $claimAllowed,
+            'release_ready' => null,
+            'release_status' => 'not_evaluated_by_runtime_report',
+        ],
         'mode' => $skipActive ? 'skip_p0_reference_only' : 'p0_required',
         'scope' => [
             'target_date' => $targetDate,
@@ -2149,7 +2213,6 @@ function business_chain_report(array $options): array
                 'whole_hotel_operating_truth',
                 'ai_decision_final',
                 'operation_closure_complete',
-                'investment_judgment_allowed',
             ],
         ],
         'source_rows' => $sourceRows,
@@ -2167,13 +2230,20 @@ function business_chain_report(array $options): array
         ],
         'operation_summary' => [
             'status' => $closure['summary']['status'] ?? '',
-            'operation_execution_total' => (int)($closure['summary']['operation_execution_total'] ?? 0),
-            'operation_roi_ready' => (int)($closure['summary']['operation_roi_ready'] ?? 0),
-        ],
-        'investment_summary' => [
-            'status' => $investment['summary']['status'] ?? '',
-            'decision_allowed' => (bool)($investment['summary']['decision_allowed'] ?? false),
-            'operating_gate_status' => $investment['operating_data_gate']['status'] ?? '',
+            'statistics_status' => $closure['summary']['operation_statistics_status'] ?? 'unknown',
+            'statistics_loaded' => ($closure['summary']['operation_statistics_loaded'] ?? false) === true,
+            'execution_total_loaded' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true,
+            'roi_loaded' => ($closure['summary']['operation_roi_loaded'] ?? false) === true,
+            'scope' => $executionFlow['scope'] ?? [],
+            'matched_total' => $executionFlow['matched_total'] ?? null,
+            'returned_count' => (int)($executionFlow['returned_count'] ?? 0),
+            'truncated' => ($executionFlow['truncated'] ?? false) === true,
+            'operation_execution_total' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true
+                ? (int)($closure['summary']['operation_execution_total'] ?? 0)
+                : null,
+            'operation_roi_ready' => ($closure['summary']['operation_roi_loaded'] ?? false) === true
+                ? (int)($closure['summary']['operation_roi_ready'] ?? 0)
+                : null,
         ],
         'next_required_gate' => [
             'command' => $p0Gate['required_gate_command'],
@@ -2195,6 +2265,11 @@ function business_chain_markdown(array $report): string
     $lines[] = '- claim_allowed: `' . (($report['claim_allowed'] ?? false) ? 'true' : 'false') . '`';
     $lines[] = '- mode: `' . ($report['mode'] ?? '') . '`';
     $lines[] = '- target_date: `' . ($report['scope']['target_date'] ?? '') . '`';
+    $readiness = is_array($report['readiness'] ?? null) ? $report['readiness'] : [];
+    $lines[] = '- code_contract_ready: `' . (($readiness['code_contract_ready'] ?? null) === null ? 'not_evaluated' : (($readiness['code_contract_ready'] ?? false) ? 'true' : 'false')) . '`';
+    $lines[] = '- runtime_data_ready: `' . (($readiness['runtime_data_ready'] ?? false) ? 'true' : 'false') . '`';
+    $lines[] = '- business_loop_ready: `' . (($readiness['business_loop_ready'] ?? false) ? 'true' : 'false') . '`';
+    $lines[] = '- release_ready: `' . (($readiness['release_ready'] ?? null) === null ? 'not_evaluated' : (($readiness['release_ready'] ?? false) ? 'true' : 'false')) . '`';
     $focusedChain = is_array($report['focused_chain'] ?? null) ? $report['focused_chain'] : [];
     if ($focusedChain !== []) {
         $lines[] = '- focused_chain: `' . ($focusedChain['status'] ?? '') . '`, platforms=`' . implode(',', business_chain_list($focusedChain['platforms'] ?? [])) . '`';
@@ -2348,14 +2423,6 @@ function business_chain_markdown(array $report): string
                 }
             }
         }
-        $operationToInvestment = is_array($workflow['operation_to_investment_handoff'] ?? null) ? $workflow['operation_to_investment_handoff'] : [];
-        if ($operationToInvestment !== []) {
-            $lines[] = '- operation_to_investment_handoff: `' . ($operationToInvestment['status'] ?? '') . '`, target=`' . ($operationToInvestment['target_entry'] ?? '') . '`, persisted=`' . (($operationToInvestment['persisted'] ?? false) ? 'true' : 'false') . '`, decision_allowed=`' . (($operationToInvestment['decision_allowed'] ?? false) ? 'true' : 'false') . '`';
-            $precheck = is_array($operationToInvestment['investment_precheck_packet'] ?? null) ? $operationToInvestment['investment_precheck_packet'] : [];
-            if ($precheck !== []) {
-                $lines[] = '- investment_precheck_packet: `' . ($precheck['status'] ?? '') . '`, required_gate=`' . ($precheck['required_gate'] ?? '') . '`, operating_gate=`' . ($precheck['operating_gate_status'] ?? '') . '`';
-            }
-        }
         $actionQueue = is_array($workflow['ctrip_chain_action_queue'] ?? null) ? $workflow['ctrip_chain_action_queue'] : [];
         if ($actionQueue !== []) {
             $lines[] = '- ctrip_chain_action_queue: `' . ($actionQueue['status'] ?? '') . '`, items=`' . (int)($actionQueue['item_count'] ?? 0) . '`, blocking=`' . (int)($actionQueue['blocking_count'] ?? 0) . '`';
@@ -2374,32 +2441,35 @@ function business_chain_markdown(array $report): string
             }
         }
         $lines[] = '- operation_execution_draft: `' . ($workflow['operation_execution_draft']['status'] ?? '') . '`';
-        $lines[] = '- investment_precheck: `' . ($workflow['investment_precheck']['status'] ?? '') . '`, decision_allowed=`false`';
     }
     return implode(PHP_EOL, $lines) . PHP_EOL;
 }
 
-$options = parse_business_chain_args($argv);
+/**
+ * @param array<int, string> $argv
+ */
+function business_chain_main(array $argv): int
+{
+    $options = parse_business_chain_args($argv);
 
-try {
-    $app = new App();
-    $app->initialize();
-    $report = business_chain_report($options);
-    if ($options['format'] === 'markdown') {
-        echo business_chain_markdown($report);
-    } else {
-        echo json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    try {
+        $app = new App();
+        $app->initialize();
+        $report = business_chain_report($options);
+        if ($options['format'] === 'markdown') {
+            echo business_chain_markdown($report);
+        } else {
+            echo json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+        }
+        $focusedChainReady = (string)($report['focused_chain']['status'] ?? '') === 'scoped_ai_review_ready';
+        return ($report['status'] ?? '') === 'incomplete' && !$options['skip_p0'] && !$focusedChainReady ? 2 : 0;
+    } catch (Throwable $e) {
+        $payload = business_chain_failure_payload($e);
+        fwrite(STDERR, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+        return 1;
     }
-    $focusedChainReady = (string)($report['focused_chain']['status'] ?? '') === 'scoped_ai_review_ready';
-    exit(($report['status'] ?? '') === 'incomplete' && !$options['skip_p0'] && !$focusedChainReady ? 2 : 0);
-} catch (Throwable $e) {
-    $payload = [
-        'status' => 'failed',
-        'message' => $e->getMessage(),
-        'error_file' => str_replace('\\', '/', $e->getFile()),
-        'error_line' => $e->getLine(),
-        'source_policy' => 'read_only_report_no_ota_collection',
-    ];
-    fwrite(STDERR, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
-    exit(1);
+}
+
+if (realpath((string)($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
+    exit(business_chain_main($argv));
 }

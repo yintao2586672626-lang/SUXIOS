@@ -1,0 +1,22 @@
+[Unit]
+Description=SUXIOS account scoped WeCom push orchestrator
+After=network-online.target mariadb.service php8.3-fpm.service
+Wants=network-online.target
+ConditionPathExists=/var/www/suxios/current/think
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=-/etc/suxios/cloud-automation.env
+# Only enabled account policies are eligible. The command does not collect OTA
+# data or use browser sessions; it only delivers already prepared monitor data.
+ExecStart=/usr/bin/php -d memory_limit=384M think cloud-wechat-push:run --dispatch --limit=50
+Nice=10
+CPUQuota=30%
+MemoryMax=384M
+TasksMax=24
+TimeoutStartSec=10min
+UMask=0027

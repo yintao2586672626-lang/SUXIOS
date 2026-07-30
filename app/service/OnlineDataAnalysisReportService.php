@@ -20,6 +20,13 @@ final class OnlineDataAnalysisReportService
         $avgPayConversion = $data['avg_pay_conversion'];
         $top5ByRoomNights = $data['top5_by_room_nights'];
         $top5ByRevenue = $data['top5_by_revenue'];
+        $unverifiedPreview = (string)($data['trust_status'] ?? '') === 'unverified_client_preview';
+        $analysisTitle = $unverifiedPreview ? '竞对展示值预览' : '经营数据分析';
+        $roomNightsLabel = $unverifiedPreview ? '展示间夜合计' : '总入住间夜';
+        $revenueLabel = $unverifiedPreview ? '展示房费合计' : '总房费收入';
+        $previewNoticeHtml = $unverifiedPreview
+            ? '<div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800"><strong>未验证竞对数据预览：</strong>这些数值来自客户端当前展示，未经过后端来源、门店和日期口径校验；不得用于本店收益、定价或运营执行。</div>'
+            : '';
 
         // 生成TOP5列表HTML
         $top5RoomNightsHtml = '';
@@ -27,12 +34,13 @@ final class OnlineDataAnalysisReportService
             $rank = $i + 1;
             $bgClass = $i === 0 ? 'bg-yellow-50 border-l-4 border-yellow-400' : 'bg-gray-50';
             $badgeClass = $i < 3 ? 'bg-yellow-400 text-white' : 'bg-gray-300 text-white';
-            $roomNights = number_format(floatval($hotel['roomNights'] ?? 0));
+            $roomNights = $this->formatOptionalNumber($hotel['roomNights'] ?? null);
+            $hotelName = $this->escapeHtml((string)($hotel['hotelName'] ?? '未命名酒店'));
             $top5RoomNightsHtml .= <<<HTML
             <div class="flex items-center justify-between p-2 {$bgClass} rounded">
                 <div class="flex items-center">
                     <span class="w-6 h-6 rounded-full {$badgeClass} flex items-center justify-center text-xs font-bold mr-2">{$rank}</span>
-                    <span class="text-sm font-medium">{$hotel['hotelName']}</span>
+                    <span class="text-sm font-medium">{$hotelName}</span>
                 </div>
                 <span class="text-sm font-bold text-blue-600">{$roomNights} 间夜</span>
             </div>
@@ -44,14 +52,15 @@ HTML;
             $rank = $i + 1;
             $bgClass = $i === 0 ? 'bg-green-50 border-l-4 border-green-400' : 'bg-gray-50';
             $badgeClass = $i < 3 ? 'bg-green-400 text-white' : 'bg-gray-300 text-white';
-            $revenue = number_format(floatval($hotel['roomRevenue'] ?? 0));
+            $revenue = $this->formatOptionalCurrency($hotel['roomRevenue'] ?? null);
+            $hotelName = $this->escapeHtml((string)($hotel['hotelName'] ?? '未命名酒店'));
             $top5RevenueHtml .= <<<HTML
             <div class="flex items-center justify-between p-2 {$bgClass} rounded">
                 <div class="flex items-center">
                     <span class="w-6 h-6 rounded-full {$badgeClass} flex items-center justify-center text-xs font-bold mr-2">{$rank}</span>
-                    <span class="text-sm font-medium">{$hotel['hotelName']}</span>
+                    <span class="text-sm font-medium">{$hotelName}</span>
                 </div>
-                <span class="text-sm font-bold text-green-600">¥{$revenue}</span>
+                <span class="text-sm font-bold text-green-600">{$revenue}</span>
             </div>
 HTML;
         }
@@ -72,7 +81,9 @@ HTML;
                 ? "平均浏览转化 " . number_format($avgViewConversion, 1) . "，建议优化详情页图片和描述提升转化率。"
                 : '建议关注流量入口优化，提升曝光量和浏览量。';
 
-            $topHotelName = !empty($top5ByRoomNights) ? $top5ByRoomNights[0]['hotelName'] : '';
+            $topHotelName = !empty($top5ByRoomNights)
+                ? $this->escapeHtml((string)($top5ByRoomNights[0]['hotelName'] ?? '未命名酒店'))
+                : '';
             $topHotelNights = !empty($top5ByRoomNights) ? number_format(floatval($top5ByRoomNights[0]['roomNights'] ?? 0)) : '0';
 
             $marketingAdvice = $totalExposure > $totalViews * 10
@@ -122,17 +133,18 @@ HTML;
         }
 
         // 完整报告
-        $totalRoomNightsFormatted = number_format($totalRoomNights);
-        $totalRoomRevenueFormatted = number_format($totalRoomRevenue);
-        $totalSalesFormatted = number_format($totalSales);
-        $totalExposureFormatted = number_format($totalExposure);
-        $totalViewsFormatted = number_format($totalViews);
-        $avgRoomNightsFormatted = number_format($avgRoomNights, 1);
-        $avgRoomRevenueFormatted = number_format($avgRoomRevenue, 0);
-        $avgPricePerNightFormatted = number_format($avgPricePerNight, 0);
+        $totalRoomNightsFormatted = $this->formatOptionalNumber($totalRoomNights);
+        $totalRoomRevenueFormatted = $this->formatOptionalCurrency($totalRoomRevenue);
+        $totalSalesFormatted = $this->formatOptionalCurrency($totalSales);
+        $totalExposureFormatted = $this->formatOptionalNumber($totalExposure);
+        $totalViewsFormatted = $this->formatOptionalNumber($totalViews);
+        $avgRoomNightsFormatted = $this->formatOptionalNumber($avgRoomNights, 1);
+        $avgRoomRevenueFormatted = $this->formatOptionalCurrency($avgRoomRevenue);
+        $avgPricePerNightFormatted = $this->formatOptionalCurrency($avgPricePerNight);
 
         $report = <<<HTML
 <div class="space-y-6">
+    {$previewNoticeHtml}
     <!-- 概览卡片 -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="bg-blue-50 rounded-lg p-4 text-center">
@@ -141,14 +153,14 @@ HTML;
         </div>
         <div class="bg-green-50 rounded-lg p-4 text-center">
             <div class="text-2xl font-bold text-green-600">{$totalRoomNightsFormatted}</div>
-            <div class="text-sm text-gray-600">总入住间夜</div>
+            <div class="text-sm text-gray-600">{$roomNightsLabel}</div>
         </div>
         <div class="bg-orange-50 rounded-lg p-4 text-center">
-            <div class="text-2xl font-bold text-orange-600">¥{$totalRoomRevenueFormatted}</div>
-            <div class="text-sm text-gray-600">总房费收入</div>
+            <div class="text-2xl font-bold text-orange-600">{$totalRoomRevenueFormatted}</div>
+            <div class="text-sm text-gray-600">{$revenueLabel}</div>
         </div>
         <div class="bg-purple-50 rounded-lg p-4 text-center">
-            <div class="text-2xl font-bold text-purple-600">¥{$avgPricePerNightFormatted}</div>
+            <div class="text-2xl font-bold text-purple-600">{$avgPricePerNightFormatted}</div>
             <div class="text-sm text-gray-600">平均房价</div>
         </div>
     </div>
@@ -156,7 +168,7 @@ HTML;
     <!-- 经营分析 -->
     <div class="bg-white border rounded-lg p-4">
         <h3 class="font-bold text-gray-800 mb-3 flex items-center">
-            <i class="fas fa-chart-line text-blue-500 mr-2"></i>经营数据分析
+            <i class="fas fa-chart-line text-blue-500 mr-2"></i>{$analysisTitle}
         </h3>
         <div class="space-y-3 text-sm">
             <div class="flex items-start">
@@ -165,11 +177,11 @@ HTML;
             </div>
             <div class="flex items-start">
                 <span class="w-28 text-gray-500 flex-shrink-0">平均收入：</span>
-                <span class="text-gray-800">¥{$avgRoomRevenueFormatted}/店</span>
+                <span class="text-gray-800">{$avgRoomRevenueFormatted}/店</span>
             </div>
             <div class="flex items-start">
                 <span class="w-28 text-gray-500 flex-shrink-0">总销售额：</span>
-                <span class="text-gray-800">¥{$totalSalesFormatted}</span>
+                <span class="text-gray-800">{$totalSalesFormatted}</span>
             </div>
             <div class="flex items-start">
                 <span class="w-28 text-gray-500 flex-shrink-0">曝光量：</span>
@@ -212,6 +224,25 @@ HTML;
 HTML;
 
         return $report;
+    }
+
+    private function formatOptionalNumber(mixed $value, int $decimals = 0): string
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return '未返回';
+        }
+        return number_format((float)$value, $decimals);
+    }
+
+    private function escapeHtml(string $value): string
+    {
+        return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    private function formatOptionalCurrency(mixed $value, int $decimals = 0): string
+    {
+        $formatted = $this->formatOptionalNumber($value, $decimals);
+        return $formatted === '未返回' ? $formatted : '¥' . $formatted;
     }
 
     private function getCurrentTime(): string

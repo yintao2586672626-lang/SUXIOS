@@ -56,4 +56,19 @@ final class AiConfigTest extends TestCase
         self::assertSame('meta_llama', $definitions[0]['provider']);
         self::assertSame('https://gateway.example.com/v1', $definitions[0]['base_url']);
     }
+
+    public function testModelPayloadRejectsLocalAiBaseUrlBeforeSavingApiKey(): void
+    {
+        $error = $this->invokeNonPublic($this->controller(), 'validateModelPayload', [[
+            'name' => 'Unsafe model',
+            'model_key' => 'unsafe_model',
+            'provider' => 'openai',
+            'base_url' => 'https://127.0.0.1/v1',
+            'model_name' => 'unsafe',
+        ], true]);
+
+        self::assertIsString($error);
+        self::assertStringContainsString('Base URL', $error);
+        self::assertStringNotContainsString('127.0.0.1', $error);
+    }
 }

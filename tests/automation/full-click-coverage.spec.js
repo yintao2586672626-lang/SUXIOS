@@ -26,7 +26,7 @@ const config = getConfig();
 const MIN_KEY_FUNCTION_LOOPS = 50;
 const MAX_KEY_FUNCTION_LOOPS = 100;
 const DEFAULT_KEY_FUNCTION_LOOPS = 50;
-const mutateForms = process.env.E2E_MUTATE !== '0';
+const mutateForms = process.env.E2E_MUTATE === '1';
 const allowDestructive = process.env.E2E_ALLOW_DESTRUCTIVE === '1';
 const maxButtonsPerModule = Math.max(1, Number(process.env.E2E_MAX_BUTTONS_PER_MODULE || 30));
 const maxFieldsPerModule = Math.max(1, Number(process.env.E2E_MAX_FIELDS_PER_MODULE || 40));

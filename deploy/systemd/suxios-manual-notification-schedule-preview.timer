@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify SUXIOS manual notification test scope every minute without writes
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=10s
+Persistent=false
+Unit=suxios-manual-notification-schedule-preview.service
+
+# Deliberately not enableable until an operator reviews command registration,
+# migration state, and target identity.

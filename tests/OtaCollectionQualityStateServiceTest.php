@@ -159,6 +159,27 @@ final class OtaCollectionQualityStateServiceTest extends TestCase
         self::assertSame([], $quality['quality_flags']);
     }
 
+    public function testMeituanAvailabilityUsesItsThreeDocumentedCoreTrafficMetrics(): void
+    {
+        $quality = (new OtaCollectionQualityStateService())->evaluate([
+            'platform' => 'meituan',
+            'binding_check_status' => 'complete',
+            'profile_status' => 'logged_in',
+            'collection_status' => 'collected',
+            'target_date' => '2026-07-09',
+            'latest_data_date' => '2026-07-09',
+            'target_date_rows' => 1,
+            'target_date_traffic_rows' => 1,
+            'field_fact_status' => 'ready',
+            'verified_traffic_metric_keys' => ['list_exposure', 'detail_exposure', 'flow_rate'],
+            'has_stored_data' => true,
+        ]);
+
+        self::assertSame('available', $quality['primary_quality_state']);
+        self::assertSame(3, $quality['evidence']['verified_traffic_metric_count']);
+        self::assertSame(0, $quality['evidence']['missing_traffic_metric_count']);
+    }
+
     public function testReadyLabelWithoutAllFiveCanonicalTrafficMetricsIsNotAvailable(): void
     {
         $quality = (new OtaCollectionQualityStateService())->evaluate([

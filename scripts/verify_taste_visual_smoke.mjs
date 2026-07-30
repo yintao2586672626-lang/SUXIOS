@@ -3,9 +3,11 @@ import path from 'node:path';
 import { chromium } from '@playwright/test';
 
 const repoRoot = process.cwd();
-const html = fs.readFileSync(path.join(repoRoot, 'public/index.html'), 'utf8');
+const publicEntry = fs.readFileSync(path.join(repoRoot, 'public/index.html'), 'utf8');
+const templateSnapshot = fs.readFileSync(path.join(repoRoot, 'resources/frontend/app-template.html'), 'utf8');
+const appMain = fs.readFileSync(path.join(repoRoot, 'public/app-main.js'), 'utf8');
 const failures = [];
-const pageKeys = collectPageKeys(html);
+const pageKeys = collectPageKeys(`${publicEntry}\n${templateSnapshot}\n${appMain}`);
 const screenshotsDir = path.join(repoRoot, 'output/playwright/taste-visual-smoke');
 
 const menuGroupOnlyKeys = new Set([
@@ -30,6 +32,10 @@ const failOnConsole = process.env.E2E_TASTE_FAIL_ON_CONSOLE !== '0';
 const failOnRequestFailure = process.env.E2E_TASTE_FAIL_ON_REQUEST_FAILURE === '1';
 const authMode = process.env.E2E_TASTE_AUTH_MODE || 'mock';
 const writeResults = process.env.E2E_TASTE_WRITE_RESULTS !== '0';
+const viewport = {
+  width: Number.parseInt(process.env.E2E_TASTE_VIEWPORT_WIDTH || '1440', 10),
+  height: Number.parseInt(process.env.E2E_TASTE_VIEWPORT_HEIGHT || '1000', 10),
+};
 
 function collectPageKeys(source) {
   const keys = new Set();
@@ -287,12 +293,17 @@ function validatePageResult(result) {
 }
 
 async function main() {
+  if (!Number.isInteger(viewport.width) || viewport.width < 320
+    || !Number.isInteger(viewport.height) || viewport.height < 480) {
+    throw new Error(`Invalid visual smoke viewport: ${viewport.width}x${viewport.height}`);
+  }
+
   if (writeResults || screenshotMode !== 'none') {
     fs.mkdirSync(screenshotsDir, { recursive: true });
   }
 
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const page = await browser.newPage({ viewport });
   const browserEvents = {
     consoleErrors: [],
     pageErrors: [],
@@ -351,6 +362,7 @@ async function main() {
       fs.writeFileSync(path.join(screenshotsDir, 'results.json'), JSON.stringify({
         baseURL,
         authMode,
+        viewport,
         pageCount: requiredPageKeys.length,
         stateCount: visualStates.length,
         results,

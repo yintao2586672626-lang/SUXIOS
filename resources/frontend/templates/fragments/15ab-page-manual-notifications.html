@@ -1,0 +1,393 @@
+                <div v-if="currentPage === 'manual-notifications'" class="max-w-7xl mx-auto space-y-6" data-testid="page-manual-notifications">
+                    <section class="rounded-3xl border border-[#eadfc9] bg-gradient-to-br from-[#fffdf8] to-[#f7f5ef] p-6 shadow-sm">
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                                <p class="text-xs font-semibold tracking-[0.22em] text-[#96743f]">通知中心</p>
+                                <h1 class="mt-2 text-2xl font-semibold text-slate-900">定时消息</h1>
+                                <p class="mt-2 text-sm text-slate-600">配置宿析企业微信经营播报；基础经营事实简报不依赖经营目标，目标报告仅在主动选择时启用。当前仅允许测试群投递，不向正式群发送。</p>
+                                <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                                    <span
+                                        class="rounded-full border px-2.5 py-1 font-medium"
+                                        :class="['test_scope_ready', 'schedule_enabled', 'connected'].includes(manualNotificationMetadata.scheduler_status)
+                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                            : manualNotificationMetadata.scheduler_status === 'not_connected'
+                                                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                                                : 'border-slate-200 bg-white text-slate-600'"
+                                        data-testid="manual-notification-scheduler-status"
+                                    >
+                                        {{ ['test_scope_ready', 'schedule_enabled', 'connected'].includes(manualNotificationMetadata.scheduler_status)
+                                            ? '测试群调度已接入'
+                                            : manualNotificationMetadata.scheduler_status === 'not_connected'
+                                                ? '自动调度未接入'
+                                                : '调度状态待验证' }}
+                                    </span>
+                                    <span class="text-slate-500">{{ manualNotificationMetadata.scheduler_note || '未取得调度运行状态。' }}</span>
+                                </div>
+                            </div>
+                            <label class="w-full sm:w-72">
+                                <span class="mb-2 block text-xs font-medium text-slate-500">当前酒店</span>
+                                <select
+                                    v-model="manualNotificationForm.hotel_id"
+                                    @change="loadManualNotificationCenter"
+                                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15"
+                                    data-testid="manual-notification-hotel"
+                                >
+                                    <option value="">请选择有权限的酒店</option>
+                                    <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name }}</option>
+                                </select>
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="rounded-3xl border border-slate-200 bg-[#f7f9f8] p-6 shadow-sm" data-testid="manual-notification-new-message">
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <h2 class="text-lg font-semibold text-slate-900">新建消息</h2>
+                                <p class="mt-1 text-sm text-slate-500">选择播报版式后编辑；版式只定义结构，不预填其他酒店事实。</p>
+                            </div>
+                            <span v-if="manualNotificationLoading.metadata" class="text-xs text-slate-500"><i class="fas fa-spinner fa-spin mr-1"></i>读取模板</span>
+                        </div>
+                        <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            <button
+                                v-for="template in manualNotificationTemplateCards"
+                                :key="template.key"
+                                type="button"
+                                @click="selectManualNotificationTemplate(template)"
+                                class="group min-h-40 rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#ad8b52] hover:shadow-md"
+                                :class="manualNotificationForm.template_type === template.key && manualNotificationEditing ? 'border-[#ad8b52] ring-2 ring-[#ad8b52]/10' : 'border-slate-200'"
+                                :data-testid="`manual-notification-template-${template.key}`"
+                            >
+                                <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f3ead9] text-[#8e6b34]">
+                                    <i :class="template.key === 'single_hotel_operating_brief' ? 'fas fa-hotel' : template.key === 'operating_target_report' ? 'fas fa-bullseye' : template.key === 'future_room_status' ? 'fas fa-calendar-alt' : template.key === 'daily_review' ? 'fas fa-clipboard-check' : template.key === 'blank_custom' ? 'fas fa-pen' : 'fas fa-chart-line'"></i>
+                                </span>
+                                <span class="mt-5 block text-base font-semibold text-slate-900">{{ template.label }}</span>
+                                <span class="mt-2 block text-sm leading-6 text-slate-500">
+                                    {{ template.key === 'single_hotel_operating_brief'
+                                        ? '只要求当天已核验的订单来了住宿事实；目标和渠道块均为可选'
+                                        : template.key === 'operating_target_report'
+                                            ? '主动启用目标模块后动态生成；目标事实不齐时不发送'
+                                            : '新建可编辑的企业微信经营播报' }}
+                                </span>
+                            </button>
+                        </div>
+                        <div v-if="!manualNotificationTemplateCards.length && !manualNotificationLoading.metadata" class="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                            选择酒店后读取宿析经营播报版式；未取得模板接口时不显示默认成功内容。
+                        </div>
+                    </section>
+
+                    <section v-if="manualNotificationEditing" class="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(380px,0.95fr)]" data-testid="manual-notification-editor">
+                        <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-xs font-semibold text-[#96743f]">{{ manualNotificationTypeLabel(manualNotificationForm) }}</p>
+                                    <h2 class="mt-1 text-lg font-semibold text-slate-900">编辑经营播报</h2>
+                                </div>
+                                <button type="button" @click="manualNotificationEditing = false" class="rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100">收起</button>
+                            </div>
+
+                            <div class="mt-6 space-y-5">
+                                <label class="block">
+                                    <span class="mb-2 block text-sm font-medium text-slate-700">模板名称</span>
+                                    <input
+                                        v-model.trim="manualNotificationForm.title"
+                                        :readonly="['single_hotel_operating_brief', 'operating_target_report'].includes(manualNotificationForm.template_type)"
+                                        maxlength="120"
+                                        class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15 read-only:bg-slate-50 read-only:text-slate-600"
+                                        placeholder="填写宿析经营播报名称"
+                                        data-testid="manual-notification-title"
+                                    >
+                                </label>
+
+                                <label class="block">
+                                    <span class="mb-2 flex items-center justify-between text-sm font-medium text-slate-700">
+                                        <span>消息内容</span>
+                                        <span class="font-normal text-slate-400">{{ manualNotificationBodyCount }} / 5000 字</span>
+                                    </span>
+                                    <textarea
+                                        v-model="manualNotificationForm.body"
+                                        :readonly="['single_hotel_operating_brief', 'operating_target_report'].includes(manualNotificationForm.template_type)"
+                                        maxlength="5000"
+                                        rows="14"
+                                        class="w-full resize-y rounded-xl border border-slate-200 px-3 py-3 text-sm leading-7 text-slate-800 focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15 read-only:bg-slate-50 read-only:text-slate-600"
+                                        placeholder="正文只填写中文、数字、常用标点或宿析变量；未知数据写“未取得/待配置”。"
+                                        data-testid="manual-notification-body"
+                                    ></textarea>
+                                    <span v-if="['single_hotel_operating_brief', 'operating_target_report'].includes(manualNotificationForm.template_type)" class="mt-2 block text-xs leading-5 text-slate-500">
+                                        {{ manualNotificationForm.template_type === 'single_hotel_operating_brief'
+                                            ? '动态正文只使用发送时同酒店、同日期且已核验回读的订单来了住宿事实；目标未启用及可选渠道缺失不会阻断基础简报。'
+                                            : '动态正文以发送时同酒店、同日期的经营目标快照生成；此处仅回显结构说明，不能编辑成静态成功数据。' }}
+                                    </span>
+                                </label>
+
+                                <div v-if="!['single_hotel_operating_brief', 'operating_target_report'].includes(manualNotificationForm.template_type)">
+                                    <span class="mb-2 block text-xs font-medium text-slate-500">插入宿析变量</span>
+                                    <div class="flex flex-wrap gap-2">
+                                        <button
+                                            v-for="variable in manualNotificationMetadata.variables"
+                                            :key="variable"
+                                            type="button"
+                                            @click="insertManualNotificationVariable(variable)"
+                                            class="rounded-lg border border-[#e4d5b9] bg-[#fffaf0] px-3 py-1.5 text-xs font-medium text-[#826333] hover:border-[#ad8b52]"
+                                        >{{ variable }}</button>
+                                    </div>
+                                </div>
+
+                                <div class="grid gap-4 md:grid-cols-2">
+                                    <label class="block">
+                                        <span class="mb-2 block text-sm font-medium text-slate-700">经营日期</span>
+                                        <input
+                                            v-model="manualNotificationForm.business_date"
+                                            @change="loadManualNotificationMetadata"
+                                            type="date"
+                                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15"
+                                            data-testid="manual-notification-business-date"
+                                        >
+                                    </label>
+                                    <label class="block">
+                                        <span class="mb-2 block text-sm font-medium text-slate-700">发送触发</span>
+                                        <select
+                                            v-model="manualNotificationForm.trigger_type"
+                                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15"
+                                            data-testid="manual-notification-trigger"
+                                        >
+                                            <option v-for="option in manualNotificationMetadata.trigger_types" :key="option.key" :value="option.key">{{ option.label }}</option>
+                                        </select>
+                                    </label>
+                                    <label v-if="manualNotificationForm.trigger_type === 'daily_fixed_time'" class="block">
+                                        <span class="mb-2 block text-sm font-medium text-slate-700">触发时间</span>
+                                        <input
+                                            v-model="manualNotificationForm.planned_send_at"
+                                            type="datetime-local"
+                                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15"
+                                            data-testid="manual-notification-planned-time"
+                                        >
+                                    </label>
+                                    <label class="block">
+                                        <span class="mb-2 block text-sm font-medium text-slate-700">发送方式</span>
+                                        <select
+                                            v-model="manualNotificationForm.send_method"
+                                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#ad8b52] focus:outline-none focus:ring-2 focus:ring-[#ad8b52]/15"
+                                            data-testid="manual-notification-send-method"
+                                        >
+                                            <option v-for="option in manualNotificationMetadata.send_methods" :key="option.key" :value="option.key">{{ option.label }}</option>
+                                        </select>
+                                    </label>
+                                </div>
+
+                                <div class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                    <div>
+                                        <p class="text-sm font-medium text-slate-800">启用配置</p>
+                                        <p class="mt-1 text-xs text-slate-500">{{ manualNotificationMetadata.scheduler_note || '打开后仍以实际调度回执为准，保存不等于发送成功。' }}</p>
+                                    </div>
+                                    <label class="relative inline-flex cursor-pointer items-center">
+                                        <input v-model="manualNotificationForm.enabled" type="checkbox" class="peer sr-only" data-testid="manual-notification-enabled">
+                                        <span class="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-[#315d50] after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></span>
+                                    </label>
+                                </div>
+
+                                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" data-testid="manual-notification-data-gate">
+                                    <p class="font-semibold"><i class="fas fa-shield-alt mr-2"></i>经营数据与测试群门禁</p>
+                                    <p class="mt-2 leading-6">基础简报只要求同门店、同日期的订单来了住宿事实通过身份、质量、对账和回读；经营目标、携程、美团为独立可选模块。缺失项如实显示，禁止用零值、旧日数据或静态正文绕过。当前仅允许漠蓝测试群，正式群不在本次授权范围。</p>
+                                </div>
+
+                                <p v-if="manualNotificationError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ manualNotificationError }}</p>
+
+                                <div class="flex flex-wrap justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        @click="previewManualNotification"
+                                        :disabled="manualNotificationLoading.preview"
+                                        class="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                                        data-testid="manual-notification-preview"
+                                    >
+                                        <i class="fas fa-eye mr-2"></i>{{ manualNotificationLoading.preview ? '预览中' : '页面预览' }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="saveManualNotification"
+                                        :disabled="manualNotificationLoading.save"
+                                        class="rounded-xl bg-[#315d50] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#274c42] disabled:opacity-60"
+                                        data-testid="manual-notification-save"
+                                    >
+                                        <i class="fas fa-save mr-2"></i>{{ manualNotificationLoading.save ? '保存中' : '保存模板' }}
+                                    </button>
+                                    <button
+                                        v-if="Number(manualNotificationForm.id || 0) > 0 && manualNotificationTestAllowed(manualNotificationForm)"
+                                        type="button"
+                                        @click="testManualNotification(manualNotificationForm)"
+                                        :disabled="manualNotificationLoading.testId === Number(manualNotificationForm.id || 0)"
+                                        class="rounded-xl border border-[#d8c49f] bg-[#fffaf0] px-5 py-2.5 text-sm font-semibold text-[#826333] hover:border-[#ad8b52] disabled:opacity-60"
+                                        data-testid="manual-notification-test-now"
+                                    >
+                                        <i class="fas fa-paper-plane mr-2"></i>{{ manualNotificationLoading.testId === Number(manualNotificationForm.id || 0) ? '测试发送中' : '保存后立即测试' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <aside class="self-start rounded-3xl border border-slate-200 bg-[#f5f7f6] p-6 shadow-sm xl:sticky xl:top-6" data-testid="manual-notification-live-preview">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-xs font-semibold tracking-[0.18em] text-[#96743f]">实时渲染</p>
+                                    <h2 class="mt-1 text-lg font-semibold text-slate-900">消息预览</h2>
+                                </div>
+                                <span class="rounded-full border px-3 py-1 text-xs font-medium" :class="manualNotificationDataStatus === '已保存待启用/数据门禁' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-600'">{{ manualNotificationDataStatus }}</span>
+                            </div>
+                            <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                <div class="border-b border-slate-100 bg-[#315d50] px-5 py-4 text-white">
+                                    <p class="text-xs text-white/70">宿析OS 企业微信经营播报</p>
+                                    <h3 class="mt-2 text-base font-semibold">{{ manualNotificationLivePreview.title || '未填写模板名称' }}</h3>
+                                </div>
+                                <div class="p-5">
+                                    <p class="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">{{ manualNotificationLivePreview.body || '未填写消息内容' }}</p>
+                                    <div class="mt-5 space-y-2 border-t border-slate-100 pt-4 text-xs text-slate-500">
+                                        <p>版式：{{ manualNotificationTypeLabel(manualNotificationForm) }}</p>
+                                        <p>经营日期：{{ manualNotificationForm.business_date || '未取得' }}</p>
+                                        <p>发送时间：{{ manualNotificationForm.planned_send_at || '待配置' }}</p>
+                                        <p>状态：{{ manualNotificationDataStatus }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-if="manualNotificationPreview" class="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-700" data-testid="manual-notification-preview-status">
+                                后端预览已生成但未发送：{{ manualNotificationPreview.schedule_status_label || '发送状态未取得' }}
+                            </div>
+                        </aside>
+                    </section>
+
+                    <section class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" data-testid="manual-notification-history">
+                        <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+                            <div>
+                                <h2 class="text-lg font-semibold text-slate-900">我的通知消息</h2>
+                                <p class="mt-1 text-sm text-slate-500">保存后可回读、编辑和预览；测试按钮只在授权目标上出现。</p>
+                            </div>
+                            <button type="button" @click="loadManualNotificationHistory" class="rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100">
+                                <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': manualNotificationLoading.history }"></i>刷新
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-slate-100">
+                                <thead class="bg-slate-50">
+                                    <tr class="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                        <th class="px-6 py-3">名称</th>
+                                        <th class="px-6 py-3">消息内容摘要</th>
+                                        <th class="px-6 py-3">发送时间</th>
+                                        <th class="px-6 py-3">状态</th>
+                                        <th class="px-6 py-3 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-for="item in manualNotificationHistory.list" :key="item.id" class="align-top hover:bg-slate-50/70">
+                                        <td class="px-6 py-4">
+                                            <p class="max-w-56 text-sm font-medium text-slate-900">{{ item.title }}</p>
+                                            <p class="mt-1 text-xs text-[#96743f]">{{ manualNotificationTypeLabel(item) }}</p>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <p class="max-w-md text-sm leading-6 text-slate-600">{{ item.body_summary || '未取得' }}</p>
+                                        </td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
+                                            <p>{{ item.planned_send_at || '待配置' }}</p>
+                                            <p class="mt-1 text-xs text-slate-400">{{ item.trigger_type_label }}</p>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-medium" :class="manualNotificationStatusClass(item)">{{ manualNotificationStatusText(item) }}</span>
+                                            <p v-if="item.last_test_status !== 'never_tested'" class="mt-2 max-w-56 text-xs text-slate-500">{{ item.last_test_message }}</p>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <div class="flex justify-end gap-2">
+                                                <button type="button" @click="openManualNotificationRecord(item)" class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">编辑/预览</button>
+                                                <button
+                                                    v-if="manualNotificationTestAllowed(item)"
+                                                    type="button"
+                                                    @click="testManualNotification(item)"
+                                                    :disabled="manualNotificationLoading.testId === item.id"
+                                                    class="rounded-lg border border-[#d8c49f] bg-[#fffaf0] px-3 py-1.5 text-xs font-medium text-[#826333] hover:border-[#ad8b52] disabled:opacity-60"
+                                                >{{ manualNotificationLoading.testId === item.id ? '测试中' : '测试推送' }}</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="!manualNotificationHistory.list.length">
+                                        <td colspan="5" class="px-6 py-12 text-center text-sm text-slate-500">{{ manualNotificationLoading.history ? '正在读取模板消息…' : '还没有保存的模板消息' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" data-testid="manual-notification-dispatch-history">
+                        <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+                            <div>
+                                <h2 class="text-lg font-semibold text-slate-900">调度与发送历史</h2>
+                                <p class="mt-1 text-sm text-slate-500">独立展示最近一次可回查的调度或测试结果；没有回执时明确显示“未取得”，不把已保存、已启用或 HTTP 成功冒充送达。</p>
+                            </div>
+                            <button type="button" @click="loadManualNotificationDispatchHistory" class="rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100">
+                                <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': manualNotificationLoading.dispatchHistory }"></i>刷新记录
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-slate-100">
+                                <thead class="bg-slate-50">
+                                    <tr class="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                        <th class="px-6 py-3">消息 / 业务日期</th>
+                                        <th class="px-6 py-3">调度窗口</th>
+                                        <th class="px-6 py-3">目标</th>
+                                        <th class="px-6 py-3">实际结果</th>
+                                        <th class="px-6 py-3">回执时间</th>
+                                        <th class="px-6 py-3 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-for="item in manualNotificationDispatchHistory.list" :key="`dispatch-${item.id}`" class="align-top">
+                                        <td class="px-6 py-4">
+                                            <p class="max-w-64 text-sm font-medium text-slate-900">通知 #{{ item.notification_id || '未取得' }}</p>
+                                            <p class="mt-1 text-xs text-slate-500">{{ item.business_date || '业务日期未取得' }}</p>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-slate-600">
+                                            <p>{{ item.dispatch_window || '未取得' }}</p>
+                                            <p class="mt-1 text-xs text-slate-400">{{ item.request_kind || item.trigger_type || '触发方式未取得' }}</p>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-slate-600">
+                                            <p>{{ item.robot_name || '测试机器人待核验' }}</p>
+                                            <p class="mt-1 text-xs text-slate-400">酒店 {{ item.hotel_id || '未取得' }} / 机器人 {{ item.robot_id || '未取得' }}</p>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span
+                                                class="inline-flex rounded-full border px-2.5 py-1 text-xs font-medium"
+                                                :class="item.status === 'sent'
+                                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                                    : item.status === 'failed'
+                                                        ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                                        : ['blocked', 'outcome_unknown'].includes(item.status)
+                                                            ? 'border-amber-200 bg-amber-50 text-amber-700'
+                                                            : 'border-slate-200 bg-slate-50 text-slate-600'"
+                                            >
+                                                {{ item.status === 'sent'
+                                                    ? '已送达'
+                                                    : item.status === 'failed'
+                                                        ? '发送失败'
+                                                        : item.status === 'blocked'
+                                                            ? '门禁阻断'
+                                                            : item.status === 'outcome_unknown'
+                                                                ? '结果不明确，禁止自动重试'
+                                                            : '执行记录未取得' }}
+                                            </span>
+                                            <p class="mt-2 max-w-sm text-xs leading-5 text-slate-500">{{ item.result_message || item.result_code || '没有可回查的发送回执。' }}</p>
+                                        </td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600">{{ item.dispatched_at || item.last_attempt_at || item.claimed_at || '未取得' }}</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button
+                                                v-if="item.status === 'failed' && Number(item.attempt_count || 0) < Number(item.max_attempts || 0)"
+                                                type="button"
+                                                @click="retryManualNotificationDispatch(item)"
+                                                class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:border-rose-300"
+                                            >显式重试</button>
+                                            <span v-else class="text-xs text-slate-400">不可重试</span>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="!manualNotificationDispatchHistory.list.length">
+                                        <td colspan="6" class="px-6 py-12 text-center text-sm text-slate-500">{{ manualNotificationLoading.dispatchHistory ? '正在读取调度与发送记录…' : '尚无调度或发送记录；未执行不显示成功。' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>

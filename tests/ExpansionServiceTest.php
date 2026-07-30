@@ -40,6 +40,10 @@ final class ExpansionServiceTest extends TestCase
         self::assertNotSame('', $result['decision']);
         self::assertSame('待接入真实数据', $result['data_status']['status']);
         self::assertSame('fallback', $result['ai_evaluation']['source']);
+        self::assertSame('rule_screening_index', $result['score_type']);
+        self::assertFalse($result['decision_ready']);
+        self::assertSame('数据不足，仅可规则初筛', $result['decision']);
+        self::assertStringContainsString('不是真实市场热度', $result['market_heat_score_formula']['semantics']);
     }
 
     public function testEvaluateMarketReturnsDetailedHeatScoreBreakdown(): void
@@ -166,11 +170,52 @@ final class ExpansionServiceTest extends TestCase
         self::assertCount(3, $result['recommended_benchmarks']);
         self::assertContains('商圈', $result['data_status']['missing_fields']);
         self::assertSame('0/6', $result['position']['detail_metrics']['data_completeness']);
-        self::assertSame(270, $result['position']['detail_metrics']['avg_competitor_price']);
-        self::assertArrayHasKey('model_fit_score', $result['recommended_benchmarks'][0]);
-        self::assertArrayHasKey('price_gap_to_market', $result['recommended_benchmarks'][0]);
+        self::assertSame('synthetic_rule_scenario', $result['source']);
+        self::assertNull($result['position']['detail_metrics']['avg_competitor_price']);
+        self::assertSame('情景模型A', $result['recommended_benchmarks'][0]['name']);
+        self::assertSame('synthetic_rule_scenario', $result['recommended_benchmarks'][0]['source']);
+        self::assertNull($result['recommended_benchmarks'][0]['score']);
+        self::assertNull($result['recommended_benchmarks'][0]['heat']);
+        self::assertNull($result['recommended_benchmarks'][0]['review_count']);
+        self::assertNull($result['recommended_benchmarks'][0]['distance_km']);
+        self::assertNull($result['recommended_benchmarks'][0]['model_fit_score']);
+        self::assertSame('基于用户输入及默认假设生成的规则情景，非真实竞品样本', $result['recommended_benchmarks'][0]['sample_basis']);
         self::assertSame('fallback', $result['ai_evaluation']['source']);
-        self::assertSame('标杆模型A', $result['ai_evaluation']['model_judgement']['best_fit_model']);
+        self::assertSame('情景模型A', $result['ai_evaluation']['model_judgement']['best_fit_model']);
+    }
+
+    public function testBuildBenchmarkModelKeepsProvidedCompetitorMetricsPath(): void
+    {
+        $result = $this->fallbackService()->buildBenchmarkModel($this->benchmarkInput());
+
+        self::assertSame('user_provided_competitor_metrics', $result['source']);
+        self::assertSame('标杆模型A', $result['recommended_benchmarks'][0]['name']);
+        self::assertSame(315, $result['position']['detail_metrics']['avg_competitor_price']);
+        self::assertSame(4.8, $result['recommended_benchmarks'][0]['score']);
+        self::assertNotNull($result['recommended_benchmarks'][0]['review_count']);
+        self::assertNotNull($result['recommended_benchmarks'][0]['distance_km']);
+        self::assertNotNull($result['recommended_benchmarks'][0]['model_fit_score']);
+        self::assertSame('3公里内12家竞品样本', $result['recommended_benchmarks'][0]['sample_basis']);
+    }
+
+    public function testBuildBenchmarkModelKeepsPartialMetricsVisibleButUsesSyntheticScenario(): void
+    {
+        $result = $this->fallbackService()->buildBenchmarkModel([
+            'city' => '杭州',
+            'business_area' => '武林商圈',
+            'target_price_band' => '220-320',
+            'hotel_type' => '商务酒店',
+            'target_room_count' => 70,
+            'avg_competitor_price' => 288,
+        ]);
+
+        self::assertSame('synthetic_rule_scenario', $result['source']);
+        self::assertSame('1/6', $result['position']['detail_metrics']['data_completeness']);
+        self::assertSame(288, $result['position']['detail_metrics']['avg_competitor_price']);
+        self::assertNull($result['position']['detail_metrics']['avg_competitor_score']);
+        self::assertSame('情景模型A', $result['recommended_benchmarks'][0]['name']);
+        self::assertNull($result['recommended_benchmarks'][0]['score']);
+        self::assertNull($result['recommended_benchmarks'][0]['model_fit_score']);
     }
 
     public function testBuildBenchmarkModelUsesLlmEvaluationWhenConfigured(): void
@@ -206,6 +251,12 @@ final class ExpansionServiceTest extends TestCase
             'target_price_band' => '220-320',
             'hotel_type' => '中端商务',
             'target_room_count' => 72,
+            'competitor_count' => 12,
+            'avg_competitor_price' => 285,
+            'avg_competitor_score' => 4.7,
+            'avg_review_count' => 520,
+            'ota_heat_index' => 82,
+            'traffic_radius_km' => 3,
             'model_key' => 'openai_fast',
         ]);
 
@@ -238,6 +289,29 @@ final class ExpansionServiceTest extends TestCase
         self::assertSame('高风险', $result['delay_risk']['level']);
         self::assertGreaterThan(0, $result['progress']['total']);
         self::assertNotEmpty($result['next_actions']);
+    }
+
+    public function testImproveCollaborationDoesNotInventTaskProgressFromCurrentStage(): void
+    {
+        $result = $this->fallbackService()->improveCollaboration([
+            'project_name' => '未确认项目',
+            'city_area' => '上海虹桥',
+            'current_stage' => '装修筹建',
+            'owner' => '项目负责人',
+            'expected_online_date' => date('Y-m-d', strtotime('+60 days')),
+        ]);
+
+        self::assertSame(0, $result['progress']['completed']);
+        self::assertSame(0, $result['progress']['confirmed_total']);
+        self::assertNull($result['progress']['percent']);
+        self::assertSame('待评估', $result['delay_risk']['level']);
+        self::assertStringContainsString('尚无已确认进度', $result['progress']['status_text']);
+        foreach ($result['task_board'] as $task) {
+            self::assertSame('待确认', $task['status']);
+            self::assertSame('', $task['due_date']);
+            self::assertSame('rule_template', $task['source']);
+            self::assertFalse($task['is_observed']);
+        }
     }
 
     public function testProjectReadinessKeepsMarketRecordAsScreeningOnly(): void
@@ -295,6 +369,22 @@ final class ExpansionServiceTest extends TestCase
 
         $this->expectException(InvalidArgumentException::class);
         $service->buildExecutionIntentInput(['id' => 9], 0);
+    }
+
+    public function testBuildExecutionIntentInputRejectsScreeningOnlyRecord(): void
+    {
+        $service = $this->fallbackService();
+        $marketInput = $this->marketInput();
+        $market = $service->evaluateMarket($marketInput);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('screening_record_only');
+        $service->buildExecutionIntentInput([
+            'id' => 9,
+            'record_type' => 'market',
+            'input' => $marketInput,
+            'result' => $market,
+        ], 7);
     }
 
     public function testBuildExecutionIntentInputUsesExpansionDecisionScope(): void

@@ -20,6 +20,14 @@ final class CtripCollectorWorkflowServiceTest extends TestCase
         self::assertSame('wide', $full['capture_sections']);
         self::assertSame('historical_daily', $full['data_period']);
 
+        $bounded = $service->applyFlowOptions([
+            'collector_flow' => 'full',
+            'bounded_capture_sections' => 'business_overview',
+        ]);
+        self::assertSame('business_overview', $bounded['capture_sections']);
+        self::assertSame('business_overview', $bounded['profile_sections']);
+        self::assertSame('historical_daily', $bounded['data_period']);
+
         $realtime = $service->applyFlowOptions(['collector_flow' => 'realtime']);
         self::assertSame('homepage,traffic_report', $realtime['capture_sections']);
         self::assertSame('realtime_snapshot', $realtime['data_period']);

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { safeJsonParseErrorCode } from './safe_json_parse_error.mjs';
 
 const RELEASE_EVIDENCE_MAX_AGE_DAYS = 30;
 
@@ -39,6 +40,24 @@ function isPathInsideRepo(repoRoot, filePath) {
   const resolved = resolveInputPath(repoRoot, filePath);
   const relative = path.relative(repoRoot, resolved);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function isExistingRepoRelativeFile(repoRoot, filePath) {
+  if (!filePath || path.isAbsolute(filePath) || !isPathInsideRepo(repoRoot, filePath)) {
+    return false;
+  }
+
+  try {
+    const resolvedRepoRoot = fs.realpathSync(repoRoot);
+    const resolvedFile = fs.realpathSync(resolveInputPath(repoRoot, filePath));
+    const relative = path.relative(resolvedRepoRoot, resolvedFile);
+    const isInsideResolvedRepo = relative !== ''
+      && !relative.startsWith('..')
+      && !path.isAbsolute(relative);
+    return isInsideResolvedRepo && fs.statSync(resolvedFile).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function isDateOnly(value) {
@@ -114,7 +133,7 @@ function collectNonClosingSourceEvidenceFailures(repoRoot, evidenceRef) {
         failures.push(`Design handoff manifest source_review.evidence_ref must not reference non-closing connector blocker evidence: ${evidencePath}.`);
       }
     } catch (error) {
-      failures.push(`Design handoff manifest source_review.evidence_ref references unreadable connector evidence ${evidencePath}: ${error.message}`);
+      failures.push(`Design handoff manifest source_review.evidence_ref references invalid connector evidence ${evidencePath} (${safeJsonParseErrorCode(error)}).`);
     }
   }
   return failures;
@@ -217,7 +236,7 @@ export function checkDesignHandoff({ repoRoot, manifestPath = 'docs/design_hando
   try {
     manifest = JSON.parse(fs.readFileSync(resolvedManifestPath, 'utf8').replace(/^\uFEFF/, ''));
   } catch (error) {
-    failures.push(`Design handoff manifest is not valid JSON: ${error.message}`);
+    failures.push(`Design handoff manifest is not valid JSON (${safeJsonParseErrorCode(error)}).`);
     return { passes, warnings, failures };
   }
   collectDraftResidue(manifest, failures);
@@ -242,7 +261,7 @@ export function checkDesignHandoff({ repoRoot, manifestPath = 'docs/design_hando
   const openIssues = Array.isArray(manifest.open_issues) ? manifest.open_issues : null;
   const tokenPath = String(manifest.design_tokens_path ?? '').trim();
   const tokenPathIsUrl = /^https:\/\/\S+$/i.test(tokenPath);
-  const tokenPathExists = tokenPath !== '' && !path.isAbsolute(tokenPath) && fs.existsSync(path.join(repoRoot, tokenPath));
+  const tokenPathExists = !tokenPathIsUrl && isExistingRepoRelativeFile(repoRoot, tokenPath);
   const sourceReviewFailures = collectSourceReviewFailures(repoRoot, manifest.source_review);
   failures.push(...sourceReviewFailures);
 

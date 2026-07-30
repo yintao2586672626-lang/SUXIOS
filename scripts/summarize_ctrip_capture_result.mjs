@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CTRIP_CAPTURE_ENDPOINTS } from './lib/ctrip_capture_catalog.mjs';
 import { buildCtripCaptureAudit } from './lib/ctrip_capture_audit.mjs';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 const ENDPOINT_BY_ID = new Map(CTRIP_CAPTURE_ENDPOINTS.map((endpoint) => [endpoint.id, endpoint]));
 
@@ -126,7 +127,10 @@ function readCapture(path) {
   if (!existsSync(path)) {
     throw new Error(`input file not found: ${path}`);
   }
-  return JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+  return parseJsonTextSafely(
+    readFileSync(path, 'utf8').replace(/^\uFEFF/, ''),
+    'ctrip_capture_summary_json',
+  );
 }
 
 function ensureParent(path) {

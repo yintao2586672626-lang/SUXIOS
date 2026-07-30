@@ -1,0 +1,405 @@
+                    <div v-if="currentPage === 'operation-logs' &amp;&amp; user?.is_super_admin">
+                        <section data-testid="security-monitor-overview" class="suxi-security-monitor-hero mb-6 overflow-hidden rounded-2xl border shadow-sm">
+                            <div class="flex flex-col gap-5 px-6 py-6 lg:flex-row lg:items-start lg:justify-between">
+                                <div class="max-w-3xl">
+                                    <div class="mb-2 flex flex-wrap items-center gap-2">
+                                        <span class="suxi-security-visibility-badge rounded-full border px-2.5 py-1 text-xs font-semibold tracking-wide">仅超级管理员可见</span>
+                                        <span :class="securityIpEvidenceClass(securityOverview.ip_evidence?.quality)" class="rounded-full border px-2.5 py-1 text-xs font-semibold">
+                                            {{ securityIpEvidenceLabel(securityOverview.ip_evidence?.quality) }}
+                                        </span>
+                                    </div>
+                                    <h2 class="text-2xl font-bold tracking-tight">账号与高风险操作监测</h2>
+                                    <p class="mt-2 text-sm leading-6 text-slate-300">依据登录失败、自动化客户端、接口限流、受保护访问拒绝、删除/清理和配置变更生成核查线索。风险信号不等同于恶意结论，系统不会自动封号、改密或处罚。</p>
+                                    <p class="mt-2 text-xs leading-5 text-slate-400">{{ securityOverview.ip_evidence?.note || '正在核对来源 IP 证据' }}</p>
+                                </div>
+                                <div class="flex shrink-0 flex-col items-stretch gap-3 sm:flex-row lg:flex-col">
+                                    <div class="suxi-security-range inline-flex rounded-lg border p-1" aria-label="安全监测时间范围">
+                                        <button v-for="days in [1, 7, 30]" :key="days" type="button" @click="setSecurityOverviewDays(days)" :class="{ 'is-active': securityOverviewDays === days }" class="suxi-security-range-button rounded-md px-3 py-1.5 text-xs font-semibold transition">
+                                            {{ days === 1 ? '今天' : `近${days}天` }}
+                                        </button>
+                                    </div>
+                                    <button type="button" @click="reloadOperationLogs" :disabled="securityOverviewLoading" class="suxi-security-refresh-button rounded-lg border px-4 py-2 text-sm font-semibold disabled:opacity-60">
+                                        <i :class="['fas fa-sync-alt mr-2', securityOverviewLoading ? 'fa-spin' : '']"></i>刷新证据
+                                    </button>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div v-if="securityOverviewError" class="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                            <i class="fas fa-exclamation-circle mr-2"></i>{{ securityOverviewError }}。下方完整操作日志仍可单独查询。
+                        </div>
+
+                        <div class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-6">
+                            <div class="rounded-xl border border-red-100 bg-white p-4 shadow-sm">
+                                <div class="text-xs text-slate-500">立即核查账号</div>
+                                <div class="mt-1 text-2xl font-bold text-red-700">{{ securityMetricText(securityOverview.summary?.critical_users) }}</div>
+                            </div>
+                            <div class="rounded-xl border border-orange-100 bg-white p-4 shadow-sm">
+                                <div class="text-xs text-slate-500">高风险账号</div>
+                                <div class="mt-1 text-2xl font-bold text-orange-700">{{ securityMetricText(securityOverview.summary?.high_users) }}</div>
+                            </div>
+                            <div class="rounded-xl border border-amber-100 bg-white p-4 shadow-sm">
+                                <div class="text-xs text-slate-500">请求限流</div>
+                                <div class="mt-1 text-2xl font-bold text-amber-700">{{ securityMetricText(securityOverview.summary?.rate_limited_events) }}</div>
+                            </div>
+                            <div class="rounded-xl border border-violet-100 bg-white p-4 shadow-sm">
+                                <div class="text-xs text-slate-500">越权拒绝</div>
+                                <div class="mt-1 text-2xl font-bold text-violet-700">{{ securityMetricText(securityOverview.summary?.access_denied_events) }}</div>
+                            </div>
+                            <div class="rounded-xl border border-rose-100 bg-white p-4 shadow-sm">
+                                <div class="text-xs text-slate-500">删除/清理</div>
+                                <div class="mt-1 text-2xl font-bold text-rose-700">{{ securityMetricText(securityOverview.summary?.destructive_events) }}</div>
+                            </div>
+                            <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                                <div class="text-xs text-slate-500">失败登录</div>
+                                <div class="mt-1 text-2xl font-bold text-slate-800">{{ securityMetricText(securityOverview.summary?.failed_logins) }}</div>
+                            </div>
+                        </div>
+
+                        <section data-testid="account-login-activity" class="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                            <div class="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <h3 class="font-bold text-slate-900">账号登录活跃度</h3>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500">活跃＝所选时间范围内至少一次成功登录；只统计已启用的非超级管理员账号，失败登录不计为活跃。</p>
+                                </div>
+                                <div class="text-xs leading-5 text-slate-400 lg:text-right">
+                                    <div>仅超级管理员可见</div>
+                                    <div>本名单不返回 IP 地址</div>
+                                </div>
+                            </div>
+
+                            <div v-if="securityOverview.account_activity?.complete === false" class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>{{ securityOverview.account_activity?.error || '账号登录聚合不可用，暂不生成活跃或未活跃结论。' }}
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-px bg-slate-100 md:grid-cols-4">
+                                <div class="bg-white px-5 py-4">
+                                    <div class="text-xs text-slate-500">已启用员工账号</div>
+                                    <div class="mt-1 text-2xl font-bold text-slate-900">{{ securityMetricText(securityOverview.account_activity?.summary?.enabled_accounts) }}</div>
+                                </div>
+                                <div class="bg-white px-5 py-4">
+                                    <div class="text-xs text-slate-500">本期活跃</div>
+                                    <div class="mt-1 text-2xl font-bold text-emerald-700">{{ securityOverview.account_activity?.complete === false ? '—' : securityMetricText(securityOverview.account_activity?.summary?.active_accounts) }}</div>
+                                </div>
+                                <div class="bg-white px-5 py-4">
+                                    <div class="text-xs text-slate-500">本期未活跃</div>
+                                    <div class="mt-1 text-2xl font-bold text-amber-700">{{ securityOverview.account_activity?.complete === false ? '—' : securityMetricText(securityOverview.account_activity?.summary?.inactive_accounts) }}</div>
+                                </div>
+                                <div class="bg-white px-5 py-4">
+                                    <div class="text-xs text-slate-500">其中从未成功登录</div>
+                                    <div class="mt-1 text-2xl font-bold text-red-700">{{ securityOverview.account_activity?.complete === false ? '—' : securityMetricText(securityOverview.account_activity?.summary?.never_logged_in_accounts) }}</div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 border-t border-slate-100 xl:grid-cols-2">
+                                <div class="border-b border-slate-100 xl:border-b-0 xl:border-r">
+                                    <div class="flex items-center justify-between px-5 py-3">
+                                        <div>
+                                            <h4 class="text-sm font-semibold text-slate-900">活跃账号</h4>
+                                            <p class="mt-0.5 text-xs text-slate-400">按本期成功登录次数排序</p>
+                                        </div>
+                                        <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{{ securityOverview.account_activity?.complete === false ? '—' : securityMetricText(securityOverview.account_activity?.summary?.active_accounts) }} 个</span>
+                                    </div>
+                                    <div class="max-h-[420px] divide-y divide-slate-100 overflow-y-auto border-t border-slate-100">
+                                        <div v-for="row in (securityOverview.account_activity?.active_accounts || []).slice(0, 30)" :key="`active-${row.user_id}`" class="flex items-center justify-between gap-4 px-5 py-3">
+                                            <div class="min-w-0">
+                                                <div class="truncate text-sm font-semibold text-slate-900">{{ row.realname || row.username }}</div>
+                                                <div class="mt-1 text-xs text-slate-400">{{ row.username }} · 最近成功 {{ row.last_successful_login_at || '-' }}</div>
+                                            </div>
+                                            <div class="shrink-0 text-right">
+                                                <div class="text-lg font-bold text-emerald-700">{{ securityMetricText(row.successful_logins) }}</div>
+                                                <div class="text-[11px] text-slate-400">次成功<span v-if="row.failed_logins"> · {{ row.failed_logins }} 次失败</span></div>
+                                            </div>
+                                        </div>
+                                        <div v-if="!securityOverviewLoading &amp;&amp; !securityOverviewError &amp;&amp; securityOverview.account_activity?.complete !== false &amp;&amp; !(securityOverview.account_activity?.active_accounts || []).length" class="px-5 py-8 text-center text-sm text-slate-500">本期没有员工账号成功登录。</div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="flex items-center justify-between px-5 py-3">
+                                        <div>
+                                            <h4 class="text-sm font-semibold text-slate-900">未活跃账号</h4>
+                                            <p class="mt-0.5 text-xs text-slate-400">从未登录优先，其次按历史成功登录时间排序</p>
+                                        </div>
+                                        <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{{ securityOverview.account_activity?.complete === false ? '—' : securityMetricText(securityOverview.account_activity?.summary?.inactive_accounts) }} 个</span>
+                                    </div>
+                                    <div class="max-h-[420px] divide-y divide-slate-100 overflow-y-auto border-t border-slate-100">
+                                        <div v-for="row in (securityOverview.account_activity?.inactive_accounts || []).slice(0, 30)" :key="`inactive-${row.user_id}`" class="flex items-center justify-between gap-4 px-5 py-3">
+                                            <div class="min-w-0">
+                                                <div class="truncate text-sm font-semibold text-slate-900">{{ row.realname || row.username }}</div>
+                                                <div class="mt-1 text-xs text-slate-400">{{ row.username }} · {{ row.last_successful_login_at ? `历史成功 ${row.last_successful_login_at}` : '无成功登录记录' }}</div>
+                                            </div>
+                                            <div class="shrink-0 text-right">
+                                                <span :class="row.never_logged_in ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'" class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold">{{ row.never_logged_in ? '从未登录' : '本期未活跃' }}</span>
+                                                <div v-if="row.failed_logins" class="mt-1 text-[11px] text-red-500">本期失败 {{ row.failed_logins }} 次</div>
+                                            </div>
+                                        </div>
+                                        <div v-if="!securityOverviewLoading &amp;&amp; !securityOverviewError &amp;&amp; securityOverview.account_activity?.complete !== false &amp;&amp; !(securityOverview.account_activity?.inactive_accounts || []).length" class="px-5 py-8 text-center text-sm text-slate-500">全部已启用员工账号本期均有成功登录。</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div class="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
+                            <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:col-span-2">
+                                <div class="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <h3 class="font-bold text-slate-900">需要核查的账号</h3>
+                                        <p class="mt-1 text-xs text-slate-500">按证据严重度和数量排序；点击后查看该账号完整操作日志。</p>
+                                    </div>
+                                    <span class="text-xs text-slate-400">{{ securityOverviewError ? '—' : securityMetricText(securityOverview.risk_users?.length) }} 个账号有风险信号</span>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full min-w-[760px]">
+                                        <thead class="bg-slate-50">
+                                            <tr>
+                                                <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">级别</th>
+                                                <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">账号</th>
+                                                <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">主要证据</th>
+                                                <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500">操作量</th>
+                                                <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">最近事件</th>
+                                                <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500">审查</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            <tr v-for="row in (securityOverview.risk_users || []).slice(0, 15)" :key="row.user_id || row.username" class="hover:bg-slate-50/70">
+                                                <td class="px-4 py-3">
+                                                    <span :class="securityRiskLevelClass(row.risk_level)" class="inline-flex rounded-full border px-2 py-1 text-xs font-semibold">{{ securityRiskLevelLabel(row.risk_level) }}</span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm">
+                                                    <div class="font-semibold text-slate-900">{{ row.realname || row.username }}</div>
+                                                    <div class="mt-0.5 text-xs text-slate-400">{{ row.username }} · {{ row.role_name || '角色未知' }}</div>
+                                                </td>
+                                                <td class="max-w-md px-4 py-3 text-xs leading-5 text-slate-600" :title="securitySignalText(row)">{{ securitySignalText(row) }}</td>
+                                                <td class="px-4 py-3 text-right text-sm font-semibold text-slate-700">{{ securityMetricText(row.operation_count) }}</td>
+                                                <td class="px-4 py-3 text-xs whitespace-nowrap text-slate-500">{{ row.last_event_at || '-' }}</td>
+                                                <td class="px-4 py-3 text-right">
+                                                    <button type="button" @click="reviewSecurityUser(row)" :disabled="!row.user_id" class="rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-[#a88a52] hover:text-[#6f572f] disabled:cursor-not-allowed disabled:opacity-40">查看日志</button>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div v-if="!securityOverviewLoading &amp;&amp; !securityOverviewError &amp;&amp; !(securityOverview.risk_users || []).length" class="px-5 py-10 text-center text-sm text-slate-500">当前时间范围内没有命中已定义的风险信号。</div>
+                            </section>
+
+                            <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                                <div class="border-b border-slate-100 px-5 py-4">
+                                    <h3 class="font-bold text-slate-900">登录频率排行</h3>
+                                    <p class="mt-1 text-xs text-slate-500">登录多不等同异常；失败次数和自动化客户端需要结合审查。</p>
+                                </div>
+                                <div class="max-h-[440px] divide-y divide-slate-100 overflow-y-auto">
+                                    <div v-for="row in (securityOverview.login_activity || []).slice(0, 15)" :key="`login-${row.user_id || row.username}`" class="px-5 py-3">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="truncate text-sm font-semibold text-slate-900">{{ row.realname || row.username }}</div>
+                                                <div class="mt-1 text-xs text-slate-400">{{ row.username }} · {{ row.last_login_at || '-' }}</div>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="text-lg font-bold text-slate-800">{{ securityMetricText(row.login_count) }}</div>
+                                                <div class="text-[11px] text-slate-400">次登录</div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                                            <span class="rounded bg-emerald-50 px-2 py-1 text-emerald-700">成功 {{ securityMetricText(row.successful_logins) }}</span>
+                                            <span class="rounded bg-red-50 px-2 py-1 text-red-700">失败 {{ securityMetricText(row.failed_logins) }}</span>
+                                            <span v-if="row.automated_logins" class="rounded bg-violet-50 px-2 py-1 text-violet-700">自动化 {{ row.automated_logins }}</span>
+                                            <span class="rounded bg-slate-100 px-2 py-1 text-slate-600">{{ securityOverview.ip_evidence?.quality === 'unavailable' ? 'IP不可用' : `${securityMetricText(row.distinct_ips)} 个IP` }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <section class="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                            <div class="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h3 class="font-bold text-slate-900">最新风险事件</h3>
+                                    <p class="mt-1 text-xs text-slate-500">只展示必要证据，不返回密码、Cookie、Token 或完整请求内容。</p>
+                                </div>
+                                <span class="text-xs text-slate-400">扫描登录日志 {{ securityMetricText(securityOverview.coverage?.login_rows_scanned) }} 条 · 风险操作日志 {{ securityMetricText(securityOverview.coverage?.operation_rows_scanned) }} 条</span>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full min-w-[900px]">
+                                    <thead class="bg-slate-50">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">时间</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">级别</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">账号</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">事件</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">证据</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">来源</th>
+                                            <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500">详情</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        <tr v-for="event in (securityOverview.latest_events || []).slice(0, 20)" :key="`${event.source}-${event.source_id}`" class="hover:bg-slate-50/70">
+                                            <td class="px-4 py-3 text-xs whitespace-nowrap text-slate-500">{{ event.occurred_at || '-' }}</td>
+                                            <td class="px-4 py-3"><span :class="securityRiskLevelClass(event.risk_level)" class="rounded-full border px-2 py-1 text-xs font-semibold">{{ securityRiskLevelLabel(event.risk_level) }}</span></td>
+                                            <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ event.realname || event.username || '-' }}</td>
+                                            <td class="px-4 py-3 text-sm text-slate-700">{{ event.title }}</td>
+                                            <td class="max-w-lg px-4 py-3 text-xs leading-5 text-slate-500" :title="event.reason">{{ event.reason || '-' }}</td>
+                                            <td class="px-4 py-3 text-xs text-slate-500">
+                                                <div>{{ event.client_type || '未知客户端' }}</div>
+                                                <div class="mt-0.5 text-slate-400">{{ securityOverview.ip_evidence?.quality === 'unavailable' ? '代理未透传真实IP' : (event.ip || '-') }}</div>
+                                            </td>
+                                            <td class="px-4 py-3 text-right">
+                                                <button v-if="event.source === 'operation'" type="button" @click="viewLogDetail({ id: event.source_id })" class="text-xs font-medium text-[#6f572f] hover:text-[#a88a52]">查看证据</button>
+                                                <span v-else class="text-xs text-slate-400">登录日志</span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <div class="mb-3 flex items-center justify-between gap-3">
+                            <div>
+                                <h3 class="font-bold text-slate-900">完整操作审计</h3>
+                                <p class="mt-1 text-xs text-slate-500">用于按用户、酒店、模块、类型和时间继续追查原始操作记录。</p>
+                            </div>
+                        </div>
+
+                        <!-- 日志统计 -->
+                        <div v-if="!operationLogsLoading &amp;&amp; !operationLogsError" class="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">今日操作</div>
+                                <div class="text-2xl font-bold text-gray-800">{{ logSummary.today_total }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">数据获取</div>
+                                <div class="text-2xl font-bold text-sky-600">{{ logSummary.data_acquisition_count }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">分析行为</div>
+                                <div class="text-2xl font-bold text-violet-600">{{ logSummary.analysis_count }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">活跃用户</div>
+                                <div class="text-2xl font-bold text-blue-600">{{ logSummary.active_users }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">涉及酒店</div>
+                                <div class="text-2xl font-bold text-green-600">{{ logSummary.hotel_count }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">操作模块</div>
+                                <div class="text-2xl font-bold text-purple-600">{{ logSummary.module_count }}</div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="p-5 border-b border-gray-100">
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <select v-model="logFilter.module" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部模块</option>
+                                        <option v-for="m in logModules" :key="m" :value="m">{{ m }}</option>
+                                    </select>
+                                    <select v-model="logFilter.action" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部操作</option>
+                                        <option v-for="a in logActions" :key="a" :value="a">{{ a }}</option>
+                                    </select>
+                                    <select v-model="logFilter.audit_type" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部类型</option>
+                                        <option value="security">安全事件</option>
+                                        <option value="acquisition">数据获取</option>
+                                        <option value="analysis">数据分析</option>
+                                    </select>
+                                    <select v-model="logFilter.user_id" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部用户</option>
+                                        <option v-for="(u, index) in logUsers" :key="u?.id || index" :value="u?.id || ''">{{ u?.realname || u?.username || '-' }}</option>
+                                    </select>
+                                    <select v-model="logFilter.hotel_id" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部酒店</option>
+                                        <option v-for="h in logHotels" :key="h.id" :value="h.id">{{ h.name }}</option>
+                                    </select>
+                                    <div class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                                        <input v-model="logFilter.start_date" type="date" @change="reloadOperationLogs" class="bg-transparent border-none text-sm focus:outline-none">
+                                        <span class="text-gray-400">至</span>
+                                        <input v-model="logFilter.end_date" type="date" @change="reloadOperationLogs" class="bg-transparent border-none text-sm focus:outline-none">
+                                    </div>
+                                    <button @click="reloadOperationLogs" class="btn-primary">
+                                        <i class="fas fa-search mr-2"></i>查询
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="operationLogsError" class="m-4 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <div class="text-sm font-semibold">操作日志加载失败</div>
+                                    <p class="mt-1 text-xs">{{ operationLogsError }}</p>
+                                </div>
+                                <button type="button" @click="loadOperationLogs" class="shrink-0 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">
+                                    <i class="fas fa-redo-alt mr-1.5"></i>重新加载
+                                </button>
+                            </div>
+                            <div v-else-if="operationLogsLoading" class="py-10 text-center text-sm text-gray-500">
+                                <i class="fas fa-spinner fa-spin mr-2"></i>正在加载操作日志
+                            </div>
+                            <div v-else class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">时间</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">用户</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">酒店</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">类型</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">模块</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">描述</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <tr v-for="log in operationLogs" :key="log.id" class="hover:bg-gray-50">
+                                        <td class="px-4 py-3 text-sm">{{ log.id }}</td>
+                                        <td class="px-4 py-3 text-sm whitespace-nowrap">{{ log.create_time }}</td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <span class="text-gray-900">{{ log.user?.realname || log.user?.username || '-' }}</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm">{{ log.hotel?.name || '-' }}</td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <span :class="logTypeClass(log)" class="px-2 py-1 rounded text-xs whitespace-nowrap">{{ logTypeLabel(log) }}</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{{ log.module }}</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <span :class="logActionClass(log.action)" class="px-2 py-1 rounded text-xs whitespace-nowrap">
+                                                {{ log.action }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" :title="log.description">{{ log.description }}</td>
+                                        <td class="px-4 py-3 text-sm text-gray-500">{{ log.ip }}</td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <button @click="viewLogDetail(log)" class="text-blue-500 hover:text-blue-700" title="查看详情">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            </div>
+                            <div v-if="!operationLogsLoading &amp;&amp; !operationLogsError &amp;&amp; operationLogs.length === 0" class="text-center py-8 text-gray-500">
+                                暂无日志记录
+                            </div>
+                            <!-- 分页 -->
+                            <div v-if="!operationLogsLoading &amp;&amp; !operationLogsError &amp;&amp; logPagination.total &gt; 0" class="p-4 border-t flex items-center justify-between">
+                                <div class="text-sm text-gray-500">
+                                    共 {{ logPagination.total }} 条记录
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button @click="logPagination.page &gt; 1 &amp;&amp; (logPagination.page--, loadOperationLogs())" :disabled="logPagination.page &lt;= 1" class="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        上一页
+                                    </button>
+                                    <span class="text-sm">第 {{ logPagination.page }} / {{ Math.ceil(logPagination.total / logPagination.page_size) }} 页</span>
+                                    <button @click="logPagination.page &lt; Math.ceil(logPagination.total / logPagination.page_size) &amp;&amp; (logPagination.page++, loadOperationLogs())" :disabled="logPagination.page &gt;= Math.ceil(logPagination.total / logPagination.page_size)" class="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        下一页
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 系统配置管理 (仅超级管理员) -->

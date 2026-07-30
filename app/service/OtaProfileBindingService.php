@@ -13,13 +13,19 @@ final class OtaProfileBindingService
     }
 
     /** @return array<string, mixed> */
-    public function claim(int $systemHotelId, string $platform, string $profileKey, int $actorId = 0): array
+    public function claim(
+        int $systemHotelId,
+        string $platform,
+        string $profileKey,
+        int $actorId = 0,
+        bool $allowExistingProfileDirectory = false
+    ): array
     {
         $scope = $this->hotelScope($systemHotelId);
         $identity = $this->profileIdentity($platform, $profileKey);
         $this->assertBindingTableAvailable();
 
-        return Db::transaction(function () use ($scope, $identity, $actorId): array {
+        return Db::transaction(function () use ($scope, $identity, $actorId, $allowExistingProfileDirectory): array {
             $existing = Db::name('ota_profile_bindings')
                 ->where('platform', $identity['platform'])
                 ->where('profile_key_hash', $identity['profile_key_hash'])
@@ -28,6 +34,7 @@ final class OtaProfileBindingService
 
             if (is_array($existing)) {
                 $this->assertBindingScopeMatches($existing, $scope);
+                $this->assertNoOtherActiveBinding($scope, $identity, (int)$existing['id']);
                 if (strtolower(trim((string)($existing['binding_status'] ?? ''))) !== 'active') {
                     Db::name('ota_profile_bindings')->where('id', (int)$existing['id'])->update([
                         'binding_status' => 'active',
@@ -43,8 +50,10 @@ final class OtaProfileBindingService
                 return $this->compactBinding($existing);
             }
 
+            $this->assertNoOtherActiveBinding($scope, $identity);
             $this->assertSourceMetadataDoesNotConflict($scope, $identity);
-            if (is_dir($this->profileDirectory($identity['platform'], $identity['canonical_key']))) {
+            if (!$allowExistingProfileDirectory
+                && is_dir($this->profileDirectory($identity['platform'], $identity['canonical_key']))) {
                 throw new RuntimeException('Existing OTA profile directory is unbound; explicit local rebind is required.', 409);
             }
 
@@ -211,6 +220,25 @@ final class OtaProfileBindingService
             if ($sourceTenantId !== $scope['tenant_id'] || $sourceHotelId !== $scope['system_hotel_id']) {
                 throw new RuntimeException('OTA profile source metadata conflicts across tenant or hotel scopes.', 409);
             }
+        }
+    }
+
+    /**
+     * @param array{tenant_id:int,system_hotel_id:int} $scope
+     * @param array{platform:string,canonical_key:string,profile_key_hash:string} $identity
+     */
+    private function assertNoOtherActiveBinding(array $scope, array $identity, int $excludeId = 0): void
+    {
+        $query = Db::name('ota_profile_bindings')
+            ->where('tenant_id', $scope['tenant_id'])
+            ->where('system_hotel_id', $scope['system_hotel_id'])
+            ->where('platform', $identity['platform'])
+            ->where('binding_status', 'active');
+        if ($excludeId > 0) {
+            $query->where('id', '<>', $excludeId);
+        }
+        if (is_array($query->lock(true)->find())) {
+            throw new RuntimeException('This hotel and platform already has an active Profile binding; revoke it before replacement.', 409);
         }
     }
 

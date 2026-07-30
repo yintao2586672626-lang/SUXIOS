@@ -1,0 +1,94 @@
+                    <div v-if="['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(currentPage)" class="mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                            <div>
+                                <h3 class="font-bold text-gray-800">扩张历史记录</h3>
+                                <p class="text-xs text-gray-500 mt-1">保存市场评估、标杆选模、协同提效的输入与结果，支持查看和复用。</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button @click="clearExpansionHistory" :disabled="expansionRecordsLoading || !hasExpansionHistory" class="px-3 py-2 rounded-lg border border-red-200 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i :class="expansionRecordsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-trash-alt'" class="mr-1"></i>
+                                    清空历史数据
+                                </button>
+                                <button @click="loadExpansionRecords" :disabled="expansionRecordsLoading" class="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+                                    <i :class="expansionRecordsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-1"></i>
+                                    刷新
+                                </button>
+                            </div>
+                        </div>
+                        <div v-if="expansionCurrentReadiness" class="mb-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                <div>
+                                    <div class="font-semibold">{{ expansionCurrentReadiness.notice }}</div>
+                                    <div class="mt-1">{{ expansionReadinessMissingText(expansionCurrentReadiness) }}</div>
+                                </div>
+                                <span :class="['rounded-md border px-2.5 py-1 whitespace-nowrap', expansionReadinessBadgeClass(expansionCurrentReadiness.stage)]">
+                                    {{ expansionCurrentReadiness.status_label }} · {{ expansionCurrentReadiness.score }}分
+                                </span>
+                            </div>
+                        </div>
+                        <div class="mb-4 flex flex-col lg:flex-row lg:items-end gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3">
+                            <div class="flex-1">
+                                <label class="block text-xs text-gray-500 mb-1">执行跟踪酒店</label>
+                                <select v-model="expansionExecutionHotelId" class="input-field w-full">
+                                    <option value="">请选择酒店</option>
+                                    <option v-for="hotel in expansionHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                </select>
+                            </div>
+                            <div class="text-xs text-slate-500 leading-5 lg:max-w-xl">
+                                拓展评估记录需显式绑定酒店后才能转执行跟踪；未绑定时不视为全店经营闭环。
+                            </div>
+                        </div>
+                        <div v-if="visibleExpansionRecords.length" class="overflow-x-auto">
+                            <table class="min-w-[1120px] table-fixed text-sm">
+                                <thead class="bg-gray-50 text-gray-500">
+                                    <tr>
+                                        <th class="w-20 px-3 py-3 text-left">类型</th>
+                                        <th class="w-36 px-3 py-3 text-left">项目</th>
+                                        <th class="w-24 px-3 py-3 text-left">区域</th>
+                                        <th class="w-48 px-3 py-3 text-left">结论</th>
+                                        <th class="w-20 px-3 py-3 text-left">风险</th>
+                                        <th class="w-28 px-3 py-3 text-left">立项状态</th>
+                                        <th class="w-36 px-3 py-3 text-left">时间</th>
+                                        <th class="w-52 px-3 py-3 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                                    <tr v-for="record in visibleExpansionRecords" :key="record.id" class="hover:bg-slate-50/70 transition-colors">
+                                        <td class="px-3 py-3 text-gray-600 whitespace-nowrap">{{ expansionRecordTypeLabel(record.record_type) }}</td>
+                                        <td class="px-3 py-3 font-medium text-gray-800">
+                                            <div class="truncate" :title="record.project_name || '--'">{{ record.project_name || '--' }}</div>
+                                        </td>
+                                        <td class="px-3 py-3 text-gray-600">
+                                            <div class="truncate" :title="record.city_area || '--'">{{ record.city_area || '--' }}</div>
+                                        </td>
+                                        <td class="px-3 py-3 text-gray-700">
+                                            <div class="truncate" :title="record.decision || '--'">{{ record.decision || '--' }}</div>
+                                        </td>
+                                        <td class="px-3 py-3">
+                                            <span v-if="record.risk_level" :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level }}</span>
+                                            <span v-else="" class="text-gray-400">--</span>
+                                        </td>
+                                        <td class="px-3 py-3">
+                                            <span v-if="record.project_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', expansionReadinessBadgeClass(record.project_readiness.stage)]">{{ record.project_readiness.status_label }}</span>
+                                            <span v-else="" class="text-gray-400">--</span>
+                                        </td>
+                                        <td class="px-3 py-3 text-gray-500 whitespace-nowrap">{{ record.created_at || '--' }}</td>
+                                        <td class="px-3 py-3 text-right whitespace-nowrap">
+                                            <button @click="loadExpansionDetail(record.id)" :data-testid="`history-expansion-view-${record.id}`" class="text-blue-600 hover:text-blue-800 mr-3">查看</button>
+                                            <button @click="reuseExpansionRecord(record)" :data-testid="`history-expansion-reuse-${record.id}`" class="text-emerald-600 hover:text-emerald-800 mr-3">复用输入</button>
+                                            <button v-if="!expansionExecutionIntentId(record)" @click="createExpansionExecutionIntent(record)" :disabled="expansionExecutionLoadingId === record.id" :data-testid="`history-expansion-execution-${record.id}`" class="text-indigo-600 hover:text-indigo-800 mr-3 disabled:opacity-50">
+                                                <i :class="expansionExecutionLoadingId === record.id ? 'fas fa-spinner fa-spin' : 'fas fa-tasks'" class="mr-1"></i>转跟踪
+                                            </button>
+                                            <span v-else="" class="text-xs text-indigo-600 mr-3">执行 #{{ expansionExecutionIntentId(record) }}</span>
+                                            <button @click="archiveExpansionRecord(record)" :data-testid="`history-expansion-archive-${record.id}`" class="text-red-600 hover:text-red-800">归档</button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div v-else="" class="text-center text-gray-400 py-8 text-sm">
+                            <i class="fas fa-folder-open text-2xl mb-2 opacity-60"></i>
+                            <div>暂无扩张历史记录</div>
+                        </div>
+                    </div>
+

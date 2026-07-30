@@ -42,6 +42,15 @@ class InvestmentDecision extends Base
 
         $hotelId = $inputHotelId > 0 ? $inputHotelId : (int)$this->request->param('hotel_id', 0);
         $permitted = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        if (!$this->currentUser->isSuperAdmin()) {
+            $permitted = array_values(array_filter(
+                $permitted,
+                fn(int $candidateHotelId): bool => $this->currentUser->hasHotelPermission(
+                    $candidateHotelId,
+                    'can_use_investment'
+                )
+            ));
+        }
         if (empty($permitted)) {
             throw new RuntimeException('暂无可访问酒店');
         }

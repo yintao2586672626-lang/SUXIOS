@@ -110,28 +110,24 @@ function ctrip_review_match_import_template(): array
         'reviews' => [
             [
                 'commentId' => 'replace-with-ctrip-comment-id',
-                'user_name_masked' => 'replace-with-masked-review-username',
                 'check_in_date' => 'replace-with-check-in-date',
                 'room_type' => 'replace-with-room-type',
                 'content' => 'replace-with-authorized-review-text-or-summary',
             ],
         ],
-        'INTERCEPTED_MEMBERS' => [
-            'replace-with-ctrip-im-group-id' => [
-                'replace-with-member-uid-md5' => [
-                    'uid' => 'replace-with-member-uid-md5',
-                    'nickName' => 'replace-with-guest-name',
-                    'roleType' => 'guest',
-                ],
-            ],
-        ],
+        'im_sessions' => [[
+            'groupId' => 'replace-with-ctrip-im-group-id',
+            'orderId' => 'replace-with-ctrip-order-no',
+            'arrivalDate' => 'replace-with-check-in-date',
+            'roomName' => 'replace-with-order-room-type',
+            'members' => [],
+        ]],
         'orders' => [
             [
                 'orderNo' => 'replace-with-ctrip-order-no',
-                'memberUid' => 'replace-with-member-uid-md5',
-                'contactName' => 'replace-with-guest-name',
                 'checkIn' => 'replace-with-check-in-date',
                 'room_type_name' => 'replace-with-order-room-type',
+                'orderStatus' => 'replace-with-order-status',
             ],
         ],
     ];
@@ -410,14 +406,11 @@ try {
                     'comment_id' => (string)$bridge->callPrivate('extractCtripReviewCommentId', [$review]),
                     'status' => $status,
                     'order_id' => (string)($result['order']['order_id'] ?? ''),
-                    'guest_name' => (string)($result['identity']['guest_name'] ?? $result['person_name'] ?? ''),
                     'reason' => (string)($result['reason'] ?? ''),
+                    'missing_evidence' => is_array($result['missing_evidence'] ?? null) ? $result['missing_evidence'] : [],
                 ];
             }
         }
-        $multiReviewResolution = $bridge->callPrivate('resolveCtripReviewMultiReviewOrderAssignments', [$systemHotelId, $reviews, 'payload_import_multi_review']);
-        $statusCounts = $bridge->callPrivate('applyCtripReviewMultiReviewResolutionToStatusCounts', [$statusCounts, $multiReviewResolution]);
-        $samples = $bridge->callPrivate('applyCtripReviewMultiReviewResolutionToSamples', [$samples, $multiReviewResolution]);
 
         $sourceTables = [
             'ctrip_reviews' => count($reviews),

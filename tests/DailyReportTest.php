@@ -43,7 +43,7 @@ final class DailyReportTest extends TestCase
             ['salable_rooms' => 70],
         ]));
         self::assertSame(80.0, $this->invokeNonPublic($controller, 'readNumericValue', [$hotel, ['salable_rooms_total']]));
-        self::assertSame(0.0, $this->invokeNonPublic($controller, 'resolveReportSalableRooms', [[]]));
+        self::assertNull($this->invokeNonPublic($controller, 'resolveReportSalableRooms', [[]]));
     }
 
     /**
@@ -63,6 +63,14 @@ final class DailyReportTest extends TestCase
         self::assertSame(2000.0, $sum['xb_revenue']);
         self::assertSame(100.5, $sum['mt_revenue']);
         self::assertSame(5.0, $sum['xb_rooms']);
+        self::assertSame(2, $sum['__evidence']['report_count']);
+        self::assertSame(2, $sum['__evidence']['field_counts']['xb_revenue']);
+        self::assertSame(1, $sum['__evidence']['field_counts']['mt_revenue']);
+
+        $invalidOnly = $this->invokeNonPublic($controller, 'calculateMonthSum', [[
+            (object)['report_data' => ['xb_revenue' => '']],
+        ]]);
+        self::assertArrayNotHasKey('xb_revenue', $invalidOnly);
     }
 
     public function testLegacyJsonReportDataFeedsMonthSumAndExportTotals(): void
@@ -72,11 +80,33 @@ final class DailyReportTest extends TestCase
             (object)['report_data' => json_encode([
                 'xb_revenue' => '1,200',
                 'xb_rooms' => 3,
+                'online_revenue' => 1200,
+                'online_rooms' => 3,
+                'offline_revenue' => 0,
+                'offline_rooms' => 0,
+                'other_revenue_total' => 0,
+                'room_revenue' => 1200,
+                'revenue' => 1200,
+                'total_rooms' => 3,
+                'overnight_rooms' => 3,
+                'hourly_revenue' => 0,
+                'hourly_rooms' => 0,
                 'salable_rooms' => 10,
             ], JSON_UNESCAPED_UNICODE)],
             (object)['report_data' => (object)[
                 'mt_revenue' => 800,
                 'mt_rooms' => '2',
+                'online_revenue' => 800,
+                'online_rooms' => 2,
+                'offline_revenue' => 0,
+                'offline_rooms' => 0,
+                'other_revenue_total' => 0,
+                'room_revenue' => 800,
+                'revenue' => 800,
+                'total_rooms' => 2,
+                'overnight_rooms' => 2,
+                'hourly_revenue' => 0,
+                'hourly_rooms' => 0,
                 'salable_rooms' => 10,
             ]],
         ];
@@ -123,10 +153,18 @@ final class DailyReportTest extends TestCase
             'walkin_revenue' => 300,
             'hourly_revenue' => 200,
             'parking_revenue' => 50,
+            'online_revenue' => 1500,
+            'offline_revenue' => 500,
+            'other_revenue_total' => 50,
+            'room_revenue' => 2000,
+            'revenue' => 2050,
             'xb_rooms' => 5,
             'mt_rooms' => 2,
             'walkin_rooms' => 1,
             'hourly_rooms' => 1,
+            'online_rooms' => 7,
+            'offline_rooms' => 2,
+            'total_rooms' => 9,
             'salable_rooms' => 20,
             'overnight_rooms' => 7,
             'member_card_sold' => 2,
@@ -135,7 +173,11 @@ final class DailyReportTest extends TestCase
             'private_rooms' => 1,
             'stored_value' => 500,
             'xb_good_review' => 2,
+            'xb_bad_review' => 0,
+            'mt_good_review' => 0,
             'mt_bad_review' => 1,
+            'fliggy_good_review' => 0,
+            'fliggy_bad_review' => 0,
             'tomorrow_booking' => 4,
             'cash_income' => 30,
         ];
@@ -184,6 +226,11 @@ final class DailyReportTest extends TestCase
         $reportData = [
             'xb_revenue' => 1000,
             'xb_rooms' => 5,
+            'online_revenue' => 1000,
+            'online_rooms' => 5,
+            'offline_revenue' => 0,
+            'offline_rooms' => 0,
+            'other_revenue_total' => 0,
             'salable_rooms' => 20,
         ];
 
@@ -238,6 +285,201 @@ final class DailyReportTest extends TestCase
         self::assertSame(200.0, $detail['day_adr']);
     }
 
+    public function testOtaSupplementKeepsMissingMetricsNullAndPreservesExplicitZero(): void
+    {
+        $controller = $this->controller();
+
+        $empty = $this->invokeNonPublic($controller, 'buildDailyOtaSupplementSummary', [[]]);
+        self::assertSame('pending', $empty['data_status']);
+        self::assertNull($empty['advertising']['spend']);
+        self::assertNull($empty['advertising']['order_amount']);
+        self::assertNull($empty['service_quality']['avg_psi_score']);
+        self::assertNull($empty['service_quality']['avg_service_score']);
+
+        $explicitZero = $this->invokeNonPublic($controller, 'buildDailyOtaSupplementSummary', [[
+            [
+                'data_type' => 'advertising',
+                'amount' => 0,
+                'order_amount' => 0,
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'book_order_num' => 0,
+                'quantity' => 0,
+            ],
+            [
+                'data_type' => 'quality',
+                'data_value' => 0,
+                'raw_data' => ['serviceScore' => 0],
+            ],
+        ]]);
+
+        self::assertSame('ok', $explicitZero['data_status']);
+        self::assertSame(0.0, $explicitZero['advertising']['spend']);
+        self::assertSame(0.0, $explicitZero['advertising']['order_amount']);
+        self::assertSame(0, $explicitZero['advertising']['impressions']);
+        self::assertSame(0, $explicitZero['advertising']['clicks']);
+        self::assertSame(0, $explicitZero['advertising']['bookings']);
+        self::assertSame(0.0, $explicitZero['advertising']['room_nights']);
+        self::assertNull($explicitZero['advertising']['ctr']);
+        self::assertNull($explicitZero['advertising']['cvr']);
+        self::assertNull($explicitZero['advertising']['roas']);
+        self::assertSame(0.0, $explicitZero['service_quality']['avg_psi_score']);
+        self::assertSame(0.0, $explicitZero['service_quality']['avg_service_score']);
+
+        $partial = $this->invokeNonPublic($controller, 'buildDailyOtaSupplementSummary', [[
+            ['data_type' => 'advertising', 'amount' => 10],
+        ]]);
+        self::assertSame('partial', $partial['data_status']);
+        self::assertSame('partial', $partial['advertising']['data_status']);
+        self::assertSame(10.0, $partial['advertising']['spend']);
+        self::assertNull($partial['advertising']['order_amount']);
+        self::assertContains('advertising_order_amount_missing', $partial['advertising']['data_gaps']);
+    }
+
+    public function testMissingCoreEvidenceRemainsNullAndOtaRowsDoNotBecomeWholeHotelMetrics(): void
+    {
+        $controller = $this->controller();
+        $hotel = (object)['name' => 'Sparse Hotel'];
+
+        $missing = $this->invokeNonPublic($controller, 'calculateReportDetail', [
+            $hotel,
+            [],
+            [],
+            [],
+            '2026-05-10',
+            10,
+            31,
+        ]);
+
+        foreach ([
+            'total_rooms',
+            'salable_rooms',
+            'day_revenue',
+            'day_room_revenue',
+            'day_total_rooms',
+            'day_occ_rate',
+            'day_adr',
+            'day_revpar',
+            'month_revenue',
+            'month_occ_rate',
+            'month_adr',
+            'month_revpar',
+            'month_revenue_target',
+            'month_complete_rate',
+            'month_revenue_diff',
+            'day_revenue_target',
+            'day_revenue_diff',
+        ] as $key) {
+            self::assertNull($missing[$key], $key . ' must remain missing');
+        }
+        self::assertSame('missing', $missing['data_status']);
+        self::assertFalse($missing['core_metrics_ready']);
+        self::assertSame('whole_hotel_daily_report', $missing['metric_scope']);
+        self::assertContains('daily_total_revenue_missing', array_column($missing['data_gaps'], 'code'));
+        self::assertContains('monthly_revenue_target_missing', array_column($missing['data_gaps'], 'code'));
+
+        $otaOnly = $this->invokeNonPublic($controller, 'calculateReportDetail', [
+            (object)['name' => 'OTA Only Hotel', 'salable_rooms_total' => 20],
+            ['xb_revenue' => 1000, 'xb_rooms' => 5, 'salable_rooms' => 20],
+            [],
+            ['xb_revenue' => 1000, 'xb_rooms' => 5, 'salable_rooms' => 20],
+            '2026-05-10',
+            10,
+            31,
+        ]);
+
+        self::assertNull($otaOnly['ota_total_rooms']);
+        self::assertSame(5, $otaOnly['xb_rooms']);
+        self::assertNull($otaOnly['day_revenue']);
+        self::assertNull($otaOnly['day_room_revenue']);
+        self::assertNull($otaOnly['day_total_rooms']);
+        self::assertNull($otaOnly['day_occ_rate']);
+        self::assertNull($otaOnly['day_adr']);
+        self::assertNull($otaOnly['day_revpar']);
+        self::assertStringContainsString('不参与全酒店营收', $otaOnly['data_notice']);
+    }
+
+    public function testExplicitZeroIsPreservedWithoutInventingUndefinedRatios(): void
+    {
+        $controller = $this->controller();
+        $reportData = [
+            'revenue' => 0,
+            'room_revenue' => 0,
+            'total_rooms' => 0,
+            'salable_rooms' => 20,
+            'overnight_rooms' => 0,
+            'hourly_rooms' => 0,
+        ];
+
+        $detail = $this->invokeNonPublic($controller, 'calculateReportDetail', [
+            (object)['name' => 'Zero Hotel', 'salable_rooms_total' => 20],
+            $reportData,
+            ['revenue_budget' => 0],
+            $reportData,
+            '2026-05-10',
+            10,
+            31,
+        ]);
+
+        self::assertSame(0.0, $detail['day_revenue']);
+        self::assertSame(0.0, $detail['day_room_revenue']);
+        self::assertSame(0, $detail['day_total_rooms']);
+        self::assertSame(0.0, $detail['day_occ_rate']);
+        self::assertSame(0.0, $detail['day_revpar']);
+        self::assertNull($detail['day_adr']);
+        self::assertSame(0.0, $detail['month_revenue']);
+        self::assertSame(0.0, $detail['month_occ_rate']);
+        self::assertSame(0.0, $detail['month_revpar']);
+        self::assertNull($detail['month_adr']);
+        self::assertSame(0.0, $detail['month_revenue_target']);
+        self::assertNull($detail['month_complete_rate']);
+        self::assertContains('monthly_revenue_target_not_positive', array_column($detail['data_gaps'], 'code'));
+    }
+
+    public function testMonthlyTotalsRequireEvidenceFromEveryIncludedDailyReport(): void
+    {
+        $controller = $this->controller();
+        $monthSum = $this->invokeNonPublic($controller, 'calculateMonthSum', [[
+            (object)['report_data' => [
+                'revenue' => 100,
+                'room_revenue' => 100,
+                'total_rooms' => 1,
+                'salable_rooms' => 10,
+            ]],
+            (object)['report_data' => [
+                'room_revenue' => 100,
+                'total_rooms' => 1,
+                'salable_rooms' => 10,
+            ]],
+        ]]);
+
+        $detail = $this->invokeNonPublic($controller, 'calculateReportDetail', [
+            (object)['name' => 'Partial Month Hotel', 'salable_rooms_total' => 10],
+            [
+                'revenue' => 100,
+                'room_revenue' => 100,
+                'total_rooms' => 1,
+                'salable_rooms' => 10,
+                'overnight_rooms' => 1,
+                'hourly_revenue' => 0,
+                'hourly_rooms' => 0,
+            ],
+            ['revenue_budget' => 1000],
+            $monthSum,
+            '2026-05-02',
+            2,
+            31,
+        ]);
+
+        self::assertNull($detail['month_revenue']);
+        self::assertNull($detail['month_complete_rate']);
+        self::assertNull($detail['month_revenue_diff']);
+        self::assertSame(100.0, $detail['month_adr']);
+        self::assertSame(10.0, $detail['month_occ_rate']);
+        self::assertSame(10.0, $detail['month_revpar']);
+        self::assertSame('data_gap', $detail['metric_status']['month_revenue']['status']);
+    }
+
     public function testDerivedFieldsProtectImportMappingTotals(): void
     {
         $controller = $this->controller();
@@ -256,16 +498,24 @@ final class DailyReportTest extends TestCase
             'protocol_revenue' => 100,
             'protocol_rooms' => 1,
         ];
+        foreach (['xb', 'mt', 'fliggy', 'tc', 'dy', 'qn', 'zx', 'booking', 'agoda', 'expedia'] as $channel) {
+            $data[$channel . '_revenue'] ??= 0;
+            $data[$channel . '_rooms'] ??= 0;
+        }
+        foreach (['walkin', 'member_exp', 'web_exp', 'group', 'protocol', 'wechat', 'free', 'gold_card', 'black_gold', 'hourly'] as $channel) {
+            $data[$channel . '_revenue'] ??= 0;
+            $data[$channel . '_rooms'] ??= 0;
+        }
 
         $this->invokeNonPublic($controller, 'calculateDerivedFields', [&$data]);
 
-        self::assertSame(28, $data['salable_rooms']);
-        self::assertSame(12, $data['total_rooms']);
-        self::assertSame(1800, $data['online_revenue']);
-        self::assertSame(7, $data['online_rooms']);
-        self::assertSame(600, $data['offline_revenue']);
-        self::assertSame(3, $data['offline_rooms']);
-        self::assertSame(200, $data['adr']);
+        self::assertSame(28.0, $data['salable_rooms']);
+        self::assertSame(12.0, $data['total_rooms']);
+        self::assertSame(1800.0, $data['online_revenue']);
+        self::assertSame(7.0, $data['online_rooms']);
+        self::assertSame(600.0, $data['offline_revenue']);
+        self::assertSame(5.0, $data['offline_rooms']);
+        self::assertSame(200.0, $data['adr']);
         self::assertSame(7 / 12, $data['ota_room_rate']);
     }
 
@@ -310,8 +560,12 @@ final class DailyReportTest extends TestCase
         self::assertNull($this->invokeNonPublic($controller, 'evaluateFormula', ['report.revenue + bad_function()', $context, &$invalidError]));
         self::assertIsString($invalidError);
 
+        $missingFormulaError = null;
+        self::assertNull($this->invokeNonPublic($controller, 'evaluateFormula', ['report.revenue + report.missing', $context, &$missingFormulaError]));
+        self::assertSame('公式缺少字段: report.missing', $missingFormulaError);
+
         self::assertSame(
-            'ADR 200 / score 4.8 / missing 0',
+            'ADR 200 / score 4.8 / missing —',
             $this->invokeNonPublic($controller, 'renderTemplate', ['ADR {calc.day_adr} / score {report.nested.score} / missing {report.none}', $context])
         );
 
@@ -339,6 +593,15 @@ final class DailyReportTest extends TestCase
         $reports = [
             ['data' => [
                 'salable_rooms' => 10,
+                'online_revenue' => 100,
+                'online_rooms' => 2,
+                'offline_revenue' => 110,
+                'offline_rooms' => 2,
+                'other_revenue_total' => 20,
+                'room_revenue' => 210,
+                'revenue' => 230,
+                'total_rooms' => 4,
+                'overnight_rooms' => 3,
                 'xb_revenue' => 100,
                 'xb_rooms' => 2,
                 'walkin_revenue' => 80,
@@ -348,10 +611,25 @@ final class DailyReportTest extends TestCase
                 'parking_revenue' => 20,
                 'xb_reviewable' => 2,
                 'xb_good_review' => 1,
+                'mt_reviewable' => 0,
+                'mt_good_review' => 0,
+                'fliggy_reviewable' => 0,
+                'fliggy_good_review' => 0,
                 'wechat_add' => 3,
             ]],
             ['data' => [
                 'total_rooms_count' => 20,
+                'online_revenue' => 200,
+                'online_rooms' => 3,
+                'offline_revenue' => 100,
+                'offline_rooms' => 2,
+                'other_revenue_total' => 40,
+                'room_revenue' => 300,
+                'revenue' => 340,
+                'total_rooms' => 5,
+                'overnight_rooms' => 5,
+                'hourly_revenue' => 0,
+                'hourly_rooms' => 0,
                 'mt_revenue' => 200,
                 'mt_rooms' => 3,
                 'protocol_revenue' => 100,
@@ -359,6 +637,10 @@ final class DailyReportTest extends TestCase
                 'dining_revenue' => 40,
                 'mt_reviewable' => 4,
                 'mt_good_review' => 2,
+                'xb_reviewable' => 0,
+                'xb_good_review' => 0,
+                'fliggy_reviewable' => 0,
+                'fliggy_good_review' => 0,
                 'wechat_add' => 5,
             ]],
         ];
@@ -373,10 +655,26 @@ final class DailyReportTest extends TestCase
         self::assertSame(9.0, $totals['total_rooms']);
         self::assertSame(0.3, $totals['occ_rate']);
         self::assertSame(0.5, $totals['good_review_rate']);
+        self::assertSame('ready', $totals['data_status']);
+
+        $missingTotals = $this->invokeNonPublic($controller, 'calculateTotals', [
+            [['data' => []]],
+            null,
+            null,
+            null,
+        ]);
+        self::assertNull($missingTotals['total_revenue']);
+        self::assertNull($missingTotals['room_revenue']);
+        self::assertNull($missingTotals['total_rooms']);
+        self::assertNull($missingTotals['occ_rate']);
+        self::assertNull($missingTotals['adr']);
+        self::assertNull($missingTotals['revpar']);
+        self::assertSame('partial', $missingTotals['data_status']);
+        self::assertContains('export_total_revenue_incomplete', $missingTotals['data_gaps']);
 
         self::assertSame('1,234.50', $this->invokeNonPublic($controller, 'fmtNum', [1234.5, 2]));
         self::assertSame('12.34%', $this->invokeNonPublic($controller, 'fmtPct', [0.1234]));
-        self::assertSame('0', $this->invokeNonPublic($controller, 'formatNumber', ['bad']));
+        self::assertSame('—', $this->invokeNonPublic($controller, 'formatNumber', ['bad']));
         self::assertSame('&lt;tag&gt;&quot;', $this->invokeNonPublic($controller, 'escapeHtml', ['<tag>"']));
     }
 
@@ -433,9 +731,13 @@ final class DailyReportTest extends TestCase
 
         self::assertSame(0.125, $this->invokeNonPublic($controller, 'parseNumber', ['12.5%']));
         self::assertSame(42.0, $this->invokeNonPublic($controller, 'parseNumber', ['42']));
+        self::assertNull($this->invokeNonPublic($controller, 'parseNumber', ['']));
+        self::assertNull($this->invokeNonPublic($controller, 'parseNumber', ['not-a-number']));
         self::assertSame(12.5, $this->invokeNonPublic($controller, 'parsePercent', ['12.5%']));
         self::assertSame(25.0, $this->invokeNonPublic($controller, 'parsePercent', ['0.25']));
+        self::assertSame(42.0, $this->invokeNonPublic($controller, 'parsePercent', ['42']));
         self::assertSame(125.0, $this->invokeNonPublic($controller, 'parsePercent', ['125']));
+        self::assertNull($this->invokeNonPublic($controller, 'parsePercent', ['']));
     }
 
     /**

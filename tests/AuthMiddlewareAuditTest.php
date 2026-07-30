@@ -46,6 +46,33 @@ final class AuthMiddlewareAuditTest extends TestCase
         self::assertSame(7, $this->invokeNonPublic($middleware, 'resolveAuditHotelId', [[], $user]));
     }
 
+    public function testRateLimitTenantIgnoresClientSuppliedTenantAndHotelIds(): void
+    {
+        $middleware = new Auth();
+        $user = $this->getMockBuilder(User::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__get', '__isset'])
+            ->getMock();
+        $user->method('__isset')->willReturnCallback(
+            static fn(string $key): bool => in_array($key, ['tenant_id', 'hotel_id'], true)
+        );
+        $user->method('__get')->willReturnCallback(
+            static fn(string $key): ?int => match ($key) {
+                'tenant_id' => 7,
+                'hotel_id' => 12,
+                default => null,
+            }
+        );
+
+        $tenantId = $this->invokeNonPublic($middleware, 'resolveTenantIdForRateLimit', [[
+            'tenant_id' => 999,
+            'system_hotel_id' => 998,
+            'hotel_id' => 997,
+        ], $user]);
+
+        self::assertSame(7, $tenantId);
+    }
+
     public function testRateLimitPolicyUsesStricterExportAndWriteBuckets(): void
     {
         $middleware = new Auth();
@@ -84,7 +111,33 @@ final class AuthMiddlewareAuditTest extends TestCase
         self::assertSame('ai_decision', $protected['capability']);
     }
 
-    public function testRateLimitCacheKeyIncludesTenantUserIpEndpointAndWindow(): void
+    public function testManualOtaFetchUsesDedicatedBatchQuota(): void
+    {
+        $middleware = new Auth();
+        $capability = [
+            'key' => 'online_data',
+            'rate_limit' => [
+                'scope' => 'protected_online_data',
+                'limit' => 60,
+                'window' => 3600,
+            ],
+        ];
+
+        foreach (['fetch-ctrip', 'fetch-meituan'] as $endpoint) {
+            $policy = $this->invokeNonPublic($middleware, 'resolveRateLimitPolicy', [
+                'POST',
+                '/api/online-data/' . $endpoint,
+                $capability,
+            ]);
+
+            self::assertSame('protected_ota_manual_fetch', $policy['scope']);
+            self::assertSame(600, $policy['limit']);
+            self::assertSame(3600, $policy['window']);
+            self::assertSame('online_data', $policy['capability']);
+        }
+    }
+
+    public function testRateLimitCacheKeyIncludesTenantUserIpEndpointAndWindowNamespace(): void
     {
         $key = $this->invokeNonPublic(new Auth(), 'buildRateLimitCacheKey', [
             7,
@@ -93,12 +146,11 @@ final class AuthMiddlewareAuditTest extends TestCase
             'protected_ai_decision',
             'POST',
             'api/agent/ota-diagnosis',
-            12345,
         ]);
 
         self::assertStringContainsString('tenant_7_user_42_ip_', $key);
         self::assertStringContainsString('scope_protected_ai_decision', $key);
         self::assertStringContainsString('endpoint_', $key);
-        self::assertStringEndsWith('_window_12345', $key);
+        self::assertStringEndsWith('_window', $key);
     }
 }

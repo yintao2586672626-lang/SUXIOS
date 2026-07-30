@@ -4,8 +4,8 @@
     const revenueAiStatusTone = (status) => {
         const value = String(status || '').toLowerCase();
         if (['ok', 'success', 'ready', 'reviewed', 'ready_for_manual_generation', 'pricing_generation_candidates_ready'].includes(value)) return 'ok';
-        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'skipped_by_operator_policy', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness', 'operation_intake_waiting_human_approval', 'operation_intake_ready_for_human_create', 'operation_intake_in_operation_flow', 'operation_intake_waiting_operation_progress'].includes(value)) return 'warning';
-        if (['failed', 'unauthorized', 'blocked', 'error', 'investment_precheck_blocked_by_operation_roi', 'blocked_by_operation_roi', 'blocked_by_p0_ota_gate', 'operation_intake_blocked_by_manual_review', 'operation_intake_blocked_by_operation_execution'].includes(value)) return 'blocked';
+        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness', 'operation_intake_waiting_human_approval', 'operation_intake_ready_for_human_create', 'operation_intake_in_operation_flow', 'operation_intake_waiting_operation_progress'].includes(value)) return 'warning';
+        if (['failed', 'unauthorized', 'blocked', 'error', 'skipped_by_operator_policy', 'investment_precheck_blocked_by_operation_roi', 'blocked_by_operation_roi', 'blocked_by_p0_ota_gate', 'operation_intake_blocked_by_manual_review', 'operation_intake_blocked_by_operation_execution'].includes(value)) return 'blocked';
         return 'unknown';
     };
 
@@ -39,8 +39,8 @@
         empty: '无数据',
         missing: '缺失',
         unverified: '未验证',
-        skipped_by_operator_policy: '已暂时跳过',
-        not_loaded: '未接入',
+        skipped_by_operator_policy: '缺口仍阻断',
+        not_loaded: '未加载',
         not_calculable: '不可计算',
         blocked: '待补数据',
         blocked_by_p0_ota_gate: 'P0门禁未过',
@@ -58,7 +58,7 @@
         '': '数据已命中当前口径。',
         online_daily_data_empty: '目标经营日期没有可用 OTA 入库数据。',
         source_not_loaded: '未找到对应渠道的数据源或入库状态。',
-        available_room_nights_missing: '暂缺可信全酒店可售房数据。',
+        available_room_nights_missing: '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。',
         adr_denominator_zero: 'OTA 间夜为 0，ADR 不可计算。',
         competitor_price_fields_missing: '暂缺竞对价格字段。',
         source_status_missing: '未找到平台数据源状态。',
@@ -99,7 +99,7 @@
         competitor_price_below_competitor_review_required: '本店均价低于竞对均价，需复核是否低于保护价后再判断调价。',
         competitor_price_aligned: '本店均价与竞对均价接近。',
         floor_price_missing: '暂缺最低保护价。',
-        missing_pricing_inputs_skipped_by_operator_policy: '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口。',
+        missing_pricing_inputs_skipped_by_operator_policy: '旧记录缺少可核验的操作者、确认时间和持久化记录，按定价输入缺口阻断。',
         manual_review_workflow_not_connected: '暂未接入人工审核工作流。',
         price_suggestions_missing: '定价建议表不存在。',
         price_suggestions_required_fields_missing: '定价建议表缺少必要字段。',
@@ -194,7 +194,7 @@
         { key: 'ota_room_revenue', label: '昨日OTA房费收入' },
         { key: 'ota_room_nights', label: '昨日OTA间夜' },
         { key: 'ota_adr', label: 'OTA ADR' },
-        { key: 'ota_contribution_revpar', label: 'OTA贡献RevPAR' },
+        { key: 'ota_contribution_revpar', label: 'OTA渠道贡献RevPAR' },
         { key: 'data_completeness', label: '数据完整度' },
     ]);
 
@@ -299,6 +299,65 @@
         return current && typeof current === 'object' ? current : {};
     };
 
+    const revenueAiTruthStatusLabel = (status) => ({
+        verified: '已验证',
+        partial: '部分数据',
+        unverified: '未验证',
+        collection_failed: '采集失败',
+    }[String(status || '').toLowerCase()] || '未验证');
+
+    const revenueAiTruthStatusTone = (status) => ({
+        verified: 'ok',
+        partial: 'partial',
+        unverified: 'unverified',
+        collection_failed: 'failed',
+    }[String(status || '').toLowerCase()] || 'unverified');
+
+    const revenueAiTruthRangeText = (range = {}, fallback = '-') => {
+        const start = String(range?.start || '').trim();
+        const end = String(range?.end || '').trim();
+        if (!start && !end) return fallback;
+        if (!start || !end || start === end) return start || end;
+        return `${start} 至 ${end}`;
+    };
+
+    const revenueAiMetricTruthLines = (truth = {}) => {
+        const hotels = Array.isArray(truth?.hotels) ? truth.hotels : [];
+        const hotelText = hotels.map((hotel) => {
+            const name = String(hotel?.name || '').trim();
+            const id = Number(hotel?.system_hotel_id || 0);
+            return name || (id > 0 ? `门店#${id}` : '');
+        }).filter(Boolean).join('、') || '-';
+        const platforms = Array.isArray(truth?.platforms) ? truth.platforms : [];
+        const platformText = platforms.map(revenueAiChannelLabel).filter(Boolean).join('、') || '-';
+        const source = truth?.source && typeof truth.source === 'object' ? truth.source : {};
+        const methods = Array.isArray(source.methods) ? source.methods.filter(Boolean).map(String) : [];
+        const sourceParts = [String(source.table || '').trim(), ...methods];
+        const sourceText = [...new Set(sourceParts.filter(Boolean))].join(' / ') || '-';
+        const persistence = truth?.persistence && typeof truth.persistence === 'object' ? truth.persistence : {};
+        const recordCount = Number(persistence.record_count || 0);
+        const storedCount = Number(persistence.stored_count || 0);
+        const readbackCount = Number(persistence.readback_verified_count || 0);
+        const storedText = recordCount > 0
+            ? `入库 ${storedCount}/${recordCount}；回读 ${readbackCount}/${recordCount}`
+            : '无可核验入库记录';
+        const failureReason = String(truth?.failure_reason || '').trim();
+        return [
+            { key: 'hotel', label: '门店', value: hotelText },
+            { key: 'platform', label: '平台', value: platformText },
+            { key: 'date', label: '日期', value: revenueAiTruthRangeText(truth?.date_range) },
+            { key: 'source', label: '来源', value: sourceText },
+            { key: 'collected', label: '采集时间', value: revenueAiTruthRangeText(truth?.collected_at_range) },
+            { key: 'persistence', label: '入库', value: storedText },
+            { key: 'failure', label: '失败原因', value: failureReason || '无' },
+            { key: 'scope', label: '口径', value: String(truth?.scope_label || 'OTA渠道指标，不代表全酒店经营') },
+        ];
+    };
+
+    const revenueAiMetricTruthSummary = (truth = {}) => revenueAiMetricTruthLines(truth)
+        .map((line) => `${line.label}：${line.value}`)
+        .join('；');
+
     const revenueAiClosureIssueRows = (items = [], fallbackType = 'missing') => {
         const rows = Array.isArray(items) ? items : [];
         return rows.slice(0, 6).map((item, index) => {
@@ -317,6 +376,9 @@
 
     const revenueAiClosureMetricChip = (metric = {}, label = '', key = '') => {
         const status = metric?.status || 'unknown';
+        const truth = metric?.truth && typeof metric.truth === 'object' ? metric.truth : {};
+        const hasTruthStatus = ['verified', 'partial', 'unverified', 'collection_failed'].includes(String(truth?.status || '').toLowerCase());
+        const truthStatus = hasTruthStatus ? String(truth.status).toLowerCase() : '';
         const reasons = Array.isArray(metric?.failure_reasons) ? metric.failure_reasons.filter(Boolean) : [];
         const reason = metric?.reason || reasons[0] || (status !== 'ok' ? status : '');
         return {
@@ -324,9 +386,12 @@
             label,
             value: revenueAiClosureValueText(metric),
             status,
-            statusLabel: revenueAiStatusLabel(status),
-            className: revenueAiStatusClass(status),
+            statusLabel: hasTruthStatus ? revenueAiTruthStatusLabel(truthStatus) : revenueAiStatusLabel(status),
+            className: revenueAiStatusClass(hasTruthStatus ? revenueAiTruthStatusTone(truthStatus) : status),
             reasonText: reason ? revenueAiReasonText(reason) : '',
+            truthStatus,
+            truthSummary: revenueAiMetricTruthSummary(truth),
+            truthLines: revenueAiMetricTruthLines(truth),
         };
     };
 
@@ -350,12 +415,12 @@
         detail,
     });
 
-    const revenueAiClosureNextAction = ({ calculationAllowed, missingRows, anomalyRows, operationStatus, investmentAllowed }) => {
+    const revenueAiClosureNextAction = ({ calculationAllowed, missingRows, anomalyRows, operationStatus }) => {
         if (!calculationAllowed) return '先补齐已验证 OTA 数据，当前不输出收益计算结论。';
         if (anomalyRows.length > 0) return '先复核异常判断，再进入人工审核和执行证据闭环。';
         if (missingRows.length > 0) return '收益计算可用，但缺失项需保留可见并继续补齐。';
         if (!['ok', 'ready', 'reviewed'].includes(String(operationStatus || ''))) return '可进入 AI 建议输入，下一步补人工执行和效果复盘证据。';
-        return investmentAllowed ? '可作为受控输入继续流转。' : '可进入运营闭环；全酒店投决仍需独立口径证明。';
+        return '继续完成运营执行、证据记录和效果复盘。';
     };
 
     const buildRevenueAiBusinessClosure = ({ overview = null, overviewError = '', overviewLoading = false } = {}) => {
@@ -400,7 +465,7 @@
                     key: 'overview-not-loaded',
                     stage: '接口',
                     title: '等待 Revenue AI 总览',
-                    primary: overviewLoading ? '加载中' : '未接入',
+                    primary: overviewLoading ? '加载中' : '未加载',
                     secondary: revenueAiReasonText('overview_not_loaded'),
                     statusLabel: revenueAiStatusLabel(status),
                     className: revenueAiStatusClass(status),
@@ -427,7 +492,6 @@
         const execution = overview.execution_summary || {};
         const operationStatus = execution.status || 'not_loaded';
         const aiDecision = decisionUse.ai_decision_support || {};
-        const investmentDecision = decisionUse.investment_decision || {};
         const closureStatus = closure.status || overview.data_status || 'unknown';
         const calculationAllowed = closure.calculation_allowed === true;
         const metricChips = [
@@ -439,12 +503,10 @@
             revenueAiClosureMetricChip(submitMetric, '提交转化', 'submit_rate'),
         ];
         const revenueAnalysisStatus = revenueAiClosureGroupStatus(metricChips);
-        const investmentAllowed = investmentDecision.allowed === true && closure.whole_hotel_guard?.allowed === true;
         const summaryChips = [
             revenueAiClosureSummaryChip('calculation', '收益计算', calculationAllowed ? '允许' : '阻断', calculationAllowed ? 'ok' : 'blocked', revenueAiReasonText(revenueUse.status || (calculationAllowed ? '' : 'blocked_by_data_credibility'))),
-            revenueAiClosureSummaryChip('missing', '缺失项', `${missingRows.length}项`, missingRows.length > 0 ? 'warning' : 'ok', missingRows.length > 0 ? '继续补齐缺失项' : '关键缺失项未返回'),
+            revenueAiClosureSummaryChip('missing', '缺失项', `${missingRows.length}项`, missingRows.length > 0 ? 'warning' : 'ok', missingRows.length > 0 ? '继续补齐缺失项' : '未发现关键缺失项'),
             revenueAiClosureSummaryChip('anomaly', '异常判断', `${anomalyRows.length}项`, anomalyRows.length > 0 ? 'warning' : 'ok', anomalyRows.length > 0 ? '需人工复核' : '未命中异常'),
-            revenueAiClosureSummaryChip('investment', '投决边界', investmentAllowed ? '可用' : '阻断', investmentAllowed ? 'ready' : 'blocked', revenueAiReasonText(closure.whole_hotel_guard?.reason || investmentDecision.status || 'whole_hotel_scope_not_proved')),
         ];
 
         return {
@@ -455,7 +517,7 @@
             summary: closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。',
             calculationAllowed,
             summaryChips,
-            nextAction: revenueAiClosureNextAction({ calculationAllowed, missingRows, anomalyRows, operationStatus, investmentAllowed }),
+            nextAction: revenueAiClosureNextAction({ calculationAllowed, missingRows, anomalyRows, operationStatus }),
             rows: [
                 {
                     key: 'ota-data',
@@ -494,15 +556,6 @@
                     statusLabel: revenueAiStatusLabel(operationStatus),
                     className: revenueAiStatusClass(operationStatus),
                 },
-                {
-                    key: 'investment-boundary',
-                    stage: '投决边界',
-                    title: '全酒店口径阻断',
-                    primary: investmentAllowed ? '投决输入可用' : '不进入全酒店投决',
-                    secondary: revenueAiReasonText(closure.whole_hotel_guard?.reason || investmentDecision.status || 'whole_hotel_scope_not_proved'),
-                    statusLabel: revenueAiStatusLabel(investmentAllowed ? 'ready' : 'blocked'),
-                    className: revenueAiStatusClass(investmentAllowed ? 'ready' : 'blocked'),
-                },
             ],
             missingRows,
             anomalyRows,
@@ -515,15 +568,23 @@
             const metric = metrics[definition.key] || {};
             const reason = overviewError ? 'overview_request_failed' : (metric.reason || (overview ? '' : 'overview_not_loaded'));
             const status = overviewError ? 'failed' : (metric.status || (overview ? 'unknown' : 'not_loaded'));
+            const truth = metric?.truth && typeof metric.truth === 'object' ? metric.truth : {};
+            const hasTruthStatus = ['verified', 'partial', 'unverified', 'collection_failed'].includes(String(truth?.status || '').toLowerCase());
+            const truthStatus = overviewError ? 'collection_failed' : (hasTruthStatus ? String(truth.status).toLowerCase() : '');
             return {
                 key: definition.key,
                 label: metric.label || definition.label,
                 display: metricDisplayText(metric),
-                statusLabel: revenueAiStatusLabel(status),
-                className: revenueAiStatusClass(status),
-                reasonText: metric.display_reason || revenueAiReasonText(reason),
+                statusLabel: overviewError || hasTruthStatus ? revenueAiTruthStatusLabel(truthStatus) : revenueAiStatusLabel(status),
+                className: revenueAiStatusClass(overviewError || hasTruthStatus ? revenueAiTruthStatusTone(truthStatus) : status),
+                metricStatusLabel: revenueAiStatusLabel(status),
+                reasonText: truth?.failure_reason || metric.display_reason || revenueAiReasonText(reason),
                 scopeLabel: revenueAiScopeLabel(metric.scope || overview?.scope || 'ota'),
                 dateBasisLabel: revenueAiDateBasisLabel(metric.date_basis || overview?.date_basis || 'data_date'),
+                truth,
+                truthStatus,
+                truthLines: revenueAiMetricTruthLines(truth),
+                truthSummary: revenueAiMetricTruthSummary(truth),
                 target_page: metric.target_page || 'online-data',
                 target_tab: metric.target_tab || 'data-health',
                 target_platform: metric.target_platform || '',
@@ -627,6 +688,12 @@
         const normalizedOverviewStatus = overviewError
             ? 'failed'
             : (overview?.data_status || (overviewLoading ? 'not_loaded' : overviewStatus || 'unknown'));
+        const readinessPercent = readiness?.percent !== null
+            && readiness?.percent !== undefined
+            && readiness?.percent !== ''
+            && Number.isFinite(Number(readiness.percent))
+            ? Math.max(0, Math.min(100, Number(readiness.percent)))
+            : null;
         return [
             {
                 key: 'hotel',
@@ -679,10 +746,12 @@
             {
                 key: 'completeness',
                 label: '数据完整度',
-                value: completeness?.display || readiness.summaryText || '--',
-                status: completeness?.status ? revenueAiStatusLabel(completeness.status) : `${Number(readiness.percent || 0)}%`,
+                value: completeness?.display || (readinessPercent === null ? '--' : (readiness.summaryText || `${readinessPercent}%`)),
+                status: completeness?.status
+                    ? revenueAiStatusLabel(completeness.status)
+                    : (readinessPercent === null ? '完整度未返回' : `${readinessPercent}%`),
                 detail: completeness?.reason ? revenueAiReasonText(completeness.reason) : (readiness.missingText || '等待核心数据状态生成。'),
-                className: revenueAiStatusClass(completeness?.status || (Number(readiness.percent || 0) >= 100 ? 'ok' : 'warning')),
+                className: revenueAiStatusClass(completeness?.status || (readinessPercent === null ? 'unknown' : (readinessPercent >= 100 ? 'ok' : 'warning'))),
             },
             {
                 key: 'overview',
@@ -739,10 +808,48 @@
             const allowedEndpoints = actionEntry.allowed_endpoints && typeof actionEntry.allowed_endpoints === 'object'
                 ? actionEntry.allowed_endpoints
                 : {};
-            const canApprove = item.can_review === true && manualActions.includes('approve') && !!allowedEndpoints.review;
-            const canApproveWithChanges = item.can_review === true && manualActions.includes('approve_with_changes') && !!allowedEndpoints.review;
+            const trustedDecision = item.trusted_decision && typeof item.trusted_decision === 'object'
+                ? item.trusted_decision
+                : {};
+            const trustedStore = trustedDecision.store && typeof trustedDecision.store === 'object' ? trustedDecision.store : {};
+            const trustedPlatform = trustedDecision.platform && typeof trustedDecision.platform === 'object' ? trustedDecision.platform : {};
+            const trustedDate = trustedDecision.date && typeof trustedDecision.date === 'object' ? trustedDecision.date : {};
+            const trustedSources = trustedDecision.sources && typeof trustedDecision.sources === 'object' ? trustedDecision.sources : {};
+            const trustedFormula = trustedDecision.metric_formula && typeof trustedDecision.metric_formula === 'object'
+                ? trustedDecision.metric_formula
+                : {};
+            const trustedQuality = trustedDecision.data_quality && typeof trustedDecision.data_quality === 'object'
+                ? trustedDecision.data_quality
+                : {};
+            const trustedConfidence = trustedDecision.confidence && typeof trustedDecision.confidence === 'object'
+                ? trustedDecision.confidence
+                : {};
+            const trustedAction = trustedDecision.recommended_action && typeof trustedDecision.recommended_action === 'object'
+                ? trustedDecision.recommended_action
+                : {};
+            const trustedExpectedEffect = trustedDecision.expected_effect && typeof trustedDecision.expected_effect === 'object'
+                ? trustedDecision.expected_effect
+                : {};
+            const trustedConfirmation = trustedDecision.human_confirmation && typeof trustedDecision.human_confirmation === 'object'
+                ? trustedDecision.human_confirmation
+                : {};
+            const trustedContractValid = trustedDecision.contract_version === 'revenue_ai_trusted_decision.v1';
+            const canConfirmTrusted = trustedContractValid && trustedConfirmation.can_confirm === true && item.can_confirm === true;
+            const canTransferTrusted = trustedContractValid
+                && trustedConfirmation.can_transfer_to_operation_task === true
+                && item.can_transfer_to_operation_task === true;
+            const canApprove = item.can_review === true && canConfirmTrusted && manualActions.includes('approve') && !!allowedEndpoints.review;
+            const canApproveWithChanges = item.can_review === true && canConfirmTrusted && manualActions.includes('approve_with_changes') && !!allowedEndpoints.review;
             const canReject = item.can_review === true && manualActions.includes('reject') && !!allowedEndpoints.review;
-            const canCreateExecutionIntent = manualActions.includes('create_execution_intent') && !!allowedEndpoints.execution_intent;
+            const canCreateExecutionIntent = canTransferTrusted
+                && manualActions.includes('create_execution_intent')
+                && !!allowedEndpoints.execution_intent;
+            const actionButtons = [
+                canApprove ? { key: 'approve', label: '批准' } : null,
+                canApproveWithChanges ? { key: 'approve_with_changes', label: '改价批准' } : null,
+                canReject ? { key: 'reject', label: '拒绝' } : null,
+                canCreateExecutionIntent ? { key: 'execution_intent', label: '转运营任务' } : null,
+            ].filter(Boolean);
             const currentPrice = numericPrice(item.current_price);
             const suggestedPrice = numericPrice(item.suggested_price);
             const minPrice = numericPrice(item.min_price);
@@ -767,6 +874,40 @@
             const reason = item.reason && item.reason !== '--'
                 ? item.reason
                 : (item.missing_reason ? '关键价格字段不完整，需补齐后再审核。' : '建议原因待补充。');
+            const sourceItems = Array.isArray(trustedSources.items) ? trustedSources.items : [];
+            const sourceRefs = sourceItems.map(source => {
+                if (typeof source === 'string') return source;
+                if (!source || typeof source !== 'object') return '';
+                return String(source.ref || source.source_ref || source.key || source.source || '').trim();
+            }).filter(Boolean);
+            const sourceText = sourceRefs.length
+                ? sourceRefs.join(' / ')
+                : (trustedSources.summary || '未提供已验证来源');
+            const formulaDisplay = trustedFormula.status === 'calculable'
+                ? (trustedFormula.display || '--')
+                : '不可计算';
+            const formulaText = trustedFormula.expression
+                ? `${trustedFormula.expression} = ${formulaDisplay}`
+                : formulaDisplay;
+            const gapRows = Array.isArray(trustedDecision.gaps) ? trustedDecision.gaps : [];
+            const gapText = gapRows.length
+                ? gapRows.map(gap => typeof gap === 'string' ? gap : (gap?.message || gap?.code || '')).filter(Boolean).join('；')
+                : '无输入缺口';
+            const expectedEffectText = trustedExpectedEffect.display
+                || trustedExpectedEffect.summary
+                || '待执行后按同口径回读验证';
+            const trustedDecisionRows = [
+                { key: 'store', label: '门店', value: trustedStore.display || (item.hotel_id ? `门店 #${item.hotel_id}` : '门店未绑定') },
+                { key: 'platform', label: '平台', value: trustedPlatform.label || trustedPlatform.key || '未绑定' },
+                { key: 'date', label: '日期', value: trustedDate.value || item.suggestion_date || '未提供' },
+                { key: 'source', label: '来源', value: sourceText },
+                { key: 'formula', label: '指标公式', value: formulaText, status: trustedFormula.status || 'not_calculable' },
+                { key: 'quality', label: '数据质量', value: [trustedQuality.label || trustedQuality.status || '未验证', trustedQuality.note || ''].filter(Boolean).join(' · ') },
+                { key: 'confidence', label: '置信度', value: trustedConfidence.display || '不可计算' },
+                { key: 'gaps', label: '缺口', value: gapText },
+                { key: 'action', label: '建议动作', value: trustedAction.summary || reason },
+                { key: 'effect', label: '预期效果', value: expectedEffectText },
+            ];
             return {
                 key: item.id || `${status}_${index}`,
                 id: item.id || 0,
@@ -787,6 +928,10 @@
                 revparImpactReason,
                 factorLine: item.factors_summary || '--',
                 reasonText: reason,
+                trustedDecision,
+                trustedDecisionRows,
+                trustedContractValid,
+                trustedInputReady: canConfirmTrusted || canTransferTrusted,
                 manualReviewRequired: item.manual_review_required !== false,
                 autoWriteOta: item.auto_write_ota === true,
                 canReview: item.can_review === true,
@@ -794,9 +939,14 @@
                 canApproveWithChanges,
                 canReject,
                 canCreateExecutionIntent,
+                actionButtons,
                 actionEntry,
-                actionLabel: canCreateExecutionIntent ? '转执行' : (canApprove || canApproveWithChanges || canReject ? '审核' : (actionEntry.label || '')),
-                actionHelpText: canCreateExecutionIntent ? '转为运营执行意图，仍需人工执行和复盘' : (canApprove || canApproveWithChanges || canReject ? '首页人工审核，可修改后批准；不写 OTA' : '查看建议状态'),
+                actionLabel: canCreateExecutionIntent ? '转运营任务' : (canApprove || canApproveWithChanges || canReject ? '审核' : (actionEntry.label || '')),
+                actionHelpText: canCreateExecutionIntent
+                    ? '生成本地待执行运营任务；仍需人工执行、留证和复盘'
+                    : (canApprove || canApproveWithChanges || canReject
+                        ? '仅在可信输入通过后人工审核；不写 OTA'
+                        : (trustedContractValid ? '当前可信输入仍有阻塞，先处理缺口' : '可信建议契约缺失，禁止批准')),
                 requiresSuperAdmin: actionEntry.requires_super_admin === true,
                 requiresHotelPermission: actionEntry.requires_hotel_permission === true,
                 allowedEndpoint: actionEntry.allowed_endpoint || '',
@@ -887,101 +1037,10 @@
         };
     };
 
-    const buildRevenueAiInvestmentPrecheckSummary = ({ overview = null, action = null } = {}) => {
-        const candidates = [
-            action?.operation_to_investment_handoff,
-            overview?.operation_to_investment_handoff,
-            overview?.pricing_readiness?.operation_to_investment_handoff,
-        ];
-        const handoff = candidates.find(item => item && typeof item === 'object' && Object.keys(item).length > 0) || {};
-        if (Object.keys(handoff).length === 0) {
-            return {
-                visible: false,
-                title: '投资预检',
-                status: 'not_loaded',
-                statusLabel: revenueAiStatusLabel('not_loaded'),
-                className: revenueAiStatusClass('not_loaded'),
-                reasonText: revenueAiReasonText('operation_execution_not_loaded'),
-                detailText: '',
-                sourceScope: '',
-                sourceChannels: [],
-                targetPage: '',
-                targetEntry: '',
-                targetService: '',
-                requiredGate: '',
-                operatingGateStatus: '',
-                businessClosureChainStatus: '',
-                operationRoiReady: 0,
-                readOnly: true,
-                autoWriteOta: false,
-                decisionAllowed: false,
-                canCreateInvestmentDecision: false,
-                missingEvidenceCodes: [],
-                blockedReasons: [],
-                forbiddenActions: [],
-                protectedBoundary: '',
-            };
-        }
-        const precheck = handoff.investment_precheck_packet && typeof handoff.investment_precheck_packet === 'object'
-            ? handoff.investment_precheck_packet
-            : {};
-        const asList = (value) => Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean) : [];
-        const missingEvidenceCodes = asList(precheck.missing_evidence_codes);
-        const missingEvidence = Array.isArray(precheck.missing_evidence) ? precheck.missing_evidence : [];
-        missingEvidence.forEach((item) => {
-            const code = String(item?.code || '').trim();
-            if (code && !missingEvidenceCodes.includes(code)) missingEvidenceCodes.push(code);
-        });
-        const blockedReasons = asList(handoff.blocked_reasons);
-        const sourceChannels = asList(handoff.source_channels?.length ? handoff.source_channels : handoff.source_platforms);
-        const forbiddenActions = asList(handoff.forbidden_actions);
-        const status = String(handoff.status || precheck.status || 'unknown');
-        const decisionAllowed = handoff.decision_allowed === true;
-        const canCreateInvestmentDecision = handoff.can_create_investment_decision === true;
-        const statusForDisplay = decisionAllowed && canCreateInvestmentDecision ? 'ready' : status;
-        const requiredGate = String(precheck.required_gate || '');
-        const reasonCode = missingEvidenceCodes[0] || blockedReasons[0] || String(handoff.operation_roi_reason || status);
-        const channelText = sourceChannels.length ? sourceChannels.map(revenueAiChannelLabel).join(' / ') : '';
-        const detailParts = [
-            channelText ? `范围 ${channelText}` : '',
-            handoff.upstream_operation_intake_status ? `上游 ${handoff.upstream_operation_intake_status}` : '',
-            requiredGate ? `门禁 ${requiredGate}` : '',
-            handoff.operation_roi_ready !== undefined ? `ROI ${Number(handoff.operation_roi_ready || 0)}` : '',
-        ].filter(Boolean);
-
-        return {
-            visible: true,
-            title: '投资预检',
-            status,
-            precheckStatus: String(precheck.status || ''),
-            statusLabel: revenueAiStatusLabel(statusForDisplay),
-            className: revenueAiStatusClass(statusForDisplay),
-            reasonText: revenueAiReasonText(reasonCode),
-            detailText: detailParts.join(' · '),
-            sourceScope: String(handoff.source_scope || ''),
-            sourceChannels,
-            targetPage: String(handoff.target_page || ''),
-            targetEntry: String(handoff.target_entry || ''),
-            targetService: String(handoff.target_service || ''),
-            requiredGate,
-            operatingGateStatus: String(precheck.operating_gate_status || handoff.operating_gate_status || ''),
-            businessClosureChainStatus: String(precheck.business_closure_chain_status || handoff.business_closure_chain_status || ''),
-            operationRoiReady: Number(handoff.operation_roi_ready || precheck.operation_roi_ready || 0),
-            readOnly: true,
-            autoWriteOta: false,
-            decisionAllowed,
-            canCreateInvestmentDecision,
-            missingEvidenceCodes,
-            blockedReasons,
-            forbiddenActions,
-            protectedBoundary: String(precheck.protected_boundary || handoff.protected_boundary || ''),
-        };
-    };
-
     const revenueAiPricingGenerationStatusLabel = (status) => ({
         ready_for_manual_generation: '可生成待审',
         pending_review_exists: '已有待审',
-        skipped_by_operator_policy: '已暂时跳过',
+        skipped_by_operator_policy: '缺口仍阻断',
         blocked: '生成受阻',
         failed: '预检失败',
         not_loaded: '未加载',
@@ -991,7 +1050,7 @@
         price_suggestion_generation_not_loaded: '调价建议生成预检尚未加载。',
         pricing_generation_hotel_scope_missing: '调价建议生成缺少目标系统酒店范围。',
         room_types_empty: '携程目标酒店暂无启用房型，不能生成待审调价建议。',
-        missing_pricing_inputs_skipped_by_operator_policy: '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口。',
+        missing_pricing_inputs_skipped_by_operator_policy: '旧记录缺少可核验的操作者、确认时间和持久化记录，按定价输入缺口阻断。',
         pricing_candidate_signals_missing: '调价候选信号不足，当前不会生成待审建议。',
         pricing_generation_candidates_ready: '已存在可生成待审调价建议的只读候选。',
         price_suggestions_pending_review: '存在待人工审核调价建议。',
@@ -1008,7 +1067,9 @@
             return { visible: false };
         }
 
-        const status = String(preflight.status || 'unknown');
+        const rawStatus = String(preflight.status || 'unknown');
+        const legacyUnverifiedSkip = rawStatus === 'skipped_by_operator_policy';
+        const status = legacyUnverifiedSkip ? 'blocked' : rawStatus;
         const reason = String(preflight.reason || '');
         const targetFilter = preflight.target_filter && typeof preflight.target_filter === 'object'
             ? preflight.target_filter
@@ -1018,7 +1079,7 @@
             .map((item) => ({
                 code: String(item?.code || ''),
                 source: String(item?.source || ''),
-                status: String(item?.status || ''),
+                status: String(item?.status || '') === 'skipped_by_operator_policy' ? 'missing_or_blocked' : String(item?.status || ''),
                 nextAction: String(item?.next_action || ''),
             }))
             .filter(item => item.code)
@@ -1068,7 +1129,9 @@
             status,
             statusLabel: revenueAiPricingGenerationStatusLabel(status),
             className: revenueAiStatusClass(status),
-            reasonText: String(preflight.detail || '') || revenueAiPricingGenerationReasonText(reason),
+            reasonText: legacyUnverifiedSkip
+                ? revenueAiPricingGenerationReasonText('missing_pricing_inputs_skipped_by_operator_policy')
+                : (String(preflight.detail || '') || revenueAiPricingGenerationReasonText(reason)),
             nextAction: String(preflight.next_action || ''),
             detailText: detailParts.join(' · '),
             sourceScope: String(preflight.source_scope || ''),
@@ -1264,7 +1327,6 @@
             const reviewQueueItems = buildRevenueAiReviewQueueItems(reviewQueue);
             const approvedExecutionPendingCount = reviewQueueItems.filter(item => item.canCreateExecutionIntent).length;
             const resolutionPlanSummary = buildRevenueAiResolutionPlanSummary({ overview, action });
-            const investmentPrecheckSummary = buildRevenueAiInvestmentPrecheckSummary({ overview, action });
             const pricingGenerationPreflightSummary = buildRevenueAiPricingGenerationPreflightSummary({ overview, action });
             return {
                 key: action.key || action.title,
@@ -1300,8 +1362,6 @@
                 resolutionPlanItems: resolutionPlanSummary.items,
                 pricingGenerationPreflightSummary,
                 pricingGenerationPreflightVisible: pricingGenerationPreflightSummary.visible === true,
-                investmentPrecheckSummary,
-                investmentPrecheckVisible: investmentPrecheckSummary.visible === true,
             };
         });
     };
@@ -1349,15 +1409,10 @@
             ? operationPacket.operation_intake_preflight_contract
             : (primaryAction.operation_intake_preflight_contract || {});
         const executionSummary = overview?.execution_summary && typeof overview.execution_summary === 'object' ? overview.execution_summary : {};
-        const investmentHandoff = primaryAction.operation_to_investment_handoff && typeof primaryAction.operation_to_investment_handoff === 'object'
-            ? primaryAction.operation_to_investment_handoff
-            : (overview?.operation_to_investment_handoff || overview?.pricing_readiness?.operation_to_investment_handoff || {});
-        const investmentPrecheck = buildRevenueAiInvestmentPrecheckSummary({ overview, action: primaryAction });
         const p0Status = p0Gate.status || (overview ? (overview.data_status || 'unknown') : 'not_loaded');
         const reviewStatus = reviewQueue.status || (overview ? (Number(reviewQueue.pending_count || 0) > 0 ? 'pending_review' : 'empty') : 'not_loaded');
         const operationStatus = aiToOperation.status || (overview ? 'operation_intake_blocked_by_manual_review' : 'not_loaded');
         const executionStatus = executionSummary.status || (overview ? 'empty' : 'not_loaded');
-        const investmentStatus = investmentHandoff.status || investmentPrecheck.status || (overview ? 'investment_precheck_blocked_by_operation_roi' : 'not_loaded');
 
         return [
             {
@@ -1412,19 +1467,6 @@
                 metaText: `total=${Number(executionSummary.total_count || 0)} / evidence=${Number(executionSummary.evidence_ready_count || 0)} / roi=${Number(executionSummary.roi_ready_count || 0)}`,
                 targetPage: 'ops-track',
                 canOpenTarget: true,
-            },
-            {
-                key: 'investment_precheck',
-                label: '运营到投决预检',
-                status: investmentStatus,
-                statusLabel: revenueAiStatusLabel(investmentStatus),
-                className: revenueAiStatusClass(investmentStatus),
-                detailText: investmentPrecheck.detailText || revenueAiReasonText(investmentHandoff.operation_roi_reason || 'operation_roi_missing'),
-                nextActionText: investmentHandoff.target_entry || investmentPrecheck.targetEntry || '/api/investment-decision/overview',
-                policyText: investmentHandoff.protected_boundary || investmentPrecheck.protectedBoundary || 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-                metaText: `decision_allowed=${investmentHandoff.decision_allowed === true ? 'true' : 'false'} / can_create=${investmentHandoff.can_create_investment_decision === true ? 'true' : 'false'} / roi_ready=${Number(investmentHandoff.operation_roi_ready || investmentPrecheck.operationRoiReady || 0)}`,
-                targetPage: investmentHandoff.target_page || 'investment-decision',
-                canOpenTarget: false,
             },
         ];
     };
@@ -1947,7 +1989,7 @@
         approve: '批准该调价建议',
         approve_with_changes: '修改后批准该调价建议',
         reject: '拒绝该调价建议',
-        execution_intent: '转为运营执行意图',
+        execution_intent: '转为运营任务',
     }[String(action || '').trim()] || '');
 
     const revenueAiReviewEndpoint = (item = {}, action = '') => {
@@ -2037,7 +2079,7 @@
     const buildRevenueAiReviewConfirmText = ({ action = '', actionText = '', approvedPrice = null } = {}) => {
         const normalizedAction = String(action || '').trim();
         if (normalizedAction === 'execution_intent') {
-            return '确认转为运营执行意图？该动作不会写入携程/美团价格，仍需人工执行和复盘。';
+            return '确认转为本地待执行运营任务？该动作不会写入携程/美团价格，仍需人工执行、留证和复盘。';
         }
         if (normalizedAction === 'approve_with_changes') {
             return `确认以 ${approvedPrice} 元修改后批准？该动作只更新本地审核状态，不写入携程/美团价格。`;
@@ -2048,7 +2090,7 @@
     const buildRevenueAiReviewRequestBody = ({ action = '', item = {}, approvedPrice = null, reviewRemark = '' } = {}) => {
         const normalizedAction = String(action || '').trim();
         if (normalizedAction === 'execution_intent') {
-            return { source: 'revenue_ai_homepage', expected_metric: 'orders' };
+            return { source: 'revenue_ai_homepage', expected_metric: 'orders', approve_to_task: true };
         }
         if (normalizedAction === 'approve_with_changes') {
             return {
@@ -2116,12 +2158,16 @@
             && /fallback|investigation-only|investigation item|review daily operating signal|调查项/i.test(text);
     };
 
+    const aiDailyReportActionExecutionReady = (action) => action?.can_create_execution_intent === true
+        && action?.decision_quality?.contract_version === 'ai_recommendation_quality.v2'
+        && action?.decision_quality?.execution_ready === true;
+
     const aiDailyReportActionBlockedText = (action) => {
         if (!action) return '';
         if (aiDailyReportActionIsInvestigationOnly(action)) {
             return '调查项不可转执行单，仅用于查看证据和判断是否需要进一步分析。';
         }
-        if (action.can_create_execution_intent === false) {
+        if (!aiDailyReportActionExecutionReady(action) && !action.execution_intent_id) {
             return action.blocked_reason || action.action_readiness?.notice || action.action_readiness?.next_action || '该建议受数据缺口阻断，不能直接转执行单。';
         }
         if (action.execution_blocked_reason) return action.execution_blocked_reason;
@@ -2139,14 +2185,14 @@
         if (action?.execution_intent_id) {
             return action.execution_blocked_reason ? '已生成，待补齐' : '已生成执行单';
         }
-        if (action?.can_create_execution_intent === false) return action.blocked_reason || '不可转执行单';
+        if (!aiDailyReportActionExecutionReady(action)) return action.blocked_reason || '不可转执行单';
         return '可转执行单';
     };
 
     const aiDailyReportActionButtonText = (action) => {
         if (aiDailyReportActionIsInvestigationOnly(action)) return '查看证据';
         if (action?.execution_intent_id) return '已转单';
-        if (action?.can_create_execution_intent === false) return '处理缺口';
+        if (!aiDailyReportActionExecutionReady(action)) return '处理缺口';
         if (aiDailyReportActionBlockedText(action)) return '待处理';
         return '转单';
     };
@@ -2428,17 +2474,24 @@
     const buildRevenueAiExecutionIntentOpenRow = ({ payload = {}, item = {} } = {}) => {
         const data = payload && typeof payload === 'object' ? payload : {};
         const intent = data.execution_intent && typeof data.execution_intent === 'object' ? data.execution_intent : {};
-        const intentId = Number(data.target_id || intent.id || 0);
+        const task = data.operation_task && typeof data.operation_task === 'object' ? data.operation_task : {};
+        const intentId = Number(intent.id || 0);
+        const taskId = Number(task.id || 0);
+        const targetKind = data.target_kind || (taskId > 0 ? 'task' : 'intent');
+        const targetId = Number(data.target_id || (targetKind === 'task' ? taskId : intentId) || 0);
         return {
-            canOpenExecution: intentId > 0,
+            canOpenExecution: targetId > 0,
             targetPage: data.target_page || 'ops-track',
-            targetAction: data.target_action || 'approve_intent',
-            targetId: intentId,
-            targetKind: data.target_kind || 'intent',
+            targetAction: data.target_action || (taskId > 0 ? 'record_execution' : 'approve_intent'),
+            targetId,
+            targetKind,
             intentId,
+            taskId,
             hotelId: Number(data.hotel_id || intent.hotel_id || item.hotelId || item.hotel_id || 0),
-            actionLabel: data.execution_intent_existing ? '查看执行意图' : '审批执行意图',
-            nextActionKey: data.target_action || 'approve_intent',
+            actionLabel: taskId > 0
+                ? '查看待执行运营任务'
+                : (data.execution_intent_existing ? '查看执行意图' : '审批执行意图'),
+            nextActionKey: data.target_action || (taskId > 0 ? 'record_execution' : 'approve_intent'),
         };
     };
 
@@ -2494,10 +2547,798 @@
         };
     };
 
+    const competitorMicroscopeObject = (value) => {
+        if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+        if (typeof value !== 'string' || !value.trim()) return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (_error) {
+            return {};
+        }
+    };
+
+    const competitorMicroscopeNumber = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    };
+
+    const competitorMicroscopePrice = (value) => {
+        const number = competitorMicroscopeNumber(value);
+        return number !== null && number > 0 ? number : null;
+    };
+
+    const competitorMicroscopeCurrencyText = (value) => {
+        const price = competitorMicroscopePrice(value);
+        return price === null ? '—' : `¥${price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const competitorMicroscopeAverage = (values) => {
+        const valid = values.map(competitorMicroscopeNumber).filter(value => value !== null && value > 0);
+        return valid.length ? Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2)) : null;
+    };
+
+    const competitorMicroscopeName = (row = {}) => {
+        const metadata = competitorMicroscopeObject(row.competitor_data);
+        return String(
+            row.competitor_name
+            || row.competitor_hotel?.name
+            || metadata.competitor_name
+            || (Number(row.competitor_hotel_id || 0) > 0 ? `竞对 #${Number(row.competitor_hotel_id)}` : '未知竞对')
+        ).trim();
+    };
+
+    const competitorMicroscopePlatformKey = (row = {}) => {
+        const metadata = competitorMicroscopeObject(row.competitor_data);
+        const raw = String(
+            row.ota_platform
+            ?? row.platform
+            ?? metadata.ota_platform
+            ?? metadata.platform_key
+            ?? metadata.platform
+            ?? ''
+        ).trim().toLowerCase();
+        const aliases = {
+            '1': 'ctrip',
+            ctrip: 'ctrip',
+            trip: 'ctrip',
+            'trip.com': 'ctrip',
+            ebooking: 'ctrip',
+            '携程': 'ctrip',
+            '2': 'meituan',
+            meituan: 'meituan',
+            'meituan hotel': 'meituan',
+            '美团': 'meituan',
+            '3': 'fliggy',
+            fliggy: 'fliggy',
+            '飞猪': 'fliggy',
+        };
+        return aliases[raw] || (raw ? raw.replace(/[^a-z0-9_-]+/g, '_') : 'unknown');
+    };
+
+    const competitorMicroscopePlatformLabel = (platformKey) => ({
+        ctrip: '携程',
+        meituan: '美团',
+        fliggy: '飞猪',
+        unknown: '平台未返回',
+    }[platformKey] || platformKey || '平台未返回');
+
+    const competitorMicroscopeMetadataText = (metadata, keys) => {
+        for (const key of keys) {
+            const value = metadata?.[key];
+            if (value !== null && value !== undefined && String(value).trim() !== '') return String(value).trim();
+        }
+        return '';
+    };
+
+    const competitorMicroscopeKey = (row = {}) => {
+        const id = Number(row.competitor_hotel_id || 0);
+        const competitorKey = id > 0 ? `id:${id}` : `name:${competitorMicroscopeName(row).toLowerCase()}`;
+        return `${competitorKey}|platform:${competitorMicroscopePlatformKey(row)}`;
+    };
+
+    const competitorMicroscopeSourceStatus = (row = {}) => {
+        const metadata = competitorMicroscopeObject(row.competitor_data);
+        const evidenceStatus = String(metadata.evidence_status || row.evidence_status || '').toLowerCase();
+        const sourceMethod = String(metadata.source_method || row.source_method || '').toLowerCase();
+        const validationStatus = String(metadata.validation_status || row.validation_status || '').toLowerCase();
+        const sourceRef = String(metadata.source_ref || row.source_ref || '').trim();
+        const capturedAt = String(metadata.captured_at || metadata.collected_at || row.captured_at || row.update_time || '').trim();
+        const readback = metadata.readback_verified ?? row.readback_verified;
+        const readbackVerified = readback === true || readback === 1 || ['1', 'true', 'verified'].includes(String(readback).toLowerCase());
+        const operatorProvided = evidenceStatus === 'operator_provided' || /(?:^|[_\-\s])manual(?:$|[_\-\s])/.test(sourceMethod);
+        const verified = !operatorProvided
+            && sourceMethod !== ''
+            && sourceRef !== ''
+            && capturedAt !== ''
+            && readbackVerified
+            && ['verified', 'available', 'normal', 'ok', 'valid'].includes(validationStatus);
+        if (verified) return 'verified';
+        if (operatorProvided) return 'operator_provided';
+        return 'unverified';
+    };
+
+    const competitorMicroscopeRow = (row = {}, roomTypeName = '') => {
+        const metadata = competitorMicroscopeObject(row.competitor_data);
+        const ourPrice = competitorMicroscopePrice(row.our_price);
+        const competitorPrice = competitorMicroscopePrice(row.competitor_price);
+        const gap = ourPrice !== null && competitorPrice !== null ? Number((ourPrice - competitorPrice).toFixed(2)) : null;
+        const explicitGapPercent = competitorMicroscopeNumber(row.diff_percent ?? row.price_gap_percent);
+        const gapPercent = gap === null
+            ? null
+            : (explicitGapPercent !== null
+            ? explicitGapPercent
+            : (competitorPrice > 0 ? Number((gap / competitorPrice * 100).toFixed(2)) : null));
+        const platformKey = competitorMicroscopePlatformKey(row);
+        const resolvedRoomTypeName = String(row.room_type_name || row.room_type?.name || roomTypeName || '未知房型');
+        const roomTypeId = Number(row.room_type_id || 0);
+        const roomKey = roomTypeId > 0 ? `room:${roomTypeId}` : `room-name:${resolvedRoomTypeName.toLowerCase()}`;
+        const breakfast = competitorMicroscopeMetadataText(metadata, ['breakfast', 'breakfast_policy', 'meal_plan']);
+        const cancellationPolicy = competitorMicroscopeMetadataText(metadata, ['cancellation_policy', 'cancel_policy']);
+        const ratePlan = competitorMicroscopeMetadataText(metadata, ['rate_plan_key', 'rate_plan', 'package_name']);
+        const comparisonBasisComplete = breakfast !== '' && cancellationPolicy !== '';
+        const comparisonKey = [platformKey, roomKey, breakfast || 'unknown-breakfast', cancellationPolicy || 'unknown-cancel', ratePlan || 'unknown-rate-plan'].join('|');
+        return {
+            ...row,
+            competitor_key: competitorMicroscopeKey(row),
+            competitor_name: competitorMicroscopeName(row),
+            platform_key: platformKey,
+            platform_label: competitorMicroscopePlatformLabel(platformKey),
+            room_type_name: resolvedRoomTypeName,
+            room_key: roomKey,
+            comparison_key: comparisonKey,
+            comparison_basis_complete: comparisonBasisComplete,
+            comparison_basis_text: comparisonBasisComplete ? '房型、早餐与取消口径已记录' : '仅房型口径，早餐或取消政策待核',
+            our_price: ourPrice,
+            competitor_price: competitorPrice,
+            price_gap: gap,
+            price_gap_percent: gapPercent,
+            source_status: competitorMicroscopeSourceStatus(row),
+        };
+    };
+
+    const competitorMicroscopeComparableAverage = (rows, field) => {
+        const groups = new Map();
+        rows.forEach(row => {
+            const value = competitorMicroscopePrice(row?.[field]);
+            if (value === null) return;
+            const key = String(row?.comparison_key || row?.room_key || 'unknown');
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(value);
+        });
+        return competitorMicroscopeAverage(Array.from(groups.values()).map(values => competitorMicroscopeAverage(values)));
+    };
+
+    const competitorMicroscopeMeituanRankDefinitions = [
+        { key: 'P_RZ', label: '入住榜', metrics: ['roomNights', 'roomRevenue'] },
+        { key: 'P_XS', label: '销售榜', metrics: ['salesRoomNights', 'sales'] },
+        { key: 'P_LL', label: '流量榜', metrics: ['exposure', 'views'] },
+        { key: 'P_ZH', label: '转化榜', metrics: ['viewConversion', 'payConversion'] },
+    ];
+
+    const competitorMicroscopeMeituanRankRangeKey = (value) => {
+        const range = String(value ?? '').trim().toLowerCase();
+        return ({ yesterday: '1', realtime: '0' })[range] ?? range;
+    };
+
+    const competitorMicroscopeMeituanRankRangePriority = (value) => {
+        const range = competitorMicroscopeMeituanRankRangeKey(value);
+        return ({ '1': 0, '0': 1, '': 2, '7': 3, '30': 4 })[range] ?? 5;
+    };
+
+    const competitorMicroscopeMeituanRankEntry = (row, definition, preferredRange = null, preferredMetric = null) => {
+        const entries = Array.isArray(row?.rankHistory) ? row.rankHistory : [];
+        const preferred = preferredRange === null ? null : competitorMicroscopeMeituanRankRangeKey(preferredRange);
+        const metric = preferredMetric === null ? null : String(preferredMetric).trim();
+        const candidates = entries.filter(entry => (
+            String(entry?.rankType || '').trim().toUpperCase() === definition.key
+            && (metric === null || String(entry?.metric || '').trim() === metric)
+        ));
+        return (preferred === null
+            ? candidates
+            : candidates.filter(entry => competitorMicroscopeMeituanRankRangeKey(entry?.dateRange) === preferred))
+            .slice()
+            .sort((left, right) => {
+                const leftRange = competitorMicroscopeMeituanRankRangeKey(left?.dateRange);
+                const rightRange = competitorMicroscopeMeituanRankRangeKey(right?.dateRange);
+                const rangeCompare = competitorMicroscopeMeituanRankRangePriority(leftRange)
+                    - competitorMicroscopeMeituanRankRangePriority(rightRange);
+                if (rangeCompare !== 0) return rangeCompare;
+                const leftMetric = definition.metrics.indexOf(String(left?.metric || ''));
+                const rightMetric = definition.metrics.indexOf(String(right?.metric || ''));
+                return (leftMetric < 0 ? 99 : leftMetric) - (rightMetric < 0 ? 99 : rightMetric);
+            })[0] || null;
+    };
+
+    const competitorMicroscopeMeituanRank = (entry) => {
+        const rank = competitorMicroscopeNumber(entry?.rank);
+        return rank !== null && rank > 0 ? Math.round(rank) : null;
+    };
+
+    const competitorMicroscopeMeituanMetricText = (entry) => {
+        const value = competitorMicroscopeNumber(entry?.value);
+        if (value === null || value < 0) return '数值未返回';
+        const metric = String(entry?.metric || '');
+        if (['viewConversion', 'payConversion'].includes(metric)) {
+            const ratio = Math.abs(value) > 1 ? value / 100 : value;
+            return `${Number((ratio * 100).toFixed(2))}%`;
+        }
+        if (['roomRevenue', 'sales'].includes(metric)) return `¥${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+        return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+    };
+
+    const competitorMicroscopeDateOffset = (date, offsetDays) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return '';
+        const [year, month, day] = String(date).split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, day) + offsetDays * 86400000).toISOString().slice(0, 10);
+    };
+
+    const normalizeMeituanCompetitionCircle = (payload = {}, expectedHotelId = '', expectedDate = '', requestedRange = 'yesterday') => {
+        let circle = {
+            ...competitorMicroscopeObject(payload),
+            requested_rank_range: competitorMicroscopeMeituanRankRangeKey(requestedRange),
+        };
+        const dataStatus = String(circle.data_status || circle.status || 'missing').trim().toLowerCase();
+        const usableStatuses = ['success', 'ready', 'available', 'partial', 'unverified'];
+        const missingStatuses = ['missing', 'empty', 'not_found'];
+        if (missingStatuses.includes(dataStatus)) {
+            const responseHotelId = String(circle.system_hotel_id ?? circle.hotel_id ?? '').trim();
+            const responseDate = String(circle.target_date || circle.query_scope?.date || '').trim();
+            if (responseHotelId !== String(expectedHotelId).trim() || responseDate !== String(expectedDate).trim()) {
+                circle = { ...circle, data_status: 'scope_mismatch', message: '美团竞争圈空结果与当前酒店或日期不一致' };
+                return { payload: circle, accepted: false, status: 'scope_mismatch', errorMessage: circle.message };
+            }
+            return { payload: circle, accepted: true, status: 'missing', errorMessage: '' };
+        }
+        if (usableStatuses.includes(dataStatus)) {
+            const responseHotelId = String(circle.system_hotel_id ?? circle.hotel_id ?? '').trim();
+            const responseDate = String(circle.latest_data_date || '').trim();
+            if (responseHotelId !== String(expectedHotelId).trim() || responseDate !== String(expectedDate).trim()) {
+                circle = {
+                    ...circle,
+                    data_status: 'scope_mismatch',
+                    display_hotels: [],
+                    comparison: null,
+                    message: '美团竞争圈响应与当前酒店或日期不一致',
+                };
+                return { payload: circle, accepted: false, status: 'scope_mismatch', errorMessage: circle.message };
+            }
+            if (circle.comparison) {
+                const previousDate = competitorMicroscopeDateOffset(expectedDate, -1);
+                const comparisonHotelId = String(circle.comparison.system_hotel_id ?? '').trim();
+                if (
+                    comparisonHotelId !== String(expectedHotelId).trim()
+                    || String(circle.comparison.data_date || '').trim() !== previousDate
+                ) {
+                    circle = { ...circle, comparison: null, comparison_scope_mismatch: true };
+                }
+            }
+            return { payload: circle, accepted: true, status: dataStatus, errorMessage: '' };
+        }
+        const errorMessage = String(circle.message || ({
+            stale: '美团竞争圈数据已过期',
+            permission_denied: '无权读取美团竞争圈',
+            collection_failed: '美团竞争圈采集失败',
+            failed: '美团竞争圈读取失败',
+            error: '美团竞争圈读取失败',
+        }[dataStatus] || `美团竞争圈状态不可用：${dataStatus}`));
+        return { payload: circle, accepted: false, status: dataStatus, errorMessage };
+    };
+
+    const competitorMicroscopeMeituanHotelKey = (row = {}) => {
+        const poiId = String(row?.poiId ?? row?.poi_id ?? '').trim();
+        if (poiId !== '') return `poi:${poiId.replace(/\|/g, '_')}|platform:meituan`;
+        const name = String(row?.hotelName ?? row?.hotel_name ?? '未知竞对').trim().toLowerCase();
+        return `name:${name}|platform:meituan`;
+    };
+
+    const competitorMicroscopeMeituanFindHotel = (rows, target = {}) => {
+        const poiId = String(target?.poiId ?? target?.poi_id ?? '').trim();
+        if (poiId !== '') {
+            const byPoi = rows.find(row => String(row?.poiId ?? row?.poi_id ?? '').trim() === poiId);
+            if (byPoi) return byPoi;
+        }
+        return null;
+    };
+
+    const competitorMicroscopeMeituanContext = (analysis = {}) => {
+        const hasPayload = Object.prototype.hasOwnProperty.call(analysis || {}, 'meituan_competition_circle');
+        const circle = competitorMicroscopeObject(analysis?.meituan_competition_circle);
+        const dataStatus = String(circle.data_status || circle.status || (hasPayload ? 'missing' : 'not_loaded')).trim().toLowerCase();
+        const expectedHotelId = String(analysis?.query_scope?.hotel_id || '').trim();
+        const expectedDate = String(analysis?.query_scope?.date || analysis?.date || '').trim();
+        const responseHotelId = String(circle.system_hotel_id ?? circle.hotel_id ?? '').trim();
+        const responseDate = String(circle.latest_data_date || '').trim();
+        const usable = ['success', 'ready', 'available', 'partial', 'unverified'].includes(dataStatus);
+        const scopeMismatch = usable && (
+            (expectedHotelId !== '' && responseHotelId !== expectedHotelId)
+            || (expectedDate !== '' && responseDate !== expectedDate)
+        );
+        const rows = !scopeMismatch && usable && Array.isArray(circle.display_hotels) ? circle.display_hotels : [];
+        const requestedRange = competitorMicroscopeMeituanRankRangeKey(circle.requested_rank_range ?? '1');
+        const targetPoiId = String(circle.target_poi_id || '').trim();
+        const selfRow = rows.find(row => row?.isSelf === true)
+            || (targetPoiId !== '' ? rows.find(row => String(row?.poiId ?? row?.poi_id ?? '').trim() === targetPoiId) : null)
+            || null;
+        const competitors = rows.filter(row => row && row !== selfRow && row.isSelf !== true);
+        let status = 'not_loaded';
+        let label = '未查询';
+        let message = '尚未读取目标日美团竞争圈';
+        if (scopeMismatch || dataStatus === 'scope_mismatch') {
+            status = 'scope_mismatch';
+            label = '范围不匹配';
+            message = '美团竞争圈响应与当前酒店或日期不一致，已拒绝使用';
+        } else if (dataStatus === 'permission_denied') {
+            status = 'permission_denied';
+            label = '权限不足';
+            message = String(circle.message || '无权读取美团竞争圈');
+        } else if (dataStatus === 'collection_failed') {
+            status = 'collection_failed';
+            label = '采集失败';
+            message = String(circle.message || '美团竞争圈采集失败');
+        } else if (dataStatus === 'stale') {
+            status = 'stale';
+            label = '数据过期';
+            message = String(circle.message || '美团竞争圈数据已过期，未用于当前判断');
+        } else if (['error', 'failed'].includes(dataStatus)) {
+            status = 'error';
+            label = '读取失败';
+            message = String(circle.message || '美团竞争圈读取失败');
+        } else if (['missing', 'empty', 'not_found'].includes(dataStatus) || (usable && competitors.length === 0)) {
+            status = 'missing';
+            label = '目标日无数据';
+            message = String(circle.message || '目标日未找到美团竞争圈竞对行');
+        } else if (dataStatus === 'partial') {
+            status = 'partial';
+            label = '部分可用';
+            message = String(circle.message || circle?.readiness?.detail || '美团竞争圈仅部分可用');
+        } else if (dataStatus === 'unverified') {
+            status = 'unverified';
+            label = '来源未核验';
+            message = String(circle.message || '美团竞争圈来源未核验');
+        } else if (usable) {
+            const readiness = String(circle?.readiness?.status || '').trim().toLowerCase();
+            status = readiness === 'ok' ? 'ready' : 'partial';
+            label = readiness === 'ok' ? '已入库' : '部分可用';
+            message = String(circle?.readiness?.detail || circle.source_notice || '已读取目标日美团竞争圈入库记录');
+        } else if (dataStatus !== 'not_loaded') {
+            status = dataStatus;
+            label = '状态不可用';
+            message = String(circle.message || `美团竞争圈状态不可用：${dataStatus}`);
+        }
+        const options = competitors.map(row => {
+            const rankEntries = competitorMicroscopeMeituanRankDefinitions
+                .map(definition => competitorMicroscopeMeituanRankEntry(row, definition, requestedRange))
+                .filter(Boolean);
+            const ranks = rankEntries.map(competitorMicroscopeMeituanRank).filter(rank => rank !== null);
+            return {
+                key: competitorMicroscopeMeituanHotelKey(row),
+                competitorId: 0,
+                poiId: String(row?.poiId ?? row?.poi_id ?? '').trim(),
+                name: String(row?.hotelName ?? row?.hotel_name ?? '未知竞对').trim(),
+                platformKey: 'meituan',
+                platformLabel: '美团',
+                sampleCount: ranks.length,
+                roomTypeCount: 0,
+                maxAbsGapPercent: null,
+                sourceStatus: 'stored_unverified',
+                kind: 'meituan_competition_circle',
+                optionSummary: `四榜 ${ranks.length}/4`,
+                bestRank: ranks.length ? Math.min(...ranks) : null,
+            };
+        }).sort((left, right) => (
+            Number(left.bestRank ?? 999) - Number(right.bestRank ?? 999)
+            || right.sampleCount - left.sampleCount
+            || left.name.localeCompare(right.name, 'zh-CN')
+        ));
+        return { circle, status, label, message, options, rows, selfRow, responseDate, requestedRange };
+    };
+
+    const competitorMicroscopeMeituanDetail = (analysis, option, context) => {
+        const circle = context.circle;
+        const competitorRow = context.rows.find(row => competitorMicroscopeMeituanHotelKey(row) === option.key) || null;
+        const expectedDate = String(analysis?.query_scope?.date || analysis?.date || '').trim();
+        const expectedHotelId = String(analysis?.query_scope?.hotel_id ?? '').trim();
+        const comparisonDate = String(circle?.comparison?.data_date || '').trim();
+        const comparisonHotelId = String(circle?.comparison?.system_hotel_id ?? '').trim();
+        const comparisonScopeMismatch = circle.comparison_scope_mismatch === true
+            || (circle.comparison && (
+                comparisonHotelId !== expectedHotelId
+                || comparisonDate !== competitorMicroscopeDateOffset(expectedDate, -1)
+            ));
+        const comparisonRows = !comparisonScopeMismatch && Array.isArray(circle?.comparison?.display_hotels)
+            ? circle.comparison.display_hotels
+            : [];
+        const previousCompetitor = competitorMicroscopeMeituanFindHotel(comparisonRows, competitorRow || {});
+        const previousSelf = context.selfRow ? competitorMicroscopeMeituanFindHotel(comparisonRows, context.selfRow) : null;
+        const rows = competitorMicroscopeMeituanRankDefinitions.map(definition => {
+            const competitorEntry = competitorMicroscopeMeituanRankEntry(competitorRow, definition, context.requestedRange);
+            const range = context.requestedRange;
+            const metric = competitorEntry === null ? null : String(competitorEntry.metric || '').trim();
+            const selfEntry = competitorEntry === null ? null : competitorMicroscopeMeituanRankEntry(context.selfRow, definition, range, metric);
+            const previousCompetitorEntry = competitorEntry === null ? null : competitorMicroscopeMeituanRankEntry(previousCompetitor, definition, range, metric);
+            const previousSelfEntry = competitorEntry === null ? null : competitorMicroscopeMeituanRankEntry(previousSelf, definition, range, metric);
+            const ourRank = competitorMicroscopeMeituanRank(selfEntry);
+            const competitorRank = competitorMicroscopeMeituanRank(competitorEntry);
+            const previousCompetitorRank = competitorMicroscopeMeituanRank(previousCompetitorEntry);
+            const gap = ourRank !== null && competitorRank !== null ? ourRank - competitorRank : null;
+            const rankChange = competitorRank !== null && previousCompetitorRank !== null
+                ? previousCompetitorRank - competitorRank
+                : null;
+            const gapText = gap === null
+                ? '差距未知'
+                : (gap > 0 ? `竞对领先${gap}名` : (gap < 0 ? `本店领先${Math.abs(gap)}名` : '名次持平'));
+            const trendText = rankChange === null
+                ? '前日未返回'
+                : (rankChange > 0 ? `较前日上升${rankChange}名` : (rankChange < 0 ? `较前日下降${Math.abs(rankChange)}名` : '较前日持平'));
+            const metricText = competitorMicroscopeMeituanMetricText(competitorEntry);
+            return {
+                id: `${option.key}|${definition.key}`,
+                room_type_name: definition.label,
+                rank_type: definition.key,
+                rank_range: range || '',
+                our_price: null,
+                competitor_price: null,
+                price_gap: gap,
+                price_gap_percent: null,
+                our_rank: ourRank,
+                competitor_rank: competitorRank,
+                previous_our_rank: competitorMicroscopeMeituanRank(previousSelfEntry),
+                previous_competitor_rank: previousCompetitorRank,
+                our_value_text: ourRank === null ? '未返回' : `第${ourRank}名`,
+                competitor_value_text: competitorRank === null ? '未返回' : `第${competitorRank}名`,
+                gap_text: gapText,
+                trend_text: trendText,
+                price_signal_readiness: {
+                    status_label: `${String(competitorEntry?.sourceLabel || '美团榜单入库')} · ${metricText}`,
+                },
+            };
+        });
+        const rankCoverage = rows.filter(row => row.competitor_rank !== null).length;
+        const dataGaps = ['same_product_price_not_returned', 'source_validation_status_not_returned'];
+        if (!context.selfRow) dataGaps.push('meituan_self_row_missing');
+        if (rankCoverage < 4) dataGaps.push('meituan_rank_types_incomplete');
+        if (competitorRow && Object.keys(competitorMicroscopeObject(competitorRow.metricDerived)).length > 0) {
+            dataGaps.push('meituan_derived_metrics_present');
+        }
+        if (comparisonScopeMismatch) dataGaps.push('meituan_comparison_scope_mismatch');
+        const dataGapLabelMap = {
+            same_product_price_not_returned: '美团竞争圈未返回同房型价格证据',
+            source_validation_status_not_returned: '入库记录未返回平台源核验状态',
+            meituan_self_row_missing: '竞争圈未命中本店 POI，无法计算本店名次差',
+            meituan_rank_types_incomplete: `目标日四榜仅覆盖 ${rankCoverage}/4`,
+            meituan_derived_metrics_present: '部分榜单数值由平台百分比推导',
+            meituan_comparison_scope_mismatch: '前日对比日期不匹配，已拒绝使用',
+        };
+        const trend = rows.map(row => ({
+            date: row.rank_type,
+            label: row.room_type_name,
+            ourPrice: null,
+            competitorPrice: null,
+            gap: row.price_gap,
+            gapPercent: null,
+            missing: row.competitor_rank === null,
+            comparisonText: `本店${row.our_value_text} / 竞对${row.competitor_value_text}`,
+            gapText: row.gap_text,
+        }));
+        return {
+            ...option,
+            kind: 'meituan_competition_circle',
+            avgOurPrice: null,
+            avgCompetitorPrice: null,
+            priceGap: null,
+            priceGapPercent: null,
+            trendChange: null,
+            trendChangeText: comparisonRows.length ? '含前日升降' : '前日未返回',
+            trend,
+            trendCoverageDays: rankCoverage,
+            trendTargetDays: 4,
+            trendTitle: '四榜排名对比',
+            trendEmptyText: '目标日四榜均未返回',
+            tableTitle: '美团竞争圈榜单证据',
+            ourColumnLabel: '本店排名',
+            competitorColumnLabel: '竞对排名',
+            gapColumnLabel: '名次差',
+            rows,
+            sourceStatus: 'stored_unverified',
+            sourceStatusText: '已入库，平台源核验状态未返回',
+            sourceStatusClass: 'border-amber-200 bg-amber-50 text-amber-700',
+            latestDataDate: String(circle.latest_data_date || ''),
+            hotelId: String(analysis?.query_scope?.hotel_id || ''),
+            displayDate: String(circle.latest_data_date || analysis?.query_scope?.date || analysis?.date || ''),
+            latestFetchedAt: String(circle.latest_fetched_at || ''),
+            dataGaps,
+            dataGapLabels: dataGaps.map(code => dataGapLabelMap[code] || code),
+            sameProductPriceNotice: '美团竞争圈用于酒店级排名、销售、流量和转化观察；未返回同房型、早餐、取消政策与价型价格，不能据此自动调价。',
+            metricScope: 'ota_channel',
+        };
+    };
+
+    const buildCompetitorMicroscope = (analysis = {}, requestedKey = '') => {
+        const matrix = competitorMicroscopeObject(analysis?.price_matrix);
+        const expectedHotelId = String(analysis?.query_scope?.hotel_id || '').trim();
+        const expectedScopeDate = String(analysis?.query_scope?.date || '').trim();
+        const responseDate = String(analysis?.date || analysis?.query_scope?.date || '').trim();
+        const rows = [];
+        let priceScopeRejectedCount = 0;
+        Object.entries(matrix).forEach(([roomTypeName, competitorRows]) => {
+            const entries = competitorRows && typeof competitorRows === 'object' ? Object.values(competitorRows) : [];
+            entries.forEach(row => {
+                if (!row || typeof row !== 'object') return;
+                const rowHotelId = String(row.hotel_id ?? row.system_hotel_id ?? '').trim();
+                const rowDate = String(row.analysis_date ?? row.date ?? '').trim();
+                if ((expectedHotelId && rowHotelId !== expectedHotelId)
+                    || (expectedScopeDate && rowDate !== expectedScopeDate)) {
+                    priceScopeRejectedCount += 1;
+                    return;
+                }
+                rows.push(competitorMicroscopeRow(row, roomTypeName));
+            });
+        });
+
+        const grouped = new Map();
+        rows.forEach(row => {
+            if (!grouped.has(row.competitor_key)) grouped.set(row.competitor_key, []);
+            grouped.get(row.competitor_key).push(row);
+        });
+        const priceOptions = Array.from(grouped.entries()).map(([key, groupRows]) => {
+            const gapValues = groupRows
+                .map(row => competitorMicroscopeNumber(row.price_gap_percent))
+                .filter(value => value !== null);
+            const sourceStatuses = new Set(groupRows.map(row => row.source_status));
+            const sourceStatus = sourceStatuses.size === 1
+                ? Array.from(sourceStatuses)[0]
+                : 'partial';
+            return {
+                key,
+                competitorId: Number(groupRows[0]?.competitor_hotel_id || 0),
+                name: groupRows[0]?.competitor_name || '未知竞对',
+                platformKey: groupRows[0]?.platform_key || 'unknown',
+                platformLabel: groupRows[0]?.platform_label || '平台未返回',
+                sampleCount: groupRows.length,
+                roomTypeCount: new Set(groupRows.map(row => row.room_type_name)).size,
+                maxAbsGapPercent: gapValues.length ? Number(Math.max(...gapValues.map(Math.abs)).toFixed(2)) : null,
+                sourceStatus,
+                optionSummary: gapValues.length ? `|价差| ${Number(Math.max(...gapValues.map(Math.abs)).toFixed(2))}%` : '价差未知',
+            };
+        }).sort((left, right) => {
+            const gapCompare = Number(right.maxAbsGapPercent ?? -1) - Number(left.maxAbsGapPercent ?? -1);
+            if (gapCompare !== 0) return gapCompare;
+            if (right.sampleCount !== left.sampleCount) return right.sampleCount - left.sampleCount;
+            return left.name.localeCompare(right.name, 'zh-CN');
+        });
+        const meituanContext = competitorMicroscopeMeituanContext(analysis);
+        const options = [...priceOptions, ...meituanContext.options];
+        const sourceErrors = competitorMicroscopeObject(analysis?.source_errors);
+        const ctripStatus = sourceErrors.ctrip
+            ? 'error'
+            : (priceScopeRejectedCount > 0 ? (priceOptions.length ? 'partial' : 'scope_mismatch') : (priceOptions.length ? 'ready' : 'missing'));
+        const platformStatuses = [
+            {
+                platformKey: 'ctrip',
+                platformLabel: '携程',
+                status: ctripStatus,
+                label: ({ error: '读取失败', partial: '部分行范围不匹配', scope_mismatch: '范围不匹配', ready: '价格样本已返回' })[ctripStatus] || '目标日无价格样本',
+                message: String(sourceErrors.ctrip || (priceScopeRejectedCount ? `${priceScopeRejectedCount} 条价格行缺少或不匹配酒店/日期范围` : '')),
+            },
+            {
+                platformKey: 'meituan',
+                platformLabel: '美团',
+                status: meituanContext.status,
+                label: meituanContext.label,
+                message: meituanContext.message,
+            },
+        ];
+
+        const selectedKey = options.some(option => option.key === requestedKey)
+            ? requestedKey
+            : (options[0]?.key || '');
+        if (!selectedKey) {
+            return {
+                status: 'empty',
+                selectedKey: '',
+                options: [],
+                detail: null,
+                platformStatuses,
+                scopeNotice: '携程按同品价格样本展示；美团按目标日竞争圈榜单展示。任一来源缺失时保持缺失，不使用旧日或其他酒店数据代替。',
+            };
+        }
+
+        const selectedOption = options.find(option => option.key === selectedKey);
+        if (selectedOption?.kind === 'meituan_competition_circle') {
+            const detail = competitorMicroscopeMeituanDetail(analysis, selectedOption, meituanContext);
+            return {
+                status: 'partial',
+                selectedKey,
+                options,
+                detail,
+                platformStatuses,
+                scopeNotice: `${String(meituanContext.circle.source_notice || '美团竞争圈入库数据').trim()}；仅为美团 OTA 竞争圈口径，不代表全酒店经营事实，且不包含同品价格证据。`,
+            };
+        }
+        const selectedRows = (grouped.get(selectedKey) || []).slice().sort((left, right) => (
+            (right.price_gap_percent === null ? -1 : Math.abs(Number(right.price_gap_percent)))
+            - (left.price_gap_percent === null ? -1 : Math.abs(Number(left.price_gap_percent)))
+        ));
+        const comparableSelectedRows = selectedRows.filter(row => (
+            competitorMicroscopePrice(row?.our_price) !== null
+            && competitorMicroscopePrice(row?.competitor_price) !== null
+        ));
+        const avgOurPrice = competitorMicroscopeComparableAverage(comparableSelectedRows, 'our_price');
+        const avgCompetitorPrice = competitorMicroscopeComparableAverage(comparableSelectedRows, 'competitor_price');
+        const priceGap = avgOurPrice !== null && avgCompetitorPrice !== null
+            ? Number((avgOurPrice - avgCompetitorPrice).toFixed(2))
+            : null;
+        const priceGapPercent = priceGap !== null && avgCompetitorPrice > 0
+            ? Number((priceGap / avgCompetitorPrice * 100).toFixed(2))
+            : null;
+
+        const trends = analysis?.trends && typeof analysis.trends === 'object' ? analysis.trends : {};
+        const rawTrendRows = Array.isArray(trends[String(selectedOption.competitorId)])
+            ? trends[String(selectedOption.competitorId)]
+            : (Array.isArray(trends[selectedOption.competitorId]) ? trends[selectedOption.competitorId] : []);
+        const selectedComparisonKeys = new Set(comparableSelectedRows.map(row => row.comparison_key));
+        const trendGroups = new Map();
+        let trendScopeRejectedCount = 0;
+        rawTrendRows.forEach(rawRow => {
+            if (!rawRow || typeof rawRow !== 'object' || competitorMicroscopeKey(rawRow) !== selectedKey) return;
+            const rowHotelId = String(rawRow.hotel_id ?? rawRow.system_hotel_id ?? '').trim();
+            if (expectedHotelId && rowHotelId !== expectedHotelId) {
+                trendScopeRejectedCount += 1;
+                return;
+            }
+            const row = competitorMicroscopeRow(rawRow);
+            if (row.our_price === null || row.competitor_price === null) return;
+            const date = String(row.analysis_date || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                trendScopeRejectedCount += 1;
+                return;
+            }
+            if (!selectedComparisonKeys.has(row.comparison_key)) return;
+            if (!trendGroups.has(date)) trendGroups.set(date, []);
+            trendGroups.get(date).push(row);
+        });
+
+        const expectedTrendDates = [];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(responseDate)) {
+            const [year, month, day] = responseDate.split('-').map(Number);
+            const endTimestamp = Date.UTC(year, month - 1, day);
+            for (let offset = 6; offset >= 0; offset -= 1) {
+                expectedTrendDates.push(new Date(endTimestamp - offset * 86400000).toISOString().slice(0, 10));
+            }
+        } else {
+            expectedTrendDates.push(...Array.from(trendGroups.keys()).sort((left, right) => left.localeCompare(right)));
+        }
+        const populatedTrendKeySets = expectedTrendDates
+            .map(date => trendGroups.get(date) || [])
+            .filter(dayRows => dayRows.length > 0)
+            .map(dayRows => new Set(dayRows.map(row => row.comparison_key)));
+        const commonTrendKeys = populatedTrendKeySets.length
+            ? new Set(Array.from(populatedTrendKeySets[0]).filter(key => populatedTrendKeySets.every(keys => keys.has(key))))
+            : new Set();
+        const trendEvidenceRows = expectedTrendDates.flatMap(date => (
+            (trendGroups.get(date) || []).filter(row => commonTrendKeys.has(row.comparison_key))
+        ));
+        const trend = expectedTrendDates.map(date => {
+            const dayRows = (trendGroups.get(date) || []).filter(row => commonTrendKeys.has(row.comparison_key));
+            const ourPrice = competitorMicroscopeComparableAverage(dayRows, 'our_price');
+            const competitorPrice = competitorMicroscopeComparableAverage(dayRows, 'competitor_price');
+            const gap = ourPrice !== null && competitorPrice !== null ? Number((ourPrice - competitorPrice).toFixed(2)) : null;
+            const missing = dayRows.length === 0 || ourPrice === null || competitorPrice === null;
+            const gapPercent = gap !== null && competitorPrice > 0 ? Number((gap / competitorPrice * 100).toFixed(2)) : null;
+            return {
+                date,
+                label: date.slice(5),
+                ourPrice,
+                competitorPrice,
+                gap,
+                gapPercent,
+                sampleCount: dayRows.length,
+                missing,
+                comparisonText: missing ? '缺样本' : `本 ${competitorMicroscopeCurrencyText(ourPrice)} / 竞 ${competitorMicroscopeCurrencyText(competitorPrice)}`,
+                gapText: gapPercent === null ? '价差未知' : `${gapPercent > 0 ? '+' : ''}${gapPercent}%`,
+            };
+        });
+        const trendCoverageDays = trend.filter(point => !point.missing).length;
+        const firstTrendGap = trend[0]?.gapPercent ?? null;
+        const lastTrendGap = trend[trend.length - 1]?.gapPercent ?? null;
+        const trendChange = trendCoverageDays === 7 && firstTrendGap !== null && lastTrendGap !== null
+            ? Number((lastTrendGap - firstTrendGap).toFixed(2))
+            : null;
+        const sourceStatusText = {
+            verified: '来源与回读已验证',
+            operator_provided: '人工提供样本',
+            partial: '部分来源已验证',
+            unverified: '来源未验证',
+        }[selectedOption.sourceStatus] || '来源未验证';
+        const sourceStatusClass = {
+            verified: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+            operator_provided: 'border-blue-200 bg-blue-50 text-blue-700',
+            partial: 'border-amber-200 bg-amber-50 text-amber-700',
+            unverified: 'border-gray-200 bg-gray-50 text-gray-600',
+        }[selectedOption.sourceStatus] || 'border-gray-200 bg-gray-50 text-gray-600';
+        const dataGaps = [];
+        if (avgOurPrice === null || avgCompetitorPrice === null) dataGaps.push('current_comparable_price_missing');
+        if (comparableSelectedRows.length < selectedRows.length) dataGaps.push('current_comparable_rows_incomplete');
+        if (selectedOption.platformKey === 'unknown') dataGaps.push('platform_missing');
+        if (selectedRows.some(row => row.comparison_basis_complete !== true)) dataGaps.push('rate_policy_comparability_unverified');
+        if (trendCoverageDays === 0) dataGaps.push('seven_day_trend_missing');
+        else if (trendCoverageDays < 7) dataGaps.push('seven_day_trend_incomplete');
+        if (commonTrendKeys.size > 0 && commonTrendKeys.size < selectedComparisonKeys.size) dataGaps.push('trend_room_mix_reduced');
+        if (trendEvidenceRows.some(row => competitorMicroscopeSourceStatus(row) !== 'verified')) {
+            dataGaps.push('trend_source_unverified');
+        }
+        if (priceScopeRejectedCount > 0 || trendScopeRejectedCount > 0) dataGaps.push('price_scope_rows_rejected');
+        if (!['verified'].includes(selectedOption.sourceStatus)) dataGaps.push(`source_${selectedOption.sourceStatus}`);
+        const dataGapLabelMap = {
+            current_comparable_price_missing: '当前同平台有效价格缺失',
+            current_comparable_rows_incomplete: '部分房型缺少同一行双边有效价格，未计入均价',
+            platform_missing: 'OTA平台未返回',
+            rate_policy_comparability_unverified: '早餐或取消政策口径未核验',
+            seven_day_trend_missing: '近7日无同口径趋势样本',
+            seven_day_trend_incomplete: `近7日仅覆盖 ${trendCoverageDays}/7 天`,
+            trend_room_mix_reduced: '趋势已缩小到各日共同房型口径',
+            trend_source_unverified: '趋势中存在未验证来源',
+            price_scope_rows_rejected: `已拒绝 ${priceScopeRejectedCount + trendScopeRejectedCount} 条缺少或不匹配酒店/日期范围的价格行`,
+            source_verified: '来源与回读已验证',
+            source_operator_provided: '当前为人工提供样本',
+            source_partial: '当前样本来源仅部分验证',
+            source_unverified: '当前样本来源未验证',
+        };
+        const dataGapLabels = dataGaps.map(code => dataGapLabelMap[code] || code);
+        const displayRows = selectedRows.map(row => ({
+            ...row,
+            our_value_text: competitorMicroscopeCurrencyText(row.our_price),
+            competitor_value_text: competitorMicroscopeCurrencyText(row.competitor_price),
+            gap_text: row.price_gap_percent === null ? '—' : `${row.price_gap_percent > 0 ? '+' : ''}${row.price_gap_percent}%`,
+        }));
+
+        return {
+            status: dataGaps.length ? 'partial' : 'ready',
+            selectedKey,
+            options,
+            detail: {
+                ...selectedOption,
+                kind: 'ota_price_comparison',
+                avgOurPrice,
+                avgCompetitorPrice,
+                priceGap,
+                priceGapPercent,
+                trendChange,
+                trend,
+                trendCoverageDays,
+                trendTargetDays: 7,
+                trendTitle: '7 日价差轨迹',
+                trendChangeText: trendChange === null ? '变化未知' : `较首日 ${trendChange > 0 ? '+' : ''}${trendChange}pct`,
+                trendEmptyText: '近 7 日无同口径样本',
+                tableTitle: '同日房型证据',
+                ourColumnLabel: '本店',
+                competitorColumnLabel: '竞对',
+                gapColumnLabel: '价差',
+                sameProductPriceNotice: '',
+                trendComparableKeyCount: commonTrendKeys.size,
+                rows: displayRows,
+                hotelId: expectedHotelId,
+                displayDate: responseDate,
+                sourceStatusText,
+                sourceStatusClass,
+                dataGaps,
+                dataGapLabels,
+                metricScope: 'ota_channel',
+            },
+            platformStatuses,
+            scopeNotice: '仅比较当前门店与所选竞对在同一 OTA 平台、同一日期及共同房型口径下的公开价格；早餐或取消政策未核验时只视为提示性样本，不形成自动调价或全酒店经营结论。',
+        };
+    };
+
     window.SUXI_REVENUE_AI_STATIC = Object.freeze({
         revenueAiStatusTone,
         revenueAiStatusClass,
         revenueAiStatusLabel,
+        revenueAiTruthStatusLabel,
+        revenueAiMetricTruthLines,
+        revenueAiMetricTruthSummary,
         revenueAiReasonText,
         revenueAiScopeLabel,
         revenueAiDateBasisLabel,
@@ -2520,7 +3361,6 @@
         buildRevenueAiSignalRows,
         buildRevenueAiReviewQueueItems,
         buildRevenueAiResolutionPlanSummary,
-        buildRevenueAiInvestmentPrecheckSummary,
         buildRevenueAiPricingGenerationPreflightSummary,
         buildRevenueAiPriceSuggestionGenerateResult,
         buildRevenueAiActionRows,
@@ -2550,6 +3390,7 @@
         aiDailyReportActionSources,
         aiDailyReportEvidenceTarget,
         aiDailyReportActionIsInvestigationOnly,
+        aiDailyReportActionExecutionReady,
         aiDailyReportActionBlockedText,
         aiDailyReportActionStatusText,
         aiDailyReportActionButtonText,
@@ -2560,5 +3401,7 @@
         buildRevenueAiExecutionIntentOpenRow,
         resolveRevenueAiReviewNavigation,
         buildRevenueAiReviewNavigationState,
+        normalizeMeituanCompetitionCircle,
+        buildCompetitorMicroscope,
     });
 }());

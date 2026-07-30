@@ -6,6 +6,7 @@ namespace app\service;
 class OperationAuditClassifier
 {
     private const AUDITED_PREFIXES = [
+        'api/auth' => ['module' => 'auth', 'label' => 'authentication'],
         'api/admin/competitor-wechat-robot' => ['module' => 'competitor', 'label' => 'competitor wechat robot'],
         'api/admin/competitor-hotels' => ['module' => 'competitor', 'label' => 'competitor hotels'],
         'admin/competitor-wechat-robot' => ['module' => 'competitor', 'label' => 'competitor wechat robot'],
@@ -42,12 +43,18 @@ class OperationAuditClassifier
         'api/operation-logs',
     ];
 
+    private const FAILURE_EXCLUDED_PREFIXES = [
+        'api/health',
+        'api/operation-logs',
+    ];
+
     private const MANUAL_LOGGED_PATHS = [
         'api/online-data/fetch-ctrip',
         'api/online-data/fetch-meituan',
         'api/online-data/fetch-ctrip-traffic',
         'api/online-data/ctrip/traffic',
         'api/online-data/fetch-meituan-traffic',
+        'api/online-data/fetch-meituan-order-flow',
         'api/online-data/fetch-meituan-comments',
         'api/online-data/fetch-ctrip-comments',
         'api/online-data/fetch-custom',
@@ -71,6 +78,7 @@ class OperationAuditClassifier
         'api/monthly-tasks',
         'api/report-configs',
         'api/admin/competitor-hotels',
+        'api/admin/competitor-devices',
         'api/ai-config/models',
         'admin/competitor-wechat-robot',
     ];
@@ -85,6 +93,8 @@ class OperationAuditClassifier
         'api/compass/layout',
         'compass/save-layout',
         'api/online-data/save-cookies',
+        'api/online-data/save-ctrip-config',
+        'api/online-data/save-meituan-config',
         'api/online-data/save-meituan-config-item',
         'api/online-data/delete-meituan-config',
         'api/online-data/save-meituan-comment-config',
@@ -129,8 +139,8 @@ class OperationAuditClassifier
         'history' => '历史数据',
         'latest' => '最新数据',
         'cookie-status' => 'Cookie状态',
-        'full-data' => '运营全量数据',
-        'root-cause' => '根因分析',
+        'full-data' => '运营数据汇总',
+        'root-cause' => '可能影响因素分析',
         'strategy-simulation' => '策略模拟',
         'market-evaluation' => '市场评估',
         'benchmark-model' => '标杆模型',
@@ -145,7 +155,7 @@ class OperationAuditClassifier
         'simulate' => '策略推演',
         'calculate' => '量化测算',
         'records' => '记录列表',
-        'source' => '真实数据源',
+        'source' => '来源数据',
         'revenue-analysis' => '收益分析',
         'competitor-analysis' => '竞对分析',
         'demand-forecasts' => '需求预测',
@@ -175,6 +185,27 @@ class OperationAuditClassifier
             return null;
         }
 
+        return $this->classifyPath($method, $path);
+    }
+
+    public function classifyFailure(string $method, string $uri): ?array
+    {
+        $path = $this->normalizePath($uri);
+        if ($path === '') {
+            return null;
+        }
+
+        foreach (self::FAILURE_EXCLUDED_PREFIXES as $prefix) {
+            if ($this->pathMatchesPrefix($path, $prefix)) {
+                return null;
+            }
+        }
+
+        return $this->classifyPath(strtoupper($method), $path);
+    }
+
+    private function classifyPath(string $method, string $path): ?array
+    {
         foreach (self::AUDITED_PREFIXES as $prefix => $meta) {
             if (!$this->pathMatchesPrefix($path, $prefix)) {
                 continue;
@@ -202,6 +233,10 @@ class OperationAuditClassifier
 
     private function resolveAction(string $method, string $path): ?string
     {
+        if ($method === 'POST' && $path === 'api/online-data/public-page-diagnosis/execution-intent') {
+            return 'save_form';
+        }
+
         if ($this->isArchiveOperation($method, $path)) {
             return 'archive_form';
         }

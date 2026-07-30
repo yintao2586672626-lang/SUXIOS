@@ -1,0 +1,12 @@
+[Unit]
+Description=Check SUXIOS OTA bundle inbox every five minutes
+
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=5min
+RandomizedDelaySec=60s
+Persistent=true
+Unit=suxios-cloud-data-bridge.service
+
+[Install]
+WantedBy=timers.target

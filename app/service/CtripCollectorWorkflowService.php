@@ -68,9 +68,15 @@ final class CtripCollectorWorkflowService
         }
 
         $definition = self::FLOW_DEFINITIONS[$flow];
+        $boundedSections = trim((string)($options['bounded_capture_sections'] ?? $options['boundedCaptureSections'] ?? ''));
         $options['collector_flow'] = $flow;
-        $options['capture_sections'] = $definition['capture_sections'];
-        $options['profile_sections'] = $definition['capture_sections'];
+        // An automated yesterday backfill deliberately runs one missing
+        // section at a time. It must not be widened by the source's normal
+        // full-collection flow; manual/full callers do not set this option.
+        $options['capture_sections'] = $boundedSections !== ''
+            ? $boundedSections
+            : $definition['capture_sections'];
+        $options['profile_sections'] = $options['capture_sections'];
         $options['data_period'] = $definition['data_period'];
         if ($flow === 'realtime' && $this->firstValue($options, [], ['data_date', 'dataDate']) === null) {
             $options['data_date'] = date('Y-m-d');

@@ -13,6 +13,11 @@ class MacroSignalService
 
     private ExternalSignalService $external;
 
+    private bool $readFailed = false;
+
+    /** @var string[] */
+    private array $readFailureAreas = [];
+
     public function __construct(?ExternalSignalService $external = null)
     {
         $this->external = $external ?: new ExternalSignalService();
@@ -39,6 +44,7 @@ class MacroSignalService
 
     public function trendOverview(array $hotelIds = [], string $range = '30', string $startDate = '', string $endDate = ''): array
     {
+        $this->resetReadState();
         [$startDate, $endDate, $rangeKey, $rangeLabel] = $this->resolveTrendRange($range, $startDate, $endDate);
 
         $dailyRows = $this->readDailyRowsBetween($hotelIds, $startDate, $endDate);
@@ -47,16 +53,21 @@ class MacroSignalService
         $forecasts = $this->readDemandForecasts($hotelIds);
         $series = $this->buildTrendSeries($dailyRows, $onlineRows, $competitorRows, $startDate, $endDate);
         $sampleDays = count(array_filter($series['rows'], static fn (array $row): bool => (bool)$row['has_sample']));
-        $hasSamples = $sampleDays >= 2;
 
         $cards = [
-            $this->buildRevenueTrendCard($series['rows'], $rangeLabel, $hasSamples),
-            $this->buildDemandTrendCard($series['rows'], $forecasts, $rangeLabel, $hasSamples),
-            $this->buildPriceTrendCard($series['rows'], $series['competitor_avg'], $rangeLabel, $hasSamples),
-            $this->buildChannelTrendCard($series['rows'], $rangeLabel, $hasSamples),
+            $this->buildRevenueTrendCard($series['rows'], $rangeLabel),
+            $this->buildDemandTrendCard($series['rows'], $forecasts, $rangeLabel),
+            $this->buildPriceTrendCard(
+                $series['rows'],
+                $series['competitor_avg'],
+                $rangeLabel,
+                $series['competitor_price_summary'] ?? []
+            ),
+            $this->buildChannelTrendCard($series['rows'], $rangeLabel),
         ];
         $displayCards = array_values(array_filter($cards, fn (array $card): bool => $this->isTrendDisplayCard($card)));
         $interpretationCards = !empty($displayCards) ? $displayCards : $cards;
+        $readStatus = $this->macroReadStatus();
 
         return [
             'range' => [
@@ -65,10 +76,13 @@ class MacroSignalService
                 'start_date' => $startDate,
                 'end_date' => $endDate,
             ],
-            'data_status' => $hasSamples ? 'ok' : 'insufficient',
+            'data_status' => $readStatus['status'] === 'read_failed'
+                ? 'read_failed'
+                : ($sampleDays >= 2 ? 'ok' : 'insufficient'),
+            'read_failure_areas' => $readStatus['areas'],
             'sample_days' => $sampleDays,
             'updated_at' => date('Y-m-d H:i:s'),
-            'cards' => $displayCards,
+            'cards' => $cards,
             'chart' => [
                 'labels' => array_column($series['rows'], 'label'),
                 'metrics' => [
@@ -294,12 +308,16 @@ class MacroSignalService
         $daily = $this->readDailyRows($hotelIds, 30);
         $competitors = $this->readCompetitorPrices($hotelIds, 30);
         $adr = $this->avgAdr($online, $daily);
-        $competitorAvg = $this->avgField($competitors, 'price');
+        $competitorSummary = $this->summarizeComparableCompetitorPrices($competitors);
+        $competitorAvg = $competitorSummary['avg_price'];
         $occupancy = $this->avgOccupancy($daily);
         $conversion = $this->aggregateTraffic($online)['conversion'];
 
         if ($adr <= 0 && $competitorAvg <= 0) {
-            return $this->pending('price', '价格信号', '等待 ADR、竞对价格、入住率和转化数据同步');
+            return $this->appendCompetitorPriceEvidence(
+                $this->pending('price', '价格信号', '等待 ADR、严格可比的竞对价格、入住率和转化数据同步'),
+                $competitorSummary
+            );
         }
 
         $gap = ($adr > 0 && $competitorAvg > 0) ? $adr - $competitorAvg : null;
@@ -331,9 +349,15 @@ class MacroSignalService
             $status = 'attention';
             $statusText = '待校准';
             $level = 'yellow';
-            $summary = '已有本店 ADR，缺少竞对价格样本，暂不判断价差';
-            $reasons = ['近30天未读取到有效竞对价格样本'];
-            $suggestions = ['同步或录入竞对价格后再判断价差'];
+            if (($competitorSummary['visible_row_count'] ?? 0) > 0) {
+                $summary = '已有竞对原始价，但价盘口径、客人结构或验证回读证据不完整，仅作参考，未与本店 ADR 比较';
+                $reasons = ['竞对价格未通过严格可比性门控'];
+                $suggestions = ['补齐同平台、同入住日、同房型价型及完整价格条件并完成验证回读后再判断'];
+            } else {
+                $summary = '已有本店 ADR，缺少严格可比的竞对价格样本，暂不判断价差';
+                $reasons = ['近30天未读取到严格可比的竞对价格样本'];
+                $suggestions = ['同步或录入完整竞对价盘证据后再判断价差'];
+            }
         } elseif ($gap !== null && $competitorAvg > 0) {
             $gapRate = $gap / $competitorAvg;
             if ($gapRate > 0.15 && (($occupancy !== null && $occupancy < 70) || ($conversion !== null && $conversion < 3))) {
@@ -353,7 +377,10 @@ class MacroSignalService
             }
         }
 
-        return $this->card('price', '价格信号', $status, $statusText, $level, $summary, $metrics, $suggestions, '去分析', $reasons);
+        return $this->appendCompetitorPriceEvidence(
+            $this->card('price', '价格信号', $status, $statusText, $level, $summary, $metrics, $suggestions, '去分析', $reasons),
+            $competitorSummary
+        );
     }
 
     private function demand(array $hotelIds): array
@@ -585,9 +612,12 @@ class MacroSignalService
         }
         unset($row);
 
+        $competitorSummary = $this->summarizeComparableCompetitorPrices($competitorRows);
+
         return [
             'rows' => array_values($rows),
-            'competitor_avg' => $this->avgField($competitorRows, 'price'),
+            'competitor_avg' => (float)($competitorSummary['avg_price'] ?? 0.0),
+            'competitor_price_summary' => $competitorSummary,
         ];
     }
 
@@ -638,18 +668,19 @@ class MacroSignalService
         return $total;
     }
 
-    private function buildRevenueTrendCard(array $rows, string $rangeLabel, bool $hasSamples): array
+    private function buildRevenueTrendCard(array $rows, string $rangeLabel): array
     {
-        if (!$hasSamples) {
+        $values = $this->positiveNumericValues(array_column($rows, 'revenue'));
+        if (count($values) < 2) {
             return $this->trendPendingCard('revenue', '收益趋势', '等待线上数据或经营日报同步后生成收益趋势');
         }
 
-        $values = array_column($rows, 'revenue');
         $trend = $this->compareSeries($values);
-        $total = array_sum(array_map(static fn ($value): float => (float)($value ?? 0), $values));
+        $total = array_sum($values);
         $direction = $this->trendDirectionText($trend);
-        return [
+        return $this->withTrendImpact([
             'key' => 'revenue',
+            'status' => 'available',
             'name' => '收益趋势',
             'value' => $this->formatMoneyShort($total),
             'direction' => $direction,
@@ -658,27 +689,29 @@ class MacroSignalService
             'source' => '来源：经营日报收入；无日报时取 OTA 成交额',
             'spark' => $this->sparkline($values),
             'change_rate' => $trend['change_rate'],
-        ];
+        ]);
     }
 
-    private function buildDemandTrendCard(array $rows, array $forecasts, string $rangeLabel, bool $hasSamples): array
+    private function buildDemandTrendCard(array $rows, array $forecasts, string $rangeLabel): array
     {
-        $orderValues = array_map(static fn (array $row): ?float => $row['orders'] > 0 ? (float)$row['orders'] : null, $rows);
-        $forecastDemand = (int)$this->sumField($forecasts, 'predicted_demand');
-        if (!$hasSamples && $forecastDemand <= 0) {
+        $orderValues = $this->positiveNumericValues(array_column($rows, 'orders'));
+        $forecastValues = $this->positiveNumericValues(array_column($forecasts, 'predicted_demand'));
+        $forecastDemand = (int)round(array_sum($forecastValues));
+        if ($orderValues === [] && $forecastValues === []) {
             return $this->trendPendingCard('demand', '市场需求', '数据依据不足，暂不生成趋势判断');
         }
 
         $trend = $this->compareSeries($orderValues);
-        $orders = array_sum(array_map(static fn ($value): float => (float)($value ?? 0), $orderValues));
+        $orders = array_sum($orderValues);
         $direction = $this->trendDirectionText($trend);
         $value = $orders > 0 ? (int)round($orders) . '单' : $forecastDemand . '间夜';
         $note = $orders > 0
             ? "{$rangeLabel}订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
             : '已读取未来需求预测，等待订单样本校准';
 
-        return [
+        return $this->withTrendImpact([
             'key' => 'demand',
+            'status' => 'available',
             'name' => '市场需求',
             'value' => $value,
             'direction' => $orders > 0 ? $direction : '预测可用',
@@ -687,15 +720,18 @@ class MacroSignalService
             'source' => '来源：OTA 订单数；无订单时取需求预测',
             'spark' => $this->sparkline($orderValues),
             'change_rate' => $trend['change_rate'],
-        ];
+        ]);
     }
 
-    private function buildPriceTrendCard(array $rows, float $competitorAvg, string $rangeLabel, bool $hasSamples): array
+    private function buildPriceTrendCard(array $rows, float $competitorAvg, string $rangeLabel, array $competitorSummary = []): array
     {
-        $values = array_column($rows, 'adr');
+        $values = $this->positiveNumericValues(array_column($rows, 'adr'));
         $avgAdr = $this->avgNumeric($values);
-        if (!$hasSamples || $avgAdr <= 0) {
-            return $this->trendPendingCard('price', '价格竞争', '等待 ADR 或竞对价格同步后判断价格走势');
+        if ($avgAdr <= 0 || (count($values) < 2 && $competitorAvg <= 0)) {
+            return $this->appendCompetitorPriceEvidence(
+                $this->trendPendingCard('price', '价格竞争', '等待 ADR 或严格可比的竞对价格同步后判断价格走势'),
+                $competitorSummary
+            );
         }
 
         $priceBand = $this->priceBandFromSamples($values, $competitorAvg);
@@ -721,8 +757,9 @@ class MacroSignalService
             $note = '本店ADR较竞对均价' . ($gap >= 0 ? '高' : '低') . '¥' . abs((int)round($gap)) . '，价格区间已纳入竞对均价校准';
         }
 
-        return [
+        $card = $this->withTrendImpact([
             'key' => 'price',
+            'status' => 'available',
             'name' => '价格竞争',
             'value' => $priceBand['value'],
             'direction' => $badge,
@@ -735,41 +772,59 @@ class MacroSignalService
             'adr_avg' => round($avgAdr, 2),
             'competitor_avg' => $competitorAvg > 0 ? round($competitorAvg, 2) : null,
             'price_sample_count' => $priceBand['sample_count'],
-        ];
+        ]);
+
+        if (($competitorSummary['comparison_status'] ?? '') === 'reference_only') {
+            $card['source'] = '来源：经营日报/OTA 推算 ADR；不完整竞对原始价仅作参考，未参与价差比较';
+            $card['note'] = "{$rangeLabel}ADR{$direction}，竞对原始价因可比字段或验证回读不完整未参与比较";
+        }
+
+        return $this->appendCompetitorPriceEvidence($card, $competitorSummary);
     }
 
-    private function buildChannelTrendCard(array $rows, string $rangeLabel, bool $hasSamples): array
+    private function buildChannelTrendCard(array $rows, string $rangeLabel): array
     {
         $conversionValues = array_column($rows, 'channel_conversion');
         $avgConversion = $this->avgNumeric($conversionValues);
-        $orders = array_sum(array_map(static fn (array $row): float => (float)$row['orders'], $rows));
-        $exposure = array_sum(array_map(static fn (array $row): float => (float)$row['exposure'], $rows));
-        if (!$hasSamples || ($avgConversion <= 0 && $orders <= 0 && $exposure <= 0)) {
+        $orders = array_sum($this->positiveNumericValues(array_column($rows, 'orders')));
+        $exposure = array_sum($this->positiveNumericValues(array_column($rows, 'exposure')));
+        if ($avgConversion <= 0 && $orders <= 0 && $exposure <= 0) {
             return $this->trendPendingCard('channel', '渠道表现', '等待 OTA 曝光、访客、转化和订单数据同步');
         }
 
         $trend = $this->compareSeries($avgConversion > 0 ? $conversionValues : array_map(static fn (array $row): ?float => $row['orders'] > 0 ? (float)$row['orders'] : null, $rows));
         $direction = $this->trendDirectionText($trend);
         $level = $trend['level'];
-        $value = $avgConversion > 0 ? round($avgConversion, 1) . '%' : (int)round($orders) . '单';
+        if ($avgConversion > 0) {
+            $value = round($avgConversion, 1) . '%';
+        } elseif ($orders > 0) {
+            $value = (int)round($orders) . '单';
+        } else {
+            $value = (int)round($exposure) . '曝光';
+            $direction = '曝光已同步';
+            $level = 'blue';
+        }
         if ($avgConversion > 0 && $avgConversion < 3) {
             $level = 'yellow';
             $direction = '转化偏低';
         }
 
-        return [
+        return $this->withTrendImpact([
             'key' => 'channel',
+            'status' => 'available',
             'name' => '渠道表现',
             'value' => $value,
             'direction' => $direction,
             'level' => $level,
             'note' => $avgConversion > 0
                 ? "{$rangeLabel}OTA平均转化率{$value}，持续跟踪曝光到订单效率"
-                : "{$rangeLabel}OTA订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']),
+                : ($orders > 0
+                    ? "{$rangeLabel}OTA订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
+                    : "{$rangeLabel}OTA曝光已同步，等待访客、转化和订单样本"),
             'source' => '来源：OTA 曝光、访客、转化和订单数据',
             'spark' => $this->sparkline($avgConversion > 0 ? $conversionValues : array_column($rows, 'orders')),
             'change_rate' => $trend['change_rate'],
-        ];
+        ]);
     }
 
     private function buildTrendInterpretation(array $cards, int $sampleDays, string $rangeLabel): array
@@ -779,36 +834,90 @@ class MacroSignalService
                 'level' => 'gray',
                 'judgement' => '等待数据形成判断',
                 'change' => '完成经营数据同步后生成趋势判断',
-                'action' => '进入酒店AI工具箱或数据中心，基于最新经营数据生成分析。',
+                'action' => '数据不足，暂不判断持续影响；缺失项不会按 0 或旧数据代替。',
             ];
         }
 
         $priority = ['red' => 4, 'yellow' => 3, 'blue' => 2, 'green' => 1, 'gray' => 0];
         usort($cards, static fn (array $a, array $b): int => ($priority[$b['level'] ?? 'gray'] ?? 0) <=> ($priority[$a['level'] ?? 'gray'] ?? 0));
-        $main = $cards[0];
-        $weak = array_values(array_filter($cards, static fn (array $card): bool => in_array($card['level'] ?? '', ['red', 'yellow'], true)));
-        $opportunity = array_values(array_filter($cards, static fn (array $card): bool => ($card['level'] ?? '') === 'blue'));
-
-        if (!empty($weak)) {
-            $action = '优先复核' . implode('、', array_column($weak, 'name')) . '，从价格、房态、渠道转化和数据完整性逐项排查。';
-        } elseif (!empty($opportunity)) {
-            $action = '保留高价值库存，结合高需求日期做小步提价或促销收口。';
-        } else {
-            $action = '维持当前经营节奏，继续每日同步 OTA、日报和竞对价格用于滚动判断。';
-        }
+        $main = $cards[0] ?? [];
+        $impact = (string)($main['impact'] ?? '当前变化需要结合后续样本继续观察，暂不生成价格或执行结论。');
 
         return [
             'level' => $main['level'] ?? 'green',
             'judgement' => ($main['name'] ?? '经营趋势') . '：' . ($main['direction'] ?? '平稳'),
             'change' => "已读取{$rangeLabel}{$sampleDays}个有效样本；" . ($main['note'] ?? '趋势样本已形成。'),
-            'action' => $action,
+            'action' => $impact,
         ];
+    }
+
+    private function withTrendImpact(array $card): array
+    {
+        $card['impact'] = $this->trendImpactText($card);
+        return $card;
+    }
+
+    private function trendImpactText(array $card): string
+    {
+        if (($card['status'] ?? '') !== 'available') {
+            return '数据不足，暂不解释持续影响；缺失项不会按 0 或旧数据代替。';
+        }
+
+        $key = (string)($card['key'] ?? '');
+        $level = (string)($card['level'] ?? 'gray');
+        $direction = (string)($card['direction'] ?? '');
+        $isWeak = in_array($level, ['red', 'yellow'], true)
+            || str_contains($direction, '下降')
+            || str_contains($direction, '偏低');
+        // Blue denotes evidence synchronisation or pending calibration. It is
+        // never, by itself, evidence that a business metric improved.
+        $isImproving = str_contains($direction, '上升');
+
+        if ($key === 'revenue') {
+            if ($isWeak) {
+                return '若当前趋势持续，现有数据范围内的收入表现可能继续承压。';
+            }
+            if ($isImproving) {
+                return '收入正在改善，持续查看可确认增长是否稳定，避免把短期波动当成长期趋势。';
+            }
+            return '收入暂未出现明显偏离，继续查看可及时发现后续变化。';
+        }
+
+        if ($key === 'demand') {
+            if ($isWeak) {
+                return '若订单或需求下降持续，未来可转化的 OTA 订单基础可能收窄。';
+            }
+            if ($isImproving) {
+                return '订单或需求正在改善，持续查看可确认这一变化是否延续。';
+            }
+            return '订单需求暂时平稳，后续变化仍需结合新增样本判断。';
+        }
+
+        if ($key === 'price') {
+            if (($card['competitor_avg'] ?? null) !== null) {
+                return '与竞对均价的差距若持续，可能影响 OTA 渠道相对吸引力或收入空间；这里只提示差距，不生成调价结论。';
+            }
+            return 'ADR 变化若持续，可能影响当前数据范围内的收入结构；需与订单和间夜一起判断。';
+        }
+
+        if ($key === 'channel') {
+            if ($isWeak) {
+                return '若渠道效率持续偏弱，已有曝光或访客可能未充分转化为 OTA 订单。';
+            }
+            if ($isImproving) {
+                return '渠道效率正在改善，持续查看可确认曝光、访客和订单是否同步增长。';
+            }
+            return '渠道表现暂时平稳，继续查看可及时发现曝光、访客或转化偏离。';
+        }
+
+        return '当前变化需要结合后续样本继续观察，暂不生成价格或执行结论。';
     }
 
     private function trendPendingCard(string $key, string $name, string $note): array
     {
-        return [
+        return $this->withTrendImpact([
             'key' => $key,
+            'status' => 'missing',
             'name' => $name,
             'value' => '--',
             'direction' => $key === 'demand' ? '数据不足' : '待同步',
@@ -816,11 +925,14 @@ class MacroSignalService
             'note' => $note,
             'spark' => [30, 30, 30, 30, 30, 30, 30, 30, 30],
             'change_rate' => null,
-        ];
+        ]);
     }
 
     private function isTrendDisplayCard(array $card): bool
     {
+        if (array_key_exists('status', $card)) {
+            return ($card['status'] ?? '') === 'available';
+        }
         $value = trim((string)($card['value'] ?? ''));
         $direction = trim((string)($card['direction'] ?? ''));
         if ($value === '' || in_array($value, ['--', '-', '待同步'], true)) {
@@ -846,7 +958,7 @@ class MacroSignalService
 
         $changeRate = ($current - $previous) / $previous * 100;
         if ($changeRate > 8) {
-            return ['change_rate' => round($changeRate, 1), 'direction' => 'up', 'level' => 'blue'];
+            return ['change_rate' => round($changeRate, 1), 'direction' => 'up', 'level' => 'green'];
         }
         if ($changeRate < -8) {
             return ['change_rate' => round($changeRate, 1), 'direction' => 'down', 'level' => 'yellow'];
@@ -907,6 +1019,15 @@ class MacroSignalService
     {
         $values = array_values(array_filter($values, static fn ($value): bool => is_numeric($value) && (float)$value > 0));
         return empty($values) ? 0.0 : array_sum($values) / count($values);
+    }
+
+    /** @return float[] */
+    private function positiveNumericValues(array $values): array
+    {
+        return array_values(array_map(
+            static fn($value): float => (float)$value,
+            array_filter($values, static fn($value): bool => is_numeric($value) && (float)$value > 0)
+        ));
     }
 
     private function priceBandFromSamples(array $values, float $competitorAvg = 0.0): array
@@ -1053,7 +1174,7 @@ class MacroSignalService
                 ->where('report_date', '>=', $start),
             'hotel_id',
             $hotelIds
-        )->order('report_date', 'desc')->select()->toArray());
+        )->order('report_date', 'desc')->select()->toArray(), 'daily_reports');
     }
 
     private function readOnlineRows(array $hotelIds, int $days): array
@@ -1066,7 +1187,7 @@ class MacroSignalService
                 ->where('data_date', '>=', $start),
             'system_hotel_id',
             $hotelIds
-        )->order('data_date', 'desc')->select()->toArray());
+        )->order('data_date', 'desc')->select()->toArray(), 'online_daily_data');
     }
 
     private function readCompetitorPrices(array $hotelIds, int $days): array
@@ -1075,14 +1196,13 @@ class MacroSignalService
 
         return $this->safeRows(fn () => $this->withHotelIds(
             Db::name('competitor_price_log')
-                ->field('store_id,hotel_id,price,fetch_time,create_time')
                 ->where('price', '>', 0)
                 ->where(function ($query) use ($start) {
                     $query->where('fetch_time', '>=', $start)->whereOr('create_time', '>=', $start);
                 }),
             'store_id',
             $hotelIds
-        )->order('id', 'desc')->limit(200)->select()->toArray());
+        )->order('id', 'desc')->limit(200)->select()->toArray(), 'competitor_price_log');
     }
 
     private function readDemandForecasts(array $hotelIds): array
@@ -1096,7 +1216,7 @@ class MacroSignalService
                 ->whereBetween('forecast_date', [$today, $end]),
             'hotel_id',
             $hotelIds
-        )->order('forecast_date', 'asc')->select()->toArray());
+        )->order('forecast_date', 'asc')->select()->toArray(), 'demand_forecasts');
     }
 
     private function readDailyRowsBetween(array $hotelIds, string $startDate, string $endDate): array
@@ -1107,7 +1227,7 @@ class MacroSignalService
                 ->whereBetween('report_date', [$startDate, $endDate]),
             'hotel_id',
             $hotelIds
-        )->order('report_date', 'asc')->select()->toArray());
+        )->order('report_date', 'asc')->select()->toArray(), 'daily_reports');
     }
 
     private function readOnlineRowsBetween(array $hotelIds, string $startDate, string $endDate): array
@@ -1118,7 +1238,7 @@ class MacroSignalService
                 ->whereBetween('data_date', [$startDate, $endDate]),
             'system_hotel_id',
             $hotelIds
-        )->order('data_date', 'asc')->select()->toArray());
+        )->order('data_date', 'asc')->select()->toArray(), 'online_daily_data');
     }
 
     private function readCompetitorPricesBetween(array $hotelIds, string $startDate, string $endDate): array
@@ -1128,7 +1248,6 @@ class MacroSignalService
 
         return $this->safeRows(fn () => $this->withHotelIds(
             Db::name('competitor_price_log')
-                ->field('store_id,hotel_id,price,fetch_time,create_time')
                 ->where('price', '>', 0)
                 ->where(function ($query) use ($start, $end) {
                     $query->whereBetween('fetch_time', [$start, $end])->whereOr(function ($subQuery) use ($start, $end) {
@@ -1137,7 +1256,7 @@ class MacroSignalService
                 }),
             'store_id',
             $hotelIds
-        )->order('id', 'desc')->limit(500)->select()->toArray());
+        )->order('id', 'desc')->limit(500)->select()->toArray(), 'competitor_price_log');
     }
 
     private function withHotelIds($query, string $field, array $hotelIds)
@@ -1155,12 +1274,30 @@ class MacroSignalService
         return $query;
     }
 
-    private function safeRows(callable $reader): array
+    private function resetReadState(): void
+    {
+        $this->readFailed = false;
+        $this->readFailureAreas = [];
+    }
+
+    private function macroReadStatus(): array
+    {
+        return [
+            'status' => $this->readFailed ? 'read_failed' : 'ok',
+            'areas' => $this->readFailureAreas,
+        ];
+    }
+
+    private function safeRows(callable $reader, string $area = 'database'): array
     {
         try {
             $rows = $reader();
             return is_array($rows) ? $rows : [];
         } catch (Throwable $e) {
+            $this->readFailed = true;
+            if (!in_array($area, $this->readFailureAreas, true)) {
+                $this->readFailureAreas[] = $area;
+            }
             return [];
         }
     }
@@ -1329,6 +1466,241 @@ class MacroSignalService
         return (int)round($total);
     }
 
+    /**
+     * Legacy competitor_price_log rows only contain a naked display price. They are
+     * visible for audit, but cannot enter an ADR comparison until the full public-rate
+     * context is present, validated and read back. A single comparison key is selected
+     * so prices from different stay dates or rate conditions are never averaged together.
+     *
+     * @return array<string, mixed>
+     */
+    private function summarizeComparableCompetitorPrices(array $rows): array
+    {
+        $groups = [];
+        $gapCounts = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $assessment = $this->assessComparableCompetitorPrice($row);
+            if (($assessment['eligible'] ?? false) !== true) {
+                foreach ((array)($assessment['reasons'] ?? []) as $reason) {
+                    $gapCounts[$reason] = ($gapCounts[$reason] ?? 0) + 1;
+                }
+                continue;
+            }
+
+            $comparisonKey = (string)$assessment['comparison_key'];
+            $groups[$comparisonKey]['prices'][] = (float)$row['price'];
+            $groups[$comparisonKey]['latest'] = max(
+                (string)($groups[$comparisonKey]['latest'] ?? ''),
+                (string)($assessment['captured_at'] ?? '')
+            );
+        }
+
+        if ($groups === []) {
+            if ($rows !== []) {
+                $gapCounts['strict_comparability_missing'] = count($rows);
+            }
+            return [
+                'comparison_status' => $rows === [] ? 'no_data' : 'reference_only',
+                'avg_price' => null,
+                'comparison_key' => '',
+                'visible_row_count' => count($rows),
+                'decision_eligible_row_count' => 0,
+                'reference_only_row_count' => count($rows),
+                'data_gaps' => array_values(array_keys($gapCounts)),
+                'quality_gap_counts' => $gapCounts,
+            ];
+        }
+
+        uasort($groups, static function (array $left, array $right): int {
+            $sampleCompare = count($right['prices'] ?? []) <=> count($left['prices'] ?? []);
+            return $sampleCompare !== 0
+                ? $sampleCompare
+                : strcmp((string)($right['latest'] ?? ''), (string)($left['latest'] ?? ''));
+        });
+
+        $comparisonKey = (string)array_key_first($groups);
+        $selected = $groups[$comparisonKey];
+        $prices = (array)($selected['prices'] ?? []);
+        $selectedCount = count($prices);
+        $eligibleCount = array_sum(array_map(
+            static fn (array $group): int => count($group['prices'] ?? []),
+            $groups
+        ));
+        if (count($groups) > 1) {
+            $gapCounts['mixed_comparison_key'] = max(1, $eligibleCount - $selectedCount);
+        }
+
+        return [
+            'comparison_status' => 'eligible',
+            'avg_price' => $prices === [] ? null : round(array_sum($prices) / $selectedCount, 2),
+            'comparison_key' => $comparisonKey,
+            'visible_row_count' => count($rows),
+            'decision_eligible_row_count' => $selectedCount,
+            'reference_only_row_count' => max(0, count($rows) - $selectedCount),
+            'data_gaps' => array_values(array_keys($gapCounts)),
+            'quality_gap_counts' => $gapCounts,
+        ];
+    }
+
+    /** @return array{eligible:bool,reasons:array<int,string>,comparison_key:string,captured_at:string} */
+    private function assessComparableCompetitorPrice(array $row): array
+    {
+        $context = $this->competitorPriceContext($row);
+        $reasons = [];
+        if (!is_numeric($row['price'] ?? null) || (float)$row['price'] <= 0) {
+            $reasons[] = 'price_missing';
+        }
+
+        foreach ([
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'price_basis', 'currency',
+            'availability', 'validation_status',
+        ] as $field) {
+            if (!$this->competitorPriceContextHasValue($context, $field)) {
+                $reasons[] = $field . '_missing';
+            }
+        }
+        if (!array_key_exists('tax_fee_included', $context)) {
+            $reasons[] = 'tax_fee_included_missing';
+        }
+        if (!is_numeric($context['adults'] ?? null) || (int)$context['adults'] <= 0) {
+            $reasons[] = 'adults_missing';
+        }
+        if (!is_numeric($context['children'] ?? null) || (int)$context['children'] < 0) {
+            $reasons[] = 'children_missing';
+        }
+        if (!$this->competitorPriceReadbackVerified($context['readback_verified'] ?? null)) {
+            $reasons[] = 'readback_unverified';
+        }
+        if (!in_array(strtolower(trim((string)($context['validation_status'] ?? ''))), ['normal', 'available', 'ok', 'valid', 'verified'], true)) {
+            $reasons[] = 'validation_failed';
+        }
+        if (!in_array(strtolower(trim((string)($context['availability'] ?? ''))), ['available', 'bookable'], true)) {
+            $reasons[] = 'not_publicly_bookable';
+        }
+
+        $checkIn = trim((string)($context['check_in_date'] ?? ''));
+        $checkOut = trim((string)($context['check_out_date'] ?? ''));
+        if ($checkIn !== '' && $checkOut !== ''
+            && (strtotime($checkIn) === false || strtotime($checkOut) === false || strtotime($checkOut) <= strtotime($checkIn))
+        ) {
+            $reasons[] = 'stay_date_invalid';
+        }
+
+        $keyValues = [];
+        foreach ([
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'tax_fee_included', 'price_basis',
+            'currency', 'adults', 'children',
+        ] as $field) {
+            $keyValues[] = strtolower(trim((string)($context[$field] ?? '')));
+        }
+
+        $derivedComparisonKey = hash('sha256', implode('|', $keyValues));
+        $providedComparisonKey = strtolower(trim((string)($context['comparison_key'] ?? '')));
+
+        return [
+            'eligible' => $reasons === [],
+            'reasons' => array_values(array_unique($reasons)),
+            'comparison_key' => $providedComparisonKey === ''
+                ? $derivedComparisonKey
+                : hash('sha256', $providedComparisonKey . '|' . $derivedComparisonKey),
+            'captured_at' => trim((string)($context['captured_at'] ?? '')),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function competitorPriceContext(array $row): array
+    {
+        $context = $row;
+        foreach (['comparison_context', 'rate_context', 'context_json', 'metadata_json', 'raw_data'] as $field) {
+            $nested = $this->decodeJson($row[$field] ?? null);
+            if ($nested !== []) {
+                $context = array_merge($context, $nested);
+            }
+        }
+
+        $aliases = [
+            'platform' => ['platform', 'ota_platform'],
+            'check_in_date' => ['check_in_date', 'checkin_date', 'checkInDate', 'stay_date'],
+            'check_out_date' => ['check_out_date', 'checkout_date', 'checkOutDate', 'departure_date'],
+            'room_type_key' => ['room_type_key', 'room_type_id', 'room_type_name'],
+            'rate_plan_key' => ['rate_plan_key', 'rate_plan_id', 'rate_plan_name'],
+            'breakfast' => ['breakfast', 'breakfast_policy', 'breakfast_included', 'meal_plan'],
+            'cancellation_policy' => ['cancellation_policy', 'cancel_policy', 'cancel_rule'],
+            'payment_mode' => ['payment_mode', 'payment_policy', 'payment_type'],
+            'tax_fee_included' => ['tax_fee_included', 'tax_included', 'includes_tax'],
+            'price_basis' => ['price_basis', 'price_unit'],
+            'currency' => ['currency'],
+            'adults' => ['adults', 'adult_count'],
+            'children' => ['children', 'child_count'],
+            'availability' => ['availability', 'availability_status'],
+            'validation_status' => ['validation_status', 'quality_status'],
+            'readback_verified' => ['readback_verified'],
+            'comparison_key' => ['comparison_key'],
+            'captured_at' => ['captured_at', 'fetch_time', 'create_time', 'created_at'],
+        ];
+        foreach ($aliases as $canonical => $fields) {
+            $value = $this->firstCompetitorPriceContextValue($context, $fields);
+            if ($value !== null) {
+                if ($canonical === 'breakfast' && is_bool($value)) {
+                    $value = $value ? 'included' : 'excluded';
+                }
+                $context[$canonical] = $value;
+            }
+        }
+
+        return $context;
+    }
+
+    private function firstCompetitorPriceContextValue(array $context, array $fields): mixed
+    {
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $context) || $context[$field] === null) {
+                continue;
+            }
+            if (is_string($context[$field]) && trim($context[$field]) === '') {
+                continue;
+            }
+            return $context[$field];
+        }
+        return null;
+    }
+
+    private function competitorPriceContextHasValue(array $context, string $field): bool
+    {
+        return array_key_exists($field, $context)
+            && $context[$field] !== null
+            && trim((string)$context[$field]) !== '';
+    }
+
+    private function competitorPriceReadbackVerified(mixed $value): bool
+    {
+        return $value === true
+            || $value === 1
+            || in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'verified'], true);
+    }
+
+    /** @param array<string, mixed> $summary */
+    private function appendCompetitorPriceEvidence(array $card, array $summary): array
+    {
+        $card['competitor_data_status'] = (string)($summary['comparison_status'] ?? 'no_data');
+        $card['competitor_avg'] = isset($summary['avg_price']) && is_numeric($summary['avg_price'])
+            ? round((float)$summary['avg_price'], 2)
+            : null;
+        $card['comparison_key'] = (string)($summary['comparison_key'] ?? '');
+        $card['comparison_scope'] = 'hotel_adr_to_same_context_ota_public_rate_reference';
+        $card['visible_competitor_price_rows'] = (int)($summary['visible_row_count'] ?? 0);
+        $card['decision_eligible_competitor_price_rows'] = (int)($summary['decision_eligible_row_count'] ?? 0);
+        $card['reference_only_competitor_price_rows'] = (int)($summary['reference_only_row_count'] ?? 0);
+        $card['data_gaps'] = array_values((array)($summary['data_gaps'] ?? []));
+        return $card;
+    }
+
     private function avgField(array $rows, string $field): float
     {
         $values = [];
@@ -1489,6 +1861,9 @@ class MacroSignalService
         string $actionText,
         array $reasons = []
     ): array {
+        if ($status === 'opportunity' && $level === 'blue') {
+            $level = 'green';
+        }
         return [
             'key' => $key,
             'title' => $title,

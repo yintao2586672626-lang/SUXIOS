@@ -1,6 +1,6 @@
 # 宿析OS第一阶段真实闭环证据包
 
-Updated: 2026-06-12
+Updated: 2026-07-19
 
 ## collection_source_summary contract
 
@@ -43,12 +43,12 @@ capture -> persistence -> UI display -> revenue metrics -> AI evidence -> operat
 | 项 | 要求 |
 |---|---|
 | 日期 | 一个真实业务日期，默认当天 |
-| 平台 | `ctrip`、`meituan`，或通过 `--platform` 指定其中一个 |
-| 酒店 | 至少指定一个系统酒店或 OTA 酒店，未指定时只做日期平台范围检查 |
+| 平台 | 严格验收通过 `--platform` 固定 `ctrip` 或 `meituan` 单一平台；未指定时只能聚合巡检 |
+| 酒店 | 严格验收必须指定一个 `system_hotel_id`；未指定时只能巡检，不能证明单门店生产闭环 |
 | 数据源 | `online_daily_data` 中对应日期、平台、酒店的真实入库行 |
-| 展示 | 收益指标必须暴露 `metric_trust` 和 `data_gaps` |
-| 诊断 | `/api/agent/ota-diagnosis` 返回的 `evidence_sources`、`data_gaps`、`action_items` |
-| 执行 | `/api/operation/execution-intents` 或 `/api/operation/execution-flow` 的真实执行意图/流程样例 |
+| 展示 | 收益指标必须暴露 `metric_trust`、`data_gaps`、独立的 `revenue_ready` 和 `ai_ready`；`totals.revenue/room_nights/adr` 必须是实际数值并带同门店、同平台、同目标日完整存储回读证明；收益可用不能自动推出 AI 可用 |
+| 诊断 | `/api/agent/ota-diagnosis` 返回的 `summary`、`decision_status`、`evidence_sources`、`data_gaps`、`action_items`；必须按 `saved_record.id` 实时回读 `agent_logs`，且数据库快照内容与证据内容一致。外部 `saved/readback_verified` 布尔值不能单独作证 |
+| 执行 | `/api/operation/execution-intents` 或 `/api/operation/execution-flow` 的真实执行意图/流程样例；必须追溯到 OTA 诊断动作项，有执行证据，且有已执行、复盘或 ROI 状态。仅审批或仅声明已执行不算完成 |
 
 ## 员工六问到证据
 
@@ -60,6 +60,8 @@ capture -> persistence -> UI display -> revenue metrics -> AI evidence -> operat
 | 收入/流量/转化出了什么问题 | `OtaRevenueMetricService` 输出的 `totals`、`traffic`、`advertising`、`quality` | 没有真实行时生成经营结论 |
 | AI 建议依据是什么 | OTA 诊断 `evidence_sources`、`data_gaps`、`action_items` | AI 只有建议文案，没有证据 |
 | 下一步该执行什么动作 | 运营执行意图、审批状态、执行证据、复盘状态 | 只有建议卡片，没有执行承接 |
+
+收益门和 AI 门必须分开判定：`revenue_ready=true` 只证明 OTA 收益指标可用于渠道收益复核；只有 `ai_ready=true` 才允许这些指标进入 AI 决策支持。组合字段 `ready` 仅表示两道门同时通过，不能反向覆盖任一单独状态。
 
 ## 命令
 
@@ -145,10 +147,12 @@ npm.cmd run build:phase1-live-evidence -- --date=2026-06-12 --output=reports/pha
 | `*_etl_not_ready` | 已有源数据后，检查标准事实层 accepted/rejected、`validation_flags` 和 `data_type` |
 | `*_revenue_metrics_not_ready` | 检查收入、间夜、订单等最小指标输入，缺失时保留 `data_gaps` |
 | `*_traffic_facts_missing` | 确认同日流量字段是否采到；未采到时流量/转化诊断必须标记不可用 |
-| `ai_diagnosis_evidence_sample_missing` | 调用现有 OTA 诊断接口并附脱敏证据 JSON，必须包含 `evidence_sources`、`data_gaps`、`action_items` |
-| `operation_execution_sample_missing` | 附一个真实执行意图或执行流程样例，包含审批、执行证据或复盘状态 |
-| `operation_execution_ai_action_link_missing` | 已有执行意图或执行流程时，补齐 `source_module=ota_diagnosis`、`source=ota_diagnosis#...`、`evidence_refs` 或 `action_item_id`，证明动作来自 OTA 诊断 action_items |
-| `operation_execution_evidence_incomplete` | 已有执行意图或执行流程样例时，补齐 `approval.status=approved`、`execution.status=executed`、`evidence.count>0` 或复盘状态之一 |
+| `ai_diagnosis_evidence_sample_missing` / `ai_diagnosis_persistence_unverified` | 调用现有 OTA 诊断接口并附脱敏证据 JSON；按 `saved_record.id + system_hotel_id` 回读 `agent_logs`，校验平台、日期范围及 `summary/evidence_sources/data_gaps/action_items/decision_status` 与数据库快照一致 |
+| `evidence_scope_date_mismatch` / `evidence_scope_system_hotel_mismatch` / `evidence_scope_platform_mismatch` | 诊断和执行分段自身的日期、严格正整数系统酒店、平台必须与验收范围唯一一致；非法 ID 或任一重复字段互相冲突都必须阻断，不得用外层 `scope` 重贴标签 |
+| `strict_system_hotel_scope_required` | 严格巡检指定一个 `system_hotel_id`，不得聚合多门店证据 |
+| `operation_execution_sample_missing` | 附一个可追溯到 OTA 诊断动作项的真实执行意图或执行流程样例 |
+| `operation_execution_ai_action_link_missing` | 已有执行意图或执行流程时，必须同时具备 `source_module/source=ota_diagnosis*` 和一致的 `source_record_id + diagnosis_log_id + action_item_id + metric_scope=ota_channel`，证明动作来自 OTA 诊断 action_items；来源文本或通用 `evidence_refs/data_gaps` 均不能单独作证 |
+| `operation_execution_evidence_incomplete` | 已有执行意图或执行流程样例时，必须 `evidence.count>0`，并同时具备 `execution.status=executed`、`review.status` 或 ROI 状态之一；审批和单独 `executed` 都不是完成证据 |
 
 动作边界：不补 0、不伪造成成功、不复用过期证据证明当天闭环、不把 OTA 渠道诊断包装成全酒店经营事实。
 
@@ -191,12 +195,17 @@ npm.cmd run build:phase1-live-evidence -- --date=2026-06-12 --output=reports/pha
   },
   "ota_diagnosis": {
     "source": "/api/agent/ota-diagnosis",
+    "scope": {"date": "2026-06-12", "platform": "ctrip", "system_hotel_id": 1},
+    "summary": "...",
+    "decision_status": "action_required",
     "evidence_sources": [],
     "data_gaps": [],
-    "action_items": []
+    "action_items": [],
+    "saved_record": {"id": 123, "saved": true, "readback_verified": true}
   },
   "operation_execution": {
     "source": "/api/operation/execution-intents",
+    "scope": {"date": "2026-06-12", "platform": "ctrip", "system_hotel_id": 1},
     "execution_intents": [],
     "execution_flow": {}
   },
@@ -213,6 +222,7 @@ npm.cmd run build:phase1-live-evidence -- --date=2026-06-12 --output=reports/pha
 
 - 没有真实当天携程/美团样本时，只能证明结构具备，不能证明“今天已采到”。
 - 没有 `evidence_sources` 的 AI 输出，不能证明 AI 建议可信。
+- AI 证据内容与 `agent_logs` 快照不一致时，即使复用真实 `saved_record.id` 也不能证明持久化闭环。
 - 没有执行意图或执行流样例，不能证明运营闭环完成。
-- 只有 blocked/pending 的执行意图、空执行流或阶段列表，不能证明“下一步动作”已经进入运营闭环。
+- 只有 blocked/pending/审批/自声明 executed 的执行意图、空执行流或阶段列表，不能证明“下一步动作”已经进入运营闭环。
 - 字段缺口继续按 `docs/phase1_ota_gap_explanation_matrix.md` 暴露，不允许用兜底值消解。

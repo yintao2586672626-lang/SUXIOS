@@ -60,7 +60,8 @@ function requireFile(relativePath) {
 const register = requireFile('docs/release_issue_register.md');
 const chineseReport = requireFile('docs/release_problem_report.zh-CN.md');
 const evidenceChecklist = requireFile('docs/release_evidence_collection.zh-CN.md');
-const statusText = requireFile('docs/release_readiness_status.json');
+const policyText = requireFile('docs/release_blocker_policy.json');
+const historicalStatusText = requireFile('docs/release_readiness_status.json');
 const matrix = requireFile('docs/release_verification_command_matrix.md');
 
 if (register) {
@@ -105,18 +106,10 @@ if (register) {
 
 if (chineseReport) {
   for (const id of requiredBlockerIds) {
-    const keyword = {
-      'production-env-missing': '生产环境配置已通过外部证据',
-      'llm-connectivity-attestation-missing': '生产 LLM 连通性已通过外部证据',
-      'design-handoff-missing': 'Figma / Canva 真实设计交付缺失',
-      'ota-credential-rotation-attestation-missing': 'OTA 凭据轮换证明缺失',
-      'codex-security-scan-missing': '正式 Codex Security 扫描产物',
-      'local-git-state-open': 'PR #6 已选中',
-    }[id];
-    if (!chineseReport.includes(keyword)) {
-      fail(`release_problem_report.zh-CN.md must mention ${keyword}`);
+    if (!chineseReport.includes(id)) {
+      fail(`release_problem_report.zh-CN.md must mention ${id}`);
     } else {
-      pass(`release_problem_report.zh-CN.md mentions ${keyword}`);
+      pass(`release_problem_report.zh-CN.md mentions ${id}`);
     }
   }
 
@@ -129,11 +122,13 @@ if (chineseReport) {
   }
 
   for (const phrase of [
-    '仍不能上线使用',
-    '2 failures',
+    '当前仍不能上线使用',
+    'vault/current-state.md',
+    'current_use_forbidden=true',
+    'live_review_required',
     '.git/index.lock',
     '不允许用口头说明替代验收命令',
-    '不允许把模板文件当作生产证据',
+    '不允许把模板、草稿、截图或旧 JSON 当作当前生产证据',
   ]) {
     if (!chineseReport.includes(phrase)) {
       fail(`release_problem_report.zh-CN.md must include ${phrase}`);
@@ -173,18 +168,40 @@ if (evidenceChecklist) {
   }
 }
 
-if (statusText) {
-  const status = JSON.parse(statusText);
-  if (status.overall_status !== 'not_release_ready') {
-    fail('release readiness status must remain not_release_ready while issue register has open blockers');
-  } else {
-    pass('release readiness status remains not_release_ready');
+if (policyText) {
+  const policy = JSON.parse(policyText);
+  if (policy.status_role !== 'stable_release_blocker_policy') {
+    fail('release blocker policy must declare status_role=stable_release_blocker_policy');
   }
-  const statusIds = (status.blockers || []).map((blocker) => blocker.id);
+  if (policy.overall_status !== 'not_release_ready' || policy.release_ready !== false) {
+    fail('release blocker policy must remain not_release_ready while live reviews are required');
+  } else {
+    pass('release blocker policy remains not_release_ready');
+  }
+  const statusIds = (policy.blockers || []).map((blocker) => blocker.id);
   for (const id of requiredBlockerIds) {
     if (!statusIds.includes(id)) {
-      fail(`release readiness status is missing blocker ${id}`);
+      fail(`release blocker policy is missing blocker ${id}`);
     }
+  }
+  for (const blocker of policy.blockers || []) {
+    if (blocker.status !== 'live_review_required') {
+      fail(`release blocker policy ${blocker.id || 'unknown'} must remain live_review_required`);
+    }
+  }
+}
+
+if (historicalStatusText) {
+  const historical = JSON.parse(historicalStatusText);
+  if (
+    historical.status_role !== 'historical_snapshot'
+    || historical.current_use_forbidden !== true
+    || historical.live_status_command !== 'npm run review:release-readiness'
+    || historical.current_state_path !== 'vault/current-state.md'
+  ) {
+    fail('release_readiness_status.json must be explicitly historical and forbidden as current state');
+  } else {
+    pass('release_readiness_status.json is explicitly historical');
   }
 }
 

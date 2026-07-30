@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
 /**
  * 竞对分析模型
  * 用于收益管理Agent的竞争对手价格监控和分析
  */
-class CompetitorAnalysis extends Model
+class CompetitorAnalysis extends BaseTenantModel
 {
     protected $name = 'competitor_analysis';
     
@@ -20,6 +20,7 @@ class CompetitorAnalysis extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'competitor_hotel_id' => 'integer',
         'room_type_id' => 'integer',
@@ -122,10 +123,12 @@ class CompetitorAnalysis extends Model
      */
     public function getPriceDiffPercentAttr($value, $data)
     {
-        if ($data['competitor_price'] > 0) {
-            return round(($data['our_price'] - $data['competitor_price']) / $data['competitor_price'] * 100, 2);
+        $ourPrice = is_numeric($data['our_price'] ?? null) ? (float)$data['our_price'] : null;
+        $competitorPrice = is_numeric($data['competitor_price'] ?? null) ? (float)$data['competitor_price'] : null;
+        if ($ourPrice !== null && $ourPrice > 0 && $competitorPrice !== null && $competitorPrice > 0) {
+            return round(($ourPrice - $competitorPrice) / $competitorPrice * 100, 2);
         }
-        return 0;
+        return null;
     }
 
     /**
@@ -158,6 +161,7 @@ class CompetitorAnalysis extends Model
         $results = self::where('hotel_id', $hotelId)
             ->where('analysis_date', $date)
             ->with(['roomType', 'competitorHotel'])
+            ->order('id', 'asc')
             ->select();
         
         $matrix = [];
@@ -171,7 +175,12 @@ class CompetitorAnalysis extends Model
                 $matrix[$roomTypeName] = [];
             }
             
-            $matrix[$roomTypeName][$competitorName] = [
+            $matrixKey = $competitorName;
+            if (isset($matrix[$roomTypeName][$matrixKey])) {
+                $matrixKey .= '|platform:' . (int)$item->ota_platform . '|sample:' . (int)$item->id;
+            }
+
+            $matrix[$roomTypeName][$matrixKey] = [
                 'id' => $item->id,
                 'analysis_date' => $item->analysis_date,
                 'hotel_id' => $item->hotel_id,
@@ -188,6 +197,7 @@ class CompetitorAnalysis extends Model
                 'diff_percent' => $item->price_diff_percent,
                 'status' => $item->price_status_name,
                 'competitor_data' => $competitorData,
+                'sample_key' => $matrixKey,
             ];
         }
         
@@ -197,36 +207,74 @@ class CompetitorAnalysis extends Model
     /**
      * 获取价格趋势（最近7天）
      */
-    public static function getPriceTrend(int $hotelId, int $competitorId, int $roomTypeId = 0)
+    public static function getPriceTrend(int $hotelId, int $competitorId, int $roomTypeId = 0, ?string $endDate = null)
     {
-        $endDate = date('Y-m-d');
-        $startDate = date('Y-m-d', strtotime('-7 days'));
+        $trends = self::getPriceTrends($hotelId, [$competitorId], $roomTypeId, $endDate);
+        return $trends[$competitorId] ?? [];
+    }
+
+    /**
+     * Batch-load recent price trends and group them by competitor hotel.
+     *
+     * @param array<int, mixed> $competitorIds
+     * @return array<int, array<int, array<string, mixed>>>
+     */
+    public static function getPriceTrends(int $hotelId, array $competitorIds = [], int $roomTypeId = 0, ?string $endDate = null): array
+    {
+        $endTimestamp = $endDate !== null ? strtotime($endDate) : false;
+        if ($endTimestamp === false) {
+            $endTimestamp = time();
+        }
+        $endDate = date('Y-m-d', $endTimestamp);
+        $startDate = date('Y-m-d', strtotime('-6 days', $endTimestamp));
+        $competitorIds = array_values(array_unique(array_filter(
+            array_map('intval', $competitorIds),
+            static fn(int $id): bool => $id > 0
+        )));
         
         $query = self::where('hotel_id', $hotelId)
-            ->where('competitor_hotel_id', $competitorId)
             ->whereBetween('analysis_date', [$startDate, $endDate]);
+        if ($competitorIds !== []) {
+            $query->whereIn('competitor_hotel_id', $competitorIds);
+        }
         
         if ($roomTypeId > 0) {
             $query->where('room_type_id', $roomTypeId);
         }
         
-        return $query->order('analysis_date', 'asc')
-            ->select();
+        $rows = $query->with(['roomType', 'competitorHotel'])
+            ->order('competitor_hotel_id', 'asc')
+            ->order('analysis_date', 'asc')
+            ->order('id', 'asc')
+            ->select()
+            ->toArray();
+
+        $trends = [];
+        foreach ($rows as $row) {
+            $competitorId = (int)($row['competitor_hotel_id'] ?? 0);
+            if ($competitorId <= 0) {
+                continue;
+            }
+            $trends[$competitorId] ??= [];
+            $trends[$competitorId][] = $row;
+        }
+        return $trends;
     }
 
     /**
      * 获取需要关注的竞对（价格波动大）
      */
-    public static function getAlertCompetitors(int $hotelId, float $threshold = 20)
+    public static function getAlertCompetitors(int $hotelId, float $threshold = 20, ?string $date = null)
     {
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
-        $today = date('Y-m-d');
+        $timestamp = $date !== null ? strtotime($date) : false;
+        $targetDate = date('Y-m-d', $timestamp === false ? time() : $timestamp);
         
         return self::where('hotel_id', $hotelId)
-            ->where('analysis_date', $today)
+            ->where('analysis_date', $targetDate)
             ->whereRaw('ABS(price_difference) >= :threshold', ['threshold' => $threshold])
             ->with('competitorHotel')
-            ->order('price_difference', 'desc')
+            ->orderRaw('ABS(price_difference) DESC')
+            ->order('id', 'desc')
             ->select();
     }
 }

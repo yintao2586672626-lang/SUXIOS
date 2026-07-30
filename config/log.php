@@ -7,7 +7,8 @@ return [
     // 默认日志记录通道
     'default'      => 'file',
     // 日志记录级别
-    'level'        => [],
+    // Keep operational diagnostics, but do not persist high-volume SQL/debug traces.
+    'level'        => ['emergency', 'alert', 'critical', 'error', 'warning', 'notice', 'info'],
     // 日志类型记录的通道 ['error'=>'email',...]
     'type_channel' => [],
     // 关闭全局日志写入
@@ -27,7 +28,7 @@ return [
             // 独立日志级别
             'apart_level'    => [],
             // 最大日志文件数量
-            'max_files'      => 0,
+            'max_files'      => 14,
             // 使用JSON格式记录
             'json'           => false,
             // 日志处理

@@ -96,7 +96,14 @@ $robotControllerRef = new ReflectionClass(CompetitorWechatRobotController::class
 $robotController = $robotControllerRef->newInstanceWithoutConstructor();
 $validRobotWebhook = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123';
 assert_regression_same($validRobotWebhook, call_private_regression($robotController, 'normalizeRobotWebhook', [$validRobotWebhook]), 'competitor robot webhook validator must accept Enterprise WeChat robot URLs');
-$maskedRobotWebhook = call_private_regression($robotController, 'maskRobotWebhook', [$validRobotWebhook]);
+$maskedRobotRow = call_private_regression($robotController, 'formatRobotListRow', [[
+    'id' => 1,
+    'store_id' => 1,
+    'name' => 'regression fixture',
+    'webhook' => $validRobotWebhook,
+    'status' => 1,
+]]);
+$maskedRobotWebhook = is_array($maskedRobotRow) ? (string)($maskedRobotRow['webhook_masked'] ?? '') : '';
 assert_regression(!str_contains((string)$maskedRobotWebhook, 'abc123') && !str_contains((string)$maskedRobotWebhook, 'c123'), 'competitor robot webhook mask must not expose robot key characters');
 assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['http://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject non-HTTPS URLs');
 assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com.evil.test/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject lookalike hosts');
@@ -117,12 +124,17 @@ $robotControllerSource = file_get_contents(__DIR__ . '/../app/controller/admin/C
 $systemConfigControllerSource = file_get_contents(__DIR__ . '/../app/controller/SystemConfigController.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $hotelSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
+$hotelArchiveServiceSource = file_get_contents(__DIR__ . '/../app/service/HotelCascadeDeletionService.php');
 $authMiddlewareSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $compassViewSource = file_get_contents(__DIR__ . '/../app/view/admin/compass/index.html');
 $robotListViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/index.html');
 $robotAddViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/add.html');
 $robotEditViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/edit.html');
-$publicIndexSource = file_get_contents(__DIR__ . '/../public/index.html');
+$publicIndexSource = implode("\n", [
+    file_get_contents(__DIR__ . '/../public/index.html'),
+    file_get_contents(__DIR__ . '/../resources/frontend/app-template.html'),
+    file_get_contents(__DIR__ . '/../public/app-main.js'),
+]);
 $routeSource = file_get_contents(__DIR__ . '/../route/app.php');
 $ctripBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/CtripBrowserProfileDataSourceAdapter.php');
 $meituanBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/MeituanBrowserProfileDataSourceAdapter.php');
@@ -138,7 +150,9 @@ $ctripBookmarkletSource = extract_method_source_regression($onlineDataRequestSou
 $disabledCookieBookmarkletHelperSource = extract_method_source_regression($cookieEndpointSource, 'buildDisabledCookieBookmarkletScript');
 $dailyPatrolCronSource = extract_method_source_regression($operationWorkbenchSource, 'dailyWorkbenchPatrolCron');
 $competitorTaskSource = extract_method_source_regression($competitorSource, 'task');
-$competitorReportSource = extract_method_source_regression($competitorSource, 'report');
+$competitorReportSource = extract_method_source_regression($competitorSource, 'report')
+    . "\n"
+    . extract_method_source_regression($competitorSource, 'reportLegacy');
 $competitorReportTokenSource = extract_method_source_regression($competitorSource, 'isValidReportToken');
 $competitorAuditSanitizerSource = extract_method_source_regression($competitorSource, 'sanitizeExternalAuditText');
 $robotIndexSource = extract_method_source_regression($robotControllerSource, 'index');
@@ -149,13 +163,12 @@ $robotWebhookNormalizeSource = extract_method_source_regression($robotController
 $robotPostJsonSource = extract_method_source_regression($robotControllerSource, 'postJson');
 $userDeleteSource = extract_method_source_regression($userSource, 'delete');
 $hotelDeleteSource = extract_method_source_regression($hotelSource, 'delete');
+$authRegisterSource = extract_method_source_regression($authSource, 'register');
 
 assert_regression(str_contains($baseSource, 'return json($result, $httpStatus)'), 'Base::error must pass HTTP status into json()');
 assert_regression((bool)preg_match('/Bearer\s*\\\\s\+/', $logoutSource) || str_contains($logoutSource, 'extractTokenFromAuthorizationHeader'), 'logout must strip Bearer prefix before cache deletion');
-assert_regression(str_contains($authSource, '$this->enforceRegistrationRateLimit()'), 'public self-registration must enforce a route-local rate limit before validation');
-assert_regression(str_contains($authSource, "register_rate_") && str_contains($authSource, "\$ipHash = substr(sha1((string)\$this->request->ip()), 0, 16);"), 'public self-registration rate limit must be keyed by IP hash');
-assert_regression(str_contains($authSource, "'register_rate_limited'"), 'rate-limited self-registration attempts must be audited');
-assert_regression(!str_contains($authSource, "return \$this->error('用户名已存在', 409);"), 'public self-registration must not disclose username existence');
+assert_regression(str_contains($authRegisterSource, "return \$this->error('系统已关闭自助注册，请联系管理员创建账号', 403);"), 'public registration must remain a fixed 403 compatibility tombstone');
+assert_regression(!str_contains($authSource, 'registerLegacyDisabled') && !str_contains($authRegisterSource, 'new User'), 'public registration must not retain a hidden account-creation path');
 
 assert_regression(!str_contains($competitorSource, 'DEV_FALLBACK_TOKEN'), 'competitor API must not keep a fixed fallback token');
 assert_regression(!str_contains($competitorSource, 'isLocalOrDevEnvironment'), 'competitor API token validation must not depend on debug/local fallback');
@@ -169,11 +182,10 @@ assert_regression(str_contains($competitorSource, "\$ipHash = substr(sha1((strin
 assert_regression(!str_contains($competitorSource, "\$identity . '|' . (string)\$this->request->ip()"), 'competitor public token APIs must not let request identity bypass pre-auth rate limits');
 assert_regression(str_contains($competitorReportSource, 'CompetitorHotel::where'), 'competitor report must validate the target competitor hotel');
 assert_regression(str_contains($competitorReportSource, "where('store_id', \$storeId)"), 'competitor report must bind store_id to the configured competitor hotel');
-assert_regression(str_contains($competitorReportSource, '$this->isValidReportPrice($price)'), 'competitor report must reject unparseable or zero competitor prices');
+assert_regression(str_contains($competitorReportSource, '$this->isValidReportPrice($extractedPrice)'), 'competitor report must reject unparseable or zero competitor prices');
 assert_regression(str_contains($competitorReportSource, "'invalid_report_price'"), 'competitor report must audit invalid competitor price text instead of saving price=0');
 foreach ([
     'Ctrip browser Profile adapter' => $ctripBrowserAdapterSource,
-    'Meituan browser Profile adapter' => $meituanBrowserAdapterSource,
     'Profile capture concern' => $platformProfileCaptureSource,
     'Chromium Cookie extractor' => $chromiumCookieExtractorSource,
 ] as $label => $source) {
@@ -227,7 +239,7 @@ assert_regression(!str_contains($robotListViewSource . $robotAddViewSource . $ro
 assert_regression(!str_contains($robotEditViewSource, "<?php echo \$robot['name']; ?>"), 'competitor robot edit form must not echo robot names without escaping');
 assert_regression(!str_contains($robotEditViewSource, "<?php echo \$robot['webhook']; ?>"), 'competitor robot edit form must not echo webhooks without escaping');
 assert_regression(str_contains($robotEditViewSource, 'autocomplete="off"') && str_contains($robotEditViewSource, 'webhook_masked'), 'competitor robot edit form must not render full webhook secrets and must show only masked status');
-assert_regression(str_contains($robotControllerSource, 'formatRobotListRow') && str_contains($robotControllerSource, 'maskRobotWebhook'), 'competitor robot list API must mask stored webhook secrets');
+assert_regression(str_contains($robotControllerSource, 'formatRobotListRow') && str_contains($robotControllerSource, "'webhook_masked'") && str_contains($robotControllerSource, 'key=******'), 'competitor robot list API must mask stored webhook secrets');
 assert_regression(str_contains($robotIndexSource, 'formatRobotListRow'), 'competitor robot legacy list must use the masked list row formatter');
 assert_regression(str_contains($robotApiIndexSource, 'formatRobotListRow'), 'competitor robot API list must use the masked list row formatter');
 assert_regression(!str_contains($robotApiIndexSource, '$list = $query->page($pagination[\'page\'], $pagination[\'page_size\'])->select()->toArray();'), 'competitor robot API list must not directly paginate raw database rows');
@@ -236,7 +248,7 @@ assert_regression(str_contains($routeSource, "Route::get('/detail/:id', 'admin.C
 assert_regression(str_contains($robotListViewSource, 'webhook_masked'), 'competitor robot legacy list must display masked webhook text');
 assert_regression(str_contains($robotDetailFormatterSource, "\$row['webhook'] = '';") && str_contains($robotDetailFormatterSource, 'webhook_placeholder'), 'competitor robot detail formatter must not return full webhook secrets');
 assert_regression(!str_contains($robotDetailFormatterSource, "\$row['webhook'] = (string)(\$robot['webhook'] ?? '')"), 'competitor robot detail formatter must not expose stored webhook secrets');
-assert_regression(str_contains($robotControllerSource, 'resolveRobotWebhookForUpdate') && substr_count($robotControllerSource, 'resolveRobotWebhookForUpdate($data, $robot)') >= 2, 'competitor robot updates must preserve existing webhook when edit form leaves the secret blank');
+assert_regression(str_contains($robotControllerSource, 'resolveStoredRobotWebhookForUpdate') && substr_count($robotControllerSource, 'resolveStoredRobotWebhookForUpdate($data, $robot)') >= 2, 'competitor robot updates must preserve existing webhook when edit form leaves the secret blank');
 assert_regression(!str_contains($publicIndexSource, 'competitorRobotForm.value = { ...item };'), 'competitor robot SPA edit form must not reuse masked list rows as editable secrets');
 assert_regression(str_contains($publicIndexSource, '/admin/competitor-wechat-robot/detail/'), 'competitor robot SPA edit form must fetch an explicit detail row instead of reusing masked list rows');
 assert_regression(str_contains($robotWebhookNormalizeSource, "isset(\$parts['user'])") && str_contains($robotWebhookNormalizeSource, "isset(\$parts['pass'])"), 'competitor robot webhook validation must reject URL userinfo credentials');
@@ -260,6 +272,10 @@ assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $
 assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $disabledCookieBookmarkletHelperSource, 'Authorization'), 'bookmarklet endpoints must not embed the main login Authorization header');
 
 assert_regression(str_contains($userDeleteSource, 'ensureUserCanBeDeleted'), 'user deletion must run association protection before hard delete');
-assert_regression(str_contains($hotelDeleteSource, 'ensureHotelCanBeDeleted'), 'hotel deletion must run association protection before hard delete');
+assert_regression(str_contains($hotelDeleteSource, 'HotelCascadeDeletionService') && str_contains($hotelDeleteSource, '->delete($id)'), 'hotel permanent delete must use the guarded cascade service');
+assert_regression(str_contains($hotelArchiveServiceSource, 'deleteDependentChildren($hotelId)'), 'hotel permanent delete must remove dependent child rows before parent rows');
+assert_regression(str_contains($hotelArchiveServiceSource, "Db::name('hotels')->where('id', \$hotelId)->delete()"), 'hotel permanent delete must remove the hotel row');
+assert_regression(!str_contains($hotelArchiveServiceSource, 'public function restore(int $hotelId)'), 'hotel permanent delete must not expose a restore path');
+assert_regression(!str_contains($routeSource, "Route::post('/:id/restore', 'Hotel/restore')"), 'hotel permanent delete must not keep an archive restore route');
 
 echo 'Report, security, and finance regression verification passed.' . PHP_EOL;

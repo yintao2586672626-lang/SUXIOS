@@ -18,6 +18,7 @@ class User extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'status' => 'integer',
         'hotel_id' => 'integer',
         'role_id' => 'integer',
@@ -25,6 +26,14 @@ class User extends Model
 
     // 隐藏字段
     protected $hidden = ['password'];
+
+    /**
+     * Authorization helpers are reused only by this model instance. This keeps
+     * login payload construction from rebuilding schema and hotel-scope state
+     * for every permission without sharing tenant state across users.
+     */
+    private ?HotelScopeService $hotelScopeServiceInstance = null;
+    private ?PermissionService $permissionServiceInstance = null;
 
     // 状态常量
     const STATUS_ENABLED = 1;
@@ -68,6 +77,15 @@ class User extends Model
     public function verifyPassword(string $password): bool
     {
         return password_verify($password, $this->password);
+    }
+
+    /**
+     * Bind every login token to the current password hash without exposing it.
+     * A password change produces a new version and invalidates all older tokens.
+     */
+    public function authSessionVersion(): string
+    {
+        return hash('sha256', (string)$this->getAttr('password'));
     }
 
     /**
@@ -168,67 +186,20 @@ class User extends Model
      */
     public function hasHotelPermission(int $hotelId, string $permission): bool
     {
-        $authorization = (new PermissionService())->authorize($this, $permission, $hotelId);
+        $authorization = $this->permissionService()->authorize($this, $permission, $hotelId);
         return (bool)$authorization['allowed'];
     }
 
-    private function legacyHasHotelPermission(int $hotelId, string $permission): bool
-    {
-        if ($hotelId <= 0) {
-            return false;
+    public function hasHotelPermissionOrFail(
+        int $hotelId,
+        string $permission,
+        string $message = '无权限操作该门店'
+    ): void {
+        if (!$this->hasHotelPermission($hotelId, $permission)) {
+            throw new \think\exception\HttpException(403, $message);
         }
-
-        if ($this->isSuperAdmin()) {
-            // 超级管理员也需要检查酒店是否启用
-            return $this->isHotelActive($hotelId);
-        }
-        
-        // 非超级管理员必须关联酒店
-        // 检查角色是否拥有该权限
-        $role = $this->role;
-        if (!$role || (int)$role->status !== Role::STATUS_ENABLED || !$role->hasPermission($permission)) {
-            return false;
-        }
-        
-        // 检查是否是有权限的酒店（包含启用状态检查）
-        if (!$this->isHotelActive($hotelId)) {
-            return false;
-        }
-
-        $permissionRecord = $this->hotelPermissionRecord($hotelId);
-        if ($permissionRecord !== null) {
-            return $this->permissionRecordAllows($permissionRecord, $permission);
-        }
-
-        return !empty($this->hotel_id) && (int)$this->hotel_id === $hotelId;
     }
-    
-    /**
-     * 检查是否有某个权限（从角色继承）
-     * 注意：非超级管理员必须关联启用的酒店
-     */
-    public function hasPermission(string $permission): bool
-    {
-        if ($this->isSuperAdmin()) {
-            return true;
-        }
-        
-        // 非超级管理员必须关联酒店
-        // 检查关联的酒店是否启用
-        $role = $this->role;
-        if (!$role || (int)$role->status !== Role::STATUS_ENABLED || !$role->hasPermission($permission)) {
-            return false;
-        }
 
-        foreach ($this->getPermittedHotelIds() as $hotelId) {
-            if ($this->hasHotelPermission((int)$hotelId, $permission)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-    
     /**
      * 检查是否可以管理用户（店长及以上）
      */
@@ -246,7 +217,7 @@ class User extends Model
             return true;
         }
 
-        return (new PermissionService())->roleAllows($this, 'can_manage_own_hotels');
+        return $this->permissionService()->roleAllows($this, 'can_manage_own_hotels');
     }
 
     /**
@@ -255,49 +226,31 @@ class User extends Model
      */
     public function getPermittedHotelIds(): array
     {
-        return (new HotelScopeService())->accessibleHotelIds($this);
+        return $this->hotelScopeService()->accessibleHotelIds($this);
     }
 
     public function getHotelScopeContext(): array
     {
-        return (new HotelScopeService())->scopeContext($this);
+        return $this->hotelScopeService()->scopeContext($this);
     }
 
-    private function legacyGetPermittedHotelIds(): array
+    public function resetAuthorizationContext(): void
     {
-        if ($this->isSuperAdmin()) {
-            // 超级管理员只返回启用的酒店
-            return Hotel::where('status', Hotel::STATUS_ENABLED)->column('id');
+        if ($this->hotelScopeServiceInstance !== null) {
+            $this->hotelScopeServiceInstance->invalidateUser($this);
         }
-
-        // 非超级管理员只有自己关联的酒店
-        $hotelIds = [];
-        if (!empty($this->hotel_id)) {
-            $hotelIds[] = (int)$this->hotel_id;
-        }
-
-        if (!empty($this->id)) {
-            $permissionHotelIds = UserHotelPermission::where('user_id', (int)$this->id)->column('hotel_id');
-            foreach ($permissionHotelIds as $permissionHotelId) {
-                if ((int)$permissionHotelId > 0) {
-                    $hotelIds[] = (int)$permissionHotelId;
-                }
-            }
-        }
-
-        $hotelIds = array_values(array_unique(array_filter($hotelIds, static fn(int $id): bool => $id > 0)));
-        if (empty($hotelIds)) {
-            return [];
-        }
-        
-        // 检查关联的酒店是否启用
-        return array_values(array_map('intval', Hotel::where('status', Hotel::STATUS_ENABLED)->whereIn('id', $hotelIds)->column('id')));
+        $this->hotelScopeServiceInstance = null;
+        $this->permissionServiceInstance = null;
     }
 
-    private function isHotelActive(int $hotelId): bool
+    private function hotelScopeService(): HotelScopeService
     {
-        $hotel = Hotel::find($hotelId);
-        return $hotel && (int)$hotel->status === Hotel::STATUS_ENABLED;
+        return $this->hotelScopeServiceInstance ??= new HotelScopeService();
+    }
+
+    private function permissionService(): PermissionService
+    {
+        return $this->permissionServiceInstance ??= new PermissionService($this->hotelScopeService());
     }
 
     private function hotelPermissionRecord(int $hotelId): ?array
@@ -313,12 +266,4 @@ class User extends Model
         return $record ? $record->toArray() : null;
     }
 
-    private function permissionRecordAllows(array $record, string $permission): bool
-    {
-        if (!array_key_exists($permission, $record)) {
-            return false;
-        }
-
-        return (int)$record[$permission] === 1;
-    }
 }

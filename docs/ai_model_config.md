@@ -56,6 +56,5 @@ Used by:
 - `POST /api/agent/analyze-captured-ota-data`
 - `POST /api/agent/summarize-captured-ota-analysis`
 - `POST /api/agent/feasibility-report/generate`
-- `POST /api/ai/feasibility`
 
 Provider API keys are not read from `DEEPSEEK_API_KEY` or `OPENAI_API_KEY`; they must be saved in `ai_model_configs`.

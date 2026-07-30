@@ -156,6 +156,17 @@ final class SimulationExecutionReadinessServiceTest extends TestCase
         self::assertSame('strategy_review', $input['action_type']);
         self::assertSame('strategy_simulation_closure', $input['target_value']['target_metric']);
         self::assertSame('review_ready', $input['evidence']['readiness_stage']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $input['evidence']['source_record_digest']);
+        self::assertSame(
+            $input['evidence']['simulation_payload_digest'],
+            $service->simulationPayloadDigest($input)
+        );
+        $tampered = $input;
+        $tampered['target_value']['action_text'] = 'changed after source build';
+        self::assertNotSame(
+            $input['evidence']['simulation_payload_digest'],
+            $service->simulationPayloadDigest($tampered)
+        );
 
         $payload = (new OperationManagementService())->buildExecutionIntentPayload([7], 7, $input, 3);
         self::assertSame('pending_approval', $payload['status']);

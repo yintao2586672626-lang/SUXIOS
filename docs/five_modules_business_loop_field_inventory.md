@@ -79,7 +79,7 @@
 ### 缺口
 
 1. `ai-simulation` 未走后端，无法统一保存、回显、编辑和审计。
-2. `/api/ai/strategy`、`/api/ai/simulation` 是遗留接口，当前主页面实际使用 `/api/strategy/simulate` 和前端本地计算。
+2. `/api/ai/strategy`、`/api/ai/simulation`、`/api/ai/feasibility` 遗留接口已删除；冻结模块后端仍保留 `/api/strategy`、`/api/simulation` 等记录接口，不再进入导航。
 3. 可行性报告接口在 `Agent` Controller 中调用 `checkAdmin()`，普通门店角色无法使用。
 4. 战略推演已写表，但前端没有记录列表、详情、复用旧输入能力。
 

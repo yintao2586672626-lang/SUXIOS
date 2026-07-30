@@ -5,7 +5,8 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\model\SystemConfig;
-use app\model\SystemNotification;
+use app\service\DualOtaContinuousTrustService;
+use app\service\OtaFailureNotificationService;
 use app\service\OtaOperatingScope;
 use think\Response;
 use think\exception\HttpException;
@@ -200,11 +201,7 @@ trait CollectionReliabilityConcern
             return true;
         }
 
-        $targetHotelName = $this->getSystemHotelName($systemHotelId);
         if ($this->isCtripGenericSelfHotelName((string)($row['hotel_name'] ?? ''))) {
-            return true;
-        }
-        if ($this->ctripHotelNameMatches((string)($row['hotel_name'] ?? ''), $targetHotelName)) {
             return true;
         }
 
@@ -212,7 +209,7 @@ trait CollectionReliabilityConcern
         if (is_array($raw)) {
             foreach (['metric_hotel_name', 'hotelName', 'hotel_name', 'name'] as $key) {
                 $rawHotelName = (string)($raw[$key] ?? '');
-                if ($this->isCtripGenericSelfHotelName($rawHotelName) || $this->ctripHotelNameMatches($rawHotelName, $targetHotelName)) {
+                if ($this->isCtripGenericSelfHotelName($rawHotelName)) {
                     return true;
                 }
             }
@@ -229,18 +226,6 @@ trait CollectionReliabilityConcern
         }
         $expectedSet = array_fill_keys(array_map(static fn($value): string => trim((string)$value), $expectedIds), true);
         return !isset($expectedSet[$platformHotelId]);
-    }
-
-    private function ctripHotelNameMatches(string $candidate, string $target): bool
-    {
-        $left = $this->normalizeCtripHotelNameForMatch($candidate);
-        $right = $this->normalizeCtripHotelNameForMatch($target);
-        if ($left === '' || $right === '') {
-            return false;
-        }
-        return $left === $right
-            || (mb_strlen($left, 'UTF-8') >= 3 && str_contains($right, $left))
-            || (mb_strlen($right, 'UTF-8') >= 3 && str_contains($left, $right));
     }
 
     private function isCtripGenericSelfHotelName(string $value): bool
@@ -290,10 +275,6 @@ trait CollectionReliabilityConcern
         $platformHotelId = trim((string)($row['hotel_id'] ?? ''));
         if ($platformHotelId !== '' && isset($currentIds[$platformHotelId])) {
             return true;
-        }
-        $nodeSet = array_fill_keys(array_map(static fn($value): string => trim((string)$value), $nodeIds), true);
-        if ($platformHotelId !== '' && isset($nodeSet[$platformHotelId])) {
-            return $this->ctripHotelNameMatches((string)($row['hotel_name'] ?? ''), $this->getSystemHotelName($systemHotelId));
         }
         return $this->isCtripCurrentHotelIdentityRow($row, $systemHotelId, $expectedIds, $nodeIds);
     }
@@ -638,7 +619,7 @@ trait CollectionReliabilityConcern
             return [];
         }
 
-        foreach ($items as $item) {
+        foreach ($this->selectCurrentCredentialHealthItems($items) as $item) {
             $itemHotelId = (int)($item['system_hotel_id'] ?? 0);
             if ($itemHotelId > 0 && $this->canSeeCookieHotel($itemHotelId)) {
                 $rows[] = $this->buildCredentialHealth((string)($item['platform'] ?? ''), $itemHotelId, $item);
@@ -647,6 +628,54 @@ trait CollectionReliabilityConcern
 
         usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['updated_at'] ?? ''), (string)($a['updated_at'] ?? '')));
         return $rows;
+    }
+
+    /**
+     * Credential history is retained for audit, but authorization health must
+     * represent one current credential per hotel/platform. A revoked history
+     * row must not override the ready version and turn the whole store red.
+     *
+     * @param array<int,array<string,mixed>> $items
+     * @return array<int,array<string,mixed>>
+     */
+    private function selectCurrentCredentialHealthItems(array $items): array
+    {
+        $groups = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = (int)($item['system_hotel_id'] ?? 0);
+            $platform = strtolower(trim((string)($item['platform'] ?? '')));
+            if ($hotelId <= 0 || !in_array($platform, ['ctrip', 'meituan'], true)) {
+                continue;
+            }
+            $groups[$hotelId . '|' . $platform][] = $item;
+        }
+
+        $selected = [];
+        foreach ($groups as $rows) {
+            usort($rows, static function (array $left, array $right): int {
+                $leftReady = strtolower(trim((string)($left['credential_status'] ?? ''))) === 'ready';
+                $rightReady = strtolower(trim((string)($right['credential_status'] ?? ''))) === 'ready';
+                if ($leftReady !== $rightReady) {
+                    return $rightReady <=> $leftReady;
+                }
+                $timestamp = static function (array $row): int {
+                    foreach (['rotated_at', 'update_time', 'create_time'] as $field) {
+                        $value = strtotime(trim((string)($row[$field] ?? '')));
+                        if ($value !== false) {
+                            return $value;
+                        }
+                    }
+                    return 0;
+                };
+                $timeCompare = $timestamp($right) <=> $timestamp($left);
+                return $timeCompare !== 0 ? $timeCompare : ((int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0));
+            });
+            $selected[] = $rows[0];
+        }
+        return $selected;
     }
 
     private function buildCredentialHealth(string $platform, int $hotelId, array $item): array
@@ -834,22 +863,16 @@ trait CollectionReliabilityConcern
                 null,
                 ['reason_code' => 'ota_credential_reauthorization_required']
             );
-            SystemNotification::recordEvent([
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
                 'hotel_id' => $hotelId,
-                'user_id' => (int)($this->currentUser->id ?? 0),
+                'actor_user_id' => (int)($this->currentUser->id ?? 0),
                 'platform' => $alertPlatform,
-                'category' => 'cookie_alert',
-                'severity' => 'warning',
-                'title' => $this->otaPlatformLabel($alertPlatform) . '授权需要更新',
-                'message' => '平台登录/Cookie 状态异常，需要重新登录或更新 Cookie 后再采集。',
-                'action_type' => 'cookie',
-                'action_payload' => [
-                    'target_page' => 'online-data',
-                    'target_tab' => 'data-health',
-                    'action_label' => '更新授权',
-                ],
-                'source_module' => 'online_data',
-                'source_key' => 'cookie_alert:' . $alertPlatform . ':' . (int)($hotelId ?? 0) . ':' . substr(sha1($alertName), 0, 16),
+                'reason_code' => 'login_expired',
+                'authorization_source_type' => 'cookie_api',
+                'authorization_source_label' => $alertName,
+                'data_date' => date('Y-m-d'),
+                'success' => false,
+                'saved_count' => 0,
             ]);
         } catch (\Throwable $e) {
             // Alert storage must not block OTA fetching.
@@ -1501,6 +1524,35 @@ trait CollectionReliabilityConcern
             'message' => 'Light mode does not load online_daily_data quality rows. Use mode=full for field quality evidence.',
         ];
     }
+
+    /** @return array<string, mixed> */
+    private function buildDualOtaContinuousTrust(?int $hotelId, string $startDate, string $endDate): array
+    {
+        $boundedStartDate = max(
+            $startDate,
+            date('Y-m-d', strtotime($endDate . ' -29 days'))
+        );
+        if ($hotelId === null || $hotelId <= 0) {
+            return DualOtaContinuousTrustService::unscoped($boundedStartDate, $endDate);
+        }
+
+        try {
+            return (new DualOtaContinuousTrustService())->inspectHotel(
+                $hotelId,
+                $boundedStartDate,
+                $endDate
+            );
+        } catch (\Throwable) {
+            return array_merge(
+                DualOtaContinuousTrustService::unscoped($boundedStartDate, $endDate),
+                [
+                    'hotel_id' => $hotelId,
+                    'reason' => 'continuous_trust_evaluation_failed',
+                ]
+            );
+        }
+    }
+
     private function buildCollectionReliabilityLightPayload(?int $hotelId, string $startDate, string $endDate): array
     {
         $periodDays = (int)floor((strtotime($endDate) - strtotime($startDate)) / 86400) + 1;
@@ -1527,6 +1579,7 @@ trait CollectionReliabilityConcern
             'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
             'pending_actions' => $this->buildCollectionPendingActions($authorizationRows, $alerts, $collectionLogs, []),
             'source_date_evidence' => $this->buildCollectionSourceDateEvidence($hotelId, $endDate),
+            'dual_ota_continuous_trust' => $this->buildDualOtaContinuousTrust($hotelId, $startDate, $endDate),
             'data_quality' => $this->unloadedCollectionQualitySnapshot(),
             'field_asset_summary' => [
                 'status' => 'not_loaded',
@@ -1577,6 +1630,7 @@ trait CollectionReliabilityConcern
             'collection_logs' => $this->normalizeCollectionLogStatuses($collectionLogs),
             'history_replay' => $this->buildCollectionHistoryReplayRows($hotelId, $startDate, $endDate, 30),
             'source_date_evidence' => $this->buildCollectionSourceDateEvidence($hotelId, $endDate),
+            'dual_ota_continuous_trust' => $this->buildDualOtaContinuousTrust($hotelId, $startDate, $endDate),
             'data_quality' => $this->buildCollectionQualitySnapshot($qualityRows),
             'pending_actions' => $this->buildCollectionPendingActions($authorizationRows, $alerts, $collectionLogs, $qualityRows),
         ];

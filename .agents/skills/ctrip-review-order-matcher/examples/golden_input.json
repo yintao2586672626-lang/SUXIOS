@@ -1,0 +1,44 @@
+{
+  "store_mapping_verified": true,
+  "room_mapping": {
+    "景观大床房": ["景观大床房"]
+  },
+  "reviews": [
+    {
+      "review_id": "golden-confirmed",
+      "channel_order_no": "C-1001",
+      "publish_time": "2026-07-10 16:00:00",
+      "room_name": "庭院亲子房"
+    },
+    {
+      "review_id": "golden-high",
+      "publish_time": "2026-07-10 16:00:00",
+      "room_name": "景观大床房（270度景观）",
+      "content": "一个人散心，大床很舒服"
+    }
+  ],
+  "orders": [
+    {
+      "order_id": "C-1001",
+      "channel_order_no": "C-1001",
+      "channel": "ctrip",
+      "arrival_date": "2026-06-01",
+      "departure_date": "2026-06-02",
+      "room_name": "庭院亲子间",
+      "status": "已完成",
+      "amount": 520,
+      "detail_verified": true
+    },
+    {
+      "order_id": "C-1002",
+      "channel_order_no": "C-1002",
+      "channel": "ctrip",
+      "arrival_date": "2026-07-06",
+      "departure_date": "2026-07-08",
+      "room_name": "景观大床房",
+      "status": "已退房",
+      "amount": 688,
+      "detail_verified": true
+    }
+  ]
+}

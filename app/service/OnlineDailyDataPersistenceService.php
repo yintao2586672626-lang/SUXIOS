@@ -19,13 +19,259 @@ final class OnlineDailyDataPersistenceService
         return $columns;
     }
 
+    /**
+     * Persist readback proof only while every value from the matched database
+     * snapshot is still current. The caller must pass the exact rows it read
+     * and compared; scalar IDs are deliberately rejected so a concurrent
+     * overwrite cannot be trusted by a later naked-ID update.
+     *
+     * @param array<int|string, array<string, mixed>> $readbackRows
+     * @param array<string, bool>|null $columns
+     */
+    public static function markRowsReadbackVerified(array $readbackRows, ?array $columns = null): bool
+    {
+        if ($readbackRows === []) {
+            return false;
+        }
+
+        $columns ??= self::getColumns();
+        if (!isset($columns['readback_verified'], $columns['tenant_id'], $columns['system_hotel_id'])) {
+            return false;
+        }
+
+        $snapshots = [];
+        foreach ($readbackRows as $readbackRow) {
+            if (!is_array($readbackRow) || array_diff_key($columns, $readbackRow) !== []) {
+                return false;
+            }
+            $snapshot = array_intersect_key($readbackRow, $columns);
+            $rowId = filter_var($snapshot['id'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            $systemHotelId = filter_var($snapshot['system_hotel_id'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            $tenantId = filter_var($snapshot['tenant_id'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            if ($rowId === false || $systemHotelId === false || $tenantId === false
+                || (int)($snapshot['readback_verified'] ?? -1) !== 0) {
+                return false;
+            }
+            try {
+                if (self::resolveTenantIdForSystemHotel($systemHotelId) !== $tenantId) {
+                    return false;
+                }
+            } catch (\Throwable) {
+                return false;
+            }
+            $snapshots[(int)$rowId] = $snapshot;
+        }
+        if (count($snapshots) !== count($readbackRows)) {
+            return false;
+        }
+
+        try {
+            Db::transaction(static function () use ($snapshots, $columns): void {
+                $verifiedAt = date('Y-m-d H:i:s');
+                foreach ($snapshots as $rowId => $snapshot) {
+                    $query = Db::name('online_daily_data')
+                        ->where('id', $rowId)
+                        ->where('readback_verified', 0);
+                    foreach ($snapshot as $field => $value) {
+                        if (in_array($field, ['id', 'readback_verified'], true)) {
+                            continue;
+                        }
+                        if ($value === null) {
+                            $query->whereNull($field);
+                        } else {
+                            $query->where($field, $value);
+                        }
+                    }
+
+                    $update = ['readback_verified' => 1];
+                    if (isset($columns['readback_verified_at'])) {
+                        $update['readback_verified_at'] = $verifiedAt;
+                    }
+                    if ((int)$query->update($update) !== 1) {
+                        throw new \RuntimeException('online_daily_data_readback_compare_and_set_failed');
+                    }
+                }
+            });
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Every write invalidates the previous proof before touching business data.
+     * When the migration is absent no synthetic proof fields are added.
+     *
+     * @param array<string, bool>|null $columns
+     */
+    public static function resetReadbackVerification(array $data, ?array $columns = null): array
+    {
+        $columns ??= self::getColumns();
+        if (isset($columns['readback_verified'])) {
+            $data['readback_verified'] = 0;
+        }
+        if (isset($columns['readback_verified_at'])) {
+            $data['readback_verified_at'] = null;
+        }
+        return $data;
+    }
+
+    /**
+     * Compare the stored identity and every business fact actually written.
+     * Missing metrics are not invented; only keys present in the expected row
+     * participate in the value-level readback contract.
+     */
+    public static function matchesBusinessReadback(array $persisted, array $expected): bool
+    {
+        $tenantId = filter_var($expected['tenant_id'] ?? null, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($tenantId === false || (string)($persisted['tenant_id'] ?? '') !== (string)$tenantId) {
+            return false;
+        }
+        $identityFields = [
+            'tenant_id', 'source', 'platform', 'data_type', 'data_date', 'dimension',
+            'hotel_id', 'hotel_name', 'system_hotel_id', 'compare_type',
+            'data_period', 'snapshot_bucket', 'source_trace_id', 'persistence_identity_hash',
+        ];
+        $businessFields = array_values(array_filter([
+            'amount', 'quantity', 'book_order_num', 'comment_score',
+            'qunar_comment_score', 'data_value', 'list_exposure',
+            'detail_exposure', 'flow_rate', 'order_filling_num',
+            'order_submit_num', 'raw_data',
+        ], static fn(string $field): bool => array_key_exists($field, $expected)));
+
+        return self::matchesMetricReadback(
+            $persisted,
+            $expected,
+            $identityFields,
+            $businessFields
+        );
+    }
+
     public static function filterFields(array $data): array
     {
         $columns = self::getColumns();
-        if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
-            $data['tenant_id'] = self::tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
-        }
+        $data = self::applyTenantScope($data, $columns);
         return array_intersect_key($data, $columns);
+    }
+
+    /** @param array<string, bool>|null $columns */
+    public static function applyTenantScope(array $data, ?array $columns = null): array
+    {
+        $columns ??= self::getColumns();
+        if (isset($columns['tenant_id'])) {
+            $data['tenant_id'] = self::resolveTenantIdForSystemHotel($data['system_hotel_id'] ?? null);
+        }
+        return $data;
+    }
+
+    public static function resolveTenantIdForSystemHotel(mixed $systemHotelId): int
+    {
+        $systemHotelId = filter_var($systemHotelId, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($systemHotelId === false) {
+            throw new \InvalidArgumentException('system_hotel_id_invalid_for_tenant_scope');
+        }
+
+        $tenantId = Db::name('hotels')->where('id', $systemHotelId)->value('tenant_id');
+        $tenantId = filter_var($tenantId, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($tenantId === false) {
+            throw new \RuntimeException('hotel_tenant_id_missing_or_invalid');
+        }
+        return (int)$tenantId;
+    }
+
+    /**
+     * Keep updates sparse while making missing metrics explicit on new rows.
+     * An observed zero is retained because presence is checked with
+     * array_key_exists rather than truthiness.
+     *
+     * @param array<int, string> $metricFields
+     */
+    public static function buildMetricAwareWriteData(
+        array $base,
+        array $observedMetrics,
+        array $metricFields,
+        bool $isInsert
+    ): array {
+        foreach ($metricFields as $field) {
+            unset($base[$field]);
+        }
+        $data = array_merge($base, $observedMetrics);
+        if (!$isInsert) {
+            return $data;
+        }
+
+        foreach ($metricFields as $field) {
+            if (!array_key_exists($field, $data)) {
+                $data[$field] = null;
+            }
+        }
+        return $data;
+    }
+
+    /**
+     * @param array<int, string> $identityFields
+     * @param array<int, string> $observedMetricFields
+     */
+    public static function matchesMetricReadback(
+        array $persisted,
+        array $expected,
+        array $identityFields,
+        array $observedMetricFields
+    ): bool {
+        foreach ($identityFields as $field) {
+            if (!array_key_exists($field, $expected)) {
+                continue;
+            }
+            $expectedValue = $expected[$field];
+            $persistedValue = $persisted[$field] ?? null;
+            if ($expectedValue === null) {
+                if ($persistedValue !== null && $persistedValue !== '') {
+                    return false;
+                }
+                continue;
+            }
+            if ((string)$persistedValue !== (string)$expectedValue) {
+                return false;
+            }
+        }
+
+        foreach ($observedMetricFields as $field) {
+            if (!array_key_exists($field, $expected) || !array_key_exists($field, $persisted)) {
+                return false;
+            }
+            $expectedValue = $expected[$field];
+            $persistedValue = $persisted[$field];
+            if ($expectedValue === null || $persistedValue === null) {
+                if ($expectedValue !== $persistedValue) {
+                    return false;
+                }
+                continue;
+            }
+            if (is_numeric($expectedValue) && is_numeric($persistedValue)) {
+                if (abs((float)$persistedValue - (float)$expectedValue) > 0.000001) {
+                    return false;
+                }
+                continue;
+            }
+            if ((string)$persistedValue !== (string)$expectedValue) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public static function desensitizedSourceTraceId(array $source): string
@@ -162,9 +408,7 @@ final class OnlineDailyDataPersistenceService
     public static function applyValidationFields(array $data, ?array $columns = null): array
     {
         $columns = $columns ?? self::getColumns();
-        if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
-            $data['tenant_id'] = self::tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
-        }
+        $data = self::applyTenantScope($data, $columns);
         $data = self::applyPeriodFields($data, $columns);
         foreach (self::buildValidationFields($data) as $field => $value) {
             if (isset($columns[$field])) {
@@ -187,6 +431,13 @@ final class OnlineDailyDataPersistenceService
             $period = self::looksLikeRealtimeRow($merged) ? 'realtime_snapshot' : 'historical_daily';
         }
 
+        $dataDate = self::normalizeDate($merged['data_date'] ?? $merged['dataDate'] ?? '');
+        $dataType = strtolower(str_replace(['-', ' '], '_', trim((string)($merged['data_type'] ?? $merged['dataType'] ?? ''))));
+        if (in_array($dataType, ['traffic_forecast', 'trafficforecast', 'flow_forecast', 'flowforecast', 'forecast'], true)) {
+            $period = 'next_30_days';
+        } elseif ($dataDate === date('Y-m-d') && $period === 'historical_daily') {
+            $period = 'realtime_snapshot';
+        }
         $snapshotTime = null;
         $snapshotBucket = '';
         if ($period === 'realtime_snapshot') {
@@ -197,7 +448,7 @@ final class OnlineDailyDataPersistenceService
                 ?? $merged['capturedAt']
                 ?? null
             ) ?? date('Y-m-d H:i:s');
-            $snapshotBucket = date('YmdH', strtotime($snapshotTime) ?: time());
+            $snapshotBucket = date('YmdHi', strtotime($snapshotTime) ?: time());
         }
 
         if (isset($columns['data_period'])) {
@@ -255,20 +506,20 @@ final class OnlineDailyDataPersistenceService
         return $timestamp === false ? null : date('Y-m-d H:i:s', $timestamp);
     }
 
-    public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null): int
+    public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null): int
     {
         try {
             if (in_array($source, ['ctrip', 'qunar'], true)) {
-                return $this->parseAndSaveCtripTrafficData($responseData, (string)$startDate, $source, $systemHotelId, $platform);
+                return $this->parseAndSaveCtripTrafficData($responseData, (string)$startDate, $source, $systemHotelId, $platform, $expectedPlatformHotelId);
             }
 
-            return $this->parseAndSaveGenericTrafficData($responseData, (string)$startDate, $source, $systemHotelId);
+            return $this->parseAndSaveGenericTrafficData($responseData, (string)$startDate, $source, $systemHotelId, $expectedPlatformHotelId);
         } catch (\Throwable $e) {
             throw new \RuntimeException('traffic_data_persistence_failed: ' . $e->getMessage(), 0, $e);
         }
     }
 
-    private function parseAndSaveCtripTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, ?string $platform): int
+    private function parseAndSaveCtripTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, ?string $platform, ?string $expectedPlatformHotelId = null): int
     {
         $dataList = OnlineTrafficDataExtractionService::extractCtripTrafficRows($responseData);
         if (empty($dataList)) {
@@ -277,6 +528,7 @@ final class OnlineDailyDataPersistenceService
 
         $savedCount = 0;
         $platform = $platform ?: ($source === 'qunar' ? 'Qunar' : 'Ctrip');
+        $expectedPlatformHotelId = trim((string)$expectedPlatformHotelId);
         foreach ($dataList as $item) {
             if (!is_array($item)) {
                 continue;
@@ -289,12 +541,19 @@ final class OnlineDailyDataPersistenceService
                 || str_contains($compareText, 'avg')
                 || str_contains($compareText, 'average')
                 || (is_numeric($hotelId) && (int)$hotelId < 0);
+            $isExplicitSelf = $compareText === 'self'
+                || str_contains($compareText, 'my hotel')
+                || str_contains($compareText, 'my_hotel')
+                || str_contains($compareText, '我的酒店')
+                || str_contains($compareText, '本店');
             if (!is_numeric($hotelId)) {
                 if ($isCompetitor) {
                     $hotelId = -1;
-                } elseif ($systemHotelId !== null) {
-                    $hotelId = $systemHotelId;
                 } else {
+                    // system_hotel_id is an internal ownership key, not the
+                    // Ctrip hotelId. Missing platform identity must stay
+                    // missing instead of contaminating OTA rows with a local
+                    // database ID.
                     continue;
                 }
             }
@@ -302,20 +561,32 @@ final class OnlineDailyDataPersistenceService
             if ($hotelId !== -1 && $hotelId <= 0) {
                 continue;
             }
+            if ($expectedPlatformHotelId !== '' && $hotelId > 0) {
+                if (hash_equals($expectedPlatformHotelId, (string)$hotelId)) {
+                    $isCompetitor = false;
+                } elseif ($isExplicitSelf) {
+                    // An explicit self row with a different platform ID is a
+                    // cross-hotel response and must not be stored as this hotel.
+                    continue;
+                } else {
+                    $isCompetitor = true;
+                }
+            }
 
             $itemDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $item['reportDate'] ?? $item['day'] ?? $startDate;
             if (!$itemDate || strtotime((string)$itemDate) === false) {
                 continue;
             }
             $itemDate = date('Y-m-d', strtotime((string)$itemDate));
-            $compareType = $isCompetitor || $hotelId < 0 ? 'competitor_avg' : 'self';
+            $isAverage = $hotelId < 0 || str_contains($compareText, 'avg') || str_contains($compareText, 'average');
+            $compareType = $isAverage ? 'competitor_avg' : ($isCompetitor ? 'competitor' : 'self');
             $hotelName = (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? ($compareType === 'self' ? '本店' : '竞争圈'));
-            $listExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view'], 0.0);
-            $detailExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views'], 0.0);
-            $flowRate = round(CtripTrafficDisplayService::normalizeTrafficPercent(CtripTrafficDisplayService::readTrafficNumber($item, ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], $listExposure > 0 ? $detailExposure / $listExposure * 100 : 0.0)), 2);
-            $orderFillingNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks'], 0.0);
-            $orderSubmitNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'], 0.0);
+            $trafficMetrics = $this->extractObservedTrafficMetrics($item, false);
+            if (array_key_exists('list_exposure', $trafficMetrics)) {
+                $trafficMetrics['data_value'] = (float)$trafficMetrics['list_exposure'];
+            }
             $columns = self::getColumns();
+            $trafficMetrics = array_intersect_key($trafficMetrics, $columns);
             $periodFilter = self::applyPeriodFields([
                 'data_date' => $itemDate,
                 'source' => $source,
@@ -344,52 +615,86 @@ final class OnlineDailyDataPersistenceService
 
             $exists = $query->find();
             $sourceTraceId = self::desensitizedSourceTraceId($item);
-            $payload = [
+            $base = [
                 'hotel_id' => (string)$hotelId,
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
                 'data_date' => $itemDate,
-                'amount' => 0,
-                'quantity' => 0,
-                'book_order_num' => 0,
-                'comment_score' => 0,
-                'qunar_comment_score' => 0,
-                'data_value' => $listExposure,
                 'source' => $source,
                 'data_type' => 'traffic',
                 'dimension' => $platform . ':' . $compareType,
                 'platform' => $platform,
                 'compare_type' => $compareType,
-                'list_exposure' => $listExposure,
-                'detail_exposure' => $detailExposure,
-                'flow_rate' => $flowRate,
-                'order_filling_num' => $orderFillingNum,
-                'order_submit_num' => $orderSubmitNum,
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
             if ($sourceTraceId !== '') {
-                $payload['source_trace_id'] = $sourceTraceId;
+                $base['source_trace_id'] = $sourceTraceId;
             }
+            $payload = self::buildMetricAwareWriteData(
+                $base,
+                $trafficMetrics,
+                self::trafficMetricFields(),
+                !$exists
+            );
             $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
             $data = self::filterFields($data);
+            $data = self::resetReadbackVerification($data, $columns);
 
             if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+                $rowId = (int)$exists['id'];
+                Db::name('online_daily_data')->where('id', $rowId)->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            $readbackRow = $rowId > 0
+                ? $this->verifiedTrafficRowReadback($rowId, $data, array_keys($trafficMetrics))
+                : null;
+            if (is_array($readbackRow)
+                && self::markRowsReadbackVerified([$readbackRow], $columns)) {
+                $savedCount++;
+            }
         }
 
         return $savedCount;
     }
 
-    private function parseAndSaveGenericTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId): int
+    /** @return array<int, string> */
+    public function validateGenericTrafficBinding($responseData, string $expectedPlatformHotelId): array
+    {
+        $expectedPlatformHotelId = trim($expectedPlatformHotelId);
+        if ($expectedPlatformHotelId === '') {
+            throw new \InvalidArgumentException('Expected Meituan platform hotel identity is missing.');
+        }
+        $dataList = $this->resolveGenericTrafficDataList($responseData);
+        $returnedIds = [];
+        foreach ($dataList as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = trim((string)($item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? $item['poiId'] ?? $item['poi_id'] ?? $item['storeId'] ?? $item['store_id'] ?? ''));
+            if ($hotelId === '') {
+                continue;
+            }
+            $returnedIds[$hotelId] = true;
+            if (!hash_equals($expectedPlatformHotelId, $hotelId)) {
+                throw new \InvalidArgumentException('Meituan traffic response platform hotel identity mismatch.');
+            }
+        }
+        if ($returnedIds === []) {
+            throw new \InvalidArgumentException('Meituan traffic response platform hotel identity is unverified.');
+        }
+        return array_values(array_map('strval', array_keys($returnedIds)));
+    }
+
+    private function parseAndSaveGenericTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, ?string $expectedPlatformHotelId = null): int
     {
         $dataList = $this->resolveGenericTrafficDataList($responseData);
         if (empty($dataList)) {
             return 0;
+        }
+        if (trim((string)$expectedPlatformHotelId) !== '') {
+            $this->validateGenericTrafficBinding($responseData, (string)$expectedPlatformHotelId);
         }
 
         $savedCount = 0;
@@ -407,11 +712,17 @@ final class OnlineDailyDataPersistenceService
                 continue;
             }
 
-            $trafficMetrics = $this->extractGenericTrafficMetrics($item);
+            $trafficMetrics = $this->extractObservedTrafficMetrics($item, true);
             $trafficValue = OnlineTrafficDataExtractionService::extractTrafficValue($item);
+            if ($trafficValue !== null) {
+                $trafficMetrics['data_value'] = round($trafficValue, 2);
+            } elseif (array_key_exists('list_exposure', $trafficMetrics)) {
+                $trafficMetrics['data_value'] = (float)$trafficMetrics['list_exposure'];
+            }
             $itemDate = $item['dataDate'] ?? $item['date'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $dataDate;
             $dimension = $item['metric'] ?? $item['metricName'] ?? $item['dimension'] ?? $item['_metric'] ?? 'traffic';
             $columns = self::getColumns();
+            $trafficMetrics = array_intersect_key($trafficMetrics, $columns);
             $periodFilter = self::applyPeriodFields([
                 'data_date' => $itemDate,
                 'source' => $source,
@@ -438,80 +749,118 @@ final class OnlineDailyDataPersistenceService
             $exists = $query->find();
 
             $sourceTraceId = self::desensitizedSourceTraceId($item);
-            $payload = [
+            $base = [
                 'hotel_id' => $hotelId ? (string)$hotelId : '',
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
                 'data_date' => $itemDate,
-                'amount' => 0,
-                'quantity' => 0,
-                'book_order_num' => 0,
-                'comment_score' => 0,
-                'qunar_comment_score' => 0,
-                'data_value' => $trafficValue ?? $trafficMetrics['list_exposure'],
                 'source' => $source,
                 'data_type' => 'traffic',
                 'dimension' => $dimension ?: 'traffic',
-                'list_exposure' => $trafficMetrics['list_exposure'],
-                'detail_exposure' => $trafficMetrics['detail_exposure'],
-                'flow_rate' => $trafficMetrics['flow_rate'],
-                'order_filling_num' => $trafficMetrics['order_filling_num'],
-                'order_submit_num' => $trafficMetrics['order_submit_num'],
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
             if ($sourceTraceId !== '') {
-                $payload['source_trace_id'] = $sourceTraceId;
+                $base['source_trace_id'] = $sourceTraceId;
             }
+            $payload = self::buildMetricAwareWriteData(
+                $base,
+                $trafficMetrics,
+                self::trafficMetricFields(),
+                !$exists
+            );
             $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
             $data = self::filterFields($data);
+            $data = self::resetReadbackVerification($data, $columns);
 
             if ($exists) {
+                $rowId = (int)$exists['id'];
                 Db::name('online_daily_data')
-                    ->where('id', $exists['id'])
+                    ->where('id', $rowId)
                     ->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            $readbackRow = $rowId > 0
+                ? $this->verifiedTrafficRowReadback($rowId, $data, array_keys($trafficMetrics))
+                : null;
+            if (is_array($readbackRow)
+                && self::markRowsReadbackVerified([$readbackRow], $columns)) {
+                $savedCount++;
+            }
         }
 
         return $savedCount;
     }
 
+    /** @param array<int, string> $observedMetricFields */
+    private function verifiedTrafficRowReadback(int $rowId, array $expected, array $observedMetricFields): ?array
+    {
+        $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
+        if (!is_array($persisted)) {
+            return null;
+        }
+
+        return self::matchesMetricReadback(
+            $persisted,
+            $expected,
+            ['tenant_id', 'source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            $observedMetricFields
+        ) ? $persisted : null;
+    }
+
     /**
      * @param array<string, mixed> $item
-     * @return array{list_exposure:int,detail_exposure:int,flow_rate:float,order_filling_num:int,order_submit_num:int}
+     * @return array<string, int|float>
      */
-    private function extractGenericTrafficMetrics(array $item): array
+    private function extractObservedTrafficMetrics(array $item, bool $generic): array
     {
-        $listExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
-            'list_exposure', 'listExposure', 'exposure_count', 'exposureCount',
-            'exposureNum', 'impression', 'impressions', 'exposure',
-        ], 0.0);
-        $detailExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
-            'detail_exposure', 'detailExposure', 'page_views', 'pageViews',
-            'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount',
-            'click_count', 'clickCount', 'clicks', 'click', 'uv', 'UV', 'pv', 'views',
-        ], 0.0);
-        $flowRate = round(CtripTrafficDisplayService::normalizeTrafficPercent(CtripTrafficDisplayService::readTrafficNumber($item, [
-            'flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'orderRate',
-        ], $listExposure > 0 ? $detailExposure / $listExposure * 100 : 0.0)), 2);
-        $orderFillingNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
-            'order_filling_num', 'orderFillingNum', 'orderVisitors',
-            'click_count', 'clickCount', 'clicks', 'click',
-        ], 0.0);
-        $orderSubmitNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
-            'order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers',
-            'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'orders',
-        ], 0.0);
+        $aliases = [
+            'list_exposure' => $generic
+                ? ['list_exposure', 'listExposure', 'exposure_count', 'exposureCount', 'exposureNum', 'impression', 'impressions', 'exposure']
+                : ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view'],
+            'detail_exposure' => $generic
+                ? ['detail_exposure', 'detailExposure', 'page_views', 'pageViews', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'click_count', 'clickCount', 'clicks', 'click', 'uv', 'UV', 'pv', 'views']
+                : ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views'],
+            'flow_rate' => $generic
+                ? ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'orderRate']
+                : ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'],
+            'order_filling_num' => $generic
+                ? ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'click_count', 'clickCount', 'clicks', 'click']
+                : ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks'],
+            'order_submit_num' => $generic
+                ? ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'orders']
+                : ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'],
+        ];
 
+        $metrics = [];
+        foreach ($aliases as $field => $keys) {
+            $value = CtripTrafficDisplayService::readTrafficNumber($item, $keys, null);
+            if ($value === null) {
+                continue;
+            }
+            $metrics[$field] = $field === 'flow_rate'
+                ? round(CtripTrafficDisplayService::normalizeTrafficPercent($value), 2)
+                : (int)$value;
+        }
+        return $metrics;
+    }
+
+    /** @return array<int, string> */
+    private static function trafficMetricFields(): array
+    {
         return [
-            'list_exposure' => $listExposure,
-            'detail_exposure' => $detailExposure,
-            'flow_rate' => $flowRate,
-            'order_filling_num' => $orderFillingNum,
-            'order_submit_num' => $orderSubmitNum,
+            'amount',
+            'quantity',
+            'book_order_num',
+            'comment_score',
+            'qunar_comment_score',
+            'data_value',
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
         ];
     }
 
@@ -606,15 +955,6 @@ final class OnlineDailyDataPersistenceService
 
         $timestamp = strtotime($value);
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
-    }
-
-    private static function tenantIdForSystemHotel($systemHotelId): ?int
-    {
-        if ($systemHotelId === null || $systemHotelId === '' || !is_numeric($systemHotelId) || (int)$systemHotelId <= 0) {
-            return null;
-        }
-
-        return (int)$systemHotelId;
     }
 
     private function resolveCtripPlatformHotelId(array $row, mixed $fallback = ''): string

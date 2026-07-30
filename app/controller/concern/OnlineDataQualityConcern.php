@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
+use app\model\OperationLog;
 use app\service\OnlineDataFieldFactService;
+use app\service\OnlineDataTrustStatusService;
 use think\Response;
 use think\facade\Db;
 
@@ -30,6 +32,17 @@ trait OnlineDataQualityConcern
 
         OperationLog::record('online_data', 'save_daily', '保存线上数据: ' . $savedCount . '条', $this->currentUser->id, $systemHotelId);
 
+        if ($savedCount <= 0) {
+            return json([
+                'code' => 422,
+                'message' => '未确认任何数据入库；请检查字段格式、门店绑定和数据库回读结果。',
+                'data' => [
+                    'saved_count' => 0,
+                    'persistence_status' => 'not_verified',
+                ],
+            ], 422);
+        }
+
         return $this->success(['saved_count' => $savedCount], '保存成功，共保存 ' . $savedCount . ' 条数据');
     }
 
@@ -52,7 +65,11 @@ trait OnlineDataQualityConcern
             $source = $this->request->get('source', '');
             $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));  // 系统酒店筛选
             $otaHotelId = trim((string)$this->request->get('ota_hotel_id', '')); // OTA平台酒店ID筛选
-            $dataType = $this->request->get('data_type', ''); // 数据类型筛选
+            $dataType = $this->request->get('data_type', ''); // 单一数据类型筛选（兼容旧调用）
+            $dataTypes = $this->normalizeOnlineDataTypeFilters(
+                $dataType,
+                $this->request->get('data_types', '')
+            );
             $createStart = $this->request->get('create_start', ''); // 获取开始时间
             $createEnd = $this->request->get('create_end', ''); // 获取结束时间
             $page = max(1, intval($this->request->get('page', 1)));
@@ -61,6 +78,14 @@ trait OnlineDataQualityConcern
                 || in_array(strtolower(trim((string)$this->request->get('all', ''))), ['1', 'true', 'yes'], true);
             $fetchAll = false;
             $pageSize = min(200, max(1, $fetchAllRequested ? 200 : intval($pageSizeInput))); // 默认30条，禁止全量拉取
+
+            if (!$currentUser->isSuperAdmin() && $hotelId !== '') {
+                if (!is_numeric($hotelId)
+                    || (int)$hotelId <= 0
+                    || !$currentUser->hasHotelPermission((int)$hotelId, 'can_view_online_data')) {
+                    return $this->error('无权查看该酒店线上数据', 403);
+                }
+            }
 
             // 简化查询，先不添加复杂的权限过滤
             $query = Db::name('online_daily_data');
@@ -85,8 +110,8 @@ trait OnlineDataQualityConcern
             }
 
             // 按数据类型筛选
-            if (!empty($dataType)) {
-                $query->where('data_type', $dataType);
+            if ($dataTypes !== []) {
+                $query->whereIn('data_type', $dataTypes);
             }
 
             // 按获取时间筛选（支持单日筛选）
@@ -104,7 +129,13 @@ trait OnlineDataQualityConcern
 
             // 非超级管理员只能看自己酒店的数据
             if (!$currentUser->isSuperAdmin()) {
-                $permittedHotelIds = $currentUser->getPermittedHotelIds();
+                $permittedHotelIds = array_values(array_filter(
+                    array_map('intval', $currentUser->getPermittedHotelIds()),
+                    static fn(int $candidateHotelId): bool => $currentUser->hasHotelPermission(
+                        $candidateHotelId,
+                        'can_view_online_data'
+                    )
+                ));
                 if (empty($permittedHotelIds)) {
                     return $this->success([
                         'list' => [],
@@ -128,31 +159,65 @@ trait OnlineDataQualityConcern
                 ->order('id', 'desc');
             $listQuery->page($page, $pageSize);
             $list = $listQuery->select()->toArray();
+            $systemHotelIds = array_values(array_unique(array_filter(array_map(
+                static fn(array $item): int => max(0, (int)($item['system_hotel_id'] ?? 0)),
+                $list
+            ))));
+            $systemHotelNames = $systemHotelIds !== []
+                ? Db::name('hotels')->whereIn('id', $systemHotelIds)->column('name', 'id')
+                : [];
 
             // 解析 raw_data 添加排名等额外字段
             foreach ($list as &$item) {
+                $systemHotelId = max(0, (int)($item['system_hotel_id'] ?? 0));
+                $systemHotelName = trim((string)($systemHotelNames[$systemHotelId] ?? ''));
+                $capturedHotelName = trim((string)($item['hotel_name'] ?? ''));
+                if ($systemHotelName !== '') {
+                    if ($capturedHotelName !== '' && $capturedHotelName !== $systemHotelName) {
+                        $item['captured_hotel_name'] = $capturedHotelName;
+                    }
+                    $item['system_hotel_name'] = $systemHotelName;
+                    $item['hotel_name'] = $systemHotelName;
+                }
                 $bookOrderNum = intval($item['book_order_num'] ?? 0);
                 $rawTotalOrderNum = 0;
+                $rawData = [];
 
                 if (!empty($item['raw_data'])) {
-                    $rawData = json_decode($item['raw_data'], true);
+                    $decodedRawData = json_decode($item['raw_data'], true);
+                    $rawData = is_array($decodedRawData) ? $decodedRawData : [];
                     if ($rawData) {
-                        $rawTotalOrderNum = intval($rawData['totalOrderNum'] ?? $rawData['total_order_num'] ?? 0);
+                        // Browser/Profile persistence keeps the sanitized source row under
+                        // raw_data.row. Merge it only for safe display projections while
+                        // retaining the full envelope for field-fact/trust evaluation below.
+                        $displayRawData = isset($rawData['row']) && is_array($rawData['row'])
+                            ? array_merge($rawData, $rawData['row'])
+                            : $rawData;
+                        $rawTotalOrderNum = intval($displayRawData['totalOrderNum'] ?? $displayRawData['total_order_num'] ?? 0);
                         // 添加排名字段
-                        $item['amount_rank'] = $rawData['amountRank'] ?? null;
-                        $item['quantity_rank'] = $rawData['quantityRank'] ?? null;
-                        $item['book_order_num_rank'] = $rawData['bookOrderNumRank'] ?? null;
-                        $item['comment_score_rank'] = $rawData['commentScoreRank'] ?? null;
-                        $item['total_detail_num'] = $rawData['totalDetailNum'] ?? $item['total_detail_num'] ?? null;
-                        $item['convertion_rate'] = $rawData['convertionRate'] ?? $item['convertion_rate'] ?? null;
-                        $item['qunar_comment_score'] = $rawData['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? null;
-                        $item['qunar_detail_visitors'] = $rawData['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? null;
-                        $item['qunar_detail_cr'] = $rawData['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? null;
+                        $item['amount_rank'] = $displayRawData['amountRank'] ?? null;
+                        $item['quantity_rank'] = $displayRawData['quantityRank'] ?? null;
+                        $item['book_order_num_rank'] = $displayRawData['bookOrderNumRank'] ?? null;
+                        $item['comment_score_rank'] = $displayRawData['commentScoreRank'] ?? null;
+                        $item['total_detail_num'] = $displayRawData['totalDetailNum'] ?? $item['total_detail_num'] ?? null;
+                        $item['convertion_rate'] = $displayRawData['convertionRate'] ?? $item['convertion_rate'] ?? null;
+                        $item['qunar_comment_score'] = $displayRawData['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? null;
+                        $item['qunar_detail_visitors'] = $displayRawData['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? null;
+                        $item['qunar_detail_cr'] = $displayRawData['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? null;
+                        $item['rank'] = $displayRawData['rank'] ?? $displayRawData['ranking'] ?? $item['rank'] ?? null;
+                        $item['rank_percent'] = $displayRawData['percent'] ?? $displayRawData['rankPercent'] ?? $displayRawData['rank_percent'] ?? $item['rank_percent'] ?? null;
+                        $item['rank_type'] = $displayRawData['rankType'] ?? $displayRawData['rank_type'] ?? $item['rank_type'] ?? null;
+                        $item['rank_metric'] = $displayRawData['dimension'] ?? $displayRawData['dimName'] ?? $item['rank_metric'] ?? null;
+                        $item['metric_status'] = $displayRawData['metricStatus'] ?? $displayRawData['metric_status'] ?? $item['metric_status'] ?? null;
                     }
                 }
                 $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
-                $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, is_array($rawData ?? null) ? $rawData : []);
+                $storageStatus = $this->buildOnlineDataStorageStatus($item);
+                $item['storage_status'] = $storageStatus['code'];
+                $item['storage_status_label'] = $storageStatus['label'];
+                $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, $rawData);
                 $item['data_quality'] = $this->buildOnlineDataQuality($item);
+                $item['truth'] = OnlineDataTrustStatusService::truthEnvelope($item, $item['field_fact_status']);
             }
 
             return $this->success([
@@ -179,6 +244,31 @@ trait OnlineDataQualityConcern
             \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取数据列表失败', 500);
         }
+    }
+
+    private function normalizeOnlineDataTypeFilters($dataType, $dataTypes): array
+    {
+        $single = trim((string)$dataType);
+        $values = $single !== ''
+            ? [$single]
+            : (is_array($dataTypes) ? $dataTypes : preg_split('/[,\s]+/', trim((string)$dataTypes)));
+        $normalized = [];
+        foreach (is_array($values) ? $values : [] as $value) {
+            $value = strtolower(trim((string)$value));
+            if ($value === '' || preg_match('/^[a-z0-9_-]{1,50}$/D', $value) !== 1) {
+                continue;
+            }
+            $normalized[$value] = true;
+            if (count($normalized) >= 50) {
+                break;
+            }
+        }
+        return array_keys($normalized);
+    }
+
+    private function buildOnlineDataStorageStatus(array $row): array
+    {
+        return OnlineDataTrustStatusService::storageStatus($row);
     }
 
     private function buildOnlineDataQualitySummary(array $rows, array $scope = []): array
@@ -301,13 +391,13 @@ trait OnlineDataQualityConcern
 
         if ($source !== 'meituan' && $dataType !== 'traffic' && !$isNonNumericFact) {
             if ($amount !== null && $amount > 0 && ($quantity === null || $quantity <= 0)) {
-                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_denominator_zero', 'quantity', '间夜', $quantity, '营业额存在但间夜为0，ADR无法计算');
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_denominator_zero', 'quantity', '间夜', $quantity, $quantity === null ? '营业额存在但间夜未返回，ADR无法计算' : '营业额存在且间夜明确为0，ADR无法计算');
             }
             if ($quantity !== null && $quantity > 0 && ($amount === null || $amount <= 0)) {
-                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'amount_missing_for_quantity', 'amount', '营业额', $amount, '间夜存在但营业额为0');
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'amount_missing_for_quantity', 'amount', '营业额', $amount, $amount === null ? '间夜存在但营业额未返回' : '间夜存在且营业额明确为0');
             }
             if ($orders !== null && $orders > 0 && ($quantity === null || $quantity <= 0)) {
-                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'orders_without_room_nights', 'book_order_num', '订单数', $orders, '订单数存在但间夜为0');
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'orders_without_room_nights', 'book_order_num', '订单数', $orders, $quantity === null ? '订单数存在但间夜未返回' : '订单数存在且间夜明确为0');
             }
             if ($amount !== null && $quantity !== null && $quantity > 0) {
                 $adr = round($amount / $quantity, 2);
@@ -348,7 +438,7 @@ trait OnlineDataQualityConcern
 
         return [
             'status' => $status,
-            'status_label' => $status === 'ok' ? '完整' : ($status === 'error' ? '异常' : '需复核'),
+            'status_label' => $status === 'ok' ? '字段检查通过' : ($status === 'error' ? '异常' : '需复核'),
             'score' => max(0, 100 - count($missing) * 12 - count($abnormal) * 18),
             'missing_metrics' => $missing,
             'abnormal_metrics' => $abnormal,
@@ -357,7 +447,7 @@ trait OnlineDataQualityConcern
             'error_count' => $errorCount,
             'warning_count' => $warningCount,
             'prompts' => $prompts,
-            'summary' => empty($prompts) ? '数据完整' : implode('；', $prompts),
+            'summary' => empty($prompts) ? '字段检查通过（不代表数据来源已验证）' : implode('；', $prompts),
         ];
     }
 

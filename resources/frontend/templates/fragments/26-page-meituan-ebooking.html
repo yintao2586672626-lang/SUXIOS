@@ -1,0 +1,1451 @@
+                    <div v-if="currentPage === 'meituan-ebooking'">
+                        <div class="bg-white rounded-lg shadow">
+                            <div class="p-4 border-b">
+                                <h3 class="font-medium">美团数据</h3>
+                                <p class="mt-1 text-xs text-gray-500">按美团可获取的数据类型查看同行榜单、流量、订单流向、订单线索、点评与广告结果。</p>
+                            </div>
+                            <div class="p-6">
+                                <div data-testid="meituan-owner-navigation" class="mb-6 flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-center lg:justify-between">
+                                    <div class="flex flex-wrap gap-2">
+                                        <button type="button" @click="openMeituanStoredDataTab('all')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'all' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            全部已存
+                                        </button>
+                                        <button @click="openMeituanManualTab('meituan-ranking')" type="button" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-ranking' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-chart-line mr-1.5"></i>同行榜单
+                                        </button>
+                                        <button type="button" @click="openMeituanStoredDataTab('traffic')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'traffic' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-chart-bar mr-1.5"></i>流量分析
+                                        </button>
+                                        <button @click="openMeituanManualTab('meituan-order-flow')" type="button" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-order-flow' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-exchange-alt mr-1.5"></i>订单流向
+                                        </button>
+                                        <button type="button" @click="openMeituanStoredDataTab('orders')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'orders' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-receipt mr-1.5"></i>订单线索
+                                        </button>
+                                        <button type="button" @click="openMeituanStoredDataTab('reviews')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'reviews' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-star-half-alt mr-1.5"></i>美团点评
+                                        </button>
+                                        <button type="button" @click="openMeituanStoredDataTab('ads')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'ads' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-bullhorn mr-1.5"></i>广告数据
+                                        </button>
+                                    </div>
+                                    <div class="flex flex-wrap items-start gap-2">
+                                        <button type="button" @click="openHotelManagementForOta" class="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900">
+                                            <i class="fas fa-link mr-1.5"></i>设置
+                                        </button>
+                                        <details v-if="user?.is_super_admin" data-testid="meituan-advanced-collection" class="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                                            <summary class="cursor-pointer select-none font-medium text-gray-700">高级采集</summary>
+                                            <div class="mt-2 flex flex-wrap gap-2 border-t border-gray-200 pt-2">
+                                                <button @click="openMeituanManualTab('meituan-traffic')" type="button" class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:border-blue-200 hover:text-blue-700">流量补采</button>
+                                                <button @click="openMeituanManualTab('meituan-orders')" type="button" class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:border-blue-200 hover:text-blue-700">订单补采</button>
+                                                <button @click="openMeituanManualTab('meituan-ads')" type="button" class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:border-blue-200 hover:text-blue-700">广告补采</button>
+                                            </div>
+                                        </details>
+                                    </div>
+                                </div>
+
+                                <!-- 美团老板工作台主内容 -->
+
+                                <!-- 榜单数据获取 -->
+                                <div v-if="onlineDataTab === 'meituan-ranking'">
+                                    <div class="meituan-hotel-picker mb-5">
+                                        <div class="meituan-hotel-picker-copy">
+                                            <span class="meituan-hotel-picker-icon"><i class="fas fa-hotel"></i></span>
+                                            <div>
+                                                <label for="meituan-ranking-hotel" class="text-sm font-semibold text-slate-800">选择酒店</label>
+                                                <p class="mt-0.5 text-xs text-slate-500">仅显示已绑定美团账号的酒店</p>
+                                            </div>
+                                        </div>
+                                        <div class="meituan-hotel-picker-control">
+                                            <div class="relative">
+                                                <i class="fas fa-building pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                                                <select id="meituan-ranking-hotel" v-model="meituanForm.hotelId" @change="resetMeituanRankingFetchState" class="meituan-hotel-picker-select">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                                <i class="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400"></i>
+                                            </div>
+                                            <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" :class="[
+                                                'meituan-hotel-picker-status',
+                                                selectedMeituanManualCredentialState.canFetch &amp;&amp; (meituanForm.partnerId || selectedMeituanHotelConfig.partner_id || selectedMeituanHotelConfig.partnerId) &amp;&amp; (meituanForm.poiId || selectedMeituanHotelConfig.poi_id || selectedMeituanHotelConfig.poiId || selectedMeituanHotelConfig.store_id || selectedMeituanHotelConfig.storeId) ? 'is-ready' : 'is-warning'
+                                            ]">
+                                                <i :class="selectedMeituanManualCredentialState.canFetch ? 'fas fa-check-circle' : 'fas fa-exclamation-circle'"></i>
+                                                <span v-if="selectedMeituanManualCredentialState.canFetch &amp;&amp; (meituanForm.partnerId || selectedMeituanHotelConfig.partner_id || selectedMeituanHotelConfig.partnerId) &amp;&amp; (meituanForm.poiId || selectedMeituanHotelConfig.poi_id || selectedMeituanHotelConfig.poiId || selectedMeituanHotelConfig.store_id || selectedMeituanHotelConfig.storeId)" class="font-medium">{{ selectedMeituanManualCredentialState.label || '美团账号与门店已就绪' }}</span>
+                                                <span v-else-if="!selectedMeituanManualCredentialState.canFetch">{{ selectedMeituanManualCredentialState.detail }}</span>
+                                                <span v-else="">门店标识配置不完整，请补充后再获取</span>
+                                                <span class="meituan-hotel-picker-updated">· 更新 {{ formatConfigDate(selectedMeituanHotelConfig.update_time || selectedMeituanHotelConfig.created_at) || '-' }}</span>
+                                            </div>
+                                            <div v-if="meituanForm.hotelId &amp;&amp; !meituanConfigListLoading &amp;&amp; meituanConfigListLoadFailed &amp;&amp; !selectedMeituanHotelConfig" class="mt-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+                                                配置读取失败，请刷新后重试；未读取成功前不会判断为未配置。
+                                            </div>
+                                            <div v-if="meituanForm.hotelId &amp;&amp; !meituanConfigListLoading &amp;&amp; meituanConfigListLoaded &amp;&amp; !selectedMeituanHotelConfig" class="mt-2 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-3 py-2 text-sm flex items-center justify-between gap-3">
+                                                <span>当前酒店未配置美团数据源</span>
+                                                <button type="button" @click="goConfigureMeituanForSelectedHotel" class="px-3 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600 whitespace-nowrap">
+                                                    去配置
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 榜单类型选择（多选） -->
+                                    <!-- 榜单类型已隐藏，默认抓取全部4个榜单 -->
+
+                                    <!-- 时间维度选择（单选） -->
+                                    <div class="mb-5">
+                                        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                            <label class="text-base font-semibold text-slate-700">选择时间</label>
+                                            <span class="text-xs text-slate-500">每次获取一个周期，默认昨日</span>
+                                        </div>
+                                        <div class="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5 mb-2">
+                                            <button type="button" @click="selectMeituanRankingDateRange('0')" :aria-pressed="meituanForm.dateRanges.includes('0')" :class="['meituan-ranking-period-button rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors', meituanForm.dateRanges.includes('0') ? 'is-active' : '']">今日实时</button>
+                                            <button type="button" @click="selectMeituanRankingDateRange('1')" :aria-pressed="meituanForm.dateRanges.includes('1')" :class="['meituan-ranking-period-button rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors', meituanForm.dateRanges.includes('1') ? 'is-active' : '']">昨日</button>
+                                            <button type="button" @click="selectMeituanRankingDateRange('7')" :aria-pressed="meituanForm.dateRanges.includes('7')" :class="['meituan-ranking-period-button rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors', meituanForm.dateRanges.includes('7') ? 'is-active' : '']">近7天</button>
+                                            <button type="button" @click="selectMeituanRankingDateRange('30')" :aria-pressed="meituanForm.dateRanges.includes('30')" :class="['meituan-ranking-period-button rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors', meituanForm.dateRanges.includes('30') ? 'is-active' : '']">近30天</button>
+                                            <button type="button" @click="selectMeituanRankingDateRange('custom')" :aria-pressed="meituanForm.dateRanges.includes('custom')" :class="['meituan-ranking-period-button rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors', meituanForm.dateRanges.includes('custom') ? 'is-active' : '']">自定义</button>
+                                        </div>
+                                        <p v-if="showMeituanPreviousDayUpdateNotice" class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium leading-6 text-amber-900">
+                                            每日9点更新前日数据。数据仅作经营参考，不作结算依据。
+                                        </p>
+                                        <!-- 自定义时间选择器 -->
+                                        <div v-if="meituanForm.dateRanges.includes('custom')" class="grid grid-cols-2 gap-4 mt-2 pl-4 border-l-2 border-cyan-300">
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">开始日期</label>
+                                                <input v-model="meituanForm.startDate" type="date" :max="meituanRankMaxDate" class="w-full px-3 py-2.5 border rounded-lg text-base">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">结束日期</label>
+                                                <input v-model="meituanForm.endDate" type="date" :max="meituanRankMaxDate" class="w-full px-3 py-2.5 border rounded-lg text-base">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- API地址已隐藏，使用默认值 -->
+                                    <input type="hidden" v-model="meituanForm.url">
+                                    <div class="flex gap-3">
+                                        <button aria-label="更新竞争圈" @click="fetchMeituanData" :disabled="fetchingData || !canFetchMeituanRankingData()" :class="fetchingData || !canFetchMeituanRankingData() ? 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed' : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'" class="inline-flex items-center rounded-lg border px-4 py-3 text-base font-medium transition-colors">
+                                            <i class="fas fa-download mr-2"></i>{{ meituanFetchButtonText }}
+                                        </button>
+                                        <button type="button" @click="switchToMeituanDownloadCenter" class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50">
+                                            <i class="fas fa-table mr-2"></i>查看已入库数据
+                                        </button>
+                                    </div>
+
+                                    <!-- 获取结果显示 -->
+                                    <div v-if="meituanFetchSuccess || meituanFetchInProgress || meituanFetchBackgroundAccepted || (onlineDataResult &amp;&amp; onlineDataResult.length &gt; 0)" class="mt-4">
+                                        <div :class="[(meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'bg-blue-50 border-blue-200' : (meituanFetchPartial ? 'bg-amber-50 border-amber-200' : (meituanFetchSuccess ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200')), 'border rounded-lg p-4']">
+                                            <div class="flex justify-between items-center mb-2">
+                                                <div class="flex items-center">
+                                                    <i :class="(meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'fas fa-clock text-blue-500 text-xl mr-3' : (meituanFetchPartial ? 'fas fa-exclamation-triangle text-amber-500 text-xl mr-3' : (meituanFetchSuccess ? 'fas fa-check-circle text-green-500 text-xl mr-3' : 'fas fa-exclamation-circle text-red-500 text-xl mr-3'))"></i>
+                                                    <div>
+                                                        <span :class="['font-medium', (meituanFetchInProgress || meituanFetchBackgroundAccepted) ? 'text-blue-800' : (meituanFetchPartial ? 'text-amber-800' : (meituanFetchSuccess ? 'text-green-800' : 'text-red-800'))]">
+                                                            {{ meituanFetchInProgress ? '美团手动获取正在提交平台任务' : (meituanFetchBackgroundAccepted ? '美团手动获取已提交后台执行' : (meituanFetchPartial ? '数据获取部分完成' : (meituanFetchSuccess ? '数据获取完成' : '数据获取失败'))) }}
+                                                        </span>
+                                                        <span v-if="meituanFetchInProgress" class="text-blue-600 ml-2">
+                                                            接口返回后直接显示本次榜单结果
+                                                        </span>
+                                                        <span v-else-if="meituanFetchBackgroundAccepted" class="text-blue-600 ml-2">
+                                                            完成后会更新数据列表和通知
+                                                        </span>
+                                                        <span v-else-if="meituanSavedCount &gt; 0" class="text-green-600 ml-2">
+                                                            已保存 {{ meituanSavedCount }} 条数据到数据库
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div v-if="onlineDataResult &amp;&amp; onlineDataResult.length &gt; 0" class="text-sm">
+                                                <div v-for="(result, idx) in onlineDataResult" :key="idx" class="mb-1 p-2 bg-white rounded border-l-4" :class="result.error ? 'border-red-400 bg-red-50' : (result.savedCount ? 'border-green-400 bg-green-50' : 'border-yellow-400 bg-yellow-50')">
+                                                    <span class="font-medium">{{ result.dateRangeName }}</span> -
+                                                    <span class="font-medium">{{ result.rankName }}</span>:
+                                                    <span v-if="result.retryExhausted" class="text-red-600">✗ 未抓到 · 已尝试 {{ result.attemptCount }} 轮</span>
+                                                    <span v-else-if="isMeituanPendingResult(result)" class="text-blue-600">
+                                                        <template v-if="result.status === 'saving'">{{ result.rankDataMode === 'self_only' ? '本店实时值已返回，正在保存榜单名次并核对数据库' : (result.rankDataMode === 'derived' ? '按本店真实值和平台百分比计算，正在保存并核对数据库' : '正在保存并核对数据库') }}</template>
+                                                        <template v-else="">
+                                                            正在请求平台接口<span v-if="result.attemptCount"> · 第 {{ result.attemptCount }} / {{ result.maxAttempts }} 轮</span>
+                                                            <span v-else-if="result.maxAttempts"> · 等待第 1 轮返回，最多 {{ result.maxAttempts }} 轮</span>
+                                                        </template>
+                                                    </span>
+                                                    <span v-else-if="isMeituanBackgroundResult(result)" class="text-blue-600">
+                                                        后台执行中<span v-if="result.taskId"> · 任务 {{ result.taskId }}</span>
+                                                    </span>
+                                                    <span v-else-if="result.terminalPartial" class="text-amber-700">⚠ {{ result.message }}</span>
+                                                    <span v-else-if="result.savedCount" class="text-green-600">✓ {{ result.rankDataMode === 'self_only' ? '本店实时值及榜单名次已保存' : (result.rankDataMode === 'derived' ? '比例计算结果已保存并可回显' : `已保存 ${result.savedCount} 条数据`) }}</span>
+                                                    <span v-else-if="result.error" class="text-red-600">✗ 失败: {{ result.error }}</span>
+                                                    <span v-else-if="result.displayCount" class="text-yellow-600">
+                                                        ⚠ 后端返回 {{ result.displayCount }} 条展示数据，但未新增保存（可能重复）
+                                                    </span>
+                                                    <span v-else="" class="text-gray-500">⚠ 平台未返回有效数据，请检查授权是否过期</span>
+                                                    <span v-if="result.rankDataComplete" class="ml-2 text-xs text-blue-600">· {{ result.rankDataMode === 'self_only' ? '本次同行数值未返回，显示 -' : (result.rankDataMode === 'derived' ? '平台原值缺失，已按本店真实值和平台百分比计算' : `${result.dateRangeName}第 ${result.attemptCount} 轮原始字段完整`) }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 美团竞对排名数据表格 -->
+                                    <div v-if="meituanHotelsList &amp;&amp; meituanHotelsList.length &gt; 0" class="mt-4">
+                                        <!-- 价格指标概览 -->
+                                        <!-- backend display summary -->
+                                        <div v-if="meituanBusinessSummaryCards.length" class="mb-4">
+                                            <div class="flex items-center justify-between gap-3 mb-2">
+                                                <div>
+                                                    <h5 class="text-base font-semibold text-slate-800">商圈汇总与平均指标</h5>
+                                                    <p class="text-sm text-slate-500">来自本次美团竞对榜单展示模型，仅展示已返回或可验证推导的 OTA 字段。</p>
+                                                </div>
+                                                <span class="text-xs text-gray-400">{{ meituanBusinessSummaryCards.length }} 项</span>
+                                            </div>
+                                            <div class="responsive-metric-grid is-compact">
+                                                <div v-for="card in meituanBusinessSummaryCards" :key="card.key" :class="['rounded-lg p-4 text-center responsive-metric-card', card.panelClass || 'bg-white border border-gray-200']">
+                                                    <div :class="['text-2xl font-bold leading-tight', card.valueClass || 'text-gray-900']">{{ card.value || '-' }}</div>
+                                                    <div class="text-sm text-slate-500">{{ card.label }}</div>
+                                                    <div v-if="card.level" :class="['text-sm font-bold', card.levelClass || 'text-gray-500']">{{ card.level }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- 竞对排名表格 -->
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border text-sm table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-slate-100 w-12" rowspan="2">排名</th>
+                                                        <th class="px-2 py-2 text-left border text-sm w-48" rowspan="2">酒店名称</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-rose-50" colspan="3">入住榜</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-emerald-50" colspan="3">销售榜</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-sky-50" colspan="3">流量榜</th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-violet-50" colspan="3">转化榜</th>
+                                                    </tr>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-2 py-2 text-center border text-sm bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('roomNights')">
+                                                            入住间夜 <span v-if="meituanSortField === 'roomNights'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('roomRevenue')">
+                                                            房费收入 <span v-if="meituanSortField === 'roomRevenue'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-rose-50 cursor-pointer hover:bg-rose-100 w-16" @click="sortMeituanTable('avgRoomPrice')">
+                                                            平均房价 <span v-if="meituanSortField === 'avgRoomPrice'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('salesRoomNights')">
+                                                            销售间夜 <span v-if="meituanSortField === 'salesRoomNights'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('sales')">
+                                                            销售额 <span v-if="meituanSortField === 'sales'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-emerald-50 cursor-pointer hover:bg-emerald-100 w-16" @click="sortMeituanTable('avgSalesPrice')">
+                                                            平均销售房价 <span v-if="meituanSortField === 'avgSalesPrice'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('exposure')">
+                                                            曝光 <span v-if="meituanSortField === 'exposure'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('views')">
+                                                            浏览 <span v-if="meituanSortField === 'views'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-sky-50 cursor-pointer hover:bg-sky-100 w-16" @click="sortMeituanTable('orderCount')">
+                                                            订单量 <span v-if="meituanSortField === 'orderCount'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('viewConversion')">
+                                                            浏览转化 <span v-if="meituanSortField === 'viewConversion'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('payConversion')">
+                                                            支付转化 <span v-if="meituanSortField === 'payConversion'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                        <th class="px-2 py-2 text-center border text-sm bg-violet-50 cursor-pointer hover:bg-violet-100 w-16" @click="sortMeituanTable('absoluteConversion')">
+                                                            绝对转化 <span v-if="meituanSortField === 'absoluteConversion'">{{ meituanSortOrder === 'asc' ? '↑' : '↓' }}</span>
+                                                        </th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="(hotel, index) in pagedMeituanHotelsList" :key="hotel.poiId || index" class="border-b hover:bg-slate-50/70">
+                                                        <td class="px-2 py-2 border text-center bg-gray-50 w-12">
+                                                            <span :class="['px-2 py-1 rounded text-sm font-bold']" :style="{
+                                                                backgroundColor: (meituanTableRankOffset + index) === 0 ? '#FFD700' : (meituanTableRankOffset + index) === 1 ? '#C0C0C0' : (meituanTableRankOffset + index) === 2 ? '#CD7F32' : (meituanTableRankOffset + index) === 3 ? '#1E90FF' : (meituanTableRankOffset + index) === 4 ? '#87CEFA' : '#f3f4f6',
+                                                                color: (meituanTableRankOffset + index) &lt; 5 ? '#fff' : '#374151'
+                                                            }">
+                                                                {{ meituanTableRankOffset + index + 1 }}
+                                                            </span>
+                                                        </td>
+                                                        <td class="px-2 py-2 border text-left font-medium text-sm bg-white w-48">
+                                                            <div class="leading-snug text-sm">{{ hotel.hotelName }}</div>
+                                                            <div v-if="hotel.isSelf" class="mt-1 text-xs text-emerald-600">本店</div>
+                                                            <div v-if="hotel.nameAliases &amp;&amp; hotel.nameAliases.length &gt; 1" class="mt-1 text-[11px] text-gray-400 truncate" :title="hotel.nameAliases.join(' / ')">别名 {{ hotel.nameAliases.length }} 个</div>
+                                                            <div v-if="hotel.platformTags &amp;&amp; hotel.platformTags.length" class="mt-1 flex flex-wrap gap-1">
+                                                                <span v-for="tag in hotel.platformTags.slice(0, 3)" :key="tag" :class="['rounded-full border px-1.5 py-0.5 text-[10px] leading-4', String(tag).toUpperCase() === 'VIP' ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-600']">{{ tag }}</span>
+                                                                <span v-if="hotel.platformTags.length &gt; 3" class="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] leading-4 text-slate-500">+{{ hotel.platformTags.length - 3 }}</span>
+                                                            </div>
+                                                            <div v-else-if="hotel.platformTagSourceText &amp;&amp; !['平台返回空标签', '标签未返回'].includes(hotel.platformTagSourceText)" class="mt-1 text-[11px] text-slate-400">{{ hotel.platformTagSourceText }}</div>
+                                                        </td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-sm bg-rose-50 w-16">{{ hotel.roomNightsText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-sm bg-rose-50 w-16">{{ hotel.roomRevenueText &amp;&amp; hotel.roomRevenueText !== '-' ? (hotel.roomRevenuePrefix || '') + hotel.roomRevenueText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-rose-700 text-sm bg-rose-50 w-16">{{ hotel.avgRoomPriceText &amp;&amp; hotel.avgRoomPriceText !== '-' ? (hotel.avgRoomPricePrefix || '') + hotel.avgRoomPriceText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-sm bg-emerald-50 w-16">{{ hotel.salesRoomNightsText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-sm bg-emerald-50 w-16">{{ hotel.salesText &amp;&amp; hotel.salesText !== '-' ? (hotel.salesPrefix || '') + hotel.salesText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center font-medium text-emerald-700 text-sm bg-emerald-50 w-16">{{ hotel.avgSalesPriceText &amp;&amp; hotel.avgSalesPriceText !== '-' ? (hotel.avgSalesPricePrefix || '') + hotel.avgSalesPriceText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-sky-700 text-sm bg-sky-50 w-16">{{ hotel.exposureText &amp;&amp; hotel.exposureText !== '-' ? (hotel.exposurePrefix || '') + hotel.exposureText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-sky-700 text-sm bg-sky-50 w-16">{{ hotel.viewsText &amp;&amp; hotel.viewsText !== '-' ? (hotel.viewsPrefix || '') + hotel.viewsText : '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-sky-700 text-sm bg-sky-50 w-16">{{ hotel.orderCountText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-violet-700 text-sm bg-violet-50 w-16">{{ hotel.viewConversionText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-violet-700 text-sm bg-violet-50 w-16">{{ hotel.payConversionText || '-' }}</td>
+                                                        <td class="px-2 py-2 border text-center text-violet-700 text-sm bg-violet-50 w-16">{{ hotel.absoluteConversionText || '-' }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div data-testid="meituan-rank-summary-second-screen" class="mt-4 rounded-lg border border-slate-200 bg-white">
+                                            <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                                                <div>
+                                                    <div class="text-sm font-semibold text-slate-900">排名摘要</div>
+                                                    <div class="text-xs text-slate-500 mt-1">按当前排序和分页展示榜单位置、升降、差距和近30天区间。</div>
+                                                </div>
+                                                <span class="shrink-0 rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-500">{{ meituanTablePagination.start }}-{{ meituanTablePagination.end }} / {{ meituanTablePagination.total }}</span>
+                                            </div>
+                                            <div class="divide-y divide-slate-100">
+                                                <div v-for="(hotel, index) in pagedMeituanHotelsList" :key="'rank-summary-' + (hotel.poiId || index)" class="grid grid-cols-1 gap-3 px-4 py-3 text-xs lg:grid-cols-[4rem_minmax(12rem,1.2fr)_minmax(0,2.8fr)] lg:items-center">
+                                                    <div class="font-semibold text-slate-700">#{{ meituanTableRankOffset + index + 1 }}</div>
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-sm font-semibold text-slate-900" :title="hotel.hotelName">{{ hotel.hotelName }}</div>
+                                                        <div class="mt-1 text-[11px] text-slate-500">{{ hotel.circlePositionText || '-' }}</div>
+                                                    </div>
+                                                    <div class="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] leading-4">
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[10px] leading-4', hotel.rankTrendClass || 'border-slate-200 bg-slate-50 text-slate-500']">{{ hotel.rankTrendText || '排名变化未返回' }}</span>
+                                                        <span class="rounded-md bg-slate-50 px-2 py-1 text-slate-600">{{ hotel.gapToPrevText || '距前一名未返回' }}</span>
+                                                        <span class="rounded-md bg-cyan-50 px-2 py-1 text-cyan-700">{{ hotel.gapToLeaderText || '距TOP1未返回' }}</span>
+                                                        <span class="rounded-md bg-amber-50 px-2 py-1 text-amber-700">{{ hotel.rank30RangeText || '近30天未返回' }}</span>
+                                                        <span class="min-w-0 truncate text-[10px] text-slate-400" :title="hotel.rankSummaryText">{{ hotel.rankSummaryText || '平台未返回排名' }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-if="meituanVisibleRankInsightCards.length || meituanRankHealthRows.length || meituanTopSummaryRows.length" data-testid="meituan-rank-source-second-screen" class="mt-4 space-y-3">
+                                            <div v-if="meituanVisibleRankInsightCards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                                                <div v-for="card in meituanVisibleRankInsightCards" :key="card.key" :class="['rounded-lg border px-4 py-3 bg-white', card.className || 'border-gray-200 text-gray-700']">
+                                                    <div class="text-xs opacity-80">{{ card.label }}</div>
+                                                    <div class="mt-1 text-lg font-bold truncate" :title="card.value">{{ card.value || '-' }}</div>
+                                                    <div class="mt-1 text-xs leading-relaxed opacity-80">{{ card.note }}</div>
+                                                </div>
+                                            </div>
+                                            <div data-testid="meituan-ranking-vip-evidence" class="rounded-lg border border-gray-200 bg-white p-3">
+                                                <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3">
+                                                    <div>
+                                                        <div class="text-sm font-semibold text-gray-900">榜单与来源状态</div>
+                                                        <div v-if="meituanRankSourceNotice" class="text-xs text-gray-500 mt-1">{{ meituanRankSourceNotice }}</div>
+                                                    </div>
+                                                    <div class="flex flex-wrap gap-2">
+                                                        <span v-for="row in meituanRankHealthRows" :key="row.key" :class="['rounded-md border px-2 py-1 text-xs', row.className || 'bg-gray-50 text-gray-500 border-gray-200']">
+                                                            {{ row.label }}：{{ row.statusText }}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div v-if="meituanTopSummaryRows.length" class="mt-3 overflow-x-auto rounded-lg border border-slate-100">
+                                                    <table class="min-w-full bg-white text-xs">
+                                                        <thead class="bg-slate-50 text-slate-500">
+                                                            <tr>
+                                                                <th class="px-3 py-2 text-left font-medium">TOP酒店</th>
+                                                                <th class="px-3 py-2 text-center font-medium">表内位置</th>
+                                                                <th class="px-3 py-2 text-left font-medium">差距/趋势</th>
+                                                                <th class="px-3 py-2 text-left font-medium">平台标签</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr v-for="row in meituanTopSummaryRows" :key="row.poiId || row.hotelName" class="border-t border-slate-100">
+                                                                <td class="px-3 py-2 font-semibold text-slate-900" :title="row.hotelName">{{ row.hotelName || '-' }}</td>
+                                                                <td class="px-3 py-2 text-center text-blue-600 whitespace-nowrap">{{ row.positionText || '-' }}</td>
+                                                                <td class="px-3 py-2 text-slate-600">{{ row.gapToNextText || row.rankTrendText || '差距未返回' }}</td>
+                                                                <td class="px-3 py-2 text-orange-700">{{ row.platformTagText &amp;&amp; row.platformTagText !== '未返回' ? row.platformTagText : '平台未返回' }}</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 流量数据获取 -->
+                                <div v-if="onlineDataTab === 'meituan-ranking' &amp;&amp; meituanTablePagination.total &gt; meituanTablePagination.pageSize" class="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-gray-500">
+                                    <span>已分页渲染，每页 {{ meituanTablePagination.pageSize }} 行，当前 {{ meituanTablePagination.start }}-{{ meituanTablePagination.end }} / {{ meituanTablePagination.total }}</span>
+                                    <div class="flex items-center gap-2">
+                                        <button @click="changeMeituanTablePage(meituanTablePage - 1)" :disabled="meituanTablePage &lt;= 1" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">上一页</button>
+                                        <span>{{ meituanTablePagination.page }} / {{ meituanTablePagination.totalPages }}</span>
+                                        <button @click="changeMeituanTablePage(meituanTablePage + 1)" :disabled="meituanTablePage &gt;= meituanTablePagination.totalPages" class="px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50">下一页</button>
+                                    </div>
+                                </div>
+
+                                <div v-if="onlineDataTab === 'meituan-order-flow'" data-testid="meituan-order-flow-page" class="space-y-4">
+                                    <div data-testid="meituan-order-flow-hero" class="rounded-2xl border px-5 py-5 text-white shadow-sm" style="background:#0b1814;border-color:rgba(220,197,145,.34)">
+                                        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                            <div class="flex items-start gap-3">
+                                                <span class="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border text-lg" style="border-color:rgba(220,197,145,.36);background:rgba(220,197,145,.12);color:#dcc591"><i class="fas fa-exchange-alt"></i></span>
+                                                <div>
+                                                    <h4 class="text-lg font-semibold tracking-tight">订单流向分析</h4>
+                                                    <p class="mt-1 text-sm leading-6 text-gray-300">流失订单和流入订单放在同一页，对照看清客人去了哪里、又从哪些同行流入。</p>
+                                                </div>
+                                            </div>
+                                            <div class="inline-flex items-center gap-2 self-start rounded-full border px-3 py-2 text-xs text-gray-300 lg:self-auto" style="border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)">
+                                                <i class="fas fa-clock" style="color:#dcc591"></i>
+                                                美团此功能不提供今日实时，仅展示昨天、近7天、近30天
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div data-testid="meituan-order-flow-toolbar" class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                                        <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
+                                            <div class="min-w-0 flex-1">
+                                                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                                    <label class="text-sm font-semibold text-gray-800">目标酒店</label>
+                                                    <span class="text-xs text-gray-400">仅显示已配置美团账号的酒店</span>
+                                                </div>
+                                                <select v-model="meituanForm.hotelId" class="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-green-700 focus:ring-2 focus:ring-green-100">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                            </div>
+                                            <button type="button" @click="refreshMeituanOrderFlowData" :disabled="meituanOrderFlowFetching || meituanOrderFlowLoading || !meituanForm.hotelId" class="inline-flex h-11 flex-shrink-0 items-center justify-center rounded-xl px-6 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none" style="background:#143a31">
+                                                <i :class="meituanOrderFlowFetching ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ meituanOrderFlowFetching ? '正在获取并保存' : '获取并保存' }}
+                                            </button>
+                                        </div>
+                                        <div class="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                                            <div class="inline-flex self-start rounded-xl bg-gray-100 p-1">
+                                                <button v-for="period in meituanOrderFlowPeriods" :key="period.key" type="button" @click="selectMeituanOrderFlowPeriod(period.key)" :class="['rounded-lg px-4 py-2 text-sm font-medium transition', meituanOrderFlowPeriod === period.key ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200' : 'text-gray-500 hover:text-gray-800']">{{ period.label }}</button>
+                                            </div>
+                                            <div class="inline-flex items-center gap-2 text-sm text-gray-500"><i class="fas fa-calendar-alt text-gray-400"></i><span class="font-medium tabular-nums text-gray-700">{{ meituanOrderFlowDateRange.startDate }} 至 {{ meituanOrderFlowDateRange.endDate }}</span></div>
+                                        </div>
+                                        <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" :class="['mt-4 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-sm', selectedMeituanManualCredentialState.canFetch ? 'border-green-200 bg-green-50 text-green-800' : 'border-yellow-200 bg-yellow-50 text-yellow-800']">
+                                            <i :class="selectedMeituanManualCredentialState.canFetch ? 'fas fa-check-circle mt-0.5 text-green-600' : 'fas fa-exclamation-circle mt-0.5 text-yellow-600'"></i>
+                                            <span>{{ selectedMeituanManualCredentialState.canFetch ? '美团授权配置已就绪，可尝试获取平台返回的订单流向；是否有效以本次响应和入库结果为准。' : selectedMeituanManualCredentialState.detail }}</span>
+                                        </div>
+                                    </div>
+
+                                    <div v-if="meituanOrderFlowError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                        <i class="fas fa-exclamation-circle mr-2"></i>{{ meituanOrderFlowError }}
+                                    </div>
+                                    <div v-else-if="meituanOrderFlowLoading" class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-5 text-center text-sm text-blue-700">
+                                        <i class="fas fa-spinner fa-spin mr-2"></i>正在读取已保存的订单流向
+                                    </div>
+
+                                    <template v-else-if="meituanOrderFlowView.status !== 'empty'">
+                                        <div v-if="meituanOrderFlowView.status === 'partial'" class="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">美团本次只返回了部分方向，已按真实结果展示；未返回的一侧显示「-」。</div>
+                                        <div data-testid="meituan-order-flow-summary" class="space-y-3">
+                                            <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"><div><h5 class="font-semibold text-gray-900">期间概览</h5><p class="mt-1 text-xs text-gray-500">金额为主指标，订单与间夜为辅助口径</p></div><span class="text-xs text-gray-400"><i class="fas fa-hand-pointer mr-1"></i>点击卡片切换下方明细</span></div>
+                                            <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                                <button type="button" @click="meituanOrderFlowDirection = 'loss'" :class="['overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition', meituanOrderFlowDirection === 'loss' ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-200 hover:border-red-200 hover:shadow-md']">
+                                                    <div class="h-1 bg-red-500"></div>
+                                                    <div class="p-5">
+                                                        <div class="flex items-center justify-between gap-3"><span class="inline-flex items-center gap-2 text-sm font-semibold text-red-700"><span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-red-50"><i class="fas fa-arrow-up"></i></span>流失</span><span v-if="meituanOrderFlowDirection === 'loss'" class="rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">正在查看</span><span v-else="" class="text-xs text-gray-400">查看明细</span></div>
+                                                        <div class="mt-5"><div class="text-xs font-medium uppercase tracking-wider text-gray-400">流失金额</div><div class="mt-1 text-3xl font-bold tracking-tight text-gray-900 tabular-nums">{{ meituanOrderFlowView.loss.summary?.amount !== null &amp;&amp; meituanOrderFlowView.loss.summary ? '¥' + formatNumber(meituanOrderFlowView.loss.summary.amount) : '-' }}</div></div>
+                                                        <div class="mt-5 grid grid-cols-2 border-t border-gray-100 pt-4"><div><div class="text-xs text-gray-400">流失订单</div><div class="mt-1 text-lg font-semibold text-gray-800 tabular-nums">{{ meituanOrderFlowView.loss.summary?.orderCount !== null &amp;&amp; meituanOrderFlowView.loss.summary ? formatNumber(meituanOrderFlowView.loss.summary.orderCount) : '-' }} <span class="text-xs font-normal text-gray-400">单</span></div></div><div class="border-l border-gray-100 pl-5"><div class="text-xs text-gray-400">流失间夜</div><div class="mt-1 text-lg font-semibold text-gray-800 tabular-nums">{{ meituanOrderFlowView.loss.summary?.roomNights !== null &amp;&amp; meituanOrderFlowView.loss.summary ? formatNumber(meituanOrderFlowView.loss.summary.roomNights) : '-' }} <span class="text-xs font-normal text-gray-400">间夜</span></div></div></div>
+                                                    </div>
+                                                </button>
+                                                <button type="button" @click="meituanOrderFlowDirection = 'inflow'" :class="['overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition', meituanOrderFlowDirection === 'inflow' ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200 hover:border-green-200 hover:shadow-md']">
+                                                    <div class="h-1 bg-green-500"></div>
+                                                    <div class="p-5">
+                                                        <div class="flex items-center justify-between gap-3"><span class="inline-flex items-center gap-2 text-sm font-semibold text-green-700"><span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-green-50"><i class="fas fa-arrow-down"></i></span>流入</span><span v-if="meituanOrderFlowDirection === 'inflow'" class="rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">正在查看</span><span v-else="" class="text-xs text-gray-400">查看明细</span></div>
+                                                        <div class="mt-5"><div class="text-xs font-medium uppercase tracking-wider text-gray-400">流入金额</div><div class="mt-1 text-3xl font-bold tracking-tight text-gray-900 tabular-nums">{{ meituanOrderFlowView.inflow.summary?.amount !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? '¥' + formatNumber(meituanOrderFlowView.inflow.summary.amount) : '-' }}</div></div>
+                                                        <div class="mt-5 grid grid-cols-2 border-t border-gray-100 pt-4"><div><div class="text-xs text-gray-400">流入订单</div><div class="mt-1 text-lg font-semibold text-gray-800 tabular-nums">{{ meituanOrderFlowView.inflow.summary?.orderCount !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? formatNumber(meituanOrderFlowView.inflow.summary.orderCount) : '-' }} <span class="text-xs font-normal text-gray-400">单</span></div></div><div class="border-l border-gray-100 pl-5"><div class="text-xs text-gray-400">流入间夜</div><div class="mt-1 text-lg font-semibold text-gray-800 tabular-nums">{{ meituanOrderFlowView.inflow.summary?.roomNights !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? formatNumber(meituanOrderFlowView.inflow.summary.roomNights) : '-' }} <span class="text-xs font-normal text-gray-400">间夜</span></div></div></div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div data-testid="meituan-order-flow-detail" class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                                            <div class="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                                <div><div class="flex flex-wrap items-center gap-2"><h5 class="font-semibold text-gray-900">{{ meituanOrderFlowDirection === 'loss' ? '流失酒店明细' : '流入来源酒店明细' }}</h5><span :class="['rounded-full px-2.5 py-1 text-xs font-medium', meituanOrderFlowDirection === 'loss' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700']">{{ meituanOrderFlowActive.rows.length }} 家酒店</span></div><p class="mt-1.5 text-xs text-gray-500"><i class="fas fa-clock mr-1 text-gray-400"></i>同步时间 {{ meituanOrderFlowView.capturedAt || '-' }}</p></div>
+                                                <div class="inline-flex self-start rounded-xl border border-gray-200 bg-gray-100 p-1 text-sm sm:self-auto"><button type="button" @click="meituanOrderFlowDirection = 'loss'" :class="['rounded-lg px-4 py-2 transition', meituanOrderFlowDirection === 'loss' ? 'bg-white font-semibold text-red-700 shadow-sm' : 'text-gray-500 hover:text-gray-800']">流失</button><button type="button" @click="meituanOrderFlowDirection = 'inflow'" :class="['rounded-lg px-4 py-2 transition', meituanOrderFlowDirection === 'inflow' ? 'bg-white font-semibold text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-800']">流入</button></div>
+                                            </div>
+                                            <div v-if="!meituanOrderFlowActive.rows.length" class="px-5 py-14 text-center text-sm text-gray-500"><span class="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400"><i class="fas fa-hotel"></i></span><div>美团本次未返回该方向的酒店明细。</div></div>
+                                            <div v-else="" class="overflow-x-auto">
+                                                <table class="min-w-full text-sm" style="min-width:1040px">
+                                                    <thead class="bg-gray-50 text-gray-500"><tr><th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">排名</th><th class="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider" style="min-width:320px">酒店</th><th class="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider">订单数</th><th class="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider" style="min-width:120px">占比</th><th class="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider">金额</th><th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider" style="min-width:280px">主要房型</th></tr></thead>
+                                                    <tbody>
+                                                        <tr v-for="(row, index) in meituanOrderFlowActive.rows" :key="row.key" class="group border-t border-gray-100 align-top transition hover:bg-gray-50">
+                                                            <td class="px-5 py-4"><span :class="['inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold', index === 0 ? 'bg-yellow-100 text-yellow-800' : index === 1 ? 'bg-gray-200 text-gray-700' : index === 2 ? 'bg-yellow-50 text-yellow-700' : 'bg-gray-50 text-gray-500']">{{ index + 1 }}</span></td>
+                                                            <td class="px-4 py-4"><div class="flex gap-3"><img v-if="row.image" :src="row.image" alt="" class="h-14 w-20 flex-shrink-0 rounded-xl border border-gray-100 object-cover shadow-sm" @error="$event.target.style.display = 'none'"><div class="min-w-0"><div class="font-semibold leading-5 text-gray-900">{{ row.hotelName }} <span v-if="row.vip" class="ml-1 inline-flex rounded-md border border-yellow-300 bg-yellow-50 px-1.5 py-0.5 text-xs font-medium text-yellow-700">VIP</span></div><div class="mt-1.5 text-xs text-gray-500"><span v-if="row.star">{{ row.star }}</span><span v-if="row.score !== null"> · {{ row.score }}分</span><span v-if="row.lowestPrice !== null"> · ¥{{ formatNumber(row.lowestPrice) }}起</span></div><div v-if="row.circleName || row.distance !== null" class="mt-1 text-xs text-gray-400"><i class="fas fa-map-marker-alt mr-1"></i>{{ row.circleName || '' }}<span v-if="row.distance !== null"> · 距离{{ row.distance &gt;= 50 ? toFixedSafe(row.distance / 1000, 2) + 'km' : toFixedSafe(row.distance, 2) + 'km' }}</span></div></div></div></td>
+                                                            <td class="px-4 py-4 text-right"><span class="text-base font-semibold text-gray-900 tabular-nums">{{ row.orderCount !== null ? formatNumber(row.orderCount) : '-' }}</span><span v-if="row.orderCount !== null" class="ml-1 text-xs text-gray-400">单</span></td>
+                                                            <td class="px-4 py-4 text-right"><div class="font-medium text-gray-700 tabular-nums">{{ row.orderRatio !== null ? toFixedSafe(row.orderRatio, 2) + '%' : '-' }}</div><div v-if="row.orderRatio !== null" class="ml-auto mt-2 h-1.5 w-20 overflow-hidden rounded-full bg-gray-100"><div :class="['h-full rounded-full', meituanOrderFlowDirection === 'loss' ? 'bg-red-400' : 'bg-green-400']" :style="{ width: Math.max(0, Math.min(row.orderRatio, 100)) + '%' }"></div></div></td>
+                                                            <td class="px-4 py-4 text-right text-base font-bold text-gray-900 tabular-nums">{{ row.amount !== null ? '¥' + formatNumber(row.amount) : '-' }}</td>
+                                                            <td class="px-5 py-4"><div v-if="row.rooms.length" class="flex flex-wrap gap-1.5"><span v-for="room in row.rooms" :key="room.name" :class="['rounded-lg border px-2 py-1.5 text-xs', meituanOrderFlowDirection === 'loss' ? 'border-red-100 bg-red-50 text-red-800' : 'border-green-100 bg-green-50 text-green-800']">{{ room.name }}<span v-if="room.count !== null" class="ml-1 font-semibold">×{{ formatNumber(room.count) }}</span></span></div><span v-else="" class="text-gray-400">-</span></td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <div v-else="" class="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center shadow-sm">
+                                        <span class="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 text-xl text-gray-400"><i class="fas fa-route"></i></span>
+                                        <div class="font-semibold text-gray-800">当前期间暂无已保存的订单流向</div>
+                                        <p class="mx-auto mt-2 max-w-lg text-sm leading-6 text-gray-500">选择酒店和时间范围后点击“获取并保存”，系统会尝试读取平台结果；仅在接口返回并成功保存后展示对应流失与流入数据。</p>
+                                    </div>
+                                </div>
+
+                                <div v-if="onlineDataTab === 'meituan-traffic'">
+                                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-yellow-800 mb-2">
+                                            <i class="fas fa-signal mr-2"></i>美团流量数据获取
+                                        </h4>
+                                        <div class="space-y-2 text-sm text-yellow-700">
+                                        <p>高级排障采集：需要平台后台真实请求信息。不启动本机 Profile 采集；运营人员在本人电脑登录美团后台后，复制流量接口地址、Cookie/API 辅助内容、接口标识、门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
+                                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs">
+                                                <div class="bg-white/70 border border-yellow-100 rounded px-3 py-2">
+                                                    <div class="font-medium text-yellow-800">人工进入页面</div>
+                                                    <div class="break-all">me.meituan.com/ebooking/merchant/ebIframe?iUrl=/ebooking/data-center/index.html</div>
+                                                </div>
+                                                <div class="bg-white/70 border border-yellow-100 rounded px-3 py-2">
+                                                    <div class="font-medium text-yellow-800">复制接口</div>
+                                                    <div>经营、权重流量、流量、竞对趋势</div>
+                                                </div>
+                                                <div class="bg-white/70 border border-yellow-100 rounded px-3 py-2">
+                                                    <div class="font-medium text-yellow-800">临时排障抓取</div>
+                                                    <div>仅在已取得真实接口上下文时发起流量补抓</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-800 mb-3">
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
+                                        </h4>
+                                        <p class="text-sm text-gray-500 mb-4">接口地址仅用于高级排障，应填写平台后台真实请求地址，不是页面地址。</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanForm.hotelId" @change="syncMeituanTrafficConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                                <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
+                                                    {{ getHotelNameById(meituanForm.hotelId) }}｜已读取美团配置
+                                                </div>
+                                                <div v-if="meituanForm.hotelId &amp;&amp; !selectedMeituanHotelConfig" class="text-xs text-yellow-700 mt-1">
+                                                    未读取到该酒店美团配置，请手动补充平台接口标识、门店标识和 Cookie/API 辅助内容。
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">接口请求地址 <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanTrafficForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="从高级排障中复制平台后台真实请求地址">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识 <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanTrafficForm.partnerId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="商家接口标识">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识 <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanTrafficForm.poiId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="门店标识">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">临时 Cookie/API 辅助内容 <span class="text-red-500">*</span></label>
+                                                <textarea v-model="meituanTrafficForm.cookies" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg" placeholder="请粘贴临时 Cookie/API 辅助内容"></textarea>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                                <input v-model="meituanTrafficForm.startDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                                <input v-model="meituanTrafficForm.endDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">额外请求参数（可选）</label>
+                                                <textarea v-model="meituanTrafficForm.extraParams" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="例如：{&quot;metric&quot;:&quot;pv&quot;,&quot;channel&quot;:&quot;app&quot;}"></textarea>
+                                            </div>
+                                        </div>
+                                        <button @click="fetchMeituanTrafficData" :disabled="fetchingData" class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:bg-gray-400">
+                                            <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '手动请求流量接口' }}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div v-if="onlineDataTab === 'meituan-orders'">
+                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-blue-800 mb-2">
+                                            <i class="fas fa-receipt mr-2"></i>美团订单数据获取
+                                        </h4>
+                                        <p class="text-sm text-blue-700 mb-3">高级排障采集：需要平台后台真实请求信息。不启动本机 Profile 采集；运营人员在本人电脑登录美团后台后，复制订单接口地址、Cookie/API 辅助内容、接口标识、门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
+                                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs text-blue-700">
+                                            <div class="bg-white/70 border border-blue-100 rounded px-3 py-2">
+                                                <div class="font-medium text-blue-800">人工进入页面</div>
+                                                <div class="break-all">me.meituan.com/ebooking/merchant/ebIframe?iUrl=/ebooking/order-eb/index.html#/checkin</div>
+                                            </div>
+                                            <div class="bg-white/70 border border-blue-100 rounded px-3 py-2">
+                                                <div class="font-medium text-blue-800">复制接口</div>
+                                                <div>/orders/list / /order/unhandled/count</div>
+                                            </div>
+                                            <div class="bg-white/70 border border-blue-100 rounded px-3 py-2">
+                                                <div class="font-medium text-blue-800">临时排障抓取</div>
+                                                <div>仅在已取得真实订单接口上下文时补抓</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white border border-emerald-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-800 mb-3">
+                                            <i class="fas fa-file-csv text-emerald-600 mr-2"></i>临时补录：美团订单 CSV 导入
+                                        </h4>
+                                        <p class="text-sm text-gray-500 mb-4">用于导入授权订单页导出的 CSV。订单号入库前只保存 hash；底价作为导入参考价，不写成已确认销售收入。</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanForm.hotelId" @change="syncMeituanOrderConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识（可选）</label>
+                                                <input v-model="meituanOrderForm.poiId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="用于标记来源门店">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">CSV 内容</label>
+                                                <textarea v-model="meituanOrderForm.csvText" rows="6" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="订单号,房型,入住日期,离店日期,购买时间,底价(元)"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-wrap gap-3">
+                                            <button type="button" @click="copyMeituanOrderCollectorScript" class="px-4 py-2 bg-white text-emerald-700 border border-emerald-300 rounded-lg hover:bg-emerald-50">
+                                                <i class="fas fa-copy mr-2"></i>复制采集脚本
+                                            </button>
+                                            <button type="button" @click="importMeituanOrderCsvData" :disabled="fetchingData" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:bg-gray-400">
+                                                <i class="fas fa-file-import mr-2"></i>{{ fetchingData ? '导入中...' : '导入 CSV 订单' }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white border border-blue-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-800 mb-3">
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
+                                        </h4>
+                                        <p class="text-sm text-gray-500 mb-4">接口地址应填写平台后台订单列表的真实请求地址，不是订单页面地址。</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanForm.hotelId" @change="syncMeituanOrderConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                                <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
+                                                    {{ getHotelNameById(meituanForm.hotelId) }}：已读取美团配置
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">接口请求地址 <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanOrderForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="从高级排障中复制订单接口请求地址">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">请求方式</label>
+                                                <select v-model="meituanOrderForm.method" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="GET">GET</option>
+                                                    <option value="POST">POST</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识 <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanOrderForm.partnerId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="商家接口标识">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识 <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanOrderForm.poiId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="门店标识">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                                <input v-model="meituanOrderForm.startDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                                <input v-model="meituanOrderForm.endDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">临时 Cookie/API 辅助内容 <span class="text-red-500">*</span></label>
+                                                <textarea v-model="meituanOrderForm.cookies" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg" placeholder="凭证仅在配置页保存，执行时只发送配置ID"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">请求正文（可选）</label>
+                                                <textarea v-model="meituanOrderForm.payloadJson" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="执行接口不接受未定义的原始请求正文"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">额外请求参数（可选）</label>
+                                                <textarea v-model="meituanOrderForm.extraParams" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="请使用已定义的分页与筛选字段"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-wrap gap-3 mt-4">
+                                            <button type="button" @click="fetchMeituanOrdersData" :disabled="fetchingData" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
+                                                <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '手动请求订单接口' }}
+                                            </button>
+                                            <button type="button" @click="openTargetSite('https://me.meituan.com/ebooking/merchant/ebIframe?iUrl=%2Febooking%2Forder-eb%2Findex.html%23%2Fcheckin')" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                                                <i class="fas fa-external-link-alt mr-2"></i>打开订单页
+                                            </button>
+                                        </div>
+                                        <div v-if="meituanOrderResult" :class="['mt-4 border rounded p-3 text-sm', otaFetchResultView(meituanOrderResult).panelClass, otaFetchResultView(meituanOrderResult).textClass]">
+                                            <div class="flex items-start gap-2">
+                                                <i :class="[otaFetchResultView(meituanOrderResult).iconClass, 'mt-0.5']"></i>
+                                                <div>
+                                                    <div class="font-medium">{{ otaFetchResultView(meituanOrderResult).title }}</div>
+                                                    <div class="mt-1">{{ otaFetchResultView(meituanOrderResult).detail }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="onlineDataTab === 'meituan-ads'">
+                                    <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-red-800 mb-2">
+                                            <i class="fas fa-bullhorn mr-2"></i>美团推广通广告数据获取
+                                        </h4>
+                                        <p class="text-sm text-red-700 mb-3">高级排障采集：需要平台后台真实请求信息。不启动本机 Profile 采集；运营人员在本人电脑登录推广通后，复制广告接口地址、Cookie/API 辅助内容、店铺或门店标识和日期参数，由系统后端直连接口抓取并入库。</p>
+                                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-2 text-xs text-red-700">
+                                            <div class="bg-white/70 border border-red-100 rounded px-3 py-2">
+                                                <div class="font-medium text-red-800">人工进入页面</div>
+                                                <div class="break-all">ebmidas.dianping.com/shopdiy/account/pcCpcEntry</div>
+                                            </div>
+                                            <div class="bg-white/70 border border-red-100 rounded px-3 py-2">
+                                                <div class="font-medium text-red-800">复制接口</div>
+                                                <div>cureShops</div>
+                                            </div>
+                                            <div class="bg-white/70 border border-red-100 rounded px-3 py-2">
+                                                <div class="font-medium text-red-800">入库映射</div>
+                                                <div>曝光、点击、转化率入现有线上数据；广告明细作为高级排障证据保存</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white border border-red-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-gray-800 mb-3">
+                                            <i class="fas fa-plug text-gray-500 mr-2"></i>临时排障：手动接口抓取
+                                        </h4>
+                                        <p class="text-sm text-gray-500 mb-4">接口地址仅用于高级排障，应填写平台后台真实请求地址，不是推广通入口页面地址。</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">目标酒店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanForm.hotelId" @change="syncMeituanAdsConfigFromSelectedConfig(true)" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择目标酒店</option>
+                                                    <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                </select>
+                                                <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" class="text-xs text-green-600 mt-1">
+                                                    {{ getHotelNameById(meituanForm.hotelId) }}：已读取美团配置
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">接口请求地址 <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanAdsForm.url" type="text" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="从高级排障中复制广告接口请求地址">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">请求方式</label>
+                                                <select v-model="meituanAdsForm.method" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="GET">GET</option>
+                                                    <option value="POST">POST</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识（可选）</label>
+                                                <input v-model="meituanAdsForm.partnerId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="接口需要时填写">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">推广店铺或门店标识 <span class="text-red-500">*</span></label>
+                                                <input v-model="meituanAdsForm.shopId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="推广通店铺标识或门店标识">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识（可选）</label>
+                                                <input v-model="meituanAdsForm.poiId" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="为空时使用推广店铺标识">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                                <input v-model="meituanAdsForm.startDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                                <input v-model="meituanAdsForm.endDate" type="date" class="w-full px-3 py-2 border rounded-lg">
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">临时 Cookie/API 辅助内容 <span class="text-red-500">*</span></label>
+                                                <textarea v-model="meituanAdsForm.cookies" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg" placeholder="凭证仅在配置页保存，执行时只发送配置ID"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">请求正文（可选）</label>
+                                                <textarea v-model="meituanAdsForm.payloadJson" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="执行接口不接受未定义的原始请求正文"></textarea>
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">额外请求参数（可选）</label>
+                                                <textarea v-model="meituanAdsForm.extraParams" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="请使用已定义的广告筛选字段"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-wrap gap-3 mt-4">
+                                            <button type="button" @click="fetchMeituanAdsData" :disabled="fetchingData" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400">
+                                                <i class="fas fa-download mr-2"></i>{{ fetchingData ? '获取中...' : '手动请求广告接口' }}
+                                            </button>
+                                            <button type="button" @click="openTargetSite(defaultMeituanAdsUrl)" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                                                <i class="fas fa-external-link-alt mr-2"></i>打开推广通
+                                            </button>
+                                        </div>
+                                        <div v-if="meituanAdsResult" :class="['mt-4 border rounded p-3 text-sm', otaFetchResultView(meituanAdsResult).panelClass, otaFetchResultView(meituanAdsResult).textClass]">
+                                            <div class="flex items-start gap-2">
+                                                <i :class="[otaFetchResultView(meituanAdsResult).iconClass, 'mt-0.5']"></i>
+                                                <div>
+                                                    <div class="font-medium">{{ otaFetchResultView(meituanAdsResult).title }}</div>
+                                                    <div class="mt-1">{{ otaFetchResultView(meituanAdsResult).detail }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 点评数据获取 -->
+                                <!-- 下载中心 -->
+                                <div v-if="onlineDataTab === 'meituan-download'">
+                                    <!-- 子Tab导航 -->
+                                    <div class="flex flex-wrap border-b mb-4">
+                                        <button @click="switchDownloadTab('overview')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                            <i class="fas fa-chart-line mr-2"></i>同行榜单明细
+                                        </button>
+                                        <button @click="switchDownloadTab('traffic')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                            <i class="fas fa-chart-bar mr-2"></i>流量分析
+                                        </button>
+                                        <button @click="switchDownloadTab('orders')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'orders' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                            <i class="fas fa-receipt mr-2"></i>订单线索
+                                        </button>
+                                        <button @click="switchDownloadTab('reviews')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'reviews' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                            <i class="fas fa-star-half-alt mr-2"></i>美团点评
+                                        </button>
+                                        <button @click="switchDownloadTab('ads')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                            <i class="fas fa-bullhorn mr-2"></i>广告数据
+                                        </button>
+                                    </div>
+
+                                    <!-- 筛选条件 -->
+                                    <div class="mb-4 flex gap-4 flex-wrap items-center">
+                                        <select v-model="onlineDataFilter.hotel_id" class="px-3 py-2 border rounded-lg">
+                                            <option value="">全部酒店</option>
+                                            <option v-for="h in onlineDataHotelList" :key="h.id" :value="h.id">{{ h.hotel_name }}</option>
+                                        </select>
+                                        <input v-model="onlineDataFilter.start_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="开始日期">
+                                        <input v-model="onlineDataFilter.end_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="结束日期">
+                                        <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
+                                            <i class="fas fa-search mr-2"></i>查询
+                                        </button>
+                                    </div>
+
+                                    <div v-if="downloadCenterTab === 'all'">
+                                        <div v-for="item in meituanDownloadData.allRows" :key="item.id" class="flex gap-3 border p-2 text-sm">
+                                            <span>{{ item.data_date || '-' }}</span>
+                                            <span class="font-medium">{{ item.hotel_name || '-' }}</span>
+                                            <span>{{ onlineAnalysisDataTypeText(item.data_type) }}</span>
+                                            <span>{{ onlineStorageStatusText(item) }}</span>
+                                            <button @click="viewOnlineDataDetail(item)">详情</button>
+                                        </div>
+                                        <div v-if="meituanDownloadData.allRowsCount === 0">暂无美团已存数据</div>
+                                    </div>
+
+                                    <!-- 同行榜单入库明细 -->
+                                    <div v-if="downloadCenterTab === 'overview'">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                            <div class="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-4 rounded-lg">
+                                                <div class="text-sm opacity-80">当前页同行记录</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewRowsCount }}</div>
+                                            </div>
+                                            <div class="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-4 rounded-lg">
+                                                <div class="text-sm opacity-80">当前页酒店数</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewHotelCount }}</div>
+                                            </div>
+                                            <div class="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-4 rounded-lg">
+                                                <div class="text-sm opacity-80">当前页日期数</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewDateCount }}</div>
+                                            </div>
+                                            <div class="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-4 rounded-lg">
+                                                <div class="text-sm opacity-80">返回平台数值</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewMetricValueCount }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left border">酒店</th>
+                                                        <th class="px-4 py-2 text-left border">日期</th>
+                                                        <th class="px-4 py-2 text-left border">榜单名次</th>
+                                                        <th class="px-4 py-2 text-left border">指标值</th>
+                                                        <th class="px-4 py-2 text-left border">平台百分比</th>
+                                                        <th class="px-4 py-2 text-left border">指标</th>
+                                                        <th class="px-4 py-2 text-left border">返回状态</th>
+                                                        <th class="px-4 py-2 text-left border">更新时间</th>
+                                                        <th class="px-4 py-2 text-left border">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="item in meituanDownloadData.overviewRows" :key="item.id" class="border-b hover:bg-gray-50">
+                                                        <td class="px-4 py-2 border">{{ item.overview_hotel_name || item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_date }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank === null || item.rank === undefined || item.rank === '' ? '-' : item.rank }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_value === null || item.data_value === undefined || item.data_value === '' ? '-' : formatNumber(item.data_value) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank_percent === null || item.rank_percent === undefined || item.rank_percent === '' ? '-' : (toFixedSafe(item.rank_percent, 2) + '%') }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank_metric || item.dimension || '-' }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">{{ item.metric_status === 'platform_value_returned' ? '平台原值' : (item.metric_status === 'platform_percent_only' ? '仅百分比' : (item.metric_status === 'platform_rank_only' ? '仅名次' : (item.metric_status === 'platform_value_missing' ? '数值未返回' : '字段待核验'))) }}</span>
+                                                        </td>
+                                                        <td class="px-4 py-2 border">{{ item.update_time || item.create_time || '-' }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
+                                                                <i class="fas fa-eye"></i>
+                                                            </button>
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.overviewRowsCount === 0">
+                                                        <td colspan="9" class="px-4 py-8 text-center text-gray-400">当前筛选暂无美团同行榜单入库数据</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+
+                                    <!-- 流量分析模块 -->
+                                    <div v-if="downloadCenterTab === 'traffic'">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">当前页曝光量</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.trafficExposure === null ? '-' : formatNumber(meituanDownloadData.trafficExposure) }}</div>
+                                            </div>
+                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">平均浏览转化率</div>
+                                                <div class="text-2xl font-bold text-purple-600">{{ meituanDownloadData.trafficAvgFlowRate === null ? '-' : (toFixedSafe(meituanDownloadData.trafficAvgFlowRate, 2) + '%') }}</div>
+                                            </div>
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">当前页点击量</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.trafficClick === null ? '-' : formatNumber(meituanDownloadData.trafficClick) }}</div>
+                                            </div>
+                                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点击转化率</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.trafficClickRate === null ? '-' : (toFixedSafe(meituanDownloadData.trafficClickRate, 2) + '%') }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left border">酒店</th>
+                                                        <th class="px-4 py-2 text-left border">日期</th>
+                                                        <th class="px-4 py-2 text-left border">曝光量</th>
+                                                        <th class="px-4 py-2 text-left border">点击量</th>
+                                                        <th class="px-4 py-2 text-left border">转化率</th>
+                                                        <th class="px-4 py-2 text-left border">访客数</th>
+                                                        <th class="px-4 py-2 text-left border">创建时间</th>
+                                                        <th class="px-4 py-2 text-left border">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="item in meituanDownloadData.trafficRows" :key="item.id" class="border-b hover:bg-gray-50">
+                                                        <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_date }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanExposureMetric(item) ? formatNumber(getMeituanExposureMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanClickMetric(item) ? formatNumber(getMeituanClickMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanFlowRateMetric(item) ? (toFixedSafe(getMeituanFlowRateMetric(item), 2) + '%') : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanVisitorMetric(item) ? formatNumber(getMeituanVisitorMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.create_time }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
+                                                                <i class="fas fa-eye"></i>
+                                                            </button>
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.trafficRows.length === 0">
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">当前筛选暂无美团流量数据</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+
+                                    <!-- 订单线索模块 -->
+                                    <div v-if="downloadCenterTab === 'orders'">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">线索记录数</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.orderRowsCount }}</div>
+                                            </div>
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">订单线索量</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.orderBookOrder === null ? '-' : formatNumber(meituanDownloadData.orderBookOrder) }}</div>
+                                            </div>
+                                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">间夜量</div>
+                                                <div class="text-2xl font-bold text-indigo-600">{{ meituanDownloadData.orderQuantity === null ? '-' : formatNumber(meituanDownloadData.orderQuantity) }}</div>
+                                            </div>
+                                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">订单金额</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.orderAmount === null ? '-' : ('¥' + formatNumber(meituanDownloadData.orderAmount)) }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left border">酒店</th>
+                                                        <th class="px-4 py-2 text-left border">日期</th>
+                                                        <th class="px-4 py-2 text-left border">订单线索</th>
+                                                        <th class="px-4 py-2 text-left border">间夜</th>
+                                                        <th class="px-4 py-2 text-left border">金额</th>
+                                                        <th class="px-4 py-2 text-left border">均价</th>
+                                                        <th class="px-4 py-2 text-left border">维度</th>
+                                                        <th class="px-4 py-2 text-left border">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="item in meituanDownloadData.orderRows" :key="item.id" class="border-b hover:bg-gray-50">
+                                                        <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_date }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.book_order_num === null || item.book_order_num === undefined || item.book_order_num === '' ? '-' : item.book_order_num }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.quantity === null || item.quantity === undefined || item.quantity === '' ? '-' : item.quantity }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.amount === null || item.amount === undefined || item.amount === '' ? '-' : ('¥' + formatNumber(item.amount)) }}</td>
+                                                        <td class="px-4 py-2 border">{{ Number(item.quantity) &gt; 0 &amp;&amp; item.amount !== null &amp;&amp; item.amount !== undefined &amp;&amp; item.amount !== '' ? ('¥' + toFixedSafe(safeDivide(item.amount, item.quantity), 2)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
+                                                                <i class="fas fa-eye"></i>
+                                                            </button>
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.orderRowsCount === 0">
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无美团订单线索数据</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- 美团点评模块 -->
+                                    <div v-if="downloadCenterTab === 'reviews'">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点评记录数</div>
+                                                <div class="text-2xl font-bold text-purple-600">{{ meituanDownloadData.reviewRowsCount }}</div>
+                                            </div>
+                                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">平均点评分</div>
+                                                <div class="text-2xl font-bold text-amber-600">{{ meituanDownloadData.reviewAverageScore === null ? '-' : toFixedSafe(meituanDownloadData.reviewAverageScore, 1) }}</div>
+                                            </div>
+                                            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点评总量</div>
+                                                <div class="text-2xl font-bold text-emerald-600">{{ meituanDownloadData.reviewTotalCount === null ? '-' : formatNumber(meituanDownloadData.reviewTotalCount) }}</div>
+                                            </div>
+                                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">低分/差评数</div>
+                                                <div class="text-2xl font-bold text-rose-600">{{ meituanDownloadData.reviewBadCount === null ? '-' : formatNumber(meituanDownloadData.reviewBadCount) }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="mb-4 rounded-lg border border-purple-100 bg-purple-50 px-4 py-3 text-xs leading-5 text-purple-800">
+                                            点评页只读取已入库的美团 OTA 聚合指标：评分、点评数量、低分/差评数量和质量状态；不展示点评正文、客户姓名、手机号、订单号或匿名身份匹配候选。
+                                        </div>
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left border">酒店</th>
+                                                        <th class="px-4 py-2 text-left border">日期</th>
+                                                        <th class="px-4 py-2 text-left border">点评分</th>
+                                                        <th class="px-4 py-2 text-left border">点评量</th>
+                                                        <th class="px-4 py-2 text-left border">低分/差评</th>
+                                                        <th class="px-4 py-2 text-left border">维度</th>
+                                                        <th class="px-4 py-2 text-left border">数据质量</th>
+                                                        <th class="px-4 py-2 text-left border">更新时间</th>
+                                                        <th class="px-4 py-2 text-left border">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="item in meituanDownloadData.reviewRows" :key="item.id" class="border-b hover:bg-gray-50">
+                                                        <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_date }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.review_score_value === null ? '-' : toFixedSafe(item.review_score_value, 1) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.review_count_value === null ? '-' : formatNumber(item.review_count_value) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.bad_review_count_value === null ? '-' : formatNumber(item.bad_review_count_value) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.review_dimension_label || '-' }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">{{ item.validation_status || '-' }}</span>
+                                                        </td>
+                                                        <td class="px-4 py-2 border">{{ item.update_time || item.create_time || '-' }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
+                                                                <i class="fas fa-eye"></i>
+                                                            </button>
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.reviewRowsCount === 0">
+                                                        <td colspan="9" class="px-4 py-8 text-center text-gray-400">当前筛选暂无美团点评聚合数据</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- 广告数据模块 -->
+                                    <div v-if="downloadCenterTab === 'ads'">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">广告记录数</div>
+                                                <div class="text-2xl font-bold text-red-600">{{ meituanDownloadData.adsRowsCount }}</div>
+                                            </div>
+                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">曝光量</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.adsExposure === null ? '-' : formatNumber(meituanDownloadData.adsExposure) }}</div>
+                                            </div>
+                                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点击量</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.adsClick === null ? '-' : formatNumber(meituanDownloadData.adsClick) }}</div>
+                                            </div>
+                                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点击率</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.adsClickRate === null ? '-' : (toFixedSafe(meituanDownloadData.adsClickRate, 2) + '%') }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left border">酒店</th>
+                                                        <th class="px-4 py-2 text-left border">日期</th>
+                                                        <th class="px-4 py-2 text-left border">曝光</th>
+                                                        <th class="px-4 py-2 text-left border">点击</th>
+                                                        <th class="px-4 py-2 text-left border">转化率</th>
+                                                        <th class="px-4 py-2 text-left border">维度</th>
+                                                        <th class="px-4 py-2 text-left border">创建时间</th>
+                                                        <th class="px-4 py-2 text-left border">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="item in meituanDownloadData.adsRows" :key="item.id" class="border-b hover:bg-gray-50">
+                                                        <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_date }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanExposureMetric(item) ? formatNumber(getMeituanExposureMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanClickMetric(item) ? formatNumber(getMeituanClickMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanFlowRateMetric(item) ? (toFixedSafe(getMeituanFlowRateMetric(item), 2) + '%') : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.create_time }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
+                                                                <i class="fas fa-eye"></i>
+                                                            </button>
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.adsRowsCount === 0">
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">
+                                                            {{ isMeituanAdsNotApplicableForHotel(onlineDataFilter.hotel_id || meituanForm.hotelId) ? '当前酒店未开通美团广告服务（不适用）' : '暂无美团广告数据' }}
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <div v-if="onlineDataPagination.total &gt; 0" class="mt-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div class="text-sm text-gray-600">卡片仅统计本页数据 · 源记录共 {{ onlineDataPagination.total }} 条 · 当前第 {{ onlineDataPage }} 页 · 本页显示 {{ meituanDownloadData.visibleRowsCountByTab?.[downloadCenterTab] ?? onlineDataList.length }} 条去重事实</div>
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" @click="changeOnlineDataPage(onlineDataPage - 1)" :disabled="onlineDataPage &lt;= 1" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">上一页</button>
+                                            <button type="button" @click="changeOnlineDataPage(onlineDataPage + 1)" :disabled="onlineDataPage * onlineDataPagination.page_size &gt;= onlineDataPagination.total" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">下一页</button>
+                                        </div>
+                                    </div>
+
+
+
+                                    <!-- 未验证竞对数据预览 - 弹窗 -->
+                                    <div v-if="showMeituanAIAnalysis" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                                        <div class="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] overflow-y-auto">
+                                            <div class="bg-gradient-to-r from-yellow-500 to-orange-500 text-white p-6 rounded-t-lg flex items-center justify-between">
+                                                <div class="flex items-center">
+                                                    <i class="fas fa-robot text-2xl mr-3"></i>
+                                                    <div class="text-xl font-bold">竞对数据预览</div>
+                                                </div>
+                                                <button @click="showMeituanAIAnalysis = false" class="text-white hover:text-gray-200">
+                                                    <i class="fas fa-times text-xl"></i>
+                                                </button>
+                                            </div>
+                                            <div class="p-6">
+                                                <div class="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">仅预览美团页面当前展示的竞对数据；数值未经过后端来源、门店和日期口径校验，不生成本店经营、定价或运营建议。</div>
+
+                                        <!-- 酒店选择区域 -->
+                                        <div class="bg-white border rounded-lg p-4 mb-6">
+                                            <div class="flex items-center justify-between mb-4">
+                                                <div class="flex items-center">
+                                                    <i class="fas fa-hotel text-yellow-500 mr-2"></i>
+                                                    <span class="font-medium">选择分析酒店</span>
+                                                    <span class="text-sm text-gray-500 ml-2">(从美团ebooking抓取的数据中选择)</span>
+                                                </div>
+                                                <div class="flex gap-2">
+                                                    <button @click="selectAllMeituanAiHotels" class="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded">
+                                                        <i class="fas fa-check-double mr-1"></i>全选
+                                                    </button>
+                                                    <button @click="clearMeituanAiHotelSelection" class="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded">
+                                                        <i class="fas fa-times mr-1"></i>清空
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <!-- 酒店列表（带复选框） -->
+                                            <div v-if="meituanAiAnalysisHotelList.length === 0" class="text-center py-8 text-gray-400">
+                                                <i class="fas fa-inbox text-3xl mb-2"></i>
+                                        <p>待同步经营数据</p>
+                                                <p class="text-sm mt-1">请先在"榜单数据获取"中获取美团数据</p>
+                                            </div>
+                                            <div v-else="" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto border rounded p-2">
+                                                <label v-for="hotel in meituanAiAnalysisHotelList" :key="hotel.poiId + '_' + hotel.hotelName" class="flex items-center p-2 rounded hover:bg-gray-50 cursor-pointer border" :class="meituanAiSelectedHotels.includes(hotel.poiId + '_' + hotel.hotelName) ? 'bg-yellow-50 border-yellow-300' : 'bg-white'">
+                                                    <input type="checkbox" :value="hotel.poiId + '_' + hotel.hotelName" v-model="meituanAiSelectedHotels" class="form-checkbox h-4 w-4 text-yellow-500 rounded border-gray-300 focus:ring-yellow-500 mr-2">
+                                                    <div class="flex-1 min-w-0">
+                                                        <div class="text-sm font-medium text-gray-800 truncate">{{ hotel.hotelName }}</div>
+                                                        <div class="text-xs text-gray-400 truncate">ID: {{ hotel.poiId }}</div>
+                                                    </div>
+                                                </label>
+                                            </div>
+
+                                            <!-- 操作按钮 -->
+                                            <div class="flex gap-3 mt-4">
+                                                <button @click="startMeituanAiAnalysis" :disabled="meituanAiAnalyzing || meituanAiSelectedHotels.length === 0" class="px-6 py-2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-lg hover:from-yellow-600 hover:to-orange-600 disabled:from-gray-400 disabled:to-gray-400">
+                                                    <i class="fas fa-brain mr-2"></i>
+                                                    {{ meituanAiAnalyzing ? '生成预览中...' : '生成未验证预览' }}
+                                                </button>
+                                                <span v-if="meituanAiSelectedHotels.length &gt; 0" class="text-sm text-gray-500 self-center">
+                                                    已选择 {{ meituanAiSelectedHotels.length }} 家酒店
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <!-- 竞对预览结果区域 -->
+                                        <div v-if="meituanAiAnalysisResult" class="mb-6">
+                                            <div class="bg-white border rounded-lg overflow-hidden">
+                                                <div class="bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-4 py-3 flex items-center justify-between">
+                                                    <div class="flex items-center">
+                                                        <i class="fas fa-chart-line mr-2"></i>
+                                                        <span class="font-medium">未验证竞对数据预览</span>
+                                                    </div>
+                                                    <button @click="copyMeituanAiAnalysisResult" class="text-sm bg-white/20 px-3 py-1 rounded hover:bg-white/30">
+                                                        <i class="fas fa-copy mr-1"></i>复制报告
+                                                    </button>
+                                                </div>
+                                                <div class="p-4 prose prose-sm max-w-none" v-html="meituanAiAnalysisResult"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- 预览历史记录 -->
+                                        <div class="bg-white border rounded-lg">
+                                            <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+                                                <div class="flex items-center">
+                                                    <i class="fas fa-history text-gray-500 mr-2"></i>
+                                                    <span class="font-medium text-gray-700">预览历史</span>
+                                                </div>
+                                                <span class="text-sm text-gray-500">共 {{ meituanAiAnalysisHistory.length }} 条记录</span>
+                                            </div>
+                                            <div v-if="meituanAiAnalysisHistory.length === 0" class="p-8 text-center text-gray-400">
+                                                <i class="fas fa-inbox text-3xl mb-2"></i>
+                                        <p>暂不生成经营判断</p>
+                                            </div>
+                                            <div v-else="" class="divide-y max-h-80 overflow-y-auto">
+                                                <div v-for="record in meituanAiAnalysisHistory" :key="record.id" class="p-4 hover:bg-gray-50 cursor-pointer" @click="viewMeituanAiAnalysisRecord(record)">
+                                                    <div class="flex items-start justify-between mb-2">
+                                                        <div class="flex items-center">
+                                                            <span class="text-sm font-medium text-gray-800">{{ record.hotel_names }}</span>
+                                                            <span class="text-xs text-gray-400 ml-2">{{ record.hotel_count }}家酒店</span>
+                                                        </div>
+                                                        <span class="text-xs text-gray-400">{{ record.create_time }}</span>
+                                                    </div>
+                                                    <div class="text-sm text-gray-600 line-clamp-2">{{ record.summary }}</div>
+                                                </div>
+                                            </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    </div>
+                                </div>
+
+                                <!-- 美团配置旧面板：入口已统一到酒店管理 -->
+                                <div v-if="onlineDataTab === 'meituan-config'">
+                                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-yellow-800 mb-2">
+                                            <i class="fas fa-info-circle mr-2"></i>美团配置管理
+                                        </h4>
+                                        <p class="text-sm text-yellow-700">
+                                            保存美团 eBooking 的 Cookie/API 辅助配置，方便临时排障或补数。通常只需在 Cookie 失效时更新，其余门店信息编辑时会自动保留。
+                                        </p>
+                                    </div>
+
+                                    <!-- 新增配置表单 -->
+                                    <div class="bg-white border rounded-lg p-4 mb-4">
+                                        <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
+                                            <h4 class="font-medium text-gray-700">
+                                                <i :class="[meituanConfigForm.id ? 'fas fa-edit text-yellow-500' : 'fas fa-plus-circle text-blue-500', 'mr-2']"></i>{{ meituanConfigForm.id ? '编辑配置' : '新增配置' }}
+                                            </h4>
+                                            <div class="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                                                当前配置门店：<span class="font-semibold">{{ hotelConfigTargetText(meituanConfigForm) }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm mb-4">
+                                            新配置只需临时 Cookie/API 辅助内容；编辑已有配置时，留空即保留原 Cookie。平台接口标识、门店标识和房量会继续保留，无需重复填写。
+                                        </div>
+                                        <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                                            保存只表示 Cookie/API 已安全写入；系统成功采集并确认门店匹配后，才会标记为“验证成功，当前使用”。
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div class="md:col-span-2">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店 <span class="text-red-500">*</span></label>
+                                                <select v-model="meituanConfigForm.hotel_id" required="" class="w-full px-3 py-2 border rounded-lg">
+                                                    <option value="">请选择关联门店</option>
+                                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotelSelectOptionText(hotel) }}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识（一次性配置，可后补）</label>
+                                                <input v-model="meituanConfigForm.partner_id" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="商家ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识（一次性配置，可后补）</label>
+                                                <input v-model="meituanConfigForm.poi_id" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="门店ID">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">酒店总房量（采集优先，可选补充）</label>
+                                                <input v-model="meituanConfigForm.hotel_room_count" type="number" min="1" class="w-full px-3 py-2 border rounded-lg" placeholder="平台未返回时可补充">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">竞争圈总房量（采集优先，可选补充）</label>
+                                                <input v-model="meituanConfigForm.competitor_room_count" type="number" min="1" class="w-full px-3 py-2 border rounded-lg" placeholder="平台未返回时可补充">
+                                            </div>
+                                        </div>
+                                        <p class="mt-2 text-xs leading-5 text-gray-500">
+                                            房量优先取自美团页面或接口；若平台本次未返回，可人工补充。留空会显示待补，不会按 0 参与分析。
+                                        </p>
+                                        <div class="mt-3">
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">
+                                                临时 Cookie/API 辅助内容
+                                                <span v-if="!meituanConfigForm.id || !meituanConfigForm.has_cookies" class="text-red-500">*</span>
+                                                <span v-else="" class="text-xs font-normal text-gray-500">（留空保留已保存内容）</span>
+                                            </label>
+                                            <textarea v-model="meituanConfigForm.cookies" rows="3" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" :placeholder="meituanConfigForm.id &amp;&amp; meituanConfigForm.has_cookies ? '仅 Cookie 失效时粘贴新内容；留空不会覆盖' : '从美团 eBooking 页面获取临时 Cookie/API 辅助内容'"></textarea>
+                                        </div>
+                                        <div class="flex gap-2 mt-4">
+                                            <button @click="saveMeituanConfigItem" :disabled="meituanConfigSaving" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60">
+                                                <i :class="meituanConfigSaving ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-save mr-2'"></i>{{ meituanConfigSaving ? '保存中' : (meituanConfigForm.id ? '保存修改' : '保存配置') }}
+                                            </button>
+                                            <button @click="openTargetSite('https://eb.meituan.com')" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                                                <i class="fas fa-external-link-alt mr-2"></i>打开美团ebooking
+                                            </button>
+                                            <button @click="showConfigHelp = !showConfigHelp" class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">
+                                                <i class="fas fa-question-circle mr-2"></i>配置获取办法
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- 配置获取办法说明 -->
+                                    <div v-if="showConfigHelp" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                        <h4 class="font-medium text-blue-800 mb-3">
+                                            <i class="fas fa-info-circle mr-2"></i>配置参数获取办法
+                                        </h4>
+                                        <div class="space-y-4 text-sm text-blue-700">
+                                            <!-- 统一获取方法 -->
+                                            <div class="bg-white rounded p-3 border border-blue-100">
+                                                <p class="font-medium text-blue-800 mb-2">平台门店标识、接口标识和临时 Cookie/API 辅助内容获取方法：</p>
+                                                <ol class="list-decimal list-inside space-y-1 text-gray-600 ml-2">
+                                                    <li>登录 <a href="https://eb.meituan.com" target="_blank" class="text-blue-600 underline">美团ebooking</a></li>
+                                                    <li>进入"数据中心" → "竞对排名"页面（需有VIP会员）</li>
+                                                    <li>按 F12（或右键检查）打开浏览器开发者工具</li>
+                                                    <li>切换到 Network（网络）标签</li>
+                                                    <li>刷新页面，找到名为 <code class="bg-gray-100 px-1 rounded">detail?partnerId=...</code> 的请求</li>
+                                                    <li>点击该请求，查看请求URL中的参数：
+                                                        <ul class="list-disc ml-6 mt-1">
+                                                            <li><code class="bg-gray-100 px-1 rounded">poiId=xxx</code> → 平台门店标识</li>
+                                                            <li><code class="bg-gray-100 px-1 rounded">partnerId=xxx</code> → 平台接口标识</li>
+                                                        </ul>
+                                                    </li>
+                                                    <li>临时 Cookie/API 辅助内容在该请求下方的请求头中找到，复制完整内容</li>
+                                                </ol>
+                                                <p class="text-yellow-600 mt-2 text-xs">
+                                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                                    临时 Cookie/API 辅助内容包含登录认证信息，请勿泄露给他人
+                                                </p>
+                                            </div>
+                                            <!-- 提示 -->
+                                            <div class="bg-yellow-50 rounded p-3 border border-yellow-200">
+                                                <p class="text-yellow-700 text-xs">
+                                                    <i class="fas fa-lightbulb mr-1"></i>
+                                                    <strong>提示：</strong>获取配置后点击"保存配置"按钮保存，下次可直接从已保存配置列表中选择使用。
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 已保存的配置列表 -->
+                                    <div class="bg-white border rounded-lg">
+                                        <div class="px-4 py-3 border-b bg-gray-50 flex justify-between items-center">
+                                            <h4 class="font-medium text-gray-700">
+                                                <i class="fas fa-list mr-2"></i>已保存的配置
+                                            </h4>
+                                            <span class="text-sm text-gray-500">共 {{ meituanConfigList.length }} 条</span>
+                                        </div>
+                                        <div v-if="meituanConfigList.length === 0" class="p-8 text-center text-gray-400">
+                                            <i class="fas fa-inbox text-4xl mb-2"></i>
+                                        <p>待校验数据源</p>
+                                        </div>
+                                        <div v-else="" class="divide-y">
+                                            <div v-for="config in meituanConfigList" :key="config.id" class="p-4 hover:bg-gray-50">
+                                                <div class="flex justify-between items-start">
+                                                    <div class="flex-1">
+                                                        <div class="mb-1">
+                                                            <span class="font-medium text-gray-800">{{ config.name }}</span>
+                                                            <span :class="[
+                                                                'ml-2 px-2 py-0.5 rounded-full border text-xs',
+                                                                config.configuration_verified === true ? 'bg-green-50 border-green-200 text-green-700' : (config.configuration_saved === true ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-red-50 border-red-200 text-red-700')
+                                                            ]">
+                                                                {{ config.verification_status_label || (config.configuration_verified === true ? '验证成功，当前使用' : 'Cookie 已保存，待采集验证') }}
+                                                            </span>
+                                                        </div>
+                                                        <div class="text-sm text-gray-500 space-y-1">
+                                                            <div class="flex items-center">
+                                                                <span class="w-24 text-gray-400">授权内容:</span>
+                                                                <span class="font-mono text-xs truncate max-w-md">{{ secretPreview(config) }}</span>
+                                                            </div>
+                                                            <div v-if="config.partner_id" class="flex items-center text-gray-400">
+                                                                <span class="w-24">接口标识:</span>
+                                                                <span>{{ config.partner_id }}</span>
+                                                            </div>
+                                                            <div v-if="config.poi_id" class="flex items-center text-gray-400">
+                                                                <span class="w-24">门店标识:</span>
+                                                                <span>{{ config.poi_id }}</span>
+                                                            </div>
+                                                            <div v-if="config.hotel_room_count" class="flex items-center text-gray-400">
+                                                                <span class="w-24">酒店总房量:</span>
+                                                                <span>{{ config.hotel_room_count }}</span>
+                                                            </div>
+                                                            <div v-if="config.competitor_room_count" class="flex items-center text-gray-400">
+                                                                <span class="w-24">竞争圈总房量:</span>
+                                                                <span>{{ config.competitor_room_count }}</span>
+                                                            </div>
+                                                            <div class="flex items-center text-gray-400">
+                                                                <span class="w-24">更新时间:</span>
+                                                                <span>{{ config.update_time || config.created_at }}</span>
+                                                            </div>
+                                                            <div v-if="Number(config.history_count || 0) &gt; 0" class="text-amber-600">
+                                                                已折叠 {{ config.history_count }} 条历史配置；{{ config.configuration_verified === true ? '采集验证成功' : 'Cookie 已保存，仍待采集与门店匹配验证' }}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="flex gap-2 ml-4">
+                                                        <button @click="useMeituanConfig(config)" :disabled="config.has_cookies !== true || String(config.credential_status || '') !== 'ready'" class="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50" :title="config.has_cookies === true &amp;&amp; String(config.credential_status || '') === 'ready' ? '使用此凭据配置' : '凭据尚未就绪'">
+                                                            <i class="fas fa-check mr-1"></i>使用
+                                                        </button>
+                                                        <button @click="editMeituanConfig(config)" class="px-3 py-1 bg-yellow-500 text-white rounded text-sm hover:bg-yellow-600" title="编辑配置">
+                                                            <i class="fas fa-edit mr-1"></i>编辑
+                                                        </button>
+                                                        <button @click="deleteMeituanConfigItem(config.id)" class="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600" title="删除配置">
+                                                            <i class="fas fa-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>

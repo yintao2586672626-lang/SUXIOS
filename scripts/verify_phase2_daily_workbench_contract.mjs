@@ -24,7 +24,7 @@ function excludesAll(file, label, source, needles) {
 }
 
 const route = read('route/app.php');
-const onlineDataController = read('app/controller/OnlineData.php');
+const otaActionHandler = read('app/service/Ota/OtaActionHandler.php');
 const controller = read('app/controller/concern/OperationWorkbenchConcern.php');
 const service = read('app/service/DailyWorkbenchPatrolService.php');
 const operationService = read('app/service/OperationManagementService.php');
@@ -34,7 +34,10 @@ const patrolCronScript = read('scripts/daily_workbench_patrol_cron.php');
 const runtimeVerifier = read('scripts/verify_phase2_daily_workbench_runtime.php');
 const acceptanceDoc = read('docs/phase2_daily_workbench_acceptance.md');
 const packageJson = read('package.json');
-const frontend = read('public/index.html');
+const frontendTemplate = read('resources/frontend/app-template.html');
+const frontendEntry = read('public/app-main.js');
+const frontend = `${frontendTemplate}\n${frontendEntry}`;
+const publicIndex = read('public/index.html');
 const ctripStatic = read('public/ctrip-static.js');
 const dataHealthStatic = read('public/data-health-static.js');
 const manualFetchConcern = read('app/controller/concern/OnlineDataManualFetchConcern.php');
@@ -78,7 +81,7 @@ includesAll('route/app.php', 'daily workbench and patrol routes exist', route, [
   "Route::get('api/online-data/daily-workbench-patrol-cron', 'OnlineData/dailyWorkbenchPatrolCron');",
 ]);
 
-includesAll('app/controller/OnlineData.php', 'OnlineData composes the split daily workbench concern', onlineDataController, [
+includesAll('app/service/Ota/OtaActionHandler.php', 'OTA handler composes the split daily workbench concern', otaActionHandler, [
   'use app\\controller\\concern\\OperationWorkbenchConcern;',
   'use OperationWorkbenchConcern;',
 ]);
@@ -101,14 +104,20 @@ includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workb
   'public function updateDailyWorkbenchPatrolAction(): Response',
   'public function reviewDailyWorkbenchPatrolAction(): Response',
   'public function dailyWorkbenchPatrolCron(): Response',
+  'private function splitDailyWorkbenchPatrolPayloadsByHotel(array $payload): array',
   'private function dailyWorkbenchPatrolActionContext(array $snapshot, array $data): array',
   'private function dailyWorkbenchPatrolTrackingKey(int $hotelId, string $actionCode, string $questionKey): string',
   'new DailyWorkbenchPatrolService()',
-  '->health($targetDate)',
+  '->healthForHotel($hotelId, $targetDate)',
+  '->listForHotel($hotelId, $limit)',
+  '->findByRunIdForHotel(',
+  "requireOperationHotelCapability($hotelId, 'operation.execute')",
   'syncDailyWorkbenchPatrolAction(',
-  'reviewExecutionTask($taskId, $hotelIds',
+  'reviewExecutionTask($taskId, [$hotelId]',
   "'trigger_type' => 'manual'",
   "'trigger_type' => 'cron'",
+  "'health_by_hotel' => $healthByHotel",
+  '->healthForHotel($hotelId, $targetDate)',
   "checkPublicEndpointRateLimit('daily_workbench_patrol_cron'",
   "Env::get('CRON_TOKEN'",
   "'cron_token_not_configured'",
@@ -163,14 +172,16 @@ includesAll('package.json', 'phase2 daily workbench runtime verifier is runnable
 
 includesAll('app/service/OperationManagementService.php', 'daily workbench patrol action syncs to operation execution loop', operationService, [
   'public function syncDailyWorkbenchPatrolAction(array $hotelIds, array $input, int $userId): array',
-  'public function reviewExecutionTask(int $taskId, array $hotelIds, array $input = []): array',
+  'public function reviewExecutionTask(int $taskId, array $hotelIds, array $input = [], int $reviewerId = 0): array',
   'private function dailyWorkbenchPatrolSourceRecordId(string $runId, int $hotelId, string $actionCode, string $questionKey): int',
   'private function findDailyWorkbenchPatrolIntent(int $hotelId, int $sourceRecordId): ?array',
   'private function buildDailyWorkbenchPatrolExecutionIntentInput(array $input, int $sourceRecordId): array',
-  "'source_module' => 'ota_diagnosis'",
+  "'source_module' => 'daily_workbench_patrol'",
   "'object_type' => 'data_collection'",
   "'source_policy' => 'read_existing_daily_workbench_patrol_snapshot_only'",
   "'metric_scope' => 'ota_channel'",
+  'syncSourceVerifiedMetricReadback(',
+  'hasVerifiedExecutionSourceProvenance(',
   'approveExecutionIntent(',
   'executeExecutionTask(',
 ]);
@@ -301,28 +312,36 @@ includesAll('public/index.html', 'focused online-data panel retains manual one-c
   'manualOneClickFetchDisplayRows',
 ]);
 
-excludesAll('public/index.html', 'focused online-data panel removes employee and phase operation surfaces', frontendDataHealthSlice, [
+includesAll('resources/frontend/app-template.html', 'focused online-data panel exposes the one-page operating loop', frontendDataHealthSlice, [
+  'data-testid="core-operations-loop"',
+  'data-testid="core-loop-yesterday-data"',
+  'data-testid="core-loop-competitor-comparison"',
+  'data-testid="core-loop-anomaly-judgment"',
+  'data-testid="core-loop-ai-actions"',
+  'data-testid="core-loop-ai-to-operation"',
+  'data-testid="core-loop-operation-tasks"',
+  'data-testid="core-loop-next-day-review"',
   'data-testid="phase2-daily-workbench"',
   'data-testid="daily-workbench-write-boundary"',
   'data-testid="phase3-operation-effect-loop"',
-  'employeeOtaChecklistRows',
+  "updateDailyWorkbenchPatrolAction(action, 'in_progress')",
+  'createCoreOperationsDiagnosisIntent(item)',
+  'approveOperationExecutionIntent',
+  'recordOperationExecutionEvidence',
+  'reviewOperationExecutionTask',
 ]);
 
-includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch treats zero Qunar visitors as partial capture', manualFetchConcern, [
+includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch keeps zero Qunar visitors as a non-blocking field gap', manualFetchConcern, [
   'saved_with_qunar_visitor_gap',
   'no_saved_with_qunar_visitor_gap',
   'partial_qunar_visitor_gap',
-  '需要自动重抓最多 3 次',
-  '不能按整次成功处理',
-  '携程和去哪儿都返回有效值才算成功',
+  '仅作为字段缺口提示',
+  '不阻断携程竞争圈获取和入库',
 ]);
 
-includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Qunar visitor gaps before success', frontend, [
-  'CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT = 3',
+includesAll('public/index.html', 'manual one-click Ctrip fetch delegates the non-blocking Qunar gap decision to the static helper', frontend, [
   'manualOneClickFetchQunarVisitorNeedsRetry',
   'summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value)',
-  '去哪儿访客仍为 0',
-  '自动重抓',
   "const summarizeManualOneClickFetchRows = requireDataHealthStatic('summarizeManualOneClickFetchRows')",
   'summarizeManualOneClickFetchRows(manualOneClickFetchRows.value)',
   'buildManualOneClickFetchRunningRow({',
@@ -330,25 +349,28 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Q
 
 includesAll('public/data-health-static.js', 'manual one-click fetch display summary helper owns saved-count aggregation', dataHealthStatic, [
   'const summarizeManualOneClickFetchRows = (rows = []) =>',
-  "if (row.status === 'success') summary.savedCount += Number(row.savedCount || 0);",
+  "if (row.status === 'success' || row.status === 'partial') summary.savedCount += Number(row.savedCount || 0);",
   'const buildManualOneClickFetchCards = ({',
   'const sortManualOneClickFetchRows = (rows = []) =>',
   'const summarizeManualOneClickFetchQunarVisitorQuality = (rows = []) =>',
-  'const manualOneClickFetchQunarVisitorNeedsRetry = (quality = null) =>',
+  'const manualOneClickFetchQunarVisitorNeedsRetry = (quality = {}) =>',
+  '&& Number(quality?.total || 0) <= 0',
 ]);
 
-includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar visitor gaps without marking success', ctripStatic, [
+includesAll('public/ctrip-static.js', 'single Ctrip fetch distinguishes persisted success from bounded display-only results', ctripStatic, [
   "data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap'",
-  'const ctripFetchReady = ctripRowsReturned && data.qunar_visitor_quality?.ready === true',
-  'setFetchSuccess(ctripFetchReady)',
-  '需要重抓；携程和去哪儿都返回有效值才算成功。',
-  "status: ctripFetchReady ? 'success' : (qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'no_saved')",
+  "const saveBlocked = data.save_status === 'blocked'",
+  'const ctripFetchReady = ctripRowsReturned',
+  'setFetchSuccess(!persistenceOutcome.businessFailed && (',
+  'persisted || (ctripFetchReady && (saveBlocked || temporaryDisplayOnly))',
+  '仅作为字段缺口提示，不阻断携程竞争圈获取和入库。',
+  "status: (saveBlocked || temporaryDisplayOnly) ? 'display_only' : (persisted ? 'success' : 'no_saved')",
 ]);
 
-excludesAll('public/index.html', 'manual one-click fetch no longer soft-succeeds zero Qunar visitor gaps', frontend, [
-  '仅标记为字段缺口',
-  '不代表整次抓取失败',
-  '不按整次失败处理',
+excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch no longer blocks success on the Qunar field gap', manualFetchConcern, [
+  '需要自动重抓最多 3 次',
+  '不能按整次成功处理',
+  '携程和去哪儿都返回有效值才算成功',
 ]);
 
 excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch no longer cancels the whole save on zero Qunar visitors', manualFetchConcern, [
@@ -363,13 +385,13 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch does not mark zer
   'buildManualOneClickFetchResultRow({',
 ]);
 
-includesAll('public/data-health-static.js', 'manual one-click Ctrip fetch result helper keeps zero-Qunar retry exhaustion blocking', dataHealthStatic, [
+includesAll('public/data-health-static.js', 'manual one-click Ctrip fetch result helper keeps zero-Qunar as non-blocking field gap', dataHealthStatic, [
   'const summarizeManualOneClickFetchResult = ({',
-  "normalizedPlatform === 'ctrip' && (!ctripRowsReturned || qunarVisitorIncomplete)",
-  '携程和去哪儿都成功才算成功',
+  "normalizedPlatform === 'ctrip' && count > 0",
+  'partial_qunar_visitor_gap',
 ]);
 
-includesAll('public/index.html', 'home entry points to daily workbench data-health view', frontend, [
+includesAll('public/index.html', 'home entry points to daily workbench data-health view', `${publicIndex}\n${frontend}`, [
   'compass-static.js?v=',
   "openHomeQuickEntry({ page: 'online-data', tab: 'data-health' })",
 ]);
@@ -391,7 +413,7 @@ includesAll('docs/phase2_daily_workbench_acceptance.md', 'phase2 acceptance doc 
 includesAll('public/index.html', 'daily workbench frontend loader uses read-only and patrol APIs', frontendLoaderSlice, [
   'request(`/online-data/daily-workbench?${params.toString()}`)',
   'dailyWorkbench.value = res.data || {}',
-  "request('/online-data/daily-workbench-patrols?limit=5')",
+  'request(`/online-data/daily-workbench-patrols?${params.toString()}`)',
   'health: res.data?.health',
   "/api/online-data/daily-workbench-patrols/report?",
   "request('/online-data/daily-workbench-patrols/run'",
@@ -403,7 +425,7 @@ includesAll('public/index.html', 'daily workbench frontend loader uses read-only
   'result_status: resultStatus',
 ]);
 
-includesAll('public/index.html', 'dormant daily workbench writes retain explicit operator confirmation', frontend, [
+includesAll('public/app-main.js', 'exposed daily workbench writes retain explicit operator confirmation', frontend, [
   'window.confirm(dailyWorkbenchWriteBoundary.run.confirmText)',
   'window.confirm(dailyWorkbenchWriteBoundary.export.confirmText)',
 ]);
@@ -417,10 +439,8 @@ includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workb
   "'X-SUXIOS-Operation-Log-Written' => 'true'",
 ]);
 
-excludesAll('public/index.html', 'focused data health refresh does not auto-load patrol or phase3 resources', dataHealthRefreshSlice, [
-  'loadDailyWorkbenchPatrols:',
-  'loadPhase3OperationEffectLoop,',
-  'loadPhase3OperationEffectLoopLedger,',
+includesAll('public/app-main.js', 'focused data health refresh hydrates the one-page operating loop', dataHealthRefreshSlice, [
+  'refreshCoreOperationsLoop({ includeDailyWorkbench: false })',
 ]);
 
 excludesAll('public/index.html', 'daily workbench frontend panel does not expose collection actions', frontendPanelSlice + frontendLoaderSlice, [

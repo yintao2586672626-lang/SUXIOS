@@ -5,6 +5,7 @@ import {
   categorizeReleasePath,
   gitStatusCategoryOrder,
 } from './lib/release_worktree_scope.mjs';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const failures = [];
 const warnings = [];
@@ -345,7 +346,7 @@ function checkEvidenceFile(evidencePath) {
     const resolvedPath = path.resolve(evidencePath);
     evidence = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
   } catch (error) {
-    addFailure(`RELEASE_EXTERNAL_STATE_FILE is not readable JSON: ${error.message}`);
+    addFailure(`RELEASE_EXTERNAL_STATE_FILE is not readable JSON (${safeJsonParseErrorCode(error)}).`);
     return;
   }
 
@@ -449,7 +450,7 @@ function checkGitHubPr() {
   try {
     pr = JSON.parse(result.stdout);
   } catch (error) {
-    addFailure(`gh pr view ${prNumber} did not return valid JSON: ${error.message}`);
+    addFailure(`gh pr view ${prNumber} did not return valid JSON (${safeJsonParseErrorCode(error)}).`);
     return;
   }
 

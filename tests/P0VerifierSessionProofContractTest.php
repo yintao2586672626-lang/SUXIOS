@@ -114,6 +114,10 @@ final class P0VerifierSessionProofContractTest extends TestCase
             'current_session_probe_profile_key_hash' => hash('sha256', 'profile-701'),
             'current_session_probe_scope' => 'same_data_source_profile_session',
             'current_session_probe_producer' => 'platform_profile_login_task',
+            'current_session_probe_contract_version' => '2026-07-19.1',
+            'current_session_probe_evidence_level' => 'strong',
+            'current_session_probe_evidence_type' => 'recognized_business_response_2xx_plus_session_cookie',
+            'current_session_probe_identity_status' => 'matched',
         ];
 
         self::assertTrue(p0_traffic_current_session_verified($row, $config));

@@ -69,7 +69,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         ]);
     }
 
-    public function testDataSyncRejectsHistoricalLoginFlagsAndAcceptsOnlyCurrentProof(): void
+    public function testDataSyncAcceptsReusableProofButRejectsHistoricalFlagsAndExpiredProof(): void
     {
         $historicalId = $this->insertBoundSource('ctrip', 'browser_profile', 'historical-profile', [
             'manual_login_state_verified' => true,
@@ -80,21 +80,24 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         ]);
         $currentId = $this->insertBoundSource('meituan', 'profile_browser', 'current-store');
         $currentSource = $this->recordCurrentProof($currentId, 'meituan', 'current-store');
+        $reusableId = $this->insertBoundSource('ctrip', 'browser_profile', 'reusable-profile');
+        $reusableSource = $this->recordProofDaysAgo($reusableId, 'ctrip', 'reusable-profile', 1);
+        $warningId = $this->insertBoundSource('ctrip', 'browser_profile', 'warning-profile');
+        $warningSource = $this->recordProofDaysAgo($warningId, 'ctrip', 'warning-profile', 8);
+        $expiredId = $this->insertBoundSource('ctrip', 'browser_profile', 'expired-profile');
+        $expiredSource = $this->recordProofDaysAgo($expiredId, 'ctrip', 'expired-profile', 10);
         $historicalSource = $this->loadSource($historicalId);
 
         $service = new PlatformDataSyncService();
         $method = new ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
         $method->setAccessible(true);
 
-        self::assertSame(
-            ['current_session_verified'],
-            $method->invoke($service, $historicalSource, ['interactive_browser' => false])
-        );
-        self::assertSame(
-            ['current_session_verified'],
-            $method->invoke($service, $historicalSource, ['interactive_browser' => true])
-        );
+        self::assertSame(['profile_session_unverified'], $method->invoke($service, $historicalSource, ['interactive_browser' => false]));
+        self::assertSame([], $method->invoke($service, $historicalSource, ['interactive_browser' => true]));
         self::assertSame([], $method->invoke($service, $currentSource, ['interactive_browser' => false]));
+        self::assertSame([], $method->invoke($service, $reusableSource, ['interactive_browser' => false]));
+        self::assertSame([], $method->invoke($service, $warningSource, ['interactive_browser' => false]));
+        self::assertSame(['profile_session_expired'], $method->invoke($service, $expiredSource, ['interactive_browser' => false]));
         self::assertSame([], $method->invoke($service, [
             'id' => 999,
             'tenant_id' => 1,
@@ -107,7 +110,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         ], []));
     }
 
-    public function testCookieProfileConsumerFailsClosedWithoutCurrentProof(): void
+    public function testCookieProfileConsumerUsesReusableProofWithoutRequiringSameDayProof(): void
     {
         $historicalId = $this->insertBoundSource('ctrip', 'browser_profile', 'cookie-profile', [
             'manual_login_state_verified' => true,
@@ -118,24 +121,15 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         ]);
         $currentId = $this->insertBoundSource('meituan', 'browser_profile', 'cookie-store');
         $currentSource = $this->recordCurrentProof($currentId, 'meituan', 'cookie-store');
+        $reusableId = $this->insertBoundSource('ctrip', 'browser_profile', 'cookie-reusable-profile');
+        $reusableSource = $this->recordProofDaysAgo($reusableId, 'ctrip', 'cookie-reusable-profile', 1);
         $historicalSource = $this->loadSource($historicalId);
         $controller = $this->controller();
 
         $missing = $this->invoke($controller, 'profileCookieSourceLoginMissingRequirements', [$historicalSource]);
-        self::assertSame(['current_session_verified'], $missing);
+        self::assertSame(['profile_session_unverified'], $missing);
         self::assertSame([], $this->invoke($controller, 'profileCookieSourceLoginMissingRequirements', [$currentSource]));
-
-        try {
-            $this->invoke($controller, 'createCtripCookieApiCookieFileFromProfile', [[
-                'profile_id' => 'cookie-profile',
-                'manual_login_state_verified' => true,
-                'profile_status' => 'logged_in',
-                'last_login_verified_at' => '2026-07-10 09:00:00',
-            ], dirname(__DIR__), 10]);
-            self::fail('Historical flags must not authorize Profile-derived Cookie extraction.');
-        } catch (\InvalidArgumentException $e) {
-            self::assertStringContainsString('current_session_verified', $e->getMessage());
-        }
+        self::assertSame([], $this->invoke($controller, 'profileCookieSourceLoginMissingRequirements', [$reusableSource]));
     }
 
     public function testPhase1EmployeeConsoleUsesCurrentProofInsteadOfHistoricalLoginFlags(): void
@@ -203,7 +197,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         );
     }
 
-    public function testAutoFetchCollectableSourcesRequireCurrentProofAndSupportBothProfileMethods(): void
+    public function testAutoFetchCollectableSourcesUseReusableProofAndSupportBothProfileMethods(): void
     {
         $historicalId = $this->insertBoundSource('ctrip', 'browser_profile', 'old-profile', [
             'manual_login_state_verified' => true,
@@ -212,6 +206,12 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         ]);
         $currentId = $this->insertBoundSource('ctrip', 'profile_browser', 'current-profile');
         $this->recordCurrentProof($currentId, 'ctrip', 'current-profile');
+        $reusableId = $this->insertBoundSource('ctrip', 'browser_profile', 'reusable-profile');
+        $this->recordProofDaysAgo($reusableId, 'ctrip', 'reusable-profile', 1);
+        $warningId = $this->insertBoundSource('ctrip', 'browser_profile', 'warning-profile');
+        $this->recordProofDaysAgo($warningId, 'ctrip', 'warning-profile', 8);
+        $expiredId = $this->insertBoundSource('ctrip', 'browser_profile', 'expired-profile');
+        $this->recordProofDaysAgo($expiredId, 'ctrip', 'expired-profile', 10);
         $controller = $this->controller();
         $this->invoke($controller, 'clearAutoFetchLightProfileSourcesCache', [10, 'ctrip']);
 
@@ -227,8 +227,11 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         }
 
         $filtered = $this->invoke($controller, 'filterCollectableBrowserProfileDataSources', [$listed, 'ctrip']);
-        self::assertSame([$currentId], array_column($filtered, 'id'));
-        self::assertNotContains($historicalId, array_column($filtered, 'id'));
+        $filteredIds = array_column($filtered, 'id');
+        sort($filteredIds);
+        $expectedIds = [$currentId, $reusableId, $warningId];
+        sort($expectedIds);
+        self::assertSame($expectedIds, $filteredIds);
     }
 
     public function testAutoFetchStatusAndProfileCookieReadinessIgnoreCacheAndHistoricalFlags(): void
@@ -242,6 +245,12 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         ]);
         $currentId = $this->insertBoundSource('meituan', 'browser_profile', 'current-store');
         $currentSource = $this->recordCurrentProof($currentId, 'meituan', 'current-store');
+        $reusableId = $this->insertBoundSource('meituan', 'browser_profile', 'reusable-store');
+        $reusableSource = $this->recordProofDaysAgo($reusableId, 'meituan', 'reusable-store', 1);
+        $warningId = $this->insertBoundSource('meituan', 'browser_profile', 'warning-store');
+        $warningSource = $this->recordProofDaysAgo($warningId, 'meituan', 'warning-store', 8);
+        $expiredId = $this->insertBoundSource('meituan', 'browser_profile', 'expired-store');
+        $expiredSource = $this->recordProofDaysAgo($expiredId, 'meituan', 'expired-store', 10);
         $historicalSource = $this->loadSource($historicalId);
         $controller = $this->controller();
 
@@ -259,6 +268,27 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
             [],
             [],
         ]));
+        self::assertSame('profile_reusable', $this->invoke($controller, 'resolvePlatformProfileStatusCode', [
+            'reusable-store',
+            true,
+            $reusableSource,
+            [],
+            [],
+        ]));
+        self::assertSame('renewal_warning', $this->invoke($controller, 'resolvePlatformProfileStatusCode', [
+            'warning-store',
+            true,
+            $warningSource,
+            [],
+            [],
+        ]));
+        self::assertSame('login_expired', $this->invoke($controller, 'resolvePlatformProfileStatusCode', [
+            'expired-store',
+            true,
+            $expiredSource,
+            [],
+            [],
+        ]));
 
         $historicalStatus = $this->invoke($controller, 'meituanAutoFetchConfigStatus', [[
             'partner_id' => 'partner-10',
@@ -270,7 +300,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
             'last_login_verified_at' => '2026-07-10 09:00:00',
         ], 10]);
         self::assertFalse($historicalStatus['has_profile_cookie_source']);
-        self::assertContains('current_session_verified', $historicalStatus['profile_cookie_missing_requirements']);
+        self::assertSame(['profile_session_unverified'], $historicalStatus['profile_cookie_missing_requirements']);
 
         $currentStatus = $this->invoke($controller, 'meituanAutoFetchConfigStatus', [[
             'partner_id' => 'partner-10',
@@ -292,8 +322,12 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         $currentId = $this->insertBoundSource('ctrip', 'browser_profile', 'quality-current-profile', [
             'ota_hotel_id' => 'ctrip-hotel-10',
         ]);
+        $reusableId = $this->insertBoundSource('ctrip', 'browser_profile', 'quality-reusable-profile', [
+            'ota_hotel_id' => 'ctrip-hotel-10',
+        ]);
         $historicalSource = $this->loadSource($historicalId);
         $currentSource = $this->recordCurrentProof($currentId, 'ctrip', 'quality-current-profile');
+        $reusableSource = $this->recordProofDaysAgo($reusableId, 'ctrip', 'quality-reusable-profile', 1);
         $service = new PlatformDataSyncService();
 
         $diagnosticsMethod = new ReflectionMethod($service, 'buildSyncDiagnostics');
@@ -312,6 +346,21 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         self::assertSame('blocked', $diagnostics['p0_status']);
         self::assertContains('current_session_verified', $diagnostics['missing_inputs']);
         self::assertSame('current_session_not_verified', $diagnostics['operator_message']);
+
+        $reusableDiagnostics = $diagnosticsMethod->invoke($service, [[
+            'data_date' => '2026-07-10',
+            'data_type' => 'traffic',
+            'list_exposure' => 100,
+            'detail_exposure' => 20,
+            'flow_rate' => 0.2,
+        ]], 1, $reusableSource, [
+            'trigger_type' => 'daily_profile_reuse',
+            'data_date' => '2026-07-10',
+            'capture_sections' => 'traffic',
+        ], ['data_date' => '2026-07-10'], 'success', 'ok');
+        self::assertSame('blocked', $reusableDiagnostics['p0_status']);
+        self::assertContains('current_session_verified', $reusableDiagnostics['missing_inputs']);
+        self::assertSame('current_session_not_verified', $reusableDiagnostics['operator_message']);
 
         $qualityMethod = new ReflectionMethod($service, 'buildSyncTaskCollectionQualitySnapshot');
         $qualityMethod->setAccessible(true);
@@ -347,7 +396,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         self::assertSame('available', $currentQuality['primary_quality_state']);
     }
 
-    public function testDirectBrowserAutoFetchCannotFallBackToProfileDirectoryWithoutCurrentProof(): void
+    public function testDirectBrowserAutoFetchRequiresReusableProofBeforeProfileDirectory(): void
     {
         $this->insertBoundSource('ctrip', 'browser_profile', 'direct-old-profile', [
             'manual_login_state_verified' => true,
@@ -359,6 +408,14 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
             'profile_status' => 'logged_in',
             'last_login_verified_at' => '2026-07-10 09:00:00',
         ]);
+        $expiredCtripId = $this->insertBoundSource('ctrip', 'browser_profile', 'direct-expired-profile');
+        $this->recordProofDaysAgo($expiredCtripId, 'ctrip', 'direct-expired-profile', 10);
+        $expiredMeituanId = $this->insertBoundSource('meituan', 'browser_profile', 'direct-expired-store');
+        $this->recordProofDaysAgo($expiredMeituanId, 'meituan', 'direct-expired-store', 10);
+        $reusableCtripId = $this->insertBoundSource('ctrip', 'browser_profile', 'direct-reusable-profile');
+        $this->recordProofDaysAgo($reusableCtripId, 'ctrip', 'direct-reusable-profile', 1);
+        $reusableMeituanId = $this->insertBoundSource('meituan', 'browser_profile', 'direct-reusable-store');
+        $this->recordProofDaysAgo($reusableMeituanId, 'meituan', 'direct-reusable-store', 1);
         $controller = $this->controller();
 
         $ctrip = $this->invoke($controller, 'executeCtripBrowserProfileAutoFetch', [[
@@ -367,23 +424,75 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         $meituan = $this->invoke($controller, 'executeMeituanBrowserProfileAutoFetch', [[
             'store_id' => 'direct-old-store',
         ], 10, '2026-07-10', false, []]);
-
+        $expiredCtrip = $this->invoke($controller, 'executeCtripBrowserProfileAutoFetch', [[
+            'profile_id' => 'direct-expired-profile',
+        ], 10, '2026-07-10', false, []]);
+        $expiredMeituan = $this->invoke($controller, 'executeMeituanBrowserProfileAutoFetch', [[
+            'store_id' => 'direct-expired-store',
+        ], 10, '2026-07-10', false, []]);
+        $reusableCtrip = $this->invoke($controller, 'executeCtripBrowserProfileAutoFetch', [[
+            'profile_id' => 'direct-reusable-profile',
+        ], 10, '2026-07-10', false, []]);
+        $reusableMeituan = $this->invoke($controller, 'executeMeituanBrowserProfileAutoFetch', [[
+            'store_id' => 'direct-reusable-store',
+        ], 10, '2026-07-10', false, []]);
         self::assertFalse($ctrip['success']);
-        self::assertSame('current_session_not_verified', $ctrip['message']);
+        self::assertSame('profile_session_unverified', $ctrip['status_code']);
         self::assertFalse($meituan['success']);
-        self::assertSame('current_session_not_verified', $meituan['message']);
+        self::assertSame('profile_session_unverified', $meituan['status_code']);
+        self::assertFalse($expiredCtrip['success']);
+        self::assertSame('profile_session_expired', $expiredCtrip['status_code']);
+        self::assertFalse($expiredMeituan['success']);
+        self::assertSame('profile_session_expired', $expiredMeituan['status_code']);
+        self::assertFalse($reusableCtrip['success']);
+        self::assertStringContainsString('storage/ctrip_profile_', $reusableCtrip['message']);
+        self::assertFalse($reusableMeituan['success']);
+        self::assertStringContainsString('Profile', $reusableMeituan['message']);
     }
 
-    public function testDataSyncSurfacesAStableCurrentSessionFailureCode(): void
+    public function testInteractiveCtripProfileFetchKeepsDataSourceProvenance(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $start = strpos($source, 'private function executeCtripBrowserProfileAutoFetch');
+        $end = strpos($source, 'private function saveCtripBrowserProfilePayload', $start === false ? 0 : $start);
+
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+        $methodSource = substr($source, (int)$start, (int)$end - (int)$start);
+        $loadPosition = strpos($methodSource, '$profileSource = $this->loadProfileSessionSource');
+        $interactiveGatePosition = strpos($methodSource, 'if (!$interactiveBrowser)');
+
+        self::assertNotFalse($loadPosition);
+        self::assertNotFalse($interactiveGatePosition);
+        self::assertLessThan($interactiveGatePosition, $loadPosition);
+        self::assertStringContainsString(
+            '$profileDataSourceId = (int)($profileSource[\'id\'] ?? 0);',
+            $methodSource
+        );
+    }
+
+    public function testDataSyncSurfacesStableProfileReuseFailureCodes(): void
     {
         $service = new PlatformDataSyncService();
         $method = new ReflectionMethod($service, 'safeOtaExecutionFailureCode');
         $method->setAccessible(true);
 
         self::assertSame(
+            'profile_session_unverified',
+            $method->invoke($service, new RuntimeException(
+                'browser_profile collector reported profile_session_unverified.'
+            ))
+        );
+        self::assertSame(
+            'profile_session_expired',
+            $method->invoke($service, new RuntimeException(
+                'browser_profile synchronization requires profile_session_expired before capture.'
+            ))
+        );
+        self::assertSame(
             'current_session_not_verified',
             $method->invoke($service, new RuntimeException(
-                'browser_profile synchronization requires current_session_verified from the same data source Profile session before capture.'
+                'browser_profile synchronization requires current_session_verified before capture.'
             ))
         );
     }
@@ -391,17 +500,33 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
     private function recordCurrentProof(int $sourceId, string $platform, string $profileKey): array
     {
         $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
+        return $this->recordProofAt($sourceId, $platform, $profileKey, $now);
+    }
+
+    private function recordProofDaysAgo(int $sourceId, string $platform, string $profileKey, int $daysAgo): array
+    {
+        $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
+        return $this->recordProofAt($sourceId, $platform, $profileKey, $now->modify('-' . $daysAgo . ' days'));
+    }
+
+    private function recordProofAt(
+        int $sourceId,
+        string $platform,
+        string $profileKey,
+        DateTimeImmutable $proofTime
+    ): array {
         $service = new OtaProfileSessionProofService(
             new OtaProfileBindingService(self::$projectRoot),
-            static fn(): DateTimeImmutable => $now
+            static fn(): DateTimeImmutable => $proofTime
         );
-        $service->recordVerified(
+        $service->recordCollectionPreflightVerified(
             $sourceId,
             10,
             $platform,
             $profileKey,
             true,
-            ['ok' => true, 'status' => 'logged_in']
+            ['ok' => true, 'status' => 'logged_in'],
+            ['status' => 'matched', 'validated_identifier' => $profileKey]
         );
         return $this->loadSource($sourceId);
     }
@@ -479,6 +604,8 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
             status TEXT NOT NULL,
             enabled INTEGER NOT NULL DEFAULT 1,
             config_json TEXT NOT NULL,
+            last_sync_status TEXT,
+            last_error TEXT,
             update_time TEXT
         )');
         Db::execute('CREATE TABLE ota_profile_bindings (

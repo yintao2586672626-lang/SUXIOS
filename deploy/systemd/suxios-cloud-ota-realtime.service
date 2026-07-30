@@ -1,0 +1,26 @@
+[Unit]
+Description=SUXIOS cloud OTA current-day realtime collection
+After=network-online.target mariadb.service php8.3-fpm.service
+Wants=network-online.target
+ConditionPathExists=/var/www/suxios/current/think
+ConditionPathExists=/etc/suxios/ota-collector.env
+Conflicts=suxios-cloud-ota-daily.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=/etc/suxios/ota-collector.env
+Environment=SUXIOS_OTA_CLOUD_COLLECTOR=1
+# This unit is one explicit server-owner device/hotel/source scope. No global
+# enabled-hotel enumeration is permitted in cloud mode.
+ExecStartPre=/usr/bin/php -d memory_limit=384M think online-data:auto-fetch --validate-cloud-scope --collector-mode=single_user_local --collector-user-id=${SUXIOS_OTA_CLOUD_USER_ID} --collector-device-id=${SUXIOS_OTA_CLOUD_DEVICE_ID} --hotel-id=${SUXIOS_OTA_CLOUD_HOTEL_ID} --source-ids=${SUXIOS_OTA_CLOUD_SOURCE_IDS} --platforms=${SUXIOS_OTA_CLOUD_PLATFORMS} --no-interaction
+ExecStart=/usr/bin/php -d memory_limit=384M think online-data:auto-fetch --realtime-only --collector-mode=single_user_local --collector-user-id=${SUXIOS_OTA_CLOUD_USER_ID} --collector-device-id=${SUXIOS_OTA_CLOUD_DEVICE_ID} --hotel-id=${SUXIOS_OTA_CLOUD_HOTEL_ID} --source-ids=${SUXIOS_OTA_CLOUD_SOURCE_IDS} --platforms=${SUXIOS_OTA_CLOUD_PLATFORMS} --no-interaction
+Nice=10
+CPUQuota=60%
+MemoryMax=512M
+TasksMax=32
+TimeoutStartSec=25min
+UMask=0027

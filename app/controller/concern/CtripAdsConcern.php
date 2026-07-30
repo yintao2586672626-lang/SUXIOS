@@ -3,6 +3,7 @@
 namespace app\controller\concern;
 
 use app\service\CtripTrafficDisplayService;
+use app\service\OnlineDailyDataPersistenceService;
 use think\facade\Db;
 
 trait CtripAdsConcern
@@ -329,13 +330,82 @@ trait CtripAdsConcern
                 $row['create_time'] = $now;
             }
             $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
+            $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
             if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+                $rowId = (int)$exists['id'];
+                Db::name('online_daily_data')->where('id', $rowId)->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            $persisted = $rowId > 0
+                ? Db::name('online_daily_data')->where('id', $rowId)->find()
+                : null;
+            if (is_array($persisted)
+                && OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $data)
+                && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$persisted], $columns)) {
+                $savedCount++;
+            }
         }
         return $savedCount;
+    }
+
+    /**
+     * Read back the exact normalized ad identities written for this request.
+     * A write counter alone is not evidence that the rows are queryable.
+     */
+    private function countCtripCapturedAdRowsReadback(array $rows): int
+    {
+        $columns = $this->getOnlineDailyDataColumns();
+        if (!isset($columns['readback_verified'])) {
+            return 0;
+        }
+        $matched = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
+                continue;
+            }
+            $identity = implode('|', [
+                (string)($row['source'] ?? 'ctrip'),
+                (string)$row['data_date'],
+                (string)($row['dimension'] ?? ''),
+                (string)($row['hotel_id'] ?? ''),
+                (string)($row['hotel_name'] ?? ''),
+                (string)($row['system_hotel_id'] ?? ''),
+            ]);
+            if (isset($matched[$identity])) {
+                continue;
+            }
+
+            $query = Db::name('online_daily_data')
+                ->where('source', (string)($row['source'] ?? 'ctrip'))
+                ->where('data_type', 'advertising')
+                ->where('data_date', (string)$row['data_date'])
+                ->where('dimension', (string)($row['dimension'] ?? ''));
+            if (!empty($row['hotel_id'])) {
+                $query->where('hotel_id', (string)$row['hotel_id']);
+            } else {
+                $query->where('hotel_name', (string)($row['hotel_name'] ?? ''));
+            }
+            if (array_key_exists('system_hotel_id', $row) && $row['system_hotel_id'] !== null) {
+                $query->where('system_hotel_id', (int)$row['system_hotel_id']);
+            } else {
+                $query->whereNull('system_hotel_id');
+            }
+
+            $stored = $query->field('id,raw_data,readback_verified')->find();
+            if (!is_array($stored) || empty($stored['id'])) {
+                continue;
+            }
+            if ((int)($stored['readback_verified'] ?? 0) !== 1) {
+                continue;
+            }
+            $expectedRaw = (string)($row['raw_data'] ?? '');
+            if ($expectedRaw !== '' && (string)($stored['raw_data'] ?? '') !== $expectedRaw) {
+                continue;
+            }
+            $matched[$identity] = true;
+        }
+
+        return count($matched);
     }
 }

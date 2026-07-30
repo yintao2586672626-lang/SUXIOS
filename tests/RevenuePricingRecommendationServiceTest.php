@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\AiDecisionQualityService;
 use app\service\RevenuePricingRecommendationService;
+use app\service\TrustedOtaFactRepository;
 use PHPUnit\Framework\TestCase;
 
 final class RevenuePricingRecommendationServiceTest extends TestCase
@@ -188,6 +190,115 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         ]);
         self::assertSame(15.0, $enriched[0]['price_change_percent']);
         self::assertSame('pricing_ready', $enriched[0]['pricing_readiness']['stage']);
+        self::assertSame('P1', $enriched[0]['decision_recommendation']['priority']);
+        self::assertSame('ota_channel', $enriched[0]['decision_recommendation']['data_basis']['scope']);
+        self::assertSame('ota_revenue', $enriched[0]['decision_recommendation']['expected_effect']['metric']);
+        self::assertNotSame('', $enriched[0]['decision_recommendation']['risk']['summary']);
+        self::assertArrayHasKey('recommendation_quality', $enriched[0]);
+    }
+
+    public function testApprovedSuggestionWithFreshBoundHistoryPassesDecisionQualityV2(): void
+    {
+        $rows = [];
+        $start = new \DateTimeImmutable('2026-06-03');
+        for ($i = 0; $i < 28; $i++) {
+            $price = 180 + ($i * 2);
+            $quantity = 70 - $i;
+            $rows[] = [
+                'data_date' => $start->modify('+' . $i . ' days')->format('Y-m-d'),
+                'amount' => $price * $quantity,
+                'quantity' => $quantity,
+                'book_order_num' => max(1, (int)floor($quantity / 2)),
+                'source' => 'ctrip',
+                'metric_scope' => 'ota_channel',
+            ];
+        }
+        $repository = $this->createMock(TrustedOtaFactRepository::class);
+        $repository->method('pricingHistory')->willReturn([
+            'data_status' => 'ready',
+            'rows' => $rows,
+            'data_gaps' => [],
+            'source_policy' => ['readback_policy' => 'readback_verified_required_equals_1'],
+            'data_quality' => ['trusted_rows' => count($rows)],
+        ]);
+        $service = new RevenuePricingRecommendationService($repository);
+
+        $enriched = $service->enrichSuggestionRows([[
+            'id' => 18,
+            'hotel_id' => 7,
+            'status' => 2,
+            'suggestion_type' => 1,
+            'suggestion_date' => '2026-06-30',
+            'room_type_name' => '高级大床房',
+            'current_price' => 260,
+            'suggested_price' => 288,
+            'reason' => '携程历史拾取速度与价格弹性共同支持人工调价复核。',
+            'factors' => [
+                'decision_boundary' => 'manual_review_required_no_auto_rate_write',
+                'primary_signal_count' => 2,
+                'confidence_score' => 0.82,
+                'risk_level' => 'low',
+                'review_checklist' => ['保留原价并在7天后按同房型同价盘口径复核。'],
+                'drivers' => [
+                    ['signal' => 'pickup_curve', 'rule' => 'pace_index>=110'],
+                    ['signal' => 'price_elasticity', 'rule' => 'elasticity_supports_increase'],
+                ],
+                'signals' => ['data_gaps' => []],
+            ],
+        ]]);
+
+        $recommendation = $enriched[0]['decision_recommendation'];
+        self::assertSame('approved_pending_execution', $enriched[0]['pricing_readiness']['stage']);
+        self::assertTrue($enriched[0]['pricing_readiness']['execution_intent_ready']);
+        self::assertSame('verified', $recommendation['data_basis']['status']);
+        self::assertSame('ctrip', $recommendation['data_basis']['platform']);
+        self::assertSame('server_policy_verification_target', $recommendation['expected_effect']['origin']);
+        self::assertSame(AiDecisionQualityService::CONTRACT_VERSION, $recommendation['decision_quality']['contract_version']);
+        self::assertTrue($recommendation['decision_quality']['execution_ready']);
+        self::assertTrue($recommendation['can_create_execution_intent']);
+
+        $trusted = $enriched[0]['trusted_decision'];
+        self::assertSame(RevenuePricingRecommendationService::TRUSTED_DECISION_CONTRACT_VERSION, $trusted['contract_version']);
+        self::assertSame(7, $trusted['store']['hotel_id']);
+        self::assertSame('ctrip', $trusted['platform']['key']);
+        self::assertSame('2026-06-30', $trusted['date']['value']);
+        self::assertSame('verified', $trusted['sources']['status']);
+        self::assertGreaterThan(0, $trusted['sources']['ref_count']);
+        self::assertSame('(建议价 - 当前价) ÷ 当前价 × 100%', $trusted['metric_formula']['expression']);
+        self::assertSame('calculable', $trusted['metric_formula']['status']);
+        self::assertSame(10.77, $trusted['metric_formula']['value']);
+        self::assertSame('verified', $trusted['data_quality']['status']);
+        self::assertTrue($trusted['data_quality']['decision_eligible']);
+        self::assertSame('82%', $trusted['confidence']['display']);
+        self::assertSame([], $trusted['gaps']);
+        self::assertNotSame('', $trusted['recommended_action']['summary']);
+        self::assertSame('server_policy_verification_target', $trusted['expected_effect']['origin']);
+        self::assertFalse($trusted['human_confirmation']['can_confirm']);
+        self::assertTrue($trusted['human_confirmation']['can_transfer_to_operation_task']);
+
+        $pendingInput = $enriched[0];
+        $pendingInput['id'] = 19;
+        $pendingInput['status'] = 1;
+        unset(
+            $pendingInput['pricing_readiness'],
+            $pendingInput['decision_recommendation'],
+            $pendingInput['recommendation_quality'],
+            $pendingInput['trusted_decision']
+        );
+        $pending = $service->enrichSuggestionRows([$pendingInput])[0];
+        self::assertTrue($pending['trusted_decision']['human_confirmation']['can_confirm']);
+        self::assertFalse($pending['trusted_decision']['human_confirmation']['can_transfer_to_operation_task']);
+        self::assertTrue($pending['decision_recommendation']['can_human_confirm']);
+
+        $missingDenominatorInput = $pendingInput;
+        $missingDenominatorInput['id'] = 20;
+        $missingDenominatorInput['current_price'] = null;
+        $missingDenominator = $service->enrichSuggestionRows([$missingDenominatorInput])[0]['trusted_decision'];
+        self::assertSame('not_calculable', $missingDenominator['metric_formula']['status']);
+        self::assertSame('不可计算', $missingDenominator['metric_formula']['display']);
+        self::assertSame('current_price_denominator_missing', $missingDenominator['metric_formula']['reason']);
+        self::assertFalse($missingDenominator['human_confirmation']['can_confirm']);
+        self::assertContains('current_price_denominator_missing', array_column($missingDenominator['gaps'], 'code'));
     }
 
     public function testElasticityEstimateReturnsBacktestHitRate(): void
@@ -299,5 +410,46 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertSame('effect_review_ready', $readiness['stage']);
         self::assertTrue($readiness['review_ready']);
         self::assertSame([], $readiness['missing_evidence']);
+    }
+
+    public function testPricingSummaryPropagatesTrustedHistoryGapsAndSourcePolicy(): void
+    {
+        $repository = new class extends TrustedOtaFactRepository {
+            /** @var array<int, array{hotel_id:int,start_date:string,end_date:string}> */
+            public array $calls = [];
+
+            public function pricingHistory(int $systemHotelId, string $startDate, string $endDate): array
+            {
+                $this->calls[] = [
+                    'hotel_id' => $systemHotelId,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                ];
+
+                return [
+                    'data_status' => 'blocked',
+                    'rows' => [],
+                    'data_gaps' => ['pricing_history_readback_verified_column_missing'],
+                    'source_policy' => [
+                        'hotel_scope' => 'system_hotel_id_strict_exact_only',
+                        'readback_policy' => 'readback_verified_required_equals_1',
+                    ],
+                    'data_quality' => ['queried_rows' => 0, 'trusted_rows' => 0],
+                ];
+            }
+        };
+        $service = new RevenuePricingRecommendationService($repository);
+
+        $summary = $service->hotelPricingModelSummary(80, '2026-07-17');
+        $cachedSummary = $service->hotelPricingModelSummary(80, '2026-07-17');
+
+        self::assertSame('blocked', $summary['history_data_status']);
+        self::assertContains('pricing_history_readback_verified_column_missing', $summary['data_gaps']);
+        self::assertContains('online_daily_history_missing', $summary['data_gaps']);
+        self::assertSame('system_hotel_id_strict_exact_only', $summary['source_policy']['hotel_scope']);
+        self::assertSame('readback_verified_required_equals_1', $summary['source_policy']['readback_policy']);
+        self::assertSame($summary, $cachedSummary);
+        self::assertCount(1, $repository->calls);
+        self::assertSame(80, $repository->calls[0]['hotel_id']);
     }
 }

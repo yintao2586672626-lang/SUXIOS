@@ -1,0 +1,132 @@
+                    <div v-if="currentPage === 'ops-source'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <div class="mb-1 text-sm font-medium text-emerald-700">运营管理</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">策源·多源数据核对</h2>
+                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">按门店与经营日期核对经营结果、OTA 渠道漏斗、竞对和服务质量。缺失来源会直接显示，不以 0 值代替真实数据。</p>
+                                </div>
+                                <div class="flex flex-wrap items-end gap-2">
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">目标门店</span>
+                                        <select v-model="operationFilters.hotel_id" data-testid="ops-source-hotel" class="min-w-[180px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                                            <option value="">全部可见门店</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">经营日期</span>
+                                        <input v-model="operationFilters.date" data-testid="ops-source-date" type="date" class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    </label>
+                                    <button type="button" data-testid="ops-source-refresh" @click="loadOperationFullData" :disabled="operationLoading.fullData" class="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-900 disabled:cursor-wait disabled:opacity-60">
+                                        <i :class="[operationLoading.fullData ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i>{{ operationLoading.fullData ? '读取中...' : '读取数据' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="operationLoading.fullData" data-testid="ops-source-loading" class="rounded-xl border border-blue-100 bg-blue-50 p-8 text-center text-sm text-blue-700">
+                            <i class="fas fa-spinner fa-spin mr-2"></i>正在读取当前范围的经营与 OTA 渠道数据...
+                        </div>
+                        <div v-else-if="operationError.fullData" data-testid="ops-source-error" class="rounded-xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">
+                            <div class="font-semibold">多源数据读取失败</div>
+                            <div class="mt-1">{{ operationError.fullData }}</div>
+                            <button type="button" @click="loadOperationFullData" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新读取</button>
+                        </div>
+                        <template v-else-if="operationFullData">
+                            <div :class="['rounded-xl border p-4 text-sm', operationSourceBrief.className]" data-testid="ops-source-brief">
+                                <div class="font-semibold">数据判断：{{ operationSourceBrief.status }}</div>
+                                <div class="mt-1 leading-6">{{ operationSourceBrief.summary }}</div>
+                            </div>
+
+                            <div class="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                                <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <div class="mb-4 flex items-center justify-between gap-3">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">经营结果</h3>
+                                            <p class="mt-1 text-xs text-gray-500">收入、订单、间夜、ADR、OCC 与 RevPAR</p>
+                                        </div>
+                                        <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{{ operationDataStatusText(operationFullData.summary?.data_status) }}</span>
+                                    </div>
+                                    <div v-if="operationFullData.summary?.data_status === 'ok'" class="grid grid-cols-2 gap-3 md:grid-cols-3">
+                                        <div v-for="card in operationSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                            <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                            <div class="mt-1 text-xl font-bold text-gray-900">{{ card.value }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">该日期没有可验证的经营日报或经营记录。</div>
+                                </section>
+
+                                <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <div class="mb-4 flex items-center justify-between gap-3">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">OTA 渠道漏斗</h3>
+                                            <p class="mt-1 text-xs text-gray-500">仅代表 OTA 渠道曝光、访客、浏览与订单</p>
+                                        </div>
+                                        <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{{ operationDataStatusText(operationFullData.ota?.data_status) }}</span>
+                                    </div>
+                                    <div v-if="operationFullData.ota?.data_status === 'ok'" class="grid grid-cols-2 gap-3 md:grid-cols-3">
+                                        <div v-for="card in operationOtaCards" :key="card.label" class="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                            <div class="text-xs text-blue-700">{{ card.label }}</div>
+                                            <div class="mt-1 text-xl font-bold text-blue-950">{{ card.value }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">该日期没有可验证的 OTA 渠道漏斗数据，不能据此判断渠道表现。</div>
+                                </section>
+
+                                <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <div class="mb-4 flex items-center justify-between gap-3">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">竞对与价格位置</h3>
+                                            <p class="mt-1 text-xs text-gray-500">本店与同圈层竞对价格、评分和排名对比</p>
+                                        </div>
+                                        <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{{ operationDataStatusText(operationFullData.competitors?.data_status) }}</span>
+                                    </div>
+                                    <div v-if="operationFullData.competitors?.data_status === 'ok'" class="grid grid-cols-2 gap-3 md:grid-cols-3">
+                                        <div v-for="card in operationCompetitorCards" :key="card.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                            <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                            <div class="mt-1 text-lg font-bold text-gray-900">{{ card.value }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">竞对样本未接入或不足，暂不判断价格与排名压力。</div>
+                                </section>
+
+                                <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <h3 class="font-bold text-gray-900">服务质量与收益窗口</h3>
+                                    <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                        <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                            <div class="flex items-center justify-between text-xs text-gray-500"><span>服务质量</span><span>{{ operationDataStatusText(operationFullData.service_quality?.data_status) }}</span></div>
+                                            <template v-if="operationFullData.service_quality?.data_status === 'ok'">
+                                                <div class="mt-2 text-lg font-bold text-gray-900">PSI {{ operationValue(operationFullData.service_quality?.avg_psi_score) }}</div>
+                                                <div class="mt-1 text-xs text-gray-500">服务评分 {{ operationValue(operationFullData.service_quality?.avg_service_score) }} · 样本 {{ operationValue(operationFullData.service_quality?.sample_count) }}</div>
+                                            </template>
+                                            <div v-else="" class="mt-2 text-sm text-gray-500">暂无可验证的服务质量样本。</div>
+                                        </div>
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                                            <div class="flex items-center justify-between text-xs text-amber-700"><span>节假日窗口</span><span>{{ operationDataStatusText(operationFullData.holiday?.data_status) }}</span></div>
+                                            <template v-if="operationFullData.holiday?.data_status === 'ok'">
+                                                <div class="mt-2 text-lg font-bold text-amber-950">{{ operationFullData.holiday?.next_holiday || '暂无窗口' }}</div>
+                                                <div class="mt-1 text-xs text-amber-800">距窗口 {{ operationValue(operationFullData.holiday?.days_left, '天') }} · {{ operationFullData.holiday?.suggestion }}</div>
+                                            </template>
+                                            <div v-else="" class="mt-2 text-sm text-amber-800">当前日期没有可用节假日窗口。</div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                        <h3 class="font-bold text-gray-900">数据异常与下一步</h3>
+                                        <p class="mt-1 text-sm text-gray-500">先处理数据异常，再进入可能因素分析；异常为空不代表全酒店经营没有问题。</p>
+                                    </div>
+                                    <button type="button" @click="currentPage = 'ops-analysis'; analyzeOperationRootCause()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">进入可能因素分析 <i class="fas fa-arrow-right ml-1.5"></i></button>
+                                </div>
+                                <div v-if="(operationFullData.abnormal_flags || []).length" class="mt-4 space-y-2">
+                                    <div v-for="flag in operationFullData.abnormal_flags" :key="flag" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800"><i class="fas fa-exclamation-triangle mr-2"></i>{{ flag }}</div>
+                                </div>
+                                <div v-else="" class="mt-4 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">当前读取结果未返回显式数据异常；仍需结合可能因素分析和人工复核。</div>
+                            </section>
+                        </template>
+                        <div v-else="" data-testid="ops-source-empty" class="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">选择门店和日期后读取数据；系统不会用旧数据或默认值代替本次结果。</div>
+                    </div>

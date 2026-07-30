@@ -1,0 +1,5 @@
+interface:
+  display_name: "美团采集编排（手动）"
+  short_description: "执行明确授权的美团采集闭环，不因普通 OTA 讨论自动启动"
+policy:
+  allow_implicit_invocation: false

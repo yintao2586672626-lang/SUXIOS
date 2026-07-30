@@ -13,8 +13,23 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  backend_db:
+    name: Backend and database
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: suxi-ci-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
 
     steps:
       - name: Checkout
@@ -33,6 +48,161 @@ jobs:
           node-version: '24'
           cache: npm
 
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Install MySQL-compatible client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client
+
+      - name: Verify fresh database, repeatable migration, and 8-way concurrency
+        timeout-minutes: 10
+        env:
+          SUXI_CI_MYSQL_VERIFY: '1'
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+          MYSQL_BINARY: mariadb
+          PHP_BINARY: php
+        run: npm run verify:mysql-fresh-concurrency
+
+      - name: Verify historical tenant remap on MariaDB 10.11
+        timeout-minutes: 5
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+          MYSQL_BINARY: mariadb
+        run: node scripts/verify_tenant_history_migration_mariadb.mjs
+
+      - name: Verify owner tenant bootstrap on isolated MariaDB
+        timeout-minutes: 5
+        env:
+          SUXIOS_TEST_DB_ALLOW_CREATE: '1'
+          SUXIOS_TEST_DB_HOST: 127.0.0.1
+          SUXIOS_TEST_DB_PORT: '3306'
+          SUXIOS_TEST_DB_USER: root
+          SUXIOS_TEST_DB_PASS: suxi-ci-root
+          PHP_BINARY: php
+        run: npm run verify:owner-tenant-bootstrap-mariadb
+
+      - name: Initialize backend test database
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: php scripts/init_database.php
+
+      - name: Run backend tests
+        env:
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: composer test
+
+  node_business_chain:
+    name: Node and business-chain runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: suxi-ci-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, openssl
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Initialize Node test database
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: php scripts/init_database.php
+
+      - name: Run Node automation tests
+        timeout-minutes: 10
+        env:
+          PHP_BINARY: php
+          SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1'
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: npm run test:node
+
+  contracts:
+    name: Dependency security and release contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, openssl
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Validate Composer metadata
         run: composer validate --strict
 
@@ -48,17 +218,16 @@ jobs:
       - name: Audit Node dependencies
         run: npm audit --audit-level=moderate
 
-      - name: Run backend tests
-        run: composer test
-
       - name: Run project guards
         run: npm run verify:p0-guards
 
-      - name: Run contract checks
+      - name: Run structural contract checks (not release approval)
         run: |
           php scripts/verify_missing_modules.php
           php scripts/verify_route_coverage.php
+          node scripts/verify_business_chain_report_contract.mjs
           node scripts/verify_ai_model_config_i18n.mjs
+          npm run verify:ota-competition-report
           npm run verify:ota-data-batch
           npm run verify:opening-batch-actions
           npm run review:functional-readiness
@@ -68,3 +237,113 @@ jobs:
           npm run review:non-security
           npm run review:report-security-finance
           npm run verify:release-status
+
+      - name: Verify frontend static performance budget
+        run: npm run verify:performance-budget
+
+  frontend_performance:
+    name: Authenticated frontend performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: suxi-ci-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, openssl
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Initialize performance test database
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: php scripts/init_database.php
+
+      - name: Measure and verify authenticated frontend runtime budget
+        timeout-minutes: 8
+        env:
+          SUXI_PHP: php
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: |
+          npm run measure:performance:ci
+          npm run verify:performance-runtime-budget
+
+      - name: Preserve authenticated frontend performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-frontend-performance-${{ github.run_attempt }}
+          path: |
+            output/performance/isolated-authenticated-baseline.json
+            output/performance/ci-isolated-authenticated-*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  verify:
+    name: verify
+    if: ${{ always() }}
+    needs:
+      - backend_db
+      - node_business_chain
+      - contracts
+      - frontend_performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Aggregate parallel verification results
+        env:
+          BACKEND_DB_RESULT: ${{ needs.backend_db.result }}
+          NODE_BUSINESS_CHAIN_RESULT: ${{ needs.node_business_chain.result }}
+          CONTRACTS_RESULT: ${{ needs.contracts.result }}
+          FRONTEND_PERFORMANCE_RESULT: ${{ needs.frontend_performance.result }}
+        run: |
+          printf 'backend_db=%s\n' "$BACKEND_DB_RESULT"
+          printf 'node_business_chain=%s\n' "$NODE_BUSINESS_CHAIN_RESULT"
+          printf 'contracts=%s\n' "$CONTRACTS_RESULT"
+          printf 'frontend_performance=%s\n' "$FRONTEND_PERFORMANCE_RESULT"
+          test "$BACKEND_DB_RESULT" = "success"
+          test "$NODE_BUSINESS_CHAIN_RESULT" = "success"
+          test "$CONTRACTS_RESULT" = "success"
+          test "$FRONTEND_PERFORMANCE_RESULT" = "success"

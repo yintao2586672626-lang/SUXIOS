@@ -1,0 +1,21 @@
+[Unit]
+Description=SUXIOS loopback-only cloud browser VNC
+After=suxios-cloud-browser-display.service
+Requires=suxios-cloud-browser-display.service
+
+[Service]
+Type=simple
+User=suxios-browser
+Group=suxios-browser
+Environment=DISPLAY=:99
+ExecStart=/usr/bin/x11vnc -display :99 -forever -shared -rfbauth /run/credentials/suxios-cloud-browser-vnc.service/vnc-password -rfbport 5900 -rfbportv6 -1 -listen 127.0.0.1 -noipv6 -no6 -quiet
+LoadCredential=vnc-password:/etc/suxios-cloud-browser/vnc.pass
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

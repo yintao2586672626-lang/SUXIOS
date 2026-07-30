@@ -22,7 +22,7 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
             ],
             [],
             [],
-            ['status' => 'ok', 'sample_count' => 2, 'data_sources' => [['table' => 'competitor_analysis', 'count' => 2]]]
+            ['status' => 'ok', 'sample_count' => 2, 'decision_eligible_sample_count' => 2, 'data_sources' => [['table' => 'competitor_analysis', 'count' => 2]]]
         );
 
         self::assertSame('not_ready', $overview['summary']['status']);
@@ -68,7 +68,7 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
                 ],
             ],
             [],
-            ['status' => 'ok', 'sample_count' => 3, 'data_sources' => [['table' => 'competitor_analysis', 'count' => 3]]]
+            ['status' => 'ok', 'sample_count' => 3, 'decision_eligible_sample_count' => 3, 'data_sources' => [['table' => 'competitor_analysis', 'count' => 3]]]
         );
 
         self::assertSame('decision_ready', $overview['summary']['status']);
@@ -113,7 +113,7 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
                 ],
             ],
             [],
-            ['status' => 'ok', 'sample_count' => 3, 'data_sources' => [['table' => 'competitor_analysis', 'count' => 3]]]
+            ['status' => 'ok', 'sample_count' => 3, 'decision_eligible_sample_count' => 3, 'data_sources' => [['table' => 'competitor_analysis', 'count' => 3]]]
         );
 
         self::assertSame('not_ready', $overview['summary']['status']);
@@ -150,7 +150,7 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
             [],
             [],
             [],
-            ['status' => 'ok', 'sample_count' => 1, 'data_sources' => [['table' => 'competitor_analysis', 'count' => 1]]]
+            ['status' => 'ok', 'sample_count' => 1, 'decision_eligible_sample_count' => 1, 'data_sources' => [['table' => 'competitor_analysis', 'count' => 1]]]
         );
 
         self::assertSame('supporting_only', $overview['sections']['competitor_comparison']['status']);
@@ -158,6 +158,113 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
         self::assertContains('competitor_to_pricing_roi_missing', array_column($overview['sections']['competitor_comparison']['missing_evidence'], 'code'));
         self::assertContains('competitor_to_pricing_roi_missing', array_column($overview['action_queue']['items'], 'evidence_code'));
         self::assertSame('has_action', $overview['action_queue']['status']);
+    }
+
+    public function testLegacyRawCompetitorCountsRemainReferenceOnlyAtInvestmentBoundary(): void
+    {
+        $overview = (new InvestmentDecisionSupportService())->buildOverviewFromEvidence(
+            $this->closureOverview(true),
+            [],
+            [],
+            [],
+            [
+                'status' => 'reference_only',
+                'sample_count' => 8,
+                'decision_eligible_sample_count' => 0,
+                'reference_only_sample_count' => 8,
+                'visible_sample_count' => 8,
+                'data_sources' => [[
+                    'table' => 'competitor_price_log',
+                    'visible_count' => 8,
+                    'decision_eligible_count' => 0,
+                    'reference_only_count' => 8,
+                ]],
+            ]
+        );
+
+        $comparison = $overview['sections']['competitor_comparison'];
+        self::assertSame('reference_only', $comparison['status']);
+        self::assertFalse($comparison['decision_allowed']);
+        self::assertSame(0, $comparison['sample_count']);
+        self::assertSame(0, $comparison['decision_eligible_sample_count']);
+        self::assertSame(8, $comparison['reference_only_sample_count']);
+        self::assertContains(
+            'competitor_decision_eligible_sample_missing',
+            array_column($comparison['missing_evidence'], 'code')
+        );
+        self::assertContains('competitor_reference_only', array_column($comparison['missing_evidence'], 'code'));
+    }
+
+    public function testDecisionEligibilityContractsRequireCompleteComparableVerifiedBookableRates(): void
+    {
+        $service = new InvestmentDecisionSupportService();
+        $method = new \ReflectionMethod($service, 'competitorDecisionEligibilityContract');
+        $method->setAccessible(true);
+
+        $priceLog = $method->invoke($service, 'competitor_price_log');
+        $analysis = $method->invoke($service, 'competitor_analysis');
+
+        foreach ([$priceLog, $analysis] as $contract) {
+            foreach ([
+                'collected_at', 'source_method', 'source_ref', 'validation_status', 'readback_verified',
+                'check_in_date', 'check_out_date', 'nights', 'adults', 'children', 'room_type_key',
+                'rate_plan_key', 'breakfast', 'cancellation_policy', 'payment_mode', 'tax_fee_included',
+                'price_basis', 'currency', 'availability', 'comparison_key',
+            ] as $field) {
+                self::assertContains($field, $contract['required_columns']);
+            }
+            self::assertSame(1, $contract['equals']['readback_verified']);
+            self::assertSame(['available', 'bookable'], $contract['allowed']['availability']);
+            self::assertContains('comparison_key', $contract['non_empty']);
+            self::assertContains(['check_out_date', '>', 'check_in_date'], $contract['column_comparisons']);
+        }
+
+        self::assertContains('store_id', $priceLog['required_columns']);
+        self::assertContains('price', $priceLog['positive']);
+        self::assertContains('our_price', $analysis['positive']);
+        self::assertContains('competitor_price', $analysis['positive']);
+    }
+
+    public function testEligibilityQueryFailsClosedForLegacyColumnsAndAppliesStrictGateForCompleteSchema(): void
+    {
+        $service = new InvestmentDecisionSupportService();
+        $contractMethod = new \ReflectionMethod($service, 'competitorDecisionEligibilityContract');
+        $contractMethod->setAccessible(true);
+        $filterMethod = new \ReflectionMethod($service, 'applyCompetitorDecisionEligibilityFilters');
+        $filterMethod->setAccessible(true);
+
+        $legacyQuery = new InvestmentCompetitorEvidenceRecordingQuery();
+        $legacyMissing = $filterMethod->invoke($service, $legacyQuery, 'competitor_price_log', [
+            'store_id' => true,
+            'hotel_id' => true,
+            'platform' => true,
+            'price' => true,
+            'fetch_time' => true,
+            'create_time' => true,
+        ]);
+        self::assertContains('comparison_key', $legacyMissing);
+        self::assertContains('readback_verified', $legacyMissing);
+        self::assertSame([], $legacyQuery->calls, 'Legacy/missing-column tables must remain reference-only.');
+
+        $contract = $contractMethod->invoke($service, 'competitor_price_log');
+        $completeColumns = array_fill_keys($contract['required_columns'], true);
+        $completeQuery = new InvestmentCompetitorEvidenceRecordingQuery();
+        $completeMissing = $filterMethod->invoke(
+            $service,
+            $completeQuery,
+            'competitor_price_log',
+            $completeColumns
+        );
+
+        self::assertSame([], $completeMissing);
+        self::assertContains(['where', ['readback_verified', 1]], $completeQuery->calls);
+        self::assertContains(['whereIn', ['availability', ['available', 'bookable']]], $completeQuery->calls);
+        self::assertContains(['where', ['comparison_key', '<>', '']], $completeQuery->calls);
+        self::assertContains(['where', ['price', '>', 0]], $completeQuery->calls);
+        self::assertContains(
+            ['whereColumn', ['check_out_date', '>', 'check_in_date']],
+            $completeQuery->calls
+        );
     }
 
     private function closureOverview(bool $roiReady): array
@@ -247,5 +354,35 @@ final class InvestmentDecisionSupportServiceTest extends TestCase
             ],
             'updated_at' => '2026-06-21 10:00:00',
         ];
+    }
+}
+
+final class InvestmentCompetitorEvidenceRecordingQuery
+{
+    /** @var array<int, array{0:string,1:array<int, mixed>}> */
+    public array $calls = [];
+
+    public function where(mixed ...$arguments): self
+    {
+        $this->calls[] = ['where', $arguments];
+        return $this;
+    }
+
+    public function whereIn(mixed ...$arguments): self
+    {
+        $this->calls[] = ['whereIn', $arguments];
+        return $this;
+    }
+
+    public function whereNotNull(mixed ...$arguments): self
+    {
+        $this->calls[] = ['whereNotNull', $arguments];
+        return $this;
+    }
+
+    public function whereColumn(mixed ...$arguments): self
+    {
+        $this->calls[] = ['whereColumn', $arguments];
+        return $this;
     }
 }

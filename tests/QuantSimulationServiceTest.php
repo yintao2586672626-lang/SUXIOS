@@ -289,6 +289,72 @@ final class QuantSimulationServiceTest extends TestCase
         self::assertSame(10.0, $input['otaCommissionRate']);
     }
 
+    public function testNormalizeInputRejectsMissingCostInsteadOfCoercingItToZero(): void
+    {
+        $payload = $this->completeLegacyInput();
+        unset($payload['monthlyRent']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('monthlyRent缺失');
+
+        $this->invokeNonPublic(new QuantSimulationService(), 'normalizeInput', [$payload]);
+    }
+
+    public function testNormalizeInputRejectsPartialDetailGroupInsteadOfFillingMissingDetailsWithZero(): void
+    {
+        $payload = $this->completeLegacyInput();
+        $payload['baseRentCost'] = 1000;
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('propertyManagementCost缺失');
+
+        $this->invokeNonPublic(new QuantSimulationService(), 'normalizeInput', [$payload]);
+    }
+
+    public function testNormalizeInputKeepsExplicitZeroDistinctFromMissing(): void
+    {
+        $input = $this->invokeNonPublic(new QuantSimulationService(), 'normalizeInput', [
+            $this->completeLegacyInput([
+                'monthlyRent' => 0,
+                'otherIncome' => 0,
+                'decorationInvestment' => 0,
+            ]),
+        ]);
+
+        self::assertSame(0.0, $input['monthlyRent']);
+        self::assertSame(0.0, $input['otherIncome']);
+        self::assertSame(0.0, $input['decorationInvestment']);
+    }
+
+    public function testZeroRevenueKeepsRentRatioMissingInsteadOfInventingZeroPercent(): void
+    {
+        $service = new QuantSimulationService();
+        $input = $this->invokeNonPublic($service, 'normalizeInput', [
+            $this->completeLegacyInput([
+                'occupancyRate' => 0,
+                'otherIncome' => 0,
+            ]),
+        ]);
+
+        $result = $this->invokeNonPublic($service, 'calculateSimulation', [$input]);
+        $riskHints = $this->invokeNonPublic($service, 'buildRiskHints', [$result]);
+
+        self::assertSame(0.0, $result['monthlyRevenue']);
+        self::assertNull($result['rentRatio']);
+        self::assertSame('高风险', $result['riskLevel']);
+        self::assertStringContainsString('不可计算', $riskHints[0]['content']);
+    }
+
+    public function testNormalizeInputRejectsEmptyNumericValue(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('monthlyRent必须是有效数字');
+
+        $this->invokeNonPublic(new QuantSimulationService(), 'normalizeInput', [
+            $this->completeLegacyInput(['monthlyRent' => '']),
+        ]);
+    }
+
     #[DataProvider('invalidInputProvider')]
     public function testNormalizeInputRejectsInvalidValues(array $override): void
     {
@@ -316,7 +382,7 @@ final class QuantSimulationServiceTest extends TestCase
     }
 
     #[DataProvider('riskLevelProvider')]
-    public function testCalculateRiskLevelBranches(float $cashflow, ?float $payback, float $rentRatio, float $breakEven, string $expected): void
+    public function testCalculateRiskLevelBranches(float $cashflow, ?float $payback, ?float $rentRatio, float $breakEven, string $expected): void
     {
         $result = $this->invokeNonPublic(new QuantSimulationService(), 'calculateRiskLevel', [
             $cashflow,
@@ -377,6 +443,63 @@ final class QuantSimulationServiceTest extends TestCase
         self::assertNotEmpty($analysis['recommendations']);
     }
 
+    public function testFormattedRecordExposesUnverifiedScenarioTruthForEveryDerivedMetric(): void
+    {
+        $service = new QuantSimulationService();
+        $input = $this->invokeNonPublic($service, 'normalizeInput', [$this->completeLegacyInput()]);
+        $result = $this->invokeNonPublic($service, 'calculateSimulation', [$input]);
+        $record = $this->invokeNonPublic($service, 'formatRecord', [[
+            'id' => 17,
+            'project_name' => '人工情景测试',
+            'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
+            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE),
+            'scenarios_json' => json_encode([array_merge(['scenarioType' => '零值情景'], $result)], JSON_UNESCAPED_UNICODE),
+            'risk_hints_json' => '[]',
+            'monthly_net_cashflow' => $result['monthlyNetCashflow'],
+            'payback_months' => $result['paybackMonths'],
+            'risk_level' => $result['riskLevel'],
+            'created_by' => 9,
+            'created_at' => '2026-07-19 08:30:00',
+        ], true]);
+
+        self::assertSame('unverified', $record['truth_context']['status']);
+        self::assertSame('investment_scenario', $record['truth_context']['metric_scope']);
+        self::assertSame([], $record['truth_context']['hotels']);
+        self::assertSame(['not_applicable'], $record['truth_context']['platforms']);
+        self::assertTrue($record['truth_context']['persistence']['stored']);
+        self::assertTrue($record['truth_context']['persistence']['readback_verified']);
+        self::assertStringContainsString('人工录入', $record['truth_context']['failure_reason']);
+        self::assertSame('calculated', $record['metric_truth']['monthlyRevenue']['calculation_status']);
+        self::assertSame('unverified', $record['metric_truth']['monthlyRevenue']['status']);
+        self::assertSame('missing', $record['metric_truth']['paybackMonths']['calculation_status']);
+        self::assertSame('user_input', $record['input_truth_context']['source_methods'][0]);
+        self::assertSame('calculated', $record['scenarios'][0]['metric_truth']['monthlyRevenue']['calculation_status']);
+        self::assertSame('missing', $record['scenarios'][0]['metric_truth']['paybackMonths']['calculation_status']);
+    }
+
+    public function testFormattedLegacyRecordDoesNotTurnMissingDerivedValuesIntoZero(): void
+    {
+        $record = $this->invokeNonPublic(new QuantSimulationService(), 'formatRecord', [[
+            'id' => 18,
+            'project_name' => '缺失结果旧记录',
+            'input_json' => '{}',
+            'result_json' => '{}',
+            'scenarios_json' => '[]',
+            'risk_hints_json' => '[]',
+            'monthly_net_cashflow' => 0,
+            'payback_months' => null,
+            'risk_level' => '',
+            'created_by' => 9,
+            'created_at' => '2026-07-19 08:30:00',
+        ], true]);
+
+        self::assertNull($record['monthly_net_cashflow']);
+        self::assertNull($record['summary']['monthlyRevenue']);
+        self::assertNull($record['summary']['monthlyNetCashflow']);
+        self::assertSame('missing', $record['metric_truth']['monthlyRevenue']['calculation_status']);
+        self::assertSame('missing', $record['metric_truth']['monthlyNetCashflow']['calculation_status']);
+    }
+
     public static function invalidInputProvider(): array
     {
         return [
@@ -395,6 +518,7 @@ final class QuantSimulationServiceTest extends TestCase
     {
         return [
             'negative cashflow' => [-1, null, 0.2, 0.4, '高风险'],
+            'missing rent denominator' => [10, 20, null, 0.4, '高风险'],
             'high rent ratio' => [10, 20, 0.42, 0.4, '高风险'],
             'medium high rent ratio' => [10, 20, 0.32, 0.4, '中高风险'],
             'medium payback' => [10, 24, 0.2, 0.4, '中风险'],
@@ -438,5 +562,26 @@ final class QuantSimulationServiceTest extends TestCase
         ];
 
         return [$input, $result, $scenarios, $riskHints, $modelKey];
+    }
+
+    private function completeLegacyInput(array $override = []): array
+    {
+        return array_merge([
+            'roomCount' => 10,
+            'decorationInvestment' => 100000,
+            'furnitureInvestment' => 50000,
+            'openingCost' => 20000,
+            'otherInvestment' => 0,
+            'adr' => 100,
+            'occupancyRate' => 50,
+            'otherIncome' => 0,
+            'monthlyRent' => 10000,
+            'laborCost' => 1000,
+            'utilityCost' => 1000,
+            'otaCommissionRate' => 10,
+            'consumableCost' => 1000,
+            'maintenanceCost' => 500,
+            'otherFixedCost' => 500,
+        ], $override);
     }
 }

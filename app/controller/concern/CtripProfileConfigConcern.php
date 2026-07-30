@@ -4,23 +4,37 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\service\CtripImplementationExposurePolicy;
 use app\service\CtripProfileFieldMetaService;
 use think\Response;
 use think\facade\Db;
 
 trait CtripProfileConfigConcern
 {
+    private function assertCtripImplementationMaintenanceAccess(): void
+    {
+        if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+            abort(403, 'Ctrip collection implementation is restricted to super-admin maintenance.');
+        }
+    }
+
     public function getCtripProfileFields(): Response
     {
         $this->checkPermission();
         $this->checkActionPermission('can_view_online_data');
 
         try {
+            $canViewImplementation = CtripImplementationExposurePolicy::canViewImplementation($this->currentUser);
             $configuredFields = $this->readCtripProfileCaptureFields(true);
             $fields = array_values($this->activeCtripProfileCaptureFields($configuredFields));
-            $autoFetchCandidates = $this->discoverCtripProfileAutoFetchFieldCandidates();
-            $candidateScope = $this->scopeCtripProfileAutoFetchFieldCandidates($autoFetchCandidates);
-            $includeSamples = !in_array(strtolower(trim((string)$this->request->get('include_samples', '1'))), ['0', 'false', 'no'], true);
+            $autoFetchCandidates = $canViewImplementation
+                ? $this->discoverCtripProfileAutoFetchFieldCandidates()
+                : [];
+            $candidateScope = $canViewImplementation
+                ? $this->scopeCtripProfileAutoFetchFieldCandidates($autoFetchCandidates)
+                : ['key_candidates' => [], 'skipped_candidates' => []];
+            $includeSamples = $canViewImplementation
+                && !in_array(strtolower(trim((string)$this->request->get('include_samples', '1'))), ['0', 'false', 'no'], true);
             $sampleSummary = $includeSamples
                 ? $this->hydrateCtripProfileFieldLatestSamples($fields)
                 : [
@@ -40,10 +54,18 @@ trait CtripProfileConfigConcern
                 )
             );
 
+            $modulePayload = $this->buildCtripProfileModulePayload($configuredFields);
+            if (!$canViewImplementation) {
+                $fields = CtripImplementationExposurePolicy::profileFields($fields);
+                $modulePayload = CtripImplementationExposurePolicy::profileModules($modulePayload);
+                $summary['sample_visibility'] = 'hidden';
+                $summary['implementation_visibility'] = 'redacted';
+            }
+
             return $this->success(array_merge([
                 'list' => $fields,
                 'summary' => $summary,
-            ], $this->buildCtripProfileModulePayload($configuredFields)));
+            ], $modulePayload));
         } catch (\Throwable $e) {
             \think\facade\Log::error('获取携程 Profile 字段目录失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取携程 Profile 字段目录失败', 500);
@@ -57,7 +79,11 @@ trait CtripProfileConfigConcern
 
         try {
             $fields = $this->readCtripProfileCaptureFields(true);
-            return $this->success($this->buildCtripProfileModulePayload($fields));
+            $payload = $this->buildCtripProfileModulePayload($fields);
+            if (!CtripImplementationExposurePolicy::canViewImplementation($this->currentUser)) {
+                $payload = CtripImplementationExposurePolicy::profileModules($payload);
+            }
+            return $this->success($payload);
         } catch (\Throwable $e) {
             \think\facade\Log::error('获取携程 Profile 模块配置失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取携程 Profile 模块配置失败', 500);
@@ -68,6 +94,7 @@ trait CtripProfileConfigConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        $this->assertCtripImplementationMaintenanceAccess();
 
         try {
             $requestData = $this->requestData();
@@ -119,6 +146,7 @@ trait CtripProfileConfigConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_delete_online_data');
+        $this->assertCtripImplementationMaintenanceAccess();
 
         $requestData = $this->requestData();
         $id = trim((string)($requestData['id'] ?? $this->request->param('id', '')));
@@ -159,6 +187,7 @@ trait CtripProfileConfigConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        $this->assertCtripImplementationMaintenanceAccess();
 
         try {
             $fields = $this->readCtripProfileCaptureFields(true);
@@ -204,6 +233,7 @@ trait CtripProfileConfigConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        $this->assertCtripImplementationMaintenanceAccess();
 
         try {
             $requestData = $this->requestData();
@@ -263,6 +293,7 @@ trait CtripProfileConfigConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_delete_online_data');
+        $this->assertCtripImplementationMaintenanceAccess();
 
         $requestData = $this->requestData();
         $id = trim((string)($requestData['id'] ?? $this->request->param('id', '')));
@@ -299,6 +330,7 @@ trait CtripProfileConfigConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        $this->assertCtripImplementationMaintenanceAccess();
 
         try {
             $requestData = $this->requestData();
@@ -343,6 +375,7 @@ trait CtripProfileConfigConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
+        $this->assertCtripImplementationMaintenanceAccess();
 
         try {
             $fields = $this->readCtripProfileCaptureFields(true);
@@ -2670,6 +2703,16 @@ trait CtripProfileConfigConcern
 
     private function defaultCtripProfileFieldMeta(string $fieldKey): array
     {
+        $futureSearchMeta = CtripProfileFieldMetaService::futureSearch($fieldKey);
+        if ($futureSearchMeta !== []) {
+            return array_merge([
+                'source_interface' => 'querySearchFlowDetails',
+                'status' => 'confirmed',
+                'enabled' => true,
+                'notes' => '携程未来30天搜索热度；累计/昨日、本店/竞圈统一采集，保持 OTA 渠道口径。',
+            ], $futureSearchMeta);
+        }
+
         $flowMeta = CtripProfileFieldMetaService::flowTransform($fieldKey);
         if ($flowMeta !== []) {
             $flowSourceKeys = [

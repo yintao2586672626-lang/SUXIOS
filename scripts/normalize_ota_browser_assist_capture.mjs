@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { normalizeBrowserAssistCapturePayload } from './lib/ota_browser_assist_normalize.mjs';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -17,7 +18,7 @@ async function main() {
   }
 
   const raw = await readFile(path.resolve(String(args.input)), 'utf8');
-  const payload = JSON.parse(raw);
+  const payload = parseJsonTextSafely(raw, 'browser_assist_capture_json');
   const result = normalizeBrowserAssistCapturePayload(payload, {
     systemHotelId: args.systemHotelId || args.system_hotel_id,
     hotelId: args.hotelId || args.hotel_id,

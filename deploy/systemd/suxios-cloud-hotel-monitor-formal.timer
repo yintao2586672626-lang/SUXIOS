@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SUXIOS formal hourly hotel monitoring broadcast
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=suxios-cloud-hotel-monitor-formal.service
+
+[Install]
+WantedBy=timers.target

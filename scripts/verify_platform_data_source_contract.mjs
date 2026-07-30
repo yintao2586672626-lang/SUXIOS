@@ -46,6 +46,13 @@ check(
 
 check(
   'route/app.php',
+  'public login support route is declared once',
+  (source) => count(source, "Route::get('api/auth/login-support', 'Auth/loginSupport');") === 1,
+  "Route::get('api/auth/login-support', 'Auth/loginSupport');"
+);
+
+check(
+  'route/app.php',
   'disabled self-registration route is declared once',
   (source) => count(source, "Route::post('api/auth/register', 'Auth/register');") === 1,
   "Route::post('api/auth/register', 'Auth/register');"
@@ -56,9 +63,11 @@ check(
   'public auth routes are outside protected auth group',
   (source) => {
     const login = source.indexOf("Route::post('api/auth/login', 'Auth/login');");
+    const loginSupport = source.indexOf("Route::get('api/auth/login-support', 'Auth/loginSupport');");
     const register = source.indexOf("Route::post('api/auth/register', 'Auth/register');");
     const protectedGroup = source.indexOf("Route::group('api/auth'");
-    return login !== -1 && register !== -1 && protectedGroup !== -1 && login < protectedGroup && register < protectedGroup;
+    return login !== -1 && loginSupport !== -1 && register !== -1 && protectedGroup !== -1
+      && login < protectedGroup && loginSupport < protectedGroup && register < protectedGroup;
   },
   'auth route order'
 );
@@ -66,7 +75,8 @@ check(
 check(
   'app/controller/Auth.php',
   'self-registration endpoint is explicitly disabled',
-  (source) => source.includes("return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);"),
+  (source) => source.includes("return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);")
+    && !source.includes('registerLegacyDisabled'),
   'disabled register response'
 );
 
@@ -103,24 +113,24 @@ check(
   'route/app.php',
   'data-source sync route is ordered before generic create route',
   (source) => {
-    const sync = source.indexOf("Route::post('/data-sources/:id/sync', 'OnlineData/syncDataSource');");
-    const create = source.indexOf("Route::post('/data-sources', 'OnlineData/saveDataSource');");
+    const sync = source.indexOf("Route::post('/data-sources/:id/sync', 'ota.SyncController/syncDataSource');");
+    const create = source.indexOf("Route::post('/data-sources', 'ota.SyncController/saveDataSource');");
     return sync !== -1 && create !== -1 && sync < create;
   },
   '/data-sources/:id/sync before /data-sources'
 );
 
 for (const [route, label] of [
-  ["Route::get('/data-sources', 'OnlineData/dataSourceList');", 'data-source list route exists'],
-  ["Route::delete('/data-sources/:id', 'OnlineData/deleteDataSource');", 'data-source delete route exists'],
-  ["Route::post('/data-import', 'OnlineData/importDataSourceRows');", 'data import route exists'],
-  ["Route::get('/sync-tasks', 'OnlineData/syncTaskList');", 'sync task list route exists'],
-  ["Route::get('/sync-logs', 'OnlineData/syncLogList');", 'sync log list route exists'],
-  ["Route::get('/platform-profile-status', 'OnlineData/platformProfileStatus');", 'platform Profile status route exists'],
-  ["Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');", 'platform Profile unbind route exists'],
-  ["Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');", 'platform Profile login trigger route exists'],
-  ["Route::get('/profile-login-status/:platform', 'OnlineData/platformProfileLoginStatus');", 'platform Profile login status route exists'],
-  ["Route::get('/meituan-profile-status', 'OnlineData/meituanProfileStatus');", 'Meituan Profile status route exists'],
+  ["Route::get('/data-sources', 'ota.SyncController/dataSourceList');", 'data-source list route exists'],
+  ["Route::delete('/data-sources/:id', 'ota.SyncController/deleteDataSource');", 'data-source delete route exists'],
+  ["Route::post('/data-import', 'ota.SyncController/importDataSourceRows');", 'data import route exists'],
+  ["Route::get('/sync-tasks', 'ota.SyncController/syncTaskList');", 'sync task list route exists'],
+  ["Route::get('/sync-logs', 'ota.SyncController/syncLogList');", 'sync log list route exists'],
+  ["Route::get('/platform-profile-status', 'ota.ProfileController/platformProfileStatus');", 'platform Profile status route exists'],
+  ["Route::post('/profile-binding-unbind', 'ota.ProfileController/deletePlatformProfileBinding');", 'platform Profile unbind route exists'],
+  ["Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');", 'platform Profile login trigger route exists'],
+  ["Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');", 'platform Profile login status route exists'],
+  ["Route::get('/meituan-profile-status', 'ota.ProfileController/meituanProfileStatus');", 'Meituan Profile status route exists'],
 ]) {
   check('route/app.php', label, (source) => source.includes(route), route);
 }
@@ -152,13 +162,15 @@ for (const [method, label] of [
 
 check(
   'app/controller/concern/OnlineDataRequestConcern.php',
-  'legacy platform Profile login trigger blocks server-side browser launch',
+  'platform Profile login trigger launches only from the account owner local computer',
   (source) => source.includes('client_local_authorization_required')
     && source.includes('account_owner_local_computer_only')
     && source.includes('server_browser_launch_disabled')
     && source.includes('open_platform_on_account_owner_computer_and_import_browser_assist_json')
-    && !source.includes('launchPlatformProfileLoginTask($task)'),
-  'client_local_authorization_required + server_browser_launch_disabled'
+    && source.includes('private function isLocalPlatformProfileLoginRequest(): bool')
+    && source.includes("['127.0.0.1', '::1', '::ffff:127.0.0.1']")
+    && source.includes('launchPlatformProfileLoginTask($task)'),
+  'loopback guard + local Profile browser launch + remote block'
 );
 
 for (const [needle, label] of [
@@ -282,8 +294,8 @@ for (const [needle, label] of [
   ["`/online-data/data-sources/${source.id}/sync`", 'frontend can trigger immediate sync'],
   ['platformSyncLogs', 'frontend renders sync logs'],
   ['binding_contract', 'frontend renders machine-readable platform Profile binding contract'],
-  ['current_session_verified=', 'frontend shows current-session verification state in Profile card'],
-  ['historical_manual_login_state_verified=', 'frontend labels legacy manual-login metadata as historical'],
+  ['当天会话：{{ item.binding_contract.current_session_verified', 'frontend shows current-session verification state in concise Chinese'],
+  ['历史登录：{{ item.binding_contract.manual_login_state_verified', 'frontend labels legacy manual-login metadata in concise Chinese'],
   ['item.binding_checks || item.checks', 'frontend renders backend binding checks'],
   ['bindingContract.current_session_verified === true', 'frontend flow requires current-session proof when contract exists'],
   ['profile.current_session_verified === true', 'frontend compatibility flow only accepts an explicit current-session Profile field'],
@@ -696,11 +708,12 @@ for (const [needle, label] of [
 
 check(
   'public/index.html',
-  'frontend does not call legacy server-side platform Profile login trigger',
-  (source) => !source.includes('`/online-data/profile-login-trigger/${platform}`')
-    && !source.includes("'/online-data/profile-login-trigger/")
-    && !source.includes('"/online-data/profile-login-trigger/'),
-  'no frontend profile-login-trigger request'
+  'frontend calls platform Profile login trigger only from a loopback host',
+  (source) => source.includes('const canLaunchLocalPlatformProfileBrowser = () =>')
+    && source.includes("['127.0.0.1', 'localhost', '::1'].includes(hostname)")
+    && source.includes('if (!canLaunchLocalPlatformProfileBrowser())')
+    && source.includes('`/online-data/profile-login-trigger/${platform}`'),
+  'loopback frontend guard + profile-login-trigger request'
 );
 
 check(

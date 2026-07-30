@@ -1,0 +1,11 @@
+[Unit]
+Description=Send SUXIOS weekly saved-report digest
+
+[Timer]
+OnCalendar=Mon *-*-* 09:30:00 Asia/Shanghai
+RandomizedDelaySec=5min
+Persistent=true
+Unit=suxios-cloud-automation@weekly.service
+
+[Install]
+WantedBy=timers.target

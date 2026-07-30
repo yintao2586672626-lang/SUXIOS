@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { safeJsonParseErrorCode } from './lib/safe_json_parse_error.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const evidenceDir = path.resolve(repoRoot, process.env.RELEASE_EVIDENCE_DIR || '../release-evidence-temp');
@@ -80,10 +81,18 @@ function assertPrCandidateReview(review, label) {
   if (status === 'passed' && Array.isArray(review.failures) && review.failures.length > 0) {
     addFailure(`${label}.failures must be empty when status is passed.`);
   }
-  if (!String(review.gh_pr_list_checked_at || '').trim()) {
+  if (review.is_fresh_for_current_project_state === false) {
+    if (status !== 'failed') {
+      addFailure(`${label}.status must be failed when current project-state freshness is false.`);
+    }
+    if (review.selected_release_pr_number != null || review.selected_release_pr_head_sha != null) {
+      addFailure(`${label} must clear stale selected PR number and head.`);
+    }
+  }
+  if (review.is_fresh_for_current_project_state !== false && !String(review.gh_pr_list_checked_at || '').trim()) {
     addFailure(`${label}.gh_pr_list_checked_at is required.`);
   }
-  if (!Number.isFinite(Number(review.gh_pr_list_open_pr_count))) {
+  if (review.is_fresh_for_current_project_state !== false && !Number.isFinite(Number(review.gh_pr_list_open_pr_count))) {
     addFailure(`${label}.gh_pr_list_open_pr_count must be numeric.`);
   }
   if (review.does_not_close_release_readiness !== true) {
@@ -121,7 +130,7 @@ try {
   payload = readJson(packetPath);
   addPass(`Release operator intake packet is readable JSON: ${packetPath}`);
 } catch (error) {
-  addFailure(`Release operator intake packet is not readable JSON: ${error.message}`);
+  addFailure(`Release operator intake packet is not readable JSON (${safeJsonParseErrorCode(error)}).`);
 }
 
 try {

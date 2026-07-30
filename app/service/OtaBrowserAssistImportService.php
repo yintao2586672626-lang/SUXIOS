@@ -43,18 +43,18 @@ final class OtaBrowserAssistImportService
                 'data_type' => (string)$package['data_type'],
                 'row_count' => count($package['rows']),
                 'status' => (string)($result['status'] ?? 'unknown'),
+                'message' => (string)($result['message'] ?? ''),
                 'normalized_count' => (int)($result['normalized_count'] ?? 0),
                 'saved_count' => (int)($result['saved_count'] ?? 0),
+                'readback_verified' => ($result['readback_verified'] ?? false) === true,
                 'sync_task_id' => (int)($result['task_id'] ?? 0),
             ];
         }
 
-        $failed = array_values(array_filter($results, static function (array $item): bool {
-            return !in_array((string)$item['status'], ['success', 'partial_success'], true);
-        }));
+        $status = $this->aggregateImportStatus($results);
 
         return [
-            'status' => $failed === [] ? 'success' : 'partial_success',
+            'status' => $status,
             'source_contract' => self::CONTRACT_VERSION,
             'collection_mode' => self::COLLECTION_MODE,
             'package_count' => count($packages),
@@ -64,6 +64,29 @@ final class OtaBrowserAssistImportService
             'warnings' => $normalized['warnings'],
             'packages' => $results,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $results
+     */
+    private function aggregateImportStatus(array $results): string
+    {
+        if ($results === []) {
+            return 'failed';
+        }
+
+        $statuses = array_map(
+            static fn(array $item): string => strtolower(trim((string)($item['status'] ?? 'unknown'))),
+            $results
+        );
+        if (count(array_filter($statuses, static fn(string $status): bool => $status === 'success')) === count($statuses)) {
+            return 'success';
+        }
+        if (array_filter($statuses, static fn(string $status): bool => in_array($status, ['success', 'partial_success'], true))) {
+            return 'partial_success';
+        }
+
+        return 'failed';
     }
 
     /**

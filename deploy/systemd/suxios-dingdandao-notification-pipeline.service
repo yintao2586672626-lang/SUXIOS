@@ -1,0 +1,29 @@
+[Unit]
+Description=SUXIOS Dingdandao operating-target verified test-group pipeline
+After=mariadb.service php8.3-fpm.service suxios-cloud-browser-gateway.service
+Requires=suxios-cloud-browser-gateway.service
+ConditionPathExists=/var/www/suxios/current/think
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=/etc/suxios/dingdandao-notification-pipeline.env
+ExecStartPre=/usr/bin/php deploy/systemd/verify_manual_notification_test_dispatch.php --hotel-id=${SUXIOS_DINGDANDAO_HOTEL_ID} --robot-id=${SUXIOS_DINGDANDAO_ROBOT_ID}
+ExecStart=/usr/bin/php -d memory_limit=256M scripts/run_dingdandao_notification_pipeline.php --hotel-id=${SUXIOS_DINGDANDAO_HOTEL_ID} --robot-id=${SUXIOS_DINGDANDAO_ROBOT_ID} --owner-user-id=${SUXIOS_DINGDANDAO_OWNER_USER_ID} --profile-id=${SUXIOS_DINGDANDAO_PROFILE_ID} --control-token-file=/run/credentials/suxios-dingdandao-notification-pipeline.service/control-token --limit=5
+LoadCredential=control-token:/etc/suxios-cloud-browser/control-token
+RuntimeDirectory=suxios-dingdandao-pipeline suxios-dingdandao-collection
+RuntimeDirectoryMode=0750
+Nice=10
+CPUQuota=30%
+MemoryMax=256M
+TasksMax=24
+TimeoutStartSec=4min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/suxios-dingdandao-pipeline /run/suxios-dingdandao-collection -/var/www/suxios/current/runtime -/var/www/suxios/current/storage
+UMask=0027

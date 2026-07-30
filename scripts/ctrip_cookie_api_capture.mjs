@@ -7,6 +7,9 @@ import {
   extractCtripCatalogFacts,
   findCtripEndpointByUrl,
 } from './lib/ctrip_capture_catalog.mjs';
+import { buildOtaCaptureEvidence, sanitizeOtaPayloadForStorage } from './lib/ota_capture_standard.mjs';
+import { sanitizeOtaObservedUrl } from './lib/ota_session_probe.mjs';
+import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -42,7 +45,10 @@ function parseArgs(argv) {
 }
 
 function readJson(path) {
-  return JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+  return parseJsonTextSafely(
+    readFileSync(path, 'utf8').replace(/^\uFEFF/, ''),
+    'ctrip_cookie_capture_json',
+  );
 }
 
 function readCookie(args, config) {
@@ -81,7 +87,7 @@ function parseMaybeJson(value) {
   if (text === '') {
     return {};
   }
-  return JSON.parse(text);
+  return parseJsonTextSafely(text, 'ctrip_cookie_payload_json');
 }
 
 const POST_PAYLOAD_DEFAULT_RULES = [
@@ -329,7 +335,7 @@ function requestReferer(url, section = '') {
 function redactHeaders(headers = {}) {
   const redacted = {};
   for (const [key, value] of Object.entries(headers)) {
-    if (/cookie|authorization|token|sign|ticket/i.test(key)) {
+    if (/cookie|authorization|token|sign|ticket|api[-_]?key|secret|credential/i.test(key)) {
       redacted[key] = '<redacted>';
     } else {
       redacted[key] = value;
@@ -370,6 +376,16 @@ function buildRequest(endpoint, item, cookies) {
   return { requestUrl, init };
 }
 
+function captureUrlEvidence(value) {
+  const rawUrl = stringValue(value);
+  const evidence = buildOtaCaptureEvidence('ctrip', { url: rawUrl });
+  return {
+    url: sanitizeOtaObservedUrl(rawUrl),
+    source_trace_id: evidence.source_trace_id || '',
+    source_url_hash: evidence.source_url_hash || '',
+  };
+}
+
 function normalizeErrorResponse(status, bodyText) {
   if ([301, 302, 401, 403].includes(status)) {
     return 'cookie_or_permission_failed';
@@ -392,27 +408,36 @@ function ctripBusinessError(body) {
       || body?.ResponseStatus?.Errors?.[0]?.Code
       || body?.ResponseStatus?.Errors?.[0]?.code
       || `ResponseStatus.Ack=${body.ResponseStatus.Ack}`;
-    return { error: classifyCtripBusinessError(message), message: String(message) };
+    return { error: classifyCtripBusinessError(message) };
   }
 
-  const rcode = body?.resStatus?.rcode ?? body?.resultStatus?.rcode ?? body?.status?.rcode;
+  const rcode = body?.rcode ?? body?.resStatus?.rcode ?? body?.resultStatus?.rcode ?? body?.status?.rcode;
   if (rcode !== undefined && rcode !== null && String(rcode) !== '' && Number(rcode) !== 0 && Number(rcode) !== 200) {
-    const message = body?.resStatus?.rmsg
+    const message = body?.msg
+      || body?.resStatus?.rmsg
       || body?.resultStatus?.rmsg
       || body?.status?.rmsg
       || `rcode=${rcode}`;
-    return { error: classifyCtripBusinessError(message), message: String(message), rcode };
+    const numericCode = Number(rcode);
+    return {
+      error: classifyCtripBusinessError(message),
+      ...(Number.isFinite(numericCode) ? { rcode: numericCode } : {}),
+    };
   }
 
   const code = body?.code ?? body?.errorCode;
   if (code !== undefined && code !== null && String(code) !== '' && Number(code) !== 0 && Number(code) !== 200) {
     const message = body?.message || body?.msg || body?.errorMessage || `code=${code}`;
-    return { error: classifyCtripBusinessError(message), message: String(message), code };
+    const numericCode = Number(code);
+    return {
+      error: classifyCtripBusinessError(message),
+      ...(Number.isFinite(numericCode) ? { code: numericCode } : {}),
+    };
   }
 
   const messageText = normalizeBusinessStatusValue(body?.message || body?.msg || body?.errorMessage || body?.resStatus?.rmsg);
   if (/token_expired|login|未登录|登录|权限|forbidden|unauthorized|auth/.test(messageText)) {
-    return { error: classifyCtripBusinessError(messageText), message: String(body?.message || body?.msg || body?.errorMessage || body?.resStatus?.rmsg || '') };
+    return { error: classifyCtripBusinessError(messageText) };
   }
 
   return null;
@@ -420,6 +445,9 @@ function ctripBusinessError(body) {
 
 function classifyCtripBusinessError(message) {
   const text = normalizeBusinessStatusValue(message);
+  if (/spider|fingerprint|signature|签名|验签/.test(text)) {
+    return 'request_signature_required';
+  }
   if (/token_expired|no_token|login|未登录|登录|auth|unauthorized/.test(text)) {
     return 'cookie_or_permission_failed';
   }
@@ -469,14 +497,15 @@ export async function runCtripCookieApiCapture(config, options = {}) {
 
   for (const item of endpoints) {
     if (!isAllowedCtripUrl(item.request_url)) {
-      payload.errors.push({ url: item.request_url, error: 'url_not_allowed' });
+      payload.errors.push({ ...captureUrlEvidence(item.request_url), error: 'url_not_allowed' });
       continue;
     }
     const endpoint = findCtripEndpointByUrl(item.request_url, { preferredSection: item.section || item.capture_section || '' });
     const section = endpoint?.section || stringValue(item.section || item.capture_section);
     const { requestUrl, init } = buildRequest(endpoint, item, cookies);
+    const requestUrlEvidence = captureUrlEvidence(requestUrl);
     const xhrEntry = {
-      url: requestUrl,
+      ...requestUrlEvidence,
       request_type: init.method.toLowerCase(),
       endpoint_id: endpoint?.id || '',
       section,
@@ -488,39 +517,45 @@ export async function runCtripCookieApiCapture(config, options = {}) {
       xhrEntry.status = response.status;
       payload.xhr_urls.push(xhrEntry);
       if (!response.ok) {
-        payload.errors.push({ url: requestUrl, status: response.status, error: normalizeErrorResponse(response.status, text) });
+        payload.errors.push({ ...requestUrlEvidence, status: response.status, error: normalizeErrorResponse(response.status, text) });
         continue;
       }
       if (/^\s*<!DOCTYPE|^\s*<html/i.test(text)) {
-        payload.errors.push({ url: requestUrl, status: response.status, error: 'html_response_not_json' });
+        payload.errors.push({ ...requestUrlEvidence, status: response.status, error: 'html_response_not_json' });
         continue;
       }
       let body;
       try {
         body = JSON.parse(text);
       } catch {
-        payload.errors.push({ url: requestUrl, status: response.status, error: normalizeErrorResponse(response.status, text) });
+        payload.errors.push({ ...requestUrlEvidence, status: response.status, error: normalizeErrorResponse(response.status, text) });
         continue;
       }
+      const responseDataType = endpoint?.dataType || item.data_type || section || '';
+      const safeBody = sanitizeOtaPayloadForStorage(body, responseDataType);
       const responseEntry = {
-        url: requestUrl,
+        ...requestUrlEvidence,
         section,
         endpoint_id: endpoint?.id || '',
         endpoint_label: endpoint?.label || '',
-        data_type: endpoint?.dataType || item.data_type || '',
+        data_type: responseDataType,
         status: response.status,
         request_type: init.method.toLowerCase(),
-        request_payload: item.payload || {},
+        request_payload: sanitizeOtaPayloadForStorage(item.payload || {}, endpoint?.dataType || section || ''),
         request_headers: redactHeaders(init.headers || {}),
-        data: body,
       };
-      payload.responses.push(responseEntry);
       const businessError = ctripBusinessError(body);
       if (businessError) {
-        payload.errors.push({ url: requestUrl, status: response.status, ...businessError });
+        payload.responses.push({ ...responseEntry, business_error: businessError.error });
+        payload.errors.push({ ...requestUrlEvidence, status: response.status, ...businessError });
         continue;
       }
+      responseEntry.data = safeBody;
       if (endpoint) {
+        const captureEvidence = {
+          source_trace_id: requestUrlEvidence.source_trace_id,
+          source_url_hash: requestUrlEvidence.source_url_hash,
+        };
         const factContext = {
           endpoint,
           section: endpoint.section,
@@ -529,7 +564,12 @@ export async function runCtripCookieApiCapture(config, options = {}) {
           hotelName,
           dataDate,
           capturedAt,
-          url: requestUrl,
+          url: requestUrlEvidence.url,
+          requestPayload: sanitizeOtaPayloadForStorage(item.payload || {}, endpoint.dataType || section || ''),
+          captureEvidence,
+          sourceTraceId: captureEvidence.source_trace_id,
+          sourceUrlHash: captureEvidence.source_url_hash,
+          persistRawSourceUrl: false,
         };
         const facts = extractCtripCatalogFacts(body, factContext);
         const rows = buildCtripStandardRowsFromFacts(facts, {
@@ -539,15 +579,18 @@ export async function runCtripCookieApiCapture(config, options = {}) {
           profileId,
           dataDate,
           capturedAt,
-        });
+        }).map((row) => ({ ...row, ingestion_method: 'ctrip_cookie_api' }));
+        responseEntry.catalog_fact_count = facts.length;
+        responseEntry.standard_row_count = rows.length;
         payload.catalog_facts.push(...facts);
         payload.standard_rows.push(...rows);
       } else {
-        payload.unmatched_xhr_urls.push({ url: requestUrl, status: response.status, request_type: init.method.toLowerCase() });
+        payload.unmatched_xhr_urls.push({ ...requestUrlEvidence, status: response.status, request_type: init.method.toLowerCase() });
       }
+      payload.responses.push(responseEntry);
     } catch (error) {
       payload.xhr_urls.push(xhrEntry);
-      payload.errors.push({ url: requestUrl, error: error?.message || String(error) });
+      payload.errors.push({ ...requestUrlEvidence, error: 'request_failed' });
     }
   }
 
@@ -588,7 +631,11 @@ async function main() {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
-    console.error(error?.stack || error?.message || String(error));
+    const message = String(error?.message || '');
+    const safeMessage = /^[a-z0-9_.-]+:parse_error(?:_(?:position_\d+|line_\d+_column_\d+))?$/i.test(message)
+      ? message
+      : 'ctrip_cookie_capture_failed';
+    console.error(`[ctrip-cookie-api-capture] ${safeMessage}`);
     process.exit(1);
   });
 }

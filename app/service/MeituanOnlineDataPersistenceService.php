@@ -7,6 +7,19 @@ use think\facade\Db;
 
 final class MeituanOnlineDataPersistenceService
 {
+    private ?\Closure $rankReadbackReader;
+    private ?\Closure $tenantIdResolver;
+
+    public function __construct(?callable $rankReadbackReader = null, ?callable $tenantIdResolver = null)
+    {
+        $this->rankReadbackReader = $rankReadbackReader !== null
+            ? \Closure::fromCallable($rankReadbackReader)
+            : null;
+        $this->tenantIdResolver = $tenantIdResolver !== null
+            ? \Closure::fromCallable($tenantIdResolver)
+            : null;
+    }
+
     public function parseAndSaveMeituanData($responseData, $startDate, $endDate, ?int $systemHotelId = null, array $context = [], bool $debugLog = false): int
     {
         try {
@@ -58,17 +71,27 @@ final class MeituanOnlineDataPersistenceService
                 // 美团竞对排名数据：平台新版可能只返回 percent，不再返回 dataValue。
                 $sourceDataValue = $this->nullableNumberFromKeys($item, ['dataValue', 'data_value', 'monthRoomNights', 'month_room_nights']);
                 $rankPercent = $this->meituanRankPercentValue($item);
-                $dataValue = $sourceDataValue ?? 0.0;
+                $dataValue = $sourceDataValue;
                 $metricStatus = $sourceDataValue !== null
                     ? 'platform_value_returned'
                     : ($rankPercent !== null ? 'platform_percent_only' : 'platform_value_missing');
 
-                $itemDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? $dataDate;
+                $itemDate = $this->normalizeRankStorageDate(
+                    $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? null,
+                    (string)$dataDate
+                );
+                if ($itemDate === null) {
+                    throw new \InvalidArgumentException('Invalid Meituan rank row date.');
+                }
                 $dimName = $item['_dimName'] ?? ($item['dimension'] ?? '');
                 $aiMetricName = $item['_aiMetricName'] ?? ($item['aiMetricName'] ?? '');
 
                 // 判断榜单类型：P_XS=销售榜(包含销售间夜榜+销售额榜), P_RZ=入住榜, P_ZH=转化榜, P_LL=流量榜
                 $rankType = strtoupper(trim((string)($item['rankType'] ?? $item['rank_type'] ?? $context['rank_type'] ?? $context['rankType'] ?? '')));
+                $dateRange = trim((string)($context['date_range'] ?? $context['dateRange'] ?? $item['dateRange'] ?? $item['date_range'] ?? ''));
+                $identityStartDate = trim((string)($context['start_date'] ?? $context['startDate'] ?? $startDate));
+                $identityEndDate = trim((string)($context['end_date'] ?? $context['endDate'] ?? $endDate));
+                $storageDimension = $this->buildRankStorageDimension($dimName, $rankType, $dateRange, $identityStartDate, $identityEndDate);
                 $platformTagInfo = $this->extractMeituanPlatformTagInfo($item);
                 $hasVipTag = $this->hasMeituanVipPlatformTag($platformTagInfo['tags']);
                 $platformTagText = !empty($platformTagInfo['tags']) ? implode(' / ', $platformTagInfo['tags']) : '未返回';
@@ -98,24 +121,16 @@ final class MeituanOnlineDataPersistenceService
                 \think\facade\Log::info("美团数据解析 - 详细判断: dimName=$dimName, rankType=$rankType, dataValue=$dataValue, percent=" . ($rankPercent ?? 'null') . ", metricStatus=$metricStatus, isSalesAmountRank=" . ($isSalesAmountRank ? 'true' : 'false') . ", isRoomRevenueRank=" . ($isRoomRevenueRank ? 'true' : 'false') . ", isRoomNightRank=" . ($isRoomNightRank ? 'true' : 'false'));
                 \think\facade\Log::info("美团数据解析 - 完整数据项: " . json_encode($item, JSON_UNESCAPED_UNICODE));
 
-                // 根据榜单类型设置 amount 和 quantity
-                if ($isRoomNightRank) {
-                    // 间夜榜（销售间夜榜、入住间夜榜）：dataValue 是间夜数
-                    $amount = 0;
-                    $quantity = intval($dataValue);
-                } elseif ($isSalesAmountRank || $isRoomRevenueRank) {
-                    // 销售额榜（交易额榜、房费收入榜）：dataValue 是销售额（元）
-                    $amount = $dataValue;
-                    $quantity = 0;
-                } elseif ($isConversionRank || $isTrafficRank) {
-                    // 转化榜和流量榜：dataValue 可能是百分比或次数，保存到 data_value
-                    $amount = 0;
-                    $quantity = 0;
-                } else {
-                    // 无法识别的榜单类型：只保留 data_value，不按数值大小猜测金额或间夜
-                    $amount = 0;
-                    $quantity = 0;
-                }
+                $storageValues = $this->buildRankMetricStorageValues(
+                    $sourceDataValue,
+                    $isRoomNightRank,
+                    $isSalesAmountRank || $isRoomRevenueRank,
+                    $isConversionRank,
+                    $isTrafficRank
+                );
+                $dataValue = $storageValues['data_value'];
+                $amount = $storageValues['amount'];
+                $quantity = $storageValues['quantity'];
 
                 // 详细记录榜单类型判断结果
                 \think\facade\Log::info("美团数据解析 - 榜单判断: dimName=$dimName, rankType=$rankType, isSalesAmountRank=" . ($isSalesAmountRank ? 'true' : 'false') . ", isRoomNightRank=" . ($isRoomNightRank ? 'true' : 'false') . ", isConversionRank=" . ($isConversionRank ? 'true' : 'false') . ", isTrafficRank=" . ($isTrafficRank ? 'true' : 'false'));
@@ -127,14 +142,20 @@ final class MeituanOnlineDataPersistenceService
                     'data_date' => $itemDate,
                     'source' => 'meituan',
                     'data_type' => $rankDataType,
-                    'dimension' => $dimName,
+                    'dimension' => $storageDimension,
                 ], $columns, $item);
 
                 $query = Db::name('online_daily_data')
                     ->where('hotel_name', $hotelName)
                     ->where('data_date', $itemDate)
                     ->where('source', 'meituan')
-                    ->where('dimension', $dimName);
+                    ->where('dimension', $storageDimension);
+                if (isset($columns['hotel_id'])) {
+                    $query->where('hotel_id', (string)$hotelId);
+                }
+                if (isset($columns['data_type'])) {
+                    $query->where('data_type', $rankDataType);
+                }
                 OnlineDailyDataPersistenceService::applyPeriodQuery($query, $periodFilter, $columns);
 
                 if ($systemHotelId !== null) {
@@ -150,10 +171,11 @@ final class MeituanOnlineDataPersistenceService
                     'metricStatus' => $metricStatus,
                     'rankType' => $rankType,
                     'rank' => $item['rank'] ?? $item['ranking'] ?? null,
-                    'dateRange' => $context['date_range'] ?? $item['dateRange'] ?? $item['date_range'] ?? '',
-                    'startDate' => $context['start_date'] ?? $startDate,
-                    'endDate' => $context['end_date'] ?? $endDate,
+                    'dateRange' => $dateRange,
+                    'startDate' => $identityStartDate,
+                    'endDate' => $identityEndDate,
                     'dimension' => $dimName,
+                    'storageDimension' => $storageDimension,
                     'aiMetricName' => $aiMetricName,
                     'platformTags' => $platformTagInfo['tags'],
                     'platformTagStatus' => $platformTagInfo['status'],
@@ -161,6 +183,14 @@ final class MeituanOnlineDataPersistenceService
                     'hasVipTag' => $hasVipTag,
                     'sourceLabel' => $sourceDataValue !== null ? '美团榜单返回' : ($rankPercent !== null ? '美团仅返回百分比' : '美团榜单未返回数值'),
                 ];
+                $targetPoiId = trim((string)($context['target_poi_id'] ?? $context['targetPoiId'] ?? ''));
+                if ($targetPoiId !== '' && (string)$hotelId === $targetPoiId) {
+                    $selfMetricValues = $context['self_metric_values'] ?? $context['selfMetricValues'] ?? [];
+                    if (is_array($selfMetricValues) && !empty($selfMetricValues)) {
+                        $rawData['selfMetricValues'] = $selfMetricValues;
+                        $rawData['selfMetricStatus'] = (string)($context['self_metric_status'] ?? $context['selfMetricStatus'] ?? 'returned');
+                    }
+                }
                 $sourcePath = trim((string)($item['_source_path'] ?? ''));
                 if ($sourcePath !== '') {
                     $rawData['_source_path'] = $sourcePath;
@@ -182,27 +212,234 @@ final class MeituanOnlineDataPersistenceService
                     'comment_score' => 0,
                     'qunar_comment_score' => 0,
                     'source' => 'meituan',
-                    'dimension' => $dimName,
+                    'dimension' => $storageDimension,
                     'data_type' => $rankDataType,
                     'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 ];
                 $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
-                $data = OnlineDailyDataPersistenceService::applyValidationFields($data);
+                $data = OnlineDailyDataPersistenceService::applyValidationFields($data, $columns);
+                $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
 
                 if ($exists) {
+                    $rowId = (int)$exists['id'];
                     Db::name('online_daily_data')
-                        ->where('id', $exists['id'])
+                        ->where('id', $rowId)
                         ->update($data);
                 } else {
-                    Db::name('online_daily_data')->insert($data);
+                    $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
                 }
-                $savedCount++;
+                $persisted = $rowId > 0
+                    ? Db::name('online_daily_data')->where('id', $rowId)->find()
+                    : null;
+                if (is_array($persisted)
+                    && OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $data)
+                    && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$persisted], $columns)) {
+                    $savedCount++;
+                }
             }
 
             return $savedCount;
         } catch (\Throwable $e) {
-            return 0;
+            \think\facade\Log::error('Meituan rank persistence failed: ' . $e->getMessage());
+            throw new \RuntimeException('meituan_rank_persistence_failed', 500, $e);
         }
+    }
+
+    /**
+     * @param array<string, mixed> $responseData
+     * @param array<string, mixed> $context
+     * @return array{verified:bool,expected_count:int,matched_count:int,row_ids:array<int,int>,reason:string}
+     */
+    public function verifyPersistedRankCandidate(
+        array $responseData,
+        int $systemHotelId,
+        string $startDate,
+        string $endDate,
+        array $context = []
+    ): array {
+        $extraction = MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData);
+        $expected = [];
+        foreach ($extraction['rows'] as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = trim((string)($item['poiId'] ?? $item['poi_id'] ?? $item['shopId'] ?? $item['shop_id'] ?? $item['hotelId'] ?? ''));
+            if ($hotelId === '') {
+                continue;
+            }
+            $itemDate = $this->normalizeRankStorageDate(
+                $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? null,
+                $startDate
+            );
+            if ($itemDate === null) {
+                continue;
+            }
+            $dimension = trim((string)($item['_dimName'] ?? $item['dimension'] ?? ''));
+            $rankType = strtoupper(trim((string)($item['rankType'] ?? $item['rank_type'] ?? $context['rank_type'] ?? $context['rankType'] ?? '')));
+            $dateRange = trim((string)($context['date_range'] ?? $context['dateRange'] ?? $item['dateRange'] ?? $item['date_range'] ?? ''));
+            $identityStartDate = trim((string)($context['start_date'] ?? $context['startDate'] ?? $startDate));
+            $identityEndDate = trim((string)($context['end_date'] ?? $context['endDate'] ?? $endDate));
+            $storageDimension = $this->buildRankStorageDimension(
+                $dimension,
+                $rankType,
+                $dateRange,
+                $identityStartDate,
+                $identityEndDate
+            );
+            $key = $hotelId . '|' . $itemDate . '|' . $storageDimension;
+            $expected[$key] = true;
+        }
+
+        if ($systemHotelId <= 0 || $expected === []) {
+            return [
+                'verified' => false,
+                'expected_count' => count($expected),
+                'matched_count' => 0,
+                'row_ids' => [],
+                'reason' => 'database_readback_expectation_missing',
+            ];
+        }
+
+        try {
+            $tenantId = $this->tenantIdResolver !== null
+                ? (int)($this->tenantIdResolver)($systemHotelId)
+                : OnlineDailyDataPersistenceService::resolveTenantIdForSystemHotel($systemHotelId);
+        } catch (\Throwable $exception) {
+            $tenantId = 0;
+        }
+        if ($tenantId <= 0) {
+            return [
+                'verified' => false,
+                'expected_count' => count($expected),
+                'matched_count' => 0,
+                'row_ids' => [],
+                'reason' => 'database_readback_tenant_scope_invalid',
+            ];
+        }
+
+        $columns = $this->rankReadbackReader === null
+            ? OnlineDailyDataPersistenceService::getColumns()
+            : ['tenant_id' => true, 'readback_verified' => true];
+        if (!isset($columns['tenant_id'], $columns['readback_verified'])) {
+            return [
+                'verified' => false,
+                'expected_count' => count($expected),
+                'matched_count' => 0,
+                'row_ids' => [],
+                'reason' => 'database_readback_proof_schema_missing',
+            ];
+        }
+
+        $scope = [
+            'tenant_id' => $tenantId,
+            'system_hotel_id' => $systemHotelId,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'source' => 'meituan',
+            'data_type' => 'peer_rank',
+        ];
+        if ($this->rankReadbackReader !== null) {
+            $storedRows = ($this->rankReadbackReader)($scope);
+        } else {
+            $storedRows = Db::name('online_daily_data')
+                ->field('id, tenant_id, system_hotel_id, hotel_id, data_date, source, data_type, dimension, readback_verified')
+                ->where('tenant_id', $tenantId)
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('source', 'meituan')
+                ->where('data_type', 'peer_rank')
+                ->where('data_date', '>=', $startDate)
+                ->where('data_date', '<=', $endDate)
+                ->select()
+                ->toArray();
+        }
+
+        $matched = [];
+        $rowIds = [];
+        foreach (is_array($storedRows) ? $storedRows : [] as $row) {
+            if (!is_array($row)
+                || (int)($row['tenant_id'] ?? 0) !== $tenantId
+                || (int)($row['system_hotel_id'] ?? 0) !== $systemHotelId
+                || strtolower(trim((string)($row['source'] ?? ''))) !== 'meituan'
+                || strtolower(trim((string)($row['data_type'] ?? ''))) !== 'peer_rank'
+                || (int)($row['readback_verified'] ?? 0) !== 1
+            ) {
+                continue;
+            }
+            $key = trim((string)($row['hotel_id'] ?? ''))
+                . '|' . trim((string)($row['data_date'] ?? ''))
+                . '|' . trim((string)($row['dimension'] ?? ''));
+            if (!isset($expected[$key])) {
+                continue;
+            }
+            $matched[$key] = true;
+            $rowId = (int)($row['id'] ?? 0);
+            if ($rowId > 0) {
+                $rowIds[$rowId] = true;
+            }
+        }
+
+        $verified = count($matched) === count($expected);
+        return [
+            'verified' => $verified,
+            'expected_count' => count($expected),
+            'matched_count' => count($matched),
+            'row_ids' => array_map('intval', array_keys($rowIds)),
+            'reason' => $verified ? '' : 'database_readback_mismatch',
+        ];
+    }
+
+    private function buildRankStorageDimension(string $dimension, string $rankType, string $dateRange, string $startDate, string $endDate): string
+    {
+        $dimension = trim($dimension) !== '' ? trim($dimension) : 'unknown';
+        $rankType = strtoupper(trim($rankType)) !== '' ? strtoupper(trim($rankType)) : 'UNKNOWN';
+        $dateRange = trim($dateRange) !== '' ? trim($dateRange) : 'unknown';
+        $windowHash = substr(hash('sha256', trim($startDate) . '|' . trim($endDate)), 0, 12);
+        $identitySuffix = 'rank=' . $rankType . '|range=' . $dateRange . '|window=' . $windowHash;
+        $dimensionLimit = max(1, 100 - mb_strlen($identitySuffix) - 1);
+
+        return mb_substr($dimension, 0, $dimensionLimit) . '|' . $identitySuffix;
+    }
+
+    private function normalizeRankStorageDate(mixed $value, string $fallback): ?string
+    {
+        $value = $value === null || trim((string)$value) === '' ? $fallback : $value;
+        if (is_int($value) || is_float($value) || (is_string($value) && preg_match('/^\d{10,13}$/D', trim($value)) === 1)) {
+            $timestamp = (int)$value;
+            if ($timestamp > 9_999_999_999) {
+                $timestamp = (int)floor($timestamp / 1000);
+            }
+            return $timestamp > 0 ? date('Y-m-d', $timestamp) : null;
+        }
+        $text = trim((string)$value);
+        foreach (['Y-m-d', 'Y-m-d H:i:s', 'Y/m/d', 'Y/m/d H:i:s'] as $format) {
+            $date = \DateTimeImmutable::createFromFormat('!' . $format, $text);
+            if ($date !== false && $date->format($format) === $text) {
+                return $date->format('Y-m-d');
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @return array{data_value:?float,amount:?float,quantity:?int}
+     */
+    private function buildRankMetricStorageValues(?float $sourceDataValue, bool $isRoomNightRank, bool $isAmountRank, bool $isConversionRank, bool $isTrafficRank): array
+    {
+        if ($sourceDataValue === null) {
+            return ['data_value' => null, 'amount' => null, 'quantity' => null];
+        }
+
+        if ($isRoomNightRank) {
+            return ['data_value' => $sourceDataValue, 'amount' => 0.0, 'quantity' => max(0, (int)$sourceDataValue)];
+        }
+        if ($isAmountRank) {
+            return ['data_value' => $sourceDataValue, 'amount' => $sourceDataValue, 'quantity' => 0];
+        }
+        if ($isConversionRank || $isTrafficRank) {
+            return ['data_value' => $sourceDataValue, 'amount' => 0.0, 'quantity' => 0];
+        }
+
+        return ['data_value' => $sourceDataValue, 'amount' => 0.0, 'quantity' => 0];
     }
 
     private function nullableNumberFromKeys(array $data, array $keys): ?float
@@ -240,10 +477,10 @@ final class MeituanOnlineDataPersistenceService
             'badgeList', 'benefitTags', 'titleTags', 'identityTags', 'platformTags',
         ];
         $singleTagKeys = [
-            'vipTag', 'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag',
+            'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag',
             'brandTag', 'brandName', 'chainName', 'hotelBrand', 'groupName', 'starTag',
         ];
-        $booleanVipKeys = ['isVip', 'isVIP', 'vip', 'vipFlag', 'memberFlag', 'isMemberHotel'];
+        $booleanVipKeys = ['vipTag', 'isVip', 'isVIP', 'vip', 'vipFlag', 'memberFlag', 'isMemberHotel'];
 
         $tags = [];
         $returned = false;

@@ -124,9 +124,12 @@ function ctrip_input_readiness_source_aliases(): array
     return ['ctrip', 'ctrip_business', 'ctrip_manual_overview', 'ctrip_browser_profile'];
 }
 
-function ctrip_input_readiness_apply_ctrip_platform_filter(mixed $query): void
+function ctrip_input_readiness_apply_ctrip_platform_filter(mixed $query, string $column = 'ota_platform'): void
 {
-    $query->whereIn('ota_platform', [1, '1', 'ctrip']);
+    if (!in_array($column, ['ota_platform', 'platform'], true)) {
+        throw new InvalidArgumentException('Unsupported Ctrip platform column.');
+    }
+    $query->whereIn($column, [1, '1', 'ctrip', 'xc']);
 }
 
 /**
@@ -210,43 +213,118 @@ function ctrip_input_readiness_demand_count(int $hotelId, string $date): int
     return (int)$query->count();
 }
 
+/**
+ * Count recent Ctrip competitor samples using the owning store scope.
+ * competitor_price_log.hotel_id identifies the competitor hotel, not the
+ * system hotel that owns the comparison set.
+ *
+ * @param array<string, bool> $columns
+ */
+function ctrip_input_readiness_competitor_price_log_count(
+    int $hotelId,
+    string $startDate,
+    string $date,
+    array $columns
+): int {
+    if ($hotelId <= 0
+        || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)
+        || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)
+        || !isset(
+            $columns['store_id'],
+            $columns['platform'],
+            $columns['readback_verified'],
+            $columns['validation_status'],
+            $columns['comparison_key']
+        )
+    ) {
+        return 0;
+    }
+
+    $timeColumns = array_values(array_filter(
+        ['collected_at', 'fetch_time', 'create_time'],
+        static fn(string $column): bool => isset($columns[$column])
+    ));
+    if ($timeColumns === []) {
+        return 0;
+    }
+
+    $quotedTimes = array_map(
+        static fn(string $column): string => '`' . $column . '`',
+        $timeColumns
+    );
+    $timeExpression = count($quotedTimes) === 1
+        ? $quotedTimes[0]
+        : 'COALESCE(' . implode(', ', $quotedTimes) . ')';
+
+    $query = Db::name('competitor_price_log')->where('store_id', $hotelId);
+    ctrip_input_readiness_apply_ctrip_platform_filter($query, 'platform');
+    $query->where('readback_verified', 1)
+        ->whereIn('validation_status', ['available', 'normal', 'ok', 'valid', 'verified'])
+        ->whereNotNull('comparison_key')
+        ->where('comparison_key', '<>', '');
+    $query->whereRaw(
+        $timeExpression . ' >= :competitor_start_time AND ' . $timeExpression . ' <= :competitor_end_time',
+        [
+            'competitor_start_time' => $startDate . ' 00:00:00',
+            'competitor_end_time' => $date . ' 23:59:59',
+        ]
+    );
+    if (isset($columns['deleted_at'])) {
+        $query->whereNull('deleted_at');
+    }
+
+    return (int)$query->count();
+}
+
+/**
+ * @param array<string, bool> $columns
+ */
+function ctrip_input_readiness_competitor_analysis_count(
+    int $hotelId,
+    string $startDate,
+    string $date,
+    array $columns
+): int {
+    if ($hotelId <= 0
+        || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)
+        || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)
+        || !isset(
+            $columns['hotel_id'],
+            $columns['ota_platform'],
+            $columns['analysis_date'],
+            $columns['readback_verified'],
+            $columns['validation_status'],
+            $columns['comparison_key']
+        )
+    ) {
+        return 0;
+    }
+
+    $query = Db::name('competitor_analysis')->where('hotel_id', $hotelId);
+    $query->where('analysis_date', '>=', $startDate)->where('analysis_date', '<=', $date);
+    ctrip_input_readiness_apply_ctrip_platform_filter($query);
+    $query->where('readback_verified', 1)
+        ->whereIn('validation_status', ['available', 'normal', 'ok', 'valid', 'verified'])
+        ->whereNotNull('comparison_key')
+        ->where('comparison_key', '<>', '');
+    if (isset($columns['deleted_at'])) {
+        $query->whereNull('deleted_at');
+    }
+
+    return (int)$query->count();
+}
+
 function ctrip_input_readiness_competitor_count(int $hotelId, string $date): int
 {
     $startDate = date('Y-m-d', strtotime($date . ' -6 days'));
     $count = 0;
     if (ctrip_input_readiness_table_exists('competitor_analysis')) {
         $columns = ctrip_input_readiness_columns('competitor_analysis');
-        if (isset($columns['hotel_id'])) {
-            $query = Db::name('competitor_analysis')->where('hotel_id', $hotelId);
-            if (isset($columns['analysis_date'])) {
-                $query->where('analysis_date', '>=', $startDate)->where('analysis_date', '<=', $date);
-            }
-            if (isset($columns['ota_platform'])) {
-                ctrip_input_readiness_apply_ctrip_platform_filter($query);
-            }
-            if (isset($columns['deleted_at'])) {
-                $query->whereNull('deleted_at');
-            }
-            $count += (int)$query->count();
-        }
+        $count += ctrip_input_readiness_competitor_analysis_count($hotelId, $startDate, $date, $columns);
     }
     if (ctrip_input_readiness_table_exists('competitor_price_log')) {
         $columns = ctrip_input_readiness_columns('competitor_price_log');
-        if (isset($columns['hotel_id'])) {
-            $query = Db::name('competitor_price_log')->where('hotel_id', $hotelId);
-            if (isset($columns['analysis_date'])) {
-                $query->where('analysis_date', '>=', $startDate)->where('analysis_date', '<=', $date);
-            } elseif (isset($columns['created_at'])) {
-                $query->where('created_at', '>=', $startDate . ' 00:00:00')->where('created_at', '<=', $date . ' 23:59:59');
-            }
-            if (isset($columns['ota_platform'])) {
-                ctrip_input_readiness_apply_ctrip_platform_filter($query);
-            }
-            if (isset($columns['deleted_at'])) {
-                $query->whereNull('deleted_at');
-            }
-            $count += (int)$query->count();
-        }
+        $count += ctrip_input_readiness_competitor_price_log_count($hotelId, $startDate, $date, $columns);
     }
 
     return $count;
@@ -418,6 +496,27 @@ function ctrip_input_readiness_markdown(array $payload): string
     return implode(PHP_EOL, $lines);
 }
 
+/**
+ * @param array<string, mixed> $targetDateCandidate
+ * @return array<int, string>
+ */
+function ctrip_input_readiness_current_required_inputs(array $targetDateCandidate): array
+{
+    if ($targetDateCandidate === []) {
+        return ['target_date_ctrip_rows_missing'];
+    }
+
+    $missingInputs = is_array($targetDateCandidate['missing_inputs'] ?? null)
+        ? $targetDateCandidate['missing_inputs']
+        : [];
+
+    return array_values(array_unique(array_map('strval', $missingInputs)));
+}
+
+if (realpath((string)($_SERVER['SCRIPT_FILENAME'] ?? '')) !== realpath(__FILE__)) {
+    return;
+}
+
 try {
     $options = ctrip_input_readiness_parse_args($argv);
     $root = dirname(__DIR__);
@@ -459,9 +558,7 @@ try {
         $targetDateCandidate = $candidate;
         break;
     }
-    $currentMissingInputs = is_array($targetDateCandidate['missing_inputs'] ?? null)
-        ? array_values(array_map('strval', $targetDateCandidate['missing_inputs']))
-        : [];
+    $currentMissingInputs = ctrip_input_readiness_current_required_inputs($targetDateCandidate);
 
     ctrip_input_readiness_finish([
         'status' => 'passed',
