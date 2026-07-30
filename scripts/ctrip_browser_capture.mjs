@@ -32,6 +32,7 @@ import {
   attachOtaCaptureEvidence,
   buildOtaCaptureEvidence,
   extractOtaRequestDateEvidence,
+  OTA_STRUCTURED_RESPONSE_EVIDENCE,
   sanitizeOtaPayloadForStorage,
 } from './lib/ota_capture_standard.mjs';
 import {
@@ -1409,6 +1410,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       url,
       section,
       captureSource: responseCaptureSource,
+      ...OTA_STRUCTURED_RESPONSE_EVIDENCE,
     });
     const rows = normalizeRows(safeBody, dataType, url, requestDateEvidence, {
       allowDiscoveredBusiness: Boolean(discoveryCandidate?.auto_capture),
@@ -1670,6 +1672,7 @@ function normalizeRows(value, section, sourceUrl, requestDateEvidence = {}, opti
 
 function attachCtripCaptureEvidence(row, context = {}) {
   return attachOtaCaptureEvidence(row, 'ctrip', {
+    ...OTA_STRUCTURED_RESPONSE_EVIDENCE,
     url: context.url || row._source_url || row.source_url || '',
     section: context.section || row.section || row.data_type || '',
     sourcePath: row._source_path || row.source_path || '',

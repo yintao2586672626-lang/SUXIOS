@@ -30,6 +30,8 @@ debug.log
 tests/report/
 test-results/
 output/
+/tmp/
+/.cloud-browser-deploy-state.json
 reports/ctrip_capture_assets/
 reports/ota_data_validation.json
 reports/ota_data_validation.md
@@ -42,6 +44,8 @@ reports/ctrip_live_verify_*.json
 reports/meituan_live_verify_*.json
 reports/ctrip_capture_summary.json
 reports/p0_traffic_*.json
+reports/p0_login_*.json
+reports/p0_session_probe_*.json
 docs/release_external_state_evidence.local.json
 
 # Git / IDE / OS

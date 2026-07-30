@@ -96,8 +96,6 @@ final class OtaStructuredCaptureEvidenceService
             $row['source_trace_id'] ?? null,
             $raw['source_trace_id'] ?? null,
             $rawEvidence['source_trace_id'] ?? null,
-            $sourceRow['source_trace_id'] ?? null,
-            $sourceEvidence['source_trace_id'] ?? null,
         ]);
         $sourceTraceId = $traceCandidates[0] ?? null;
         if ($sourceTraceId === null
@@ -109,6 +107,21 @@ final class OtaStructuredCaptureEvidenceService
             $reasonCodes[] = 'source_trace_missing';
         } elseif (!$this->allEqual($traceCandidates)) {
             $reasonCodes[] = 'source_trace_mismatch';
+        }
+        $upstreamTraceCandidates = $this->nonEmptyStrings([
+            $sourceRow['source_trace_id'] ?? null,
+            $sourceEvidence['source_trace_id'] ?? null,
+        ]);
+        foreach ($upstreamTraceCandidates as $upstreamTraceId) {
+            if (preg_match(
+                '/^[A-Za-z0-9._:-]{1,160}$/D',
+                $upstreamTraceId
+            ) !== 1) {
+                $reasonCodes[] = 'upstream_source_trace_invalid';
+            }
+        }
+        if (!$this->allEqual($upstreamTraceCandidates)) {
+            $reasonCodes[] = 'upstream_source_trace_mismatch';
         }
 
         $urlHashCandidates = $this->nonEmptyStrings([

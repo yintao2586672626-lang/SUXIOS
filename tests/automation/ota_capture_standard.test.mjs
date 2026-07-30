@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -11,6 +12,8 @@ import {
   classifyOtaResponse,
   extractOtaRequestDateEvidence,
   normalizeCaptureSections,
+  OTA_DOM_FALLBACK_EVIDENCE,
+  OTA_STRUCTURED_RESPONSE_EVIDENCE,
   parseCookieHeader,
   sanitizeOtaPayloadForStorage,
 } from '../../scripts/lib/ota_capture_standard.mjs';
@@ -266,6 +269,72 @@ test('records explicit endpoint, browser-response, and DOM fallback strategies',
   });
   assert.equal(dom.capture_strategy, 'dom_fallback');
   assert.equal(dom.response_evidence_type, 'dom_fields');
+});
+
+test('shares one explicit structured-response versus DOM-fallback evidence rule', () => {
+  const structured = buildOtaCaptureEvidence('ctrip', {
+    ...OTA_STRUCTURED_RESPONSE_EVIDENCE,
+    url: 'https://ebooking.ctrip.com/api/traffic',
+    section: 'traffic',
+    sourcePath: 'data.rows.0',
+    captureSource: 'xhr:traffic',
+  });
+  assert.equal(structured.capture_strategy, 'browser_response');
+  assert.equal(structured.response_evidence_type, 'structured_json');
+  assert.equal(structured.fallback_from, null);
+
+  const dom = buildOtaCaptureEvidence('meituan', {
+    ...OTA_DOM_FALLBACK_EVIDENCE,
+    url: 'https://eb.meituan.com/ebooking/traffic',
+    section: 'traffic',
+    sourcePath: 'dom.traffic.cards.0',
+    captureSource: 'dom:traffic',
+  });
+  assert.equal(dom.capture_strategy, 'dom_fallback');
+  assert.equal(dom.response_evidence_type, 'dom_fields');
+  assert.equal(dom.fallback_from, 'browser_response');
+  assert.equal(dom.fallback_reason, 'structured_response_unavailable');
+  assert.notEqual(dom.source_trace_id, structured.source_trace_id);
+});
+
+test('Ctrip and Meituan collectors persist the shared rule at each capture boundary', () => {
+  const ctrip = readFileSync(
+    new URL('../../scripts/ctrip_browser_capture.mjs', import.meta.url),
+    'utf8',
+  );
+  const ctripResponseBlock = ctrip.slice(
+    ctrip.indexOf('function registerResponseCapture'),
+    ctrip.indexOf('function normalizeRows'),
+  );
+  const ctripAttachBlock = ctrip.slice(
+    ctrip.indexOf('function attachCtripCaptureEvidence'),
+    ctrip.indexOf('function normalizeGenericList'),
+  );
+  assert.match(ctripResponseBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+  assert.match(ctripAttachBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+
+  const meituan = readFileSync(
+    new URL('../../scripts/meituan_browser_capture.mjs', import.meta.url),
+    'utf8',
+  );
+  const responseBlock = meituan.slice(
+    meituan.indexOf('async function captureMeituanResponse'),
+    meituan.indexOf('function normalizeCapturedList'),
+  );
+  const domBlock = meituan.slice(
+    meituan.indexOf('async function collectDomFallback'),
+    meituan.indexOf('async function collectMeituanOrderDomAggregate'),
+  );
+  const orderDomBlock = meituan.slice(
+    meituan.indexOf('async function collectMeituanOrderDomAggregate'),
+    meituan.indexOf('function findMeituanOrderIframe'),
+  );
+  assert.match(responseBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+  assert.doesNotMatch(responseBlock, /\.\.\.OTA_DOM_FALLBACK_EVIDENCE/);
+  assert.match(domBlock, /\.\.\.OTA_DOM_FALLBACK_EVIDENCE/);
+  assert.doesNotMatch(domBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
+  assert.match(orderDomBlock, /\.\.\.OTA_DOM_FALLBACK_EVIDENCE/);
+  assert.doesNotMatch(orderDomBlock, /\.\.\.OTA_STRUCTURED_RESPONSE_EVIDENCE/);
 });
 
 test('rejects silent or sensitive strategy fallback and binds strategy into trace', () => {

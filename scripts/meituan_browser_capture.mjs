@@ -9,6 +9,8 @@ import {
   extractOtaRequestDateEvidence,
   injectBrowserCookies as injectStandardBrowserCookies,
   normalizeCaptureSections as normalizeStandardCaptureSections,
+  OTA_DOM_FALLBACK_EVIDENCE,
+  OTA_STRUCTURED_RESPONSE_EVIDENCE,
   sanitizeOtaPayloadForStorage,
 } from './lib/ota_capture_standard.mjs';
 import {
@@ -1537,7 +1539,12 @@ async function captureMeituanResponse(response, target) {
       return;
     }
     const captureSource = autoDiscovered ? `xhr:auto_discovered:${section}` : `xhr:${section}`;
-    const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource });
+    const responseEvidence = buildOtaCaptureEvidence('meituan', {
+      ...OTA_STRUCTURED_RESPONSE_EVIDENCE,
+      url,
+      section,
+      captureSource,
+    });
     target.responses.push({
       url_hash: responseEvidence.source_url_hash || '',
       source_trace_id: responseEvidence.source_trace_id || '',
@@ -1576,6 +1583,7 @@ async function captureMeituanResponse(response, target) {
     target[targetPayloadKey].push(...rows.map(row => {
       row = withMeituanPlatformIdentifier(row);
       return attachOtaCaptureEvidence(row, 'meituan', {
+        ...OTA_STRUCTURED_RESPONSE_EVIDENCE,
         url,
         section,
         captureSource: row._capture_source || captureSource,
@@ -1956,6 +1964,7 @@ async function collectDomFallback(page, target, section) {
         }
         row = withMeituanPlatformIdentifier(row);
         return attachOtaCaptureEvidence(row, 'meituan', {
+          ...OTA_DOM_FALLBACK_EVIDENCE,
           url,
           section,
           captureSource: row._capture_source || `dom:${section}`,
@@ -2022,6 +2031,7 @@ async function collectDomFallback(page, target, section) {
   const capturedRows = rows.map(row => {
     row = withMeituanPlatformIdentifier(row);
     return attachOtaCaptureEvidence(row, 'meituan', {
+      ...OTA_DOM_FALLBACK_EVIDENCE,
       url,
       section,
       captureSource: row._capture_source || `dom:${section}`,
@@ -2089,6 +2099,7 @@ async function collectMeituanOrderDomAggregate(page, target) {
   };
   row = withMeituanPlatformIdentifier(row);
   row = attachOtaCaptureEvidence(row, 'meituan', {
+    ...OTA_DOM_FALLBACK_EVIDENCE,
     url: frame.url(),
     section: 'orders',
     captureSource: row._capture_source,

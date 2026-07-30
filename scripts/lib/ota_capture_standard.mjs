@@ -476,6 +476,18 @@ export const WEB_CAPTURE_STRATEGIES = Object.freeze({
   domFallback: 'dom_fallback',
 });
 
+export const OTA_STRUCTURED_RESPONSE_EVIDENCE = Object.freeze({
+  captureStrategy: WEB_CAPTURE_STRATEGIES.browserResponse,
+  responseEvidenceType: 'structured_json',
+});
+
+export const OTA_DOM_FALLBACK_EVIDENCE = Object.freeze({
+  captureStrategy: WEB_CAPTURE_STRATEGIES.domFallback,
+  responseEvidenceType: 'dom_fields',
+  fallbackFrom: WEB_CAPTURE_STRATEGIES.browserResponse,
+  fallbackReason: 'structured_response_unavailable',
+});
+
 const WEB_CAPTURE_RESPONSE_EVIDENCE_TYPES = new Set([
   'structured_json',
   'dom_fields',

@@ -96,6 +96,31 @@ final class OtaStructuredCaptureEvidenceServiceTest extends TestCase
         );
     }
 
+    public function testNormalizedEnvelopeMayKeepADistinctConsistentUpstreamTrace(): void
+    {
+        $row = $this->structuredRow('meituan');
+        $raw = json_decode((string)$row['raw_data'], true);
+        $raw['row']['source_trace_id'] = 'upstream:response:1';
+        $raw['row']['capture_evidence']['source_trace_id']
+            = 'upstream:response:1';
+        $row['raw_data'] = json_encode($raw, JSON_THROW_ON_ERROR);
+
+        $verified = (new OtaStructuredCaptureEvidenceService())
+            ->classifyRow($row);
+        self::assertTrue($verified['allowed']);
+
+        $raw['row']['capture_evidence']['source_trace_id']
+            = 'upstream:response:2';
+        $row['raw_data'] = json_encode($raw, JSON_THROW_ON_ERROR);
+        $mismatched = (new OtaStructuredCaptureEvidenceService())
+            ->classifyRow($row);
+        self::assertFalse($mismatched['allowed']);
+        self::assertContains(
+            'upstream_source_trace_mismatch',
+            $mismatched['reason_codes']
+        );
+    }
+
     /** @return array<string,mixed> */
     private function structuredRow(string $platform): array
     {
