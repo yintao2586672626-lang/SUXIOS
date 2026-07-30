@@ -330,6 +330,7 @@ Route::group('api/online-data', function () {
     Route::post('/local-collector/tasks', 'ota.LocalCollectorController/createTask');
     Route::post('/local-collector/devices/:deviceId/revoke', 'ota.LocalCollectorController/revokeDevice');
     Route::get('/ctrip-collector-contract', 'ota.CtripController/ctripCollectorContract');
+    Route::post('/ctrip-temporal-broadcast-preview', 'ota.CtripController/ctripTemporalBroadcastPreview');
     Route::post('/fetch-ctrip-cookie-api', 'ota.CtripController/fetchCtripCookieApiData');
     Route::post('/validate-ctrip-endpoint-evidence', 'ota.CtripController/validateCtripEndpointEvidence');
     Route::post('/fetch-ctrip-overview', 'ota.CtripController/fetchCtripOverviewData');
@@ -513,6 +514,7 @@ Route::group('api/macro-signals', function () {
 Route::group('api/temporal-insights', function () {
     Route::get('/overview', 'TemporalInsight/overview');
     Route::post('/forecasts', 'TemporalInsight/generateForecast');
+    Route::post('/forecasts/:id/execution-intent', 'TemporalInsight/createOperationReviewIntent');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== 全生命周期真实数据 API ====================

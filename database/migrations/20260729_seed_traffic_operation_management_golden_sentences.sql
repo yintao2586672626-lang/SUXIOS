@@ -716,3 +716,4 @@ SET
   `update_time` = NOW()
 WHERE `hotel_id` = 0
   AND `title` = @traffic_ops_unit_name;
+

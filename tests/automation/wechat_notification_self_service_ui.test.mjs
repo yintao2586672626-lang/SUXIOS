@@ -91,21 +91,21 @@ test('page exposes save, test-delivery and readback status evidence', () => {
   assert.match(appMain, /response\.data\?\.binding/);
 });
 
-test('enterprise WeChat exposes one current-hotel channel without duplicate binding forms', () => {
-  assert.match(panel, /当前酒店推送通道/);
-  assert.match(panel, /当前酒店只绑定一个企业微信群机器人 Webhook/);
+test('enterprise WeChat exposes one compact current-hotel channel without duplicate binding forms', () => {
+  assert.match(panel, /企业微信群机器人/);
+  assert.match(panel, /加密保存，不回显完整地址/);
   assert.doesNotMatch(panel, /我的通知群|通知群名称|wechat-notification-hotel|wechat-notification-name/);
+  assert.doesNotMatch(panel, /当前酒店只绑定一个企业微信群机器人 Webhook|酒店由页面顶部统一选择/);
   assert.doesNotMatch(notificationPage, /data-testid="wecom-robot-management"|管理员配置|绑定共享机器人/);
   assert.match(notificationPage, /\['manual-notifications', 'wechat-notification'\]\.includes\(currentPage\)/);
   assert.match(notificationUi, /manual-notification-formal-robot/);
-  assert.match(panel, /酒店由页面顶部统一选择，不会绑定到其他酒店/);
   assert.match(notificationPage, /1　推送通道/);
   assert.match(notificationPage, /2　自动推送/);
   assert.match(panel, /自动发送设置/);
-  assert.match(panel, /计划自动使用当前酒店唯一推送通道/);
+  assert.match(panel, /当前酒店企业微信群机器人 Webhook 已绑定/);
   assert.match(notificationPage, /data-testid="manual-notification-automatic-tasks"/);
-  assert.match(notificationPage, /data-testid="manual-notification-history"/);
-  assert.match(notificationPage, /data-testid="manual-notification-dispatch-history"/);
+  assert.doesNotMatch(notificationPage, /data-testid="manual-notification-history"|已保存计划/);
+  assert.match(notificationUi, /manual-notification-dispatch-history/);
   assert.doesNotMatch(hotelPage, /wechat-notification-page|wecom-robot-management|绑定共享机器人/);
   assert.doesNotMatch(dataConfigPage, /wecom-robot-management|绑定共享机器人/);
   assert.match(
@@ -128,6 +128,7 @@ test('enterprise WeChat exposes one current-hotel channel without duplicate bind
   assert.match(appMain, /wechatNotificationSharedBinding\.value\s*\|\|\s*wechatNotificationPersonalBinding\.value/);
   assert.match(appMain, /\/admin\/competitor-wechat-robot\/update\/\$\{sharedRobotId\}/);
   assert.match(appMain, /\/admin\/competitor-wechat-robot\/test-store\/\$\{hotelId\}/);
+  assert.match(appMain, /showToast\(response\.message \|\| '测试消息已发送'\);[\s\S]*manualNotificationWorkspaceTab\.value = 'plans'/);
 });
 
 test('admin shared management and default hotel delivery exclude account bindings', () => {

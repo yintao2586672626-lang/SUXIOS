@@ -28,8 +28,14 @@ final class ManualNotificationScheduleService
     /** @var callable|null */
     private $meituanTemporalRefresher;
 
+    /** @var callable|null */
+    private $ctripTemporalRefresher;
+
     /** @var array<string, array<string, mixed>> */
     private array $meituanPreparationCache = [];
+
+    /** @var array<string, array<string, mixed>> */
+    private array $ctripPreparationCache = [];
 
     public function __construct(
         ?callable $sender = null,
@@ -39,10 +45,13 @@ final class ManualNotificationScheduleService
         private readonly ?ManualNotificationScheduleRuleService $scheduleRuleService = null,
         private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null,
         private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null,
-        ?callable $meituanTemporalRefresher = null
+        ?callable $meituanTemporalRefresher = null,
+        private readonly ?CtripTemporalNotificationPayloadService $ctripTemporalPayloads = null,
+        ?callable $ctripTemporalRefresher = null
     ) {
         $this->sender = $sender;
         $this->meituanTemporalRefresher = $meituanTemporalRefresher;
+        $this->ctripTemporalRefresher = $ctripTemporalRefresher;
     }
 
     /** @return array<string, mixed> */
@@ -205,6 +214,13 @@ final class ManualNotificationScheduleService
                 'reason_code' => 'target_identity_not_ready',
             ];
         $base['source_preparation'] = $sourcePreparation;
+        $ctripPreparation = ($identity['eligible'] ?? false) === true
+            ? $this->prepareCtripSource($row, $businessDate, $now, $dispatch)
+            : [
+                'status' => 'skipped',
+                'reason_code' => 'target_identity_not_ready',
+            ];
+        $base['ctrip_source_preparation'] = $ctripPreparation;
         $candidate = $this->deliveryCandidate(
             $row,
             $businessDate,
@@ -224,6 +240,24 @@ final class ManualNotificationScheduleService
                     'blockers' => [[
                         'code' => $reasonCode,
                         'message' => '美团当次采集未完成保存回读，本轮未发送。',
+                    ]],
+                ],
+            ];
+        }
+        if (($ctripPreparation['status'] ?? '') === 'blocked') {
+            $reasonCode = (string)($ctripPreparation['reason_code']
+                ?? 'ctrip_current_capture_not_ready');
+            $candidate = [
+                'status' => 'blocked',
+                'reason_code' => $reasonCode,
+                'business_date' => $businessDate,
+                'payload' => null,
+                'formal_send_gate' => [
+                    'allowed' => false,
+                    'status' => 'formal_send_blocked',
+                    'blockers' => [[
+                        'code' => $reasonCode,
+                        'message' => '携程当次采集未完成保存回读，本轮未发送。',
                     ]],
                 ],
             ];
@@ -579,6 +613,99 @@ final class ManualNotificationScheduleService
         ];
     }
 
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private function prepareCtripSource(
+        array $row,
+        string $businessDate,
+        DateTimeImmutable $observedAt,
+        bool $dispatch
+    ): array {
+        if (!ManualNotificationService::isCtripTemporalReportType(
+            (string)($row['template_type'] ?? '')
+        )) {
+            return [
+                'status' => 'not_required',
+                'reason_code' => 'non_ctrip_temporal_plan',
+            ];
+        }
+        if ((string)($row['business_date_rule'] ?? 'today') !== 'today') {
+            return [
+                'status' => 'not_required',
+                'reason_code' => 'historical_business_date_uses_verified_snapshot',
+            ];
+        }
+        if (!$dispatch) {
+            return [
+                'status' => 'preview_only',
+                'reason_code' => 'current_capture_runs_before_real_dispatch',
+            ];
+        }
+
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        $cacheKey = $hotelId . '|' . $businessDate;
+        if (isset($this->ctripPreparationCache[$cacheKey])) {
+            return $this->ctripPreparationCache[$cacheKey] + ['reused_in_run' => true];
+        }
+
+        $actorId = (int)($row['created_by'] ?? 0);
+        $actor = $actorId > 0
+            ? User::where('id', $actorId)->where('status', 1)->find()
+            : null;
+        if (!$actor) {
+            $result = [
+                'status' => 'blocked',
+                'reason_code' => 'ctrip_schedule_actor_missing',
+            ];
+        } else {
+            try {
+                $result = $this->ctripTemporalRefresher !== null
+                    ? call_user_func(
+                        $this->ctripTemporalRefresher,
+                        $row,
+                        $businessDate,
+                        $observedAt,
+                        $actor
+                    )
+                    : (new CtripTemporalRefreshService())->refresh(
+                        $actor,
+                        (int)($row['tenant_id'] ?? 0),
+                        $hotelId,
+                        $this->hotelName($hotelId),
+                        $businessDate,
+                        $observedAt
+                    );
+                $result = is_array($result) ? $result : [];
+            } catch (\Throwable) {
+                $result = [
+                    'status' => 'blocked',
+                    'reason_code' => 'ctrip_current_capture_failed',
+                ];
+            }
+        }
+
+        if (($result['status'] ?? '') === 'ready') {
+            if (($result['readback_verified'] ?? false) !== true
+                || (int)($result['saved_count'] ?? 0) <= 0
+            ) {
+                $result = [
+                    ...$result,
+                    'status' => 'blocked',
+                    'reason_code' => 'ctrip_current_capture_readback_missing',
+                ];
+            }
+        } elseif (($result['status'] ?? '') !== 'blocked') {
+            $result = [
+                ...$result,
+                'status' => 'blocked',
+                'reason_code' => (string)($result['reason_code']
+                    ?? 'ctrip_current_capture_not_ready'),
+            ];
+        }
+
+        $this->ctripPreparationCache[$cacheKey] = $result;
+        return $result;
+    }
+
     /**
      * @param array<string, mixed> $row
      * @return array{eligible:bool,reason_code?:string,robot_id?:int,robot_name?:string}
@@ -625,41 +752,51 @@ final class ManualNotificationScheduleService
             (string)($row['template_type'] ?? '')
         )) {
             $templateType = (string)($row['template_type'] ?? '');
-            $candidate = ManualNotificationService::isBusinessFactReportType(
+            $candidate = ManualNotificationService::isCtripTemporalReportType(
                 $templateType
             )
-                ? $this->businessPayloads()->build(
+                ? $this->ctripTemporalPayloads()->build(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    $businessDate,
+                    'scheduled_test'
+                )
+                : (ManualNotificationService::isBusinessFactReportType(
+                    $templateType
+                )
+                    ? $this->businessPayloads()->build(
                     $tenantId,
                     $hotelId,
                     $hotelName,
                     $businessDate,
                     $templateType,
                     'scheduled_test'
-                )
-                : (ManualNotificationService::isOperatingDailyReportType(
-                    $templateType
-                )
-                    ? $this->dailyPayloads()->build(
-                        $tenantId,
-                        $hotelId,
-                        $hotelName,
-                        $businessDate,
-                        'scheduled_test',
-                        (string)($row['source_scope'] ?? 'combined'),
-                        $this->contentSections($row['content_sections'] ?? null),
-                        ManualNotificationService::operatingDailyTemplateMode(
-                            $templateType
-                        ),
-                        (string)($row['title'] ?? ''),
-                        (string)($row['body'] ?? '')
                     )
-                    : $this->targetPayloads()->build(
-                        $tenantId,
-                        $hotelId,
-                        $hotelName,
-                        $businessDate,
-                        'scheduled_test'
-                    ));
+                    : (ManualNotificationService::isOperatingDailyReportType(
+                        $templateType
+                    )
+                        ? $this->dailyPayloads()->build(
+                            $tenantId,
+                            $hotelId,
+                            $hotelName,
+                            $businessDate,
+                            'scheduled_test',
+                            (string)($row['source_scope'] ?? 'combined'),
+                            $this->contentSections($row['content_sections'] ?? null),
+                            ManualNotificationService::operatingDailyTemplateMode(
+                                $templateType
+                            ),
+                            (string)($row['title'] ?? ''),
+                            (string)($row['body'] ?? '')
+                        )
+                        : $this->targetPayloads()->build(
+                            $tenantId,
+                            $hotelId,
+                            $hotelName,
+                            $businessDate,
+                            'scheduled_test'
+                        )));
             return $mode === self::MODE_FORMAL
                 ? $this->formalizeDynamicCandidate($candidate)
                 : $candidate;
@@ -684,6 +821,12 @@ final class ManualNotificationScheduleService
             return $candidate;
         }
         $payload = $candidate['payload'];
+        if (strtolower(trim((string)($payload['msgtype'] ?? ''))) !== 'markdown'
+            || !is_array($payload['markdown'] ?? null)
+            || !array_key_exists('content', $payload['markdown'])
+        ) {
+            return $candidate;
+        }
         $content = (string)($payload['markdown']['content'] ?? '');
         $content = str_replace(
             [
@@ -963,6 +1106,12 @@ final class ManualNotificationScheduleService
             ?? new ManualNotificationBusinessPayloadService();
     }
 
+    private function ctripTemporalPayloads(): CtripTemporalNotificationPayloadService
+    {
+        return $this->ctripTemporalPayloads
+            ?? new CtripTemporalNotificationPayloadService();
+    }
+
     /**
      * Existing static plans must not inherit permission to send a newly
      * introduced dynamic business payload. A successful immediate test of the
@@ -977,7 +1126,7 @@ final class ManualNotificationScheduleService
         string $robotName
     ): array {
         $templateType = (string)($row['template_type'] ?? '');
-        if (!ManualNotificationService::isBusinessFactReportType($templateType)) {
+        if (!ManualNotificationService::requiresTestedRenderContract($templateType)) {
             return ['eligible' => true];
         }
         $contractVersion = trim((string)(

@@ -1367,6 +1367,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       url,
       platform,
       requestPayload,
+      capturePlan: capturePlan.id,
       captureEvidence: responseEvidence,
       sourceTraceId: responseEvidence.source_trace_id || '',
       sourceUrlHash: responseEvidence.source_url_hash || '',

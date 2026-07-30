@@ -7,6 +7,7 @@ use app\model\Hotel;
 use app\model\KnowledgeChunk;
 use app\model\KnowledgeUnit;
 use app\service\KnowledgeDocumentTextExtractor;
+use app\service\KnowledgeDecisionGateService;
 use app\service\KnowledgeDistillationService;
 use app\service\KnowledgeMaterialIngestionService;
 use app\service\KnowledgePayloadMapper;
@@ -316,6 +317,17 @@ class Knowledge extends Base
             if (($content['content_type'] ?? '') !== 'sop_card' || $template === []) {
                 return $this->fail('This knowledge chunk is not a taskable SOP card', 422);
             }
+            $knowledgeGate = (new KnowledgeDecisionGateService())->assess(
+                $unit->toArray(),
+                $content
+            );
+            if (($knowledgeGate['task_draft_safe'] ?? false) !== true) {
+                return $this->fail(
+                    '知识已过期、存在冲突或证据不足，不能创建运营任务草稿',
+                    422,
+                    ['knowledge_gate' => $knowledgeGate]
+                );
+            }
 
             $input = $this->requestData();
             $hotelId = $this->resolveKnowledgeImportHotelId((int)($input['hotel_id'] ?? 0));
@@ -365,6 +377,8 @@ class Knowledge extends Base
                     'source_version' => (string)($content['seed_version'] ?? ''),
                     'source_refs' => array_values((array)($content['source_refs'] ?? [])),
                     'evidence_level' => (string)($content['evidence_level'] ?? ''),
+                    'evidence_grade' => (string)($knowledgeGate['evidence_grade'] ?? 'U'),
+                    'knowledge_gate_status' => (string)($knowledgeGate['status'] ?? 'blocked'),
                     'auto_write_ota' => false,
                 ],
                 'expected_metric' => 'sop_completion',

@@ -70,6 +70,40 @@ final class TemporalInsight extends Base
         }
     }
 
+    public function createOperationReviewIntent(int $id): Response
+    {
+        try {
+            if ($id <= 0 || !$this->currentUser) {
+                return $this->error('预测点无效或尚未登录。', 422);
+            }
+            $permittedIds = $this->currentUser->isSuperAdmin()
+                ? []
+                : array_values(array_unique(array_filter(
+                    array_map('intval', $this->currentUser->getPermittedHotelIds()),
+                    static fn(int $hotelId): bool => $hotelId > 0
+                )));
+            if (!$this->currentUser->isSuperAdmin() && $permittedIds === []) {
+                return $this->error('暂无可送入运营审核的酒店。', 403);
+            }
+
+            return $this->success(
+                $this->service->createOperationReviewIntent(
+                    $id,
+                    $permittedIds,
+                    (int)($this->currentUser->id ?? 0)
+                ),
+                '预测运营建议已进入人工审核，尚未生成运营任务'
+            );
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            $code = (int)$e->getCode();
+            return $this->error($e->getMessage(), $code >= 400 && $code <= 499 ? $code : 500);
+        } catch (\Throwable $e) {
+            return $this->error('预测运营建议送审失败：' . $e->getMessage(), 500);
+        }
+    }
+
     /** @return array<int, int> */
     private function resolveHotelIds(): array
     {

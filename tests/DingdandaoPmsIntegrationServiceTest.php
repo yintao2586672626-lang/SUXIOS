@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace tests;
 
+use app\service\DingdandaoOperatingTargetCaptureService;
 use app\service\DingdandaoPmsIntegrationService;
 use PHPUnit\Framework\TestCase;
 use think\App;
@@ -433,7 +434,9 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
         );
         $this->saveEnabledConfig($service);
         $capture = $this->verifiedCapture();
-        $capture['readback_status'] = 'readback_failed';
+        Db::name('dingdandao_operating_target_captures')
+            ->where('id', 501)
+            ->update(['readback_status' => 'readback_failed']);
 
         $result = $service->dispatchVerifiedCapture(
             80,
@@ -448,6 +451,118 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
         self::assertFalse($result['delivery_attempted']);
         self::assertSame([], $calls);
         self::assertSame(0, (int)Db::name('dingdandao_pms_push_dispatches')->count());
+        self::assertContains(
+            'pms_capture_authoritative_readback_missing',
+            array_column($result['blockers'], 'code')
+        );
+    }
+
+    public function testDispatchUsesDatabaseFactsInsteadOfCallerMutation(): void
+    {
+        $payloads = [];
+        $service = new DingdandaoPmsIntegrationService(
+            static function (
+                int $_hotelId,
+                int $_robotId,
+                array $payload
+            ) use (&$payloads): array {
+                $payloads[] = $payload;
+                return [
+                    'delivery_status' => 'sent',
+                    'robot_count' => 1,
+                    'sent_count' => 1,
+                    'failed_count' => 0,
+                    'failures' => [],
+                ];
+            }
+        );
+        $this->saveEnabledConfig($service);
+        $capture = $this->verifiedCapture();
+        $capture['summary']['total_room_fee'] = 999999.99;
+        $capture['county_context']['summary']['total_room_fee'] = 1;
+
+        $result = $service->dispatchVerifiedCapture(
+            80,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $capture,
+            'capture'
+        );
+
+        self::assertSame('sent', $result['delivery_status']);
+        self::assertCount(1, $payloads);
+        $content = (string)$payloads[0]['markdown']['content'];
+        self::assertStringContainsString('客房收入：¥8,275.67', $content);
+        self::assertStringContainsString(
+            '门店平均总房费：¥6,053.86（本店较区域 ↑36.70%）',
+            $content
+        );
+        self::assertStringNotContainsString('999,999.99', $content);
+    }
+
+    public function testMissingAuthoritativeCaptureBlocksBeforeDispatchCreation(): void
+    {
+        $calls = 0;
+        $service = new DingdandaoPmsIntegrationService(
+            static function () use (&$calls): array {
+                $calls++;
+                return ['delivery_status' => 'sent'];
+            }
+        );
+        $this->saveEnabledConfig($service);
+        $capture = $this->verifiedCapture();
+        $capture['id'] = 999;
+
+        $result = $service->dispatchVerifiedCapture(
+            80,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $capture,
+            'capture'
+        );
+
+        self::assertSame('blocked', $result['delivery_status']);
+        self::assertFalse($result['delivery_attempted']);
+        self::assertSame(0, $calls);
+        self::assertSame(0, (int)Db::name('dingdandao_pms_push_dispatches')->count());
+        self::assertContains(
+            'pms_capture_authoritative_readback_missing',
+            array_column($result['blockers'], 'code')
+        );
+    }
+
+    public function testCaptureFingerprintMismatchBlocksBeforeDispatchCreation(): void
+    {
+        $calls = 0;
+        $service = new DingdandaoPmsIntegrationService(
+            static function () use (&$calls): array {
+                $calls++;
+                return ['delivery_status' => 'sent'];
+            }
+        );
+        $this->saveEnabledConfig($service);
+        $capture = $this->verifiedCapture();
+        $capture['source_fingerprint'] = str_repeat('b', 64);
+
+        $result = $service->dispatchVerifiedCapture(
+            80,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $capture,
+            'capture'
+        );
+
+        self::assertSame('blocked', $result['delivery_status']);
+        self::assertFalse($result['delivery_attempted']);
+        self::assertSame(0, $calls);
+        self::assertSame(0, (int)Db::name('dingdandao_pms_push_dispatches')->count());
+        self::assertContains(
+            'pms_capture_authoritative_readback_missing',
+            array_column($result['blockers'], 'code')
+        );
     }
 
     public function testVerifiedCaptureUsesExistingSenderOnceAndKeepsReceipt(): void
@@ -522,7 +637,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             $calls[0]['payload']['markdown']['content']
         );
         self::assertStringContainsString(
-            '3 天（07-29 至 07-31）：已订12 间夜｜剩余可售33 间夜｜OCC 26.67%｜ADR ¥320.00｜RevPAR ¥85.34',
+            '3 天（07-29 至 07-31）：已订12 间夜｜剩余可售33 间夜｜OCC 26.67%｜ADR ¥320.00｜RevPAR ¥85.33',
             $calls[0]['payload']['markdown']['content']
         );
         self::assertStringNotContainsString(
@@ -903,9 +1018,11 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
     }
 
     /** @return array<string,mixed> */
-    private function verifiedCapture(): array
+    private function verifiedCapture(bool $persist = true): array
     {
-        return [
+        $countyContext = $this->verifiedCountyContext();
+        $forwardRoomStatus = $this->verifiedForwardRoomStatus();
+        $capture = [
             'id' => 501,
             'hotel_id' => 80,
             'business_date' => '2026-07-28',
@@ -950,114 +1067,200 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
                     ['date' => '2026-07-28', 'value' => 15],
                 ],
             ],
-            'county_context' => [
-                'fact_scope' => 'county_diagnostic_only',
-                'data_status' => 'readable_separate',
-                'region_name' => '甘肃省/酒泉市/敦煌市',
-                'bool_city' => false,
-                'summary' => [
-                    'total_room_fee' => 6053.86,
-                    'adr' => 396.87,
-                    'occupancy_rate_percent' => 60.96,
-                    'revpar' => 241.93,
-                    'sold_room_nights' => 15.25,
-                    'average_daily_room_nights' => 15.25,
-                ],
-                'trend' => [],
-                'field_trace' => [],
-            ],
-            'forward_room_status' => [
-                'fact_scope' => 'whole_hotel_forward_room_status',
-                'data_status' => 'verified',
-                'readback_status' => 'readback_verified',
-                'display_horizons' => [3, 7, 14, 21],
-                'horizons' => [
-                    [
-                        'horizon_days' => 3,
-                        'date_from' => '2026-07-29',
-                        'date_to' => '2026-07-31',
-                        'booked_room_nights' => 12,
-                        'remaining_sellable_room_nights' => 33,
-                        'occupancy_rate_percent' => 26.67,
-                        'adr' => 320,
-                        'revpar' => 85.34,
-                        'quality_status' => 'verified',
-                    ],
-                    [
-                        'horizon_days' => 7,
-                        'date_from' => '2026-07-29',
-                        'date_to' => '2026-08-04',
-                        'booked_room_nights' => 20,
-                        'remaining_sellable_room_nights' => 85,
-                        'occupancy_rate_percent' => 19.05,
-                        'adr' => 310,
-                        'revpar' => 59.06,
-                        'quality_status' => 'verified',
-                    ],
-                    [
-                        'horizon_days' => 14,
-                        'date_from' => '2026-07-29',
-                        'date_to' => '2026-08-11',
-                        'booked_room_nights' => 31,
-                        'remaining_sellable_room_nights' => 179,
-                        'occupancy_rate_percent' => 14.76,
-                        'adr' => 305,
-                        'revpar' => 45.02,
-                        'quality_status' => 'verified',
-                    ],
-                    [
-                        'horizon_days' => 21,
-                        'date_from' => '2026-07-29',
-                        'date_to' => '2026-08-18',
-                        'booked_room_nights' => 42,
-                        'remaining_sellable_room_nights' => 273,
-                        'occupancy_rate_percent' => 13.33,
-                        'adr' => 300,
-                        'revpar' => 40,
-                        'quality_status' => 'verified',
-                    ],
-                ],
-            ],
+            'county_context' => $countyContext,
+            'forward_room_status' => $forwardRoomStatus,
             'captured_at' => '2026-07-28 00:30:00',
+        ];
+        if ($persist) {
+            $this->insertVerifiedCaptureRow($capture);
+        }
+        return $capture;
+    }
+
+    /** @return array<string,mixed> */
+    private function verifiedCountyContext(): array
+    {
+        $trend = [
+            'total_room_fee' => [
+                ['date' => '2026-07-27', 'value' => 5887.06],
+                ['date' => '2026-07-28', 'value' => 6053.86],
+            ],
+            'adr' => [
+                ['date' => '2026-07-27', 'value' => 366.18],
+                ['date' => '2026-07-28', 'value' => 396.87],
+            ],
+            'occupancy_rate_percent' => [
+                ['date' => '2026-07-27', 'value' => 66.5],
+                ['date' => '2026-07-28', 'value' => 60.96],
+            ],
+            'revpar' => [
+                ['date' => '2026-07-27', 'value' => 243.5],
+                ['date' => '2026-07-28', 'value' => 241.93],
+            ],
+            'sold_room_nights' => [
+                ['date' => '2026-07-27', 'value' => 16.08],
+                ['date' => '2026-07-28', 'value' => 15.25],
+            ],
+        ];
+        return [
+            'fact_scope' => 'county_diagnostic_only',
+            'data_status' => 'readable_separate',
+            'region_name' => '甘肃省/酒泉市/敦煌市',
+            'bool_city' => false,
+            'summary' => [
+                'total_room_fee' => 6053.86,
+                'adr' => 396.87,
+                'occupancy_rate_percent' => 60.96,
+                'revpar' => 241.93,
+                'sold_room_nights' => 15.25,
+                'average_daily_room_nights' => 15.25,
+            ],
+            'trend' => $trend,
+            'field_trace' => [
+                'summary' =>
+                    'API:/v2/um-b/web/pro/data/businessIndicatorsTotal/county#data',
+                'region_name' => 'DOM:当前区域指标',
+                'total_room_fee' =>
+                    'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=5#data.list[]',
+                'adr' =>
+                    'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=0#data.list[]',
+                'occupancy_rate_percent' =>
+                    'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=1#data.list[]',
+                'revpar' =>
+                    'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=2#data.list[]',
+                'sold_room_nights' =>
+                    'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=3#data.list[]',
+            ],
         ];
     }
 
-    private function insertVerifiedCaptureRow(): void
+    /** @return array<string,mixed> */
+    private function verifiedForwardRoomStatus(): array
     {
+        $businessDate = new \DateTimeImmutable('2026-07-28');
+        $dailyRows = [];
+        for ($offset = 0; $offset < 31; $offset++) {
+            $dailyRows[] = [
+                'stay_date' => $businessDate->modify('+' . $offset . ' days')
+                    ->format('Y-m-d'),
+                'remaining_sellable_rooms' => 11,
+                'booked_rooms' => 4,
+                'unavailable_rooms' => 0,
+                'oversold_rooms' => 0,
+                'room_fee' => 1280,
+                'sold_room_nights' => 4,
+                'sellable_room_nights' => 15,
+                'occupancy_rate_percent' => 26.67,
+                'adr' => 320,
+                'revpar' => 85.33,
+            ];
+        }
+        $horizons = [];
+        foreach ([3, 7, 14, 21] as $days) {
+            $horizons[] = [
+                'horizon_days' => $days,
+                'date_from' => '2026-07-29',
+                'date_to' => $businessDate->modify('+' . $days . ' days')
+                    ->format('Y-m-d'),
+                'expected_days' => $days,
+                'covered_days' => $days,
+                'sellable_room_nights' => 15 * $days,
+                'booked_room_nights' => 4 * $days,
+                'remaining_sellable_room_nights' => 11 * $days,
+                'unavailable_room_nights' => 0,
+                'room_fee' => 1280 * $days,
+                'occupancy_rate_percent' => 26.67,
+                'adr' => 320,
+                'revpar' => 85.33,
+                'quality_status' => 'verified',
+                'gap_codes' => [],
+            ];
+        }
+        return [
+            'contract_version' => 'dingdandao_forward_room_status.v1',
+            'fact_scope' => 'whole_hotel_forward_room_status',
+            'source_api_path' => '/v2/hm-b/pro/web/accom/roomStat/forward/v2',
+            'data_status' => 'verified',
+            'readback_status' => 'readback_verified',
+            'as_of_date' => '2026-07-28',
+            'range_start_date' => '2026-07-28',
+            'range_end_date' => '2026-08-27',
+            'requested_range_start_date' => '2026-07-28',
+            'requested_range_end_date' => '2026-08-27',
+            'source_day_count' => 31,
+            'display_day_count' => 21,
+            'source_room_type_count' => 1,
+            'total_room_count' => 15,
+            'display_horizons' => [3, 7, 14, 21],
+            'display_semantics' => 'future_days_after_as_of_date',
+            'source_coverage_status' => 'complete',
+            'source_gap_codes' => [],
+            'daily_rows' => $dailyRows,
+            'room_types' => [[
+                'provider_room_type_id' => 'room-type-1',
+                'room_type_name' => '测试房型',
+                'room_count' => 15,
+                'daily_rows' => $dailyRows,
+            ]],
+            'horizons' => $horizons,
+            'reconciliation_status' => 'matched',
+            'gap_codes' => [],
+            'field_trace' => [],
+        ];
+    }
+
+    /** @param array<string,mixed>|null $capture */
+    private function insertVerifiedCaptureRow(?array $capture = null): void
+    {
+        if ((int)Db::name('dingdandao_operating_target_captures')
+            ->where('id', 501)
+            ->count() > 0
+        ) {
+            return;
+        }
+        $capture ??= $this->verifiedCapture(false);
         Db::name('dingdandao_operating_target_captures')->insert([
             'id' => 501,
             'tenant_id' => 80,
             'hotel_id' => 80,
-            'provider' => 'dingdandao',
+            'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
             'provider_hotel_id' => 'provider-hotel-80',
             'provider_hotel_name' => '敦煌漠蓝',
             'expected_hotel_name' => '敦煌漠蓝',
             'identity_evidence_type' => 'provider_hotel_id',
             'identity_status' => 'matched',
-            'source_url' => 'https://dingdandao.com/',
+            'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
             'source_api_path' => '/api/verified',
-            'source_scope' => 'pms_accommodation_room_fee',
-            'capture_method' => 'cloud_profile',
+            'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+            'capture_method' => 'network_response',
             'business_date' => '2026-07-28',
-            'total_room_fee' => 8275.67,
-            'adr' => 636.59,
-            'occupancy_rate_percent' => 86.67,
-            'revpar' => 551.71,
-            'sold_room_nights' => 13,
-            'average_daily_room_nights' => 13,
-            'derived_sellable_room_nights' => 15,
-            'detail_room_fee_total' => 8275.67,
-            'detail_row_count' => 25,
+            'total_room_fee' => $capture['summary']['total_room_fee'],
+            'adr' => $capture['summary']['adr'],
+            'occupancy_rate_percent' => $capture['summary']['occupancy_rate_percent'],
+            'revpar' => $capture['summary']['revpar'],
+            'sold_room_nights' => $capture['summary']['sold_room_nights'],
+            'average_daily_room_nights' => $capture['summary']['average_daily_room_nights'],
+            'derived_sellable_room_nights' => $capture['summary']['derived_sellable_room_nights'],
+            'detail_room_fee_total' => $capture['detail_room_fee_total'],
+            'detail_row_count' => $capture['detail_row_count'],
             'reconciliation_status' => 'matched',
             'capture_status' => 'verified',
             'quality_status' => 'verified',
             'quality_reason' => 'verified test capture',
             'gap_codes_json' => '[]',
-            'trend_json' => '[]',
+            'trend_json' => json_encode(
+                $capture['trend'],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            ),
             'field_trace_json' => '{}',
-            'snapshot_json' => '{}',
-            'source_fingerprint' => str_repeat('a', 64),
-            'captured_at' => '2026-07-28 00:30:00',
+            'snapshot_json' => json_encode([
+                'collection_mode' => 'full_diagnostic',
+                'county_context' => $capture['county_context'],
+                'forward_room_status' => $capture['forward_room_status'],
+                'capture_evidence' => [],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'source_fingerprint' => $capture['source_fingerprint'],
+            'captured_at' => $capture['captured_at'],
             'captured_by' => 7,
             'readback_status' => 'readback_verified',
             'readback_verified_at' => '2026-07-28 00:30:01',

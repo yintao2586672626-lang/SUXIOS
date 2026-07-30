@@ -328,6 +328,46 @@ final class LlmClientTest extends TestCase
         self::assertContains('Idempotency-Key: req-transport-1', $options[CURLOPT_HTTPHEADER]);
     }
 
+    public function testOllamaTransportIsLoopbackOnlyKeylessAndUsesNativeJsonSchema(): void
+    {
+        if (!extension_loaded('curl')) {
+            self::markTestSkipped('cURL extension is unavailable');
+        }
+
+        $client = new LlmClient();
+        $target = (new OutboundUrlGuard())->validateLocalLlm(
+            'http://127.0.0.1:11434/v1/chat/completions'
+        );
+        $options = $this->invokeNonPublic($client, 'buildCurlOptions', [
+            $target,
+            ['provider' => 'ollama', 'api_key' => ''],
+            '{"model":"qwen3:8b"}',
+            ['timeout' => 30],
+        ]);
+
+        self::assertSame([], $options[CURLOPT_RESOLVE]);
+        self::assertSame('', $options[CURLOPT_PROXY]);
+        self::assertSame('*', $options[CURLOPT_NOPROXY]);
+        self::assertNotContains('Authorization: Bearer ', $options[CURLOPT_HTTPHEADER]);
+        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTP')) {
+            self::assertSame(CURLPROTO_HTTP, $options[CURLOPT_PROTOCOLS]);
+        }
+
+        $payload = $this->invokeNonPublic($client, 'chatPayload', [[
+            'provider' => 'ollama',
+            'model' => 'qwen3:8b',
+        ], 'Return a JSON summary.', [
+            'json_schema' => [
+                'type' => 'object',
+                'properties' => ['summary' => ['type' => 'string']],
+                'required' => ['summary'],
+            ],
+        ]]);
+
+        self::assertSame('none', $payload['reasoning_effort']);
+        self::assertSame('json_schema', $payload['response_format']['type']);
+    }
+
     public function testDebugIncludesRetryMetadataWithoutMaskingFailure(): void
     {
         $client = new LlmClient();

@@ -379,6 +379,132 @@ final class OperationExecutionLoopTest extends TestCase
         }
     }
 
+    public function testForecastRecommendationBuildsOnlyAPendingManualChecklistIntent(): void
+    {
+        $service = new OperationManagementService();
+        $payload = $service->buildExecutionIntentPayload([7], 7, [
+            'source_module' => \app\service\TemporalInsightService::OPERATION_SOURCE_MODULE,
+            'source_record_id' => 88,
+            'hotel_id' => 7,
+            'platform' => 'all_ota',
+            'object_type' => 'operation_checklist',
+            'action_type' => 'manual_forecast_review',
+            'date_start' => '2026-08-01',
+            'date_end' => '2026-08-02',
+            'target_value' => [
+                'title' => 'OTA收入 T+1 预测运营核查',
+                'action_text' => '人工核查来源和可控运营因素',
+                'target_metric' => 'ota_revenue',
+                'steps' => ['人工核查', '记录证据', '次日复盘'],
+                'acceptance_criteria' => ['人工审批后才生成任务', '禁止自动调价'],
+                'automatic_price_write' => false,
+            ],
+            'evidence' => [
+                'evidence_refs' => [[
+                    'table' => 'temporal_forecast_snapshots',
+                    'row_id' => 88,
+                ]],
+                'review_required' => true,
+                'automatic_price_write' => false,
+            ],
+            'expected_metric' => 'ota_revenue',
+        ], 3);
+
+        self::assertSame('pending_approval', $payload['status']);
+        self::assertSame('', $payload['blocked_reason']);
+        self::assertSame('operation_checklist', $payload['object_type']);
+        self::assertFalse($payload['target_value']['automatic_price_write']);
+        self::assertArrayNotHasKey('target_price', $payload['target_value']);
+    }
+
+    public function testForecastOperationExecutionRequiresAnExplicitNextDayReviewDate(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('next-day review date');
+
+        $service->buildExecutionTaskUpdate(
+            ['id' => 9, 'status' => 'pending_execute'],
+            [
+                'id' => 4,
+                'status' => 'approved',
+                'source_module' => \app\service\TemporalInsightService::OPERATION_SOURCE_MODULE,
+            ],
+            [
+                'status' => 'executed',
+                'evidence' => [
+                    'platform_response' => [
+                        'mode' => 'manual_operation_execution',
+                        'completed_action' => '已人工检查活动展示与库存状态',
+                    ],
+                    'remark' => '人工动作已执行',
+                ],
+            ],
+            3
+        );
+    }
+
+    public function testForecastOperationExecutionRequiresTheCompletedManualAction(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('completed manual action');
+
+        $service->buildExecutionTaskUpdate(
+            ['id' => 9, 'status' => 'pending_execute'],
+            [
+                'id' => 4,
+                'status' => 'approved',
+                'source_module' => \app\service\TemporalInsightService::OPERATION_SOURCE_MODULE,
+            ],
+            [
+                'status' => 'executed',
+                'evidence' => [
+                    'platform_response' => [
+                        'mode' => 'manual_operation_execution',
+                        'next_review_date' => (new \DateTimeImmutable('today'))->modify('+1 day')->format('Y-m-d'),
+                    ],
+                ],
+            ],
+            3
+        );
+    }
+
+    public function testForecastOperationExecutionPersistsEvidenceAndNextDayReviewBoundary(): void
+    {
+        $service = new OperationManagementService();
+        $nextDay = (new \DateTimeImmutable('today'))->modify('+1 day')->format('Y-m-d');
+        $result = $service->buildExecutionTaskUpdate(
+            ['id' => 9, 'status' => 'pending_execute'],
+            [
+                'id' => 4,
+                'status' => 'approved',
+                'source_module' => \app\service\TemporalInsightService::OPERATION_SOURCE_MODULE,
+            ],
+            [
+                'status' => 'executed',
+                'evidence_type' => 'manual_operation_execution',
+                'evidence' => [
+                    'platform_response' => [
+                        'mode' => 'manual_operation_execution',
+                        'completed_action' => '已人工检查活动展示与库存状态',
+                        'next_review_date' => $nextDay,
+                        'automatic_price_write' => false,
+                    ],
+                    'remark' => '人工动作已执行，等待次日效果证据',
+                ],
+            ],
+            3
+        );
+
+        self::assertSame('executed', $result['task']['status']);
+        self::assertSame('manual_operation_execution', $result['evidence']['evidence_type']);
+        self::assertSame($nextDay, $result['evidence']['platform_response']['next_review_date']);
+        self::assertFalse($result['evidence']['platform_response']['automatic_price_write']);
+    }
+
     public function testExecutionRequiresApprovedIntent(): void
     {
         $service = new OperationManagementService();

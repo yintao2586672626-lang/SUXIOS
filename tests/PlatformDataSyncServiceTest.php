@@ -709,6 +709,12 @@ final class PlatformDataSyncServiceTest extends TestCase
                 'row_ids' => [2001],
                 'source_trace_ids' => ['trace-2001'],
                 'verified_metric_keys' => ['revenue', 'room_nights', 'adr'],
+                'capture_strategy' => 'browser_response',
+                'fallback_from' => null,
+                'fallback_reason' => null,
+                'response_evidence_type' => 'structured_json',
+                'recipe_plan_hash' => null,
+                'recipe_count' => null,
                 'p0_status' => 'ready',
                 'field_fact_status' => 'ready',
                 'required_traffic_metric_keys' => ['list_exposure', 'detail_exposure', 'flow_rate'],
@@ -728,6 +734,108 @@ final class PlatformDataSyncServiceTest extends TestCase
             ['list_exposure', 'detail_exposure', 'flow_rate'],
             $stats['run_readback']['complete_traffic_metric_keys']
         );
+        self::assertSame(
+            'browser_response',
+            $stats['run_readback']['capture_strategy']
+        );
+        self::assertSame(
+            'structured_json',
+            $stats['run_readback']['response_evidence_type']
+        );
+    }
+
+    public function testOtaSyncResultAddsCommonCollectionEnvelopeFromExactRunReadback(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'otaCollectionResult');
+        $method->setAccessible(true);
+        $result = $method->invoke($service, [
+            'id' => 101,
+            'tenant_id' => 1,
+            'system_hotel_id' => 80,
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'config' => ['store_id' => 'meituan-hotel-80'],
+        ], [
+            'task_id' => 1529,
+            'data_source_id' => 101,
+            'status' => 'success',
+            'normalized_count' => 1,
+            'saved_count' => 1,
+            'run_readback' => [
+                'readback_verified' => true,
+                'sync_task_id' => 1529,
+                'data_source_id' => 101,
+                'system_hotel_id' => 80,
+                'platform' => 'meituan',
+                'target_date' => '2026-07-24',
+                'data_period' => 'historical_daily',
+                'started_at' => '2026-07-25 08:31:00',
+                'row_ids' => [2001],
+                'source_trace_ids' => ['trace-2001'],
+                'verified_metric_keys' => ['revenue', 'room_nights', 'adr'],
+                'capture_strategy' => 'browser_response',
+                'fallback_from' => null,
+                'fallback_reason' => null,
+                'response_evidence_type' => 'structured_json',
+                'recipe_plan_hash' => null,
+                'recipe_count' => null,
+                'p0_status' => 'ready',
+                'field_fact_status' => 'ready',
+                'required_traffic_metric_keys' => [
+                    'list_exposure',
+                    'detail_exposure',
+                    'flow_rate',
+                ],
+                'complete_traffic_metric_keys' => [
+                    'list_exposure',
+                    'detail_exposure',
+                    'flow_rate',
+                ],
+                'missing_traffic_metric_keys' => [],
+                'nonzero_required_metric_rows' => 1,
+                'platform_hotel_identifier_status' => 'ready',
+                'page_field_fact_status' => 'ready',
+                'readback_count' => 1,
+                'failure_reason' => '',
+            ],
+        ]);
+
+        self::assertSame('suxios.collection_result.v1', $result['contract_version']);
+        self::assertSame('meituan', $result['scope']['platform']);
+        self::assertSame('browser_response', $result['run']['strategy']['selected']);
+        self::assertSame('verified', $result['collection_status']);
+        self::assertTrue($result['claim']['allowed']);
+        self::assertSame([2001], $result['references']['row_ids']);
+    }
+
+    public function testOtaRunStrategyRequiresEvidenceFromExactReadbackRows(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod(
+            $service,
+            'collectionStrategyEvidenceFromRunRows'
+        );
+        $method->setAccessible(true);
+        $source = ['ingestion_method' => 'browser_profile'];
+        $verified = $method->invoke($service, [[
+            'source_trace_id' => 'trace-2001',
+            'raw_data' => json_encode([
+                'capture_evidence' => [
+                    'source_url_hash' => str_repeat('a', 64),
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ]], $source);
+        $missing = $method->invoke($service, [[
+            'source_trace_id' => 'trace-2001',
+            'raw_data' => json_encode([], JSON_THROW_ON_ERROR),
+        ]], $source);
+
+        self::assertSame('browser_response', $verified['capture_strategy']);
+        self::assertSame('structured_json', $verified['response_evidence_type']);
+        self::assertSame('not_recorded', $missing['capture_strategy']);
+        self::assertNull($missing['response_evidence_type']);
     }
 
     public function testBrowserProfileBackgroundSyncRejectsHistoricalVerifiedManualLoginWithoutReusableProof(): void

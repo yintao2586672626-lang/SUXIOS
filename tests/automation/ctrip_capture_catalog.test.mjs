@@ -73,6 +73,8 @@ test('splits lightweight Ctrip JSON capture into past, realtime, intraday trend,
   assert.deepEqual(realtime.default_sections, ['business_overview', 'traffic_report']);
   assert.equal(realtime.lightweight, true);
   assert.equal(realtime.capture_endpoint_ids.includes('traffic_hotel_min_price'), true);
+  assert.equal(realtime.capture_endpoint_ids.includes('traffic_realtime_visitor_trend'), true);
+  assert.equal(realtime.expected_endpoint_ids.includes('traffic_realtime_visitor_trend'), true);
   assert.equal(realtime.capture_endpoint_ids.includes('traffic_search_details'), false);
   assert.equal(realtime.capture_screenshot, false);
 
@@ -286,6 +288,50 @@ test('classifies Ctrip flow-transform current hotel and peer-average rows by pla
   assert.equal(peerAverageRow.compare_type, 'competitor_avg');
   assert.equal(peerAverageRow.list_exposure, 1264);
   assert.equal(peerAverageRow.detail_exposure, 173);
+});
+
+test('persists an explicit historical review window without storing request payloads', () => {
+  const facts = [
+    ['list_exposure', 'listExposure', 296],
+    ['detail_visitor', 'detailExposure', 74],
+    ['order_page_visitor', 'orderFillingNum', 2],
+    ['order_submit_user', 'orderSubmitNum', 0],
+  ].map(([metricKey, sourceKey, value]) => ({
+    metric_key: metricKey,
+    metric_label: metricKey,
+    value,
+    value_type: 'number',
+    source_key: sourceKey,
+    source_path: `data.0.${sourceKey}`,
+    source_parent_path: 'data.0',
+    endpoint_id: 'traffic_flow_transform',
+    endpoint_label: 'APP流量漏斗',
+    section: 'traffic_report',
+    platform: 'ctrip',
+    data_date: '2026-07-29',
+    hotel_id: '832085',
+    captured_at: '2026-07-30T01:06:11.000Z',
+  }));
+
+  const rows = buildCtripStandardRowsFromFacts(facts, {
+    capturePlan: 'historical_review',
+    requestPayload: JSON.stringify({
+      startDate: '2026-07-23',
+      endDate: '2026-07-29',
+    }),
+    hotelId: '832085',
+    dataDate: '2026-07-29',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].dimension, /:window=last_7_days$/);
+  assert.deepEqual(rows[0].raw_data.dimension_values, {
+    analysis_window: 'last_7_days',
+    window_start_date: '2026-07-23',
+    window_end_date: '2026-07-29',
+    window_days: 7,
+  });
+  assert.equal(Object.hasOwn(rows[0].raw_data, 'request_payload'), false);
 });
 
 test('defines Ctrip section interaction plans for tabbed capture pages', () => {

@@ -188,4 +188,40 @@ HTML;
             );
         }
     }
+
+    public function testVerifiedSnapshotCarriesRetrievalAndVersionMetadata(): void
+    {
+        $service = new DomesticPublicKnowledgeSourceService();
+        $method = new \ReflectionMethod($service, 'successContent');
+        $content = $method->invoke($service, [
+            'source_key' => 'mct_tourism_statistics',
+            'source_name' => '文化和旅游部统计信息',
+            'source_url' => 'https://zwgk.mct.gov.cn/zfxxgkml/447/465/index_3081.html',
+            'source_tier' => 'official_government',
+            'discovery_mode' => 'feed',
+            'retrieved_at' => '2026-07-30 10:00:00',
+            'attempted_at' => '2026-07-30 10:00:00',
+            'fingerprint_sha256' => str_repeat('a', 64),
+            'item_count' => 1,
+            'items' => [[
+                'title' => '旅游统计公报',
+                'published_at' => '2026-06-02',
+                'url' => 'https://zwgk.mct.gov.cn/example.html',
+            ]],
+        ]);
+
+        self::assertSame('1.1', $content['schema_version']);
+        self::assertSame('domestic_public_source_monitor', $content['module_id']);
+        self::assertSame([], $content['platforms']);
+        self::assertSame(
+            'domestic_public_source_monitor:mct_tourism_statistics',
+            $content['seed_key']
+        );
+        self::assertSame('sha256:' . str_repeat('a', 64), $content['seed_version']);
+        self::assertContains(
+            'https://zwgk.mct.gov.cn/example.html',
+            $content['source_refs']
+        );
+        self::assertArrayHasKey('mct_tourism_statistics', $content['source_manifest']);
+    }
 }

@@ -20,6 +20,7 @@ const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
+const ctripFragment = readFileSync('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html', 'utf8');
 const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8')
   .replace(/\\"/g, '"');
 const dataHealthOverviewSource = `${html}\n${dataHealthStatic}`;
@@ -249,7 +250,7 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
   const quickActions = sliceBetween(
     ctripPage,
     'data-testid="ctrip-overview-fetch-actions"',
-    '<div v-if="collectionReliabilityLoading"'
+    'data-testid="ctrip-health-refresh-state"'
   );
   assert.ok(quickActions.length > 0, 'overview quick fetch actions must exist');
   assert.match(quickActions, /一键采集竞争圈/);
@@ -889,7 +890,7 @@ test('Ctrip preferred Cookie preset stays private and expands on the server', ()
   assert.doesNotMatch(ctripStatic, /querySearchFlowDetails/);
 });
 
-test('Ctrip stored-history view keeps the channel boundary and does not invent zero readbacks', () => {
+test('Ctrip stored-history view keeps the channel boundary and preserves the last matching readback', () => {
   const openHistory = sliceBetween(
     html,
     'const switchToDownloadCenter = () =>',
@@ -901,16 +902,20 @@ test('Ctrip stored-history view keeps the channel boundary and does not invent z
     'const refreshOnlineHistory = async'
   );
   const historyPanel = sliceBetween(
-    ctripPage,
-    "onlineDataTab === 'ctrip-download'",
-    '<!-- 携程AI分析 -->'
+    ctripFragment,
+    '<div v-if="downloadCenterTab === \'overview\'" class="space-y-4">',
+    '<div v-if="downloadCenterTab === \'ai\'">'
   );
 
   assert.match(openHistory, /onlineHistoryFilter\.value\.platform = 'ctrip'/);
   assert.match(historyLoader, /createEmptyOnlineHistorySummary\(\)/);
-  assert.match(historyLoader, /onlineHistoryList\.value = \[\]/);
+  assert.doesNotMatch(historyLoader, /onlineHistoryList\.value = \[\]/);
+  assert.match(historyLoader, /onlineHistorySnapshotKey\.value = onlineHistoryCurrentQueryKey\.value/);
+  assert.match(historyLoader, /onlineHistoryErrorQueryKey\.value = queryKey/);
+  assert.match(historyPanel, /onlineHistoryHasCurrentSnapshot/);
+  assert.match(html, /刷新失败，当前显示上次成功结果；不代表当前最新状态/);
   assert.match(historyPanel, /formatOptionalNumber\(onlineHistorySummary\.total_records, '未取得'\)/);
-  assert.match(historyPanel, /formatOptionalNumber\(onlineHistorySummary\.today_records, '未取得'\)/);
+  assert.match(historyPanel, /formatOptionalNumber\(onlineHistorySummary\.failed_records, '未取得'\)/);
   assert.match(historyPanel, /不以 0 或其他平台记录补齐/);
   assert.doesNotMatch(historyPanel, /onlineHistorySummary\.(?:total_records|today_records|failed_records) \|\| 0/);
 });

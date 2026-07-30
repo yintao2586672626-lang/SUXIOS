@@ -25,11 +25,13 @@ test('manual notification page exposes truthful cloud automation task evidence',
   assert.match(appMainSource, /manualNotificationMetadata\.value\?\.automatic_tasks/);
   assert.match(appMainSource, /manualNotificationThreeSourceSummary/);
   assert.match(appMainSource, /manualNotificationOperatingDailyPlans/);
+  assert.match(appMainSource, /manualNotificationMetadata\.value\?\.content_sections/);
+  assert.match(appMainSource, /String\(section\)\.startsWith\('pms_'\)/);
+  assert.match(appMainSource, /\/\^\(ctrip\|qunar\)_\//);
   assert.match(appMainSource, /data-manual-notification-edit-id/);
   assert.match(appMainSource, /handleManualNotificationAutomaticTaskClick/);
-  assert.match(appMainSource, /三源推送接入/);
-  assert.match(appMainSource, /统一推送配置/);
-  assert.match(appMainSource, /已接入统一推送/);
+  assert.match(appMainSource, /三源状态/);
+  assert.match(appMainSource, /推送计划/);
   for (const source of ['ctrip', 'meituan', 'dingdandao_pms']) {
     assert.match(appMainSource, new RegExp(`key: '${source}'`));
   }
@@ -37,29 +39,30 @@ test('manual notification page exposes truthful cloud automation task evidence',
     appMainSource,
     /data-testid="manual-notification-source-\$\{source\.key\}"/,
   );
-  assert.match(appMainSource, /系统运行保障/);
+  assert.match(appMainSource, /系统保障/);
   assert.match(appMainSource, /manual-notification-system-safeguards/);
+  assert.match(appMainSource, /task\?\.source_scope_label/);
   assert.match(taskUiSource, /固定发送/);
   assert.match(taskUiSource, /条件触发/);
   assert.match(taskUiSource, /历史核验/);
   assert.match(taskUiSource, /核验记录已过期/);
-  assert.match(taskUiSource, /最近结果/);
-  assert.match(taskUiSource, /目标机器人/);
+  assert.match(taskUiSource, /最近 \$\{escapeManualNotificationTaskText\(task\?\.last_result\)\}/);
   assert.match(appMainSource, /escapeManualNotificationTaskText/);
-  assert.match(taskUiSource, /尚未保存统一推送配置/);
+  assert.match(taskUiSource, /暂无计划，可在下方新建/);
+  assert.doesNotMatch(taskUiSource, /目标机器人：/);
   assert.doesNotMatch(taskUiSource, /任务成功等于消息送达/);
 });
 
 test('three-source integration and automatic scheduling remain separate states', () => {
-  const taskUiSource = `${notificationSource}\n${appMainSource}`;
-  assert.match(appMainSource, /三源已接入 · 自动发送未启用/);
+  assert.match(appMainSource, /三源已配置 · 未启用/);
   assert.match(appMainSource, /启用计划前不会自动发送/);
   assert.match(appMainSource, /item\?\.enabled === true/);
   assert.match(appMainSource, /schedule_status \|\| ''\) === 'schedule_enabled'/);
   assert.match(notificationSource, /manualNotificationSchedulerDisplay\.label/);
   assert.match(notificationSource, /manualNotificationSchedulerDisplay\.note/);
-  assert.match(taskUiSource, /不代表渠道页面当前实时/);
-  assert.doesNotMatch(taskUiSource, /三源已接入 · 自动发送已启用/);
+  assert.match(notificationSource, /:title="manualNotificationSchedulerDisplay\.note"/);
+  assert.doesNotMatch(notificationSource, /manual-notification-scheduler-note/);
+  assert.doesNotMatch(appMainSource, /三源已接入 · 自动发送已启用/);
 });
 
 test('the unified current-hotel channel precedes automatic task evidence', () => {

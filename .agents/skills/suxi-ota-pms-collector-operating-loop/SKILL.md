@@ -38,6 +38,11 @@ to fill OTA facts. Do not use realtime snapshots to fill settled daily reports.
 
 ## State Layers
 
+All Ctrip, Meituan, and PMS collectors share the common method in
+[`../suxi-ota-ops/references/platform-collector-adapter-contract.md`](../suxi-ota-ops/references/platform-collector-adapter-contract.md).
+This skill adds source-scope and downstream gates; platform-specific endpoints,
+identifiers, field paths, units, and update windows remain adapter data.
+
 Keep these layers separate in UI, reports, and verifier language:
 
 1. `system_auth`: user is logged into SUXIOS.

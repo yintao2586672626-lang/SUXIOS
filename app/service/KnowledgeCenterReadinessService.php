@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use DateTimeImmutable;
+use Throwable;
+
 final class KnowledgeCenterReadinessService
 {
     public function buildUnitReadiness(array $row, int $chunkCount): array
@@ -17,14 +20,25 @@ final class KnowledgeCenterReadinessService
         $knownUnknowns = $this->normalizeStatements($row['known_unknowns'] ?? []);
         $truthProfileVersion = trim((string)($row['truth_profile_version'] ?? ''));
         $hotelId = (int)($row['hotel_id'] ?? 0);
+        $createdBy = array_key_exists('created_by', $row)
+            ? (int)$row['created_by']
+            : null;
+        $reviewedAt = $this->normalizeDate($row['reviewed_at'] ?? null);
+        $reviewDueAt = $this->normalizeDate($row['review_due_at'] ?? null);
+        $asOf = $this->normalizeDate($row['_as_of'] ?? null) ?? new DateTimeImmutable('now');
         $chunkCount = max(0, $chunkCount);
-        $finalize = fn(array $readiness): array => $this->withNotice(
-            $readiness,
-            $lifecycleStatus,
-            $lifecycleReason,
-            $knownKnowns,
-            $knownUnknowns,
-            $truthProfileVersion
+        $finalize = fn(array $readiness): array => $this->withTemporalStatus(
+            $this->withNotice(
+                $readiness,
+                $lifecycleStatus,
+                $lifecycleReason,
+                $knownKnowns,
+                $knownUnknowns,
+                $truthProfileVersion
+            ),
+            $reviewedAt,
+            $reviewDueAt,
+            $asOf
         );
 
         if ($lifecycleStatus === 'quarantined') {
@@ -81,7 +95,38 @@ final class KnowledgeCenterReadinessService
             ));
         }
 
+        if ($reviewDueAt !== null && $reviewDueAt < $asOf) {
+            return $finalize($this->readiness(
+                'unit_review_due',
+                '知识待复核',
+                75,
+                false,
+                '重新核对来源版本、适用范围和当前实现后更新复核日期',
+                [
+                    $this->missing(
+                        'knowledge_review_due',
+                        '知识已到复核日期',
+                        '完成来源与口径复核后更新 reviewed_at 和 review_due_at'
+                    ),
+                ],
+                $chunkCount,
+                $hotelId
+            ));
+        }
+
         if ($hotelId <= 0) {
+            if ($createdBy === 0) {
+                return $finalize($this->readiness(
+                    'unit_global_reference',
+                    '通用知识可检索',
+                    100,
+                    true,
+                    '按来源版本复核，不绑定为任何单店事实',
+                    [],
+                    $chunkCount,
+                    $hotelId
+                ));
+            }
             return $finalize($this->readiness('unit_global_scope', '通用范围', 70, false, '绑定门店，或明确保留为通用知识', [
                 $this->missing('hotel_scope', '门店范围', '绑定具体门店或保留通用范围说明'),
             ], $chunkCount, $hotelId));
@@ -165,5 +210,34 @@ final class KnowledgeCenterReadinessService
             static fn(mixed $item): string => is_scalar($item) ? trim((string)$item) : '',
             $value
         ), static fn(string $item): bool => $item !== ''));
+    }
+
+    private function normalizeDate(mixed $value): ?DateTimeImmutable
+    {
+        if ($value instanceof DateTimeImmutable) {
+            return $value;
+        }
+        if (!is_scalar($value) || trim((string)$value) === '') {
+            return null;
+        }
+        try {
+            return new DateTimeImmutable(trim((string)$value));
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function withTemporalStatus(
+        array $readiness,
+        ?DateTimeImmutable $reviewedAt,
+        ?DateTimeImmutable $reviewDueAt,
+        DateTimeImmutable $asOf
+    ): array {
+        $readiness['reviewed_at'] = $reviewedAt?->format('Y-m-d H:i:s');
+        $readiness['review_due_at'] = $reviewDueAt?->format('Y-m-d H:i:s');
+        $readiness['freshness_status'] = $reviewDueAt === null
+            ? ($reviewedAt === null ? 'undated' : 'current_no_due_date')
+            : ($reviewDueAt < $asOf ? 'review_due' : 'current');
+        return $readiness;
     }
 }

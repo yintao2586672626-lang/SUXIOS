@@ -154,6 +154,7 @@ final class OperationOptimizationWorkbenchService
                 $bucket['landing_room_type'] = $landing;
             }
             $bucket['evidence_refs'] = $this->appendEvidenceRefs($bucket['evidence_refs'], $fact);
+            $this->appendLongitudinalScope($bucket, $fact);
             $bucket['latest_date'] = max((string)$bucket['latest_date'], (string)($fact['date_key'] ?? ''));
             $buckets[$key] = $bucket;
         }
@@ -179,6 +180,12 @@ final class OperationOptimizationWorkbenchService
                     $bucket[$metric] = null;
                     $bucket[$metric . '_seen'] = false;
                 }
+                $bucket['evidence_refs'] = [];
+                $bucket['platform_hotel_ids'] = [];
+                $bucket['capture_times'] = [];
+                $bucket['source_methods'] = [];
+                $bucket['latest_date'] = '';
+                $bucket['fact_scope'] = 'ota_channel_advertising';
                 $bucket['advertising_metrics_used'] = true;
             }
             $bucket['trusted_rows']++;
@@ -192,6 +199,7 @@ final class OperationOptimizationWorkbenchService
                 $bucket['landing_room_type'] = $landing;
             }
             $bucket['evidence_refs'] = $this->appendEvidenceRefs($bucket['evidence_refs'], $fact);
+            $this->appendLongitudinalScope($bucket, $fact);
             $bucket['latest_date'] = max((string)$bucket['latest_date'], (string)($fact['date_key'] ?? ''));
             $buckets[$key] = $bucket;
         }
@@ -203,6 +211,7 @@ final class OperationOptimizationWorkbenchService
             }
             $bucket['ctr'] = $this->ratioPercent($bucket['clicks'], $bucket['impressions']);
             $bucket['roas'] = $this->ratio($bucket['order_amount'], $bucket['spend']);
+            $bucket = $this->finalizeLongitudinalScope($bucket);
             $bucket['quality_status'] = (int)$bucket['untrusted_rows'] > 0 ? 'partial' : 'verified';
             $rows[] = $bucket;
         }
@@ -221,6 +230,9 @@ final class OperationOptimizationWorkbenchService
                 $row['spend_seen'],
                 $row['order_amount_seen'],
                 $row['advertising_metrics_used'],
+                $row['platform_hotel_ids'],
+                $row['capture_times'],
+                $row['source_methods'],
                 $row['trusted_rows'],
                 $row['untrusted_rows']
             );
@@ -311,6 +323,7 @@ final class OperationOptimizationWorkbenchService
                 $bucket['price_gap_samples']++;
             }
             $bucket['evidence_refs'] = $this->appendEvidenceRefs($bucket['evidence_refs'], $fact);
+            $this->appendLongitudinalScope($bucket, $fact);
             $bucket['latest_date'] = max((string)$bucket['latest_date'], (string)($fact['date_key'] ?? ''));
             $buckets[$key] = $bucket;
         }
@@ -331,6 +344,7 @@ final class OperationOptimizationWorkbenchService
                 ? round($bucket['price_gap_sum'] / $bucket['price_gap_samples'], 2)
                 : null;
             $bucket['competitor_price_samples'] = $bucket['price_gap_samples'];
+            $bucket = $this->finalizeLongitudinalScope($bucket);
             $bucket['quality_status'] = (int)$bucket['untrusted_rows'] > 0 ? 'partial' : 'verified';
             $rows[] = $bucket;
         }
@@ -353,6 +367,9 @@ final class OperationOptimizationWorkbenchService
                 $row['conversion_weight'],
                 $row['price_gap_sum'],
                 $row['price_gap_samples'],
+                $row['platform_hotel_ids'],
+                $row['capture_times'],
+                $row['source_methods'],
                 $row['trusted_rows'],
                 $row['untrusted_rows']
             );
@@ -479,6 +496,14 @@ final class OperationOptimizationWorkbenchService
             'order_amount_seen' => false,
             'landing_room_type' => '',
             'evidence_refs' => [],
+            'fact_scope' => 'ota_channel_search_keyword',
+            'platform_hotel_ids' => [],
+            'capture_times' => [],
+            'source_methods' => [],
+            'platform_hotel_id' => '',
+            'identity_status' => 'missing',
+            'latest_captured_at' => '',
+            'source_method' => '',
             'latest_date' => '',
             'trusted_rows' => 0,
             'untrusted_rows' => 0,
@@ -508,6 +533,14 @@ final class OperationOptimizationWorkbenchService
             'price_gap_sum' => 0.0,
             'price_gap_samples' => 0,
             'evidence_refs' => [],
+            'fact_scope' => 'ota_channel_room_product',
+            'platform_hotel_ids' => [],
+            'capture_times' => [],
+            'source_methods' => [],
+            'platform_hotel_id' => '',
+            'identity_status' => 'missing',
+            'latest_captured_at' => '',
+            'source_method' => '',
             'latest_date' => '',
             'trusted_rows' => 0,
             'untrusted_rows' => 0,
@@ -637,7 +670,9 @@ final class OperationOptimizationWorkbenchService
             $code,
             $title,
             $reason,
-            $canCreate && ($row['quality_status'] ?? '') === 'verified',
+            $canCreate
+                && ($row['quality_status'] ?? '') === 'verified'
+                && $this->longitudinalScopeReady($row),
             [
                 'hotel_id' => (int)($scope['hotel_id'] ?? 0),
                 'platform' => (string)$row['platform'],
@@ -667,6 +702,17 @@ final class OperationOptimizationWorkbenchService
                 'evidence' => [
                     'metric_scope' => 'ota_channel',
                     'evidence_refs' => $row['evidence_refs'],
+                    'platform_hotel_id' => (string)($row['platform_hotel_id'] ?? ''),
+                    'identity_status' => (string)($row['identity_status'] ?? 'missing'),
+                    'business_module' => 'keyword_workbench',
+                    'fact_scope' => (string)($row['fact_scope'] ?? 'ota_channel_search_keyword'),
+                    'date_role' => 'business_date',
+                    'period_start' => (string)($scope['start_date'] ?? ''),
+                    'period_end' => (string)($scope['end_date'] ?? ''),
+                    'latest_data_date' => (string)($row['latest_date'] ?? ''),
+                    'baseline_captured_at' => (string)($row['latest_captured_at'] ?? ''),
+                    'source_method' => (string)($row['source_method'] ?? ''),
+                    'metric_unit' => $this->metricUnit($expectedMetric),
                     'rule_basis' => $reason,
                     'auto_write_ota' => false,
                     'expected_direction' => 'increase',
@@ -721,7 +767,9 @@ final class OperationOptimizationWorkbenchService
             $code,
             $title,
             $reason,
-            $canCreate && ($row['quality_status'] ?? '') === 'verified',
+            $canCreate
+                && ($row['quality_status'] ?? '') === 'verified'
+                && $this->longitudinalScopeReady($row),
             [
                 'hotel_id' => (int)($scope['hotel_id'] ?? 0),
                 'platform' => (string)$row['platform'],
@@ -750,6 +798,17 @@ final class OperationOptimizationWorkbenchService
                 'evidence' => [
                     'metric_scope' => 'ota_channel',
                     'evidence_refs' => $row['evidence_refs'],
+                    'platform_hotel_id' => (string)($row['platform_hotel_id'] ?? ''),
+                    'identity_status' => (string)($row['identity_status'] ?? 'missing'),
+                    'business_module' => 'room_product_mix',
+                    'fact_scope' => (string)($row['fact_scope'] ?? 'ota_channel_room_product'),
+                    'date_role' => 'business_date',
+                    'period_start' => (string)($scope['start_date'] ?? ''),
+                    'period_end' => (string)($scope['end_date'] ?? ''),
+                    'latest_data_date' => (string)($row['latest_date'] ?? ''),
+                    'baseline_captured_at' => (string)($row['latest_captured_at'] ?? ''),
+                    'source_method' => (string)($row['source_method'] ?? ''),
+                    'metric_unit' => $this->metricUnit($expectedMetric),
                     'rule_basis' => $reason,
                     'auto_write_ota' => false,
                     'expected_direction' => $expectedDirection,
@@ -791,13 +850,32 @@ final class OperationOptimizationWorkbenchService
         $targetValue['optimizer_action_id'] = $actionId;
         $evidence['optimizer_action_id'] = $actionId;
         $evidence['optimizer_contract_version'] = 'operation_optimizer_v1';
+        $baselineWindowDays = $this->periodLengthDays(
+            (string)($payload['date_start'] ?? ''),
+            (string)($payload['date_end'] ?? '')
+        );
         $evidence['review_policy'] = [
             'baseline_window' => [
                 'start_date' => (string)($payload['date_start'] ?? ''),
                 'end_date' => (string)($payload['date_end'] ?? ''),
+                'length_days' => $baselineWindowDays,
             ],
-            'review_window' => 'first_calendar_day_after_manual_execution',
-            'required_scope_keys' => ['hotel_id', 'platform', 'object_type', 'subject', 'expected_metric'],
+            'review_window' => [
+                'mode' => 'same_length_period_after_manual_execution',
+                'length_days' => $baselineWindowDays,
+            ],
+            'required_scope_keys' => [
+                'hotel_id',
+                'platform',
+                'platform_hotel_id',
+                'object_type',
+                'subject',
+                'expected_metric',
+                'metric_unit',
+                'fact_scope',
+                'captured_at',
+                'source_method',
+            ],
             'causality_claimed' => false,
         ];
         $payload['source_module'] = 'operation_optimizer';
@@ -840,6 +918,102 @@ final class OperationOptimizationWorkbenchService
             $refs[] = 'source_trace:' . $sourceTraceId;
         }
         return array_values(array_unique($refs));
+    }
+
+    /** @param array<string, mixed> $bucket @param array<string, mixed> $fact */
+    private function appendLongitudinalScope(array &$bucket, array $fact): void
+    {
+        $trace = is_array($fact['source_trace'] ?? null) ? $fact['source_trace'] : [];
+        $platformHotelId = trim((string)($trace['platform_hotel_id'] ?? ''));
+        if ($platformHotelId !== '') {
+            $bucket['platform_hotel_ids'][] = $platformHotelId;
+            $bucket['platform_hotel_ids'] = array_values(array_unique($bucket['platform_hotel_ids']));
+        }
+
+        $capturedAt = trim((string)($trace['collected_at'] ?? ''));
+        if ($capturedAt !== '' && strtotime($capturedAt) !== false) {
+            $bucket['capture_times'][] = $capturedAt;
+            $bucket['capture_times'] = array_values(array_unique($bucket['capture_times']));
+        }
+
+        $sourceMethod = strtolower(trim((string)($trace['ingestion_method'] ?? '')));
+        if ($sourceMethod !== '') {
+            $bucket['source_methods'][] = $sourceMethod;
+            $bucket['source_methods'] = array_values(array_unique($bucket['source_methods']));
+        }
+    }
+
+    /** @param array<string, mixed> $bucket @return array<string, mixed> */
+    private function finalizeLongitudinalScope(array $bucket): array
+    {
+        $platformHotelIds = array_values(array_unique(array_filter(
+            array_map('strval', (array)($bucket['platform_hotel_ids'] ?? [])),
+            static fn(string $value): bool => trim($value) !== ''
+        )));
+        sort($platformHotelIds, SORT_STRING);
+        $bucket['platform_hotel_ids'] = $platformHotelIds;
+        $bucket['platform_hotel_id'] = count($platformHotelIds) === 1 ? $platformHotelIds[0] : '';
+        $bucket['identity_status'] = count($platformHotelIds) === 1
+            ? 'matched'
+            : (count($platformHotelIds) > 1 ? 'conflict' : 'missing');
+
+        $captureTimes = array_values(array_unique(array_filter(
+            array_map('strval', (array)($bucket['capture_times'] ?? [])),
+            static fn(string $value): bool => strtotime($value) !== false
+        )));
+        usort(
+            $captureTimes,
+            static fn(string $left, string $right): int => (int)strtotime($left) <=> (int)strtotime($right)
+        );
+        $bucket['capture_times'] = $captureTimes;
+        $bucket['latest_captured_at'] = $captureTimes !== []
+            ? (string)$captureTimes[count($captureTimes) - 1]
+            : '';
+
+        $sourceMethods = array_values(array_unique(array_filter(
+            array_map('strval', (array)($bucket['source_methods'] ?? [])),
+            static fn(string $value): bool => trim($value) !== ''
+        )));
+        sort($sourceMethods, SORT_STRING);
+        $bucket['source_methods'] = $sourceMethods;
+        $bucket['source_method'] = count($sourceMethods) === 1 ? $sourceMethods[0] : '';
+
+        return $bucket;
+    }
+
+    private function metricUnit(string $metric): string
+    {
+        return match ($metric) {
+            'keyword_ctr', 'room_type_conversion', 'room_type_cancel_rate' => 'percent',
+            'competitor_price_gap' => 'cny',
+            'advertising_roas' => 'ratio',
+            default => 'unknown',
+        };
+    }
+
+    /** @param array<string, mixed> $row */
+    private function longitudinalScopeReady(array $row): bool
+    {
+        return (string)($row['identity_status'] ?? '') === 'matched'
+            && trim((string)($row['platform_hotel_id'] ?? '')) !== ''
+            && trim((string)($row['fact_scope'] ?? '')) !== ''
+            && trim((string)($row['source_method'] ?? '')) !== ''
+            && strtotime((string)($row['latest_captured_at'] ?? '')) !== false;
+    }
+
+    private function periodLengthDays(string $startDate, string $endDate): ?int
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $startDate) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $endDate) !== 1
+        ) {
+            return null;
+        }
+        $start = strtotime($startDate . ' 00:00:00');
+        $end = strtotime($endDate . ' 00:00:00');
+        if ($start === false || $end === false || $end < $start) {
+            return null;
+        }
+        return (int)(($end - $start) / 86400) + 1;
     }
 
     /** @param array<string, mixed> $fact */

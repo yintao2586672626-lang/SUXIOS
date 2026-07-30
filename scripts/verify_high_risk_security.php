@@ -84,8 +84,21 @@ function returns_sanitized_ota_config_detail(string $source): bool
         '/(\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*\$this->sanitizeStoredOtaConfigListForRuntime\s*\(\s*\[\s*\$id\s*=>\s*\$list\s*\[\s*\$id\s*\]\s*\]\s*\)\s*;[\s\S]*?success\s*\(\s*\1\s*\[\s*\$id\s*\]\s*(?:\?\?\s*\[\s*\])?\s*\)/',
         $source
     ) === 1;
+    $policyRedactedSanitizedReturn = preg_match(
+        '/(\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*\$this->sanitizeStoredOtaConfigListForRuntime\s*\(\s*\[\s*\$id\s*=>\s*\$list\s*\[\s*\$id\s*\]\s*\]\s*\)\s*;\s*(\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*\1\s*\[\s*\$id\s*\]\s*\?\?\s*\[\s*\]\s*;\s*if\s*\([^{}]*\)\s*\{\s*\2\s*=\s*CtripImplementationExposurePolicy::config\s*\(\s*\2\s*\)\s*;\s*\}\s*return\s+\$this->success\s*\(\s*\2\s*\)\s*;/',
+        $source
+    ) === 1;
 
-    return $directSanitizedReturn || $runtimeSanitizedReturn;
+    return $directSanitizedReturn || $runtimeSanitizedReturn || $policyRedactedSanitizedReturn;
+}
+
+function requires_online_data_delete_permission(string $source): bool
+{
+    return str_contains($source, "checkActionPermission('can_delete_online_data')")
+        || preg_match(
+            '/checkHotelActionPermission\s*\(\s*\$systemHotelId\s*,\s*[\'"]can_delete_online_data[\'"]\s*\)/',
+            $source
+        ) === 1;
 }
 
 function verified_transfer_ota_row(int $id, int $systemHotelId, string $date): array
@@ -589,8 +602,8 @@ assert_true(
     && !str_contains($saveCtripConfigByBookmark, 'saveCtripConfigPayload('),
     'legacy Ctrip bookmark save endpoint must not ingest or persist Cookie payloads'
 );
-assert_true(str_contains($deleteMeituanConfig, "checkActionPermission('can_delete_online_data')"), 'Meituan config deletion must require online data delete permission');
-assert_true(str_contains($deleteCtripConfig, "checkActionPermission('can_delete_online_data')"), 'Ctrip config deletion must require online data delete permission');
+assert_true(requires_online_data_delete_permission($deleteMeituanConfig), 'Meituan config deletion must require online data delete permission');
+assert_true(requires_online_data_delete_permission($deleteCtripConfig), 'Ctrip config deletion must require online data delete permission');
 assert_true(!str_contains($legacyCronSource, "online_data_cookies_list"), 'legacy cron script must not use global cookie list');
 assert_true(!str_contains($legacyCronSource, "whereNull('system_hotel_id')"), 'legacy cron script must not write unbound OTA data');
 assert_true(!str_contains($legacyCronSource, "'system_hotel_id' => null"), 'legacy cron script must bind saved rows to a system hotel');

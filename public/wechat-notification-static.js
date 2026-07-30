@@ -40,25 +40,23 @@
                 const inputClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm focus:border-[#315d50] focus:outline-none focus:ring-2 focus:ring-[#315d50]/15';
 
                 return h('div', {
-                    class: 'mx-auto max-w-5xl',
+                    class: 'mx-auto max-w-7xl',
                     'data-testid': 'wechat-notification-panel',
                 }, [
-                    h('section', { class: 'rounded-2xl border border-slate-200 bg-white p-6 shadow-sm' }, [
-                        h('div', { class: 'flex flex-col gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-start lg:justify-between' }, [
+                    h('section', { class: 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm' }, [
+                        h('div', { class: 'flex flex-wrap items-start justify-between gap-3' }, [
                             h('div', {}, [
-                                h('div', { class: 'text-sm font-medium text-emerald-700' }, '当前酒店推送通道'),
-                                h('h2', { class: 'mt-1 text-2xl font-bold text-slate-900' },
-                                    selectedHotel?.name || '请选择当前酒店'),
-                                h('p', { class: 'mt-2 max-w-2xl text-sm leading-6 text-slate-500' },
-                                    '当前酒店只绑定一个企业微信群机器人 Webhook；携程、美团和 PMS 的计划统一使用这个通道。'),
+                                h('h2', { class: 'text-lg font-semibold text-slate-900' }, '企业微信群机器人'),
+                                h('p', { class: 'mt-1 text-sm text-slate-500' },
+                                    selectedHotel?.name || '请选择酒店'),
                             ]),
                             h('span', {
-                                class: `inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium ${props.statusClass}`,
+                                class: `inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${props.statusClass}`,
                                 'data-testid': 'wechat-notification-status',
                             }, props.statusText),
                         ]),
                         h('form', {
-                            class: 'mt-5',
+                            class: 'mt-4',
                             'data-testid': 'wechat-notification-form',
                             onSubmit: (event) => {
                                 event.preventDefault();
@@ -68,7 +66,7 @@
                             h('div', { class: 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]' }, [
                                 h('label', { class: 'block' }, [
                                     h('span', { class: 'mb-2 block text-sm font-medium text-slate-700' },
-                                        binding ? '替换企业微信群机器人 Webhook' : '企业微信群机器人 Webhook'),
+                                        'Webhook'),
                                     h('input', {
                                         value: props.form?.webhook || '',
                                         type: 'password',
@@ -79,8 +77,8 @@
                                         'data-testid': 'wechat-notification-webhook',
                                         onInput: event => emit('update-webhook', event.target.value),
                                     }),
-                                    h('span', { class: 'mt-2 block text-xs leading-5 text-slate-500' },
-                                        '完整地址会加密保存且不会回显；输入新地址并保存即可替换。'),
+                                    h('span', { class: 'mt-2 block text-xs text-slate-500' },
+                                        '加密保存，不回显完整地址。'),
                                 ]),
                                 h('div', { class: 'flex items-end gap-2' }, [
                                     h('button', {
@@ -88,23 +86,20 @@
                                         disabled: busy || !props.hotelId || !String(props.form?.webhook || '').trim(),
                                         class: 'rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50',
                                         'data-testid': 'wechat-notification-save',
-                                    }, props.saving ? '保存中...' : (binding ? '更新 Webhook' : '保存 Webhook')),
+                                    }, props.saving ? '保存中...' : (binding ? '更新' : '保存')),
                                     h('button', {
                                         type: 'button',
                                         disabled: busy || !binding,
                                         class: 'rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50',
                                         'data-testid': 'wechat-notification-test',
                                         onClick: () => emit('test'),
-                                    }, props.testing ? '发送中...' : '测试通道'),
+                                    }, props.testing ? '发送中...' : '测试'),
                                 ]),
                             ]),
-                            h('div', { class: 'mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-3' }, [
-                                detail('当前酒店', selectedHotel?.name || '未选择'),
+                            h('div', { class: 'mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-2' }, [
                                 detail('Webhook', binding?.webhook_masked || '未绑定', 'wechat-notification-mask'),
                                 detail('最近送达', props.lastTestText, 'wechat-notification-last-test'),
                             ]),
-                            h('div', { class: 'mt-4 text-xs leading-5 text-slate-500' },
-                                '酒店由页面顶部统一选择，不会绑定到其他酒店；自动推送计划只读取当前酒店的这个通道。'),
                                 props.error ? h('div', {
                                     class: 'mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700',
                                     role: 'alert',
@@ -112,6 +107,143 @@
                                 }, props.error) : null,
                         ]),
                     ]),
+                ]);
+            };
+        },
+    };
+})(window);
+
+(function registerManualNotificationDispatchPanel(global) {
+    'use strict';
+
+    const h = global.Vue?.h;
+    if (typeof h !== 'function') {
+        throw new Error('Vue runtime is required for the manual notification dispatch panel.');
+    }
+
+    global.SUXI_MANUAL_NOTIFICATION_DISPATCH_PANEL = {
+        name: 'ManualNotificationDispatchPanel',
+        props: {
+            history: { type: Object, default: () => ({ list: [] }) },
+            loading: Boolean,
+            expandedId: { type: String, default: '' },
+            triggerLabel: { type: Function, required: true },
+            statusLabel: { type: Function, required: true },
+            statusClass: { type: Function, required: true },
+            retryClass: { type: Function, required: true },
+            canRetry: { type: Function, required: true },
+            timeline: { type: Function, required: true },
+        },
+        emits: ['refresh', 'openPlan', 'retry', 'toggle'],
+        setup(props, { emit }) {
+            return () => {
+                const items = Array.isArray(props.history?.list) ? props.history.list : [];
+                return h('section', {
+                    class: 'overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm',
+                    'data-testid': 'manual-notification-dispatch-history',
+                }, [
+                    h('header', {
+                        class: 'flex items-center justify-between border-b border-slate-100 px-5 py-4',
+                    }, [
+                        h('h2', { class: 'text-lg font-semibold text-slate-900' }, '发送记录'),
+                        h('button', {
+                            type: 'button',
+                            class: 'rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100',
+                            onClick: () => emit('refresh'),
+                        }, [
+                            h('i', {
+                                class: `fas fa-sync-alt mr-2 ${props.loading ? 'fa-spin' : ''}`,
+                            }),
+                            '刷新',
+                        ]),
+                    ]),
+                    h('div', { class: 'divide-y divide-slate-100' }, items.length
+                        ? items.map((item) => {
+                            const id = String(item?.id || '');
+                            const expanded = props.expandedId === id;
+                            const steps = expanded ? props.timeline(item) : [];
+                            const status = String(item?.status || '');
+                            let action = h('span', { class: 'text-xs text-slate-400' }, '待处理');
+                            if (status === 'sent') {
+                                action = h('span', {
+                                    class: 'text-xs text-slate-400',
+                                    title: '已送达消息不会重复发送',
+                                }, '无需操作');
+                            } else if (status === 'blocked' && Number(item?.notification_id || 0) > 0) {
+                                action = h('button', {
+                                    type: 'button',
+                                    class: 'rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700',
+                                    onClick: () => emit('openPlan', item),
+                                }, '补齐数据');
+                            } else if (props.canRetry(item)) {
+                                action = h('button', {
+                                    type: 'button',
+                                    class: `rounded-lg border px-3 py-1.5 text-xs font-medium ${props.retryClass(item)}`,
+                                    onClick: () => emit('retry', item),
+                                }, status === 'outcome_unknown' ? '确认后重试' : '重试');
+                            } else if (['failed', 'outcome_unknown'].includes(status)) {
+                                action = h('span', { class: 'text-xs text-slate-500' }, '已达重试上限');
+                            }
+
+                            return h('article', { key: `dispatch-${id}`, class: 'p-5' }, [
+                                h('div', {
+                                    class: 'flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between',
+                                }, [
+                                    h('div', { class: 'min-w-0' }, [
+                                        h('div', { class: 'flex flex-wrap items-center gap-2' }, [
+                                            h('b', { class: 'text-sm text-slate-900' },
+                                                item?.plan_title || `通知 #${item?.notification_id || '未取得'}`),
+                                            h('span', {
+                                                class: `rounded-full border px-2.5 py-1 text-xs font-medium ${props.statusClass(item)}`,
+                                            }, props.statusLabel(item)),
+                                        ]),
+                                        h('p', { class: 'mt-1 text-xs text-slate-500' },
+                                            `${item?.business_date || '日期未取得'} · ${item?.source_scope_label || item?.template_type_label || '来源未取得'} · ${props.triggerLabel(item)} · ${item?.robot_name || '通道待核验'}`),
+                                        h('p', {
+                                            class: 'mt-2 max-w-3xl truncate text-xs text-slate-500',
+                                            title: item?.result_message || item?.result_code || '',
+                                        }, item?.result_message || item?.result_code || '无可回查回执'),
+                                        h('time', { class: 'mt-1 block text-xs text-slate-400' },
+                                            item?.dispatched_at || item?.last_attempt_at || item?.claimed_at || '未取得'),
+                                    ]),
+                                    h('div', {
+                                        class: 'flex shrink-0 flex-wrap items-center gap-2',
+                                    }, [
+                                        action,
+                                        h('button', {
+                                            type: 'button',
+                                            class: 'rounded-lg px-2 py-1 text-xs font-medium text-[#315d50]',
+                                            'aria-expanded': expanded,
+                                            onClick: () => emit('toggle', item),
+                                        }, expanded ? '收起' : '过程'),
+                                    ]),
+                                ]),
+                                expanded && steps.length
+                                    ? h('ol', {
+                                        class: 'mt-4 grid gap-2 md:grid-cols-3',
+                                        'data-testid': 'manual-notification-dispatch-timeline',
+                                    }, steps.map(step => h('li', {
+                                        key: step.key,
+                                        class: 'rounded-xl bg-slate-50 p-3',
+                                    }, [
+                                        h('div', {
+                                            class: 'flex items-center justify-between gap-2',
+                                        }, [
+                                            h('b', { class: 'text-xs text-slate-800' }, step.label),
+                                            h('time', { class: 'text-xs text-slate-400' }, step.time),
+                                        ]),
+                                        h('p', { class: 'mt-1 text-xs text-slate-500' }, step.detail),
+                                    ])))
+                                    : (expanded
+                                        ? h('p', { class: 'mt-4 text-xs text-slate-500' }, '未取得过程时间。')
+                                        : null),
+                            ]);
+                        })
+                        : [
+                            h('p', {
+                                class: 'px-6 py-10 text-center text-sm text-slate-500',
+                            }, props.loading ? '读取中…' : '暂无发送记录'),
+                        ]),
                 ]);
             };
         },
@@ -277,8 +409,6 @@
                     h('div', { class: 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between' }, [
                         h('div', {}, [
                             h('h3', { class: 'font-semibold text-slate-900' }, '自动发送设置'),
-                            h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' },
-                                '携程、美团、PMS 分别保存自己的发送内容、时间和频率；计划自动使用当前酒店唯一推送通道。'),
                         ]),
                         h('span', {
                             class: `rounded-full border px-2.5 py-1 text-xs font-medium ${form.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'}`,
@@ -302,6 +432,7 @@
                             return h('button', {
                                 key: String(source?.key || ''),
                                 type: 'button',
+                                title: source?.description || '',
                                 class: `rounded-xl border p-3 text-left transition ${selected
                                     ? 'border-[#ad8b52] bg-[#fff7e8] text-[#826333] ring-2 ring-[#ad8b52]/10'
                                     : 'border-slate-200 bg-white text-slate-600 hover:border-[#d8c49f]'}`,
@@ -314,14 +445,11 @@
                                             : []
                                     );
                                 },
-                            }, [
-                                h('b', { class: 'block text-sm' }, source?.label || source?.key || '未命名来源'),
-                                h('span', { class: 'mt-1 block text-xs leading-5' }, source?.description || ''),
-                            ]);
+                            }, h('b', { class: 'block text-sm' }, source?.label || source?.key || '未命名来源'));
                         })),
                         customWholeReport
                             ? h('p', { class: 'mt-2 text-xs leading-5 text-amber-700' },
-                                '自定义全文模板可能引用全部三源变量，因此保持三源汇总；如需单源计划，请使用通用模板。')
+                                '自定义全文仅支持三源汇总。')
                             : null,
                         fieldError('source_scope')
                             ? h('p', { class: 'mt-2 text-xs text-rose-600', role: 'alert' }, fieldError('source_scope'))
@@ -357,8 +485,6 @@
                                 section?.label || key,
                             ]);
                         })),
-                        h('p', { class: 'mt-2 text-xs leading-5 text-slate-500' },
-                            '来源证据、同店同日回读状态和 OTA/全酒店范围说明固定附带，不能关闭。'),
                         fieldError('content_sections')
                             ? h('p', { class: 'mt-2 text-xs text-rose-600', role: 'alert' }, fieldError('content_sections'))
                             : null,
@@ -368,7 +494,7 @@
                             'business_date_rule',
                             metadata.business_date_rules,
                             'manual-notification-business-date-rule'
-                        ), '发送当天数据：每次取发送当天；发送前一天数据：每次取发送日期的前一天。消息预览也使用同一规则。',
+                        ), '',
                         fieldError('business_date')),
                         field('发送频率', select(
                             'trigger_type',
@@ -380,7 +506,7 @@
                                 'planned_send_at',
                                 'datetime-local',
                                 'manual-notification-planned-time'
-                            ), '每天复用所选的时、分。', fieldError('planned_send_at')),
+                            ), '', fieldError('planned_send_at')),
                         ] : []),
                         ...(triggerType === 'hourly_on_the_hour' ? [
                             h('div', { class: 'grid grid-cols-2 gap-3' }, [
@@ -404,14 +530,14 @@
                                 'number',
                                 'manual-notification-interval-minutes',
                                 { min: 5, max: 1440, step: 1 }
-                            ), '允许 5–1440 分钟；每个发送时点只会认领一次。',
+                            ), '',
                             fieldError('interval_minutes')),
                             field('首次发送时间', input(
                                 'hourly_start_time',
                                 'time',
                                 'manual-notification-interval-start',
                                 { step: 60 }
-                            ), '当天从这个时间开始按间隔发送，23:59 自动结束，次日重新开始。',
+                            ), '',
                             fieldError('hourly_start_time')),
                         ] : []),
                         h('fieldset', {
@@ -465,18 +591,14 @@
                             }, props.robots.length
                                 ? '当前酒店企业微信群机器人 Webhook 已绑定'
                                 : '请先到“推送通道”绑定当前酒店 Webhook'),
-                            '无需重复选择通知群；保存计划时自动写入当前酒店唯一通道。',
+                            '',
                             fieldError('target_robot_id')),
                         ] : []),
                     ]),
                     h('label', {
                         class: 'mt-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3',
                     }, [
-                        h('span', {}, [
-                            h('b', { class: 'block text-sm text-slate-800' }, '启用或暂停本计划'),
-                            h('span', { class: 'mt-1 block text-xs text-slate-500' },
-                                '暂停后不进入调度；重新启用时保留未变更计划的测试凭据。'),
-                        ]),
+                        h('b', { class: 'text-sm text-slate-800' }, '启用自动发送'),
                         h('input', {
                             type: 'checkbox',
                             checked: form.enabled === true,
@@ -485,26 +607,38 @@
                             onChange: event => change('enabled', event.target.checked),
                         }),
                     ]),
-                    h('div', {
-                        class: 'mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800',
+                    h('details', {
+                        class: 'mt-4 rounded-xl border border-amber-200 bg-amber-50',
                         'data-testid': 'manual-notification-fixed-policies',
                     }, [
-                        h('b', { class: 'block text-sm' }, '系统固定策略（不可关闭）'),
-                        h('div', { class: 'mt-2 grid gap-1 sm:grid-cols-2' }, [
+                        h('summary', { class: 'flex cursor-pointer items-center justify-between px-3 py-2.5' }, [
+                            h('b', { class: 'text-sm text-amber-900' }, '安全规则'),
+                            h('span', { class: 'text-xs text-amber-700' }, '固定'),
+                        ]),
+                        h('div', { class: 'grid gap-1 border-t border-amber-200 px-3 py-3 text-xs leading-5 text-amber-800 sm:grid-cols-2' }, [
                             h('span', {}, `缺数据：${policies.missing_data || '可信事实不足时阻断正式消息'}`),
                             h('span', {}, `漏跑：${policies.missed_window || '超过调度窗口不补发'}`),
                             h('span', {}, `结果不明：${policies.unknown_outcome || '不自动重发'}`),
                             h('span', {}, `失败处理：${policies.retry || '明确失败可人工重试；结果不明仅在确认可能重复送达后重试'}`),
                         ]),
                     ]),
-                    h('dl', {
-                        class: 'mt-4 grid gap-2 text-xs sm:grid-cols-2',
+                    h('details', {
+                        class: 'mt-4 rounded-xl border border-slate-200 bg-white',
                         'data-testid': 'manual-notification-runtime-status',
                     }, [
-                        summary('上次运行', lastRun),
-                        summary('上次回执', lastReceipt),
-                        summary('当前阻断原因', blocker, 'manual-notification-current-blocker'),
-                        summary('云端调度', schedulerReady ? '已取得当前作用域运行证据' : (metadata.scheduler_note || '未验证')),
+                        h('summary', { class: 'flex cursor-pointer items-center justify-between gap-3 px-3 py-2.5' }, [
+                            h('b', { class: 'text-sm text-slate-800' }, '运行详情'),
+                            h('span', {
+                                class: `truncate text-xs ${blocker === '无已知阻断' ? 'text-slate-500' : 'text-amber-700'}`,
+                                'data-testid': 'manual-notification-current-blocker',
+                            }, blocker === '无已知阻断' ? (form.next_run_at || '暂无下次运行') : blocker),
+                        ]),
+                        h('dl', { class: 'grid gap-2 border-t border-slate-100 p-3 text-xs sm:grid-cols-2' }, [
+                            summary('上次运行', lastRun),
+                            summary('上次回执', lastReceipt),
+                            summary('当前阻断原因', blocker),
+                            summary('云端调度', schedulerReady ? '已取得当前作用域运行证据' : (metadata.scheduler_note || '未验证')),
+                        ]),
                     ]),
                 ]);
             };

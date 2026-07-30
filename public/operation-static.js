@@ -272,15 +272,17 @@ window.SUXI_OPERATION_STATIC = (() => {
         if (sourceKey.startsWith('ota_diagnosis_saved')) return 'OTA诊断行动';
         if (sourceKey.startsWith('daily_workbench_patrol')) return '巡检补证任务';
         if (sourceKey.startsWith('ota_diagnosis')) return '历史OTA诊断行动';
+        if (sourceKey.startsWith('temporal_forecast_recommendation')) return '预测运营建议';
         return resolved || '来源未返回';
     };
     const operationExecutionActionText = (item, helpers = {}) => {
         const recommendation = item?.recommendation || {};
-        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动', data_collection: '证据采集' }[recommendation.object_type] || recommendation.object_type || '动作');
+        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动', data_collection: '证据采集', operation_checklist: '运营核查' }[recommendation.object_type] || recommendation.object_type || '动作');
         const strategyTypeLabel = typeof helpers.strategyTypeLabel === 'function' ? helpers.strategyTypeLabel : (type => type || '未知策略');
         const actionText = ({
             complete_public_page_evidence: '补齐公开页证据',
             review_public_page_evidence: '复核公开页证据',
+            manual_forecast_review: '预测复核',
         }[recommendation.action_type] || strategyTypeLabel(recommendation.action_type));
         return `${objectText} · ${actionText}`;
     };

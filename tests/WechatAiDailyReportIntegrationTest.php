@@ -79,8 +79,9 @@ final class WechatAiDailyReportIntegrationTest extends TestCase
         self::assertStringNotContainsString('管理员配置', $wechatNotificationPage);
         self::assertStringContainsString('1　推送通道', $wechatNotificationPage);
         self::assertStringContainsString('2　自动推送', $wechatNotificationPage);
-        self::assertStringContainsString('当前酒店推送通道', $wechatNotificationPanel);
-        self::assertStringContainsString('当前酒店只绑定一个企业微信群机器人 Webhook', $wechatNotificationPanel);
+        self::assertStringContainsString('企业微信群机器人', $wechatNotificationPanel);
+        self::assertStringContainsString('加密保存，不回显完整地址', $wechatNotificationPanel);
+        self::assertStringNotContainsString('当前酒店只绑定一个企业微信群机器人 Webhook', $wechatNotificationPanel);
         self::assertStringNotContainsString('我的通知群', $wechatNotificationPanel);
         self::assertStringNotContainsString('通知群名称', $wechatNotificationPanel);
         self::assertStringContainsString('ai-daily-report-send-wecom', $dailyReport);

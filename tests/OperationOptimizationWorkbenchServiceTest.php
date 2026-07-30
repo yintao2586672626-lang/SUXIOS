@@ -111,6 +111,27 @@ final class OperationOptimizationWorkbenchServiceTest extends TestCase
         );
         self::assertFalse($keywords['近地铁酒店']['recommendation']['task_payload']['evidence']['auto_write_ota']);
         self::assertSame(0.01, $keywords['近地铁酒店']['recommendation']['task_payload']['expected_delta']);
+        self::assertSame(
+            'meituan-hotel-77',
+            $keywords['近地铁酒店']['recommendation']['task_payload']['evidence']['platform_hotel_id']
+        );
+        self::assertSame(
+            'ota_channel_advertising',
+            $keywords['近地铁酒店']['recommendation']['task_payload']['evidence']['fact_scope']
+        );
+        self::assertSame(
+            'same_length_period_after_manual_execution',
+            $keywords['近地铁酒店']['recommendation']['task_payload']['evidence']['review_policy']['review_window']['mode']
+        );
+        self::assertSame(
+            7,
+            $keywords['近地铁酒店']['recommendation']['task_payload']['evidence']['review_policy']['review_window']['length_days']
+        );
+        self::assertSame(
+            ['online_daily_data#13', 'source_trace:trace-13'],
+            $keywords['近地铁酒店']['recommendation']['task_payload']['evidence']['evidence_refs'],
+            'Advertising metrics must not keep unrelated search-keyword evidence.'
+        );
 
         $rooms = $this->indexBy($result['room_product_mix']['rows'], 'room_type');
         self::assertSame(60.0, $rooms['高级大床房']['revenue_share']);
@@ -205,6 +226,47 @@ final class OperationOptimizationWorkbenchServiceTest extends TestCase
         self::assertSame('blocked', $result['room_product_mix']['status']);
     }
 
+    public function testActionableMetricWithoutPlatformStoreIdentityCannotCreateTask(): void
+    {
+        $dataset = [
+            'fact_ota_search_keyword' => [],
+            'fact_ota_advertising' => [[
+                'date_key' => '2026-07-26',
+                'platform_key' => 'meituan',
+                'impressions' => 200,
+                'clicks' => 10,
+                'bookings' => 0,
+                'spend' => 20,
+                'order_amount' => 0,
+                'raw_data' => ['keyword' => '敦煌酒店'],
+                'source_trace' => [
+                    'table' => 'online_daily_data',
+                    'row_id' => 51,
+                    'source_trace_id' => 'trace-51',
+                    'ingestion_method' => 'profile_capture',
+                    'collected_at' => '2026-07-26 08:00:00',
+                    'stored' => true,
+                    'readback_verified' => true,
+                    'saved_success' => true,
+                ],
+            ]],
+            'fact_ota_daily' => [],
+            'fact_ota_traffic' => [],
+        ];
+
+        $result = (new OperationOptimizationWorkbenchService())->build($dataset, [
+            'hotel_id' => 77,
+            'start_date' => '2026-07-26',
+            'end_date' => '2026-07-26',
+        ]);
+        $row = $result['keyword_workbench']['rows'][0];
+
+        self::assertSame('pause_review', $row['recommendation']['code']);
+        self::assertSame('missing', $row['identity_status']);
+        self::assertFalse($row['recommendation']['can_create_task']);
+        self::assertNull($row['recommendation']['task_payload']);
+    }
+
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private function trusted(array $row, int $id): array
     {
@@ -212,6 +274,11 @@ final class OperationOptimizationWorkbenchServiceTest extends TestCase
             'table' => 'online_daily_data',
             'row_id' => $id,
             'source_trace_id' => 'trace-' . $id,
+            'platform_hotel_id' => str_starts_with((string)($row['platform_key'] ?? ''), 'ctrip')
+                ? 'ctrip-hotel-77'
+                : 'meituan-hotel-77',
+            'ingestion_method' => 'profile_capture',
+            'collected_at' => (string)($row['date_key'] ?? '2026-07-26') . ' 08:00:00',
             'stored' => true,
             'readback_verified' => true,
             'saved_success' => true,

@@ -2704,6 +2704,37 @@ final class PlatformDataSyncService
         if (!in_array($pageFieldFactStatus, ['ready', 'partial'], true)) {
             $pageFieldFactStatus = 'partial';
         }
+        $captureStrategy = strtolower(trim((string)($receipt['capture_strategy'] ?? 'not_recorded')));
+        if (!in_array(
+            $captureStrategy,
+            ['verified_endpoint_recipe', 'browser_response', 'dom_fallback', 'not_recorded'],
+            true
+        )) {
+            $captureStrategy = 'not_recorded';
+        }
+        $fallbackFrom = strtolower(trim((string)($receipt['fallback_from'] ?? '')));
+        if (!in_array(
+            $fallbackFrom,
+            ['verified_endpoint_recipe', 'browser_response'],
+            true
+        )) {
+            $fallbackFrom = '';
+        }
+        $fallbackReason = strtolower(trim((string)($receipt['fallback_reason'] ?? '')));
+        if (preg_match('/^[a-z][a-z0-9_:-]{0,119}$/D', $fallbackReason) !== 1) {
+            $fallbackReason = '';
+        }
+        $responseEvidenceType = strtolower(trim((string)($receipt['response_evidence_type'] ?? '')));
+        if (!in_array($responseEvidenceType, ['structured_json', 'dom_fields'], true)) {
+            $responseEvidenceType = '';
+        }
+        $recipePlanHash = strtolower(trim((string)($receipt['recipe_plan_hash'] ?? '')));
+        if (preg_match('/^[a-f0-9]{64}$/D', $recipePlanHash) !== 1) {
+            $recipePlanHash = '';
+        }
+        $recipeCount = isset($receipt['recipe_count']) && is_numeric($receipt['recipe_count'])
+            ? max(0, (int)$receipt['recipe_count'])
+            : null;
 
         return [
             'readback_verified' => ($receipt['readback_verified'] ?? false) === true
@@ -2719,6 +2750,14 @@ final class PlatformDataSyncService
             'row_ids' => $rowIds,
             'source_trace_ids' => array_slice(array_values(array_unique($traceIds)), 0, 50),
             'verified_metric_keys' => $metricKeys,
+            'capture_strategy' => $captureStrategy,
+            'fallback_from' => $fallbackFrom !== '' ? $fallbackFrom : null,
+            'fallback_reason' => $fallbackReason !== '' ? $fallbackReason : null,
+            'response_evidence_type' => $responseEvidenceType !== ''
+                ? $responseEvidenceType
+                : null,
+            'recipe_plan_hash' => $recipePlanHash !== '' ? $recipePlanHash : null,
+            'recipe_count' => $recipeCount,
             'p0_status' => $p0Status,
             'field_fact_status' => $fieldFactStatus,
             'required_traffic_metric_keys' => $this->sanitizeSyncDiagnosticMetricKeys(
@@ -4839,7 +4878,7 @@ final class PlatformDataSyncService
             $this->decodeConfig($task['stats_json'] ?? []),
             $taskStatus
         );
-        return [
+        $result = [
             'task_id' => $taskId,
             'data_source_id' => max(0, (int)($source['id'] ?? 0)),
             'status' => 'in_progress',
@@ -4863,6 +4902,11 @@ final class PlatformDataSyncService
                 : $this->emptySyncTiming(),
             'next_retry_at' => null,
         ];
+        $collectionResult = $this->otaCollectionResult($source, $result);
+        if ($collectionResult !== null) {
+            $result['collection_result'] = $collectionResult;
+        }
+        return $result;
     }
 
     private function finishTask(int $taskId, array $source, string $status, string $message, int $normalizedCount, int $savedCount, array $payload, array $timing = [], ?float $syncStartedAt = null): array
@@ -4970,7 +5014,7 @@ final class PlatformDataSyncService
             ]);
         $this->logSync($taskId, $source, $status === 'success' ? 'info' : 'warning', 'sync_finished', $safeMessage, $stats);
 
-        return [
+        $result = [
             'task_id' => $taskId,
             'data_source_id' => (int)$source['id'],
             'status' => $status,
@@ -4992,6 +5036,11 @@ final class PlatformDataSyncService
             'collection_quality' => $stats['collection_quality'],
             'module_status' => is_array($payload['module_status'] ?? null) ? $payload['module_status'] : null,
         ];
+        $collectionResult = $this->otaCollectionResult($source, $result);
+        if ($collectionResult !== null) {
+            $result['collection_result'] = $collectionResult;
+        }
+        return $result;
     }
 
     /**
@@ -5012,7 +5061,7 @@ final class PlatformDataSyncService
         $timing = is_array($stats['timing'] ?? null) ? $stats['timing'] : $this->emptySyncTiming();
         $nextRetryAt = trim((string)($task['next_retry_at'] ?? ''));
 
-        return [
+        $result = [
             'task_id' => $taskId,
             'data_source_id' => (int)$source['id'],
             'status' => $status,
@@ -5037,6 +5086,46 @@ final class PlatformDataSyncService
             'collection_quality' => is_array($stats['collection_quality'] ?? null) ? $stats['collection_quality'] : [],
             'module_status' => null,
         ];
+        $collectionResult = $this->otaCollectionResult($source, $result);
+        if ($collectionResult !== null) {
+            $result['collection_result'] = $collectionResult;
+        }
+        return $result;
+    }
+
+    /**
+     * @param array<string,mixed> $source
+     * @param array<string,mixed> $result
+     * @return array<string,mixed>|null
+     */
+    private function otaCollectionResult(array $source, array $result): ?array
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            return null;
+        }
+        $config = is_array($source['config'] ?? null)
+            ? $source['config']
+            : $this->decodeConfig($source['config_json'] ?? []);
+        $platformHotelId = $this->syncTaskOtaStoreIdentifier($platform, $config);
+        if ($platformHotelId === '') {
+            $platformHotelId = trim((string)(
+                $config['external_hotel_id']
+                ?? $source['external_hotel_id']
+                ?? ''
+            ));
+        }
+        return (new CollectionResultContractService())->fromOtaRunReadback(
+            $result,
+            [
+                'tenant_id' => max(0, (int)($source['tenant_id'] ?? 0)),
+                'system_hotel_id' => max(0, (int)($source['system_hotel_id'] ?? 0)),
+                'platform' => $platform,
+                'platform_hotel_id' => $platformHotelId,
+                'business_module' => trim((string)($source['data_type'] ?? '')),
+                'source_method' => trim((string)($source['ingestion_method'] ?? '')),
+            ]
+        );
     }
 
     /**
@@ -5075,6 +5164,12 @@ final class PlatformDataSyncService
             'row_ids' => [],
             'source_trace_ids' => [],
             'verified_metric_keys' => [],
+            'capture_strategy' => 'not_recorded',
+            'fallback_from' => null,
+            'fallback_reason' => null,
+            'response_evidence_type' => null,
+            'recipe_plan_hash' => null,
+            'recipe_count' => null,
             'p0_status' => strtolower(trim((string)($diagnostics['p0_status'] ?? ''))) === 'ready'
                 ? 'ready'
                 : 'blocked',
@@ -5169,6 +5264,10 @@ final class PlatformDataSyncService
         $receipt['row_ids'] = $rowIds;
         $receipt['source_trace_ids'] = array_slice($traceIds, 0, 50);
         $receipt['verified_metric_keys'] = $this->verifiedCoreMetricKeysFromRunRows($rows, $source);
+        $receipt = array_replace(
+            $receipt,
+            $this->collectionStrategyEvidenceFromRunRows($rows, $source)
+        );
         $receipt['readback_count'] = count($rows);
 
         // A Profile run may also persist forecast or realtime rows. Verify the
@@ -5277,6 +5376,69 @@ final class PlatformDataSyncService
             $roomNightsVerified ? 'room_nights' : null,
             $adrVerified ? 'adr' : null,
         ]));
+    }
+
+    /**
+     * Derive strategy evidence from the exact rows read back for this run.
+     * Static data-source configuration is not sufficient to prove how a
+     * particular collection result was obtained.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function collectionStrategyEvidenceFromRunRows(array $rows, array $source): array
+    {
+        $unverified = [
+            'capture_strategy' => 'not_recorded',
+            'fallback_from' => null,
+            'fallback_reason' => null,
+            'response_evidence_type' => null,
+            'recipe_plan_hash' => null,
+            'recipe_count' => null,
+        ];
+        $ingestionMethod = strtolower(trim((string)($source['ingestion_method'] ?? '')));
+        if ($rows === []
+            || !in_array(
+                $ingestionMethod,
+                ['browser_profile', 'profile_browser', 'local_collector'],
+                true
+            )
+        ) {
+            return $unverified;
+        }
+
+        foreach ($rows as $row) {
+            $raw = $this->decodeConfig($row['raw_data'] ?? []);
+            $evidence = is_array($raw['capture_evidence'] ?? null)
+                ? $raw['capture_evidence']
+                : [];
+            $sourceUrlHash = strtolower(trim((string)(
+                $evidence['source_url_hash']
+                ?? $raw['source_url_hash']
+                ?? ''
+            )));
+            $traceId = trim((string)(
+                $row['source_trace_id']
+                ?? $evidence['source_trace_id']
+                ?? $raw['source_trace_id']
+                ?? ''
+            ));
+            if (preg_match('/^[a-f0-9]{64}$/D', $sourceUrlHash) !== 1
+                || preg_match('/^[A-Za-z0-9._:-]{1,160}$/D', $traceId) !== 1
+            ) {
+                return $unverified;
+            }
+        }
+
+        return [
+            'capture_strategy' => 'browser_response',
+            'fallback_from' => null,
+            'fallback_reason' => null,
+            'response_evidence_type' => 'structured_json',
+            'recipe_plan_hash' => null,
+            'recipe_count' => null,
+        ];
     }
 
     private function shouldPreserveSourceStateForModuleResult(string $status, array $payload): bool

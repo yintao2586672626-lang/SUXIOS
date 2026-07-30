@@ -24,6 +24,7 @@ final class ExecutionFlowReadService
             ))
             : $evidence;
         $latestEvidence = $taskEvidence[0] ?? [];
+        $longitudinalReview = $this->latestLongitudinalReview($taskEvidence);
         $roiEvidence = $this->executionOutcomeService->latestExecutionRoiEvidence($taskEvidence);
         $evidenceSummary = $this->buildSafeEvidenceSummary($taskEvidence);
         $reviewStatus = (string)($task['result_status'] ?? 'observing');
@@ -69,9 +70,16 @@ final class ExecutionFlowReadService
         ) {
             $executedAt = strtotime((string)$task['executed_at']);
             if ($executedAt !== false) {
-                $nextDay = date('Y-m-d', strtotime('+1 day', $executedAt));
-                if ($reviewAvailableOn === '' || $nextDay > $reviewAvailableOn) {
-                    $reviewAvailableOn = $nextDay;
+                $intentEvidence = $this->arrayValue($intent['evidence'] ?? []);
+                $reviewPolicy = $this->arrayValue($intentEvidence['review_policy'] ?? []);
+                $reviewWindow = $this->arrayValue($reviewPolicy['review_window'] ?? []);
+                $reviewWindowDays = max(1, min(90, (int)($reviewWindow['length_days'] ?? 1)));
+                $sameLengthReviewDate = date(
+                    'Y-m-d',
+                    strtotime('+' . $reviewWindowDays . ' days', $executedAt)
+                );
+                if ($reviewAvailableOn === '' || $sameLengthReviewDate > $reviewAvailableOn) {
+                    $reviewAvailableOn = $sameLengthReviewDate;
                 }
             }
         }
@@ -121,6 +129,7 @@ final class ExecutionFlowReadService
                 'operator_attested_count' => (int)($evidenceTruth['operator_attested_count'] ?? 0),
                 'source_verified_count' => (int)($evidenceTruth['source_verified_count'] ?? 0),
                 'latest' => $latestEvidence,
+                'longitudinal_review' => $longitudinalReview,
             ],
             'evidence_summary' => $evidenceSummary,
             'evidence_truth' => $evidenceTruth,
@@ -320,6 +329,37 @@ final class ExecutionFlowReadService
             'latest_type' => trim((string)($latest['evidence_type'] ?? '')),
             'latest_at' => trim((string)($latest['created_at'] ?? '')),
         ];
+    }
+
+    /**
+     * The verified review can be followed by a newer operator note. Keep the newest
+     * valid longitudinal review independently from the generic latest evidence row.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function latestLongitudinalReview(array $rows): array
+    {
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $platformResponse = $this->arrayValue($row['platform_response'] ?? []);
+            if ($platformResponse === [] && isset($row['platform_response_json'])) {
+                $platformResponse = $this->decodeJson((string)$row['platform_response_json']);
+            }
+            $review = $this->arrayValue($platformResponse['longitudinal_review'] ?? []);
+            if ((string)($review['status'] ?? '') !== 'verified'
+                || (string)($review['learning_stage'] ?? '') !== 'action_reviewed'
+                || ($review['causality_claimed'] ?? null) !== false
+            ) {
+                continue;
+            }
+
+            return $review;
+        }
+
+        return [];
     }
 
     private function buildWorkflowAssignment(array $intent): array

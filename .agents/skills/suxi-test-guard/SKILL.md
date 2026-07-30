@@ -49,6 +49,15 @@ Use the smallest direct verification tool that matches the failing surface. Do n
 - `verify:p0-guards` already invokes `verify:e2e-contracts`; do not rerun nested guards after an umbrella pass unless isolating a failure or the earlier command exited before reaching them.
 - A local Level 3 pass does not prove live OTA capture, production data, scheduled delivery, or external deployment; report those states separately.
 
+## Smart Verification Trial
+
+- Preview a Level 1 plan: `node scripts/verify_smart.mjs <touched files...>`
+- Preview a completed-feature plan: `node scripts/verify_smart.mjs --feature <touched files...>`
+- Preview a commit/PR plan: `node scripts/verify_smart.mjs --commit <touched files...>`
+- Add `--run` only after the file scope and commands are correct.
+- In a mixed or dirty worktree, always pass the current task's files explicitly. With no file arguments the script reads every current Git change and reports that broader scope.
+- Level 3 emits `self:check` once and omits its nested `verify:p0-guards` and `verify:e2e-contracts` commands.
+
 ## Verification Options
 
 - Targeted PHP: `C:\xampp\php\php.exe vendor\bin\phpunit --colors=never tests\TargetTest.php`

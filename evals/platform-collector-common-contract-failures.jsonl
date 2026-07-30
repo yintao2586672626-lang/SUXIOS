@@ -1,0 +1,11 @@
+{"id":"PCCA-001","failure":"携程、美团和订单来了各复制一套范围、身份、保存回读和失败处理流程","evidence":"三个来源的页面与字段不同，但采集证据闭环相同；复制公共流程会造成状态和真实性规则漂移","expected":"共用CollectionScope、FieldFact、CollectorResult和九阶段公共流程，各平台只实现适配数据","guard":"项目与插件技能必须引用同一platform-collector-adapter-contract"}
+{"id":"PCCA-002","failure":"新增平台时复制旧采集器并只替换URL","evidence":"平台身份字段、Payload、source path、单位、日期角色、更新窗口和对账规则都可能不同","expected":"先声明完整适配器清单、成功/缺失/schema漂移样例，再接入公共流程","guard":"适配器合同必须覆盖identity、request plan、field map、date role、reconciliation和failure mapping"}
+{"id":"PCCA-003","failure":"同名字段在不同平台直接映射到同一metric_key","evidence":"曝光、浏览、订单、收入和均价可能有不同分子分母、范围、结算阶段和单位","expected":"只有定义、单位、日期角色和事实范围一致时才共用metric_key，否则保留平台专属语义","guard":"FieldFact必须保留platform source_path、endpoint_id、unit和date role证据"}
+{"id":"PCCA-004","failure":"根据浏览器端口、当前标签页或历史成功记录确定门店身份","evidence":"端口只是传输通道，标签页和历史记录不能证明本次平台门店","expected":"每次采集先通过平台身份探针并校验系统门店绑定","guard":"identity_status不是matched时禁止解析结果保存和推送"}
+{"id":"PCCA-005","failure":"平台未返回字段时由公共层写0、空数组、旧值或另一来源数值","evidence":"缺失与平台明确返回0是不同事实，不同来源也不能互相补值","expected":"适配器返回missing/pending_source_update/blocked，公共层原样保留","guard":"任何默认值或跨来源补值都不得通过质量与回读门"}
+{"id":"PCCA-006","failure":"浏览器响应成功后直接生成页面、AI或企业微信内容","evidence":"响应存在不等于身份、目标日期、字段映射和持久化已经验证","expected":"必须先走正式保存并按批次精确回读，再开放下游消费","guard":"CollectorResult必须暴露saved_count、readback_status和snapshot_ref"}
+{"id":"PCCA-007","failure":"把平台结算窗口、页签选择或汇总明细对账硬编码进公共层","evidence":"这些规则随平台、模块和日期角色变化","expected":"公共层只调用adapter quality/reconciliation合同，差异留在平台适配器","guard":"新增平台指标默认只改适配器字段表、fixture和测试"}
+{"id":"PCCA-008","failure":"把一日多次实时快照累加为当天总量","evidence":"多次采集是同一累计指标在不同时点的观察，不是独立增量","expected":"保留批次并选择最新合格快照；变化通过上一条可比快照计算","guard":"CollectorResult保存previous_comparable_ref，汇总不得跨批次求和"}
+{"id":"PCCA-009","failure":"一个平台出现session_expired或schema_changed后对全部来源执行重试或降级","evidence":"平台适配器和会话彼此隔离，一个来源失败不能改变其他来源状态","expected":"只对命中的平台/门店/模块返回对应blocker并采取其允许的下一步","guard":"公共失败状态保留platform scope，不启动跨平台全量重试"}
+{"id":"PCCA-010","failure":"项目权威技能已更新但插件分发副本继续使用旧公共合同","evidence":"同名Skill不会自动合并，镜像漂移会让不同运行入口执行不同方法","expected":"公共合同在项目与插件分发副本保持字节一致，并由验证器比较","guard":"verify:platform-collector-skill在合同不一致时失败"}
+{"id":"PCCA-011","failure":"为了统一流程而把携程OTA、美团OTA和PMS事实合并成全酒店统一数值","evidence":"公共方法只统一证据合同，不改变各来源事实范围","expected":"OTA保持渠道范围，PMS只在自身已验证范围内提供全店事实","guard":"适配器结果保留platform和fact scope，缺失不得跨源提升"}

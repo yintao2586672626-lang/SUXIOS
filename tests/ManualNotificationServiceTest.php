@@ -68,6 +68,7 @@ final class ManualNotificationServiceTest extends TestCase
         self::assertSame(
             [
                 'operating_daily_report',
+                'ctrip_temporal_report',
                 'operating_target_report',
                 'ai_analysis_result',
                 'anomaly_alert',
@@ -79,8 +80,14 @@ final class ManualNotificationServiceTest extends TestCase
             ],
             array_column($metadata['types'], 'key')
         );
+        $types = array_column($metadata['types'], null, 'key');
         self::assertStringContainsString('缺失', $metadata['types'][0]['body']);
-        self::assertStringContainsString('待配置', $metadata['types'][6]['body']);
+        self::assertStringContainsString('待配置', $types['future_room_status']['body']);
+        self::assertTrue($types['ctrip_temporal_report']['dynamic']);
+        self::assertSame(
+            '携程 OTA 过去复盘、如今监控与未来需求',
+            $types['ctrip_temporal_report']['data_scope_label']
+        );
         self::assertContains('{酒店名称}', $metadata['variables']);
         self::assertSame(
             ['common', 'custom'],
@@ -124,10 +131,9 @@ final class ManualNotificationServiceTest extends TestCase
         self::assertStringContainsString('重复送达', $metadata['fixed_policies']['retry']);
         self::assertSame(
             '经营目标与已核验经营事实',
-            $metadata['types'][1]['data_scope_label']
+            $types['operating_target_report']['data_scope_label']
         );
         self::assertSame('not_deployed', $metadata['scheduler_status']);
-        $types = array_column($metadata['types'], null, 'key');
         self::assertTrue($types['today_revenue_management']['dynamic']);
         self::assertTrue($types['future_room_status']['dynamic']);
         self::assertTrue($types['daily_review']['dynamic']);
@@ -692,6 +698,10 @@ final class ManualNotificationServiceTest extends TestCase
         );
         self::assertSame('schedule_enabled', $tested['schedule_status']);
         self::assertTrue($tested['formal_group_delivery_allowed']);
+        $testHistory = $testService->dispatchHistory(9, 80);
+        self::assertSame('价格规则异常', $testHistory['list'][0]['plan_title']);
+        self::assertSame('异常预警', $testHistory['list'][0]['template_type_label']);
+        self::assertSame('三源并列（兼容原计划）', $testHistory['list'][0]['source_scope_label']);
 
         $scheduled = (new ManualNotificationScheduleService(
             static fn(): array => [
@@ -728,6 +738,45 @@ final class ManualNotificationServiceTest extends TestCase
                 ->where('dispatch_id', $formalDispatchId)
                 ->count()
         );
+    }
+
+    public function testInactiveRobotDoesNotPreventPausingExistingPlan(): void
+    {
+        Db::name('competitor_wechat_robot')->insert([
+            'id' => 31,
+            'store_id' => 80,
+            'name' => '停用前经营群',
+            'webhook' => 'not-read-by-service-test',
+            'status' => 1,
+            'owner_user_id' => null,
+            'notification_scope' => 'admin_shared',
+        ]);
+        $service = new ManualNotificationService();
+        $input = $this->validInput([
+            'send_method' => 'wecom_formal',
+            'trigger_type' => 'daily_fixed_time',
+            'planned_send_at' => '2026-07-26T18:00',
+            'enabled' => true,
+            'target_robot_id' => 31,
+            'target_robot_name' => '停用前经营群',
+        ]);
+        $saved = $service->save(9, 80, 7, '敦煌漠蓝新', $input);
+        Db::name('competitor_wechat_robot')->where('id', 31)->update(['status' => 0]);
+
+        $paused = $service->save(9, 80, 7, '敦煌漠蓝新', array_replace($input, [
+            'id' => (int)$saved['record']['id'],
+            'enabled' => false,
+        ]));
+        self::assertFalse($paused['record']['enabled']);
+        self::assertSame('saved_only', $paused['record']['schedule_status']);
+        self::assertSame(31, $paused['record']['target_robot_id']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('manual_notification_target_binding_invalid');
+        $service->save(9, 80, 7, '敦煌漠蓝新', array_replace($input, [
+            'id' => (int)$saved['record']['id'],
+            'enabled' => true,
+        ]));
     }
 
     public function testOutcomeUnknownCanOnlyBeRetriedAfterExplicitConfirmation(): void

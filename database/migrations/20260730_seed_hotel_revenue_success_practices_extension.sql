@@ -884,3 +884,4 @@ SET
   `update_time` = NOW()
 WHERE `hotel_id` = 0
   AND `title` = @success_ext_unit_name;
+

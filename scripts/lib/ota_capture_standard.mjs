@@ -470,11 +470,118 @@ export function extractOtaRequestDateEvidence({ url = '', payload = '' } = {}) {
   };
 }
 
-export function buildOtaCaptureEvidence(platform, options = {}) {
-  const platformKey = String(platform || '').trim().toLowerCase() || 'ota';
+export const WEB_CAPTURE_STRATEGIES = Object.freeze({
+  verifiedEndpointRecipe: 'verified_endpoint_recipe',
+  browserResponse: 'browser_response',
+  domFallback: 'dom_fallback',
+});
+
+const WEB_CAPTURE_RESPONSE_EVIDENCE_TYPES = new Set([
+  'structured_json',
+  'dom_fields',
+]);
+
+export function buildCollectionStrategyEvidence(options = {}) {
+  const selected = String(
+    options.captureStrategy || options.capture_strategy || '',
+  ).trim().toLowerCase();
+  if (!selected) {
+    return {};
+  }
+  if (!Object.values(WEB_CAPTURE_STRATEGIES).includes(selected)) {
+    throw new TypeError('web_capture_strategy_invalid');
+  }
+
+  const fallbackFromRaw = options.fallbackFrom ?? options.fallback_from ?? null;
+  const fallbackFrom = fallbackFromRaw === null || fallbackFromRaw === ''
+    ? null
+    : String(fallbackFromRaw).trim().toLowerCase();
+  const fallbackReasonRaw = options.fallbackReason ?? options.fallback_reason ?? null;
+  const fallbackReason = fallbackReasonRaw === null || fallbackReasonRaw === ''
+    ? null
+    : safeEvidenceStatusCode(fallbackReasonRaw);
+  if ((fallbackReasonRaw !== null && fallbackReasonRaw !== '' && !fallbackReason)
+    || (fallbackFrom === null) !== (fallbackReason === null)
+  ) {
+    throw new TypeError('web_capture_strategy_fallback_invalid');
+  }
+
+  const allowedFallbacks = {
+    [WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe]: [],
+    [WEB_CAPTURE_STRATEGIES.browserResponse]: [
+      WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe,
+    ],
+    [WEB_CAPTURE_STRATEGIES.domFallback]: [
+      WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe,
+      WEB_CAPTURE_STRATEGIES.browserResponse,
+    ],
+  };
+  if (fallbackFrom !== null && !allowedFallbacks[selected].includes(fallbackFrom)) {
+    throw new TypeError('web_capture_strategy_fallback_invalid');
+  }
+  if (selected === WEB_CAPTURE_STRATEGIES.domFallback && fallbackFrom === null) {
+    throw new TypeError('web_capture_strategy_fallback_invalid');
+  }
+
+  const responseEvidenceType = String(
+    options.responseEvidenceType
+      || options.response_evidence_type
+      || (selected === WEB_CAPTURE_STRATEGIES.domFallback
+        ? 'dom_fields'
+        : 'structured_json'),
+  ).trim().toLowerCase();
+  if (!WEB_CAPTURE_RESPONSE_EVIDENCE_TYPES.has(responseEvidenceType)
+    || (selected === WEB_CAPTURE_STRATEGIES.domFallback
+      && responseEvidenceType !== 'dom_fields')
+    || (selected !== WEB_CAPTURE_STRATEGIES.domFallback
+      && responseEvidenceType !== 'structured_json')
+  ) {
+    throw new TypeError('web_capture_strategy_response_evidence_invalid');
+  }
+
+  const rawRecipeIds = options.recipeIds || options.recipe_ids || [];
+  if (!Array.isArray(rawRecipeIds) || rawRecipeIds.length > 200) {
+    throw new TypeError('web_capture_strategy_recipe_plan_invalid');
+  }
+  const recipeIds = rawRecipeIds.map((value) => {
+    const recipeId = safeEvidenceIdentifier(value);
+    if (!recipeId) {
+      throw new TypeError('web_capture_strategy_recipe_plan_invalid');
+    }
+    return recipeId;
+  });
+  if (new Set(recipeIds).size !== recipeIds.length
+    || (selected === WEB_CAPTURE_STRATEGIES.verifiedEndpointRecipe
+      && recipeIds.length === 0)
+  ) {
+    throw new TypeError('web_capture_strategy_recipe_plan_invalid');
+  }
+
+  return {
+    capture_strategy: selected,
+    fallback_from: fallbackFrom,
+    fallback_reason: fallbackReason,
+    response_evidence_type: responseEvidenceType,
+    ...(recipeIds.length > 0
+      ? {
+          recipe_plan_hash: sha256Hex(JSON.stringify(recipeIds)),
+          recipe_count: recipeIds.length,
+        }
+      : {}),
+  };
+}
+
+export function buildWebPlatformCaptureEvidence(platform, options = {}) {
+  const platformKey = safeEvidenceIdentifier(platform) || 'web_platform';
   const section = safeEvidenceText(options.section || '');
   const sourcePath = safeEvidenceText(options.sourcePath || '');
   const captureSource = safeEvidenceText(options.captureSource || '');
+  const sourceKind = safeEvidenceIdentifier(options.sourceKind || '');
+  const businessModule = safeEvidenceIdentifier(options.businessModule || '');
+  const sourceMethod = safeEvidenceIdentifier(options.sourceMethod || '');
+  const collectionMode = safeEvidenceIdentifier(options.collectionMode || '');
+  const dataDate = isoEvidenceDate(options.dataDate || '');
+  const providerHotelId = safeEvidenceText(options.providerHotelId || '');
   const url = String(options.url || '').trim();
   const evidence = {};
 
@@ -487,9 +594,29 @@ export function buildOtaCaptureEvidence(platform, options = {}) {
   if (section) {
     evidence.section = section;
   }
+  if (sourceKind) {
+    evidence.source_kind = sourceKind;
+  }
+  if (businessModule) {
+    evidence.business_module = businessModule;
+  }
+  if (sourceMethod) {
+    evidence.source_method = sourceMethod;
+  }
+  if (collectionMode) {
+    evidence.collection_mode = collectionMode;
+  }
+  if (dataDate) {
+    evidence.data_date = dataDate;
+  }
+  if (providerHotelId) {
+    evidence.provider_hotel_id_hash = sha256Hex(providerHotelId);
+  }
   if (url) {
     evidence.source_url_hash = sha256Hex(url);
   }
+  const strategyEvidence = buildCollectionStrategyEvidence(options);
+  Object.assign(evidence, strategyEvidence);
 
   const traceBasis = {
     platform: platformKey,
@@ -498,6 +625,24 @@ export function buildOtaCaptureEvidence(platform, options = {}) {
     capture_source: captureSource,
     source_url_hash: evidence.source_url_hash || '',
   };
+  if (sourceKind) traceBasis.source_kind = sourceKind;
+  if (businessModule) traceBasis.business_module = businessModule;
+  if (sourceMethod) traceBasis.source_method = sourceMethod;
+  if (collectionMode) traceBasis.collection_mode = collectionMode;
+  if (dataDate) traceBasis.data_date = dataDate;
+  if (evidence.provider_hotel_id_hash) {
+    traceBasis.provider_hotel_id_hash = evidence.provider_hotel_id_hash;
+  }
+  if (evidence.capture_strategy) {
+    traceBasis.capture_strategy = evidence.capture_strategy;
+    traceBasis.fallback_from = evidence.fallback_from;
+    traceBasis.fallback_reason = evidence.fallback_reason;
+    traceBasis.response_evidence_type = evidence.response_evidence_type;
+    if (evidence.recipe_plan_hash) {
+      traceBasis.recipe_plan_hash = evidence.recipe_plan_hash;
+      traceBasis.recipe_count = evidence.recipe_count;
+    }
+  }
   if (Object.values(traceBasis).some(Boolean)) {
     evidence.source_trace_id = `${platformKey}:${sha256Hex(JSON.stringify(traceBasis))}`;
   }
@@ -505,7 +650,11 @@ export function buildOtaCaptureEvidence(platform, options = {}) {
   return evidence;
 }
 
-export function attachOtaCaptureEvidence(row, platform, options = {}) {
+export function buildOtaCaptureEvidence(platform, options = {}) {
+  return buildWebPlatformCaptureEvidence(platform, options);
+}
+
+export function attachWebPlatformCaptureEvidence(row, platform, options = {}) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) {
     return row;
   }
@@ -524,7 +673,7 @@ export function attachOtaCaptureEvidence(row, platform, options = {}) {
     || '';
   const evidence = {
     ...existingEvidence,
-    ...buildOtaCaptureEvidence(platform, {
+    ...buildWebPlatformCaptureEvidence(platform, {
       ...options,
       url: sourceUrl,
       sourcePath,
@@ -548,6 +697,10 @@ export function attachOtaCaptureEvidence(row, platform, options = {}) {
   delete next.source_url;
   delete next.url;
   return next;
+}
+
+export function attachOtaCaptureEvidence(row, platform, options = {}) {
+  return attachWebPlatformCaptureEvidence(row, platform, options);
 }
 
 function sha256Hex(value) {
@@ -702,6 +855,26 @@ function safeEvidenceText(value) {
     return '';
   }
   return text.slice(0, 300);
+}
+
+function safeEvidenceIdentifier(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return /^[a-z][a-z0-9_-]{0,63}$/.test(text) ? text : '';
+}
+
+function safeEvidenceStatusCode(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9_:-]{0,119}$/.test(text)
+    || /(?:^|[_:-])(cookie|authorization|bearer|token|password|secret)(?:$|[_:-])/i.test(text)
+  ) {
+    return '';
+  }
+  return text;
+}
+
+function isoEvidenceDate(value) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
 }
 
 function sanitizePayloadNode(value, orderContext) {

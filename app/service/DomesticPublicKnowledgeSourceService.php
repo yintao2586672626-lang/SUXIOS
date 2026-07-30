@@ -482,6 +482,32 @@ final class DomesticPublicKnowledgeSourceService
                 $content['last_attempt_status'] = 'collection_failed';
                 $content['last_failure_reason'] = $failureReason;
                 $content['usage_boundary'] = $this->usageBoundary();
+                $content['source_refs'] = is_array($content['source_refs'] ?? null)
+                    ? $content['source_refs']
+                    : array_values(array_filter([
+                        (string)($sourceResult['source_url'] ?? ''),
+                    ]));
+                $content['module_id'] = 'domestic_public_source_monitor';
+                $content['roles'] = ['owner', 'revenue_manager', 'operations_manager'];
+                $content['scenes'] = ['industry_context', 'source_review', 'regulatory_watch'];
+                $content['platforms'] = [];
+                $content['seed_owner'] = 'suxios.domestic_public_source_monitor';
+                $content['seed_key'] = 'domestic_public_source_monitor:' . $sourceKey;
+                $content['seed_version'] = trim((string)($content['source_version_fingerprint'] ?? '')) !== ''
+                    ? 'sha256:' . trim((string)$content['source_version_fingerprint'])
+                    : 'collection_failed:' . substr(hash('sha256', $sourceKey . '|' . $now), 0, 16);
+                $content['scope'] ??= 'domestic_hotel_industry_context_only';
+                $content['evidence_level'] ??= 'collection_failed_no_fact';
+                $content['lifecycle_status'] ??= 'stale';
+                $content['source_manifest'] ??= [
+                    $sourceKey => [
+                        'publisher' => $sourceName,
+                        'url' => (string)($sourceResult['source_url'] ?? ''),
+                        'verification_status' => 'collection_failed',
+                        'last_attempt_at' => $now,
+                        'last_failure_reason' => $failureReason,
+                    ],
+                ];
 
                 $lastSuccessAt = trim((string)($content['retrieved_at'] ?? ''));
                 $isStale = $lastSuccessAt === ''
@@ -555,6 +581,14 @@ final class DomesticPublicKnowledgeSourceService
                 $chunkAction = 'updated';
             }
 
+            $knowledgeBase = $this->persistKnowledgeBaseMirror(
+                $unitName,
+                $sourceName,
+                $content,
+                $status,
+                $now
+            );
+
             return [
                 'source_key' => $sourceKey,
                 'collection_status' => $status,
@@ -562,8 +596,106 @@ final class DomesticPublicKnowledgeSourceService
                 'unit_action' => $unitAction,
                 'chunk_id' => $chunkId,
                 'chunk_action' => $chunkAction,
+                'knowledge_base_id' => (int)($knowledgeBase['id'] ?? 0),
+                'knowledge_base_action' => (string)($knowledgeBase['action'] ?? ''),
+                'knowledge_base_title' => $unitName,
             ];
         });
+    }
+
+    /**
+     * Keep the employee-facing mirror synchronized with the structured unit.
+     * The mirror is a concise index, while knowledge_chunks remains the
+     * traceable source of truth used by retrieval.
+     *
+     * @param array<string, mixed> $content
+     * @return array{id:int,action:string}
+     */
+    private function persistKnowledgeBaseMirror(
+        string $title,
+        string $sourceName,
+        array $content,
+        string $collectionStatus,
+        string $now
+    ): array {
+        $items = is_array($content['items'] ?? null) ? $content['items'] : [];
+        $lines = [
+            '# ' . $title,
+            '',
+            '## 当前状态',
+            $collectionStatus === 'verified'
+                ? sprintf(
+                    '已核验公开页面元数据，共%d条；指纹：%s。',
+                    (int)($content['item_count'] ?? 0),
+                    (string)($content['fingerprint_sha256'] ?? '')
+                )
+                : '最近一次同步失败；未生成新事实，保留最近成功快照（如有）。',
+            '',
+            '## 资料索引',
+        ];
+        if ($items === []) {
+            $lines[] = '- 暂无可用条目。';
+        } else {
+            foreach (array_slice($items, 0, 10) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $publishedAt = trim((string)($item['published_at'] ?? ''));
+                $itemTitle = trim((string)($item['title'] ?? '未命名资料'));
+                $url = trim((string)($item['url'] ?? ''));
+                $lines[] = '- '
+                    . ($publishedAt !== '' ? '[' . $publishedAt . '] ' : '')
+                    . $itemTitle
+                    . ($url !== '' ? ' — ' . $url : '');
+            }
+        }
+        $lines = array_merge($lines, [
+            '',
+            '## 使用边界',
+            '只用于国内行业、需求和监管背景；正文尚未逐篇复核的条目不得直接转成经营结论。',
+            '不得替代携程、美团、PMS或目标酒店同店同日的已验证事实。',
+        ]);
+
+        $existing = Db::name('knowledge_base')
+            ->where('hotel_id', 0)
+            ->where('title', $title)
+            ->order('id', 'asc')
+            ->lock(true)
+            ->find();
+        $data = [
+            'tenant_id' => 0,
+            'hotel_id' => 0,
+            'category_id' => 8,
+            'title' => $title,
+            'content' => implode("\n", $lines),
+            'keywords' => implode(',', array_filter([
+                '国内公开资料',
+                '行业背景',
+                '监管',
+                $sourceName,
+            ])),
+            'tags' => $this->encodeJson([
+                '国内公开资料',
+                '行业背景',
+                'metadata_only',
+                'source_traceable',
+            ]),
+            'sort_order' => 0,
+            'is_enabled' => 1,
+            'update_time' => $now,
+        ];
+
+        $id = (int)($existing['id'] ?? 0);
+        if ($id <= 0) {
+            $data['view_count'] = 0;
+            $data['like_count'] = 0;
+            $data['create_time'] = $now;
+            $id = (int)Db::name('knowledge_base')->insertGetId($data);
+            return ['id' => $id, 'action' => 'inserted'];
+        }
+
+        Db::name('knowledge_base')->where('id', $id)->update($data);
+        return ['id' => $id, 'action' => 'updated'];
     }
 
     /**
@@ -577,6 +709,8 @@ final class DomesticPublicKnowledgeSourceService
         foreach ($writes as $write) {
             $unitId = (int)($write['unit_id'] ?? 0);
             $chunkId = (int)($write['chunk_id'] ?? 0);
+            $knowledgeBaseId = (int)($write['knowledge_base_id'] ?? 0);
+            $knowledgeBaseTitle = (string)($write['knowledge_base_title'] ?? '');
             $expectedSourceKey = (string)($write['source_key'] ?? '');
             $expectedAttemptStatus = (string)($write['collection_status'] ?? '') === 'verified'
                 ? 'verified'
@@ -594,15 +728,26 @@ final class DomesticPublicKnowledgeSourceService
                     ->where('kc.chunk_id', $chunkId)
                     ->find()
                 : null;
+            $knowledgeBase = $knowledgeBaseId > 0
+                ? Db::name('knowledge_base')
+                    ->field('id,hotel_id,title,is_enabled')
+                    ->where('id', $knowledgeBaseId)
+                    ->find()
+                : null;
             $content = $this->decodeContent($row['content'] ?? null);
             $verified = is_array($row)
+                && is_array($knowledgeBase)
                 && (int)($row['unit_id'] ?? 0) === $unitId
                 && (int)($row['chunk_id'] ?? 0) === $chunkId
                 && (int)($row['hotel_id'] ?? -1) === 0
                 && (string)($row['source'] ?? '') === self::KNOWLEDGE_SOURCE
                 && (string)($row['type'] ?? '') === self::CHUNK_TYPE
                 && (string)($content['source_key'] ?? '') === $expectedSourceKey
-                && (string)($content['last_attempt_status'] ?? '') === $expectedAttemptStatus;
+                && (string)($content['last_attempt_status'] ?? '') === $expectedAttemptStatus
+                && (int)($knowledgeBase['id'] ?? 0) === $knowledgeBaseId
+                && (int)($knowledgeBase['hotel_id'] ?? -1) === 0
+                && (string)($knowledgeBase['title'] ?? '') === $knowledgeBaseTitle
+                && (int)($knowledgeBase['is_enabled'] ?? 0) === 1;
             if ($verified) {
                 $verifiedCount++;
             }
@@ -611,6 +756,7 @@ final class DomesticPublicKnowledgeSourceService
                 'source_key' => $expectedSourceKey,
                 'unit_id' => $unitId,
                 'chunk_id' => $chunkId,
+                'knowledge_base_id' => $knowledgeBaseId,
                 'unit_status' => (string)($row['status'] ?? ''),
                 'lifecycle_status' => (string)($row['lifecycle_status'] ?? ''),
                 'last_attempt_status' => (string)($content['last_attempt_status'] ?? ''),
@@ -635,24 +781,56 @@ final class DomesticPublicKnowledgeSourceService
     /** @param array<string, mixed> $result @return array<string, mixed> */
     private function successContent(array $result): array
     {
+        $sourceUrl = (string)($result['source_url'] ?? '');
+        $items = is_array($result['items'] ?? null) ? $result['items'] : [];
+        $sourceRefs = array_values(array_unique(array_filter(array_merge(
+            [$sourceUrl],
+            array_map(
+                static fn(array $item): string => trim((string)($item['url'] ?? '')),
+                array_filter($items, 'is_array')
+            )
+        ), static fn(string $url): bool => $url !== '')));
+        $sourceKey = (string)($result['source_key'] ?? '');
+        $fingerprint = (string)($result['fingerprint_sha256'] ?? '');
+
         return [
-            'schema_version' => '1.0',
-            'source_key' => (string)($result['source_key'] ?? ''),
+            'schema_version' => '1.1',
+            'source_key' => $sourceKey,
             'source_name' => (string)($result['source_name'] ?? ''),
-            'source_url' => (string)($result['source_url'] ?? ''),
-            'source_host' => (string)parse_url((string)($result['source_url'] ?? ''), PHP_URL_HOST),
+            'source_url' => $sourceUrl,
+            'source_host' => (string)parse_url($sourceUrl, PHP_URL_HOST),
             'source_tier' => (string)($result['source_tier'] ?? ''),
             'discovery_mode' => (string)($result['discovery_mode'] ?? ''),
             'scope' => 'domestic_hotel_industry_context_only',
             'evidence_level' => 'verified_public_page_metadata',
+            'source_refs' => $sourceRefs,
+            'source_manifest' => [
+                $sourceKey => [
+                    'publisher' => (string)($result['source_name'] ?? ''),
+                    'url' => $sourceUrl,
+                    'source_tier' => (string)($result['source_tier'] ?? ''),
+                    'verification_status' => 'metadata_verified_content_not_interpreted',
+                    'retrieved_at' => (string)($result['retrieved_at'] ?? ''),
+                    'fingerprint_sha256' => $fingerprint,
+                ],
+            ],
+            'module_id' => 'domestic_public_source_monitor',
+            'roles' => ['owner', 'revenue_manager', 'operations_manager'],
+            'scenes' => ['industry_context', 'source_review', 'regulatory_watch'],
+            'platforms' => [],
             'lifecycle_status' => 'active',
+            'reviewed_at' => (string)($result['retrieved_at'] ?? ''),
             'retrieved_at' => (string)($result['retrieved_at'] ?? ''),
             'last_attempt_at' => (string)($result['attempted_at'] ?? ''),
             'last_attempt_status' => 'verified',
             'last_failure_reason' => '',
-            'fingerprint_sha256' => (string)($result['fingerprint_sha256'] ?? ''),
+            'fingerprint_sha256' => $fingerprint,
+            'source_version_fingerprint' => $fingerprint,
+            'seed_owner' => 'suxios.domestic_public_source_monitor',
+            'seed_key' => 'domestic_public_source_monitor:' . $sourceKey,
+            'seed_version' => $fingerprint !== '' ? 'sha256:' . $fingerprint : 'unverified',
             'item_count' => (int)($result['item_count'] ?? 0),
-            'items' => is_array($result['items'] ?? null) ? $result['items'] : [],
+            'items' => $items,
             'usage_boundary' => $this->usageBoundary(),
             'blocked_uses' => [
                 'current_hotel_operating_fact',

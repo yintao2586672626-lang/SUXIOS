@@ -84,6 +84,34 @@ final class OutboundUrlGuardTest extends TestCase
         $guard->validate('https://unresolved.example/v1');
     }
 
+    public function testLocalLlmGuardAllowsOnlyPinnedOllamaLoopbackEndpoint(): void
+    {
+        $guard = new OutboundUrlGuard();
+
+        $target = $guard->validateLocalLlm('http://localhost:11434/v1/chat/completions');
+
+        self::assertSame('localhost', $target['host']);
+        self::assertSame(11434, $target['port']);
+        self::assertSame(['127.0.0.1'], $target['addresses']);
+        self::assertSame(['localhost:11434:127.0.0.1'], $target['curl_resolve']);
+
+        foreach ([
+            'http://127.0.0.1:8080/v1',
+            'http://192.168.1.10:11434/v1',
+            'https://127.0.0.1:11434/v1',
+            'http://user:pass@127.0.0.1:11434/v1',
+            'http://127.0.0.1:11434/api/push',
+            'http://127.0.0.1:11434/v1?target=metadata',
+        ] as $url) {
+            try {
+                $guard->validateLocalLlm($url);
+                self::fail('Expected non-Ollama local URL to be rejected.');
+            } catch (InvalidArgumentException $exception) {
+                self::assertSame(OutboundUrlGuard::ERROR_LOCAL_LLM_NOT_ALLOWED, $exception->getMessage());
+            }
+        }
+    }
+
     /**
      * @param array<string,array<int,string>> $answers
      */

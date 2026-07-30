@@ -21,6 +21,10 @@ test('scheduled runner requires explicit hotel and sandbox scope and stores a sa
   assert.match(scheduledRunner, /--collection-mode=\$CollectionMode/);
   assert.match(scheduledRunner, /\$payloadCollectionMode\s+-eq\s+\$CollectionMode/);
   assert.match(scheduledRunner, /collection_mode\s*=\s*\$CollectionMode/);
+  assert.match(scheduledRunner, /open_local_browser_sandbox\.ps1/);
+  assert.match(scheduledRunner, /-Platform 'dingdandao'/);
+  assert.match(scheduledRunner, /browser_headless/);
+  assert.match(scheduledRunner, /process_profile/);
   assert.match(scheduledRunner, /runtime\\dingdandao_local_scheduler/);
   assert.match(scheduledRunner, /latest\.json/);
   assert.match(scheduledRunner, /sandbox_selection\s*=\s*'explicit_marker'/);
@@ -35,8 +39,12 @@ test('task registration is plan-only by default and never starts the task', () =
   assert.match(registration, /starts_task_immediately\s*=\s*\$false/);
   assert.match(registration, /registered_not_started/);
   assert.match(registration, /MultipleInstances IgnoreNew/);
+  assert.match(registration, /-WindowStyle Hidden/);
+  assert.match(registration, /-Hidden/);
   assert.match(registration, /--mode=inspect/);
-  assert.match(registration, /explicit isolated BrowserContext marker found/);
+  assert.match(registration, /dedicated process Profile marker found/);
+  assert.match(registration, /visible_window_expected\s*=\s*\$false/);
+  assert.match(registration, /browser_host_auto_start\s*=\s*'headless'/);
   assert.match(registration, /trigger_count/);
   assert.match(registration, /\[switch\]\$Push/);
   assert.match(registration, /\$CollectionMode\s*=\s*'operating_indicators'/);

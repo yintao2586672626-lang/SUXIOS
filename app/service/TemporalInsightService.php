@@ -15,11 +15,17 @@ use think\facade\Db;
  */
 final class TemporalInsightService
 {
+    public const OPERATION_SOURCE_MODULE = 'temporal_forecast_recommendation';
+
     private const FORECAST_TABLE = 'temporal_forecast_snapshots';
     private const MODEL_VERSION = 'coarse_trend_v1';
     private const METHOD = 'weekday_recent_trend_interval';
     private const CONFIDENCE_TYPE = 'uncalibrated_rule_index';
     private const CONFIDENCE_SEMANTICS = '由样本覆盖、稳定性和新鲜度加权形成的规则指数，未经概率校准，不代表预测命中概率。';
+    private const BACKTEST_LOOKBACK_DAYS = 90;
+    private const MIN_OPERATIONAL_HISTORY_DAYS = 21;
+    private const MIN_BACKTEST_SAMPLES_PER_COHORT = 10;
+    private const MIN_RANGE_HIT_RATE_PERCENT = 60.0;
 
     /** @var array<string, string> */
     private const METRICS = [
@@ -72,8 +78,8 @@ final class TemporalInsightService
 
         $past = $this->pastView($pastBundle, $historyStart, $historyEnd);
         $present = $this->presentView($presentBundle, $pastBundle);
-        $future = $this->futureView($scope['ids'], $todayDate, $futureDays);
         $review = $this->reviewView($scope['ids'], $todayDate);
+        $future = $this->futureView($scope['ids'], $todayDate, $futureDays, $review);
 
         return [
             'generated_at' => date('Y-m-d H:i:s'),
@@ -82,6 +88,10 @@ final class TemporalInsightService
             'confidence_type' => self::CONFIDENCE_TYPE,
             'confidence_semantics' => self::CONFIDENCE_SEMANTICS,
             'calibration_status' => 'not_calibrated',
+            'operational_backtest_status' => (int)($review['eligible_cohort_count'] ?? 0) > 0
+                ? 'empirical_backtest_available'
+                : 'operational_conclusion_disabled',
+            'operational_policy' => $this->operationalPolicy(),
             'temporal_principle' => [
                 'past' => '过去有据',
                 'present' => '如今可察',
@@ -135,6 +145,9 @@ final class TemporalInsightService
                 'metrics' => $plan['metrics'] ?? [],
                 'data_quality' => $history['data_quality'] ?? [],
                 'data_gaps' => $history['data_gaps'] ?? [],
+                'operational_status' => 'disabled',
+                'eligible_point_count' => 0,
+                'operational_policy' => $this->operationalPolicy(),
                 'confidence_type' => self::CONFIDENCE_TYPE,
                 'confidence_semantics' => self::CONFIDENCE_SEMANTICS,
                 'calibration_status' => 'not_calibrated',
@@ -164,7 +177,9 @@ final class TemporalInsightService
         foreach ($plan['metrics'] as $metric) {
             $metricMeta[(string)$metric['metric_key']] = $metric;
         }
-        $sourceQualityStatus = (string)($history['data_quality']['status'] ?? 'partial');
+        $sourceQualityStatus = $this->forecastSourceQualityStatus(
+            is_array($history['data_quality'] ?? null) ? $history['data_quality'] : []
+        );
 
         $rows = [];
         foreach ($plan['points'] as $point) {
@@ -221,9 +236,22 @@ final class TemporalInsightService
             throw new RuntimeException('预测版本保存后回读数量不一致，未将本次结果标记为完成。');
         }
 
+        $review = $this->reviewView([$hotelId], $asOf);
+        $shapedPoints = $this->shapeForecastRows($readbackRows, $review);
+        $eligiblePointCount = 0;
+        foreach ($shapedPoints as $day) {
+            foreach ((array)($day['metrics'] ?? []) as $metric) {
+                if (($metric['operational_gate']['can_submit_for_review'] ?? false) === true) {
+                    $eligiblePointCount++;
+                }
+            }
+        }
+
         return [
             'status' => 'generated',
-            'message' => '已保存一版粗粒度 OTA 趋势规则情景，可在到期后与定稿事实复盘。',
+            'message' => $eligiblePointCount > 0
+                ? '预测版本已保存并回读；通过回测门槛的分组只能送人工审核。'
+                : '预测版本已保存并回读，但样本、来源质量或命中率未过门槛，运营结论已停用。',
             'metric_scope' => 'ota_channel',
             'system_hotel_id' => $hotelId,
             'forecast_run_id' => $runId,
@@ -234,12 +262,15 @@ final class TemporalInsightService
             'saved_count' => $savedCount,
             'readback_count' => count($readbackRows),
             'metrics' => $plan['metrics'],
-            'points' => $this->shapeForecastRows($readbackRows),
+            'points' => $shapedPoints,
+            'operational_status' => $eligiblePointCount > 0 ? 'human_review_only' : 'disabled',
+            'eligible_point_count' => $eligiblePointCount,
             'data_quality' => $history['data_quality'] ?? [],
             'data_gaps' => $history['data_gaps'] ?? [],
             'confidence_type' => self::CONFIDENCE_TYPE,
             'confidence_semantics' => self::CONFIDENCE_SEMANTICS,
             'calibration_status' => 'not_calibrated',
+            'operational_policy' => $this->operationalPolicy(),
             'boundary' => '仅提供趋势、区间与未校准规则置信指数，不生成执行价格，不自动写入 OTA。',
         ];
     }
@@ -368,7 +399,7 @@ final class TemporalInsightService
      * @param array<int, int> $hotelIds
      * @return array<string, mixed>
      */
-    private function futureView(array $hotelIds, string $today, int $futureDays): array
+    private function futureView(array $hotelIds, string $today, int $futureDays, array $review = []): array
     {
         if (count($hotelIds) !== 1) {
             return [
@@ -415,10 +446,15 @@ final class TemporalInsightService
             ->select()
             ->toArray();
 
+        $series = $this->shapeForecastRows($rows, $review);
+        $operationRecommendation = $this->buildOperationRecommendation($rows, $review);
+
         return [
             'status' => 'ready',
             'label' => '未来可观',
-            'message' => '展示方向、区间和未校准规则置信指数；不提供执行价格。',
+            'message' => ($operationRecommendation['can_submit_for_review'] ?? false) === true
+                ? '该指标与周期已通过最低回测门槛，只能送人工审核，不提供执行价格。'
+                : '趋势仅供观察；样本或命中率未通过运营门槛，不生成可执行结论。',
             'version' => [
                 'forecast_run_id' => (string)$latest['forecast_run_id'],
                 'as_of_date' => (string)$latest['as_of_date'],
@@ -427,11 +463,17 @@ final class TemporalInsightService
                 'source_start_date' => (string)($latest['source_start_date'] ?? ''),
                 'source_end_date' => (string)($latest['source_end_date'] ?? ''),
             ],
-            'series' => $this->shapeForecastRows($rows),
+            'series' => $series,
             'confidence_type' => self::CONFIDENCE_TYPE,
             'confidence_semantics' => self::CONFIDENCE_SEMANTICS,
             'calibration_status' => 'not_calibrated',
-            'boundary' => 'AI 只解释趋势证据与不确定性，不生成自动调价动作。',
+            'operational_backtest_status' => ($operationRecommendation['can_submit_for_review'] ?? false) === true
+                ? 'empirical_backtest_available'
+                : 'operational_conclusion_disabled',
+            'operational_policy' => $this->operationalPolicy(),
+            'operational_gate' => $operationRecommendation['operational_gate'] ?? [],
+            'operation_recommendation' => $operationRecommendation,
+            'boundary' => 'AI 只解释趋势证据与不确定性；运营建议必须人工审批后才生成任务，系统不自动调价或写入 OTA。',
         ];
     }
 
@@ -442,57 +484,169 @@ final class TemporalInsightService
     private function reviewView(array $hotelIds, string $today): array
     {
         if (count($hotelIds) !== 1) {
-            return ['status' => 'select_hotel', 'label' => '回看当时', 'items' => []];
+            return [
+                'status' => 'select_hotel',
+                'label' => '回看当时',
+                'conclusion_status' => 'disabled',
+                'policy' => $this->operationalPolicy(),
+                'cohorts' => [],
+                'items' => [],
+            ];
         }
         if (!$this->tableExists(self::FORECAST_TABLE)) {
-            return ['status' => 'not_initialized', 'label' => '回看当时', 'items' => []];
-        }
-
-        $hotelId = $hotelIds[0];
-        $yesterday = $this->shiftDate($today, -1);
-        $reviewStart = $this->shiftDate($yesterday, -29);
-        $latestMatured = Db::name(self::FORECAST_TABLE)
-            ->where('system_hotel_id', $hotelId)
-            ->whereBetween('target_date', [$reviewStart, $yesterday])
-            ->order('as_of_time', 'desc')
-            ->order('id', 'desc')
-            ->find();
-        if (!$latestMatured) {
             return [
-                'status' => 'empty',
+                'status' => 'not_initialized',
                 'label' => '回看当时',
-                'message' => '预测尚未到期，或最近 30 天没有可复盘版本。',
+                'conclusion_status' => 'disabled',
+                'policy' => $this->operationalPolicy(),
+                'cohorts' => [],
                 'items' => [],
             ];
         }
 
-        $runId = (string)$latestMatured['forecast_run_id'];
+        $hotelId = $hotelIds[0];
+        $yesterday = $this->shiftDate($today, -1);
+        $reviewStart = $this->shiftDate($yesterday, -(self::BACKTEST_LOOKBACK_DAYS - 1));
         $forecasts = Db::name(self::FORECAST_TABLE)
             ->where('system_hotel_id', $hotelId)
-            ->where('forecast_run_id', $runId)
             ->whereBetween('target_date', [$reviewStart, $yesterday])
             ->order('target_date', 'asc')
             ->order('metric_key', 'asc')
+            ->order('horizon_days', 'asc')
+            ->order('as_of_time', 'asc')
+            ->order('id', 'asc')
+            ->limit(10000)
             ->select()
             ->toArray();
         if ($forecasts === []) {
-            return ['status' => 'empty', 'label' => '回看当时', 'items' => []];
+            return [
+                'status' => 'empty',
+                'label' => '回看当时',
+                'conclusion_status' => 'disabled',
+                'message' => sprintf('预测尚未到期，或最近 %d 天没有可复盘版本。', self::BACKTEST_LOOKBACK_DAYS),
+                'policy' => $this->operationalPolicy(),
+                'cohorts' => [],
+                'items' => [],
+            ];
         }
 
         $dates = array_map(static fn(array $row): string => (string)$row['target_date'], $forecasts);
         $actualBundle = $this->loadPeriodFacts([$hotelId], min($dates), max($dates), 'historical_daily', true);
-        $actuals = [];
-        foreach ($actualBundle['series'] as $item) {
-            $actuals[(string)$item['date']] = $item;
+        $review = $this->buildBacktestSummary($forecasts, $actualBundle['series'] ?? []);
+        $review['status'] = (int)($review['matched_points'] ?? 0) > 0 ? 'ready' : 'waiting_actual';
+        $review['label'] = '回看当时';
+        $review['period'] = ['start_date' => $reviewStart, 'end_date' => $yesterday];
+        $review['actual_data_quality'] = $actualBundle['data_quality'] ?? [];
+        $review['actual_data_gaps'] = $actualBundle['data_gaps'] ?? [];
+        $eligibleCohortCount = (int)($review['eligible_cohort_count'] ?? 0);
+        $disabledCohortCount = (int)($review['disabled_cohort_count'] ?? 0);
+        $review['message'] = (int)($review['matched_points'] ?? 0) > 0
+            ? ($eligibleCohortCount > 0
+                ? ($disabledCohortCount > 0
+                    ? '各指标与预测周期独立回测；部分分组可送人工审核，其余分组继续停用。'
+                    : '各指标与预测周期独立回测；通过门槛的分组只允许进入人工审核。')
+                : '已有到期样本，但未通过独立回测门槛，运营结论已停用。')
+            : '已有到期预测，但对应日期的定稿事实尚不完整。';
+
+        return $review;
+    }
+
+    /**
+     * Evaluate immutable forecast versions by metric and horizon. Repeated
+     * regeneration on the same as-of date is deduplicated so it cannot inflate
+     * the sample size.
+     *
+     * @param array<int, array<string, mixed>> $forecastRows
+     * @param array<int, array<string, mixed>> $actualSeries
+     * @return array<string, mixed>
+     */
+    public function buildBacktestSummary(array $forecastRows, array $actualSeries): array
+    {
+        $actualByDate = [];
+        foreach ($actualSeries as $item) {
+            $date = trim((string)($item['date'] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1) {
+                $actualByDate[$date] = $item;
+            }
         }
 
+        $deduplicated = [];
+        foreach ($forecastRows as $row) {
+            $metricKey = trim((string)($row['metric_key'] ?? ''));
+            $targetDate = trim((string)($row['target_date'] ?? ''));
+            $asOfDate = trim((string)($row['as_of_date'] ?? ''));
+            $horizonDays = (int)($row['horizon_days'] ?? 0);
+            if (!array_key_exists($metricKey, self::METRICS)
+                || preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) !== 1
+                || preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOfDate) !== 1
+                || $horizonDays <= 0
+            ) {
+                continue;
+            }
+            $identity = implode('|', [$asOfDate, $targetDate, $metricKey, $horizonDays]);
+            $existing = $deduplicated[$identity] ?? null;
+            $version = sprintf(
+                '%s|%020d',
+                trim((string)($row['as_of_time'] ?? '')),
+                (int)($row['id'] ?? 0)
+            );
+            $existingVersion = is_array($existing)
+                ? sprintf(
+                    '%s|%020d',
+                    trim((string)($existing['as_of_time'] ?? '')),
+                    (int)($existing['id'] ?? 0)
+                )
+                : '';
+            if (!is_array($existing) || strcmp($version, $existingVersion) >= 0) {
+                $deduplicated[$identity] = $row;
+            }
+        }
+
+        $rows = array_values($deduplicated);
+        usort($rows, static function (array $left, array $right): int {
+            return [
+                (string)($left['metric_key'] ?? ''),
+                (int)($left['horizon_days'] ?? 0),
+                (string)($left['target_date'] ?? ''),
+                (string)($left['as_of_date'] ?? ''),
+            ] <=> [
+                (string)($right['metric_key'] ?? ''),
+                (int)($right['horizon_days'] ?? 0),
+                (string)($right['target_date'] ?? ''),
+                (string)($right['as_of_date'] ?? ''),
+            ];
+        });
+
         $items = [];
+        $cohortStats = [];
         $matched = 0;
         $hits = 0;
-        foreach ($forecasts as $forecast) {
+        foreach ($rows as $forecast) {
             $date = (string)$forecast['target_date'];
             $metricKey = (string)$forecast['metric_key'];
-            $actual = $actuals[$date][$metricKey] ?? null;
+            $horizonDays = (int)$forecast['horizon_days'];
+            $cohortKey = $this->backtestCohortKey($metricKey, $horizonDays);
+            $cohortStats[$cohortKey] ??= [
+                'metric_key' => $metricKey,
+                'horizon_days' => $horizonDays,
+                'forecast_points' => 0,
+                'matched_points' => 0,
+                'missing_actual_points' => 0,
+                'range_hits' => 0,
+                'operational_matched_points' => 0,
+                'operational_range_hits' => 0,
+                'source_quality_excluded_points' => 0,
+                'absolute_error_total' => 0.0,
+                'absolute_error_count' => 0,
+                'absolute_percentage_error_total' => 0.0,
+                'absolute_percentage_error_count' => 0,
+            ];
+            $cohortStats[$cohortKey]['forecast_points']++;
+            $operationalSampleEligible = (int)($forecast['sample_days'] ?? 0) >= self::MIN_OPERATIONAL_HISTORY_DAYS
+                && strtolower(trim((string)($forecast['data_quality_status'] ?? ''))) === 'ready'
+                && $this->forecastSourceRefsOperationallyVerified($forecast);
+
+            $actual = $actualByDate[$date][$metricKey] ?? null;
             $actual = is_numeric($actual) ? (float)$actual : null;
             $lower = is_numeric($forecast['lower_bound'] ?? null) ? (float)$forecast['lower_bound'] : null;
             $upper = is_numeric($forecast['upper_bound'] ?? null) ? (float)$forecast['upper_bound'] : null;
@@ -501,44 +655,445 @@ final class TemporalInsightService
             $outcome = '实际事实尚未定稿';
             if ($actual !== null && $lower !== null && $upper !== null) {
                 $matched++;
+                $cohortStats[$cohortKey]['matched_points']++;
                 $withinRange = $actual >= $lower && $actual <= $upper;
                 if ($withinRange) {
                     $hits++;
+                    $cohortStats[$cohortKey]['range_hits']++;
                     $outcome = '实际落在当时预测区间';
                 } elseif ($actual > $upper) {
                     $outcome = '实际高于当时预测区间';
                 } else {
                     $outcome = '实际低于当时预测区间';
                 }
+                if ($operationalSampleEligible) {
+                    $cohortStats[$cohortKey]['operational_matched_points']++;
+                    if ($withinRange) {
+                        $cohortStats[$cohortKey]['operational_range_hits']++;
+                    }
+                } else {
+                    $cohortStats[$cohortKey]['source_quality_excluded_points']++;
+                }
+            } else {
+                $cohortStats[$cohortKey]['missing_actual_points']++;
             }
+
             $absoluteError = $actual !== null && $point !== null ? abs($actual - $point) : null;
-            $errorPercent = $absoluteError !== null && $actual !== 0.0 ? $absoluteError / abs($actual) * 100 : null;
+            $errorPercent = $absoluteError !== null && $actual !== 0.0
+                ? $absoluteError / abs($actual) * 100
+                : null;
+            if ($operationalSampleEligible && $absoluteError !== null) {
+                $cohortStats[$cohortKey]['absolute_error_total'] += $absoluteError;
+                $cohortStats[$cohortKey]['absolute_error_count']++;
+            }
+            if ($operationalSampleEligible && $errorPercent !== null) {
+                $cohortStats[$cohortKey]['absolute_percentage_error_total'] += $errorPercent;
+                $cohortStats[$cohortKey]['absolute_percentage_error_count']++;
+            }
             $items[] = [
+                'forecast_point_id' => (int)($forecast['id'] ?? 0),
+                'forecast_run_id' => (string)($forecast['forecast_run_id'] ?? ''),
+                'as_of_date' => (string)($forecast['as_of_date'] ?? ''),
                 'target_date' => $date,
                 'metric_key' => $metricKey,
+                'horizon_days' => $horizonDays,
                 'forecast_interval' => ['lower' => $lower, 'upper' => $upper],
                 'predicted_value' => $point,
                 'actual_value' => $actual,
                 'within_range' => $withinRange,
                 'absolute_error' => $absoluteError !== null ? $this->roundMetric($metricKey, $absoluteError) : null,
                 'error_percent' => $errorPercent !== null ? round($errorPercent, 1) : null,
+                'operational_sample_eligible' => $operationalSampleEligible,
                 'outcome' => $outcome,
             ];
         }
 
+        $cohorts = [];
+        $eligibleCohorts = 0;
+        foreach ($cohortStats as $stats) {
+            $diagnosticMatched = (int)$stats['matched_points'];
+            $diagnosticRangeHitRate = $diagnosticMatched > 0
+                ? round((int)$stats['range_hits'] / $diagnosticMatched * 100, 1)
+                : null;
+            $cohortMatched = (int)$stats['operational_matched_points'];
+            $rangeHitRate = $cohortMatched > 0
+                ? round((int)$stats['operational_range_hits'] / $cohortMatched * 100, 1)
+                : null;
+            $sampleSufficient = $cohortMatched >= self::MIN_BACKTEST_SAMPLES_PER_COHORT;
+            $decisionStatus = 'disabled_insufficient_samples';
+            $reasonCode = 'backtest_sample_lt_' . self::MIN_BACKTEST_SAMPLES_PER_COHORT;
+            $reason = sprintf(
+                '该指标与 T+%d 周期只有 %d 个来源合格的到期样本，至少需要 %d 个才启用运营结论。',
+                (int)$stats['horizon_days'],
+                $cohortMatched,
+                self::MIN_BACKTEST_SAMPLES_PER_COHORT
+            );
+            if ($sampleSufficient && $rangeHitRate !== null && $rangeHitRate < self::MIN_RANGE_HIT_RATE_PERCENT) {
+                $decisionStatus = 'disabled_low_interval_coverage';
+                $reasonCode = 'range_hit_rate_below_' . (int)self::MIN_RANGE_HIT_RATE_PERCENT;
+                $reason = sprintf(
+                    '该指标与 T+%d 周期区间命中率为 %.1f%%，低于 %.1f%% 的内部运营门槛。',
+                    (int)$stats['horizon_days'],
+                    $rangeHitRate,
+                    self::MIN_RANGE_HIT_RATE_PERCENT
+                );
+            } elseif ($sampleSufficient && $rangeHitRate !== null) {
+                $decisionStatus = 'eligible_for_human_review';
+                $reasonCode = '';
+                $reason = '该分组通过最低样本和区间覆盖门槛，但仍需人工审核，不能自动执行。';
+                $eligibleCohorts++;
+            }
+
+            $absoluteErrorCount = (int)$stats['absolute_error_count'];
+            $percentageErrorCount = (int)$stats['absolute_percentage_error_count'];
+            $cohorts[] = [
+                'metric_key' => (string)$stats['metric_key'],
+                'horizon_days' => (int)$stats['horizon_days'],
+                'forecast_points' => (int)$stats['forecast_points'],
+                'diagnostic_matched_points' => $diagnosticMatched,
+                'diagnostic_range_hits' => (int)$stats['range_hits'],
+                'diagnostic_range_hit_rate' => $diagnosticRangeHitRate,
+                'matched_points' => $cohortMatched,
+                'missing_actual_points' => (int)$stats['missing_actual_points'],
+                'source_quality_excluded_points' => (int)$stats['source_quality_excluded_points'],
+                'range_hits' => (int)$stats['operational_range_hits'],
+                'range_hit_rate' => $rangeHitRate,
+                'mean_absolute_error' => $absoluteErrorCount > 0
+                    ? $this->roundMetric(
+                        (string)$stats['metric_key'],
+                        (float)$stats['absolute_error_total'] / $absoluteErrorCount
+                    )
+                    : null,
+                'mean_absolute_percentage_error' => $percentageErrorCount > 0
+                    ? round((float)$stats['absolute_percentage_error_total'] / $percentageErrorCount, 1)
+                    : null,
+                'sample_status' => $sampleSufficient ? 'sufficient' : 'insufficient',
+                'decision_status' => $decisionStatus,
+                'conclusion_enabled' => $decisionStatus === 'eligible_for_human_review',
+                'reason_code' => $reasonCode,
+                'reason' => $reason,
+                'automatic_price_write' => false,
+            ];
+        }
+        usort($cohorts, static fn(array $left, array $right): int =>
+            array_search((string)$left['metric_key'], array_keys(self::METRICS), true)
+                <=> array_search((string)$right['metric_key'], array_keys(self::METRICS), true)
+            ?: (int)$left['horizon_days'] <=> (int)$right['horizon_days']
+        );
+
+        $cohortCount = count($cohorts);
+        $conclusionStatus = $eligibleCohorts === 0
+            ? 'disabled'
+            : ($eligibleCohorts === $cohortCount ? 'eligible_for_human_review' : 'partial');
+
         return [
-            'status' => $matched > 0 ? 'ready' : 'waiting_actual',
-            'label' => '回看当时',
-            'forecast_run_id' => $runId,
-            'as_of_time' => (string)$latestMatured['as_of_time'],
-            'model_version' => (string)$latestMatured['model_version'],
+            'conclusion_status' => $conclusionStatus,
+            'operational_use' => $eligibleCohorts > 0 ? 'human_review_only' : 'disabled',
+            'policy' => $this->operationalPolicy(),
+            'deduplicated_forecast_points' => count($rows),
             'matched_points' => $matched,
+            'range_hits' => $hits,
             'range_hit_rate' => $matched > 0 ? round($hits / $matched * 100, 1) : null,
-            'message' => $matched > 0
-                ? '只评价当时区间是否覆盖后来事实，不用事后结果改写旧预测。'
-                : '已有到期预测，但对应日期的定稿事实尚不完整。',
-            'items' => $items,
+            'aggregate_is_diagnostic_only' => true,
+            'eligible_cohort_count' => $eligibleCohorts,
+            'disabled_cohort_count' => max(0, $cohortCount - $eligibleCohorts),
+            'cohorts' => $cohorts,
+            'items' => array_slice($items, -500),
+            'automatic_price_write' => false,
         ];
+    }
+
+    /**
+     * Create only a pending human-review intent. OperationManagementService
+     * creates the task later, inside its explicit approval transaction.
+     *
+     * @param array<int, int|string> $permittedHotelIds Empty means super-admin scope.
+     * @return array<string, mixed>
+     */
+    public function createOperationReviewIntent(
+        int $forecastPointId,
+        array $permittedHotelIds,
+        int $userId
+    ): array {
+        if ($userId <= 0) {
+            throw new InvalidArgumentException('缺少可回读的人工操作人身份，不能送审。');
+        }
+        if ($forecastPointId <= 0 || !$this->tableExists(self::FORECAST_TABLE)) {
+            throw new InvalidArgumentException('预测点不存在或预测版本表尚未初始化。');
+        }
+        $row = Db::name(self::FORECAST_TABLE)->where('id', $forecastPointId)->find();
+        if (!is_array($row)) {
+            throw new RuntimeException('预测点不存在。', 404);
+        }
+
+        $hotelId = (int)($row['system_hotel_id'] ?? 0);
+        $scope = array_values(array_unique(array_filter(
+            array_map('intval', $permittedHotelIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($hotelId <= 0 || ($scope !== [] && !in_array($hotelId, $scope, true))) {
+            throw new RuntimeException('无权把该预测建议送入运营审核。', 403);
+        }
+
+        $today = date('Y-m-d');
+        if ((string)($row['target_date'] ?? '') <= $today) {
+            throw new InvalidArgumentException('该预测已经到期，不能再生成新的运营审核意图。');
+        }
+        $review = $this->reviewView([$hotelId], $today);
+        $recommendation = $this->buildOperationRecommendation([$row], $review);
+        if (($recommendation['can_submit_for_review'] ?? false) !== true) {
+            throw new InvalidArgumentException(
+                (string)($recommendation['disabled_reason'] ?? '预测未通过运营回测门槛，已停用建议。')
+            );
+        }
+
+        $targetDate = (string)$row['target_date'];
+        $metricKey = (string)$row['metric_key'];
+        $horizonDays = (int)$row['horizon_days'];
+        $gate = is_array($recommendation['operational_gate'] ?? null)
+            ? $recommendation['operational_gate']
+            : [];
+        $cohort = is_array($gate['backtest_cohort'] ?? null) ? $gate['backtest_cohort'] : [];
+        $input = [
+            'source_module' => self::OPERATION_SOURCE_MODULE,
+            'source_record_id' => $forecastPointId,
+            'hotel_id' => $hotelId,
+            'platform' => 'all_ota',
+            'object_type' => 'operation_checklist',
+            'action_type' => 'manual_forecast_review',
+            'date_start' => $today,
+            'date_end' => $targetDate,
+            'current_value' => [
+                'forecast_run_id' => (string)$row['forecast_run_id'],
+                'metric_key' => $metricKey,
+                'horizon_days' => $horizonDays,
+                'target_date' => $targetDate,
+                'predicted_value' => is_numeric($row['predicted_value'] ?? null) ? (float)$row['predicted_value'] : null,
+                'lower_bound' => is_numeric($row['lower_bound'] ?? null) ? (float)$row['lower_bound'] : null,
+                'upper_bound' => is_numeric($row['upper_bound'] ?? null) ? (float)$row['upper_bound'] : null,
+                'backtest_range_hit_rate' => $cohort['range_hit_rate'] ?? null,
+                'backtest_samples' => (int)($cohort['matched_points'] ?? 0),
+            ],
+            'target_value' => [
+                'title' => (string)$recommendation['title'],
+                'action_text' => (string)$recommendation['action_text'],
+                'target_metric' => $metricKey,
+                'steps' => $recommendation['steps'],
+                'acceptance_criteria' => $recommendation['acceptance_criteria'],
+                'workflow_schedule' => [
+                    'assignee_id' => $userId,
+                    'due_at' => $targetDate . ' 20:00:00',
+                    'review_at' => $this->shiftDate($targetDate, 1) . ' 10:00:00',
+                    'source_policy' => 'manual_approval_then_manual_execution_evidence_then_next_day_review',
+                ],
+                'automatic_price_write' => false,
+            ],
+            'evidence' => [
+                'evidence_refs' => [[
+                    'table' => self::FORECAST_TABLE,
+                    'row_id' => $forecastPointId,
+                    'forecast_run_id' => (string)$row['forecast_run_id'],
+                    'metric_scope' => (string)$row['metric_scope'],
+                    'metric_key' => $metricKey,
+                    'horizon_days' => $horizonDays,
+                    'target_date' => $targetDate,
+                ]],
+                'backtest_cohort' => $cohort,
+                'operational_gate' => $gate,
+                'source_policy' => 'immutable_forecast_plus_metric_horizon_backtest',
+                'protected_boundary' => 'Pending review only. Approval creates a manual operation checklist task; no OTA price or inventory write is performed.',
+                'review_required' => true,
+                'automatic_price_write' => false,
+            ],
+            'expected_metric' => $metricKey,
+            'expected_delta' => 0,
+            'risk_level' => 'medium',
+        ];
+        $idempotencyKey = sprintf(
+            'temporal_forecast_review:%d:%s',
+            $forecastPointId,
+            substr(hash('sha256', (string)$row['forecast_run_id'] . '|' . $metricKey . '|' . $horizonDays), 0, 32)
+        );
+        $intent = (new OperationManagementService())->createExecutionIntent(
+            [$hotelId],
+            $hotelId,
+            $input,
+            $userId,
+            false,
+            $idempotencyKey,
+            true
+        );
+        if ((string)($intent['status'] ?? '') !== 'pending_approval'
+            || trim((string)($intent['blocked_reason'] ?? '')) !== ''
+            || !empty($intent['tasks'])
+        ) {
+            throw new RuntimeException('预测建议未严格回读为待人工审核且无任务状态。');
+        }
+
+        return [
+            'status' => 'pending_human_approval',
+            'forecast_point_id' => $forecastPointId,
+            'execution_intent' => $intent,
+            'task_created' => false,
+            'review_required' => true,
+            'task_creation_policy' => 'operation_task_created_only_after_explicit_intent_approval',
+            'automatic_price_write' => false,
+        ];
+    }
+
+    /**
+     * Re-check immutable source identity and the live backtest gate immediately
+     * before OperationManagementService is allowed to approve the intent.
+     *
+     * @param array<string, mixed> $intent
+     */
+    public function assertOperationRecommendationIntentCurrent(array $intent): void
+    {
+        $forecastPointId = (int)($intent['source_record_id'] ?? 0);
+        $hotelId = (int)($intent['hotel_id'] ?? 0);
+        $row = $forecastPointId > 0 && $this->tableExists(self::FORECAST_TABLE)
+            ? Db::name(self::FORECAST_TABLE)
+                ->where('id', $forecastPointId)
+                ->where('system_hotel_id', $hotelId)
+                ->find()
+            : null;
+        if (!is_array($row)) {
+            throw new InvalidArgumentException('预测建议来源已不存在，不能审批。');
+        }
+        if ((string)($row['target_date'] ?? '') <= date('Y-m-d')) {
+            throw new InvalidArgumentException('预测建议已经到期，不能审批。');
+        }
+
+        $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+        $refs = array_values(array_filter(
+            is_array($evidence['evidence_refs'] ?? null) ? $evidence['evidence_refs'] : [],
+            'is_array'
+        ));
+        $ref = $refs[0] ?? [];
+        $targetValue = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+        if ((string)($ref['table'] ?? '') !== self::FORECAST_TABLE
+            || (int)($ref['row_id'] ?? 0) !== $forecastPointId
+            || (string)($ref['forecast_run_id'] ?? '') !== (string)$row['forecast_run_id']
+            || (string)($ref['metric_scope'] ?? '') !== (string)$row['metric_scope']
+            || (string)($ref['metric_key'] ?? '') !== (string)$row['metric_key']
+            || (int)($ref['horizon_days'] ?? 0) !== (int)$row['horizon_days']
+            || (string)($ref['target_date'] ?? '') !== (string)$row['target_date']
+            || ($evidence['review_required'] ?? null) !== true
+            || ($evidence['automatic_price_write'] ?? null) !== false
+            || ($targetValue['automatic_price_write'] ?? null) !== false
+            || array_key_exists('target_price', $targetValue)
+            || (string)($targetValue['target_metric'] ?? '') !== (string)$row['metric_key']
+            || (string)($intent['platform'] ?? '') !== 'all_ota'
+            || (string)($intent['object_type'] ?? '') !== 'operation_checklist'
+            || (string)($intent['action_type'] ?? '') !== 'manual_forecast_review'
+        ) {
+            throw new InvalidArgumentException('预测建议来源身份或人工审核边界不一致，不能审批。');
+        }
+
+        $review = $this->reviewView([$hotelId], date('Y-m-d'));
+        $gate = $this->forecastOperationalGate($row, $review);
+        if (($gate['can_submit_for_review'] ?? false) !== true) {
+            throw new InvalidArgumentException(
+                (string)($gate['reason'] ?? '预测回测门槛已失效，不能审批。')
+            );
+        }
+    }
+
+    /** @return array<string, int|float|string|bool> */
+    private function operationalPolicy(): array
+    {
+        return [
+            'backtest_grain' => 'metric_key+horizon_days',
+            'backtest_lookback_days' => self::BACKTEST_LOOKBACK_DAYS,
+            'minimum_history_days_per_metric' => self::MIN_OPERATIONAL_HISTORY_DAYS,
+            'minimum_matured_samples_per_metric_horizon' => self::MIN_BACKTEST_SAMPLES_PER_COHORT,
+            'minimum_range_hit_rate_percent' => self::MIN_RANGE_HIT_RATE_PERCENT,
+            'insufficient_sample_action' => 'disable_operational_conclusion',
+            'execution_mode' => 'human_review_only',
+            'automatic_price_write' => false,
+        ];
+    }
+
+    private function backtestCohortKey(string $metricKey, int $horizonDays): string
+    {
+        return $metricKey . '|T+' . $horizonDays;
+    }
+
+    /**
+     * Intentional competitor-comparison exclusions do not lower the own-hotel
+     * forecast source quality. Missing readback, provenance, or validation does.
+     *
+     * @param array<string, mixed> $quality
+     */
+    private function forecastSourceQualityStatus(array $quality): string
+    {
+        if ((int)($quality['trusted_facts'] ?? 0) <= 0) {
+            return 'insufficient';
+        }
+        if ((int)($quality['rejected_rows'] ?? 0) > 0 || (int)($quality['trace_failures'] ?? 0) > 0) {
+            return 'partial';
+        }
+
+        $reasonCounts = is_array($quality['excluded_fact_reason_counts'] ?? null)
+            ? $quality['excluded_fact_reason_counts']
+            : [];
+        foreach ($reasonCounts as $reason => $count) {
+            if ((int)$count <= 0 || str_starts_with((string)$reason, 'non_self_compare_type_')) {
+                continue;
+            }
+            return 'partial';
+        }
+
+        return 'ready';
+    }
+
+    /** @param array<string, mixed> $forecast */
+    private function forecastSourceRefsOperationallyVerified(array $forecast): bool
+    {
+        $refs = $this->decodeArray($forecast['source_refs_json'] ?? []);
+        if ((string)($refs['table'] ?? '') !== 'online_daily_data'
+            || (string)($refs['metric_scope'] ?? '') !== 'ota_channel'
+            || (string)($refs['period'] ?? '') !== 'historical_daily'
+            || (int)($refs['is_final'] ?? 0) !== 1
+            || (int)($refs['trusted_fact_rows'] ?? 0) <= 0
+        ) {
+            return false;
+        }
+
+        $sourceStart = (string)($forecast['source_start_date'] ?? '');
+        $sourceEnd = (string)($forecast['source_end_date'] ?? '');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $sourceStart) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $sourceEnd) !== 1
+            || (string)($refs['start_date'] ?? '') !== $sourceStart
+            || (string)($refs['end_date'] ?? '') !== $sourceEnd
+        ) {
+            return false;
+        }
+
+        $trustedFacts = (int)$refs['trusted_fact_rows'];
+        if (array_key_exists('fact_rows', $refs) && (int)$refs['fact_rows'] !== $trustedFacts) {
+            return false;
+        }
+        $excludedFacts = max(0, (int)($refs['excluded_fact_rows'] ?? 0));
+        $reasonCounts = is_array($refs['excluded_fact_reason_counts'] ?? null)
+            ? $refs['excluded_fact_reason_counts']
+            : [];
+        $reasonTotal = 0;
+        foreach ($reasonCounts as $count) {
+            $reasonTotal += max(0, (int)$count);
+        }
+        if (($excludedFacts === 0 && $reasonTotal > 0)
+            || ($excludedFacts > 0 && $reasonTotal < $excludedFacts)
+        ) {
+            return false;
+        }
+
+        return $this->forecastSourceQualityStatus([
+            'trusted_facts' => $trustedFacts,
+            'rejected_rows' => 0,
+            'trace_failures' => 0,
+            'excluded_fact_reason_counts' => $reasonCounts,
+        ]) === 'ready';
     }
 
     /**
@@ -934,25 +1489,210 @@ final class TemporalInsightService
      * @param array<int, array<string, mixed>> $rows
      * @return array<int, array<string, mixed>>
      */
-    private function shapeForecastRows(array $rows): array
+    private function shapeForecastRows(array $rows, array $review = []): array
     {
         $dates = [];
         foreach ($rows as $row) {
             $date = (string)$row['target_date'];
             $metricKey = (string)$row['metric_key'];
             $dates[$date] ??= ['date' => $date, 'metrics' => []];
+            $operationalGate = $this->forecastOperationalGate($row, $review);
             $dates[$date]['metrics'][$metricKey] = [
+                'forecast_point_id' => (int)($row['id'] ?? 0),
+                'forecast_run_id' => (string)($row['forecast_run_id'] ?? ''),
+                'horizon_days' => (int)($row['horizon_days'] ?? 0),
                 'direction' => (string)$row['predicted_direction'],
+                'predicted_value' => is_numeric($row['predicted_value'] ?? null) ? (float)$row['predicted_value'] : null,
                 'lower_bound' => is_numeric($row['lower_bound'] ?? null) ? (float)$row['lower_bound'] : null,
                 'upper_bound' => is_numeric($row['upper_bound'] ?? null) ? (float)$row['upper_bound'] : null,
                 'confidence_score' => is_numeric($row['confidence_score'] ?? null) ? (float)$row['confidence_score'] : null,
                 'confidence_level' => (string)$row['confidence_level'],
                 'confidence_type' => self::CONFIDENCE_TYPE,
+                'confidence_semantics' => self::CONFIDENCE_SEMANTICS,
+                'sample_days' => (int)($row['sample_days'] ?? 0),
                 'data_quality_status' => (string)$row['data_quality_status'],
+                'operational_gate' => $operationalGate,
             ];
         }
         ksort($dates);
         return array_values($dates);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function buildOperationRecommendation(array $rows, array $review): array
+    {
+        if ($rows === []) {
+            return [
+                'status' => 'disabled',
+                'can_submit_for_review' => false,
+                'disabled_reason' => '当前没有预测点，不能生成运营建议。',
+                'review_required' => true,
+                'task_creation_policy' => 'operation_task_created_only_after_explicit_intent_approval',
+                'automatic_price_write' => false,
+            ];
+        }
+
+        $candidates = [];
+        $metricPriority = array_flip(array_keys(self::METRICS));
+        foreach ($rows as $row) {
+            $gate = $this->forecastOperationalGate($row, $review);
+            $candidates[] = [
+                'row' => $row,
+                'gate' => $gate,
+                'eligible_rank' => ($gate['can_submit_for_review'] ?? false) === true ? 0 : 1,
+                'metric_rank' => $metricPriority[(string)($row['metric_key'] ?? '')] ?? 999,
+            ];
+        }
+        usort($candidates, static fn(array $left, array $right): int =>
+            [
+                (int)$left['eligible_rank'],
+                (int)$left['metric_rank'],
+                (int)($left['row']['horizon_days'] ?? 0),
+                (string)($left['row']['target_date'] ?? ''),
+            ] <=> [
+                (int)$right['eligible_rank'],
+                (int)$right['metric_rank'],
+                (int)($right['row']['horizon_days'] ?? 0),
+                (string)($right['row']['target_date'] ?? ''),
+            ]
+        );
+        $candidate = $candidates[0];
+        $row = $candidate['row'];
+        $gate = $candidate['gate'];
+        $metricKey = (string)$row['metric_key'];
+        $horizonDays = (int)$row['horizon_days'];
+        $targetDate = (string)$row['target_date'];
+        $metricLabel = [
+            'ota_revenue' => 'OTA收入',
+            'ota_orders' => 'OTA订单',
+            'ota_room_nights' => 'OTA间夜',
+            'ota_list_exposure' => '列表曝光',
+            'ota_detail_exposure' => '详情访问',
+            'ota_order_submit' => '订单提交',
+        ][$metricKey] ?? $metricKey;
+        $canSubmit = ($gate['can_submit_for_review'] ?? false) === true;
+
+        return [
+            'status' => $canSubmit ? 'ready_for_human_review' : 'disabled',
+            'title' => sprintf('%s T+%d 预测运营核查', $metricLabel, $horizonDays),
+            'action_text' => sprintf(
+                '在 %s 前人工核查%s预测信号、来源状态和可控运营因素；只记录人工动作，不自动调价。',
+                $targetDate,
+                $metricLabel
+            ),
+            'forecast_point_id' => (int)($row['id'] ?? 0),
+            'forecast_run_id' => (string)($row['forecast_run_id'] ?? ''),
+            'metric_key' => $metricKey,
+            'horizon_days' => $horizonDays,
+            'target_date' => $targetDate,
+            'can_submit_for_review' => $canSubmit,
+            'disabled_reason' => $canSubmit ? '' : (string)($gate['reason'] ?? '预测未通过运营门槛。'),
+            'operational_gate' => $gate,
+            'steps' => [
+                '确认当前酒店、OTA渠道、目标日期与数据库回读状态一致。',
+                '人工判断是否需要调整活动、库存展示或页面运营；禁止系统自动调价。',
+                '记录实际执行动作、执行人、时间和截图或备注证据。',
+                '次日在同酒店、同渠道、同指标口径下补充效果证据并复盘。',
+            ],
+            'acceptance_criteria' => [
+                '人工审批通过后才生成运营任务。',
+                '执行记录包含实际动作与证据，不把建议写成已执行。',
+                '次日效果证据保持同酒店、同渠道、同指标口径。',
+                '无任何自动价格或 OTA 写回。',
+            ],
+            'review_required' => true,
+            'task_creation_policy' => 'operation_task_created_only_after_explicit_intent_approval',
+            'automatic_price_write' => false,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $forecast
+     * @param array<string, mixed> $review
+     * @return array<string, mixed>
+     */
+    private function forecastOperationalGate(array $forecast, array $review): array
+    {
+        $metricKey = (string)($forecast['metric_key'] ?? '');
+        $horizonDays = (int)($forecast['horizon_days'] ?? 0);
+        $sampleDays = (int)($forecast['sample_days'] ?? 0);
+        $dataQualityStatus = strtolower(trim((string)($forecast['data_quality_status'] ?? 'insufficient')));
+        $cohort = [];
+        foreach (array_values(array_filter(
+            is_array($review['cohorts'] ?? null) ? $review['cohorts'] : [],
+            'is_array'
+        )) as $item) {
+            if ((string)($item['metric_key'] ?? '') === $metricKey
+                && (int)($item['horizon_days'] ?? 0) === $horizonDays
+            ) {
+                $cohort = $item;
+                break;
+            }
+        }
+
+        $reasonCodes = [];
+        $reasons = [];
+        if ($sampleDays < self::MIN_OPERATIONAL_HISTORY_DAYS) {
+            $reasonCodes[] = 'history_sample_lt_' . self::MIN_OPERATIONAL_HISTORY_DAYS;
+            $reasons[] = sprintf(
+                '该指标只有 %d 个有效历史日，至少需要 %d 个。',
+                $sampleDays,
+                self::MIN_OPERATIONAL_HISTORY_DAYS
+            );
+        }
+        if ($dataQualityStatus !== 'ready') {
+            $reasonCodes[] = 'forecast_source_quality_not_ready';
+            $reasons[] = '预测来源质量尚未 ready；未回读、来源身份缺失或校验失败的事实不能进入运营结论。';
+        }
+        $matchedPoints = (int)($cohort['matched_points'] ?? 0);
+        if ($matchedPoints < self::MIN_BACKTEST_SAMPLES_PER_COHORT) {
+            $reasonCodes[] = 'backtest_sample_lt_' . self::MIN_BACKTEST_SAMPLES_PER_COHORT;
+            $reasons[] = sprintf(
+                '该指标与 T+%d 周期只有 %d 个到期样本，至少需要 %d 个。',
+                $horizonDays,
+                $matchedPoints,
+                self::MIN_BACKTEST_SAMPLES_PER_COHORT
+            );
+        } elseif (!is_numeric($cohort['range_hit_rate'] ?? null)
+            || (float)$cohort['range_hit_rate'] < self::MIN_RANGE_HIT_RATE_PERCENT
+        ) {
+            $reasonCodes[] = 'range_hit_rate_below_' . (int)self::MIN_RANGE_HIT_RATE_PERCENT;
+            $reasons[] = sprintf(
+                '该指标与 T+%d 周期区间命中率未达到 %.1f%% 的内部运营门槛。',
+                $horizonDays,
+                self::MIN_RANGE_HIT_RATE_PERCENT
+            );
+        }
+
+        $canSubmit = $reasonCodes === [];
+        $status = $canSubmit
+            ? 'eligible_for_human_review'
+            : (in_array('range_hit_rate_below_' . (int)self::MIN_RANGE_HIT_RATE_PERCENT, $reasonCodes, true)
+                ? 'disabled_low_reliability'
+                : 'disabled_insufficient_evidence');
+
+        return [
+            'status' => $status,
+            'conclusion_enabled' => $canSubmit,
+            'can_submit_for_review' => $canSubmit,
+            'reason_codes' => $reasonCodes,
+            'reason' => $canSubmit
+                ? '该指标与周期通过最低证据门槛；只允许进入人工审核。'
+                : implode(' ', $reasons),
+            'history_sample_days' => $sampleDays,
+            'source_data_quality_status' => $dataQualityStatus,
+            'backtest_cohort' => $cohort,
+            'empirical_reliability_percent' => $matchedPoints >= self::MIN_BACKTEST_SAMPLES_PER_COHORT
+                && is_numeric($cohort['range_hit_rate'] ?? null)
+                ? (float)$cohort['range_hit_rate']
+                : null,
+            'policy' => $this->operationalPolicy(),
+            'review_required' => true,
+            'automatic_price_write' => false,
+        ];
     }
 
     /** @return array{ids:array<int, int>,blocked:bool} */

@@ -58,6 +58,9 @@ class RevenueAiOverviewService
         $pricingGenerationPreflight = $this->pricingGenerationPreflight($businessDate, $hotelId, $hotelIds, $dataset, $channels);
         $agentActivity = $this->agentActivity($businessDate, $hotelId);
         $executionSummary = $this->executionSummary($businessDate, $hotelId, $hotelIds);
+        $revenueFactLayer = $hotelId !== null
+            ? (new RevenueFactLayerService())->build($hotelId, $businessDate)
+            : [];
 
         $context = [
                 'business_date' => $businessDate,
@@ -68,6 +71,7 @@ class RevenueAiOverviewService
                 'pricing_generation_preflight' => $pricingGenerationPreflight,
                 'agent_activity' => $agentActivity,
                 'execution_summary' => $executionSummary,
+                'revenue_fact_layer' => $revenueFactLayer,
         ];
         if (is_array($filters['p0_downstream_gate'] ?? null)) {
             $context['p0_downstream_gate'] = $filters['p0_downstream_gate'];
@@ -219,6 +223,9 @@ class RevenueAiOverviewService
         $completeness = $this->dataCompleteness($dataset, $actualScopedSourceChannels, $missingDatasets, $qualityIssues, $enabledChannels);
         $dataStatus = $this->overviewDataStatus($dataset, $actualScopedSourceChannels, $sourceStatuses, $missingDatasets, $qualityIssues, $channelStatuses, $enabledChannels);
         $marketSignals = is_array($context['market_signals'] ?? null) ? $context['market_signals'] : [];
+        $revenueFactLayer = is_array($context['revenue_fact_layer'] ?? null)
+            ? $context['revenue_fact_layer']
+            : [];
         $signals = $this->signals($metricsSummary, $actualScopedSourceChannels, $marketSignals, $businessDate, $hotelId);
         $reviewQueue = is_array($context['review_queue'] ?? null)
             ? $context['review_queue']
@@ -241,7 +248,8 @@ class RevenueAiOverviewService
             $reviewQueue,
             $executionSummary,
             $displaySourceChannels,
-            $pricingGenerationPreflight
+            $pricingGenerationPreflight,
+            $revenueFactLayer
         );
         $pricingReadiness['ai_to_operation_handoff'] = $this->pricingAiToOperationHandoff($pricingReadiness, $executionSummary, $businessDate, $hotelId, $displaySourceChannels);
         $dailyMetricStatus = $dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'empty';
@@ -277,14 +285,82 @@ class RevenueAiOverviewService
             }
         }
 
+        $metrics = array_replace([
+            'ota_room_revenue' => $this->metric(
+                'ota_room_revenue',
+                '昨日OTA房费收入',
+                $dailyFacts !== [] ? $otaRoomRevenue : null,
+                'CNY',
+                $otaRoomRevenue !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
+                $otaRoomRevenue !== null ? '' : ($dailyFacts !== [] ? 'room_revenue_missing' : $dailyMetricReason),
+                $roomRevenueContext,
+                'money'
+            ),
+            'ota_room_nights' => $this->metric(
+                'ota_room_nights',
+                '昨日OTA间夜',
+                $dailyFacts !== [] ? $otaRoomNights : null,
+                'room_nights',
+                $otaRoomNights !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
+                $otaRoomNights !== null ? '' : ($dailyFacts !== [] ? 'room_nights_missing' : $dailyMetricReason),
+                $roomNightsContext,
+                'number'
+            ),
+            'ota_adr' => $this->metric(
+                'ota_adr',
+                'OTA ADR',
+                $this->numeric($metricsSummary['totals']['adr'] ?? null),
+                'CNY',
+                $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
+                $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'adr_denominator_zero'),
+                $adrContext,
+                'money'
+            ),
+            'ota_contribution_revpar' => $this->metric(
+                'ota_contribution_revpar',
+                'OTA渠道贡献RevPAR',
+                $this->numeric($metricsSummary['totals']['revpar'] ?? null),
+                'CNY',
+                $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
+                $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'available_room_nights_missing'),
+                $revparContext,
+                'money'
+            ),
+            'data_completeness' => $this->metric(
+                'data_completeness',
+                '数据完整度',
+                (float)$completeness['percent'],
+                '%',
+                $completeness['status'],
+                (string)($completeness['reason'] ?? ''),
+                $completenessContext,
+                'percent'
+            ),
+        ], $this->revenueFactLayerMetrics($revenueFactLayer));
+
         return [
             'data_status' => $dataStatus,
-            'scope' => 'ota',
-            'date_basis' => 'data_date',
-            'date_basis_note' => 'Phase 1A 使用 online_daily_data.data_date；尚未等同于入住日 stay_date、下单日 booking_date 或结算日 settlement_date。',
+            'revenue_analysis_status' => (string)(
+                $revenueFactLayer['revenue_analysis_status']
+                ?? $dataStatus
+            ),
+            'scope' => $revenueFactLayer !== []
+                ? 'three_source_layered'
+                : 'ota',
+            'date_basis' => $revenueFactLayer !== []
+                ? 'same_date_key_distinct_source_semantics'
+                : 'data_date',
+            'date_basis_note' => $revenueFactLayer !== []
+                ? (string)(
+                    $revenueFactLayer['date_alignment']['note']
+                    ?? 'PMS 经营日与 OTA data_date 使用同一日期键分层比较，不假定业务语义相同。'
+                )
+                : 'Phase 1A 使用 online_daily_data.data_date；尚未等同于入住日 stay_date、下单日 booking_date 或结算日 settlement_date。',
             'business_date' => $businessDate,
             'hotel_id' => $hotelId,
-            'source_channels' => $displaySourceChannels,
+            'source_channels' => $revenueFactLayer !== []
+                ? ['dingdandao_pms', 'ctrip', 'meituan']
+                : $displaySourceChannels,
             'actual_source_channels' => $actualScopedSourceChannels,
             'source_channel_policy' => 'source_channels follows requested OTA scope; actual_source_channels contains channels with target-scope facts.',
             'last_success_at' => $lastSuccessAt,
@@ -293,58 +369,7 @@ class RevenueAiOverviewService
             'issue_summary' => $this->issueSummary($missingDatasets, $qualityIssues),
             'channel_statuses' => $channelStatuses,
             'data_completeness' => $completeness,
-            'metrics' => [
-                'ota_room_revenue' => $this->metric(
-                    'ota_room_revenue',
-                    '昨日OTA房费收入',
-                    $dailyFacts !== [] ? $otaRoomRevenue : null,
-                    'CNY',
-                    $otaRoomRevenue !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
-                    $otaRoomRevenue !== null ? '' : ($dailyFacts !== [] ? 'room_revenue_missing' : $dailyMetricReason),
-                    $roomRevenueContext,
-                    'money'
-                ),
-                'ota_room_nights' => $this->metric(
-                    'ota_room_nights',
-                    '昨日OTA间夜',
-                    $dailyFacts !== [] ? $otaRoomNights : null,
-                    'room_nights',
-                    $otaRoomNights !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
-                    $otaRoomNights !== null ? '' : ($dailyFacts !== [] ? 'room_nights_missing' : $dailyMetricReason),
-                    $roomNightsContext,
-                    'number'
-                ),
-                'ota_adr' => $this->metric(
-                    'ota_adr',
-                    'OTA ADR',
-                    $this->numeric($metricsSummary['totals']['adr'] ?? null),
-                    'CNY',
-                    $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
-                    $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'adr_denominator_zero'),
-                    $adrContext,
-                    'money'
-                ),
-                'ota_contribution_revpar' => $this->metric(
-                    'ota_contribution_revpar',
-                    'OTA渠道贡献RevPAR',
-                    $this->numeric($metricsSummary['totals']['revpar'] ?? null),
-                    'CNY',
-                    $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
-                    $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'available_room_nights_missing'),
-                    $revparContext,
-                    'money'
-                ),
-                'data_completeness' => $this->metric(
-                    'data_completeness',
-                    '数据完整度',
-                    (float)$completeness['percent'],
-                    '%',
-                    $completeness['status'],
-                    (string)($completeness['reason'] ?? ''),
-                    $completenessContext,
-                    'percent'
-                ),
-            ],
+            'metrics' => $metrics,
             'signals' => $signals,
             'p1_revenue_closure' => $metricsSummary['p1_revenue_closure'] ?? [],
             'pricing_readiness' => $pricingReadiness,
@@ -354,6 +379,7 @@ class RevenueAiOverviewService
             'agent_activity' => $agentActivity,
             'execution_summary' => $executionSummary,
             'ai_to_operation_handoff' => $pricingReadiness['ai_to_operation_handoff'],
+            'three_source_fact_layer' => $revenueFactLayer,
             'actions' => $this->actions($missingDatasets, $qualityIssues, $pricingReadiness, $reviewQueue, $pricingGenerationPreflight),
             'metric_summary' => [
                 'fact_table' => $metricsSummary['fact_table'] ?? [],
@@ -816,6 +842,66 @@ class RevenueAiOverviewService
             ]);
         $context['truth']['metric_key'] = $metricTrustKey;
         return $context;
+    }
+
+    /**
+     * The three-source fact layer owns the canonical latest OTA snapshot and
+     * verified PMS accommodation denominator. Its rows replace overlapping
+     * legacy OTA aggregates so repeated intraday snapshots are not summed.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private function revenueFactLayerMetrics(array $factLayer): array
+    {
+        $rows = is_array($factLayer['analysis_metrics'] ?? null)
+            ? $factLayer['analysis_metrics']
+            : [];
+        $metrics = [];
+        foreach ($rows as $key => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $value = $this->numeric($row['value'] ?? null);
+            $unit = (string)($row['unit'] ?? '');
+            $format = $unit === 'CNY'
+                ? 'money'
+                : ($unit === '%' ? 'percent' : 'number');
+            $truth = is_array($row['truth'] ?? null)
+                ? $row['truth']
+                : [];
+            $context = [
+                'scope' => (string)($row['scope'] ?? 'ota_channel'),
+                'date_basis' => (string)($row['date_basis'] ?? 'data_date'),
+                'source_channels' => array_values(array_map(
+                    'strval',
+                    $this->list($row['source_channels'] ?? [])
+                )),
+                'last_success_at' => '',
+                'scope_note' => (string)(
+                    $truth['scope_label']
+                    ?? '三源事实保持来源边界，不把 OTA 收入冒充全酒店收入。'
+                ),
+                'truth' => $truth,
+            ];
+            if ($context['scope'] === 'cross_source_comparison') {
+                $context['denominator_scope'] = 'whole_hotel_accommodation';
+                $context['whole_hotel_denominator_verified'] = (
+                    $factLayer['sources']['dingdandao_pms']['data_status']
+                    ?? ''
+                ) === 'readback_verified';
+            }
+            $metrics[(string)$key] = $this->metric(
+                (string)($row['key'] ?? $key),
+                (string)($row['label'] ?? $key),
+                $value,
+                $unit,
+                (string)($row['status'] ?? ($value !== null ? 'ok' : 'not_calculable')),
+                (string)($row['reason'] ?? ''),
+                $context,
+                $format
+            );
+        }
+        return $metrics;
     }
 
     private function displayValue(float $value, string $format): string
@@ -4403,7 +4489,8 @@ class RevenueAiOverviewService
         array $reviewQueue = [],
         array $executionSummary = [],
         array $sourceChannels = [],
-        array $pricingGenerationPreflight = []
+        array $pricingGenerationPreflight = [],
+        array $revenueFactLayer = []
     ): array
     {
         $competitorSignal = is_array($signals['competitor_price_warning'] ?? null) ? $signals['competitor_price_warning'] : [];
@@ -4412,8 +4499,34 @@ class RevenueAiOverviewService
         $demandSignalReady = in_array($demandSignalReason, ['demand_forecasts_available', 'demand_forecasts_high_demand'], true);
         $reviewQueueReady = $this->reviewQueueIsConnected($reviewQueue);
         $reviewQueueReason = $reviewQueueReady ? '' : (string)($reviewQueue['reason'] ?? 'manual_review_workflow_not_connected');
+        $wholeHotelFacts = is_array(
+            $revenueFactLayer['facts']['whole_hotel_accommodation'] ?? null
+        )
+            ? $revenueFactLayer['facts']['whole_hotel_accommodation']
+            : [];
+        $wholeHotelSellableRoomNights = $this->numeric(
+            $wholeHotelFacts['sellable_room_nights'] ?? null
+        );
+        $wholeHotelDenominatorReady = (
+            $revenueFactLayer['sources']['dingdandao_pms']['data_status']
+            ?? ''
+        ) === 'readback_verified'
+            && $wholeHotelSellableRoomNights !== null
+            && $wholeHotelSellableRoomNights > 0;
+        $otaAvailableRoomNights = $this->numeric(
+            $metricsSummary['totals']['available_room_nights'] ?? null
+        );
+        $pricingGuard = is_array(
+            $revenueFactLayer['sources']['pricing_guard'] ?? null
+        )
+            ? $revenueFactLayer['sources']['pricing_guard']
+            : [];
+        $floorPriceReady = ($pricingGuard['data_status'] ?? '') === 'ready'
+            && $this->numeric(
+                $pricingGuard['minimum_floor_price'] ?? null
+            ) !== null;
         $gates = [
-            $this->otaMetricsPricingGate($metricsSummary),
+            $this->otaMetricsPricingGate($metricsSummary, $revenueFactLayer),
             $this->pricingGate(
                 'data_quality',
                 '数据质量状态',
@@ -4436,12 +4549,16 @@ class RevenueAiOverviewService
             ),
             $this->pricingGate(
                 'revpar_denominator',
-                'OTA渠道可售房晚分母',
-                $this->numeric($metricsSummary['totals']['available_room_nights'] ?? null) !== null
-                    && (float)($metricsSummary['totals']['available_room_nights'] ?? 0) > 0,
+                '收益分析可售房晚分母',
+                (
+                    $otaAvailableRoomNights !== null
+                    && $otaAvailableRoomNights > 0
+                ) || $wholeHotelDenominatorReady,
                 'ok',
                 'available_room_nights_missing',
-                '已具备 OTA 渠道贡献RevPAR分母；该分母未验证为全酒店可售房晚。'
+                $wholeHotelDenominatorReady
+                    ? '已读取 PMS 全酒店住宿可售间夜；用于全酒店住宿 RevPAR 和明确标注的跨源贡献指标，不伪装成 OTA 渠道库存。'
+                    : '已具备 OTA 渠道贡献RevPAR分母；该分母未验证为全酒店可售房晚。'
             ),
             $this->pricingGate(
                 'demand_signal_7d',
@@ -4456,10 +4573,12 @@ class RevenueAiOverviewService
             $this->pricingGate(
                 'floor_price',
                 '最低保护价',
-                false,
+                $floorPriceReady,
                 'ok',
                 'floor_price_missing',
-                '尚未接入房型/价格计划级最低保护价。'
+                $floorPriceReady
+                    ? '已读取 room_types.min_price 人工经营保护价；未使用 OTA 引流价、均价或历史 ADR 替代。'
+                    : '尚未取得房型/价格计划级人工最低保护价；不会用 OTA 引流价或均价替代。'
             ),
             $this->pricingGate(
                 'manual_review_workflow',
@@ -4552,11 +4671,29 @@ class RevenueAiOverviewService
      * @param array<string, mixed> $metricsSummary
      * @return array<string, mixed>
      */
-    private function otaMetricsPricingGate(array $metricsSummary): array
+    private function otaMetricsPricingGate(
+        array $metricsSummary,
+        array $revenueFactLayer = []
+    ): array
     {
-        $status = (string)($metricsSummary['status'] ?? 'empty');
-        $roomRevenue = $this->numeric($metricsSummary['totals']['room_revenue'] ?? null);
-        $roomNights = $this->numeric($metricsSummary['totals']['room_nights'] ?? null);
+        $canonicalOtaFacts = is_array(
+            $revenueFactLayer['facts']['ota_channel']['combined'] ?? null
+        )
+            ? $revenueFactLayer['facts']['ota_channel']['combined']
+            : [];
+        $canonicalReady = (
+            $revenueFactLayer['all_three_sources_readback_verified']
+            ?? false
+        ) === true;
+        $status = $canonicalReady
+            ? 'ready'
+            : (string)($metricsSummary['status'] ?? 'empty');
+        $roomRevenue = $canonicalReady
+            ? $this->numeric($canonicalOtaFacts['revenue'] ?? null)
+            : $this->numeric($metricsSummary['totals']['room_revenue'] ?? null);
+        $roomNights = $canonicalReady
+            ? $this->numeric($canonicalOtaFacts['room_nights'] ?? null)
+            : $this->numeric($metricsSummary['totals']['room_nights'] ?? null);
         $hasFactRows = $status !== 'empty';
         $ready = $hasFactRows && $roomRevenue !== null && $roomNights !== null && $roomNights > 0;
 
@@ -4576,7 +4713,7 @@ class RevenueAiOverviewService
 
         return $this->pricingGate(
             'ota_metrics',
-            '昨日 OTA 收入和间夜',
+            '目标日 OTA 收入和间夜',
             $ready,
             'ok',
             $reason,

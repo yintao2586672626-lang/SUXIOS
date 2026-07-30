@@ -60,6 +60,40 @@ final class DingdandaoOperatingTargetCaptureService
     private const FORWARD_MIN_SOURCE_DAYS = 22;
     private const FORWARD_MAX_SOURCE_DAYS = 31;
     private const FORWARD_DISPLAY_SEMANTICS = 'future_days_after_as_of_date';
+    private const COLLECTION_MODES = ['operating_indicators', 'full_diagnostic'];
+    private const COLLECTION_RECIPE_IDS = [
+        'operating_indicators' => [
+            'store_identity',
+            'operating_total',
+            'sum_detail_room_fee',
+            'daily_detail_room_fee',
+            'trend_total_room_fee',
+        ],
+        'full_diagnostic' => [
+            'store_identity',
+            'operating_total',
+            'sum_detail_room_fee',
+            'daily_detail_room_fee',
+            'sum_detail_room_nights',
+            'daily_detail_room_nights',
+            'sum_detail_occupancy_rate',
+            'daily_detail_occupancy_rate',
+            'sum_detail_revpar',
+            'daily_detail_revpar',
+            'trend_adr',
+            'trend_occupancy_rate',
+            'trend_revpar',
+            'trend_sold_room_nights',
+            'trend_total_room_fee',
+            'county_total',
+            'county_trend_adr',
+            'county_trend_occupancy_rate',
+            'county_trend_revpar',
+            'county_trend_sold_room_nights',
+            'county_trend_total_room_fee',
+            'forward_room_status',
+        ],
+    ];
     private const FORWARD_INTEGER_FIELDS = [
         'remaining_sellable_rooms',
         'booked_rooms',
@@ -115,6 +149,19 @@ final class DingdandaoOperatingTargetCaptureService
         $capturedAt = $this->dateTime((string)($input['captured_at'] ?? ''));
         $providerHotelId = $this->textOrNull($input['provider_hotel_id'] ?? null, 120);
         $providerHotelName = $this->textOrNull($input['provider_hotel_name'] ?? null, 160);
+        $collectionMode = $this->collectionMode(
+            $input['collection_mode'] ?? null,
+            $verifiedOnly
+        );
+        $captureEvidence = $this->captureEvidence(
+            $input['capture_evidence'] ?? null,
+            $sourceUrl,
+            $sourceApiPath,
+            $businessDate,
+            $providerHotelId,
+            $collectionMode,
+            $verifiedOnly
+        );
         $identityEvidenceType = strtolower(trim((string)($input['identity_evidence_type'] ?? 'unverified')));
         $identityStatus = $this->identityStatus(
             $providerHotelName,
@@ -182,6 +229,7 @@ final class DingdandaoOperatingTargetCaptureService
             'source_api_path' => $sourceApiPath,
             'source_scope' => self::SOURCE_SCOPE,
             'capture_method' => $captureMethod,
+            'collection_mode' => $collectionMode,
             'provider_hotel_id' => $providerHotelId,
             'provider_hotel_name' => $providerHotelName,
             'expected_hotel_name' => $expectedHotelName,
@@ -197,6 +245,7 @@ final class DingdandaoOperatingTargetCaptureService
             'county_context' => $countyContext,
             'forward_room_status' => $forwardRoomStatus,
             'field_trace' => $fieldTrace,
+            'capture_evidence' => $captureEvidence,
             'capture_status' => $assessment['capture_status'],
             'quality_status' => $assessment['quality_status'],
             'gap_codes' => array_column($assessment['gaps'], 'code'),
@@ -537,7 +586,12 @@ final class DingdandaoOperatingTargetCaptureService
     {
         $businessDate = $this->date($businessDate);
         if (!$this->tableExists('dingdandao_operating_target_captures')) {
-            return $this->missing($hotelId, $businessDate, 'dingdandao_capture_table_missing');
+            return $this->missing(
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                'dingdandao_capture_table_missing'
+            );
         }
         $row = Db::name('dingdandao_operating_target_captures')
             ->where('tenant_id', $tenantId)
@@ -547,7 +601,12 @@ final class DingdandaoOperatingTargetCaptureService
             ->order('id', 'desc')
             ->find();
         if (!is_array($row)) {
-            return $this->missing($hotelId, $businessDate, 'dingdandao_capture_missing');
+            return $this->missing(
+                $tenantId,
+                $hotelId,
+                $businessDate,
+                'dingdandao_capture_missing'
+            );
         }
         return $this->present($row, true);
     }
@@ -602,6 +661,7 @@ final class DingdandaoOperatingTargetCaptureService
                 'status' => (string)($capture['quality_status'] ?? 'missing'),
                 'prefill' => null,
                 'capture' => $capture,
+                'collection_result' => $capture['collection_result'] ?? null,
                 'gaps' => $capture['gaps'] ?? [[
                     'code' => 'dingdandao_capture_not_verified',
                     'message' => '订单来了今日数据尚未通过身份、日期、字段、对账和数据库回读门禁。',
@@ -625,6 +685,7 @@ final class DingdandaoOperatingTargetCaptureService
                 'fact_captured_at' => $capture['captured_at'],
             ],
             'capture' => $capture,
+            'collection_result' => $capture['collection_result'] ?? null,
             'gaps' => [],
         ];
     }
@@ -682,7 +743,7 @@ final class DingdandaoOperatingTargetCaptureService
         $forwardRoomStatus['capture_id'] = (int)$row['id'];
         $forwardRoomStatus['captured_at'] = (string)$row['captured_at'];
 
-        return [
+        $capture = [
             'status' => (string)($row['capture_status'] ?? 'unverified'),
             'id' => (int)$row['id'],
             'tenant_id' => (int)$row['tenant_id'],
@@ -699,6 +760,7 @@ final class DingdandaoOperatingTargetCaptureService
             'source_api_path' => $row['source_api_path'] ?? null,
             'source_scope' => (string)$row['source_scope'],
             'capture_method' => (string)$row['capture_method'],
+            'collection_mode' => $snapshot['collection_mode'] ?? null,
             'summary' => [
                 'total_room_fee' => $this->nullableFloat($row['total_room_fee'] ?? null),
                 'adr' => $this->nullableFloat($row['adr'] ?? null),
@@ -721,12 +783,20 @@ final class DingdandaoOperatingTargetCaptureService
             'county_context' => $countyContext,
             'forward_room_status' => $forwardRoomStatus,
             'field_trace' => $this->decodeJson($row['field_trace_json'] ?? null),
+            'capture_evidence' => is_array($snapshot['capture_evidence'] ?? null)
+                ? $snapshot['capture_evidence']
+                : [],
+            'source_trace_id' => (string)($snapshot['capture_evidence']['source_trace_id'] ?? ''),
+            'source_url_hash' => (string)($snapshot['capture_evidence']['source_url_hash'] ?? ''),
             'source_fingerprint' => (string)$row['source_fingerprint'],
             'captured_at' => (string)$row['captured_at'],
             'readback_status' => (string)$row['readback_status'],
             'readback_verified_at' => $row['readback_verified_at'] ?? null,
             'created_at' => $row['create_time'] ?? null,
         ];
+        $capture['collection_result'] =
+            (new CollectionResultContractService())->fromDingdandaoCapture($capture);
+        return $capture;
     }
 
     /** @param array<string, mixed> $summary */
@@ -1583,6 +1653,125 @@ final class DingdandaoOperatingTargetCaptureService
         return $value;
     }
 
+    private function collectionMode(mixed $value, bool $required): ?string
+    {
+        $value = strtolower(trim((string)($value ?? '')));
+        if ($value === '') {
+            if ($required) {
+                throw new \InvalidArgumentException(
+                    'dingdandao_capture_collection_mode_invalid'
+                );
+            }
+            return null;
+        }
+        if (!in_array($value, self::COLLECTION_MODES, true)) {
+            throw new \InvalidArgumentException(
+                'dingdandao_capture_collection_mode_invalid'
+            );
+        }
+        return $value;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function captureEvidence(
+        mixed $value,
+        string $sourceUrl,
+        ?string $sourceApiPath,
+        string $businessDate,
+        ?string $providerHotelId,
+        ?string $collectionMode,
+        bool $required
+    ): array {
+        if ($value === null || $value === []) {
+            if ($required) {
+                throw new \InvalidArgumentException(
+                    'dingdandao_capture_evidence_invalid'
+                );
+            }
+            return [];
+        }
+        if (!is_array($value)
+            || $sourceApiPath === null
+            || $providerHotelId === null
+            || $collectionMode === null
+        ) {
+            throw new \InvalidArgumentException(
+                'dingdandao_capture_evidence_invalid'
+            );
+        }
+
+        $section = $collectionMode === 'full_diagnostic'
+            ? 'pms_full_diagnostic'
+            : 'pms_operating';
+        $sourceUrlHash = hash('sha256', $sourceUrl);
+        $providerHotelIdHash = hash('sha256', $providerHotelId);
+        $recipeIds = self::COLLECTION_RECIPE_IDS[$collectionMode];
+        $recipePlanHash = hash('sha256', $this->json($recipeIds));
+        $traceBasis = [
+            'platform' => 'dingdandao',
+            'section' => $section,
+            'source_path' => $sourceApiPath . '#data',
+            'capture_source' => 'existing_session_direct_post',
+            'source_url_hash' => $sourceUrlHash,
+            'source_kind' => 'pms',
+            'business_module' => 'accommodation_operating',
+            'source_method' => 'authorized_browser_endpoint',
+            'collection_mode' => $collectionMode,
+            'data_date' => $businessDate,
+            'provider_hotel_id_hash' => $providerHotelIdHash,
+            'capture_strategy' => 'verified_endpoint_recipe',
+            'fallback_from' => null,
+            'fallback_reason' => null,
+            'response_evidence_type' => 'structured_json',
+            'recipe_plan_hash' => $recipePlanHash,
+            'recipe_count' => count($recipeIds),
+        ];
+        $expected = [
+            'source_path' => $sourceApiPath . '#data',
+            'capture_source' => 'existing_session_direct_post',
+            'section' => $section,
+            'source_kind' => 'pms',
+            'business_module' => 'accommodation_operating',
+            'source_method' => 'authorized_browser_endpoint',
+            'collection_mode' => $collectionMode,
+            'data_date' => $businessDate,
+            'provider_hotel_id_hash' => $providerHotelIdHash,
+            'source_url_hash' => $sourceUrlHash,
+            'capture_strategy' => 'verified_endpoint_recipe',
+            'fallback_from' => null,
+            'fallback_reason' => null,
+            'response_evidence_type' => 'structured_json',
+            'recipe_plan_hash' => $recipePlanHash,
+            'recipe_count' => count($recipeIds),
+            'source_trace_id' => 'dingdandao:'
+                . hash('sha256', $this->json($traceBasis)),
+        ];
+
+        $actualKeys = array_keys($value);
+        $expectedKeys = array_keys($expected);
+        sort($actualKeys);
+        sort($expectedKeys);
+        if ($actualKeys !== $expectedKeys) {
+            throw new \InvalidArgumentException(
+                'dingdandao_capture_evidence_invalid'
+            );
+        }
+        foreach ($expected as $key => $expectedValue) {
+            $actualValue = $value[$key] ?? null;
+            $matches = is_string($expectedValue)
+                ? is_string($actualValue) && hash_equals($expectedValue, $actualValue)
+                : $actualValue === $expectedValue;
+            if (!$matches) {
+                throw new \InvalidArgumentException(
+                    'dingdandao_capture_evidence_invalid'
+                );
+            }
+        }
+        return $expected;
+    }
+
     private function date(string $value): string
     {
         $value = trim($value);
@@ -1708,10 +1897,16 @@ final class DingdandaoOperatingTargetCaptureService
         return array_values($unique);
     }
 
-    private function missing(int $hotelId, string $businessDate, string $code): array
+    private function missing(
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $code
+    ): array
     {
-        return [
+        $capture = [
             'status' => 'missing',
+            'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'provider' => self::PROVIDER,
             'provider_label' => '订单来了',
@@ -1742,6 +1937,9 @@ final class DingdandaoOperatingTargetCaptureService
             ],
             'gaps' => [$this->gap($code)],
         ];
+        $capture['collection_result'] =
+            (new CollectionResultContractService())->fromDingdandaoCapture($capture);
+        return $capture;
     }
 
     private function tableExists(string $table): bool

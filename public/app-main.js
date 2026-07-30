@@ -1107,6 +1107,18 @@
                 platformCollectionResourceError.value = '';
                 platformCollectionStatusLoading.value = false;
                 platformCollectionStatusError.value = '';
+                collectionReliability.value = null;
+                collectionReliabilityLoading.value = false;
+                collectionReliabilityError.value = '';
+                onlineHistoryRequestSeq += 1;
+                onlineHistoryLoading.value = false;
+                onlineHistoryError.value = '';
+                onlineHistoryErrorQueryKey.value = '';
+                onlineHistorySnapshotKey.value = '';
+                onlineHistoryList.value = [];
+                onlineHistoryPagination.value = { total: 0, page: 1, page_size: 20 };
+                onlineHistoryPage.value = 1;
+                onlineHistorySummary.value = createEmptyOnlineHistorySummary();
                 ctripConfigList.value = [];
                 meituanConfigList.value = [];
                 ctripConfigListLoaded.value = false;
@@ -5154,6 +5166,38 @@
             const onlineHistoryPagination = ref({ total: 0, page: 1, page_size: 20 });
             const onlineHistoryPage = ref(1);
             const onlineHistorySummary = ref(createEmptyOnlineHistorySummary());
+            const onlineHistoryLoading = ref(false);
+            const onlineHistoryError = ref('');
+            const onlineHistoryErrorQueryKey = ref('');
+            const onlineHistorySnapshotKey = ref('');
+            let onlineHistoryRequestSeq = 0;
+            const onlineHistoryCurrentQueryKey = computed(() => buildOnlineHistoryQueryParams({
+                page: onlineHistoryPage.value,
+                pageSize: onlineHistoryPagination.value.page_size || 20,
+                filter: onlineHistoryFilter.value,
+            }).toString());
+            const onlineHistoryHasCurrentSnapshot = computed(() => (
+                onlineHistorySnapshotKey.value !== ''
+                && onlineHistorySnapshotKey.value === onlineHistoryCurrentQueryKey.value
+            ));
+            const onlineHistoryCurrentError = computed(() => (
+                onlineHistoryErrorQueryKey.value === onlineHistoryCurrentQueryKey.value
+                    ? onlineHistoryError.value
+                    : ''
+            ));
+            const onlineHistoryRefreshNotice = computed(() => {
+                const error = onlineHistoryCurrentError.value;
+                if (!onlineHistoryLoading.value && !error) return null;
+                const hasSnapshot = onlineHistoryHasCurrentSnapshot.value;
+                return {
+                    className: `rounded-lg border px-4 py-3 text-sm ${error
+                        ? (hasSnapshot ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-700')
+                        : 'border-blue-100 bg-blue-50 text-blue-700'}`,
+                    text: onlineHistoryLoading.value
+                        ? (hasSnapshot ? '正在刷新，当前显示本次筛选上次成功结果。' : '正在读取当前筛选结果…')
+                        : `${hasSnapshot ? '刷新失败，当前显示上次成功结果；不代表当前最新状态。' : '读取失败，不代表没有历史记录。'} ${error}`,
+                };
+            });
             const onlineHistoryHotelList = ref([]);
             const onlineHistoryExpandedId = ref(null);
             const onlineHistoryRawId = ref(null);
@@ -7189,11 +7233,12 @@
                 scope_note: '仅反映已授权 OTA 渠道数据。',
                 past: { status: 'empty', series: [], metrics: {} },
                 present: { status: 'empty', snapshot_row_count: 0 },
-                future: { status: 'empty', series: [] },
-                review: { status: 'empty', items: [] },
+                future: { status: 'empty', series: [], operation_recommendation: null },
+                review: { status: 'empty', cohorts: [], items: [] },
             });
             const homeTemporalLoading = ref(false);
             const homeTemporalGenerating = ref(false);
+            const homeTemporalOperationSubmitting = ref(false);
             const homeTemporalError = ref('');
             const homeTemporalData = ref(createEmptyHomeTemporalData());
             let homeTemporalRequestSeq = 0;
@@ -7261,6 +7306,13 @@
                 const number = homeTemporalNumericValue(value);
                 return number === null ? '未返回' : `${homeTemporalNumber(number)}%`;
             };
+            const homeTemporalOperationalStatusText = (gate = {}) => {
+                const status = String(gate.status || '').trim();
+                if (status === 'eligible_for_human_review') return '可送人工审核';
+                if (status === 'disabled_low_reliability') return '低命中率，结论停用';
+                if (status === 'disabled_insufficient_evidence') return '样本不足，结论停用';
+                return '运营结论未启用';
+            };
             const homeTemporalSelectedHotelId = computed(() => {
                 const selected = String(filterReportHotel.value || '').trim();
                 if (selected) return selected;
@@ -7282,6 +7334,34 @@
                 const priorities = ['ota_revenue', 'ota_orders', 'ota_room_nights', 'ota_list_exposure', 'ota_detail_exposure', 'ota_order_submit'];
                 const key = priorities.find(metricKey => metrics?.[metricKey]) || '';
                 return key ? { key, date: days[0]?.date || '', ...(metrics[key] || {}) } : null;
+            });
+            const homeTemporalBacktestRows = computed(() => {
+                const cohorts = Array.isArray(homeTemporalData.value?.review?.cohorts)
+                    ? homeTemporalData.value.review.cohorts
+                    : [];
+                return cohorts.map((cohort) => {
+                    const operationalSamples = Number(cohort?.matched_points || 0);
+                    const diagnosticSamples = Number(cohort?.diagnostic_matched_points || operationalSamples);
+                    const excludedSamples = Math.max(0, diagnosticSamples - operationalSamples);
+                    const minimumSamples = Number(homeTemporalData.value?.review?.policy?.minimum_matured_samples_per_metric_horizon || 10);
+                    return {
+                        ...cohort,
+                        metric_label: homeTemporalMetricLabels[cohort?.metric_key] || cohort?.metric_key || '未知指标',
+                        horizon_label: `T+${Number(cohort?.horizon_days || 0)}`,
+                        sample_label: `${operationalSamples} / ${minimumSamples} 来源合格样本${excludedSamples > 0 ? `（另 ${excludedSamples} 个仅诊断）` : ''}`,
+                        hit_rate_label: homeTemporalPercentText(cohort?.range_hit_rate),
+                        status_label: cohort?.decision_status === 'eligible_for_human_review'
+                            ? '可送人工审核'
+                            : (cohort?.decision_status === 'disabled_low_interval_coverage' ? '命中率不足' : '样本不足'),
+                        status_class: cohort?.decision_status === 'eligible_for_human_review'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-amber-200 bg-amber-50 text-amber-700',
+                    };
+                });
+            });
+            const homeTemporalOperationRecommendation = computed(() => {
+                const recommendation = homeTemporalData.value?.future?.operation_recommendation;
+                return recommendation && typeof recommendation === 'object' ? recommendation : null;
             });
             const homeTemporalCards = computed(() => {
                 const past = homeTemporalData.value?.past || {};
@@ -7339,13 +7419,15 @@
                     {
                         key: 'future',
                         label: '未来趋势',
-                        status: future.status === 'ready' ? '已生成' : (future.status === 'select_hotel' ? '先选门店' : (future.status === 'blocked' ? '生成失败' : '尚未生成')),
+                        status: future.status === 'ready'
+                            ? homeTemporalOperationalStatusText(futureMetric?.operational_gate || future.operational_gate || {})
+                            : (future.status === 'select_hotel' ? '先选门店' : (future.status === 'blocked' ? '生成失败' : '尚未生成')),
                         value: futureMetric ? `${homeTemporalMetricLabels[futureMetric.key] || futureMetric.key} ${homeTemporalDirectionText(futureMetric.direction)}` : '等待生成',
                         detail: futureMetric
-                            ? `${futureDateLead} ${futureRange}`
+                            ? `${futureDateLead} ${futureRange} · ${homeTemporalOperationalStatusText(futureMetric.operational_gate || {})}`
                             : (future.status === 'blocked' ? '趋势生成失败' : (future.status === 'select_hotel' ? '先选择门店' : '尚无可用趋势')),
                         fullDetail: futureMetric
-                            ? `预计 ${futureMetric.date} 落在 ${futureRange}，${homeTemporalConfidenceLabel(futureMetric)} ${homeTemporalConfidenceText(futureMetric.confidence_score)}`
+                            ? `预计 ${futureMetric.date} 落在 ${futureRange}。${futureMetric.operational_gate?.reason || `${homeTemporalConfidenceLabel(futureMetric)} ${homeTemporalConfidenceText(futureMetric.confidence_score)}`}`
                             : (future.message || '历史数据足够后，可生成方向、范围和可信度；这里不直接给执行价格。'),
                         tone: 'indigo',
                     },
@@ -7355,15 +7437,20 @@
                 const review = homeTemporalData.value?.review || {};
                 if (review.status === 'ready') {
                     const matchedPoints = homeTemporalNumericValue(review.matched_points);
+                    const disabled = String(review.conclusion_status || '') === 'disabled';
+                    const policySamples = Number(review?.policy?.minimum_matured_samples_per_metric_horizon || 10);
+                    const eligibleCohorts = Number(review.eligible_cohort_count || 0);
                     return {
-                        ready: true,
-                        title: `历史预测区间命中率：${homeTemporalPercentText(review.range_hit_rate)}`,
+                        ready: !disabled,
+                        title: disabled
+                            ? '预测运营结论已停用'
+                            : `独立回测：${eligibleCohorts} 个分组可送人工审核`,
                         detail: matchedPoints === null
                             ? '到期样本数未返回'
-                            : `已复盘 ${matchedPoints} 个到期预测`,
+                            : `总计 ${matchedPoints} 个到期点，整体命中率 ${homeTemporalPercentText(review.range_hit_rate)}（仅诊断）`,
                         fullDetail: matchedPoints === null
                             ? '已到期的预测数量未返回，目前还不能判断预测表现。'
-                            : `已对比 ${matchedPoints} 个到期预测；该比例表示实际结果落在原预测范围内的次数。`,
+                            : `按指标和 T+周期分别回测；每个分组至少 ${policySamples} 个到期样本。未达门槛的分组不会生成运营结论。`,
                     };
                 }
                 return {
@@ -7629,7 +7716,7 @@
             const revenueAiExecutionFocus = ref(null);
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260724-trusted-decision-ha49b5f1ccd';
+            const revenueAiStaticVersion = '20260730-canonical-gap-hb96b4bdbff';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -8659,7 +8746,30 @@
                     showToast(revenueAiStaticError.value || revenueAiStaticNotLoadedText, 'warning');
                     return;
                 }
-                const { targetTab } = revenueAiResolveGapTarget(row);
+                const {
+                    targetPage,
+                    targetTab,
+                    targetAgentTab,
+                    targetRevenueTab,
+                } = revenueAiResolveGapTarget(row);
+                if (targetPage === 'agent-center') {
+                    currentPage.value = 'agent-center';
+                    agentTab.value = targetAgentTab || 'revenue';
+                    revenueAgentTab.value = targetRevenueTab || targetTab || 'config';
+                    void nextTick(() => {
+                        if (agentTab.value === 'revenue' && revenueAgentTab.value === 'suggestions') {
+                            return loadPriceSuggestionWorkbench();
+                        }
+                        if (agentTab.value === 'revenue' && revenueAgentTab.value === 'config') {
+                            return loadRoomTypes();
+                        }
+                        if (agentTab.value === 'revenue' && revenueAgentTab.value === 'analysis') {
+                            return loadRevenueAnalysisBundle();
+                        }
+                        return null;
+                    });
+                    return;
+                }
                 openOnlineDataEntryTab(targetTab, { force: true });
             };
             const openRevenueAiMetric = (card = {}) => {
@@ -10760,33 +10870,49 @@
             };
 
             const loadOnlineHistory = async () => {
+                const requestSeq = ++onlineHistoryRequestSeq;
+                const params = buildOnlineHistoryQueryParams({
+                    page: onlineHistoryPage.value,
+                    pageSize: onlineHistoryPagination.value.page_size || 20,
+                    filter: onlineHistoryFilter.value,
+                });
+                const queryKey = params.toString();
+                onlineHistoryLoading.value = true;
+                onlineHistoryError.value = '';
+                onlineHistoryErrorQueryKey.value = '';
                 try {
-                    const params = buildOnlineHistoryQueryParams({
-                        page: onlineHistoryPage.value,
-                        pageSize: onlineHistoryPagination.value.page_size || 20,
-                        filter: onlineHistoryFilter.value,
-                    });
-                    const res = await request(`/online-data/history?${params}`);
-                    if (res.code === 200) {
-                        onlineHistoryList.value = Array.isArray(res.data?.list) ? res.data.list : [];
-                        onlineHistoryPagination.value = {
-                            total: res.data?.total || 0,
-                            page: res.data?.page || onlineHistoryPage.value,
-                            page_size: res.data?.page_size || 20,
-                        };
-                        onlineHistorySummary.value = res.data?.summary && typeof res.data.summary === 'object'
-                            ? { ...createEmptyOnlineHistorySummary(), ...res.data.summary }
-                            : createEmptyOnlineHistorySummary();
-                    } else {
-                        onlineHistoryList.value = [];
-                        onlineHistorySummary.value = createEmptyOnlineHistorySummary();
-                        showToast(res.message || '历史记录加载失败', 'error');
+                    const res = await request(`/online-data/history?${queryKey}`);
+                    if (
+                        requestSeq !== onlineHistoryRequestSeq
+                        || queryKey !== onlineHistoryCurrentQueryKey.value
+                    ) {
+                        return false;
                     }
+                    if (res.code !== 200 || !Array.isArray(res.data?.list)) {
+                        throw new Error(res.message || '历史记录返回格式不完整');
+                    }
+                    onlineHistoryList.value = res.data.list;
+                    onlineHistoryPagination.value = {
+                        total: res.data?.total || 0,
+                        page: res.data?.page || onlineHistoryPage.value,
+                        page_size: res.data?.page_size || 20,
+                    };
+                    onlineHistorySummary.value = res.data?.summary && typeof res.data.summary === 'object'
+                        ? { ...createEmptyOnlineHistorySummary(), ...res.data.summary }
+                        : createEmptyOnlineHistorySummary();
+                    onlineHistorySnapshotKey.value = onlineHistoryCurrentQueryKey.value;
+                    return true;
                 } catch (error) {
-                    onlineHistoryList.value = [];
-                    onlineHistorySummary.value = createEmptyOnlineHistorySummary();
+                    if (requestSeq !== onlineHistoryRequestSeq) return false;
+                    onlineHistoryError.value = error.message || '历史记录加载失败';
+                    onlineHistoryErrorQueryKey.value = queryKey;
                     console.error('加载历史记录失败:', error);
-                    showToast('历史记录加载失败', 'error');
+                    showToast(onlineHistoryError.value, 'error');
+                    return false;
+                } finally {
+                    if (requestSeq === onlineHistoryRequestSeq) {
+                        onlineHistoryLoading.value = false;
+                    }
                 }
             };
 
@@ -11830,6 +11956,25 @@
                 if (autoFetchHotelId.value) return autoFetchHotelId.value;
                 return onlineDataFilter.value.hotel_id || user.value?.hotel_id || hotels.value?.[0]?.id || '';
             };
+            const collectionReliabilityHasCurrentSnapshot = computed(() => {
+                const snapshot = collectionReliability.value;
+                if (!snapshot || typeof snapshot !== 'object') return false;
+                return String(snapshot.hotel_id ?? '') === String(getAutoFetchHotelId() || '')
+                    && String(snapshot.period?.end_date || '') === String(coreOperationsTargetDate.value || coreOperationsMaxDate);
+            });
+            const collectionReliabilityRefreshNotice = computed(() => {
+                const error = collectionReliabilityError.value;
+                if (!collectionReliabilityLoading.value && !error) return null;
+                const hasSnapshot = collectionReliabilityHasCurrentSnapshot.value;
+                return {
+                    className: `rounded-lg border px-4 py-3 text-sm ${error
+                        ? (hasSnapshot ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-700')
+                        : 'border-blue-100 bg-blue-50 text-blue-700'}`,
+                    text: collectionReliabilityLoading.value
+                        ? (hasSnapshot ? '正在刷新，当前显示本门店、当前日期上次成功结果。' : '正在读取当前门店数据…')
+                        : `${hasSnapshot ? '刷新失败，当前显示上次成功结果；不代表当前最新状态。' : '读取失败，不代表当前门店没有数据。'} ${error}`,
+                };
+            });
 
             const AUTO_FETCH_PANEL_CACHE_TTL_MS = 45000;
             const PLATFORM_AUTO_PANEL_START_DELAY_MS = 16;
@@ -16959,17 +17104,22 @@
             // 保存或切换门店后立即清空，页面状态只消费后端掩码。
             const wechatNotificationPanelBody = shallowRef(null);
             const manualNotificationSchedulePanelBody = shallowRef(null);
+            const manualNotificationDispatchPanelBody = shallowRef(null);
             let wechatNotificationPanelLoadPromise = null;
             const WECHAT_NOTIFICATION_PANEL_LOAD_KEY = '__SUXI_WECHAT_NOTIFICATION_PANEL_LOAD_PROMISE__';
             const applyWechatNotificationPanel = () => {
                 if (!window.SUXI_WECHAT_NOTIFICATION_PANEL
                     || !window.SUXI_MANUAL_NOTIFICATION_SCHEDULE_PANEL
+                    || !window.SUXI_MANUAL_NOTIFICATION_DISPATCH_PANEL
                 ) {
                     return false;
                 }
                 wechatNotificationPanelBody.value = markRaw(window.SUXI_WECHAT_NOTIFICATION_PANEL);
                 manualNotificationSchedulePanelBody.value = markRaw(
                     window.SUXI_MANUAL_NOTIFICATION_SCHEDULE_PANEL
+                );
+                manualNotificationDispatchPanelBody.value = markRaw(
+                    window.SUXI_MANUAL_NOTIFICATION_DISPATCH_PANEL
                 );
                 return true;
             };
@@ -16981,7 +17131,7 @@
                     const sharedPromise = window[WECHAT_NOTIFICATION_PANEL_LOAD_KEY]
                         || (window[WECHAT_NOTIFICATION_PANEL_LOAD_KEY] = new Promise((resolve, reject) => {
                             const script = document.createElement('script');
-                            script.src = 'wechat-notification-static.js?v=20260730-smooth-workflow-h1232c0f900';
+                            script.src = 'wechat-notification-static.js?v=20260730-compact-workflow-h4db9caa3c7';
                             script.async = true;
                             script.dataset.suxiWechatNotificationPanel = '1';
                             script.onload = resolve;
@@ -17349,6 +17499,8 @@
                         };
                     }
                     showToast(response.message || '测试消息已发送');
+                    manualNotificationWorkspaceTab.value = 'plans';
+                    await loadManualNotificationMetadata();
                 } catch (error) {
                     const responseData = error?.data?.data || null;
                     if (responseData?.binding) {
@@ -20662,7 +20814,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260719-h41c2131a16';
+            const operationStaticScriptVersion = '20260719-h7eb502590a';
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
@@ -24161,6 +24313,23 @@
             const manualNotificationSchedulePanelEvents = {
                 fieldChange: updateManualNotificationScheduleField,
             };
+            const manualNotificationDispatchPanelProps = computed(() => ({
+                history: manualNotificationDispatchHistory.value,
+                loading: manualNotificationLoading.value.dispatchHistory,
+                expandedId: manualNotificationExpandedDispatchId.value,
+                triggerLabel: manualNotificationDispatchTriggerLabel,
+                statusLabel: manualNotificationDispatchStatusLabel,
+                statusClass: manualNotificationDispatchStatusClass,
+                retryClass: manualNotificationDispatchRetryClass,
+                canRetry: manualNotificationDispatchCanRetry,
+                timeline: manualNotificationDispatchTimeline,
+            }));
+            const manualNotificationDispatchPanelEvents = {
+                refresh: () => loadManualNotificationDispatchHistory(),
+                openPlan: item => openManualNotificationDispatchPlan(item),
+                retry: item => retryManualNotificationDispatch(item),
+                toggle: item => toggleManualNotificationDispatchTimeline(item),
+            };
             const manualNotificationLivePreview = computed(() => {
                 const hotel = operationHotelOptions.value.find(
                     item => String(item.id) === String(manualNotificationForm.value.hotel_id || '')
@@ -24638,7 +24807,7 @@
             };
             const manualNotificationOperatingDailyPlans = computed(() => (
                 (manualNotificationHistory.value?.list || []).filter((item) => (
-                    ['operating_daily_report', 'operating_daily_custom_report'].includes(
+                    ['operating_daily_report', 'operating_daily_custom_report', 'ctrip_temporal_report'].includes(
                         String(item?.template_type || item?.notification_type || '')
                     )
                 ))
@@ -24653,15 +24822,37 @@
                     { key: 'meituan', label: '美团', scopeLabel: 'OTA 渠道' },
                     { key: 'dingdandao_pms', label: 'PMS', scopeLabel: '订单来了' },
                 ];
+                const normalizeSourceKey = (value) => (
+                    ['pms', 'dingdandao'].includes(String(value || ''))
+                        ? 'dingdandao_pms'
+                        : String(value || '')
+                );
                 const planSourceKeys = (item) => {
-                    const sourceScope = String(item?.source_scope || 'combined');
-                    if (sourceScope === 'combined') {
+                    const sourceScope = normalizeSourceKey(item?.source_scope || 'combined');
+                    if (sourceScope !== 'combined') {
+                        return [sourceScope];
+                    }
+                    const sections = Array.isArray(item?.content_sections)
+                        ? item.content_sections
+                        : String(item?.content_sections || '')
+                            .split(',')
+                            .map(value => value.trim())
+                            .filter(Boolean);
+                    if (!sections.length) {
                         return definitions.map(definition => definition.key);
                     }
-                    if (['pms', 'dingdandao'].includes(sourceScope)) {
-                        return ['dingdandao_pms'];
-                    }
-                    return [sourceScope];
+                    const metadataSections = manualNotificationMetadata.value?.content_sections || [];
+                    return [...new Set(sections.flatMap((section) => {
+                        const definition = metadataSections.find(item => item?.key === section);
+                        const scoped = (definition?.source_scopes || [])
+                            .filter(scope => scope !== 'combined')
+                            .map(normalizeSourceKey);
+                        if (scoped.length) return scoped;
+                        if (String(section).startsWith('pms_')) return ['dingdandao_pms'];
+                        if (/^(ctrip|qunar)_/.test(String(section))) return ['ctrip'];
+                        if (String(section).startsWith('meituan_')) return ['meituan'];
+                        return [];
+                    }))].filter(key => definitions.some(definition => definition.key === key));
                 };
                 const cards = definitions.map((definition) => {
                     const relatedPlans = plans.filter(
@@ -24720,22 +24911,22 @@
                 }
                 if (sourceSummary.activeCount > 0) {
                     return {
-                        label: `${sourceSummary.activeCount} 个来源计划已启用 · 调度待核验`,
+                        label: `已启用 ${sourceSummary.activeCount} 个计划`,
                         note: '计划配置已启用，但云端运行记录尚未更新。',
                         className: 'border-amber-200 bg-amber-50 text-amber-700',
                     };
                 }
                 if (sourceSummary.integratedCount === 3) {
                     return {
-                        label: '三源已接入 · 自动发送未启用',
+                        label: '三源已配置 · 未启用',
                         note: '携程、美团、PMS 均已纳入推送；启用计划前不会自动发送。',
                         className: 'border-amber-200 bg-amber-50 text-amber-700',
                     };
                 }
                 return {
                     label: sourceSummary.integratedCount > 0
-                        ? `已接入 ${sourceSummary.integratedCount}/3 · 自动发送未启用`
-                        : '三源推送尚未配置',
+                        ? `${sourceSummary.integratedCount}/3 已配置 · 未启用`
+                        : '三源待配置',
                     note: '请先保存三源合并计划，或分别保存携程、美团、PMS 计划。',
                     className: 'border-slate-200 bg-white text-slate-600',
                 };
@@ -24744,51 +24935,43 @@
                 const overview = manualNotificationMetadata.value?.automatic_tasks || {};
                 const tasks = Array.isArray(overview.tasks) ? overview.tasks : [];
                 const sourceSummary = manualNotificationThreeSourceSummary.value;
+                const schedulerDisplay = manualNotificationSchedulerDisplay.value;
                 const header = `<header class="border-b border-slate-100 bg-[#f7f9f8] p-5 pr-24">
-                    <h2 class="font-semibold text-slate-900">${escapeManualNotificationTaskText(overview?.hotel?.name, '当前酒店')}三源统一推送</h2>
-                    <p class="mt-1 text-sm text-slate-500">先看三源是否已纳入推送，再配置自动发送；渠道数据是否实时仍以各来源采集时间为准。</p>
-                    <p class="mt-1 text-xs text-slate-400" data-testid="manual-notification-automatic-source">调度证据：${escapeManualNotificationTaskText(overview.source_label, '待核验')}</p>
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <h2 class="font-semibold text-slate-900">${escapeManualNotificationTaskText(overview?.hotel?.name, '当前酒店')}自动推送</h2>
+                        <span class="rounded-full border px-2.5 py-1 text-xs font-medium ${schedulerDisplay.className}" title="${escapeManualNotificationTaskText(schedulerDisplay.note)}">${escapeManualNotificationTaskText(schedulerDisplay.label)}</span>
+                    </div>
+                    <span class="sr-only" data-testid="manual-notification-automatic-source">${escapeManualNotificationTaskText(overview.source_label, '待核验')}</span>
                 </header>`;
                 const sourceCards = `<section class="border-b border-slate-100 px-5 py-4" data-testid="manual-notification-three-source-status">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                            <h3 class="text-sm font-semibold text-slate-800">三源推送接入（${sourceSummary.integratedCount}/3）</h3>
-                            <p class="mt-1 text-xs text-slate-500">“已接入”表示已纳入当前酒店推送配置，不代表渠道页面当前实时。</p>
-                        </div>
-                        <span class="rounded-full border px-2.5 py-1 text-xs font-medium ${sourceSummary.deliveredCount === 3
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                            : 'border-slate-200 bg-slate-50 text-slate-600'}">${sourceSummary.deliveredCount === 3
-                            ? '三源均有送达回执'
-                            : `已取得 ${sourceSummary.deliveredCount}/3 送达回执`}</span>
-                    </div>
+                    <h3 class="text-sm font-semibold text-slate-800">三源状态</h3>
                     <div class="mt-3 grid gap-3 md:grid-cols-3">
                         ${sourceSummary.cards.map((source) => {
-                            const badgeClass = source.latestDelivery
+                            const badgeClass = source.active
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : source.latestDelivery
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                 : source.integrated
                                     ? 'border-amber-200 bg-amber-50 text-amber-700'
                                     : 'border-slate-200 bg-slate-50 text-slate-500';
-                            const badge = source.latestDelivery
-                                ? '已送达'
+                            const badge = source.active
+                                ? '自动发送'
+                                : source.latestDelivery
+                                    ? '已送达'
                                 : source.integrated
                                     ? '已配置'
                                     : '未配置';
                             const evidence = source.latestDelivery
                                 ? `最近送达 ${escapeManualNotificationTaskText(source.deliveredAt, '时间未取得')}`
                                 : source.integrated
-                                    ? '尚未取得该来源送达回执'
-                                    : '尚未纳入当前酒店推送';
-                            return `<article class="rounded-xl border border-slate-200 bg-white p-3" data-testid="manual-notification-source-${source.key}">
-                                <div class="flex items-start justify-between gap-2">
-                                    <div>
-                                        <p class="text-sm font-semibold text-slate-900">${source.label}</p>
-                                        <p class="mt-0.5 text-xs text-slate-500">${source.scopeLabel}</p>
-                                    </div>
+                                    ? (source.active ? '等待送达回执' : '自动发送未启用')
+                                    : '待配置';
+                            return `<article class="rounded-xl border border-slate-200 bg-white p-3" data-testid="manual-notification-source-${source.key}" title="${escapeManualNotificationTaskText(source.scopeLabel)}">
+                                <div class="flex items-center justify-between gap-2">
+                                    <p class="text-sm font-semibold text-slate-900">${source.label}</p>
                                     <span class="rounded-full border px-2 py-0.5 text-[11px] font-medium ${badgeClass}">${badge}</span>
                                 </div>
-                                <p class="mt-3 text-xs text-slate-600">${source.integrated ? '已接入统一推送' : '推送配置待完成'}</p>
-                                <p class="mt-1 text-xs text-slate-400">${evidence}</p>
-                                <p class="mt-1 text-xs ${source.active ? 'text-emerald-600' : 'text-slate-400'}">${source.active ? '自动发送已启用' : '自动发送未启用'}</p>
+                                <p class="mt-2 truncate text-xs text-slate-500" title="${evidence}">${evidence}</p>
                             </article>`;
                         }).join('')}
                     </div>
@@ -24805,20 +24988,24 @@
                         ? `<button type="button" class="rounded-lg border border-[#d8c49f] bg-[#fffaf0] px-3 py-1.5 text-xs font-semibold text-[#826333] hover:border-[#ad8b52]" data-manual-notification-edit-id="${notificationId}">${escapeManualNotificationTaskText(task?.edit_label, '编辑计划')}</button>`
                         : '<span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-500">云端固定任务</span>';
                     const planStatus = task?.plan_status_label
-                        ? `<p class="mt-1 text-xs text-[#826333]">关联计划：${escapeManualNotificationTaskText(task.plan_status_label)}</p>`
+                        ? `<span class="rounded-full border border-[#d8c49f] bg-[#fffaf0] px-2 py-0.5 text-[11px] text-[#826333]">${escapeManualNotificationTaskText(task.plan_status_label)}</span>`
+                        : '';
+                    const sourceScope = editable && task?.source_scope_label
+                        ? `<span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">${escapeManualNotificationTaskText(task.source_scope_label)}</span>`
                         : '';
                     return `<article class="p-5 text-sm" data-testid="manual-notification-automatic-task-${escapeManualNotificationTaskText(task?.key, 'unknown')}">
                         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div class="min-w-0">
-                                <p class="font-medium text-slate-900">${escapeManualNotificationTaskText(task?.name)} · ${escapeManualNotificationTaskText(task?.status_label, '状态待核验')}</p>
-                                ${planStatus}
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <p class="font-medium text-slate-900">${escapeManualNotificationTaskText(task?.name)}</p>
+                                    ${sourceScope}
+                                    ${planStatus}
+                                </div>
+                                <p class="mt-1 text-slate-600" title="${escapeManualNotificationTaskText(task?.delivery_rule, '发送条件未取得')}">${escapeManualNotificationTaskText(task?.schedule, '时间未取得')} · ${mode}</p>
+                                <p class="mt-1 truncate text-xs text-slate-400" title="${escapeManualNotificationTaskText(task?.last_result)}">最近 ${escapeManualNotificationTaskText(task?.last_result)} · 下次 ${escapeManualNotificationTaskText(task?.next_run_at, '按周期执行')}</p>
                             </div>
                             <div class="shrink-0">${action}</div>
                         </div>
-                        <p class="mt-1 text-slate-600">${escapeManualNotificationTaskText(task?.schedule, '调度时间未取得')} · ${mode}</p>
-                        <p class="mt-1 text-slate-500">${escapeManualNotificationTaskText(task?.delivery_rule, '发送条件未取得')}</p>
-                        <p class="mt-2 text-xs text-slate-400">最近结果：${escapeManualNotificationTaskText(task?.last_result)} · 目标机器人：${escapeManualNotificationTaskText(task?.target_robot_name, '绑定未取得')}</p>
-                        <p class="mt-1 text-xs text-slate-400">最近：${escapeManualNotificationTaskText(task?.last_run_at)} · 下次：${escapeManualNotificationTaskText(task?.next_run_at, '按任务周期执行')}</p>
                     </article>`;
                 };
                 const hotelPlans = tasks.filter(
@@ -24828,15 +25015,12 @@
                     task => task?.editable !== true || Number(task?.notification_id || 0) <= 0
                 );
                 const planSection = `<section data-testid="manual-notification-hotel-plans">
-                    <div class="border-b border-slate-100 px-5 py-3">
-                        <h3 class="text-sm font-semibold text-slate-800">统一推送配置（${hotelPlans.length} 个）</h3>
-                        <p class="mt-1 text-xs text-slate-500">可保留一条三源合并计划，也可按携程、美团、PMS 分别设置时间、频率和内容。</p>
-                    </div>
+                    <h3 class="border-b border-slate-100 px-5 py-3 text-sm font-semibold text-slate-800">推送计划 <span class="font-normal text-slate-400">${hotelPlans.length}</span></h3>
                     ${hotelPlans.length
                         ? `<div class="divide-y divide-slate-100">${hotelPlans.map(renderTask).join('')}</div>`
                         : `<p class="px-5 py-6 text-sm text-slate-500">${manualNotificationLoading.value.metadata
-                            ? '正在读取统一推送配置…'
-                            : '尚未保存统一推送配置，可在下方新建。'}</p>`}
+                            ? '读取中…'
+                            : '暂无计划，可在下方新建。'}</p>`}
                 </section>`;
                 const safeguardStatus = overview.is_stale
                     ? {
@@ -24857,14 +25041,11 @@
                     ? `<details class="border-t border-slate-100" data-testid="manual-notification-system-safeguards">
                         <summary class="cursor-pointer px-5 py-4">
                             <div class="flex flex-wrap items-center justify-between gap-3 pr-2">
-                                <div>
-                                    <p class="text-sm font-semibold text-slate-700">系统运行保障 <span class="font-normal text-slate-400">${safeguards.length} 项</span></p>
-                                    <p class="mt-1 text-xs text-slate-500">${safeguardStatus.evidence}</p>
-                                </div>
+                                <p class="text-sm font-semibold text-slate-700">系统保障 <span class="font-normal text-slate-400">${safeguards.length}</span></p>
                                 <span class="rounded-full border px-2.5 py-1 text-xs font-medium ${safeguardStatus.className}">${safeguardStatus.label}</span>
                             </div>
                         </summary>
-                        <p class="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">以下为云端保障任务的只读证据，不代表当前酒店计划已启用。</p>
+                        <p class="border-t border-slate-100 px-5 py-3 text-xs text-slate-500" title="${safeguardStatus.evidence}">只读系统任务，不代表酒店计划已启用。</p>
                         <div class="divide-y divide-slate-100 border-t border-slate-100">${safeguards.map(renderTask).join('')}</div>
                     </details>`
                     : '';
@@ -24946,6 +25127,53 @@
                     && String(robot?.name || '') === String(item?.target_robot_name || item?.test_robot_name || '')
                 ))
             );
+            const manualNotificationComparablePlan = (item = {}) => {
+                const templateType = String(item?.template_type || item?.notification_type || '');
+                const triggerType = String(item?.trigger_type || 'manual_test');
+                const list = (value) => (Array.isArray(value) ? value : String(value || '').split(','))
+                    .map(entry => String(entry).trim())
+                    .filter(Boolean);
+                const shortTime = (value) => String(value || '').match(/\d{2}:\d{2}/)?.[0] || '';
+                const plannedAt = String(item?.planned_send_at || '')
+                    .replace('T', ' ')
+                    .slice(0, 16);
+                return {
+                    notification_type: String(item?.notification_type || templateType),
+                    template_type: templateType,
+                    source_scope: String(item?.source_scope || 'combined'),
+                    content_sections: ['operating_daily_report', 'operating_daily_custom_report'].includes(templateType)
+                        ? list(item?.content_sections).join(',')
+                        : '',
+                    business_date: String(item?.business_date || ''),
+                    business_date_rule: String(item?.business_date_rule || 'today'),
+                    title: String(item?.title || '').trim(),
+                    body: String(item?.body || '').trim(),
+                    send_method: String(item?.send_method || ''),
+                    trigger_type: triggerType,
+                    interval_minutes: triggerType === 'interval_minutes'
+                        ? String(Number(item?.interval_minutes || 0))
+                        : '',
+                    planned_send_at: plannedAt,
+                    active_weekdays: list(item?.active_weekdays).map(Number).sort().join(','),
+                    effective_from: String(item?.effective_from || ''),
+                    effective_to: String(item?.effective_to || ''),
+                    hourly_start_time: shortTime(item?.hourly_start_time),
+                    hourly_end_time: triggerType === 'interval_minutes'
+                        ? '23:59'
+                        : shortTime(item?.hourly_end_time),
+                    target_robot_id: String(item?.target_robot_id || item?.test_robot_id || ''),
+                    target_robot_name: String(item?.target_robot_name || item?.test_robot_name || '').trim(),
+                };
+            };
+            const manualNotificationHasUnsavedChanges = computed(() => {
+                const id = Number(manualNotificationForm.value?.id || 0);
+                if (id <= 0) return false;
+                const saved = (manualNotificationHistory.value?.list || []).find(
+                    item => Number(item?.id || 0) === id
+                );
+                return !saved || JSON.stringify(manualNotificationComparablePlan(manualNotificationForm.value))
+                    !== JSON.stringify(manualNotificationComparablePlan(saved));
+            });
             const loadManualNotificationMetadata = async () => {
                 const context = manualNotificationContext();
                 if (!context) return;
@@ -25346,6 +25574,12 @@
                 manualNotificationValidationActive.value = false;
             };
             const testManualNotification = async (item) => {
+                if (Number(item?.id || 0) === Number(manualNotificationForm.value?.id || 0)
+                    && manualNotificationHasUnsavedChanges.value
+                ) {
+                    showToast('计划有未保存更改，请先保存再测试。', 'warning');
+                    return;
+                }
                 if (!manualNotificationTestAllowed(item)) {
                     showToast('请选择当前酒店有权使用且已启用的目标机器人。', 'warning');
                     return;
@@ -25388,6 +25622,9 @@
                     );
                     if (refreshed && Number(manualNotificationForm.value.id || 0) === Number(item.id || 0)) {
                         applyManualNotificationRecord(refreshed);
+                    }
+                    if (status === 'sent') {
+                        manualNotificationWorkspaceTab.value = 'records';
                     }
                 } catch (error) {
                     manualNotificationError.value = operationErrorMessage(error, '测试推送失败；正式群未触发。');
@@ -27237,7 +27474,12 @@
                     const generated = res.data || {};
                     const readbackCount = Number(generated.readback_count);
                     if (generated.status === 'generated' && Number.isFinite(readbackCount) && readbackCount > 0) {
-                        showToast(`预测版本已保存并回读 ${readbackCount} 个点`);
+                        showToast(
+                            generated.operational_status === 'disabled'
+                                ? (generated.message || `预测版本已回读 ${readbackCount} 个点，但运营结论已停用`)
+                                : (generated.message || `预测版本已保存并回读 ${readbackCount} 个点`),
+                            generated.operational_status === 'disabled' ? 'warning' : 'success'
+                        );
                     } else if (generated.status === 'generated') {
                         showToast(generated.message || '接口返回已生成，但未确认预测点回读，本次不标记为可用', 'warning');
                     } else {
@@ -27258,6 +27500,46 @@
                     showToast(homeTemporalError.value, 'error');
                 } finally {
                     homeTemporalGenerating.value = false;
+                }
+            };
+
+            const submitHomeTemporalRecommendationForReview = async () => {
+                const recommendation = homeTemporalOperationRecommendation.value;
+                if (!recommendation?.can_submit_for_review) {
+                    showToast(recommendation?.disabled_reason || '该预测尚未通过独立回测门槛，不能送审', 'warning');
+                    return;
+                }
+                const forecastPointId = Number(recommendation.forecast_point_id || 0);
+                if (!Number.isInteger(forecastPointId) || forecastPointId <= 0 || homeTemporalOperationSubmitting.value) return;
+                homeTemporalOperationSubmitting.value = true;
+                try {
+                    const res = await request(`/temporal-insights/forecasts/${forecastPointId}/execution-intent`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '预测运营建议送审失败');
+                    const response = res.data || {};
+                    const intentId = Number(response?.execution_intent?.id || 0);
+                    if (!Number.isInteger(intentId) || intentId <= 0 || response.task_created !== false) {
+                        throw new Error('送审结果未保持“待审核且未生成任务”边界');
+                    }
+                    const persistedIntent = await readOperationExecutionIntent(intentId);
+                    if (persistedIntent.status !== 'pending_approval'
+                        || String(persistedIntent.source_module || '') !== 'temporal_forecast_recommendation'
+                        || (Array.isArray(persistedIntent.tasks) && persistedIntent.tasks.length > 0)
+                    ) {
+                        throw new Error('预测运营建议回读状态不一致');
+                    }
+                    showToast('已送人工审核；审批通过后才会生成运营任务');
+                    const hotelId = String(homeTemporalSelectedHotelId.value || '').trim();
+                    if (hotelId) operationFilters.value.hotel_id = hotelId;
+                    currentPage.value = 'ops-track';
+                    await nextTick();
+                    await loadOperationActions({ focusIntentId: intentId });
+                } catch (error) {
+                    showToast(operationErrorMessage(error, error.message || '预测运营建议送审失败'), 'error');
+                } finally {
+                    homeTemporalOperationSubmitting.value = false;
                 }
             };
 
@@ -44780,7 +45062,8 @@
                 manualNotificationMetadata, manualNotificationForm, manualNotificationHotelSearch, manualNotificationFilteredHotelOptions, selectManualNotificationHotel, manualNotificationHistory, manualNotificationDispatchHistory, manualNotificationPreview, manualNotificationEditing, manualNotificationWorkspaceTab, manualNotificationError, manualNotificationLoading,
                 manualNotificationTemplateCards, manualNotificationFormalRobotOptions, manualNotificationBodyCount, manualNotificationIsOperatingDaily, manualNotificationContentModeOptions, manualNotificationVariableOptions, manualNotificationVariableGroups, manualNotificationDataStatus, manualNotificationDataScopeLabel, manualNotificationPreviewContext, manualNotificationLivePreview, manualNotificationAutomaticTaskRows, manualNotificationSchedulerDisplay,
                 manualNotificationSchedulePanelBody, manualNotificationSchedulePanelProps, manualNotificationSchedulePanelEvents,
-                manualNotificationFieldErrors, manualNotificationTypeLabel, manualNotificationStatusText, manualNotificationStatusClass, manualNotificationTestAllowed, manualNotificationDispatchTriggerLabel, manualNotificationDispatchStatusLabel, manualNotificationDispatchStatusClass, manualNotificationDispatchRetryClass, manualNotificationDispatchCanRetry, manualNotificationExpandedDispatchId, manualNotificationDispatchTimeline, toggleManualNotificationDispatchTimeline, handleManualNotificationAutomaticTaskClick, openManualNotificationDispatchPlan,
+                manualNotificationDispatchPanelBody, manualNotificationDispatchPanelProps, manualNotificationDispatchPanelEvents,
+                manualNotificationFieldErrors, manualNotificationTypeLabel, manualNotificationStatusText, manualNotificationStatusClass, manualNotificationTestAllowed, manualNotificationHasUnsavedChanges, manualNotificationDispatchTriggerLabel, manualNotificationDispatchStatusLabel, manualNotificationDispatchStatusClass, manualNotificationDispatchRetryClass, manualNotificationDispatchCanRetry, manualNotificationExpandedDispatchId, manualNotificationDispatchTimeline, toggleManualNotificationDispatchTimeline, handleManualNotificationAutomaticTaskClick, openManualNotificationDispatchPlan,
                 loadManualNotificationCenter, loadManualNotificationMetadata, loadManualNotificationHistory, loadManualNotificationDispatchHistory, selectManualNotificationTemplate, selectManualNotificationContentMode, syncManualNotificationTargetRobot,
                 insertManualNotificationVariable, openMeituanTemporalSchedule, previewManualNotification, saveManualNotification, openManualNotificationRecord, testManualNotification, retryManualNotificationDispatch,
                 automationMonitorDate, automationMonitorStatusFilter, automationMonitor, automationMonitorLoading, automationMonitorError, automationMonitorManualBusyKey,
@@ -44821,7 +45104,7 @@
                 openingTaskDueLabel, openingTaskDueClass, openingTaskProgressPercent, openingTaskProgressStage, openingTaskProgressTextClass, handleOpeningTaskProgressInput, handleOpeningTaskStatusChange, setOpeningTaskProgress, saveOpeningTaskProgress,
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
-                homeTemporalLoading, homeTemporalGenerating, homeTemporalError, homeTemporalData, homeTemporalSelectedHotelId, homeTemporalCards, homeTemporalReview, dualOtaTemporalCards, dualOtaTemporalReview, dualOtaTemporalLoading,
+                homeTemporalLoading, homeTemporalGenerating, homeTemporalOperationSubmitting, homeTemporalError, homeTemporalData, homeTemporalSelectedHotelId, homeTemporalCards, homeTemporalReview, homeTemporalBacktestRows, homeTemporalOperationRecommendation, dualOtaTemporalCards, dualOtaTemporalReview, dualOtaTemporalLoading,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeBusinessTimeModel, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
                 dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaPmsSelected, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaWorkbenchFetchInProgress, dualOtaWorkbenchReadInProgress, dualOtaSelectedHotelLabel, dualOtaConfiguredPms, dualOtaPmsTargetDate, dualOtaPmsRangeNote, dualOtaPmsMetricGroups, dualOtaPmsStatusText, dualOtaPmsStatusClass, dualOtaSelectedHotelHasCurrentData, dualOtaSelectedHotelDataGapText, dualOtaRangeText, dualOtaActiveLossNodes, dualOtaLossChainSubtitle, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, openDualOtaPms, openDualOtaPmsDetail, syncDualOtaPmsRealtime, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaModuleNavigationTarget, openDualOtaModule, openDualOtaSystemMetric, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
@@ -44942,7 +45225,7 @@
                 onlineDataCorrectionLedgerList, onlineDataCorrectionLedgerPagination, onlineDataCorrectionLedgerRestoringId,
                 loadOnlineDataCorrectionLedger, toggleOnlineDataCorrectionLedger, changeOnlineDataCorrectionLedgerPage, restoreOnlineDataCorrectionLedger,
                 onlineDataCorrectionLedgerOperationText, onlineDataCorrectionLedgerChangedFieldsText, onlineDataCorrectionLedgerStatusText, onlineDataCorrectionLedgerStatusClass,
-                collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
+                collectionReliability, collectionReliabilityLoading, collectionReliabilityError, collectionReliabilityHasCurrentSnapshot, collectionReliabilityRefreshNotice,
                 dualOtaContinuousTrust, dualOtaContinuousDays, dualOtaContinuousStatusText, dualOtaContinuousStatusClass,
                 dualOtaContinuousPlatformLabel, dualOtaContinuousStepRows, dualOtaContinuousSummaryText,
                 coreOperationsProfileSessionRows, coreOperationsProfileSessionBlockedRows, prepareCoreOperationsProfileSession, coreOperationsCanExecute, coreOperationsCanGenerateDiagnosis, coreOperationsCanCollect, coreOperationsDiagnosisGenerating, coreOperationsDiagnosisGenerationMessage, generateCoreOperationsDiagnoses,
@@ -44977,7 +45260,7 @@
                 collectionHealthFieldRows, collectionHealthSummaryCards, collectionHealthStatusText, collectionHealthStatusClass,
                 phase1EmployeeQuestionRows, phase1EmployeeRequiredActions, phase1EmployeeClosureSummary, phase1EmployeeCollectionSourceRows, phase1EmployeeFieldTrustRows, phase1EmployeeMissingFieldRows, phase1EmployeeMissingFieldOverflowText, dataHealthFieldGapActionRows, dataHealthFieldGapActionSummary, phase1EmployeeMetricDomainRows, phase1EmployeeAiEvidenceSummary, phase1EmployeeOperationSummary, phase1EmployeeQuestionStatusText, phase1EmployeeQuestionStatusClass,
                 loadCollectionReliability, loadDailyWorkbench, loadDailyWorkbenchPatrols, loadPhase3OperationEffectLoop, loadPhase3OperationEffectLoopLedger, publishPhase3OperationSop, createPhase3ReplicationPlan, runDailyWorkbenchPatrol, exportDailyWorkbenchPatrolReport, updateDailyWorkbenchPatrolAction, reviewDailyWorkbenchPatrolAction, loadHotelDataDashboard, loadDataHealthPanel,
-                onlineHistoryFilter, onlineHistoryList, onlineHistoryPagination, onlineHistoryPage, onlineHistorySummary, onlineHistoryHotelList,
+                onlineHistoryFilter, onlineHistoryList, onlineHistoryPagination, onlineHistoryPage, onlineHistorySummary, onlineHistoryLoading, onlineHistoryCurrentError, onlineHistoryHasCurrentSnapshot, onlineHistoryRefreshNotice, onlineHistoryHotelList,
                 onlineHistoryExpandedId, onlineHistoryRawId, loadOnlineHistory, loadOnlineHistoryHotelList, refreshOnlineHistory,
                 resetOnlineHistoryFilter, changeOnlineHistoryPage, applyOnlineHistoryDatePreset, toggleOnlineHistoryDetail, toggleOnlineHistoryRaw, formatOnlineHistoryRaw,
                 selectedOnlineDataIds, isAutoFetchRecordDeletable, autoFetchRecordDeletableRows, toggleSelectAllOnlineData, isAllOnlineDataSelected, batchDeleteOnlineData, clearAutoFetchRecordHistory,
@@ -45041,7 +45324,7 @@
                 securityMetricText, securitySignalText, securityIpEvidenceLabel, securityIpEvidenceClass, reviewSecurityUser,
                 // 门店罗盘
                 compassLayout, compassLayoutPanel, compassWeather, compassTodos, compassMetrics, compassAlerts, compassHolidays, compassMetricTab,
-                loadCompassData, loadHolidayRevenueCountdown, loadHomeTemporalInsights, generateHomeTemporalForecast, moveCompassBlock, toggleCompassBlock, saveCompassLayout, compassBlockLabel, getHotelName,
+                loadCompassData, loadHolidayRevenueCountdown, loadHomeTemporalInsights, generateHomeTemporalForecast, submitHomeTemporalRecommendationForReview, moveCompassBlock, toggleCompassBlock, saveCompassLayout, compassBlockLabel, getHotelName,
                 // 竞对价格监控
                 competitorTab, competitorHotels, competitorLogs, competitorDevices, competitorRobots,
                 competitorRobotsLoading, competitorRobotsError, competitorRobotSaving, competitorRobotActionId,

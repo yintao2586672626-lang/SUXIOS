@@ -4,9 +4,15 @@ import {
   normalizeBrowserSandboxId,
   resolveBrowserSandboxContext,
 } from './lib/browser_sandbox.mjs';
+import { buildWebPlatformCaptureEvidence } from './lib/ota_capture_standard.mjs';
+import {
+  defineWebEndpointRecipe,
+  materializeWebEndpointPlan,
+} from './lib/web_endpoint_recipe.mjs';
 
 export const SOURCE_URL =
   'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
+const DINGDANDAO_ORIGIN = 'https://www.dingdandao.com';
 
 export const DINGDANDAO_API_PATHS = Object.freeze({
   identity: '/v2/ntw/web/ntw/get',
@@ -52,6 +58,19 @@ const DINGDANDAO_READABLE_TREND_TYPE_SET =
 const DINGDANDAO_TREND_METRICS = Object.freeze({
   [DINGDANDAO_TREND_TYPES.adr]: 'adr',
   [DINGDANDAO_TREND_TYPES.occupancyRate]: 'occupancy_rate_percent',
+  [DINGDANDAO_TREND_TYPES.revpar]: 'revpar',
+  [DINGDANDAO_TREND_TYPES.soldRoomNights]: 'sold_room_nights',
+  [DINGDANDAO_TREND_TYPES.totalRoomFee]: 'total_room_fee',
+});
+const DINGDANDAO_DETAIL_RECIPE_SUFFIXES = Object.freeze({
+  [DINGDANDAO_DETAIL_TYPES.roomFee]: 'room_fee',
+  [DINGDANDAO_DETAIL_TYPES.roomNights]: 'room_nights',
+  [DINGDANDAO_DETAIL_TYPES.occupancyRate]: 'occupancy_rate',
+  [DINGDANDAO_DETAIL_TYPES.revpar]: 'revpar',
+});
+const DINGDANDAO_TREND_RECIPE_SUFFIXES = Object.freeze({
+  [DINGDANDAO_TREND_TYPES.adr]: 'adr',
+  [DINGDANDAO_TREND_TYPES.occupancyRate]: 'occupancy_rate',
   [DINGDANDAO_TREND_TYPES.revpar]: 'revpar',
   [DINGDANDAO_TREND_TYPES.soldRoomNights]: 'sold_room_nights',
   [DINGDANDAO_TREND_TYPES.totalRoomFee]: 'total_room_fee',
@@ -635,74 +654,170 @@ function normalizeDingdandaoCollectionMode(value) {
   return normalized;
 }
 
-export function dingdandaoDirectRequests(
-  ntwNum,
-  targetDate,
+function defineDingdandaoEndpointRecipe({
+  id,
+  intent,
+  path,
+  bodyTemplate,
+  bindings,
+  optional = false,
+}) {
+  return defineWebEndpointRecipe({
+    id,
+    platform: 'dingdandao',
+    sourceKind: 'pms',
+    businessModule: 'accommodation_operating',
+    intent,
+    origin: DINGDANDAO_ORIGIN,
+    method: 'POST',
+    path,
+    bodyTemplate,
+    bindings,
+    optional,
+  });
+}
+
+export function dingdandaoEndpointRecipes(
   collectionMode = DINGDANDAO_COLLECTION_MODES.operatingIndicators,
 ) {
   const mode = normalizeDingdandaoCollectionMode(collectionMode);
-  const base = {
-    TIMEZONEOFFSET: -480,
-    ntwNum: validSessionText(ntwNum, 120, /^[A-Za-z0-9_-]+$/),
+  const providerBindings = {
+    provider_network_id: { format: 'opaque_id' },
   };
-  if (!base.ntwNum || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-    throw new Error('capture_direct_scope_invalid');
-  }
-  const dated = { ...base, startDate: targetDate, endDate: targetDate };
-  const requests = [
-    { path: DINGDANDAO_API_PATHS.identity, body: base },
-    {
+  const datedBindings = {
+    ...providerBindings,
+    target_date: { format: 'date' },
+  };
+  const baseTemplate = {
+    TIMEZONEOFFSET: -480,
+    ntwNum: '{provider_network_id}',
+  };
+  const datedTemplate = {
+    ...baseTemplate,
+    startDate: '{target_date}',
+    endDate: '{target_date}',
+  };
+  const recipes = [
+    defineDingdandaoEndpointRecipe({
+      id: 'store_identity',
+      intent: 'hotel_identity',
+      path: DINGDANDAO_API_PATHS.identity,
+      bodyTemplate: baseTemplate,
+      bindings: providerBindings,
+    }),
+    defineDingdandaoEndpointRecipe({
+      id: 'operating_total',
+      intent: 'daily_core',
       path: DINGDANDAO_API_PATHS.total,
-      body: { ...dated, festivalType: -1200 },
-    },
+      bodyTemplate: { ...datedTemplate, festivalType: -1200 },
+      bindings: datedBindings,
+    }),
   ];
   const detailTypes = mode === DINGDANDAO_COLLECTION_MODES.fullDiagnostic
-    ? [
-      DINGDANDAO_DETAIL_TYPES.roomFee,
-      DINGDANDAO_DETAIL_TYPES.roomNights,
-      DINGDANDAO_DETAIL_TYPES.occupancyRate,
-      DINGDANDAO_DETAIL_TYPES.revpar,
-    ]
+    ? Object.values(DINGDANDAO_DETAIL_TYPES)
     : [DINGDANDAO_DETAIL_TYPES.roomFee];
   for (const type of detailTypes) {
-    requests.push(
-      { path: DINGDANDAO_API_PATHS.sumDetail, body: { ...dated, type } },
-      { path: DINGDANDAO_API_PATHS.dailyDetail, body: { ...dated, type } },
+    const suffix = DINGDANDAO_DETAIL_RECIPE_SUFFIXES[type];
+    recipes.push(
+      defineDingdandaoEndpointRecipe({
+        id: `sum_detail_${suffix}`,
+        intent: 'daily_detail',
+        path: DINGDANDAO_API_PATHS.sumDetail,
+        bodyTemplate: { ...datedTemplate, type },
+        bindings: datedBindings,
+      }),
+      defineDingdandaoEndpointRecipe({
+        id: `daily_detail_${suffix}`,
+        intent: 'daily_reconciliation',
+        path: DINGDANDAO_API_PATHS.dailyDetail,
+        bodyTemplate: { ...datedTemplate, type },
+        bindings: datedBindings,
+      }),
     );
   }
   const trendTypes = mode === DINGDANDAO_COLLECTION_MODES.fullDiagnostic
     ? Object.values(DINGDANDAO_TREND_TYPES)
     : [DINGDANDAO_TREND_TYPES.totalRoomFee];
   for (const type of trendTypes) {
-    requests.push({
+    recipes.push(defineDingdandaoEndpointRecipe({
+      id: `trend_${DINGDANDAO_TREND_RECIPE_SUFFIXES[type]}`,
+      intent: 'daily_trend',
       path: DINGDANDAO_API_PATHS.trend,
-      body: { ...dated, type },
-    });
+      bodyTemplate: { ...datedTemplate, type },
+      bindings: datedBindings,
+    }));
   }
   if (mode === DINGDANDAO_COLLECTION_MODES.fullDiagnostic) {
-    requests.push({
+    recipes.push(defineDingdandaoEndpointRecipe({
+      id: 'county_total',
+      intent: 'regional_benchmark',
       path: DINGDANDAO_API_PATHS.countyTotal,
-      body: { ...dated, festivalType: -1200 },
-    });
+      bodyTemplate: { ...datedTemplate, festivalType: -1200 },
+      bindings: datedBindings,
+    }));
     for (const type of trendTypes) {
-      requests.push({
+      recipes.push(defineDingdandaoEndpointRecipe({
+        id: `county_trend_${DINGDANDAO_TREND_RECIPE_SUFFIXES[type]}`,
+        intent: 'regional_trend',
         path: DINGDANDAO_API_PATHS.countyTrend,
-        body: { ...dated, type },
-      });
+        bodyTemplate: { ...datedTemplate, type },
+        bindings: datedBindings,
+      }));
     }
-    requests.push({
+    recipes.push(defineDingdandaoEndpointRecipe({
+      id: 'forward_room_status',
+      intent: 'forward_inventory',
       path: DINGDANDAO_API_PATHS.forwardRoomStatus,
-      body: {
-        ...base,
+      bodyTemplate: {
+        ...baseTemplate,
         pageNum: 1,
         pageSize: 9999,
-        startDate: targetDate,
-        endDate: addIsoDays(targetDate, 30),
+        startDate: '{target_date}',
+        endDate: '{forward_end_date}',
+      },
+      bindings: {
+        ...datedBindings,
+        forward_end_date: { format: 'date' },
       },
       optional: true,
-    });
+    }));
   }
-  return requests;
+  return recipes;
+}
+
+export function dingdandaoDirectRequests(
+  ntwNum,
+  targetDate,
+  collectionMode = DINGDANDAO_COLLECTION_MODES.operatingIndicators,
+) {
+  const mode = normalizeDingdandaoCollectionMode(collectionMode);
+  const providerNetworkId = validSessionText(
+    ntwNum,
+    120,
+    /^[A-Za-z0-9_-]+$/,
+  );
+  const normalizedTargetDate = String(targetDate || '').trim();
+  const parsedTargetDate = new Date(`${normalizedTargetDate}T00:00:00.000Z`);
+  const forwardEndDate = addIsoDays(normalizedTargetDate, 30);
+  if (!providerNetworkId
+    || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)
+    || !Number.isFinite(parsedTargetDate.getTime())
+    || parsedTargetDate.toISOString().slice(0, 10) !== normalizedTargetDate
+    || !forwardEndDate
+  ) {
+    throw new Error('capture_direct_scope_invalid');
+  }
+  return materializeWebEndpointPlan(
+    dingdandaoEndpointRecipes(mode),
+    {
+      provider_network_id: providerNetworkId,
+      target_date: normalizedTargetDate,
+      ...(mode === DINGDANDAO_COLLECTION_MODES.fullDiagnostic
+        ? { forward_end_date: forwardEndDate }
+        : {}),
+    },
+    { maxRequests: 22 },
+  );
 }
 
 async function postDingdandaoJson(
@@ -850,6 +965,7 @@ export async function collectDingdandaoDirect(
     targetDate,
     capturedAt,
     regionName,
+    collectionMode,
   });
   if (!isTrustedDingdandaoCaptureComplete(capture, {
     targetDate,
@@ -1573,8 +1689,14 @@ function trendsFromResponses(records, path, targetDate, county = false) {
 
 export function buildCaptureFromDingdandaoResponses(
   records,
-  { targetDate, capturedAt = new Date().toISOString(), regionName = null },
+  {
+    targetDate,
+    capturedAt = new Date().toISOString(),
+    regionName = null,
+    collectionMode = DINGDANDAO_COLLECTION_MODES.operatingIndicators,
+  },
 ) {
+  const normalizedCollectionMode = normalizeDingdandaoCollectionMode(collectionMode);
   const identity = successfulResponseData(
     records,
     DINGDANDAO_API_PATHS.identity,
@@ -1686,11 +1808,34 @@ export function buildCaptureFromDingdandaoResponses(
     }
   }
   const businessDate = observedDates.size === 1 ? [...observedDates][0] : null;
+  const captureRecipeIds = dingdandaoEndpointRecipes(normalizedCollectionMode)
+    .map((recipe) => recipe.id);
+  const captureEvidence = buildWebPlatformCaptureEvidence('dingdandao', {
+    url: SOURCE_URL,
+    section: normalizedCollectionMode === DINGDANDAO_COLLECTION_MODES.fullDiagnostic
+      ? 'pms_full_diagnostic'
+      : 'pms_operating',
+    sourcePath: `${DINGDANDAO_API_PATHS.total}#data`,
+    captureSource: 'existing_session_direct_post',
+    sourceKind: 'pms',
+    businessModule: 'accommodation_operating',
+    sourceMethod: 'authorized_browser_endpoint',
+    collectionMode: normalizedCollectionMode,
+    dataDate: businessDate || '',
+    providerHotelId: providerHotelId || '',
+    captureStrategy: 'verified_endpoint_recipe',
+    fallbackFrom: null,
+    fallbackReason: null,
+    responseEvidenceType: 'structured_json',
+    recipeIds: captureRecipeIds,
+  });
   return {
     source_url: SOURCE_URL,
     source_api_path: DINGDANDAO_API_PATHS.total,
     source_scope: 'today_only',
     capture_method: 'network_response',
+    capture_strategy: captureEvidence.capture_strategy,
+    collection_mode: normalizedCollectionMode,
     captured_at: capturedAt,
     business_date: businessDate,
     provider_hotel_id: providerHotelId,
@@ -1724,6 +1869,9 @@ export function buildCaptureFromDingdandaoResponses(
     },
     forward_room_status: forwardRoomStatus,
     field_trace: fieldTrace,
+    capture_evidence: captureEvidence,
+    source_trace_id: captureEvidence.source_trace_id || null,
+    source_url_hash: captureEvidence.source_url_hash || null,
     target_date_matches: businessDate === targetDate,
   };
 }

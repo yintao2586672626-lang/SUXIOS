@@ -4,6 +4,7 @@ import { connectLoopbackCdp } from './dingdandao_cloud_capture.mjs';
 import {
   BROWSER_SANDBOX_PLATFORMS,
   assertContextHasNoDifferentSandbox,
+  browserProcessProfileMarkerUrl,
   browserSandboxMarkerUrl,
   normalizeBrowserSandboxId,
   normalizeBrowserSandboxPlatform,
@@ -44,7 +45,13 @@ function parseArguments(argv) {
     values[match[1]] = match[2];
   }
   const mode = String(values.mode || 'inspect').trim().toLowerCase();
-  if (!['inspect', 'create', 'bind-existing'].includes(mode)) {
+  if (![
+    'inspect',
+    'create',
+    'bind-existing',
+    'bind-process-profile',
+    'close-process-profile',
+  ].includes(mode)) {
     throw new Error('browser_sandbox_mode_invalid');
   }
   return {
@@ -93,6 +100,13 @@ export async function bindLocalBrowserSandbox(options, dependencies = {}) {
         sandboxId: options.sandboxId,
         requireIsolated: true,
       });
+      if (options.mode === 'close-process-profile') {
+        if (existing.isolation !== 'process_profile') {
+          throw new Error('browser_sandbox_close_requires_process_profile');
+        }
+        await connection.send('Browser.close');
+        return publicResult(options, 'closed', existing.isolation);
+      }
       return publicResult(options, 'bound', existing.isolation);
     } catch (error) {
       if (safeReason(error) !== 'browser_sandbox_not_bound') throw error;
@@ -110,7 +124,7 @@ export async function bindLocalBrowserSandbox(options, dependencies = {}) {
       browserContextId = String(created?.browserContextId || '').trim();
       if (!browserContextId) throw new Error('browser_sandbox_context_create_failed');
       createdContextId = browserContextId;
-    } else {
+    } else if (options.mode === 'bind-existing') {
       const candidates = platformContextCandidates({
         ...state,
         platform: options.platform,
@@ -125,6 +139,8 @@ export async function bindLocalBrowserSandbox(options, dependencies = {}) {
         throw new Error('browser_sandbox_platform_context_ambiguous');
       }
       [browserContextId] = candidates;
+    } else {
+      browserContextId = null;
     }
 
     assertContextHasNoDifferentSandbox({
@@ -133,17 +149,26 @@ export async function bindLocalBrowserSandbox(options, dependencies = {}) {
       sandboxId: options.sandboxId,
     });
     const createInContext = async (url, background) => {
-      const created = await connection.send('Target.createTarget', {
+      const params = {
         url,
         background,
-        browserContextId,
-      });
+      };
+      if (browserContextId) {
+        params.browserContextId = browserContextId;
+      }
+      const created = await connection.send('Target.createTarget', params);
       if (!String(created?.targetId || '').trim()) {
         throw new Error('browser_sandbox_target_create_failed');
       }
     };
+    if (options.mode === 'bind-process-profile') {
+      await createInContext(
+        browserProcessProfileMarkerUrl(options.sandboxId),
+        true,
+      );
+    }
     await createInContext(browserSandboxMarkerUrl(options.sandboxId), true);
-    if (options.mode === 'create') {
+    if (options.mode === 'create' || options.mode === 'bind-process-profile') {
       await createInContext(BROWSER_SANDBOX_PLATFORMS[options.platform].startUrl, false);
     }
 
@@ -156,7 +181,9 @@ export async function bindLocalBrowserSandbox(options, dependencies = {}) {
     createdContextId = null;
     return publicResult(
       options,
-      options.mode === 'create' ? 'awaiting_login' : 'bound',
+      ['create', 'bind-process-profile'].includes(options.mode)
+        ? 'awaiting_login'
+        : 'bound',
       verified.isolation,
     );
   } catch (error) {

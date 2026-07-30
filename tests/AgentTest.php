@@ -1400,6 +1400,95 @@ final class AgentTest extends TestCase
         self::assertFalse($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [
             'legacy plain-text knowledge',
         ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [[
+            'scope' => 'platform_rule',
+            'platforms' => ['ctrip'],
+            'evidence_level' => 'official_current_rule',
+            'source_refs' => ['ctrip-rule'],
+        ], 'ctrip']));
+        self::assertFalse($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [[
+            'scope' => 'platform_rule',
+            'platforms' => ['meituan'],
+            'evidence_level' => 'official_current_rule',
+            'source_refs' => ['meituan-rule'],
+        ], 'ctrip']));
+        self::assertFalse($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [[
+            'scope' => 'hotel_reference',
+            'evidence_level' => 'user_provided_unverified_case',
+            'source_refs' => ['uploaded-material'],
+        ], 'ctrip']));
+        self::assertTrue($this->invokeNonPublic($controller, 'isDefaultOtaKnowledgeChunkAllowed', [[
+            'scope' => 'version_conflict',
+            'evidence_level' => 'two_official_surface_versions_conflict_live_recheck_required',
+            'source_refs' => ['official-old', 'official-new'],
+            'conflict_key' => 'feedback_window_days',
+            'decision_status' => 'unresolved_until_live_help_verified',
+        ], 'ctrip']));
+    }
+
+    public function testMirroredOtaKnowledgeDoesNotCrossExplicitPlatformBoundary(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'isOtaKnowledgeBaseCompatibleWithPlatform',
+            [[
+                'title' => '携程订单履约与结算官方语义合同',
+                'keywords' => '携程,拒单,结算',
+                'content' => '携程规则摘要',
+            ], 'ctrip']
+        ));
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'isOtaKnowledgeBaseCompatibleWithPlatform',
+            [[
+                'title' => '美团酒店评价规则',
+                'keywords' => '美团,HOS',
+                'content' => '美团官方规则摘要',
+            ], 'ctrip']
+        ));
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'isOtaKnowledgeBaseCompatibleWithPlatform',
+            [[
+                'title' => '大众点评独立评价规则',
+                'keywords' => '大众点评,诚信评价',
+                'content' => '大众点评规则不等于美团评价规则。',
+            ], 'meituan']
+        ));
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'isOtaKnowledgeBaseCompatibleWithPlatform',
+            [[
+                'title' => '酒店OTA通用数据质量边界',
+                'keywords' => 'OTA,数据质量',
+                'content' => '缺失值不得补零。',
+            ], 'ctrip']
+        ));
+    }
+
+    public function testOtaKnowledgeKeywordsCoverDianpingAndDingdandaoAsIndependentSources(): void
+    {
+        $controller = $this->controller();
+
+        $dianping = $this->invokeNonPublic(
+            $controller,
+            'buildOtaKnowledgeKeywords',
+            ['dianping', 'business']
+        );
+        self::assertContains('大众点评', $dianping);
+        self::assertContains('评价诚信', $dianping);
+        self::assertNotContains('美团', $dianping);
+
+        $dingdandao = $this->invokeNonPublic(
+            $controller,
+            'buildOtaKnowledgeKeywords',
+            ['dingdandao', 'business']
+        );
+        self::assertContains('订单来了', $dingdandao);
+        self::assertContains('经营日', $dingdandao);
+        self::assertContains('夜审', $dingdandao);
     }
 
     public function testOtaKnowledgeItemsPreferStructuredCopyOverMirroredBaseRow(): void

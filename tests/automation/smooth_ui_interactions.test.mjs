@@ -35,7 +35,8 @@ test('notification and PMS hotel selectors support bounded name, code and id sea
 test('first-load placeholders preserve layout without inventing business values', () => {
   assert.match(pmsPage, /data-testid="pms-selected-source-loading"[\s\S]*animate-pulse/);
   assert.match(automationPage, /data-testid="automation-monitor-skeleton"[\s\S]*animate-pulse/);
-  assert.match(notificationPage, /data-testid="manual-notification-template-skeleton"[\s\S]*animate-pulse/);
+  assert.match(notificationPage, /manualNotificationLoading\.metadata[\s\S]*读取模板/);
+  assert.doesNotMatch(notificationPage, /manual-notification-template-skeleton/);
   assert.doesNotMatch(
     pmsPage,
     /data-testid="pms-selected-source-loading"[\s\S]{0,1200}(?:\b0%\b|¥0|0 间夜)/
@@ -54,9 +55,10 @@ test('manual notification validation is attached to the actual fields before API
   assert.match(schedulePanel, /'aria-invalid':\s*fieldError\(fieldName\) \? 'true' : 'false'/);
 });
 
-test('dispatch history expands a factual attempt timeline without replacing the history table', () => {
-  assert.match(notificationPage, /data-testid="manual-notification-dispatch-history"/);
-  assert.match(notificationPage, /data-testid="manual-notification-dispatch-timeline"/);
+test('dispatch history expands a factual attempt timeline without replacing the compact record list', () => {
+  const notificationUi = `${notificationPage}\n${schedulePanel}`;
+  assert.match(notificationUi, /manual-notification-dispatch-history/);
+  assert.match(notificationUi, /manual-notification-dispatch-timeline/);
   assert.match(appMain, /const manualNotificationDispatchTimeline = \(item = \{\}\) => \{/);
   assert.match(appMain, /Array\.isArray\(item\?\.attempts\) \? item\.attempts : \[\]/);
   assert.match(appMain, /attempted_at/);

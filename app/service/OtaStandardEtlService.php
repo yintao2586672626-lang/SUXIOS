@@ -559,7 +559,8 @@ class OtaStandardEtlService
     private function dailyFact(array $row, array $raw, string $hotelKey, string $source, string $date, string $dataType): array
     {
         $grossRevenue = $this->nullableNumber($row, $raw, ['amount', 'gross_revenue', 'grossRevenue', 'revenue', 'totalAmount', 'saleAmount', 'order_amount', 'orderAmount']);
-        $roomRevenue = $this->nullableNumber($row, $raw, ['room_revenue', 'roomRevenue', 'room_amount', 'roomAmount']) ?? $grossRevenue;
+        $roomRevenue = $this->nullableNumber($row, $raw, ['room_revenue', 'roomRevenue', 'room_amount', 'roomAmount']);
+        $roomRevenueBasis = $roomRevenue !== null ? 'direct_room_revenue_field' : null;
         $roomNights = $this->nullableNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'checkOutQuantity']);
         $orderCountValue = $this->nullableNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'orderCount', 'orderNum', 'orders']);
         $orders = $orderCountValue !== null ? (int)round($orderCountValue) : null;
@@ -575,10 +576,6 @@ class OtaStandardEtlService
             'availableRooms',
             'salable_rooms',
             'salableRooms',
-            'total_rooms_count',
-            'totalRoomsCount',
-            'rooms_total',
-            'roomsTotal',
         ]);
         $occupiedRoomNights = $this->nullableNumber($row, $raw, [
             'occupied_room_nights',
@@ -596,7 +593,8 @@ class OtaStandardEtlService
             $commissionAmount = round($grossRevenue * $commissionRate / 100, 2);
             $commissionAmountBasis = 'derived_from_commission_rate';
         }
-        $directNetRevenue = $this->nullableNumber($row, $raw, ['net_revenue', 'netRevenue', 'net_amount', 'netAmount', 'after_commission_revenue', 'afterCommissionRevenue', 'settlement_amount', 'settlementAmount']);
+        $settlementAmount = $this->nullableNumber($row, $raw, ['settlement_amount', 'settlementAmount']);
+        $directNetRevenue = $this->nullableNumber($row, $raw, ['net_revenue', 'netRevenue', 'net_amount', 'netAmount', 'after_commission_revenue', 'afterCommissionRevenue']);
         $netRevenue = $directNetRevenue;
         $netRevenueBasis = $directNetRevenue !== null ? 'direct' : null;
         if ($netRevenue === null && $commissionAmount !== null && $grossRevenue !== null) {
@@ -621,7 +619,9 @@ class OtaStandardEtlService
             'revenue' => $grossRevenue !== null ? round($grossRevenue, 2) : null,
             'gross_revenue' => $grossRevenue !== null ? round($grossRevenue, 2) : null,
             'room_revenue' => $roomRevenue !== null ? round($roomRevenue, 2) : null,
+            'room_revenue_basis' => $roomRevenueBasis,
             'net_revenue' => $netRevenue !== null ? round($netRevenue, 2) : null,
+            'settlement_amount' => $settlementAmount !== null ? round($settlementAmount, 2) : null,
             'commission_amount' => $commissionAmount !== null ? round($commissionAmount, 2) : null,
             'commission_rate' => $commissionRate !== null ? round($commissionRate, 2) : null,
             'net_revenue_basis' => $netRevenueBasis,

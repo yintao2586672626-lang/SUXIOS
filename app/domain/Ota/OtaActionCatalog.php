@@ -29,6 +29,7 @@ final class OtaActionCatalog
             'captureCtripBrowserData',
             'ctripDiagnosisSnapshot',
             'ctripCollectorContract',
+            'ctripTemporalBroadcastPreview',
             'fetchCtripCookieApiData',
             'validateCtripEndpointEvidence',
             'fetchCtripOverviewData',

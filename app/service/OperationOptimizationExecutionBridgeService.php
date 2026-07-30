@@ -8,7 +8,8 @@ final class OperationOptimizationExecutionBridgeService
     public const SOURCE_MODULE = 'operation_optimizer';
 
     public function __construct(
-        private readonly OperationManagementService $operationService = new OperationManagementService()
+        private readonly OperationManagementService $operationService = new OperationManagementService(),
+        private readonly LongitudinalEvidenceLearningService $learningService = new LongitudinalEvidenceLearningService()
     ) {
     }
 
@@ -20,6 +21,7 @@ final class OperationOptimizationExecutionBridgeService
     public function hydrate(array $workbench, array $hotelIds, int $hotelId): array
     {
         $flowsByActionId = [];
+        $longitudinalReviews = [];
         if ($hotelId > 0 && $hotelIds !== []) {
             $flow = $this->operationService->executionFlow($hotelIds, $hotelId, [
                 'source_module' => self::SOURCE_MODULE,
@@ -28,6 +30,21 @@ final class OperationOptimizationExecutionBridgeService
             foreach ((array)($flow['list'] ?? []) as $item) {
                 if (!is_array($item)) {
                     continue;
+                }
+                $longitudinalReview = is_array($item['evidence']['longitudinal_review'] ?? null)
+                    ? $item['evidence']['longitudinal_review']
+                    : [];
+                $latestEvidence = is_array($item['evidence']['latest'] ?? null)
+                    ? $item['evidence']['latest']
+                    : [];
+                $platformResponse = is_array($latestEvidence['platform_response'] ?? null)
+                    ? $latestEvidence['platform_response']
+                    : [];
+                if ($longitudinalReview === [] && is_array($platformResponse['longitudinal_review'] ?? null)) {
+                    $longitudinalReview = $platformResponse['longitudinal_review'];
+                }
+                if ($longitudinalReview !== []) {
+                    $longitudinalReviews[] = $longitudinalReview;
                 }
                 $evidence = is_array($item['recommendation']['evidence'] ?? null)
                     ? $item['recommendation']['evidence']
@@ -80,6 +97,7 @@ final class OperationOptimizationExecutionBridgeService
             unset($row);
             $workbench[$moduleKey]['rows'] = $rows;
         }
+        $learningSummary = $this->learningService->summarizeReviews($longitudinalReviews);
 
         $loopStatus = 'blocked';
         $nextAction = '先补齐同门店、同平台、同日期的关键词或房型可信事实。';
@@ -91,11 +109,11 @@ final class OperationOptimizationExecutionBridgeService
             $loopStatus = 'partial';
             $nextAction = $executedCount < $linkedCount
                 ? '进入任务执行与复盘完成审批和人工执行留证。'
-                : '等待并回读执行次日的同口径 OTA 事实。';
+                : '等待并回读执行后的同长度、同口径 OTA 事实窗口。';
         }
         if ($actionableCount > 0 && $reviewedCount === $actionableCount) {
             $loopStatus = 'closed';
-            $nextAction = '本批建议已完成任务、执行证据和次日来源复盘。';
+            $nextAction = '本批建议已完成任务、执行证据和同长度来源复盘。';
         }
 
         $workbench['loop_summary'] = [
@@ -104,11 +122,14 @@ final class OperationOptimizationExecutionBridgeService
             'linked_intent_count' => $linkedCount,
             'executed_task_count' => $executedCount,
             'source_verified_review_count' => $reviewedCount,
+            'reviewed_observation_count' => (int)($learningSummary['reviewed_observation_count'] ?? 0),
+            'pattern_candidate_count' => (int)($learningSummary['pattern_candidate_count'] ?? 0),
             'next_action' => $nextAction,
             'truth_status' => $reviewedCount > 0
                 ? 'source_verified'
                 : ($linkedCount > 0 ? 'execution_pending_or_unverified' : 'no_linked_execution'),
         ];
+        $workbench['learning_summary'] = $learningSummary;
 
         return $workbench;
     }

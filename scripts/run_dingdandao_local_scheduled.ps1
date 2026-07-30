@@ -87,8 +87,12 @@ function ConvertTo-SafeReason {
 $resolvedRoot = (Resolve-Path -LiteralPath $ProjectRoot -ErrorAction Stop).Path
 $resolvedPhp = (Resolve-Path -LiteralPath $PhpPath -ErrorAction Stop).Path
 $runnerPath = Join-Path $resolvedRoot 'scripts\run_dingdandao_local_collection.php'
+$browserLauncherPath = Join-Path $resolvedRoot 'scripts\open_local_browser_sandbox.ps1'
 if (-not (Test-Path -LiteralPath $runnerPath -PathType Leaf)) {
     throw "Dingdandao local runner was not found: $runnerPath"
+}
+if (-not (Test-Path -LiteralPath $browserLauncherPath -PathType Leaf)) {
+    throw "Dingdandao local browser launcher was not found: $browserLauncherPath"
 }
 if ([System.Uri]$CdpUrl -as [System.Uri]) {
     $cdpUri = [System.Uri]$CdpUrl
@@ -107,6 +111,7 @@ $stderrPath = Join-Path $receiptDirectory "run_$runId.stderr.tmp"
 $startedAt = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
 $exitCode = 1
 $payload = $null
+$browserHost = $null
 
 $processArguments = @(
     ('"{0}"' -f $runnerPath),
@@ -122,6 +127,23 @@ if ($Push) {
 }
 
 try {
+    $launcherOutput = @(
+        & $browserLauncherPath `
+            -ProjectRoot $resolvedRoot `
+            -Port $cdpUri.Port `
+            -Platform 'dingdandao' `
+            -SandboxId $SandboxId 2>&1
+    )
+    $browserHost = ($launcherOutput -join [Environment]::NewLine) |
+        ConvertFrom-Json -ErrorAction Stop
+    if ($null -eq $browserHost -or
+        ([string](Get-JsonField -Object $browserHost -Name 'cdp_status' -Fallback '') -ne 'ready') -or
+        ([bool](Get-JsonField -Object $browserHost -Name 'headless' -Fallback $false) -ne $true) -or
+        ([string](Get-JsonField -Object $browserHost -Name 'isolation' -Fallback '') -ne 'process_profile')
+    ) {
+        throw 'local_browser_sandbox_headless_start_failed'
+    }
+
     $process = Start-Process `
         -FilePath $resolvedPhp `
         -ArgumentList $processArguments `
@@ -136,7 +158,7 @@ try {
 } catch {
     $payload = [pscustomobject]@{
         status = 'blocked'
-        reason = ConvertTo-SafeReason -Value $_.Exception.GetType().Name
+        reason = ConvertTo-SafeReason -Value $_.Exception.Message
         business_data_persisted = $false
         message_sent = $false
     }
@@ -178,6 +200,9 @@ $receipt = [ordered]@{
     sandbox_id = $SandboxId
     sandbox_selection = 'explicit_marker'
     cdp_scope = 'loopback'
+    browser_host_status = [string](Get-JsonField -Object $browserHost -Name 'cdp_status' -Fallback 'not_ready')
+    browser_host_started = [bool](Get-JsonField -Object $browserHost -Name 'browser_started' -Fallback $false)
+    browser_headless = [bool](Get-JsonField -Object $browserHost -Name 'headless' -Fallback $false)
     push_requested = [bool]$Push
     message_sent = [bool](Get-JsonField -Object $pushPayload -Name 'message_sent' -Fallback $false)
     delivery_status = [string](Get-JsonField -Object $pushPayload -Name 'delivery_status' -Fallback 'not_requested')

@@ -29,8 +29,8 @@ use think\Response;
 
 final class OtaDomainSplitTest extends TestCase
 {
-    private const LEGACY_ROUTE_SURFACE_COUNT = 109;
-    private const LEGACY_ROUTE_SURFACE_SHA256 = '4495931b02f191f8bf0683b17c188d42a64f20d0f600b5c9988ce4e041f64563';
+    private const LEGACY_ROUTE_SURFACE_COUNT = 110;
+    private const LEGACY_ROUTE_SURFACE_SHA256 = '0715b449024fbf30d7df784751aa6e3c54546882d2330f2a1e3b86eae99e101f';
 
     private const CONTROLLERS = [
         OtaDomain::CTRIP => [CtripController::class, 'ota.CtripController'],

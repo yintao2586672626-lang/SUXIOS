@@ -26,7 +26,7 @@ test('automation center keeps configuration, monitoring and execution pages focu
   assert.match(pmsPage, /PMS经营数据/);
   assert.match(pmsPage, /data-testid="pms-selected-source"/);
   assert.match(pmsPage, /当前门店唯一 PMS/);
-  assert.match(notificationPage, /运营自动化中心 · 推送计划/);
+  assert.match(notificationPage, /data-testid="manual-notification-workspace-tabs"/);
   assert.match(notificationPage, /企业微信推送/);
   assert.match(monitorPage, /运营自动化中心 · 运行总览/);
   assert.match(monitorPage, /今日数据与推送监控/);
@@ -70,7 +70,7 @@ test('notification plan exposes the necessary schedule and runtime settings', ()
     '小时播报开始',
     '小时播报结束',
     '推送通道',
-    '启用或暂停本计划',
+    '启用自动发送',
     '上次运行',
     '上次回执',
     '当前阻断原因',
@@ -79,10 +79,10 @@ test('notification plan exposes the necessary schedule and runtime settings', ()
   }
   assert.doesNotMatch(notificationSchedulePanel, /页面预览日期|生效日期|今日累计 T0|昨日 T-1/);
   assert.doesNotMatch(notificationSchedulePanel, /manual-notification-effective-(?:from|to)/);
-  assert.match(notificationSchedulePanel, /发送当天数据：每次取发送当天/);
+  assert.match(notificationSchedulePanel, /发送当天数据/);
   assert.match(notificationSchedulePanel, /border-slate-900 bg-slate-900 text-white/);
   assert.match(notificationSchedulePanel, /当前酒店企业微信群机器人 Webhook/);
-  assert.match(notificationSchedulePanel, /无需重复选择通知群/);
+  assert.match(notificationSchedulePanel, /请先到“推送通道”绑定当前酒店 Webhook/);
   assert.match(notificationPage, /data-testid="manual-notification-save"[\s\S]*保存计划/);
 });
 

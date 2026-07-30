@@ -15,3 +15,5 @@ hotelx_dump.sql export-ignore
 .env export-ignore
 .env.* export-ignore
 resources/frontend/templates/fragments/*.html whitespace=-blank-at-eof
+database/migrations/20260729_seed_traffic_operation_management_golden_sentences.sql whitespace=-blank-at-eof
+database/migrations/20260730_seed_hotel_revenue_success_practices_extension.sql whitespace=-blank-at-eof

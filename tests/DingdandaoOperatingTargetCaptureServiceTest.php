@@ -155,6 +155,53 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         self::assertSame('verified', $first['capture_status']);
         self::assertSame('verified', $first['quality_status']);
         self::assertSame('readback_verified', $first['readback_status']);
+        self::assertSame('full_diagnostic', $first['collection_mode']);
+        self::assertSame('pms', $first['capture_evidence']['source_kind']);
+        self::assertSame(
+            'authorized_browser_endpoint',
+            $first['capture_evidence']['source_method']
+        );
+        self::assertSame(
+            $first['capture_evidence']['source_trace_id'],
+            $first['source_trace_id']
+        );
+        self::assertSame(
+            $first['capture_evidence']['source_url_hash'],
+            $first['source_url_hash']
+        );
+        self::assertMatchesRegularExpression(
+            '/^dingdandao:[a-f0-9]{64}$/',
+            $first['source_trace_id']
+        );
+        self::assertSame(
+            '1937f09f551ebadbe32c6a097bcd890616af689f1c4e51fe61f928650e719d92',
+            $first['source_url_hash']
+        );
+        self::assertSame(
+            'verified_endpoint_recipe',
+            $first['capture_evidence']['capture_strategy']
+        );
+        self::assertSame(
+            'structured_json',
+            $first['capture_evidence']['response_evidence_type']
+        );
+        self::assertSame(22, $first['capture_evidence']['recipe_count']);
+        self::assertNull($first['capture_evidence']['fallback_from']);
+        self::assertNull($first['capture_evidence']['fallback_reason']);
+        self::assertSame(
+            'suxios.collection_result.v1',
+            $first['collection_result']['contract_version']
+        );
+        self::assertSame(
+            'verified_endpoint_recipe',
+            $first['collection_result']['run']['strategy']['selected']
+        );
+        self::assertTrue($first['collection_result']['claim']['allowed']);
+        self::assertSame(18, $first['collection_result']['saved_count']);
+        self::assertStringNotContainsString(
+            'provider-hotel-5',
+            json_encode($first['capture_evidence'], JSON_THROW_ON_ERROR)
+        );
         self::assertSame(
             'readable_separate',
             $first['county_context']['data_status']
@@ -202,6 +249,35 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             self::fail('wrong provider anchor must be rejected');
         } catch (\InvalidArgumentException $error) {
             self::assertSame('dingdandao_capture_not_verified', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
+    }
+
+    public function testTrustedCaptureRejectsTamperedEvidenceBeforeWriting(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['capture_evidence']['source_trace_id'] =
+            'dingdandao:' . str_repeat('0', 64);
+
+        try {
+            $service->save(
+                8,
+                5,
+                7,
+                '敦煌漠蓝新',
+                $input,
+                true,
+                'provider-hotel-5'
+            );
+            self::fail('tampered capture evidence must be rejected');
+        } catch (\InvalidArgumentException $error) {
+            self::assertSame(
+                'dingdandao_capture_evidence_invalid',
+                $error->getMessage()
+            );
         }
         self::assertSame(0, (int)Db::name('dingdandao_operating_target_captures')->count());
     }
@@ -307,6 +383,11 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
     /** @return array<string,mixed> */
     private function validInput(): array
     {
+        $sourceApiPath =
+            '/v2/um-b/web/pro/data/businessIndicatorsTotal';
+        $businessDate = '2026-07-27';
+        $providerHotelId = 'provider-hotel-5';
+        $collectionMode = 'full_diagnostic';
         $details = [];
         for ($index = 0; $index < 16; $index++) {
             $details[] = [
@@ -332,12 +413,19 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         ];
         return [
             'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
-            'source_api_path' => '/api/verified-read',
+            'source_api_path' => $sourceApiPath,
             'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
             'capture_method' => 'network_response',
+            'collection_mode' => $collectionMode,
+            'capture_evidence' => $this->validCaptureEvidence(
+                $sourceApiPath,
+                $businessDate,
+                $providerHotelId,
+                $collectionMode
+            ),
             'captured_at' => '2026-07-27 08:05:00',
-            'business_date' => '2026-07-27',
-            'provider_hotel_id' => 'provider-hotel-5',
+            'business_date' => $businessDate,
+            'provider_hotel_id' => $providerHotelId,
             'provider_hotel_name' => '敦煌漠蓝新',
             'identity_evidence_type' => 'verified_api_store_identity',
             'summary' => $summary,
@@ -417,6 +505,110 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             ],
             'forward_room_status' => $this->validForwardInput(),
             'field_trace' => array_fill_keys(array_keys($summary), 'API:/api/verified-read'),
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function validCaptureEvidence(
+        string $sourceApiPath,
+        string $businessDate,
+        string $providerHotelId,
+        string $collectionMode
+    ): array {
+        $section = $collectionMode === 'full_diagnostic'
+            ? 'pms_full_diagnostic'
+            : 'pms_operating';
+        $sourceUrlHash = hash(
+            'sha256',
+            DingdandaoOperatingTargetCaptureService::SOURCE_URL
+        );
+        $providerHotelIdHash = hash('sha256', $providerHotelId);
+        $recipeIds = $collectionMode === 'full_diagnostic'
+            ? [
+                'store_identity',
+                'operating_total',
+                'sum_detail_room_fee',
+                'daily_detail_room_fee',
+                'sum_detail_room_nights',
+                'daily_detail_room_nights',
+                'sum_detail_occupancy_rate',
+                'daily_detail_occupancy_rate',
+                'sum_detail_revpar',
+                'daily_detail_revpar',
+                'trend_adr',
+                'trend_occupancy_rate',
+                'trend_revpar',
+                'trend_sold_room_nights',
+                'trend_total_room_fee',
+                'county_total',
+                'county_trend_adr',
+                'county_trend_occupancy_rate',
+                'county_trend_revpar',
+                'county_trend_sold_room_nights',
+                'county_trend_total_room_fee',
+                'forward_room_status',
+            ]
+            : [
+                'store_identity',
+                'operating_total',
+                'sum_detail_room_fee',
+                'daily_detail_room_fee',
+                'trend_total_room_fee',
+            ];
+        $recipeJson = (string)json_encode(
+            $recipeIds,
+            JSON_UNESCAPED_UNICODE
+            | JSON_UNESCAPED_SLASHES
+            | JSON_PRESERVE_ZERO_FRACTION
+            | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        $recipePlanHash = hash('sha256', $recipeJson);
+        $traceBasis = [
+            'platform' => 'dingdandao',
+            'section' => $section,
+            'source_path' => $sourceApiPath . '#data',
+            'capture_source' => 'existing_session_direct_post',
+            'source_url_hash' => $sourceUrlHash,
+            'source_kind' => 'pms',
+            'business_module' => 'accommodation_operating',
+            'source_method' => 'authorized_browser_endpoint',
+            'collection_mode' => $collectionMode,
+            'data_date' => $businessDate,
+            'provider_hotel_id_hash' => $providerHotelIdHash,
+            'capture_strategy' => 'verified_endpoint_recipe',
+            'fallback_from' => null,
+            'fallback_reason' => null,
+            'response_evidence_type' => 'structured_json',
+            'recipe_plan_hash' => $recipePlanHash,
+            'recipe_count' => count($recipeIds),
+        ];
+        $traceJson = (string)json_encode(
+            $traceBasis,
+            JSON_UNESCAPED_UNICODE
+            | JSON_UNESCAPED_SLASHES
+            | JSON_PRESERVE_ZERO_FRACTION
+            | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        return [
+            'source_path' => $sourceApiPath . '#data',
+            'capture_source' => 'existing_session_direct_post',
+            'section' => $section,
+            'source_kind' => 'pms',
+            'business_module' => 'accommodation_operating',
+            'source_method' => 'authorized_browser_endpoint',
+            'collection_mode' => $collectionMode,
+            'data_date' => $businessDate,
+            'provider_hotel_id_hash' => $providerHotelIdHash,
+            'source_url_hash' => $sourceUrlHash,
+            'capture_strategy' => 'verified_endpoint_recipe',
+            'fallback_from' => null,
+            'fallback_reason' => null,
+            'response_evidence_type' => 'structured_json',
+            'recipe_plan_hash' => $recipePlanHash,
+            'recipe_count' => count($recipeIds),
+            'source_trace_id' => 'dingdandao:' . hash('sha256', $traceJson),
         ];
     }
 

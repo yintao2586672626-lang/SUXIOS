@@ -43,6 +43,13 @@ Choose the shortest verified path for the specific OTA task. Use Browser for loc
 - 已确认端点默认在对应隔离 BrowserContext 内直接请求；网络监听只用于首次发现、平台改版和响应合同漂移，DOM 只用于结构化响应确实缺失的可见字段。
 - 一个浏览器进程可以承载多个平台，但每个平台/账号/门店必须有独立 BrowserContext 或 Profile、显式绑定和互斥锁；端口不代表身份隔离。
 
+## Common Collector Adapter Contract
+
+- 携程、美团、订单来了等网站共同遵循 `references/platform-collector-adapter-contract.md`。
+- 公共层统一范围声明、会话隔离、门店身份、最小请求、字段事实、保存回读、时间序列和失败状态。
+- 平台适配层只声明允许域名、身份字段、端点/Payload、JSON source path、指标、单位、日期角色、更新时间窗和对账规则。
+- 不为每个网站复制一套采集流程，也不把不同平台的同名字段强行视为同一口径。
+
 ## Daily Operations Ledger
 
 - 涉及昨日数据、Excel 日台账、晨报、流量漏斗、同行/商圈对比或“数据到动作”闭环时，先读取 `references/ota-daily-operations-ledger.md`。

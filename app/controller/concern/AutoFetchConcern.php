@@ -6,6 +6,7 @@ namespace app\controller\concern;
 use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\CtripCollectorWorkflowService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaFailureNotificationService;
@@ -63,6 +64,31 @@ trait AutoFetchConcern
             $dataPeriod = 'realtime_snapshot';
         }
         $targetDataDate = $dataPeriod === 'realtime_snapshot' ? date('Y-m-d') : date('Y-m-d', strtotime('-1 day'));
+        $ctripCollectorFlowInput = trim((string)(
+            $requestData['ctrip_collector_flow']
+            ?? $requestData['ctripCollectorFlow']
+            ?? $requestData['collector_flow']
+            ?? $requestData['collectorFlow']
+            ?? ''
+        ));
+        $ctripFlowOptions = [];
+        if ($ctripCollectorFlowInput !== '') {
+            $ctripWorkflow = new CtripCollectorWorkflowService();
+            $ctripCollectorFlow = $ctripWorkflow->normalizeFlow($ctripCollectorFlowInput);
+            if ($ctripCollectorFlow === '') {
+                return $this->error('Invalid Ctrip collector flow.', 422);
+            }
+            $ctripFlowOptions = $ctripWorkflow->applyFlowOptions([
+                'collector_flow' => $ctripCollectorFlow,
+            ]);
+            $dataPeriod = (string)$ctripFlowOptions['data_period'];
+            $targetDataDate = (string)(
+                $ctripFlowOptions['data_date']
+                ?? ($dataPeriod === 'historical_daily'
+                    ? date('Y-m-d', strtotime('-1 day'))
+                    : date('Y-m-d'))
+            );
+        }
         $interactiveBrowser = filter_var(
             $this->request->post('interactive_browser', $this->request->post('interactiveBrowser', false)),
             FILTER_VALIDATE_BOOLEAN
@@ -78,6 +104,12 @@ trait AutoFetchConcern
             'snapshot_time' => date('Y-m-d H:i:s'),
             'ctrip_section_concurrency' => $this->ctripSectionConcurrencyFromRequest($requestData, 3),
         ];
+        if ($ctripFlowOptions !== []) {
+            $fetchOptions['ctrip_collector_flow'] = (string)$ctripFlowOptions['collector_flow'];
+            $fetchOptions['ctrip_capture_plan'] = (string)$ctripFlowOptions['capture_plan'];
+            $fetchOptions['ctrip_capture_sections'] = (string)$ctripFlowOptions['capture_sections'];
+            $fetchOptions['target_platforms'] = ['ctrip'];
+        }
         if ($autoFetchModeRaw !== null && trim((string)$autoFetchModeRaw) !== '') {
             $fetchOptions['auto_fetch_mode'] = $autoFetchModeRaw;
         }
@@ -226,6 +258,9 @@ trait AutoFetchConcern
             'meituan_auto_fetch_mode' => $fetchOptions['meituan_auto_fetch_mode'] ?? $mode,
             'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
         ];
+        if (trim((string)($fetchOptions['ctrip_collector_flow'] ?? '')) !== '') {
+            $body['ctrip_collector_flow'] = (string)$fetchOptions['ctrip_collector_flow'];
+        }
         $body = array_merge($body, $bodyOverrides);
         $apiPath = '/' . ltrim($apiPath, '/');
         $inputPath = $dir . DIRECTORY_SEPARATOR . 'input.json';
@@ -5010,15 +5045,26 @@ trait AutoFetchConcern
         $timing = [];
         $syncResults = [];
         foreach ($sources as $source) {
-            $result = $service->syncDataSource($this->currentUser, (int)$source['id'], [
+            $syncOptions = [
                 'trigger_type' => 'auto_fetch',
                 'data_date' => $dataDate,
                 'interactive_browser' => $interactiveBrowser,
                 'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
                 'snapshot_time' => $periodOptions['snapshot_time'] ?? date('Y-m-d H:i:s'),
                 'ctrip_section_concurrency' => $periodOptions['ctrip_section_concurrency'] ?? 3,
-                'capture_sections' => 'business_overview,traffic_report',
-            ]);
+                'capture_sections' => $periodOptions['capture_sections']
+                    ?? 'business_overview,traffic_report',
+            ];
+            foreach (['collector_flow', 'capture_plan', 'profile_sections'] as $key) {
+                if (isset($periodOptions[$key]) && trim((string)$periodOptions[$key]) !== '') {
+                    $syncOptions[$key] = $periodOptions[$key];
+                }
+            }
+            $result = $service->syncDataSource(
+                $this->currentUser,
+                (int)$source['id'],
+                $syncOptions
+            );
             $savedCount += (int)($result['saved_count'] ?? 0);
             $timing = $this->sumAutoFetchTiming($timing, is_array($result['timing'] ?? null) ? $result['timing'] : []);
             $messages[] = '数据源' . (int)$source['id'] . ': ' . (string)($result['message'] ?? $result['status'] ?? '-');
@@ -5180,6 +5226,25 @@ trait AutoFetchConcern
 
     private function executeCtripAutoFetch(int $hotelId, string $dataDate, array $options = []): array
     {
+        $collectorFlow = (new CtripCollectorWorkflowService())->normalizeFlow(
+            $options['ctrip_collector_flow']
+            ?? $options['ctripCollectorFlow']
+            ?? $options['collector_flow']
+            ?? $options['collectorFlow']
+            ?? ''
+        );
+        if ($collectorFlow !== '') {
+            $flowOptions = (new CtripCollectorWorkflowService())->applyFlowOptions([
+                'collector_flow' => $collectorFlow,
+                'capture_plan' => $options['ctrip_capture_plan']
+                    ?? $options['ctripCapturePlan']
+                    ?? null,
+                'bounded_capture_sections' => $options['ctrip_capture_sections']
+                    ?? $options['ctripCaptureSections']
+                    ?? '',
+            ]);
+            $options = array_replace($options, $flowOptions);
+        }
         $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
         $mode = $this->resolvePlatformAutoFetchMode($fetchConfig, $options, 'ctrip');
         $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);

@@ -45,12 +45,12 @@ final class CtripCollectorWorkflowServiceTest extends TestCase
         $trend = $service->applyFlowOptions(['collector_flow' => 'intraday_trend']);
         self::assertSame('traffic_report', $trend['capture_sections']);
         self::assertSame('intraday_trend', $trend['capture_plan']);
-        self::assertSame('realtime_hourly_trend', $trend['data_period']);
+        self::assertSame('realtime_snapshot', $trend['data_period']);
 
         $future = $service->applyFlowOptions(['collector_flow' => 'future_demand']);
         self::assertSame('traffic_report', $future['capture_sections']);
         self::assertSame('future_demand', $future['capture_plan']);
-        self::assertSame('future_30_day_search_demand', $future['data_period']);
+        self::assertSame('next_30_days', $future['data_period']);
     }
 
     public function testTemporalPushContractKeepsPastPresentFutureAndTruthfulRenderingRules(): void
@@ -81,12 +81,59 @@ final class CtripCollectorWorkflowServiceTest extends TestCase
             $contract['temporal_push_contract']['rendering_rules']['stale_warning_after_seconds']
         );
         self::assertSame(
+            'ctrip_temporal_push.v2',
+            $contract['temporal_push_contract']['version']
+        );
+        self::assertTrue(
+            $contract['temporal_push_contract']['snapshot_rules']['readback_verified_required']
+        );
+        self::assertFalse(
+            $contract['temporal_push_contract']['snapshot_rules']['older_batch_value_borrowing']
+        );
+        self::assertTrue(
+            $contract['temporal_push_contract']['derivation_rules']['missing_is_never_zero']
+        );
+        self::assertTrue(
+            $contract['temporal_push_contract']['deduplication']['unchanged_snapshot_suppressed']
+        );
+        self::assertSame(
             'omit_from_external_message_keep_internal_gap',
             $contract['temporal_push_contract']['rendering_rules']['missing_value_policy']
         );
         self::assertContains(
             'competitor_circle_rank',
             $contract['temporal_push_contract']['rendering_rules']['excluded_items']
+        );
+        self::assertSame(
+            'realtime_broadcast',
+            $contract['temporal_push_contract']['collection_runs']['present']['capture_plan']
+        );
+        self::assertSame(
+            'next_30_days',
+            $contract['temporal_push_contract']['collection_runs']['future']['data_period']
+        );
+        self::assertTrue(
+            $contract['temporal_push_contract']['orchestration_rules']['one_flow_per_capture']
+        );
+        self::assertTrue(
+            $contract['temporal_push_contract']['orchestration_rules']['preview_does_not_send']
+        );
+        self::assertSame(
+            'ctrip_temporal_report',
+            $contract['temporal_push_contract']['notification_template_type']
+        );
+        self::assertSame(
+            'every_due_dispatch',
+            $contract['temporal_push_contract']['orchestration_rules']
+                ['scheduled_refresh_policy']['realtime']
+        );
+        self::assertTrue(
+            $contract['temporal_push_contract']['orchestration_rules']
+                ['scheduled_dispatch_requires_current_realtime_readback']
+        );
+        self::assertTrue(
+            $contract['temporal_push_contract']['orchestration_rules']
+                ['scheduled_plan_requires_successful_same_robot_test']
         );
     }
 

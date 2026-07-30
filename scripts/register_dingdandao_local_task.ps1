@@ -102,7 +102,7 @@ $resolvedNode = Resolve-ExecutablePath -Candidate $NodePath
 $scheduledRunner = Join-Path $effectiveRoot 'scripts\run_dingdandao_local_scheduled.ps1'
 $sandboxBinder = Join-Path $effectiveRoot 'scripts\bind_local_browser_sandbox.mjs'
 $powershellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$actionArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ProjectRoot "{1}" -PhpPath "{2}" -HotelId {3} -OwnerUserId {4} -SandboxId "{5}" -CdpUrl "{6}" -CollectionMode "{7}"{8}' -f `
+$actionArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -ProjectRoot "{1}" -PhpPath "{2}" -HotelId {3} -OwnerUserId {4} -SandboxId "{5}" -CdpUrl "{6}" -CollectionMode "{7}"{8}' -f `
     $scheduledRunner, `
     $effectiveRoot, `
     $resolvedPhp, `
@@ -160,9 +160,9 @@ if ($cdpPassed -and $null -ne $resolvedNode -and (Test-Path -LiteralPath $sandbo
         '--mode=inspect' 2>$null
     $sandboxPassed = $LASTEXITCODE -eq 0
     $sandboxDetail = if ($sandboxPassed) {
-        'explicit isolated BrowserContext marker found'
+        'dedicated process Profile marker found'
     } else {
-        'explicit isolated BrowserContext marker missing or ambiguous'
+        'dedicated process Profile marker missing or ambiguous'
     }
 }
 $checks += New-Check -Name 'sandbox_marker' -Passed $sandboxPassed -Detail $sandboxDetail
@@ -218,6 +218,8 @@ $plan = [ordered]@{
     }
     safety = [ordered]@{
         starts_task_immediately = $false
+        visible_window_expected = $false
+        browser_host_auto_start = 'headless'
         credentials_in_arguments = $false
         explicit_sandbox_required = $true
         local_receipt = 'runtime/dingdandao_local_scheduler/latest.json'
@@ -277,6 +279,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
     $settings = New-ScheduledTaskSettingsSet `
         -MultipleInstances IgnoreNew `
         -StartWhenAvailable `
+        -Hidden `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 25) `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries

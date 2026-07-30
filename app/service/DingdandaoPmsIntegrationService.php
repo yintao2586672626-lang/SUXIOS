@@ -299,6 +299,25 @@ final class DingdandaoPmsIntegrationService
             throw new \InvalidArgumentException('dingdandao_pms_push_trigger_invalid');
         }
 
+        $authoritativeCapture = $this->authoritativeCaptureForDispatch(
+            $tenantId,
+            $hotelId,
+            $capture
+        );
+        if ($authoritativeCapture === null) {
+            return [
+                'delivery_status' => 'blocked',
+                'delivery_attempted' => false,
+                'trigger_type' => $triggerType,
+                'blockers' => [
+                    $this->blocker(
+                        'pms_capture_authoritative_readback_missing',
+                        '推送前未能从数据库回读同门店、同日期、同指纹的订单来了事实。'
+                    ),
+                ],
+            ];
+        }
+        $capture = $authoritativeCapture;
         $config = $this->configRow($tenantId, $hotelId);
         $config = $this->recordCaptureState($config, $capture);
         $robots = $this->sharedRobots($tenantId, $hotelId);
@@ -671,6 +690,12 @@ final class DingdandaoPmsIntegrationService
                 );
             }
 
+            $lockedCapture = $this->authoritativeCaptureForDispatch(
+                $tenantId,
+                $hotelId,
+                $capture,
+                true
+            );
             $lockedRobots = [];
             if ($this->lockedRobotMatchesSharedScope($lockedRobot, $tenantId, $hotelId)) {
                 $lockedRobots[] = [
@@ -684,11 +709,29 @@ final class DingdandaoPmsIntegrationService
             }
             $lockedGate = $this->pushGate(
                 is_array($lockedConfig) ? $lockedConfig : null,
-                $capture,
+                $lockedCapture,
                 $lockedRobots,
                 $triggerType
             );
             $blockers = (array)($lockedGate['blockers'] ?? []);
+            if ($lockedCapture === null) {
+                $blockers[] = $this->blocker(
+                    'pms_capture_authoritative_readback_missing',
+                    '推送前未能从数据库回读同门店、同日期、同指纹的订单来了事实。'
+                );
+            } elseif (
+                !hash_equals(
+                    (string)($lockedDispatch['source_fingerprint'] ?? ''),
+                    (string)$lockedCapture['source_fingerprint']
+                )
+                || (string)($lockedDispatch['business_date'] ?? '')
+                    !== (string)$lockedCapture['business_date']
+            ) {
+                $blockers[] = $this->blocker(
+                    'pms_capture_dispatch_evidence_changed',
+                    '推送认领记录与数据库采集事实不一致，已阻断外发。'
+                );
+            }
             $currentRobotId = is_array($lockedConfig)
                 ? (int)($lockedConfig['robot_id'] ?? 0)
                 : 0;
@@ -729,6 +772,7 @@ final class DingdandaoPmsIntegrationService
                 ];
             }
 
+            $capture = $lockedCapture;
             $marked = Db::name(self::DISPATCH_TABLE)
                 ->where('id', $dispatchId)
                 ->where('delivery_status', 'pending')
@@ -819,6 +863,64 @@ final class DingdandaoPmsIntegrationService
                 'delivery_attempted' => true,
             ];
         });
+    }
+
+    /**
+     * Treats the caller value as a locator only. The payload always comes
+     * from the exact persisted and readback-verified hotel capture.
+     *
+     * @param array<string,mixed> $locator
+     * @return array<string,mixed>|null
+     */
+    private function authoritativeCaptureForDispatch(
+        int $tenantId,
+        int $hotelId,
+        array $locator,
+        bool $lock = false
+    ): ?array {
+        if (!$this->tableExists('dingdandao_operating_target_captures')) {
+            return null;
+        }
+        $captureId = $this->positiveIntOrNull($locator['id'] ?? null);
+        $businessDate = trim((string)($locator['business_date'] ?? ''));
+        $fingerprint = strtolower(trim((string)($locator['source_fingerprint'] ?? '')));
+        if ($captureId === null
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $businessDate) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $fingerprint) !== 1
+        ) {
+            return null;
+        }
+
+        $query = Db::name('dingdandao_operating_target_captures')
+            ->where('id', $captureId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->where('provider', DingdandaoOperatingTargetCaptureService::PROVIDER)
+            ->where('business_date', $businessDate)
+            ->where('source_fingerprint', $fingerprint)
+            ->where('readback_status', 'readback_verified');
+        if ($lock) {
+            $query->lock(true);
+        }
+        $row = $query->find();
+        if (!is_array($row)) {
+            return null;
+        }
+        $capture = (new DingdandaoOperatingTargetCaptureService())
+            ->read($tenantId, $hotelId, $captureId);
+        if ((int)($capture['id'] ?? 0) !== $captureId
+            || (int)($capture['tenant_id'] ?? 0) !== $tenantId
+            || (int)($capture['hotel_id'] ?? 0) !== $hotelId
+            || (string)($capture['business_date'] ?? '') !== $businessDate
+            || !hash_equals(
+                $fingerprint,
+                strtolower(trim((string)($capture['source_fingerprint'] ?? '')))
+            )
+            || (string)($capture['readback_status'] ?? '') !== 'readback_verified'
+        ) {
+            return null;
+        }
+        return $capture;
     }
 
     /** @return array<string,mixed> */
@@ -1754,6 +1856,7 @@ final class DingdandaoPmsIntegrationService
     {
         if (!$this->tableExists(self::INTEGRATION_TABLE)
             || !$this->tableExists(self::DISPATCH_TABLE)
+            || !$this->tableExists('dingdandao_operating_target_captures')
         ) {
             throw new \RuntimeException('dingdandao_pms_tables_missing');
         }

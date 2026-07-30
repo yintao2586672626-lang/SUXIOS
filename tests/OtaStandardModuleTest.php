@@ -26,6 +26,11 @@ final class OtaStandardModuleTest extends TestCase
         self::assertSame('system:7', $dataset['fact_ota_daily'][0]['hotel_key']);
         self::assertSame('ctrip', $dataset['fact_ota_daily'][0]['platform_key']);
         self::assertSame(1200.0, $dataset['fact_ota_daily'][0]['revenue']);
+        self::assertSame(1200.0, $dataset['fact_ota_daily'][0]['room_revenue']);
+        self::assertSame(
+            'direct_room_revenue_field',
+            $dataset['fact_ota_daily'][0]['room_revenue_basis']
+        );
         self::assertSame(6.0, $dataset['fact_ota_daily'][0]['room_nights']);
         self::assertSame(4, $dataset['fact_ota_daily'][0]['order_count']);
         self::assertSame(200.0, $dataset['fact_ota_daily'][0]['adr']);
@@ -1466,6 +1471,36 @@ final class OtaStandardModuleTest extends TestCase
         self::assertNull($metrics['by_hotel'][0]['revpar']);
     }
 
+    public function testGenericAmountSettlementAndRoomCountDoNotMasqueradeAsRoomMetrics(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 44,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'ctrip-80',
+            'hotel_name' => 'Hotel Scope Guard',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'data_date' => '2026-07-30',
+            'amount' => 999,
+            'quantity' => 3,
+            'raw_data' => json_encode([
+                'settlement_amount' => 888,
+                'total_rooms_count' => 20,
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        $daily = $dataset['fact_ota_daily'][0];
+        self::assertSame(999.0, $daily['gross_revenue']);
+        self::assertNull($daily['room_revenue']);
+        self::assertNull($daily['room_revenue_basis']);
+        self::assertSame(888.0, $daily['settlement_amount']);
+        self::assertNull($daily['net_revenue']);
+        self::assertNull($daily['available_room_nights']);
+        self::assertNull($daily['adr']);
+        self::assertNull($daily['revpar']);
+        self::assertNull($daily['net_revpar']);
+    }
+
     public function testP1ClosureCannotBeReadyWhenAChildMetricIsNotCalculable(): void
     {
         $metrics = (new OtaRevenueMetricService())->summarizeDataset([
@@ -1532,6 +1567,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source_trace_id' => 'trace-business-1',
                 'update_time' => '2026-05-18 10:00:00',
                 'amount' => 1200,
+                'room_revenue' => 1200,
                 'quantity' => 6,
                 'book_order_num' => 4,
                 'comment_score' => 4.8,

@@ -19,6 +19,7 @@ use app\service\AgentClosureReadinessService;
 use app\service\AiDecisionQualityService;
 use app\service\CompetitorPriceReadinessService;
 use app\service\FeasibilityReportService;
+use app\service\KnowledgeDecisionGateService;
 use app\service\LlmClient;
 use app\service\OperationManagementService;
 use app\service\OtaOperatingScope;
@@ -2090,6 +2091,7 @@ class Agent extends Base
         $keywords = $this->buildOtaKnowledgeKeywords($platform, $scene);
         $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0)));
         $items = [];
+        $knowledgeContextGaps = [];
         $hasKnowledgeUnitTables = $this->tableExists('knowledge_units') && $this->tableExists('knowledge_chunks');
         $hasKnowledgeBaseTable = $this->tableExists('knowledge_base');
 
@@ -2122,6 +2124,12 @@ class Agent extends Base
             if (isset($unitColumns['truth_profile_version'])) {
                 $unitFieldNames[] = 'truth_profile_version';
             }
+            if (isset($unitColumns['reviewed_at'])) {
+                $unitFieldNames[] = 'reviewed_at';
+            }
+            if (isset($unitColumns['review_due_at'])) {
+                $unitFieldNames[] = 'review_due_at';
+            }
             $unitQuery = Db::name('knowledge_units')
                 ->field(implode(',', $unitFieldNames))
                 ->where('status', 'done');
@@ -2145,20 +2153,36 @@ class Agent extends Base
             } else {
                 $unitQuery->whereRaw('1 = 0');
             }
-            $unitRows = $unitQuery->order('unit_id', 'desc')->limit(6)->select()->toArray();
+            $unitRows = $unitQuery->order('unit_id', 'desc')->limit(40)->select()->toArray();
             $unitIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['unit_id'] ?? 0), $unitRows)));
+            $unitRowsById = [];
+            foreach ($unitRows as $unitRow) {
+                $unitRowsById[(int)($unitRow['unit_id'] ?? 0)] = $unitRow;
+            }
             $chunksByUnit = [];
+            $knowledgeGatesByUnit = [];
+            $decisionGate = new KnowledgeDecisionGateService();
 
             if ($unitIds) {
                 $chunkRows = Db::name('knowledge_chunks')
                     ->field('chunk_id,unit_id,type,content')
                     ->whereIn('unit_id', $unitIds)
                     ->order('chunk_id', 'desc')
-                    ->limit(240)
+                    ->limit(800)
                     ->select()
                     ->toArray();
                 foreach ($chunkRows as &$chunkRow) {
-                    if (!$this->isDefaultOtaKnowledgeChunkAllowed($chunkRow['content'] ?? null)) {
+                    $unitId = (int)($chunkRow['unit_id'] ?? 0);
+                    $payload = $this->decodeOtaKnowledgePayload($chunkRow['content'] ?? null);
+                    $knowledgeGate = $decisionGate->assess($unitRowsById[$unitId] ?? [], $payload);
+                    $chunkRow['_knowledge_gate'] = $knowledgeGate;
+                    $chunkRow['_decoded_content'] = $payload;
+                    if (!$this->isDefaultOtaKnowledgeChunkAllowed(
+                        $payload,
+                        $platform,
+                        $unitRowsById[$unitId] ?? [],
+                        $knowledgeGate
+                    )) {
                         $chunkRow['_relevance_score'] = -1;
                         continue;
                     }
@@ -2171,9 +2195,47 @@ class Agent extends Base
                         }
                         $score += $keywordIndex < 3 ? 4 : 1;
                     }
+                    if ($this->otaKnowledgePayloadExplicitlyMatchesPlatform(
+                        $chunkRow['content'] ?? null,
+                        $platform
+                    )) {
+                        $score += 8;
+                    }
                     $chunkRow['_relevance_score'] = $score;
                 }
                 unset($chunkRow);
+
+                $claimCandidates = [];
+                foreach ($chunkRows as $chunkRow) {
+                    if ((int)($chunkRow['_relevance_score'] ?? -1) < 0) {
+                        continue;
+                    }
+                    $claimCandidates[] = [
+                        'chunk_id' => (int)($chunkRow['chunk_id'] ?? 0),
+                        'unit_id' => (int)($chunkRow['unit_id'] ?? 0),
+                        'content' => $chunkRow['_decoded_content'] ?? [],
+                    ];
+                }
+                $conflictResolution = $decisionGate->resolveConflictingClaims($claimCandidates);
+                $keptClaimIds = array_fill_keys(array_map(
+                    static fn(array $entry): int => (int)($entry['chunk_id'] ?? 0),
+                    $conflictResolution['entries']
+                ), true);
+                if ((int)$conflictResolution['unresolved_conflict_count'] > 0) {
+                    $knowledgeContextGaps[] = [
+                        'code' => 'knowledge_claim_conflict_unresolved',
+                        'label' => '同一知识键存在未解决冲突',
+                    ];
+                }
+                foreach ($chunkRows as &$chunkRow) {
+                    if ((int)($chunkRow['_relevance_score'] ?? -1) >= 0
+                        && !isset($keptClaimIds[(int)($chunkRow['chunk_id'] ?? 0)])
+                    ) {
+                        $chunkRow['_relevance_score'] = -1;
+                    }
+                }
+                unset($chunkRow);
+
                 usort($chunkRows, static function (array $left, array $right): int {
                     $scoreCompare = (int)($right['_relevance_score'] ?? 0) <=> (int)($left['_relevance_score'] ?? 0);
                     return $scoreCompare !== 0
@@ -2192,6 +2254,9 @@ class Agent extends Base
                         (string)($chunkRow['type'] ?? ''),
                         40
                     ) . ': ' . $this->sanitizeOtaKnowledgeText($chunkRow['content'] ?? '', 180), ': ');
+                    $knowledgeGatesByUnit[$unitId][] = is_array($chunkRow['_knowledge_gate'] ?? null)
+                        ? $chunkRow['_knowledge_gate']
+                        : [];
                 }
             }
 
@@ -2209,12 +2274,13 @@ class Agent extends Base
                     'known_knowns' => $this->normalizeOtaKnowledgeStatements($row['known_knowns'] ?? []),
                     'known_unknowns' => $this->normalizeOtaKnowledgeStatements($row['known_unknowns'] ?? []),
                     'truth_profile_version' => trim((string)($row['truth_profile_version'] ?? '')),
+                    'knowledge_gate' => $this->summarizeOtaKnowledgeGates($knowledgeGatesByUnit[$unitId] ?? []),
                     'chunks' => $chunksByUnit[$unitId] ?? [],
                 ];
             }
         }
 
-        if ($hasKnowledgeBaseTable) {
+        if ($hasKnowledgeBaseTable && !$hasKnowledgeUnitTables) {
             $baseQuery = Db::name('knowledge_base')->field('id,title,content,keywords,hotel_id');
             $columns = $this->tableColumns('knowledge_base');
             if (isset($columns['is_enabled'])) {
@@ -2230,8 +2296,14 @@ class Agent extends Base
             } else {
                 $this->applyOtaKnowledgeKeywordWhere($baseQuery, ['title', 'content', 'keywords'], $keywords, 'kb');
             }
-            $baseRows = $baseQuery->order('id', 'desc')->limit(4)->select()->toArray();
+            $baseRows = $baseQuery->order('id', 'desc')->limit(20)->select()->toArray();
+            $acceptedBaseRows = 0;
             foreach ($baseRows as $row) {
+                if ($acceptedBaseRows >= 4
+                    || !$this->isOtaKnowledgeBaseCompatibleWithPlatform($row, $platform)
+                ) {
+                    continue;
+                }
                 $items[] = [
                     'source' => 'knowledge_base',
                     'id' => (int)($row['id'] ?? 0),
@@ -2240,15 +2312,24 @@ class Agent extends Base
                     'summary' => $this->sanitizeOtaKnowledgeText($row['content'] ?? '', 260),
                     'chunks' => [],
                 ];
+                $acceptedBaseRows++;
             }
         }
 
         $unique = $this->deduplicateOtaKnowledgeItems($items, 8);
+        $attentionRequired = $knowledgeContextGaps !== [];
+        foreach ($unique as $item) {
+            if (($item['knowledge_gate']['attention_required'] ?? false) === true) {
+                $attentionRequired = true;
+                break;
+            }
+        }
 
         return [
-            'status' => $unique ? 'available' : 'empty',
+            'status' => $unique ? ($attentionRequired ? 'partial' : 'available') : 'empty',
             'keywords' => $keywords,
             'items' => $unique,
+            'data_gaps' => $knowledgeContextGaps,
         ];
     }
 
@@ -2262,6 +2343,10 @@ class Agent extends Base
             $keywords = array_merge($keywords, ['携程', '服务质量分', 'ebooking']);
         } elseif ($platform === 'meituan') {
             $keywords = array_merge($keywords, ['美团', 'HOS', '预留房']);
+        } elseif ($platform === 'dianping') {
+            $keywords = array_merge($keywords, ['大众点评', '评价诚信', '违规评价']);
+        } elseif (in_array($platform, ['pms', 'dingdandao'], true)) {
+            $keywords = array_merge($keywords, ['PMS', '订单来了', '经营日', '夜审', '对账']);
         } elseif ($platform === 'qunar') {
             $keywords = array_merge($keywords, ['去哪儿', '点评分', '转化']);
         }
@@ -2324,19 +2409,16 @@ class Agent extends Base
      *
      * @param mixed $content
      */
-    private function isDefaultOtaKnowledgeChunkAllowed($content): bool
+    private function isDefaultOtaKnowledgeChunkAllowed(
+        $content,
+        string $platform = '',
+        array $unit = [],
+        ?array $knowledgeGate = null
+    ): bool
     {
-        if (is_array($content)) {
-            $payload = $content;
-        } elseif (is_string($content) && trim($content) !== '') {
-            $decoded = json_decode($content, true);
-            $payload = is_array($decoded) ? $decoded : [];
-        } else {
-            $payload = [];
-        }
-
-        $lifecycleStatus = strtolower(trim((string)($payload['lifecycle_status'] ?? 'active')));
-        if ($lifecycleStatus !== 'active') {
+        $payload = $this->decodeOtaKnowledgePayload($content);
+        $knowledgeGate = $knowledgeGate ?? (new KnowledgeDecisionGateService())->assess($unit, $payload);
+        if (($knowledgeGate['retrieval_safe'] ?? false) !== true) {
             return false;
         }
 
@@ -2351,10 +2433,204 @@ class Agent extends Base
             return false;
         }
 
+        $requestedPlatform = $this->normalizeOtaKnowledgePlatform($platform);
+        $explicitPlatforms = $this->normalizeOtaKnowledgePlatforms($payload['platforms'] ?? []);
+        if ($requestedPlatform !== ''
+            && $explicitPlatforms !== []
+            && !in_array($requestedPlatform, $explicitPlatforms, true)
+        ) {
+            return false;
+        }
+
         return filter_var(
             $payload['requires_explicit_case_key'] ?? false,
             FILTER_VALIDATE_BOOL
         ) !== true;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $gates
+     * @return array<string, mixed>
+     */
+    private function summarizeOtaKnowledgeGates(array $gates): array
+    {
+        $statuses = [];
+        $grades = [];
+        $freshness = [];
+        $reasons = [];
+        $decisionSafe = true;
+        foreach ($gates as $gate) {
+            if (!is_array($gate)) {
+                continue;
+            }
+            $status = trim((string)($gate['status'] ?? ''));
+            $grade = trim((string)($gate['evidence_grade'] ?? ''));
+            $fresh = trim((string)($gate['freshness_status'] ?? ''));
+            if ($status !== '') {
+                $statuses[$status] = $status;
+            }
+            if ($grade !== '') {
+                $grades[$grade] = $grade;
+            }
+            if ($fresh !== '') {
+                $freshness[$fresh] = $fresh;
+            }
+            foreach ((array)($gate['reason_codes'] ?? []) as $reason) {
+                $reason = trim((string)$reason);
+                if ($reason !== '') {
+                    $reasons[$reason] = $reason;
+                }
+            }
+            if (($gate['decision_safe'] ?? false) !== true) {
+                $decisionSafe = false;
+            }
+        }
+
+        $status = isset($statuses['known_unknown'])
+            ? 'known_unknown'
+            : (isset($statuses['reference_only']) ? 'reference_only' : 'approved');
+        $attentionRequired = $status === 'known_unknown'
+            || isset($freshness['review_due'])
+            || isset($freshness['expired'])
+            || isset($freshness['not_yet_effective']);
+
+        return [
+            'status' => $status,
+            'status_label' => match ($status) {
+                'known_unknown' => '含已知未知',
+                'reference_only' => '仅供参考',
+                default => '可用于决策支持',
+            },
+            'evidence_grades' => array_values($grades),
+            'freshness_statuses' => array_values($freshness),
+            'decision_safe' => $decisionSafe && $gates !== [],
+            'attention_required' => $attentionRequired,
+            'reason_codes' => array_values($reasons),
+        ];
+    }
+
+    /**
+     * @param mixed $content
+     */
+    private function otaKnowledgePayloadExplicitlyMatchesPlatform($content, string $platform): bool
+    {
+        $requestedPlatform = $this->normalizeOtaKnowledgePlatform($platform);
+        if ($requestedPlatform === '') {
+            return false;
+        }
+        $payload = $this->decodeOtaKnowledgePayload($content);
+        return in_array(
+            $requestedPlatform,
+            $this->normalizeOtaKnowledgePlatforms($payload['platforms'] ?? []),
+            true
+        );
+    }
+
+    /**
+     * Mirrored staff knowledge has no structured platforms column. Prefer an
+     * explicit platform in the title, then keywords, then content. Rows with no
+     * explicit platform remain reusable; rows naming another platform are not
+     * allowed to enter the requested platform prompt.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function isOtaKnowledgeBaseCompatibleWithPlatform(array $row, string $platform): bool
+    {
+        $requestedPlatform = $this->normalizeOtaKnowledgePlatform($platform);
+        if ($requestedPlatform === '') {
+            return true;
+        }
+
+        foreach (['title', 'keywords', 'content'] as $field) {
+            $detected = $this->detectOtaKnowledgePlatformsFromText((string)($row[$field] ?? ''));
+            if ($detected !== []) {
+                return in_array($requestedPlatform, $detected, true);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param mixed $content
+     * @return array<string, mixed>
+     */
+    private function decodeOtaKnowledgePayload($content): array
+    {
+        if (is_array($content)) {
+            return $content;
+        }
+        if (!is_string($content) || trim($content) === '') {
+            return [];
+        }
+        $decoded = json_decode($content, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<int, string>
+     */
+    private function normalizeOtaKnowledgePlatforms($value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : preg_split('/[,，\s]+/u', $value);
+        }
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $platforms = [];
+        foreach ($value as $item) {
+            $platform = $this->normalizeOtaKnowledgePlatform((string)$item);
+            if ($platform !== '') {
+                $platforms[$platform] = $platform;
+            }
+        }
+        return array_values($platforms);
+    }
+
+    private function normalizeOtaKnowledgePlatform(string $platform): string
+    {
+        $platform = mb_strtolower(trim($platform));
+        return match ($platform) {
+            '携程', 'trip.com', 'ebooking' => 'ctrip',
+            '美团' => 'meituan',
+            '大众点评', '点评' => 'dianping',
+            '订单来了' => 'dingdandao',
+            default => $platform,
+        };
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function detectOtaKnowledgePlatformsFromText(string $text): array
+    {
+        $text = mb_strtolower(trim($text));
+        if ($text === '') {
+            return [];
+        }
+
+        $patterns = [
+            'ctrip' => ['携程', 'ctrip', 'trip.com', 'ebooking'],
+            'meituan' => ['美团', 'meituan', 'hos'],
+            'dianping' => ['大众点评', 'dianping'],
+            'qunar' => ['去哪儿', 'qunar'],
+            'fliggy' => ['飞猪', 'fliggy'],
+            'douyin' => ['抖音', 'douyin'],
+            'dingdandao' => ['订单来了', 'dingdandao'],
+        ];
+        $detected = [];
+        foreach ($patterns as $platform => $needles) {
+            foreach ($needles as $needle) {
+                if (mb_stripos($text, $needle) !== false) {
+                    $detected[$platform] = $platform;
+                    break;
+                }
+            }
+        }
+        return array_values($detected);
     }
 
     /**
@@ -2431,6 +2707,16 @@ class Agent extends Base
                 continue;
             }
             $lines[] = '- ' . trim($title . ($itemSummary !== '' ? '：' . $itemSummary : ''));
+            $gate = is_array($item['knowledge_gate'] ?? null) ? $item['knowledge_gate'] : [];
+            $gateLabel = $this->sanitizeOtaKnowledgeText($gate['status_label'] ?? '', 40);
+            $grades = array_values(array_filter(array_map(
+                static fn(mixed $grade): string => trim((string)$grade),
+                (array)($gate['evidence_grades'] ?? [])
+            )));
+            if ($gateLabel !== '') {
+                $lines[] = '  - 知识状态：' . $gateLabel
+                    . ($grades !== [] ? '；证据等级 ' . implode('/', $grades) : '');
+            }
             foreach (array_slice((array)($item['known_knowns'] ?? []), 0, 2) as $knownKnown) {
                 $knownText = $this->sanitizeOtaKnowledgeText($knownKnown, 180);
                 if ($knownText !== '') {
@@ -2450,7 +2736,7 @@ class Agent extends Base
                 }
             }
         }
-        $lines[] = '知识库使用规则：已确认内容仍须匹配本次门店、日期和来源；待验证内容必须保持缺口，禁止用0、旧数据或默认值补齐；指标必须标注口径，分母缺失或为0时写不可计算；平台私有分值不反推权重。';
+        $lines[] = '知识库使用规则：只采用结构化、可追溯且通过时间与冲突门禁的知识；“仅供参考”不得写成当前门店事实，“已知未知”只能生成核验要求；已确认内容仍须匹配本次门店、日期和来源；禁止用0、旧数据或默认值补齐；指标分母缺失或为0时写不可计算；平台私有分值不反推权重。';
 
         return implode("\n", $lines) . "\n";
     }
@@ -7478,10 +7764,20 @@ class Agent extends Base
             ))),
             'is_super_admin' => (bool)($this->currentUser?->isSuperAdmin() ?? false),
         ];
+        $overview = (new RevenueAiOverviewService())->overview($overviewFilters);
+        $factLayer = is_array($overview['three_source_fact_layer'] ?? null)
+            ? $overview['three_source_fact_layer']
+            : [];
 
         return $this->success([
-            'overview' => (new RevenueAiOverviewService())->overview($overviewFilters),
-            'analysis' => $this->buildRevenueAnalysisPayload($hotelId, $startDate, $endDate),
+            'overview' => $overview,
+            'analysis' => $this->buildRevenueAnalysisPayload(
+                $hotelId,
+                $startDate,
+                $endDate,
+                $businessDate,
+                $factLayer
+            ),
             'dashboard' => $this->buildRevenueDashboardPayload($hotelId),
             'forecasts' => $this->buildDemandForecastsPayload($hotelId, $startDate, $endDate),
             'competitor' => $this->buildCompetitorAnalysisPayload($hotelId, $competitorDate),
@@ -7495,7 +7791,12 @@ class Agent extends Base
             ),
             'query_scope' => [
                 'hotel_id' => $hotelId,
-                'metric_scope' => 'ota_channel',
+                'metric_scope' => 'three_source_layered',
+                'source_scopes' => [
+                    'dingdandao_pms' => 'whole_hotel_accommodation',
+                    'ctrip' => 'ota_channel',
+                    'meituan' => 'ota_channel',
+                ],
                 'start_date' => $startDate,
                 'end_date' => $endDate,
                 'business_date' => $businessDate,
@@ -7625,22 +7926,44 @@ class Agent extends Base
         $hotelId = (int) $this->request->param('hotel_id', 0);
         $startDate = (string) $this->request->param('start_date', date('Y-m-d', strtotime('-7 days')));
         $endDate = (string) $this->request->param('end_date', date('Y-m-d'));
+        $businessDate = (string) $this->request->param('business_date', date('Y-m-d'));
         if ($hotelId <= 0) {
             return $this->error('hotel_id is required', 422);
         }
-        if (!$this->isDateString($startDate) || !$this->isDateString($endDate) || $startDate > $endDate) {
-            return $this->error('start_date and end_date must be a valid date range', 422);
+        if (!$this->isDateString($startDate)
+            || !$this->isDateString($endDate)
+            || !$this->isDateString($businessDate)
+            || $startDate > $endDate
+        ) {
+            return $this->error('start_date, end_date and business_date must be valid dates', 422);
         }
         $this->assertRevenueHotelPermission($hotelId);
         
-        return $this->success($this->buildRevenueAnalysisPayload($hotelId, $startDate, $endDate));
+        return $this->success(
+            $this->buildRevenueAnalysisPayload(
+                $hotelId,
+                $startDate,
+                $endDate,
+                $businessDate
+            )
+        );
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function buildRevenueAnalysisPayload(int $hotelId, string $startDate, string $endDate): array
+    private function buildRevenueAnalysisPayload(
+        int $hotelId,
+        string $startDate,
+        string $endDate,
+        string $businessDate,
+        array $factLayer = []
+    ): array
     {
+        if ($factLayer === []) {
+            $factLayer = (new \app\service\RevenueFactLayerService())
+                ->build($hotelId, $businessDate);
+        }
         // 获取建议统计
         $stats = PriceSuggestion::getStatistics($hotelId, $startDate, $endDate);
         
@@ -7667,6 +7990,11 @@ class Agent extends Base
         $pricingStrategies = $this->generatePricingStrategies($hotelId, $highDemandDates);
         
         return [
+            'revenue_analysis_status' => (string)(
+                $factLayer['revenue_analysis_status']
+                ?? 'blocked'
+            ),
+            'fact_layer' => $factLayer,
             'statistics' => $stats,
             'room_types' => $roomTypes,
             'forecast_accuracy' => $forecastStats,
@@ -7674,6 +8002,7 @@ class Agent extends Base
             'high_demand_dates' => $highDemandDates,
             'pricing_strategies' => $pricingStrategies,
             'date_range' => ['start' => $startDate, 'end' => $endDate],
+            'business_date' => $businessDate,
         ];
     }
 

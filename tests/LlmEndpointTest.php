@@ -44,4 +44,15 @@ final class LlmEndpointTest extends TestCase
             new OutboundUrlGuard(static fn(string $host): array => ['93.184.216.34'])
         );
     }
+
+    public function testChatEndpointAllowsOnlyExplicitOllamaLoopbackProvider(): void
+    {
+        self::assertSame(
+            'http://127.0.0.1:11434/v1/chat/completions',
+            LlmEndpoint::chatCompletionUrl('http://127.0.0.1:11434/v1', 'ollama')
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+        LlmEndpoint::chatCompletionUrl('http://127.0.0.1:11434/v1', 'openai');
+    }
 }

@@ -15,6 +15,10 @@ param(
     [ValidatePattern('^sbx_[A-Za-z0-9_-]{8,64}$')]
     [string]$SandboxId = 'sbx_dingdandao_h80_primary',
 
+    [switch]$InteractiveLogin,
+
+    [switch]$SwitchMode,
+
     [ValidateRange(3000, 60000)]
     [int]$StartupTimeoutMs = 15000
 )
@@ -83,6 +87,51 @@ function Get-LocalCdpState {
     }
 }
 
+function Get-DedicatedBrowserHost {
+    param(
+        [int]$ExpectedPort,
+        [string]$ExpectedProfilePath
+    )
+
+    $listener = Get-NetTCPConnection `
+        -State Listen `
+        -LocalPort $ExpectedPort `
+        -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $listener) {
+        return $null
+    }
+
+    $process = Get-CimInstance `
+        -ClassName Win32_Process `
+        -Filter "ProcessId = $($listener.OwningProcess)" `
+        -ErrorAction SilentlyContinue
+    if ($null -eq $process) {
+        return [pscustomobject]@{
+            Trusted = $false
+            ProcessId = [int]$listener.OwningProcess
+            Headless = $false
+        }
+    }
+
+    $commandLine = [string]$process.CommandLine
+    $profileMarker = [System.IO.Path]::GetFullPath($ExpectedProfilePath)
+    $portPattern = '(?i)(?:^|\s)--remote-debugging-port(?:=|\s+)"?' `
+        + [regex]::Escape([string]$ExpectedPort) `
+        + '(?:"|\s|$)'
+    $trusted = $commandLine -match $portPattern `
+        -and $commandLine.IndexOf(
+            $profileMarker,
+            [System.StringComparison]::OrdinalIgnoreCase
+        ) -ge 0
+
+    return [pscustomobject]@{
+        Trusted = $trusted
+        ProcessId = [int]$listener.OwningProcess
+        Headless = $commandLine -match '(?i)(?:^|\s)--headless(?:=new)?(?:\s|$)'
+    }
+}
+
 function Get-LastJsonObject {
     param([object[]]$Lines)
 
@@ -127,8 +176,79 @@ $resolvedBrowser = Resolve-Application `
     -FailureReason 'local_browser_sandbox_browser_missing'
 
 $cdpUrl = "http://127.0.0.1:$Port"
+$profilePath = Join-Path $resolvedRoot 'runtime\local_browser_host'
 $browserStarted = $false
+$modeSwitchPerformed = $false
 $cdpState = Get-LocalCdpState -BaseUrl $cdpUrl -ExpectedPort $Port
+
+if ($null -ne $cdpState) {
+    $browserHost = Get-DedicatedBrowserHost `
+        -ExpectedPort $Port `
+        -ExpectedProfilePath $profilePath
+    if ($null -eq $browserHost -or -not [bool]$browserHost.Trusted) {
+        throw 'local_browser_sandbox_foreign_cdp_process'
+    }
+
+    $requestedHeadless = -not [bool]$InteractiveLogin
+    if ([bool]$browserHost.Headless -ne $requestedHeadless) {
+        if (-not $SwitchMode) {
+            throw 'local_browser_sandbox_mode_switch_required'
+        }
+
+        $closeArguments = @(
+            $binderPath,
+            "--cdp-url=$cdpUrl",
+            "--sandbox-id=$SandboxId",
+            "--platform=$Platform",
+            '--mode=close-process-profile'
+        )
+        $closeOutput = @(& $resolvedNode @closeArguments 2>&1)
+        $closeExitCode = $LASTEXITCODE
+        $shutdownWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($shutdownWatch.ElapsedMilliseconds -lt $StartupTimeoutMs) {
+            $remainingListener = Get-NetTCPConnection `
+                -State Listen `
+                -LocalPort $Port `
+                -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if ($null -eq $remainingListener) {
+                break
+            }
+            Start-Sleep -Milliseconds 200
+        }
+        while ($shutdownWatch.ElapsedMilliseconds -lt $StartupTimeoutMs) {
+            $remainingProcess = Get-Process `
+                -Id ([int]$browserHost.ProcessId) `
+                -ErrorAction SilentlyContinue
+            if ($null -eq $remainingProcess) {
+                break
+            }
+            Start-Sleep -Milliseconds 200
+        }
+        $shutdownWatch.Stop()
+        $remainingListener = Get-NetTCPConnection `
+            -State Listen `
+            -LocalPort $Port `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($null -ne $remainingListener) {
+            if ($closeExitCode -ne 0) {
+                throw 'local_browser_sandbox_graceful_close_failed'
+            }
+            throw 'local_browser_sandbox_mode_switch_shutdown_failed'
+        }
+        $remainingProcess = Get-Process `
+            -Id ([int]$browserHost.ProcessId) `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $remainingProcess) {
+            throw 'local_browser_sandbox_profile_process_shutdown_failed'
+        }
+        Start-Sleep -Milliseconds 500
+
+        $cdpState = $null
+        $modeSwitchPerformed = $true
+    }
+}
 
 if ($null -eq $cdpState) {
     $listener = Get-NetTCPConnection `
@@ -140,22 +260,29 @@ if ($null -eq $cdpState) {
         throw 'local_browser_sandbox_port_in_use_by_non_cdp_process'
     }
 
-    $profilePath = Join-Path $resolvedRoot 'runtime\local_browser_host'
     New-Item -ItemType Directory -Force -Path $profilePath | Out-Null
     $browserArguments = @(
         '--remote-debugging-address=127.0.0.1',
         "--remote-debugging-port=$Port",
         ('--user-data-dir="{0}"' -f $profilePath),
         '--no-first-run',
-        '--no-default-browser-check',
-        '--new-window',
-        'about:blank'
+        '--no-default-browser-check'
     )
-    Start-Process `
-        -FilePath $resolvedBrowser `
-        -ArgumentList $browserArguments `
-        -WorkingDirectory (Split-Path -Parent $resolvedBrowser) |
-        Out-Null
+    if ($InteractiveLogin) {
+        $browserArguments += '--new-window'
+    } else {
+        $browserArguments += '--headless=new'
+    }
+    $browserArguments += 'about:blank'
+    $startParameters = @{
+        FilePath = $resolvedBrowser
+        ArgumentList = $browserArguments
+        WorkingDirectory = (Split-Path -Parent $resolvedBrowser)
+    }
+    if (-not $InteractiveLogin) {
+        $startParameters['WindowStyle'] = 'Hidden'
+    }
+    Start-Process @startParameters | Out-Null
     $browserStarted = $true
 
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -178,7 +305,7 @@ $bindArguments = @(
     "--cdp-url=$cdpUrl",
     "--sandbox-id=$SandboxId",
     "--platform=$Platform",
-    '--mode=create'
+    '--mode=bind-process-profile'
 )
 $bindOutput = @(& $resolvedNode @bindArguments 2>&1)
 $bindExitCode = $LASTEXITCODE
@@ -199,6 +326,8 @@ $result = [ordered]@{
     cdp_scope = 'loopback_only'
     cdp_port = $Port
     browser_started = $browserStarted
+    headless = -not [bool]$InteractiveLogin
+    mode_switch_performed = $modeSwitchPerformed
     platform = $Platform
     sandbox_id = $SandboxId
     isolation = [string]$bindResult.isolation
@@ -209,8 +338,10 @@ $result = [ordered]@{
         'unverified'
     }
     login_required = if ($status -eq 'awaiting_login') { $true } else { $null }
-    next_action = if ($status -eq 'awaiting_login') {
+    next_action = if ($status -eq 'awaiting_login' -and $InteractiveLogin) {
         'complete_login_in_opened_browser'
+    } elseif ($status -eq 'awaiting_login') {
+        'rerun_launcher_with_interactive_login'
     } else {
         'run_fast_collection_to_verify_session'
     }

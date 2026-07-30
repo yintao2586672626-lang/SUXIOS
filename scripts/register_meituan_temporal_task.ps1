@@ -41,6 +41,16 @@ $resolvedPhp = if (Test-Path -LiteralPath $PhpPath -PathType Leaf) {
 } else {
     $null
 }
+$phpWindowlessPath = if ($null -ne $resolvedPhp) {
+    Join-Path (Split-Path -Parent $resolvedPhp) 'php-win.exe'
+} else {
+    ''
+}
+$resolvedPhpWindowless = if ($phpWindowlessPath -ne '' -and (Test-Path -LiteralPath $phpWindowlessPath -PathType Leaf)) {
+    (Resolve-Path -LiteralPath $phpWindowlessPath).Path
+} else {
+    $null
+}
 $runnerPath = if ($null -ne $resolvedRoot) {
     Join-Path $resolvedRoot 'scripts\run_meituan_temporal_refresh.php'
 } else {
@@ -64,6 +74,7 @@ $existing = Get-ScheduledTask -TaskName $taskName -TaskPath $taskPath -ErrorActi
 $preflight = @(
     [pscustomobject]@{ name = 'project_root'; passed = $null -ne $resolvedRoot; detail = $ProjectRoot },
     [pscustomobject]@{ name = 'php_binary'; passed = $null -ne $resolvedPhp; detail = $PhpPath },
+    [pscustomobject]@{ name = 'php_windowless_binary'; passed = $null -ne $resolvedPhpWindowless; detail = $phpWindowlessPath },
     [pscustomobject]@{ name = 'runner'; passed = $null -ne $resolvedRunner; detail = $runnerPath },
     [pscustomobject]@{ name = 'interactive_profile_user'; passed = $interactiveUser; detail = $RunAsUser },
     [pscustomobject]@{ name = 'credential_free_arguments'; passed = $arguments -notmatch '(?i)(cookie|token|password|authorization|secret|session)'; detail = 'hotel and actor ids only' }
@@ -84,9 +95,10 @@ $plan = [ordered]@{
         enabled_after_registration = [bool]$Enable
     }
     action = [ordered]@{
-        execute = $resolvedPhp
+        execute = $resolvedPhpWindowless
         arguments = $arguments
         working_directory = $resolvedRoot
+        visible_window_expected = $false
     }
     scope = [ordered]@{
         system_hotel_id = $HotelId
@@ -113,7 +125,7 @@ if ($null -ne $existing -and -not $ReplaceExisting) {
 
 if ($PSCmdlet.ShouldProcess("$taskPath$taskName", "Register Meituan temporal task (enabled=$Enable)")) {
     $action = New-ScheduledTaskAction `
-        -Execute $resolvedPhp `
+        -Execute $resolvedPhpWindowless `
         -Argument $arguments `
         -WorkingDirectory $resolvedRoot
     $triggers = @($triggerTimes | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ })
@@ -121,6 +133,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", "Register Meituan temporal tas
     $settings = New-ScheduledTaskSettingsSet `
         -MultipleInstances IgnoreNew `
         -StartWhenAvailable `
+        -Hidden `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 15) `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries

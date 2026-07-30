@@ -68,6 +68,11 @@ final class TrafficOperationManagementGoldenSentencesKnowledgeTest extends TestC
         self::assertSame(9, substr_count($migration, 'INSERT INTO `tmp_traffic_ops_seed_chunks`'));
         self::assertSame(1, substr_count($migration, 'INSERT INTO `knowledge_chunks`'));
         self::assertSame(0, substr_count($migration, 'DELETE FROM `knowledge_chunks`'));
+        self::assertSame(
+            '8d4e73f6ad2e4593f6c0c7e0f7280e99a8b67d6d127e5817eacbe44d6bf27c91',
+            hash_file('sha256', $migrationPath),
+            'The already-applied seed migration must remain immutable; use a forward migration.'
+        );
 
         self::assertStringContainsString('FROZEN BASELINE', $initFull);
         self::assertStringNotContainsString(

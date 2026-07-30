@@ -1273,6 +1273,7 @@ export const CTRIP_CAPTURE_PLANS = {
       'traffic_hotel_seq',
       'traffic_flow_transform',
       'traffic_order_overview',
+      'traffic_realtime_visitor_trend',
       'traffic_hotel_min_price',
     ],
     expected_endpoint_ids: [
@@ -1283,6 +1284,7 @@ export const CTRIP_CAPTURE_PLANS = {
       'traffic_hotel_seq',
       'traffic_flow_transform',
       'traffic_order_overview',
+      'traffic_realtime_visitor_trend',
     ],
     click_refresh: false,
     probe_popups: false,
@@ -3953,6 +3955,21 @@ function buildStandardRow(facts, context) {
   if (requestShape) {
     row.raw_data.request_shape = { ...requestShape };
   }
+  const historicalWindow = ctripHistoricalRequestWindow(
+    String(first.endpoint_id || ''),
+    context.capturePlan || context.capture_plan || '',
+    context.requestPayload || context.request_payload || '',
+  );
+  if (historicalWindow) {
+    row.raw_data.dimension_values = {
+      ...(row.raw_data.dimension_values || {}),
+      analysis_window: historicalWindow.analysis_window,
+      window_start_date: historicalWindow.window_start_date,
+      window_end_date: historicalWindow.window_end_date,
+      window_days: historicalWindow.window_days,
+    };
+    row.dimension = `${row.dimension}:window=${historicalWindow.analysis_window}`;
+  }
   const missingFields = [...new Set(facts
     .filter((fact) => String(fact.missing_state || '') !== '')
     .map((fact) => String(fact.metric_key || '').trim())
@@ -3993,6 +4010,76 @@ function buildStandardRow(facts, context) {
     return row;
   }
   return null;
+}
+
+function ctripHistoricalRequestWindow(endpointId, capturePlan, requestPayload) {
+  const normalizedEndpoint = String(endpointId || '').trim().toLowerCase();
+  const normalizedPlan = String(capturePlan || '').trim().toLowerCase();
+  if (
+    normalizedPlan !== 'historical_review'
+    || !['traffic_flow_transform', 'traffic_order_trend', 'traffic_scan_flow'].includes(normalizedEndpoint)
+  ) {
+    return null;
+  }
+
+  const dates = ctripRequestIsoDates(requestPayload);
+  if (dates.length === 0) {
+    return null;
+  }
+  const windowStartDate = dates[0];
+  const windowEndDate = dates[dates.length - 1];
+  const startAt = Date.parse(`${windowStartDate}T00:00:00Z`);
+  const endAt = Date.parse(`${windowEndDate}T00:00:00Z`);
+  if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt < startAt) {
+    return null;
+  }
+  const windowDays = Math.round((endAt - startAt) / 86400000) + 1;
+  const analysisWindow = {
+    1: 'yesterday',
+    7: 'last_7_days',
+    30: 'last_30_days',
+  }[windowDays] || '';
+  if (!analysisWindow) {
+    return null;
+  }
+  return {
+    analysis_window: analysisWindow,
+    window_start_date: windowStartDate,
+    window_end_date: windowEndDate,
+    window_days: windowDays,
+  };
+}
+
+function ctripRequestIsoDates(requestPayload) {
+  const raw = String(requestPayload || '').trim();
+  if (!raw) {
+    return [];
+  }
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(raw.replace(/\+/g, ' '));
+    } catch {
+      return raw;
+    }
+  })();
+  const values = new Set();
+  for (const candidate of [raw, decoded]) {
+    for (const match of candidate.matchAll(/\b(20\d{2})[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b/g)) {
+      const normalized = `${match[1]}-${match[2]}-${match[3]}`;
+      const timestamp = Date.parse(`${normalized}T00:00:00Z`);
+      if (Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === normalized) {
+        values.add(normalized);
+      }
+    }
+    for (const match of candidate.matchAll(/\b(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b/g)) {
+      const normalized = `${match[1]}-${match[2]}-${match[3]}`;
+      const timestamp = Date.parse(`${normalized}T00:00:00Z`);
+      if (Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === normalized) {
+        values.add(normalized);
+      }
+    }
+  }
+  return [...values].sort();
 }
 
 function buildCtripStandardFieldFact(fact, captureEvidence = {}) {

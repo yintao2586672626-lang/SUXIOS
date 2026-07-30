@@ -12,6 +12,7 @@ final class OutboundUrlGuard
     public const ERROR_CREDENTIALS_NOT_ALLOWED = 'Outbound URL credentials are not allowed.';
     public const ERROR_PORT_NOT_ALLOWED = 'Outbound URL port is not allowed.';
     public const ERROR_HOST_NOT_ALLOWED = 'Outbound URL host is not allowed.';
+    public const ERROR_LOCAL_LLM_NOT_ALLOWED = 'Local LLM URL is not allowed.';
 
     /** @var null|callable(string):array<int,string> */
     private $resolver;
@@ -92,6 +93,60 @@ final class OutboundUrlGuard
             'port' => $port,
             'addresses' => $addresses,
             'curl_resolve' => $isIpLiteral ? [] : [$this->curlResolveEntry($host, $port, $addresses)],
+        ];
+    }
+
+    /**
+     * Allow the local Ollama OpenAI-compatible endpoint without weakening the
+     * public HTTPS guard used by every other outbound integration.
+     *
+     * @return array{
+     *     url:string,
+     *     host:string,
+     *     port:int,
+     *     addresses:array<int,string>,
+     *     curl_resolve:array<int,string>
+     * }
+     */
+    public function validateLocalLlm(string $url): array
+    {
+        $url = trim($url);
+        if ($url === '' || str_contains($url, '\\') || preg_match('/[\x00-\x20\x7f]/', $url) === 1) {
+            throw new InvalidArgumentException(self::ERROR_LOCAL_LLM_NOT_ALLOWED);
+        }
+
+        try {
+            $parts = parse_url($url);
+        } catch (Throwable) {
+            $parts = false;
+        }
+        if (!is_array($parts)
+            || strtolower((string)($parts['scheme'] ?? '')) !== 'http'
+            || array_key_exists('user', $parts)
+            || array_key_exists('pass', $parts)
+            || array_key_exists('query', $parts)
+            || array_key_exists('fragment', $parts)
+        ) {
+            throw new InvalidArgumentException(self::ERROR_LOCAL_LLM_NOT_ALLOWED);
+        }
+
+        $host = $this->normalizeHost((string)($parts['host'] ?? ''));
+        $port = isset($parts['port']) ? (int)$parts['port'] : 80;
+        $path = (string)($parts['path'] ?? '');
+        $allowedPaths = ['', '/', '/v1', '/v1/', '/v1/chat/completions'];
+        if (!in_array($host, ['127.0.0.1', 'localhost'], true)
+            || $port !== 11434
+            || !in_array($path, $allowedPaths, true)
+        ) {
+            throw new InvalidArgumentException(self::ERROR_LOCAL_LLM_NOT_ALLOWED);
+        }
+
+        return [
+            'url' => $url,
+            'host' => $host,
+            'port' => $port,
+            'addresses' => ['127.0.0.1'],
+            'curl_resolve' => $host === 'localhost' ? ['localhost:11434:127.0.0.1'] : [],
         ];
     }
 

@@ -49,6 +49,8 @@ final class KnowledgePayloadMapperTest extends TestCase
         self::assertSame(['当前门店数据待验证', '效果待复盘'], $result['known_unknowns']);
         self::assertSame('2026-07-29.2', $result['truth_profile_version']);
         self::assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2} /', $result['reviewed_at']);
+        self::assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2} /', $result['review_due_at']);
+        self::assertGreaterThan($result['reviewed_at'], $result['review_due_at']);
     }
 
     public function testNormalizeChunkDataAcceptsJsonAndPlainText(): void
@@ -89,6 +91,7 @@ final class KnowledgePayloadMapperTest extends TestCase
             'tags' => '["前台","运营"]',
             'created_by' => '3',
             'reviewed_at' => '2026-07-29 09:30:00',
+            'review_due_at' => '2026-10-27 09:30:00',
         ], 2);
         $chunk = $mapper->formatChunkRow([
             'chunk_id' => '11',
@@ -108,6 +111,7 @@ final class KnowledgePayloadMapperTest extends TestCase
         self::assertSame(['当前数据待验证'], $unit['known_unknowns']);
         self::assertSame('2026-07-29.1', $unit['truth_profile_version']);
         self::assertSame('2026-07-29 09:30:00', $unit['reviewed_at']);
+        self::assertSame('2026-10-27 09:30:00', $unit['review_due_at']);
         self::assertSame('unit_quarantined', $unit['readiness']['stage']);
         self::assertIsArray($unit['readiness']);
         self::assertSame(['text' => '欢迎语'], $chunk['content']);

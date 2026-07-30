@@ -47,6 +47,9 @@ final class LlmEndpoint
             $url = $baseUrl . $path . $query;
         }
 
-        return ($guard ?? new OutboundUrlGuard())->validate($url);
+        $guard ??= new OutboundUrlGuard();
+        return $provider === 'ollama'
+            ? $guard->validateLocalLlm($url)
+            : $guard->validate($url);
     }
 }

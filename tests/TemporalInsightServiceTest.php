@@ -230,6 +230,255 @@ final class TemporalInsightServiceTest extends TestCase
         );
     }
 
+    public function testAggregateSixPointSevenPercentDoesNotEnableAnyMetricHorizonConclusion(): void
+    {
+        $forecasts = [];
+        $actualsByDate = [];
+        $metrics = ['ota_revenue', 'ota_orders', 'ota_room_nights'];
+        $pointId = 1;
+        $verifiedSourceRefs = json_encode([
+            'table' => 'online_daily_data',
+            'metric_scope' => 'ota_channel',
+            'period' => 'historical_daily',
+            'is_final' => 1,
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-28',
+            'fact_rows' => 100,
+            'trusted_fact_rows' => 100,
+            'excluded_fact_rows' => 0,
+            'excluded_fact_reason_counts' => [],
+        ], JSON_UNESCAPED_UNICODE);
+        foreach ($metrics as $metricIndex => $metricKey) {
+            for ($sample = 0; $sample < 5; $sample++) {
+                $target = (new \DateTimeImmutable('2026-06-01'))
+                    ->modify('+' . ($metricIndex * 5 + $sample) . ' days')
+                    ->format('Y-m-d');
+                $horizon = $metricIndex + 1;
+                $actualsByDate[$target] ??= ['date' => $target];
+                $actualsByDate[$target][$metricKey] = 100;
+                $singleHit = $metricIndex === 0 && $sample === 0;
+                $forecasts[] = [
+                    'id' => $pointId++,
+                    'forecast_run_id' => 'run-' . $metricIndex . '-' . $sample,
+                    'as_of_date' => (new \DateTimeImmutable($target))->modify("-{$horizon} days")->format('Y-m-d'),
+                    'as_of_time' => '2026-05-01 08:00:00',
+                    'target_date' => $target,
+                    'metric_key' => $metricKey,
+                    'horizon_days' => $horizon,
+                    'predicted_value' => $singleHit ? 100 : 200,
+                    'lower_bound' => $singleHit ? 90 : 180,
+                    'upper_bound' => $singleHit ? 110 : 220,
+                    'sample_days' => 21,
+                    'data_quality_status' => 'ready',
+                    'source_start_date' => '2026-05-01',
+                    'source_end_date' => '2026-05-28',
+                    'source_refs_json' => $verifiedSourceRefs,
+                ];
+            }
+        }
+
+        $review = (new TemporalInsightService())->buildBacktestSummary(
+            $forecasts,
+            array_values($actualsByDate)
+        );
+
+        self::assertSame(15, $review['matched_points']);
+        self::assertSame(6.7, $review['range_hit_rate']);
+        self::assertSame('disabled', $review['conclusion_status']);
+        self::assertSame('disabled', $review['operational_use']);
+        self::assertSame(0, $review['eligible_cohort_count']);
+        self::assertCount(3, $review['cohorts']);
+        foreach ($review['cohorts'] as $cohort) {
+            self::assertSame(5, $cohort['matched_points']);
+            self::assertSame('insufficient', $cohort['sample_status']);
+            self::assertSame('disabled_insufficient_samples', $cohort['decision_status']);
+            self::assertFalse($cohort['conclusion_enabled']);
+            self::assertFalse($cohort['automatic_price_write']);
+        }
+    }
+
+    public function testBacktestSeparatesMetricAndHorizonAndDeduplicatesSameDayRegeneration(): void
+    {
+        $forecasts = [];
+        $actuals = [];
+        $verifiedSourceRefs = json_encode([
+            'table' => 'online_daily_data',
+            'metric_scope' => 'ota_channel',
+            'period' => 'historical_daily',
+            'is_final' => 1,
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-28',
+            'fact_rows' => 100,
+            'trusted_fact_rows' => 100,
+            'excluded_fact_rows' => 0,
+            'excluded_fact_reason_counts' => [],
+        ], JSON_UNESCAPED_UNICODE);
+        for ($sample = 0; $sample < 10; $sample++) {
+            $target = (new \DateTimeImmutable('2026-06-01'))->modify("+{$sample} days")->format('Y-m-d');
+            $actuals[] = ['date' => $target, 'ota_revenue' => 100];
+            foreach ([1, 7] as $horizon) {
+                $forecasts[] = [
+                    'id' => count($forecasts) + 1,
+                    'forecast_run_id' => "run-{$horizon}-{$sample}",
+                    'as_of_date' => (new \DateTimeImmutable($target))->modify("-{$horizon} days")->format('Y-m-d'),
+                    'as_of_time' => '2026-05-01 08:00:00',
+                    'target_date' => $target,
+                    'metric_key' => 'ota_revenue',
+                    'horizon_days' => $horizon,
+                    'predicted_value' => $horizon === 1 ? 100 : 200,
+                    'lower_bound' => $horizon === 1 ? 90 : 180,
+                    'upper_bound' => $horizon === 1 ? 110 : 220,
+                    'sample_days' => 21,
+                    'data_quality_status' => 'ready',
+                    'source_start_date' => '2026-05-01',
+                    'source_end_date' => '2026-05-28',
+                    'source_refs_json' => $verifiedSourceRefs,
+                ];
+            }
+        }
+        $duplicate = $forecasts[0];
+        $duplicate['id'] = 999;
+        $duplicate['forecast_run_id'] = 'same-day-regeneration';
+        $duplicate['as_of_time'] = '2026-05-01 09:00:00';
+        $forecasts[] = $duplicate;
+
+        $review = (new TemporalInsightService())->buildBacktestSummary($forecasts, $actuals);
+        $cohorts = [];
+        foreach ($review['cohorts'] as $cohort) {
+            $cohorts[$cohort['horizon_days']] = $cohort;
+        }
+
+        self::assertSame(20, $review['deduplicated_forecast_points']);
+        self::assertSame('partial', $review['conclusion_status']);
+        self::assertSame('eligible_for_human_review', $cohorts[1]['decision_status']);
+        self::assertSame(100.0, $cohorts[1]['range_hit_rate']);
+        self::assertSame('disabled_low_interval_coverage', $cohorts[7]['decision_status']);
+        self::assertSame(0.0, $cohorts[7]['range_hit_rate']);
+    }
+
+    public function testBacktestKeepsUnverifiedLegacyForecastsDiagnosticButExcludesThemFromOperationalSamples(): void
+    {
+        $review = (new TemporalInsightService())->buildBacktestSummary([[
+            'id' => 1,
+            'forecast_run_id' => 'partial-source-run',
+            'as_of_date' => '2026-06-01',
+            'as_of_time' => '2026-06-01 08:00:00',
+            'target_date' => '2026-06-02',
+            'metric_key' => 'ota_revenue',
+            'horizon_days' => 1,
+            'predicted_value' => 100,
+            'lower_bound' => 90,
+            'upper_bound' => 110,
+            'sample_days' => 28,
+            'data_quality_status' => 'ready',
+        ]], [[
+            'date' => '2026-06-02',
+            'ota_revenue' => 100,
+        ]]);
+
+        self::assertSame(1, $review['matched_points']);
+        self::assertSame(100.0, $review['range_hit_rate']);
+        self::assertSame('disabled', $review['conclusion_status']);
+        self::assertSame(1, $review['cohorts'][0]['diagnostic_matched_points']);
+        self::assertSame(100.0, $review['cohorts'][0]['diagnostic_range_hit_rate']);
+        self::assertSame(0, $review['cohorts'][0]['matched_points']);
+        self::assertNull($review['cohorts'][0]['range_hit_rate']);
+        self::assertSame(1, $review['cohorts'][0]['source_quality_excluded_points']);
+        self::assertSame('disabled_insufficient_samples', $review['cohorts'][0]['decision_status']);
+    }
+
+    public function testTenHistoryDaysKeepOperationalConclusionDisabledEvenWithBacktestSamples(): void
+    {
+        $service = new TemporalInsightService();
+        $gateMethod = new \ReflectionMethod($service, 'forecastOperationalGate');
+        $gateMethod->setAccessible(true);
+
+        $gate = $gateMethod->invoke($service, [
+            'metric_key' => 'ota_revenue',
+            'horizon_days' => 1,
+            'sample_days' => 10,
+            'data_quality_status' => 'ready',
+        ], [
+            'cohorts' => [[
+                'metric_key' => 'ota_revenue',
+                'horizon_days' => 1,
+                'matched_points' => 15,
+                'range_hit_rate' => 80.0,
+            ]],
+        ]);
+
+        self::assertSame('disabled_insufficient_evidence', $gate['status']);
+        self::assertFalse($gate['can_submit_for_review']);
+        self::assertContains('history_sample_lt_21', $gate['reason_codes']);
+        self::assertFalse($gate['automatic_price_write']);
+    }
+
+    public function testForecastSourceQualityIgnoresOnlyIntentionalCompetitorComparisonExclusions(): void
+    {
+        $service = new TemporalInsightService();
+        $qualityMethod = new \ReflectionMethod($service, 'forecastSourceQualityStatus');
+        $qualityMethod->setAccessible(true);
+
+        self::assertSame('ready', $qualityMethod->invoke($service, [
+            'trusted_facts' => 21,
+            'rejected_rows' => 0,
+            'trace_failures' => 0,
+            'excluded_fact_reason_counts' => [
+                'non_self_compare_type_competitor_avg' => 331,
+            ],
+        ]));
+        self::assertSame('partial', $qualityMethod->invoke($service, [
+            'trusted_facts' => 21,
+            'rejected_rows' => 0,
+            'trace_failures' => 1,
+            'excluded_fact_reason_counts' => [
+                'non_self_compare_type_competitor_avg' => 331,
+                'readback_unverified' => 257,
+            ],
+        ]));
+        self::assertSame('insufficient', $qualityMethod->invoke($service, [
+            'trusted_facts' => 0,
+            'excluded_fact_reason_counts' => [],
+        ]));
+
+        $sourceRefsMethod = new \ReflectionMethod($service, 'forecastSourceRefsOperationallyVerified');
+        $sourceRefsMethod->setAccessible(true);
+        $forecast = [
+            'source_start_date' => '2026-05-01',
+            'source_end_date' => '2026-05-28',
+            'source_refs_json' => json_encode([
+                'table' => 'online_daily_data',
+                'metric_scope' => 'ota_channel',
+                'period' => 'historical_daily',
+                'is_final' => 1,
+                'start_date' => '2026-05-01',
+                'end_date' => '2026-05-28',
+                'fact_rows' => 100,
+                'trusted_fact_rows' => 100,
+                'excluded_fact_rows' => 3,
+                'excluded_fact_reason_counts' => [
+                    'non_self_compare_type_competitor_avg' => 3,
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ];
+        self::assertTrue($sourceRefsMethod->invoke($service, $forecast));
+
+        $unreadback = $forecast;
+        $unreadback['source_refs_json'] = json_encode([
+            'table' => 'online_daily_data',
+            'metric_scope' => 'ota_channel',
+            'period' => 'historical_daily',
+            'is_final' => 1,
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-28',
+            'fact_rows' => 100,
+            'trusted_fact_rows' => 100,
+            'excluded_fact_rows' => 1,
+            'excluded_fact_reason_counts' => ['readback_unverified' => 1],
+        ], JSON_UNESCAPED_UNICODE);
+        self::assertFalse($sourceRefsMethod->invoke($service, $unreadback));
+    }
+
     public function testInvalidAsOfDateIsRejected(): void
     {
         $this->expectException(InvalidArgumentException::class);
@@ -258,15 +507,23 @@ final class TemporalInsightServiceTest extends TestCase
         );
     }
 
-    public function testAuthenticatedTemporalRoutesExposeReadAndExplicitVersionGenerationOnly(): void
+    public function testAuthenticatedTemporalRoutesExposeForecastAndHumanReviewBridgeWithoutPriceWrite(): void
     {
         $routes = (string)file_get_contents(dirname(__DIR__) . '/route/app.php');
 
         self::assertStringContainsString("Route::group('api/temporal-insights'", $routes);
         self::assertStringContainsString("Route::get('/overview', 'TemporalInsight/overview')", $routes);
         self::assertStringContainsString("Route::post('/forecasts', 'TemporalInsight/generateForecast')", $routes);
+        self::assertStringContainsString(
+            "Route::post('/forecasts/:id/execution-intent', 'TemporalInsight/createOperationReviewIntent')",
+            $routes
+        );
         self::assertStringNotContainsString('TemporalInsight/executePrice', $routes);
         self::assertStringNotContainsString('TemporalInsight/writeOta', $routes);
+
+        $service = (string)file_get_contents(dirname(__DIR__) . '/app/service/TemporalInsightService.php');
+        self::assertStringContainsString('operation_task_created_only_after_explicit_intent_approval', $service);
+        self::assertStringContainsString("'automatic_price_write' => false", $service);
     }
 
     public function testForecastReadbackRequiresFullTenantScopedBusinessRow(): void

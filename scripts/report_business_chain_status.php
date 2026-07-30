@@ -5,6 +5,7 @@ use app\service\BusinessClosureOverviewService;
 use app\service\OperationManagementService;
 use app\service\OtaStandardEtlService;
 use app\service\RevenueAiOverviewService;
+use app\service\RevenueFactLayerService;
 use think\App;
 use think\facade\Db;
 
@@ -459,10 +460,21 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
     $counts = business_chain_fact_counts($referenceDataset);
     $p0Blocked = (string)($closure['summary']['status'] ?? '') === 'blocked_by_p0_ota_gate';
     $otaClaimAllowed = !$skipP0 && !$p0Blocked && $counts['accepted'] > 0;
-    $revenueStatus = (string)($revenue['data_status'] ?? 'unknown');
-    $revenueClaimAllowed = $otaClaimAllowed && $revenueStatus === 'ok';
+    $revenueStatus = (string)(
+        $revenue['revenue_analysis_status']
+        ?? $revenue['data_status']
+        ?? 'unknown'
+    );
+    $revenueClaimAllowed = $otaClaimAllowed
+        && in_array($revenueStatus, ['ok', 'ready'], true);
     $actionCount = count(business_chain_list($revenue['actions'] ?? []));
-    $aiClaimAllowed = $revenueClaimAllowed && $actionCount > 0;
+    $pricingReadiness = is_array($revenue['pricing_readiness'] ?? null)
+        ? $revenue['pricing_readiness']
+        : [];
+    $aiReviewInputsReady = ($pricingReadiness['can_generate_recommendation'] ?? false) === true;
+    $aiClaimAllowed = $revenueClaimAllowed
+        && $actionCount > 0
+        && $aiReviewInputsReady;
 
     return [
         [
@@ -481,8 +493,12 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
             'claim_allowed' => $revenueClaimAllowed,
             'evidence' => [
                 'data_status' => $revenue['data_status'] ?? '',
+                'revenue_analysis_status' => $revenueStatus,
                 'source_channels' => $revenue['source_channels'] ?? [],
                 'pricing_status' => $revenue['pricing_readiness']['status'] ?? '',
+                'three_source_fact_layer_status' =>
+                    $revenue['three_source_fact_layer']['status']
+                    ?? '',
             ],
         ],
         [
@@ -490,7 +506,15 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
             'label' => 'AI decision advice',
             'status' => $p0Blocked
                 ? 'blocked_by_p0_ota_gate'
-                : (!$revenueClaimAllowed ? 'blocked_by_revenue_data' : ($actionCount > 0 ? 'ready_for_review' : 'no_actionable_advice')),
+                : (
+                    !$revenueClaimAllowed
+                        ? 'blocked_by_revenue_data'
+                        : (
+                            !$aiReviewInputsReady
+                                ? 'blocked_by_review_inputs'
+                                : ($actionCount > 0 ? 'ready_for_review' : 'no_actionable_advice')
+                        )
+                ),
             'claim_allowed' => $aiClaimAllowed,
             'evidence' => [
                 'action_count' => $actionCount,
@@ -2358,6 +2382,12 @@ function business_chain_report(array $options): array
     }
     $diagnosisEnabledChannels = $diagnosisPlatforms !== [] ? $diagnosisPlatforms : $sources;
 
+    $revenueFactLayer = $systemHotelId !== null
+        ? (new RevenueFactLayerService())->build(
+            $systemHotelId,
+            $targetDate
+        )
+        : [];
     $revenue = (new RevenueAiOverviewService())->buildOverviewFromDataset(
         $diagnosisReferenceDataset,
         $diagnosisReferenceDatasets,
@@ -2367,6 +2397,7 @@ function business_chain_report(array $options): array
             'hotel_id' => $systemHotelId,
             'p0_downstream_gate' => $p0Gate,
             'enabled_channels' => $diagnosisEnabledChannels,
+            'revenue_fact_layer' => $revenueFactLayer,
         ]
     );
     $operationService = new OperationManagementService();
@@ -2452,6 +2483,7 @@ function business_chain_report(array $options): array
             'target_date' => $targetDate,
             'system_hotel_id' => $systemHotelId,
             'metric_scope' => 'ota_channel',
+            'fact_layer_metric_scope' => 'three_source_layered',
             'platforms' => $sources,
             'source_policy' => $skipActive
                 ? 'read_existing_latest_available_ota_rows_reference_only'
@@ -2473,6 +2505,7 @@ function business_chain_report(array $options): array
         'p0_execution_plan' => $p0ExecutionPlan,
         'operator_skip_platforms' => $options['skip_platforms'],
         'focused_chain' => $focusedChain,
+        'three_source_fact_layer' => $revenueFactLayer,
         'downstream_reference_workflow' => $downstreamReferenceWorkflow,
         'stages' => $stages,
         'revenue_ai_summary' => [
@@ -2526,6 +2559,28 @@ function business_chain_markdown(array $report): string
     $focusedChain = is_array($report['focused_chain'] ?? null) ? $report['focused_chain'] : [];
     if ($focusedChain !== []) {
         $lines[] = '- focused_chain: `' . ($focusedChain['status'] ?? '') . '`, platforms=`' . implode(',', business_chain_list($focusedChain['platforms'] ?? [])) . '`';
+    }
+    $factLayer = is_array($report['three_source_fact_layer'] ?? null)
+        ? $report['three_source_fact_layer']
+        : [];
+    if ($factLayer !== []) {
+        $hotel = is_array($factLayer['hotel'] ?? null)
+            ? $factLayer['hotel']
+            : [];
+        $lines[] = '- three_source_fact_layer: `' . ($factLayer['revenue_analysis_status'] ?? '') . '`, tenant=`' . ($hotel['tenant_id'] ?? '') . '`, hotel=`' . ($hotel['system_hotel_id'] ?? '') . '`, date=`' . ($factLayer['business_date'] ?? '') . '`';
+        $sourceCompleteness = is_array($factLayer['source_completeness'] ?? null)
+            ? $factLayer['source_completeness']
+            : [];
+        $sourceSummary = [];
+        foreach ($sourceCompleteness as $source => $status) {
+            $sourceSummary[] = (string)$source . ':' . (string)$status;
+        }
+        $lines[] = '- three_source_readback: `' . implode(',', $sourceSummary) . '`';
+        $uniqueGap = is_array($factLayer['unique_remaining_gap'] ?? null)
+            ? $factLayer['unique_remaining_gap']
+            : [];
+        $lines[] = '- fact_layer_unique_gap: `' . ($uniqueGap['code'] ?? 'none') . '`';
+        $lines[] = '- fact_layer_scope_policy: `PMS=whole_hotel_accommodation, Ctrip/Meituan=ota_channel, PMS+OTA revenue addition=forbidden`';
     }
     $lines[] = '';
     $lines[] = '| Stage | Status | Claim allowed |';

@@ -460,6 +460,34 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringNotContainsString('ota_local_collector_accounts', $source);
     }
 
+    public function testExplicitCtripTemporalFlowSurvivesBackgroundAndDataSourceSyncBoundaries(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php'
+        );
+
+        self::assertStringContainsString(
+            "\$fetchOptions['ctrip_collector_flow']",
+            $source
+        );
+        self::assertStringContainsString(
+            "\$body['ctrip_collector_flow']",
+            $source
+        );
+        self::assertStringContainsString(
+            "\$fetchOptions['target_platforms'] = ['ctrip']",
+            $source
+        );
+        self::assertStringContainsString(
+            "foreach (['collector_flow', 'capture_plan', 'profile_sections'] as \$key)",
+            $source
+        );
+        self::assertStringContainsString(
+            "'capture_sections' => \$periodOptions['capture_sections']",
+            $source
+        );
+    }
+
     public function testUnscopedScheduleDeduplicatesLegacyDataTypesWithinOneProfileAccount(): void
     {
         $command = new AutoFetchOnlineData();

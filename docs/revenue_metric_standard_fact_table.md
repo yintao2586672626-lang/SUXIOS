@@ -13,9 +13,10 @@
 | 字段 | 口径 | 不可计算条件 |
 | --- | --- | --- |
 | `gross_revenue` / `revenue` | OTA 渠道成交总额，优先 `amount` | 缺收入字段 |
-| `room_revenue` | 房费收入；缺结构化房费时沿用 OTA 成交额 | 缺收入字段 |
+| `room_revenue` | 经来源字段、税口径和营业日映射的房费收入；不得用订单GMV、支付额或结算额替代 | 缺结构化房费收入字段 |
+| `room_revenue_basis` | 当前只接受 `direct_room_revenue_field`；为空表示房费口径未闭环 | `room_revenue` 缺失 |
 | `room_nights` | 间夜量，优先 `quantity` / `room_nights` | 缺间夜或为 0 时 ADR 不可计算 |
-| `available_room_nights` | 可售间夜，来自可售房量/可售间夜字段 | 缺失或为 0 时 OCC、RevPAR、Net RevPAR 不可计算 |
+| `available_room_nights` | 可售间夜，来自明确的当日可售房量/可售间夜字段；物理总房数不能自动替代 | 缺失或为 0 时 OCC、RevPAR、Net RevPAR 不可计算 |
 | `occupied_room_nights` | 已售/已住间夜，缺结构化入住字段时用 OTA 间夜 | 缺失时 OCC 不可计算 |
 | `adr` | `sum(room_revenue) / sum(room_nights)` | `room_nights` 为 0 |
 | `occ` | `sum(occupied_room_nights) / sum(available_room_nights) * 100` | 缺可售间夜或已住间夜 |
@@ -23,7 +24,8 @@
 | `commission_amount` | 佣金金额；优先平台直接金额，可由 `gross_revenue * commission_rate` 派生 | 佣金金额和佣金率均缺失 |
 | `commission_amount_basis` | `direct` 或 `derived_from_commission_rate` | 无可用佣金字段 |
 | `commission_rate` | `sum(commission_amount) / sum(gross_revenue) * 100`；只使用有佣金字段的对齐行 | 佣金字段缺失或佣金收入分母为 0 |
-| `net_revenue` | 佣金后收益；优先平台直接净收入，缺失时用 `gross_revenue - commission_amount` 派生 | 无净收入且无佣金字段 |
+| `net_revenue` | 佣金后收益；优先来源明确的直接净收入，缺失时仅在成交额与佣金口径对齐时用 `gross_revenue - commission_amount` 派生 | 无净收入且无对齐佣金字段 |
+| `settlement_amount` | 平台结算金额，独立保留；不自动视为 `net_revenue`、房费收入或会计收入 | 来源未提供结算字段 |
 | `net_revenue_basis` | `direct` 或 `derived_from_commission_amount` | 无可用净收入口径 |
 | `net_revpar` | `sum(net_revenue) / sum(available_room_nights)` | 缺净收入或可售间夜 |
 | `channel_contribution_rate` | `channel_revenue / total_revenue * 100` | 总收入为 0 |
@@ -39,6 +41,7 @@
 - `/api/ota-standard/etl`：返回 `fact_ota_daily` 明细事实行。
 - `/api/ota-standard/revenue-metrics`：返回 `totals`、`channel_contribution`、`by_platform`、`by_hotel`、`metric_definitions`、`metric_trust`、`data_gaps` 和 `credibility_gate`。
 - 分母缺失时返回 `null` 与 `data_gaps`，不返回 0 伪装为真实指标。
+- 通用成交额存在但 `room_revenue` 缺失时，ADR/RevPAR 返回 `null`；不得为了计算完整而回退到成交额。
 - 可售间夜、净收入、佣金字段只覆盖部分事实行时，只使用字段完整的对齐行计算 RevPAR、Net RevPAR、佣金率，并在 `data_gaps` 返回 `*_partial`。
 - 佣金率、取消率只接受 0-100 的有效百分比；负提前期不进入平均提前期。
 

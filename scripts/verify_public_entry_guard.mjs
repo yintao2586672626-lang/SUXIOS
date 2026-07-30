@@ -518,14 +518,14 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   }
   if (/<script[^>]+src=["']revenue-ai-static\.js(?:\?[^"']*)?["']/.test(htmlContent)
     || !content.includes("const revenueAiStaticScript = 'revenue-ai-static.js';")
-    || !content.includes(`const revenueAiStaticVersion = '20260724-trusted-decision-h${revenueAiStaticHash}';`)
+    || !new RegExp(`const revenueAiStaticVersion = '[^']*-h${revenueAiStaticHash}';`).test(content)
     || !content.includes('const loadRevenueAiStatic = () => {')
     || !content.includes('if (revenueAiStaticLoadPromise) {')
     || !content.includes('revenueAiStaticLoadPromise = null;')
     || !content.includes('const ensureRevenueAiStaticReady = async () => {')
     || !content.includes('revenueAiStaticRevision.value += 1;')
     || !content.includes("buildRevenueAiGapSummary: () => ({ status: 'not_loaded', total: null")
-    || !content.includes("status: 'not_loaded',\n                    statusText: '未加载'")
+    || !content.includes("status: 'not_loaded',\n                    statusLabel: '未加载'")
     || !content.includes("runPageLoadOnce(newPage, 'revenue-ai-static', () => ensureRevenueAiStaticReady());")
     || !content.includes('await ensureRevenueAiStaticReady();\n                        return loadAiDailyReport();')
     || !content.includes('homeSecondaryPanelsReady.value = true;\n                    void ensureRevenueAiStaticReady()')) {
@@ -662,7 +662,16 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes("revenueAiOverviewError.value = res.message || 'Revenue AI 总览接口返回失败';")
     || content.includes("revenueAiOverviewError.value = e.message || 'Revenue AI 总览接口请求失败';")
     || content.includes("const loadRevenueAiOverview = async () => {\n                if (!token.value || currentPage.value !== 'compass') return null;")
-    || !content.includes('const { targetTab } = revenueAiResolveGapTarget(row);')
+    || !content.includes('targetPage,')
+    || !content.includes('targetAgentTab,')
+    || !content.includes('targetRevenueTab,')
+    || !content.includes('} = revenueAiResolveGapTarget(row);')
+    || !revenueAiStaticContent.includes("targetAgentTab: row.target_agent_tab || row.targetAgentTab || '',")
+    || !revenueAiStaticContent.includes("targetRevenueTab: row.target_revenue_tab || row.targetRevenueTab || '',")
+    || !content.includes("if (targetPage === 'agent-center') {")
+    || !content.includes("revenueAgentTab.value = targetRevenueTab || targetTab || 'config';")
+    || !content.includes("if (agentTab.value === 'revenue' && revenueAgentTab.value === 'suggestions') {")
+    || !content.includes('return loadPriceSuggestionWorkbench();')
     || content.includes('const revenueAiChannelStatus = (channel) =>')
     || !content.includes('data-testid="revenue-ai-gap-closure"')
     || !content.includes('data-testid="revenue-ai-pricing-gates"')
@@ -763,7 +772,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes("String(entry.target_page || '') !== 'agent-center'")
     || !revenueAiStaticContent.includes("source: 'revenue_ai_homepage'")
     || !content.includes("openOnlineDataEntryTab(targetTab, { force: true });")) {
-    failures.push('public/index.html must delegate Revenue AI display helpers to revenue-ai-static.js, keep gap/metric clicks on data-health, and expose only manual review/execution-intent actions.');
+    failures.push('public/index.html must delegate Revenue AI display helpers to revenue-ai-static.js, keep data-quality gaps on data-health, route pricing-guard gaps to Revenue configuration, and expose only manual review/execution-intent actions.');
   }
   if (content.includes('@click="applyPriceSuggestion(item.id)"')) {
     failures.push('public/index.html must not expose a direct apply-price button in Phase 1B; approved suggestions should be transferred to execution instead.');

@@ -94,6 +94,7 @@
     "run:revenue-ai-ctrip-pricing-file-to-pending-review": "C:\\xampp\\php\\php.exe scripts\\execute_revenue_ai_ctrip_pricing_file.php",
     "run:revenue-ai-ctrip-review-decision": "C:\\xampp\\php\\php.exe scripts\\execute_revenue_ai_ctrip_review_decision.php",
     "verify:context-assets": "node hooks/verify-context-assets.mjs",
+    "verify:platform-collector-skill": "node scripts/verify_platform_collector_skill_contract.mjs",
     "inspect:mojibake-text": "node scripts/scan_mojibake_text.mjs",
     "verify:ota-revenue-metrics-smoke": "C:\\xampp\\php\\php.exe scripts\\verify_ota_revenue_metrics_smoke.php",
     "verify:taste-coverage": "node scripts/verify_taste_page_coverage.mjs",

@@ -1053,6 +1053,35 @@ class OperationManagementService
         }
 
         $evidence = $this->arrayValue($input['evidence'] ?? []);
+        if ($status === 'executed'
+            && strtolower(trim((string)($intent['source_module'] ?? ''))) === TemporalInsightService::OPERATION_SOURCE_MODULE
+        ) {
+            $platformResponse = $this->arrayValue($evidence['platform_response'] ?? []);
+            $operatorEvidence = $this->arrayValue($platformResponse['operator_execution_evidence'] ?? []);
+            $nextReviewDate = trim((string)(
+                $platformResponse['next_review_date']
+                ?? $operatorEvidence['next_review_date']
+                ?? ''
+            ));
+            $completedAction = trim((string)(
+                $platformResponse['completed_action']
+                ?? $operatorEvidence['completed_action']
+                ?? ''
+            ));
+            if ($completedAction === '') {
+                throw new \InvalidArgumentException(
+                    'forecast operation task requires the completed manual action before execution can be recorded'
+                );
+            }
+            $minimumReviewDate = (new DateTimeImmutable('today'))->modify('+1 day')->format('Y-m-d');
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $nextReviewDate) !== 1
+                || $nextReviewDate < $minimumReviewDate
+            ) {
+                throw new \InvalidArgumentException(
+                    'forecast operation task requires a next-day review date before execution can be recorded'
+                );
+            }
+        }
         if ($currentStatus === 'blocked'
             && in_array($status, ['executed', 'failed'], true)
             && empty($evidence)
@@ -1129,6 +1158,7 @@ class OperationManagementService
             'daily_workbench_patrol',
             'operation_alert',
             'operating_target',
+            TemporalInsightService::OPERATION_SOURCE_MODULE,
             OperationOptimizationExecutionBridgeService::SOURCE_MODULE,
         ];
         if (in_array((string)$payload['source_module'], $reservedSources, true) && !$trustedReservedSource) {
@@ -1606,6 +1636,10 @@ class OperationManagementService
         }
         if ($sourceModule === 'operating_target') {
             $this->assertOperatingTargetIntentSourceIsCurrent($intent);
+            return;
+        }
+        if ($sourceModule === TemporalInsightService::OPERATION_SOURCE_MODULE) {
+            (new TemporalInsightService())->assertOperationRecommendationIntentCurrent($intent);
             return;
         }
         if (!in_array($sourceModule, [
@@ -2189,7 +2223,7 @@ class OperationManagementService
             && !$hasSourceVerifiedReviewEvidence
         ) {
             throw new \InvalidArgumentException(
-                'same-hotel, same-platform and same-object next-day OTA readback is required before terminal review'
+                'same-hotel, same-platform, same-object and same-length OTA readback is required before terminal review'
             );
         }
         if ($isOperationOptimizer

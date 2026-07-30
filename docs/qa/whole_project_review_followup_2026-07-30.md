@@ -3,17 +3,20 @@
 - 审查日期：2026-07-30
 - 应用根目录：`HOTEL/`
 - 冻结分支：`agent/fix-daily-review-gates`
-- 冻结 HEAD：`bf8dc9434f0de27ec45713d496ef0f94821f51e5`
-- 处理边界：保留所有用户与并行任务的未提交变更；未执行 reset、checkout、clean、提交、推送、PR、部署、真实 OTA 采集或生产发送
+- 审查起始冻结 HEAD：`bf8dc9434f0de27ec45713d496ef0f94821f51e5`
+- 最终验证基线 HEAD：`fb622d04da43e72fe213181c1d23ceb3975dde2f`
+- 处理边界：保留所有用户与并行任务的未提交变更；本审查任务未执行 reset、checkout、clean、提交、推送、PR、部署、真实 OTA 采集或生产发送
 - 审查目标：优先修复会阻断核心功能、泄漏高权限能力、把缺失数据伪装成完整事实，或让用户触发无效操作的已证实问题
 
 ## 1. 结论
 
-本轮没有发现新的、仍未处理的已证实 P0。已证实并完成最小修复的主要问题有三项：
+本轮没有发现新的、仍未处理的已证实 P0。已证实并完成最小修复的主要问题有五项：
 
 1. 普通账号进入页面时仍会自动请求 Revenue AI 高权限接口，形成不必要的 401/403、错误噪音与状态污染。
 2. 携程、美团组合指标在一侧缺失时会丢弃另一侧已知值，用户无法分辨“全缺失”和“已知部分合计”。
 3. 当前酒店没有完成唯一 PMS 绑定时，“实时同步”按钮仍可操作，用户会触发一个必然失败的路径。
+4. 合法 UI 迁移后，六个 Node 合同仍匹配旧结构，导致完整回归出现假失败。
+5. `operation-static.js` 内容已更新，但主入口仍声明旧缓存版本，浏览器可能复用与当前主脚本不匹配的旧运行时代码。
 
 同时，当前共享工作区中其他功能任务修复了通知页重新挂载、发送记录重试语义、全局当前酒店联动等问题。本报告只把这些作为当前快照事实，不把其他任务的贡献归入本轮直接修改。
 
@@ -136,6 +139,28 @@
 
 已修复；六个原失败测试的目标重跑均通过。
 
+### F-05 — P1 — 运行时脚本缓存版本落后于真实文件
+
+#### 已证实根因
+
+`public/operation-static.js` 当前 SHA-256 前缀为 `7eb502590a`，但 `public/app-main.js` 仍声明旧版本 `h41c2131a16`。内容变更与缓存键没有同步，完整 Node 回归据此失败。
+
+#### 影响
+
+- 已缓存客户端可能继续执行旧运营运行时脚本。
+- 新主脚本与旧运行时帮助函数混用时，运营页可能表现为入口已更新、具体交互仍停留在旧逻辑。
+- 测试、源码和浏览器实际加载产物不再指向同一版本。
+
+#### 最小修复
+
+- 将 `operationStaticScriptVersion` 更新为真实文件哈希前缀 `h7eb502590a`。
+- 重新生成 `public/app-main.min.js` 与 `public/index.html` 的受控入口产物。
+- 不修改运行时业务逻辑，只恢复源码、压缩产物、缓存键和入口引用的一致性。
+
+#### 状态
+
+已修复；当前声明前缀与文件 SHA-256 前缀一致，携程公开资料目标回归 8/8、`verify:public-entry` 和完整 Node 均通过。
+
 ## 4. 稳定性、规则与架构结论
 
 ### 4.1 启动与健康
@@ -157,7 +182,8 @@
 
 - `public/app-main.js` 与合并模板仍是高耦合热点。
 - 构建需要统一所有 fragment、渲染产物、入口 hash 和 Tailwind 产物。
-- 启动 gzip 已进入警告区间，但尚未越过硬限制。
+- 最终模板守卫输出：模板 2,173,136 bytes，渲染产物 1,424,528 bytes，渲染 gzip 254,054 bytes。
+- 启动 gzip 为 639,820 bytes，已进入警告区间；距离 650,000 bytes 硬限制仅余 10,180 bytes。
 
 当前不进行大文件拆分重构：没有证据证明它是本轮功能故障根因，而且脏工作区中大规模重构会显著增加覆盖和回归风险。
 
@@ -206,13 +232,14 @@
 | 验证项 | 结果 | 证据边界 |
 |---|---:|---|
 | 新增功能完整性回归 | 3/3 通过 | Revenue AI 权限、双 OTA 部分合计、PMS 未绑定门禁 |
-| 第一轮前端目标回归 | 113/113 通过 | 核心前端、OTA、PMS、通知合同 |
+| 最终前端目标回归 | 135/135 通过 | 核心前端、OTA、PMS、通知合同 |
 | 六个陈旧合同目标重跑 | 全部通过 | 只证明已更新的 Node 合同 |
 | PHP 目标回归 | 197 tests / 1587 assertions，通过 | 受影响服务与高风险边界 |
-| 完整 PHPUnit | 2987 tests / 27374 assertions / 0 failures / 1 skipped | 当前 PHP 工作区快照 |
-| `/api/health` | HTTP 200 | 本地运行状态，不是生产证明 |
-| 前端统一构建与严格守卫 | 待最终稳定快照复核 | 并行写入期间不提前宣称 |
-| 完整 Node | 待最终稳定快照复核 | 首轮发现的六个合同问题已逐项修复 |
+| 完整 PHPUnit | 3040 tests / 27910 assertions / 0 failures / 1 skipped | 退出码 0；执行期间 `app/route/tests` 无源码写入 |
+| 完整 Node | 185 files / 1118 tests / 0 failures | 退出码 0；修复缓存版本后重跑 |
+| 前端模板、Tailwind、公开入口、上下文资产守卫 | 4/4 通过 | 四个 npm 守卫退出码均为 0 |
+| `/api/health` | HTTP 200，overall `ok` | application、database、schema、幂等检查为 `ok`；本地状态不是生产证明 |
+| `git diff --check` | 通过 | 两份迁移脚本的 EOF 空行已机械清理，未修改 SQL 语义 |
 
 ## 6. 未验证与剩余阻塞
 
@@ -231,6 +258,8 @@
 ## 7. 本轮直接修改范围
 
 - `public/app-main.js`
+- `public/app-main.min.js`
+- `public/index.html`
 - `resources/frontend/templates/fragments/15aab-page-pms-operating-data.html`
 - `tests/automation/functional_integrity_guard.test.mjs`
 - `tests/automation/auth_session_dashboard_isolation.test.mjs`
@@ -242,11 +271,16 @@
 - `tests/automation/meituan_cloud_pms_integration_ui.test.mjs`
 - `tests/automation/meituan_owner_workspace.test.mjs`
 
+另外，机械清理了以下迁移脚本各一个 EOF 空行；清理后文件与当前 HEAD 一致，没有保留 SQL 语义改动：
+
+- `database/migrations/20260729_seed_traffic_operation_management_golden_sentences.sql`
+- `database/migrations/20260730_seed_hotel_revenue_success_practices_extension.sql`
+
 ## 8. 停止条件
 
-完成以下闭环后停止，不扩展新功能：
+以下闭环均已满足，本轮在此停止，不扩展新功能：
 
-1. 最新共享前端源码连续稳定。
-2. 统一构建、目标 Node、前端守卫和完整 Node 在同一快照通过。
-3. 最终健康检查仍为 HTTP 200。
-4. 报告补齐最终测试数字与剩余边界。
+1. 最新共享前端源码在完整 Node 执行期间保持稳定。
+2. 统一构建、目标 Node、前端守卫和完整 Node 均通过。
+3. 最终健康检查为 HTTP 200。
+4. 报告已补齐最终测试数字与剩余边界。

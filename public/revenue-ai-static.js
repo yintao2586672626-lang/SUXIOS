@@ -147,6 +147,10 @@
         source_update_time_missing: '缺少 OTA 来源更新时间。',
         metric_value_missing: '指标值缺失。',
         whole_hotel_scope_not_proved: '尚未证明全酒店口径，只能保留 OTA 渠道边界。',
+        dingdandao_pms_not_readback_verified: 'PMS 全酒店住宿事实尚未完成同店同日回读验证。',
+        three_source_ota_facts_partial: '携程或美团目标日渠道事实尚未完成回读验证。',
+        cross_source_denominator_or_ota_facts_missing: 'PMS 全酒店可售间夜或 OTA 渠道分子缺失，跨源指标不可计算。',
+        source_fact_missing: '对应来源事实缺失，保持为空。',
         revenue_positive_orders_zero: 'OTA 收入大于 0 但订单数为 0，需复核来源字段。',
         revenue_positive_room_nights_zero: 'OTA 收入大于 0 但间夜为 0，需复核来源字段。',
         data_not_complete: '当前数据未达到完整口径。',
@@ -158,6 +162,9 @@
         ota_channel: 'OTA渠道口径',
         hotel: '全酒店口径',
         hotel_required: '需全酒店口径',
+        whole_hotel_accommodation: 'PMS全酒店住宿口径',
+        cross_source_comparison: '跨源分层指标',
+        three_source_layered: '三源分层口径',
     }[String(scope || '')] || '口径待确认');
 
     const revenueAiDateBasisLabel = (dateBasis) => ({
@@ -168,12 +175,16 @@
         create_time: 'create_time',
         forecast_date: 'forecast_date',
         calendar_date: 'calendar_date',
+        pms_business_date: 'PMS经营日',
+        same_date_key_distinct_source_semantics: '同日键·分来源语义',
         'operation_execution_intents.date_start/date_end': '执行意图日期',
     }[String(dateBasis || '')] || 'date_basis待确认');
 
     const revenueAiChannelLabel = (channel) => ({
         ctrip: '携程',
         meituan: '美团',
+        dingdandao_pms: 'PMS（订单来了）',
+        pricing_guard: '价格底线',
         hotel: '全酒店',
         ota: 'OTA',
     }[String(channel || '').toLowerCase()] || 'OTA');
@@ -191,11 +202,14 @@
     }[String(severity || '').toLowerCase()] || 'bg-amber-50 text-amber-700 border-amber-100');
 
     const revenueAiMetricDefinitions = Object.freeze([
-        { key: 'ota_room_revenue', label: '昨日OTA房费收入' },
-        { key: 'ota_room_nights', label: '昨日OTA间夜' },
-        { key: 'ota_adr', label: 'OTA ADR' },
-        { key: 'ota_contribution_revpar', label: 'OTA渠道贡献RevPAR' },
-        { key: 'data_completeness', label: '数据完整度' },
+        { key: 'ota_room_revenue', label: '目标日OTA房费收入', scope: 'ota_channel', dateBasis: 'data_date' },
+        { key: 'ota_room_nights', label: '目标日OTA间夜', scope: 'ota_channel', dateBasis: 'data_date' },
+        { key: 'ota_adr', label: '目标日OTA ADR', scope: 'ota_channel', dateBasis: 'data_date' },
+        { key: 'whole_hotel_room_revenue', label: '全酒店住宿房费', scope: 'whole_hotel_accommodation', dateBasis: 'pms_business_date' },
+        { key: 'whole_hotel_sellable_room_nights', label: '全酒店可售间夜', scope: 'whole_hotel_accommodation', dateBasis: 'pms_business_date' },
+        { key: 'whole_hotel_revpar', label: '全酒店住宿 RevPAR', scope: 'whole_hotel_accommodation', dateBasis: 'pms_business_date' },
+        { key: 'ota_contribution_revpar', label: 'OTA收入/全酒店可售间夜', scope: 'cross_source_comparison', dateBasis: 'same_date_key_distinct_source_semantics' },
+        { key: 'data_completeness', label: '数据完整度', scope: 'ota_channel', dateBasis: 'data_date' },
     ]);
 
     const buildRevenueAiOverviewQuery = ({ businessDate = '', hotelId = '', platform = 'ctrip' } = {}) => {
@@ -374,6 +388,64 @@
         });
     };
 
+    const revenueAiCanonicalFactLayerGaps = (overview = {}) => {
+        const factLayer = overview?.three_source_fact_layer;
+        if (!factLayer || typeof factLayer !== 'object') return null;
+        const hasGapContract = Array.isArray(factLayer.analysis_gaps)
+            || Array.isArray(factLayer.ai_review_gaps)
+            || Object.prototype.hasOwnProperty.call(factLayer, 'unique_remaining_gap');
+        if (!hasGapContract) return null;
+
+        const analysisGaps = Array.isArray(factLayer.analysis_gaps) ? factLayer.analysis_gaps : [];
+        const reviewGaps = Array.isArray(factLayer.ai_review_gaps) ? factLayer.ai_review_gaps : [];
+        const uniqueGap = factLayer.unique_remaining_gap && typeof factLayer.unique_remaining_gap === 'object'
+            ? [factLayer.unique_remaining_gap]
+            : [];
+        const seen = new Set();
+        return [...analysisGaps, ...reviewGaps, ...uniqueGap]
+            .filter((gap) => gap && typeof gap === 'object')
+            .map((gap) => {
+                const code = String(gap.code || gap.reason || 'fact_layer_gap');
+                const source = String(gap.source || '');
+                const dedupeKey = `${source}:${code}`;
+                if (seen.has(dedupeKey)) return null;
+                seen.add(dedupeKey);
+                const isPricingGuard = source === 'pricing_guard' || code === 'floor_price_missing';
+                const platform = source === 'ctrip_ota'
+                    ? 'ctrip'
+                    : (source === 'meituan_ota' ? 'meituan' : source);
+                return {
+                    ...gap,
+                    key: gap.key || `fact-layer-${source || 'unknown'}-${code}`,
+                    code,
+                    reason: code,
+                    type: 'missing_dataset',
+                    label: isPricingGuard ? '最低保护价' : '三源事实层缺口',
+                    channel: platform,
+                    status: gap.status || 'missing',
+                    severity: gap.severity || 'high',
+                    message: gap.message || revenueAiReasonText(code),
+                    display_reason: gap.display_reason || revenueAiReasonText(code),
+                    affected_metrics: Array.isArray(gap.affected_metrics)
+                        ? gap.affected_metrics
+                        : (gap.category ? [String(gap.category)] : []),
+                    next_action: gap.next_action || (
+                        isPricingGuard
+                            ? '为启用房型配置最低保护价，保存回显后重新审核。'
+                            : '补齐对应来源并完成同店同日保存回读。'
+                    ),
+                    target_page: gap.target_page || (isPricingGuard ? 'agent-center' : 'online-data'),
+                    target_tab: gap.target_tab || (isPricingGuard ? 'suggestions' : 'data-health'),
+                    target_agent_tab: gap.target_agent_tab || (isPricingGuard ? 'revenue' : ''),
+                    target_revenue_tab: gap.target_revenue_tab || (isPricingGuard ? 'suggestions' : ''),
+                    target_platform: gap.target_platform || (
+                        ['ctrip', 'meituan'].includes(platform) ? platform : ''
+                    ),
+                };
+            })
+            .filter(Boolean);
+    };
+
     const revenueAiClosureMetricChip = (metric = {}, label = '', key = '') => {
         const status = metric?.status || 'unknown';
         const truth = metric?.truth && typeof metric.truth === 'object' ? metric.truth : {};
@@ -481,19 +553,44 @@
         const gate = overview.metric_summary?.credibility_gate || {};
         const decisionUse = gate.decision_use || {};
         const revenueUse = closure.decision_use || decisionUse.revenue_analysis || {};
-        const revenueMetric = revenueAiClosureMetric(closure, ['sections', 'revenue']);
-        const orderMetric = revenueAiClosureMetric(closure, ['sections', 'orders']);
-        const roomNightMetric = revenueAiClosureMetric(closure, ['sections', 'room_nights']);
-        const adrMetric = revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'adr']);
+        const factLayer = overview.three_source_fact_layer && typeof overview.three_source_fact_layer === 'object'
+            ? overview.three_source_fact_layer
+            : {};
+        const factLayerReady = overview.revenue_analysis_status === 'ready'
+            && factLayer.all_three_sources_readback_verified === true;
+        const canonicalOta = factLayer?.facts?.ota_channel?.combined || {};
+        const revenueMetric = factLayerReady
+            ? (overview.metrics?.ota_room_revenue || {})
+            : revenueAiClosureMetric(closure, ['sections', 'revenue']);
+        const orderMetric = factLayerReady
+            ? {
+                key: 'ota_orders',
+                value: canonicalOta.orders ?? null,
+                unit: 'orders',
+                status: canonicalOta.orders === null || canonicalOta.orders === undefined ? 'not_calculable' : 'ok',
+                reason: canonicalOta.orders === null || canonicalOta.orders === undefined ? 'source_fact_missing' : '',
+                truth: overview.metrics?.ota_room_revenue?.truth || {},
+            }
+            : revenueAiClosureMetric(closure, ['sections', 'orders']);
+        const roomNightMetric = factLayerReady
+            ? (overview.metrics?.ota_room_nights || {})
+            : revenueAiClosureMetric(closure, ['sections', 'room_nights']);
+        const adrMetric = factLayerReady
+            ? (overview.metrics?.ota_adr || {})
+            : revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'adr']);
         const flowMetric = revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'flow_rate']);
         const submitMetric = revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'submit_rate']);
-        const missingRows = revenueAiClosureIssueRows(closure.missing_items?.items, 'missing');
+        const canonicalFactLayerGaps = revenueAiCanonicalFactLayerGaps(overview);
+        const legacyMissingRows = revenueAiClosureIssueRows(closure.missing_items?.items, 'missing');
+        const missingRows = canonicalFactLayerGaps === null
+            ? legacyMissingRows
+            : revenueAiClosureIssueRows(canonicalFactLayerGaps, 'missing');
         const anomalyRows = revenueAiClosureIssueRows(closure.anomaly_judgment?.items, 'anomaly');
         const execution = overview.execution_summary || {};
         const operationStatus = execution.status || 'not_loaded';
         const aiDecision = decisionUse.ai_decision_support || {};
-        const closureStatus = closure.status || overview.data_status || 'unknown';
-        const calculationAllowed = closure.calculation_allowed === true;
+        const closureStatus = overview.revenue_analysis_status || closure.status || overview.data_status || 'unknown';
+        const calculationAllowed = factLayerReady || closure.calculation_allowed === true;
         const metricChips = [
             revenueAiClosureMetricChip(revenueMetric, '收入', 'revenue'),
             revenueAiClosureMetricChip(orderMetric, '订单', 'orders'),
@@ -502,7 +599,9 @@
             revenueAiClosureMetricChip(flowMetric, '流量转化', 'flow_rate'),
             revenueAiClosureMetricChip(submitMetric, '提交转化', 'submit_rate'),
         ];
-        const revenueAnalysisStatus = revenueAiClosureGroupStatus(metricChips);
+        const revenueAnalysisStatus = factLayerReady
+            ? 'ready'
+            : revenueAiClosureGroupStatus(metricChips);
         const summaryChips = [
             revenueAiClosureSummaryChip('calculation', '收益计算', calculationAllowed ? '允许' : '阻断', calculationAllowed ? 'ok' : 'blocked', revenueAiReasonText(revenueUse.status || (calculationAllowed ? '' : 'blocked_by_data_credibility'))),
             revenueAiClosureSummaryChip('missing', '缺失项', `${missingRows.length}项`, missingRows.length > 0 ? 'warning' : 'ok', missingRows.length > 0 ? '继续补齐缺失项' : '未发现关键缺失项'),
@@ -513,18 +612,22 @@
             status: closureStatus,
             statusLabel: revenueAiStatusLabel(closureStatus),
             className: revenueAiStatusClass(closureStatus),
-            scopeText: revenueAiScopeLabel(closure.scope || overview.scope || 'ota'),
-            summary: closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。',
+            scopeText: revenueAiScopeLabel(overview.scope || closure.scope || 'ota'),
+            summary: factLayerReady
+                ? 'PMS 仅承载全酒店住宿事实，携程/美团仅承载 OTA 渠道事实；收入不跨口径相加。'
+                : (closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。'),
             calculationAllowed,
             summaryChips,
             nextAction: revenueAiClosureNextAction({ calculationAllowed, missingRows, anomalyRows, operationStatus }),
             rows: [
                 {
                     key: 'ota-data',
-                    stage: 'OTA数据',
-                    title: '已验证数据准入',
+                    stage: factLayerReady ? '三源数据' : 'OTA数据',
+                    title: factLayerReady ? 'PMS＋携程＋美团同店同日准入' : '已验证数据准入',
                     primary: calculationAllowed ? '可进入收益计算' : '阻断收益计算',
-                    secondary: closure.scope_statement || '只读取 OTA 渠道事实和 metric_trust。',
+                    secondary: factLayerReady
+                        ? 'PMS=全酒店住宿；携程/美团=OTA渠道；缺失值保持为空。'
+                        : (closure.scope_statement || '只读取 OTA 渠道事实和 metric_trust。'),
                     statusLabel: revenueAiStatusLabel(closureStatus),
                     className: revenueAiStatusClass(closureStatus),
                 },
@@ -579,8 +682,8 @@
                 className: revenueAiStatusClass(overviewError || hasTruthStatus ? revenueAiTruthStatusTone(truthStatus) : status),
                 metricStatusLabel: revenueAiStatusLabel(status),
                 reasonText: truth?.failure_reason || metric.display_reason || revenueAiReasonText(reason),
-                scopeLabel: revenueAiScopeLabel(metric.scope || overview?.scope || 'ota'),
-                dateBasisLabel: revenueAiDateBasisLabel(metric.date_basis || overview?.date_basis || 'data_date'),
+                scopeLabel: revenueAiScopeLabel(metric.scope || definition.scope || overview?.scope || 'ota'),
+                dateBasisLabel: revenueAiDateBasisLabel(metric.date_basis || definition.dateBasis || overview?.date_basis || 'data_date'),
                 truth,
                 truthStatus,
                 truthLines: revenueAiMetricTruthLines(truth),
@@ -626,10 +729,14 @@
             }];
         }
 
+        const canonicalFactLayerGaps = revenueAiCanonicalFactLayerGaps(overview);
         const missing = Array.isArray(overview.missing_datasets) ? overview.missing_datasets : [];
         const issues = Array.isArray(overview.quality_issues) ? overview.quality_issues : [];
-        return [...missing, ...issues].slice(0, 8).map((row, index) => {
-            const channel = row.target_platform || row.channel || '';
+        const rows = canonicalFactLayerGaps === null
+            ? [...missing, ...issues]
+            : canonicalFactLayerGaps;
+        return rows.slice(0, 8).map((row, index) => {
+            const channel = row.channel || row.target_platform || '';
             const status = row.status || (row.type === 'missing_dataset' ? 'empty' : 'unknown');
             const severity = row.severity || 'medium';
             return {
@@ -644,7 +751,9 @@
                 nextAction: row.next_action || '进入数据健康面板复核。',
                 target_page: row.target_page || 'online-data',
                 target_tab: row.target_tab || 'data-health',
-                target_platform: channel,
+                target_platform: row.target_platform || '',
+                target_agent_tab: row.target_agent_tab || '',
+                target_revenue_tab: row.target_revenue_tab || '',
                 raw: row,
             };
         });
@@ -659,6 +768,8 @@
         targetPage: row.target_page || row.targetPage || 'online-data',
         targetTab: row.target_tab || row.targetTab || 'data-health',
         targetPlatform: row.target_platform || row.targetPlatform || '',
+        targetAgentTab: row.target_agent_tab || row.targetAgentTab || '',
+        targetRevenueTab: row.target_revenue_tab || row.targetRevenueTab || '',
     });
 
     const resolveRevenueAiDecisionBasisNavigation = (basis = {}) => ({
@@ -687,7 +798,8 @@
     } = {}) => {
         const normalizedOverviewStatus = overviewError
             ? 'failed'
-            : (overview?.data_status || (overviewLoading ? 'not_loaded' : overviewStatus || 'unknown'));
+            : (overview?.revenue_analysis_status || overview?.data_status || (overviewLoading ? 'not_loaded' : overviewStatus || 'unknown'));
+        const isThreeSourceLayered = overview?.scope === 'three_source_layered';
         const readinessPercent = readiness?.percent !== null
             && readiness?.percent !== undefined
             && readiness?.percent !== ''
@@ -715,10 +827,32 @@
                 key: 'scope',
                 label: '数据口径',
                 value: revenueAiScopeLabel(overview?.scope || 'ota'),
-                status: overview?.scope === 'hotel' ? '全酒店' : '非全酒店',
-                detail: '只把已验证 OTA 口径作为首页判断输入，不包装成全酒店经营结论。',
-                className: revenueAiStatusClass('warning'),
+                status: isThreeSourceLayered
+                    ? 'PMS全酒店住宿 + OTA渠道'
+                    : (overview?.scope === 'hotel' ? '全酒店' : '非全酒店'),
+                detail: isThreeSourceLayered
+                    ? '同店同日分层读取：PMS 不与 OTA 收入相加，OTA 不冒充全酒店收入。'
+                    : '只把已验证 OTA 口径作为首页判断输入，不包装成全酒店经营结论。',
+                className: revenueAiStatusClass(isThreeSourceLayered ? 'ready' : 'warning'),
             },
+            ...(isThreeSourceLayered ? [{
+                key: 'pms',
+                label: 'PMS状态',
+                value: overview?.three_source_fact_layer?.sources?.dingdandao_pms?.data_status === 'readback_verified'
+                    ? '已保存并回读'
+                    : '--',
+                status: revenueAiStatusLabel(
+                    overview?.three_source_fact_layer?.sources?.dingdandao_pms?.data_status === 'readback_verified'
+                        ? 'ready'
+                        : 'unverified',
+                ),
+                detail: '仅作为全酒店住宿收入、可售间夜与 RevPAR 来源。',
+                className: revenueAiStatusClass(
+                    overview?.three_source_fact_layer?.sources?.dingdandao_pms?.data_status === 'readback_verified'
+                        ? 'ready'
+                        : 'unverified',
+                ),
+            }] : []),
             {
                 key: 'ctrip',
                 label: '携程状态',

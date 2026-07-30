@@ -23,6 +23,9 @@ test('Meituan temporal Windows task is scoped, serialized, and disabled-capable'
   assert.match(register, /@\('09:15', '13:00', '17:00', '21:00'\)/);
   assert.match(register, /-MultipleInstances IgnoreNew/);
   assert.match(register, /-LogonType Interactive/);
+  assert.match(register, /php-win\.exe/);
+  assert.match(register, /visible_window_expected = \$false/);
+  assert.match(register, /-Hidden/);
   assert.match(register, /Disable-ScheduledTask/);
   assert.match(register, /external_delivery = \$false/);
   assert.doesNotMatch(register, /run_cloud_ota_pilot|send|webhook/i);

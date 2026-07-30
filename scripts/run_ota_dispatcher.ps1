@@ -9,7 +9,16 @@ param(
     [string]$PhpPath,
 
     [ValidateSet('Daily', 'Realtime')]
-    [string]$Mode = 'Daily'
+    [string]$Mode = 'Daily',
+
+    [ValidateRange(0, 2147483647)]
+    [int]$HotelId = 0,
+
+    [ValidatePattern('^(?:|[1-9][0-9]*(?:,[1-9][0-9]*)*)$')]
+    [string]$SourceIds = '',
+
+    [ValidateSet('', 'ctrip', 'meituan', 'ctrip,meituan', 'meituan,ctrip')]
+    [string]$Platforms = ''
 )
 
 Set-StrictMode -Version Latest
@@ -22,6 +31,11 @@ $resolvedPhp = (Resolve-Path -LiteralPath $PhpPath -ErrorAction Stop).Path
 $thinkPath = Join-Path $resolvedRoot 'think'
 if (-not (Test-Path -LiteralPath $thinkPath -PathType Leaf)) {
     throw "Think entry was not found: $thinkPath"
+}
+$explicitScopeRequested = $HotelId -gt 0 -or $SourceIds -ne '' -or $Platforms -ne ''
+$explicitScopeComplete = $HotelId -gt 0 -and $SourceIds -ne '' -and $Platforms -ne ''
+if ($explicitScopeRequested -and -not $explicitScopeComplete) {
+    throw 'Scoped OTA dispatcher requires HotelId, SourceIds, and Platforms together.'
 }
 
 $logDirectory = Join-Path $resolvedRoot 'runtime\dispatcher'
@@ -55,10 +69,23 @@ $exitCode = 1
 $stdoutPath = Join-Path $logDirectory "ota_dispatcher_$runId.stdout.tmp"
 $stderrPath = Join-Path $logDirectory "ota_dispatcher_$runId.stderr.tmp"
 $scheduleArgument = if ($Mode -eq 'Realtime') { '--realtime-only' } else { '--daily-only' }
+$dispatcherArguments = @(
+    ('"{0}"' -f $thinkPath),
+    'online-data:auto-fetch',
+    $scheduleArgument
+)
+if ($explicitScopeComplete) {
+    $dispatcherArguments += @(
+        "--hotel-id=$HotelId",
+        "--source-ids=$SourceIds",
+        "--platforms=$Platforms"
+    )
+    $lines += "dispatcher_scope=hotel:$HotelId;platforms:$Platforms;source_count:$(@($SourceIds.Split(',')).Count)"
+}
 try {
     $process = Start-Process `
         -FilePath $resolvedPhp `
-        -ArgumentList @('"' + $thinkPath + '"', 'online-data:auto-fetch', $scheduleArgument) `
+        -ArgumentList $dispatcherArguments `
         -WorkingDirectory $resolvedRoot `
         -RedirectStandardOutput $stdoutPath `
         -RedirectStandardError $stderrPath `

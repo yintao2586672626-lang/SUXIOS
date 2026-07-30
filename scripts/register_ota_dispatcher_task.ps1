@@ -8,6 +8,15 @@ param(
 
     [switch]$Realtime,
 
+    [ValidateRange(0, 2147483647)]
+    [int]$HotelId = 0,
+
+    [ValidatePattern('^(?:|[1-9][0-9]*(?:,[1-9][0-9]*)*)$')]
+    [string]$SourceIds = '',
+
+    [ValidateSet('', 'ctrip', 'meituan', 'ctrip,meituan', 'meituan,ctrip')]
+    [string]$Platforms = '',
+
     [Parameter(Mandatory = $true, ParameterSetName = 'Unregister')]
     [switch]$Unregister,
 
@@ -39,7 +48,8 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Split-Path -Parent $PSScriptRoot
 }
 
-$taskName = if ($Realtime) { 'SUXIOS OTA Realtime Dispatcher' } else { 'SUXIOS OTA Dispatcher' }
+$taskBaseName = if ($Realtime) { 'SUXIOS OTA Realtime Dispatcher' } else { 'SUXIOS OTA Dispatcher' }
+$taskName = if ($HotelId -gt 0) { "$taskBaseName H$HotelId" } else { $taskBaseName }
 $taskPath = '\'
 $dispatcherCommand = 'online-data:auto-fetch'
 $dispatcherMode = if ($Realtime) { 'Realtime' } else { 'Daily' }
@@ -137,7 +147,14 @@ $consoleConfigPath = Join-Path $effectiveProjectRoot 'config\console.php'
 $registrationScriptPath = Join-Path $effectiveProjectRoot 'scripts\register_ota_dispatcher_task.ps1'
 $dispatcherRunnerPath = Join-Path $effectiveProjectRoot 'scripts\run_ota_dispatcher.ps1'
 $powershellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$actionArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ProjectRoot "{1}" -PhpPath "{2}" -Mode {3}' -f $dispatcherRunnerPath, $effectiveProjectRoot, $resolvedPhpPath, $dispatcherMode
+$explicitScopeRequested = $HotelId -gt 0 -or $SourceIds -ne '' -or $Platforms -ne ''
+$explicitScopeComplete = $HotelId -gt 0 -and $SourceIds -ne '' -and $Platforms -ne ''
+$scopeArguments = if ($explicitScopeComplete) {
+    ' -HotelId {0} -SourceIds "{1}" -Platforms "{2}"' -f $HotelId, $SourceIds, $Platforms
+} else {
+    ''
+}
+$actionArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -ProjectRoot "{1}" -PhpPath "{2}" -Mode {3}{4}' -f $dispatcherRunnerPath, $effectiveProjectRoot, $resolvedPhpPath, $dispatcherMode, $scopeArguments
 
 $preflight = @()
 $preflight += New-PreflightCheck -Name 'project_root' -Passed ($null -ne $resolvedProjectRoot) -Detail $effectiveProjectRoot
@@ -147,6 +164,16 @@ $preflight += New-PreflightCheck -Name 'php_binary' -Passed ($null -ne $resolved
 $preflight += New-PreflightCheck -Name 'think_entry' -Passed (Test-Path -LiteralPath $thinkPath -PathType Leaf) -Detail $thinkPath
 $preflight += New-PreflightCheck -Name 'dispatcher_runner' -Passed (Test-Path -LiteralPath $dispatcherRunnerPath -PathType Leaf) -Detail $dispatcherRunnerPath
 $preflight += New-PreflightCheck -Name 'powershell_binary' -Passed (Test-Path -LiteralPath $powershellPath -PathType Leaf) -Detail $powershellPath
+$scopeBoundaryPassed = -not $explicitScopeRequested -or $explicitScopeComplete
+$preflight += New-PreflightCheck -Name 'scope_boundary' -Passed $scopeBoundaryPassed -Detail $(
+    if ($scopeBoundaryPassed -and $explicitScopeComplete) {
+        "hotel $HotelId; sources fixed; platforms $Platforms"
+    } elseif ($scopeBoundaryPassed) {
+        'existing enabled-hotel scheduler scope'
+    } else {
+        'HotelId, SourceIds, and Platforms must be supplied together'
+    }
+)
 
 $commandRegistered = $false
 if (Test-Path -LiteralPath $consoleConfigPath -PathType Leaf) {
@@ -227,6 +254,12 @@ $plan = [ordered]@{
         arguments = $actionArguments
         working_directory = $effectiveProjectRoot
     }
+    scope = [ordered]@{
+        hotel_id = if ($HotelId -gt 0) { $HotelId } else { $null }
+        source_ids_fixed = $SourceIds -ne ''
+        platforms = if ($Platforms -ne '') { @($Platforms.Split(',')) } else { @() }
+        external_delivery = $false
+    }
     principal = [ordered]@{
         user = $RunAsUser
         logon_type = 'Interactive'
@@ -234,6 +267,7 @@ $plan = [ordered]@{
     }
     safety = [ordered]@{
         starts_task_immediately = $false
+        visible_window_expected = $false
         credentials_in_arguments = $false
         enable_requires_switch = '-Enable'
         unregister_requires_switches = @('-Unregister', '-ConfirmUnregister')
@@ -299,6 +333,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
     $taskSettings = New-ScheduledTaskSettingsSet `
         -MultipleInstances IgnoreNew `
         -StartWhenAvailable `
+        -Hidden `
         -ExecutionTimeLimit $(if ($Realtime) { New-TimeSpan -Minutes 25 } else { New-TimeSpan -Hours 2 }) `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries
@@ -310,7 +345,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
         Trigger = $taskTrigger
         Principal = $taskPrincipal
         Settings = $taskSettings
-        Description = $(if ($Realtime) { 'Authorized local-profile OTA realtime dispatcher. Runs one idempotent current-day slot per hour; task arguments contain no credentials and registration does not start it.' } else { 'Authorized local-profile OTA daily dispatcher. Runs yesterday final collection once; task arguments contain no credentials and registration does not start it.' })
+        Description = $(if ($Realtime) { 'Authorized local-profile OTA realtime dispatcher. Runs one idempotent current-day slot per hour; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' } else { 'Authorized local-profile OTA daily dispatcher. Runs yesterday final collection once; fixed scope when provided, no external delivery, hidden window, and registration does not start it.' })
     }
     if ($null -ne $existingTask) {
         $registrationParameters['Force'] = $true

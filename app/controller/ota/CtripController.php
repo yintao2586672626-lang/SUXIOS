@@ -105,6 +105,11 @@ final class CtripController extends OtaController
         return $this->service()->execute(__FUNCTION__);
     }
 
+    public function ctripTemporalBroadcastPreview(): Response
+    {
+        return $this->service()->execute(__FUNCTION__);
+    }
+
     public function fetchCtripCookieApiData(): Response
     {
         return $this->service()->execute(__FUNCTION__);

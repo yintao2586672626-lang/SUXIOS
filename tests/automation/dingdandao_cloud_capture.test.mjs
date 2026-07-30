@@ -6,6 +6,7 @@ import {
   classifyDingdandaoResponseRequest,
   collectDingdandaoDirect,
   dingdandaoDirectRequests,
+  dingdandaoEndpointRecipes,
   dingdandaoSessionMaterialFromStorage,
   DINGDANDAO_API_PATHS,
   DINGDANDAO_COLLECTION_MODES,
@@ -314,6 +315,23 @@ test('default request plan targets the operating indicators and reconciliation f
   const targetDate = '2026-07-27';
   const requests = dingdandaoDirectRequests('network_123', targetDate);
   assert.equal(requests.length, 5);
+  assert.deepEqual(requests.map((request) => request.recipe_id), [
+    'store_identity',
+    'operating_total',
+    'sum_detail_room_fee',
+    'daily_detail_room_fee',
+    'trend_total_room_fee',
+  ]);
+  assert.equal(
+    requests.every((request) => (
+      request.platform === 'dingdandao'
+      && request.source_kind === 'pms'
+      && request.business_module === 'accommodation_operating'
+      && request.origin === 'https://www.dingdandao.com'
+      && request.method === 'POST'
+    )),
+    true,
+  );
   assert.deepEqual(requests.map((request) => request.path), [
     DINGDANDAO_API_PATHS.identity,
     DINGDANDAO_API_PATHS.total,
@@ -339,6 +357,23 @@ test('default request plan targets the operating indicators and reconciliation f
     assert.equal(request.body.TIMEZONEOFFSET, -480);
   }
   assert.deepEqual(Object.keys(requests[0].body).sort(), ['TIMEZONEOFFSET', 'ntwNum']);
+});
+
+test('endpoint recipes contain no runtime hotel, date, or session material', () => {
+  const recipes = dingdandaoEndpointRecipes(
+    DINGDANDAO_COLLECTION_MODES.fullDiagnostic,
+  );
+  const serialized = JSON.stringify(recipes);
+
+  assert.equal(recipes.length, 22);
+  assert.equal(new Set(recipes.map((recipe) => recipe.id)).size, 22);
+  assert.doesNotMatch(
+    serialized,
+    /network_123|provider-hotel-5|2026-07-27|secret-cookie|secret-token/i,
+  );
+  assert.match(serialized, /\{provider_network_id\}/);
+  assert.match(serialized, /\{target_date\}/);
+  assert.match(serialized, /\{forward_end_date\}/);
 });
 
 test('full diagnostic request plan preserves all verified detail and county contracts', () => {
@@ -903,6 +938,46 @@ test('precise direct collector reads operating indicators, reconciles room fee, 
   });
   assert.equal(capture.provider_hotel_id, providerHotelId);
   assert.equal(capture.provider_hotel_name, providerHotelName);
+  assert.equal(capture.collection_mode, 'operating_indicators');
+  assert.equal(capture.capture_strategy, 'verified_endpoint_recipe');
+  assert.equal(capture.capture_evidence.source_kind, 'pms');
+  assert.equal(
+    capture.capture_evidence.business_module,
+    'accommodation_operating',
+  );
+  assert.equal(capture.capture_evidence.data_date, targetDate);
+  assert.equal(
+    capture.capture_evidence.capture_strategy,
+    'verified_endpoint_recipe',
+  );
+  assert.equal(
+    capture.capture_evidence.response_evidence_type,
+    'structured_json',
+  );
+  assert.equal(capture.capture_evidence.fallback_from, null);
+  assert.equal(capture.capture_evidence.fallback_reason, null);
+  assert.equal(capture.capture_evidence.recipe_count, 5);
+  assert.match(
+    capture.capture_evidence.recipe_plan_hash,
+    /^[a-f0-9]{64}$/,
+  );
+  assert.match(
+    capture.capture_evidence.provider_hotel_id_hash,
+    /^[a-f0-9]{64}$/,
+  );
+  assert.match(capture.source_trace_id, /^dingdandao:[a-f0-9]{64}$/);
+  assert.equal(
+    capture.source_trace_id,
+    capture.capture_evidence.source_trace_id,
+  );
+  assert.equal(
+    capture.source_url_hash,
+    capture.capture_evidence.source_url_hash,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(capture.capture_evidence),
+    new RegExp(providerHotelId),
+  );
   assert.equal(capture.summary.total_room_fee, 6450.14);
   assert.equal(capture.room_fee_details.filter(
     (row) => ['room', 'unassigned'].includes(row.row_kind),
@@ -951,6 +1026,19 @@ test('full diagnostic collector preserves auxiliary details and county context',
   });
 
   assert.equal(calls.length, 22);
+  assert.equal(capture.collection_mode, 'full_diagnostic');
+  assert.equal(
+    capture.capture_evidence.collection_mode,
+    'full_diagnostic',
+  );
+  assert.equal(capture.capture_evidence.section, 'pms_full_diagnostic');
+  assert.equal(capture.capture_strategy, 'verified_endpoint_recipe');
+  assert.equal(capture.capture_evidence.recipe_count, 22);
+  assert.match(capture.source_trace_id, /^dingdandao:[a-f0-9]{64}$/);
+  assert.equal(
+    capture.source_url_hash,
+    '1937f09f551ebadbe32c6a097bcd890616af689f1c4e51fe61f928650e719d92',
+  );
   assert.equal(capture.auxiliary_query_status.length, 6);
   assert.equal(capture.auxiliary_query_status.every(
     (status) => status.status === 'readable_not_promoted',

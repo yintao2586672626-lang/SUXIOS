@@ -789,24 +789,34 @@ test('Revenue AI gap target resolver defaults to the existing data health entry'
   assert.equal(defaultTarget.targetPage, 'online-data');
   assert.equal(defaultTarget.targetTab, 'data-health');
   assert.equal(defaultTarget.targetPlatform, '');
+  assert.equal(defaultTarget.targetAgentTab, '');
+  assert.equal(defaultTarget.targetRevenueTab, '');
 
   const snakeCaseTarget = helpers.resolveRevenueAiGapTarget({
-    target_page: 'online-data',
-    target_tab: 'quality',
-    target_platform: 'ctrip',
+    target_page: 'agent-center',
+    target_tab: 'config',
+    target_platform: '',
+    target_agent_tab: 'revenue',
+    target_revenue_tab: 'config',
   });
-  assert.equal(snakeCaseTarget.targetPage, 'online-data');
-  assert.equal(snakeCaseTarget.targetTab, 'quality');
-  assert.equal(snakeCaseTarget.targetPlatform, 'ctrip');
+  assert.equal(snakeCaseTarget.targetPage, 'agent-center');
+  assert.equal(snakeCaseTarget.targetTab, 'config');
+  assert.equal(snakeCaseTarget.targetPlatform, '');
+  assert.equal(snakeCaseTarget.targetAgentTab, 'revenue');
+  assert.equal(snakeCaseTarget.targetRevenueTab, 'config');
 
   const camelCaseTarget = helpers.resolveRevenueAiGapTarget({
     targetPage: 'legacy-page',
     targetTab: 'legacy-tab',
     targetPlatform: 'meituan',
+    targetAgentTab: 'overview',
+    targetRevenueTab: 'analysis',
   });
   assert.equal(camelCaseTarget.targetPage, 'legacy-page');
   assert.equal(camelCaseTarget.targetTab, 'legacy-tab');
   assert.equal(camelCaseTarget.targetPlatform, 'meituan');
+  assert.equal(camelCaseTarget.targetAgentTab, 'overview');
+  assert.equal(camelCaseTarget.targetRevenueTab, 'analysis');
 });
 
 test('Revenue AI decision basis navigation resolver keeps target parsing pure', () => {
@@ -840,10 +850,21 @@ test('Revenue AI decision basis navigation resolver keeps target parsing pure', 
 
 test('Revenue AI metric cards keep missing data explicit and scoped', () => {
   const unloadedCards = helpers.buildRevenueAiMetricCards();
-  assert.equal(unloadedCards.length, 5);
+  assert.equal(unloadedCards.length, 8);
   assert.ok(unloadedCards.every((card) => card.display === '--'));
   assert.ok(unloadedCards.every((card) => card.statusLabel === '未加载'));
-  assert.ok(unloadedCards.every((card) => card.scopeLabel === 'OTA渠道口径'));
+  assert.equal(
+    unloadedCards.find((card) => card.key === 'ota_room_revenue').scopeLabel,
+    'OTA渠道口径',
+  );
+  assert.equal(
+    unloadedCards.find((card) => card.key === 'whole_hotel_room_revenue').scopeLabel,
+    'PMS全酒店住宿口径',
+  );
+  assert.equal(
+    unloadedCards.find((card) => card.key === 'ota_contribution_revpar').scopeLabel,
+    '跨源分层指标',
+  );
 
   const cards = helpers.buildRevenueAiMetricCards({
     overview: {
@@ -895,6 +916,171 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
   const emptyConfirmedRevenue = emptyConfirmedCards.find((card) => card.key === 'ota_room_revenue');
   assert.equal(emptyConfirmedRevenue.statusLabel, '确认无数据');
   assert.equal(emptyConfirmedRevenue.reasonText, '携程明确确认目标经营日期无数据。');
+});
+
+test('Revenue AI surfaces the canonical three-source facts without promoting OTA to whole-hotel revenue', () => {
+  const overview = {
+    scope: 'three_source_layered',
+    revenue_analysis_status: 'ready',
+    data_status: 'partial',
+    date_basis: 'same_date_key_distinct_source_semantics',
+    date_basis_note: '同一日期键分层比较，不混同来源语义。',
+    metrics: {
+      ota_room_revenue: {
+        value: 1032.39,
+        unit: 'CNY',
+        status: 'ok',
+        scope: 'ota_channel',
+        date_basis: 'data_date',
+      },
+      ota_room_nights: {
+        value: 1,
+        unit: 'room_nights',
+        status: 'ok',
+        scope: 'ota_channel',
+        date_basis: 'data_date',
+      },
+      ota_adr: {
+        value: 1032.39,
+        unit: 'CNY',
+        status: 'ok',
+        scope: 'ota_channel',
+        date_basis: 'data_date',
+      },
+      whole_hotel_room_revenue: {
+        value: 7930.11,
+        unit: 'CNY',
+        status: 'ok',
+        scope: 'whole_hotel_accommodation',
+        date_basis: 'pms_business_date',
+      },
+      whole_hotel_sellable_room_nights: {
+        value: 15,
+        unit: 'room_nights',
+        status: 'ok',
+        scope: 'whole_hotel_accommodation',
+        date_basis: 'pms_business_date',
+      },
+      whole_hotel_revpar: {
+        value: 528.67,
+        unit: 'CNY',
+        status: 'ok',
+        scope: 'whole_hotel_accommodation',
+        date_basis: 'pms_business_date',
+      },
+      ota_contribution_revpar: {
+        value: 68.83,
+        unit: 'CNY',
+        status: 'ok',
+        scope: 'cross_source_comparison',
+        date_basis: 'same_date_key_distinct_source_semantics',
+      },
+    },
+    three_source_fact_layer: {
+      all_three_sources_readback_verified: true,
+      analysis_gaps: [],
+      ai_review_gaps: [{
+        code: 'floor_price_missing',
+        source: 'pricing_guard',
+        status: 'missing',
+        category: 'room_type_floor_price',
+      }],
+      unique_remaining_gap: {
+        code: 'floor_price_missing',
+        source: 'pricing_guard',
+        status: 'missing',
+        category: 'room_type_floor_price',
+      },
+      sources: {
+        dingdandao_pms: { data_status: 'readback_verified' },
+      },
+      facts: {
+        ota_channel: {
+          combined: {
+            revenue: 1032.39,
+            orders: 1,
+            room_nights: 1,
+          },
+        },
+      },
+    },
+    missing_datasets: [
+      { key: 'legacy-denominator', reason: 'available_room_nights_missing' },
+      { key: 'traffic-gap', reason: 'source_rows_missing' },
+    ],
+    p1_revenue_closure: {
+      status: 'partial',
+      calculation_allowed: false,
+      scope: 'ota_channel',
+      sections: {
+        revenue: { value: 3200.39, unit: 'CNY', status: 'ok' },
+        orders: { value: 6, unit: 'orders', status: 'ok' },
+        room_nights: { value: 6, unit: 'room_nights', status: 'ok' },
+        adr_conversion: { metrics: {} },
+      },
+      missing_items: {
+        items: [
+          { code: 'available_room_nights_missing' },
+          { code: 'traffic.avg_flow_rate:source_rows_missing' },
+        ],
+      },
+      anomaly_judgment: { items: [] },
+    },
+  };
+
+  const cards = helpers.buildRevenueAiMetricCards({ overview });
+  assert.equal(
+    cards.find((card) => card.key === 'whole_hotel_room_revenue').scopeLabel,
+    'PMS全酒店住宿口径',
+  );
+  assert.equal(
+    cards.find((card) => card.key === 'ota_contribution_revpar').scopeLabel,
+    '跨源分层指标',
+  );
+
+  const closure = helpers.buildRevenueAiBusinessClosure({ overview });
+  assert.equal(closure.status, 'ready');
+  assert.equal(closure.calculationAllowed, true);
+  assert.equal(closure.scopeText, '三源分层口径');
+  assert.match(closure.summary, /PMS 仅承载全酒店住宿事实/);
+  assert.equal(closure.rows[0].stage, '三源数据');
+  assert.equal(closure.rows[1].statusLabel, '可作为输入');
+  assert.equal(closure.rows[1].metrics[0].value, '¥1032.39');
+  assert.equal(closure.rows[1].metrics[1].value, '1单');
+  assert.equal(closure.rows[1].metrics[2].value, '1.00间夜');
+  assert.equal(closure.missingRows.length, 1);
+  assert.equal(closure.missingRows[0].code, 'floor_price_missing');
+  const gaps = helpers.buildRevenueAiGapRows({ overview });
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].key, 'fact-layer-pricing_guard-floor_price_missing');
+  assert.equal(gaps[0].raw.code, 'floor_price_missing');
+  assert.equal(gaps[0].target_page, 'agent-center');
+  assert.equal(gaps[0].target_tab, 'suggestions');
+  assert.equal(gaps[0].target_agent_tab, 'revenue');
+  assert.equal(gaps[0].target_revenue_tab, 'suggestions');
+  assert.deepEqual({ ...helpers.resolveRevenueAiGapTarget(gaps[0]) }, {
+    targetPage: 'agent-center',
+    targetTab: 'suggestions',
+    targetPlatform: '',
+    targetAgentTab: 'revenue',
+    targetRevenueTab: 'suggestions',
+  });
+
+  const statusRows = helpers.buildRevenueAiStatusRows({
+    overview,
+    hotelName: '敦煌漠蓝新',
+    hasHotelFilter: true,
+    businessDate: '2026-07-30',
+  });
+  const scope = statusRows.find((row) => row.key === 'scope');
+  const pms = statusRows.find((row) => row.key === 'pms');
+  const api = statusRows.find((row) => row.key === 'overview');
+  assert.equal(scope.value, '三源分层口径');
+  assert.equal(scope.status, 'PMS全酒店住宿 + OTA渠道');
+  assert.match(scope.detail, /PMS 不与 OTA 收入相加/);
+  assert.equal(pms.value, '已保存并回读');
+  assert.match(pms.detail, /全酒店住宿收入/);
+  assert.equal(api.status, '可作为输入');
 });
 
 test('Revenue AI metric cards expose the complete four-state truth envelope for each number', () => {

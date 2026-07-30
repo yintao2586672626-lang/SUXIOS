@@ -40,11 +40,14 @@ final class KnowledgeLifecycleOptimizationTest extends TestCase
         $agent = (string)file_get_contents($root . '/app/controller/Agent.php');
         $research = (string)file_get_contents($root . '/app/service/RevenueResearchService.php');
         $operations = (string)file_get_contents($root . '/app/service/RevenueOperationsKnowledgeService.php');
+        $knowledgeController = (string)file_get_contents($root . '/app/controller/Knowledge.php');
 
         self::assertStringContainsString("->where('lifecycle_status', 'active')", $agent);
         self::assertStringContainsString("->where('lifecycle_status', 'active')", $research);
         self::assertStringContainsString("->where('lifecycle_status', 'active')", $operations);
-        self::assertStringContainsString("\$lifecycleStatus !== 'active'", $agent);
         self::assertStringContainsString("\$lifecycleStatus !== 'active'", $operations);
+        self::assertStringContainsString('KnowledgeDecisionGateService', $agent);
+        self::assertStringContainsString('KnowledgeDecisionGateService', $operations);
+        self::assertStringContainsString("'task_draft_safe'", $knowledgeController);
     }
 }

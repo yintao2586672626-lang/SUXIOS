@@ -1,5 +1,6 @@
 const SANDBOX_ID_PATTERN = /^sbx_[A-Za-z0-9_-]{8,64}$/;
 const MARKER_PREFIX = 'about:blank#suxios-browser-sandbox=';
+const PROCESS_PROFILE_MARKER_PREFIX = 'about:blank#suxios-process-profile=';
 
 export const BROWSER_SANDBOX_PLATFORMS = Object.freeze({
   ctrip: Object.freeze({
@@ -43,8 +44,16 @@ export function browserSandboxMarkerUrl(sandboxId) {
   return `${MARKER_PREFIX}${normalizeBrowserSandboxId(sandboxId)}`;
 }
 
+export function browserProcessProfileMarkerUrl(sandboxId) {
+  return `${PROCESS_PROFILE_MARKER_PREFIX}${normalizeBrowserSandboxId(sandboxId)}`;
+}
+
 export function isBrowserSandboxMarkerUrl(value) {
   return String(value || '').startsWith(MARKER_PREFIX);
+}
+
+export function isBrowserProcessProfileMarkerUrl(value) {
+  return String(value || '').startsWith(PROCESS_PROFILE_MARKER_PREFIX);
 }
 
 function targetContextId(target) {
@@ -61,7 +70,10 @@ function validContextSet(browserContextIds) {
 }
 
 function contextIsCurrent(contextId, validContextIds) {
-  return contextId === '' || validContextIds === null || validContextIds.has(contextId);
+  return contextId === ''
+    || validContextIds === null
+    || validContextIds.size === 0
+    || validContextIds.has(contextId);
 }
 
 export function resolveBrowserSandboxContext({
@@ -90,14 +102,27 @@ export function resolveBrowserSandboxContext({
   }
 
   const [browserContextId] = matchingContextIds;
-  if (requireIsolated && browserContextId === '') {
+  let isolation = browserContextId ? 'browser_context' : 'default_context';
+  const processProfileMarker = browserProcessProfileMarkerUrl(sandboxId);
+  const processProfileAttested = (Array.isArray(targetInfos) ? targetInfos : [])
+    .some((target) => (
+      target?.type === 'page'
+      && targetContextId(target) === browserContextId
+      && String(target.url || '') === processProfileMarker
+    ));
+  const contextIsListed = browserContextId !== ''
+    && validContextIds !== null
+    && validContextIds.has(browserContextId);
+  if (processProfileAttested && (browserContextId === '' || !contextIsListed)) {
+    isolation = 'process_profile';
+  } else if (requireIsolated && browserContextId === '') {
     throw new Error('browser_sandbox_not_isolated');
   }
   return {
     sandboxId: normalizeBrowserSandboxId(sandboxId),
     browserContextId: browserContextId || null,
     contextKey: browserContextId,
-    isolation: browserContextId ? 'browser_context' : 'default_context',
+    isolation,
   };
 }
 
@@ -133,11 +158,20 @@ export function assertContextHasNoDifferentSandbox({
   sandboxId,
 } = {}) {
   const expectedMarker = browserSandboxMarkerUrl(sandboxId);
+  const expectedProcessProfileMarker = browserProcessProfileMarkerUrl(sandboxId);
   const conflicts = (Array.isArray(targetInfos) ? targetInfos : []).filter((target) => (
     target?.type === 'page'
     && targetContextId(target) === String(browserContextId || '')
-    && isBrowserSandboxMarkerUrl(target.url)
-    && String(target.url || '') !== expectedMarker
+    && (
+      (
+        isBrowserSandboxMarkerUrl(target.url)
+        && String(target.url || '') !== expectedMarker
+      )
+      || (
+        isBrowserProcessProfileMarkerUrl(target.url)
+        && String(target.url || '') !== expectedProcessProfileMarker
+      )
+    )
   ));
   if (conflicts.length > 0) {
     throw new Error('browser_sandbox_context_already_bound');

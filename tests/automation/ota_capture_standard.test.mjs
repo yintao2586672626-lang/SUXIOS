@@ -5,7 +5,9 @@ import {
   attachOtaCaptureEvidence,
   buildCapturePlan,
   buildCookieInjectionPlan,
+  buildCollectionStrategyEvidence,
   buildOtaCaptureEvidence,
+  buildWebPlatformCaptureEvidence,
   classifyOtaResponse,
   extractOtaRequestDateEvidence,
   normalizeCaptureSections,
@@ -203,6 +205,103 @@ test('builds complete desensitized capture evidence without raw source URLs', ()
   assert.match(evidence.source_trace_id, /^meituan:[a-f0-9]{64}$/);
   assert.equal(Object.hasOwn(evidence, 'url'), false);
   assert.equal(Object.hasOwn(evidence, 'source_url'), false);
+});
+
+test('builds one desensitized evidence contract for web PMS and OTA sources', () => {
+  const evidence = buildWebPlatformCaptureEvidence('dingdandao', {
+    url: 'https://www.dingdandao.com/v2/um-b/web/pro/data/businessIndicatorsTotal?token=secret',
+    section: 'pms_operating',
+    sourcePath: '/v2/um-b/web/pro/data/businessIndicatorsTotal#data',
+    captureSource: 'existing_session_direct_post',
+    sourceKind: 'pms',
+    businessModule: 'accommodation_operating',
+    sourceMethod: 'authorized_browser_endpoint',
+    collectionMode: 'operating_indicators',
+    dataDate: '2026-07-30',
+    providerHotelId: 'provider-hotel-sensitive',
+  });
+
+  assert.equal(evidence.source_kind, 'pms');
+  assert.equal(evidence.business_module, 'accommodation_operating');
+  assert.equal(evidence.source_method, 'authorized_browser_endpoint');
+  assert.equal(evidence.collection_mode, 'operating_indicators');
+  assert.equal(evidence.data_date, '2026-07-30');
+  assert.match(evidence.provider_hotel_id_hash, /^[a-f0-9]{64}$/);
+  assert.match(evidence.source_url_hash, /^[a-f0-9]{64}$/);
+  assert.match(evidence.source_trace_id, /^dingdandao:[a-f0-9]{64}$/);
+  assert.equal(Object.hasOwn(evidence, 'capture_strategy'), false);
+  assert.doesNotMatch(
+    JSON.stringify(evidence),
+    /provider-hotel-sensitive|token=secret|https:\/\//,
+  );
+});
+
+test('records explicit endpoint, browser-response, and DOM fallback strategies', () => {
+  const endpoint = buildCollectionStrategyEvidence({
+    captureStrategy: 'verified_endpoint_recipe',
+    responseEvidenceType: 'structured_json',
+    recipeIds: ['identity', 'daily_core'],
+  });
+  assert.equal(endpoint.capture_strategy, 'verified_endpoint_recipe');
+  assert.equal(endpoint.fallback_from, null);
+  assert.equal(endpoint.fallback_reason, null);
+  assert.equal(endpoint.response_evidence_type, 'structured_json');
+  assert.equal(endpoint.recipe_count, 2);
+  assert.match(endpoint.recipe_plan_hash, /^[a-f0-9]{64}$/);
+
+  const browser = buildCollectionStrategyEvidence({
+    captureStrategy: 'browser_response',
+    fallbackFrom: 'verified_endpoint_recipe',
+    fallbackReason: 'endpoint_not_hit',
+  });
+  assert.equal(browser.capture_strategy, 'browser_response');
+  assert.equal(browser.fallback_from, 'verified_endpoint_recipe');
+  assert.equal(browser.fallback_reason, 'endpoint_not_hit');
+  assert.equal(browser.response_evidence_type, 'structured_json');
+
+  const dom = buildCollectionStrategyEvidence({
+    captureStrategy: 'dom_fallback',
+    fallbackFrom: 'browser_response',
+    fallbackReason: 'schema_changed',
+  });
+  assert.equal(dom.capture_strategy, 'dom_fallback');
+  assert.equal(dom.response_evidence_type, 'dom_fields');
+});
+
+test('rejects silent or sensitive strategy fallback and binds strategy into trace', () => {
+  assert.throws(
+    () => buildCollectionStrategyEvidence({
+      captureStrategy: 'dom_fallback',
+    }),
+    /web_capture_strategy_fallback_invalid/,
+  );
+  assert.throws(
+    () => buildCollectionStrategyEvidence({
+      captureStrategy: 'browser_response',
+      fallbackFrom: 'verified_endpoint_recipe',
+      fallbackReason: 'token_expired',
+    }),
+    /web_capture_strategy_fallback_invalid/,
+  );
+
+  const base = {
+    url: 'https://example.test/api/data',
+    section: 'traffic',
+    sourcePath: 'data.rows',
+    captureSource: 'authorized_response',
+  };
+  const endpoint = buildWebPlatformCaptureEvidence('example', {
+    ...base,
+    captureStrategy: 'verified_endpoint_recipe',
+    recipeIds: ['daily_core'],
+  });
+  const browser = buildWebPlatformCaptureEvidence('example', {
+    ...base,
+    captureStrategy: 'browser_response',
+    fallbackFrom: 'verified_endpoint_recipe',
+    fallbackReason: 'endpoint_not_hit',
+  });
+  assert.notEqual(endpoint.source_trace_id, browser.source_trace_id);
 });
 
 test('attaches row-level complete capture evidence and removes raw URL aliases', () => {

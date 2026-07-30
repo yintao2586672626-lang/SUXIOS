@@ -78,6 +78,50 @@ final class KnowledgeCenterReadinessServiceTest extends TestCase
         self::assertSame(['hotel_scope'], array_column($readiness['missing_evidence'], 'code'));
     }
 
+    public function testReviewedSystemOwnedGlobalReferenceIsReadyWithoutPretendingToBeHotelData(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'hotel_id' => 0,
+            'created_by' => 0,
+            'known_knowns' => ['官方公开规则已复核'],
+            'known_unknowns' => ['当前门店事实待验证'],
+            'truth_profile_version' => '2026-07-30.3',
+        ], 3);
+
+        self::assertSame('unit_global_reference', $readiness['stage']);
+        self::assertSame('通用知识可检索', $readiness['status_label']);
+        self::assertTrue($readiness['closed_loop']);
+        self::assertSame(100, $readiness['score']);
+        self::assertSame([], $readiness['missing_evidence']);
+        self::assertStringContainsString('不绑定为任何单店事实', $readiness['next_action']);
+    }
+
+    public function testReviewDueUnitStopsDecisionReadinessButKeepsKnowledgeVisible(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'hotel_id' => 0,
+            'created_by' => 0,
+            'known_knowns' => ['来源规则曾经复核'],
+            'known_unknowns' => ['当前版本是否变化待核验'],
+            'truth_profile_version' => '2026-01-01.1',
+            'reviewed_at' => '2026-01-01 00:00:00',
+            'review_due_at' => '2026-04-01 00:00:00',
+            '_as_of' => '2026-07-30 00:00:00',
+        ], 3);
+
+        self::assertSame('unit_review_due', $readiness['stage']);
+        self::assertSame('review_due', $readiness['freshness_status']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertSame(75, $readiness['score']);
+        self::assertSame(
+            ['knowledge_review_due'],
+            array_column($readiness['missing_evidence'], 'code')
+        );
+        self::assertTrue($readiness['can_open_chunks']);
+    }
+
     public function testDoneHotelUnitWithChunksIsReady(): void
     {
         $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([

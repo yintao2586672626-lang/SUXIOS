@@ -29,7 +29,8 @@ final class CloudMessageTaskOverviewService
         ?callable $unitReader = null,
         ?callable $stateSummaryReader = null,
         private readonly ?DateTimeImmutable $observedAt = null,
-        private readonly ?string $snapshotPath = null
+        private readonly ?string $snapshotPath = null,
+        private readonly ?ManualNotificationScheduleRuleService $scheduleRuleService = null
     ) {
         $this->unitReader = $unitReader;
         $this->stateSummaryReader = $stateSummaryReader;
@@ -55,7 +56,7 @@ final class CloudMessageTaskOverviewService
         $now = $this->now();
         $robot = $this->targetRobot($hotelId);
         $liveTasks = $this->liveTasks($hotel, $robot);
-        $manualTasks = $this->manualScheduleTasks($tenantId, $hotelId, $robot);
+        $manualTasks = $this->manualScheduleTasks($tenantId, $hotelId, $robot, $now);
 
         $sourceStatus = 'live';
         $sourceLabel = '腾讯云 systemd 实时状态';
@@ -81,10 +82,6 @@ final class CloudMessageTaskOverviewService
             }
         }
 
-        [$liveTasks, $manualTasks] = $this->attachEditableNotificationPlans(
-            $liveTasks,
-            $manualTasks
-        );
         $tasks = array_values(array_merge($liveTasks, $manualTasks));
         $activeCount = count(array_filter(
             $tasks,
@@ -258,13 +255,17 @@ final class CloudMessageTaskOverviewService
      * @param array<string, mixed>|null $robot
      * @return array<int, array<string, mixed>>
      */
-    private function manualScheduleTasks(int $tenantId, int $hotelId, ?array $robot): array
+    private function manualScheduleTasks(
+        int $tenantId,
+        int $hotelId,
+        ?array $robot,
+        DateTimeImmutable $now
+    ): array
     {
         try {
             $rows = Db::name('manual_notifications')
                 ->where('tenant_id', $tenantId)
                 ->where('hotel_id', $hotelId)
-                ->field('id,title,notification_type,template_type,trigger_type,planned_send_at,enabled,schedule_status,test_robot_id,test_robot_name,update_time')
                 ->order('id', 'desc')
                 ->select()
                 ->toArray();
@@ -272,42 +273,54 @@ final class CloudMessageTaskOverviewService
             return [];
         }
 
-        return array_map(function (array $row) use ($robot): array {
+        return array_map(function (array $row) use ($robot, $now): array {
             $status = (string)($row['schedule_status'] ?? '');
             $enabled = (int)($row['enabled'] ?? 0) === 1;
             $active = $enabled && $status === 'schedule_enabled';
             $trigger = (string)($row['trigger_type'] ?? '');
+            $sourceScope = (string)($row['source_scope'] ?? 'combined');
+            $nextRunAt = $active
+                ? $this->scheduleRules()->nextRunAt($row, $now)
+                : null;
             return [
                 'key' => 'manual_notification_' . (int)$row['id'],
                 'notification_id' => (int)$row['id'],
                 'notification_type' => (string)($row['notification_type'] ?? ''),
                 'template_type' => (string)($row['template_type'] ?? $row['notification_type'] ?? ''),
+                'source_scope' => $sourceScope,
+                'source_scope_label' => $this->sourceScopeLabel($sourceScope),
+                'content_sections' => $this->listValue($row['content_sections'] ?? ''),
+                'business_date_rule' => (string)($row['business_date_rule'] ?? 'today'),
                 'trigger_type' => $trigger,
                 'name' => trim((string)($row['title'] ?? '')) ?: ('自定义定时消息 #' . (int)$row['id']),
                 'status' => $active ? 'active' : ($enabled ? 'attention' : 'paused'),
                 'status_label' => $active
                     ? '运行中'
                     : ($enabled ? '等待真实测试' : '已暂停'),
-                'schedule' => $trigger === 'hourly_on_the_hour'
-                    ? '每小时整点'
-                    : ($trigger === 'daily_fixed_time'
-                        ? ((string)($row['planned_send_at'] ?? '') ?: '每日固定时间待配置')
-                        : '手动测试'),
+                'plan_status' => $status,
+                'plan_status_label' => $active
+                    ? '已启用'
+                    : ($enabled ? '待测试' : '已暂停'),
+                'schedule' => $this->manualScheduleLabel($row),
                 'delivery_mode' => 'manual_schedule',
-                'delivery_rule' => '由宿析OS内保存并验证的自定义调度执行。',
+                'delivery_rule' => $this->sourceScopeLabel($sourceScope)
+                    . ' · '
+                    . ((string)($row['business_date_rule'] ?? 'today') === 'yesterday'
+                        ? '发送昨日数据'
+                        : '发送当天数据'),
                 'target_robot_id' => (int)($row['test_robot_id'] ?? ($robot['id'] ?? 0)) ?: null,
                 'target_robot_name' => trim((string)($row['test_robot_name'] ?? ''))
                     ?: (string)($robot['name'] ?? '机器人绑定未取得'),
-                'last_run_at' => '',
-                'next_run_at' => (string)($row['planned_send_at'] ?? ''),
+                'last_run_at' => (string)($row['last_tested_at'] ?? ''),
+                'next_run_at' => $nextRunAt,
                 'last_result' => $active
-                    ? '已通过测试并启用'
+                    ? '计划已启用；实际发送以回执为准'
                     : ($status === 'test_verified'
                         ? '测试发送已验证，计划当前暂停'
                         : ($status === 'awaiting_test'
                             ? '等待一次真实测试成功'
                             : '尚未取得成功发送回执')),
-                'service_result' => $active ? 'success' : 'unverified',
+                'service_result' => $active ? 'configured' : 'unverified',
                 'source' => 'database',
                 'source_label' => '宿析OS通知配置',
                 'editable' => true,
@@ -316,53 +329,59 @@ final class CloudMessageTaskOverviewService
         }, $rows);
     }
 
-    /**
-     * Links a saved, hotel-scoped report plan to its matching cloud task row.
-     * The cloud timer evidence remains read-only; editing opens the local plan
-     * and never pretends that a local save rewrote systemd.
-     *
-     * @param array<int, array<string, mixed>> $cloudTasks
-     * @param array<int, array<string, mixed>> $manualTasks
-     * @return array{0:array<int, array<string, mixed>>,1:array<int, array<string, mixed>>}
-     */
-    private function attachEditableNotificationPlans(
-        array $cloudTasks,
-        array $manualTasks
-    ): array {
-        $remaining = [];
-        foreach ($manualTasks as $manualTask) {
-            $templateType = (string)($manualTask['template_type'] ?? '');
-            $triggerType = (string)($manualTask['trigger_type'] ?? '');
-            $targetKey = $templateType === ManualNotificationService::OPERATING_DAILY_REPORT_TYPE
-                ? (in_array($triggerType, ['hourly_on_the_hour', 'interval_minutes'], true)
-                    ? 'hourly_operating_monitor'
-                    : 'daily_operating_report')
-                : '';
-            if ($targetKey === '') {
-                $remaining[] = $manualTask;
-                continue;
-            }
-
-            $linked = false;
-            foreach ($cloudTasks as &$cloudTask) {
-                if ($linked || (string)($cloudTask['key'] ?? '') !== $targetKey) {
-                    continue;
-                }
-                $cloudTask['editable'] = true;
-                $cloudTask['notification_id'] = (int)($manualTask['notification_id'] ?? 0);
-                $cloudTask['edit_label'] = '编辑计划';
-                $cloudTask['plan_status'] = (string)($manualTask['status'] ?? '');
-                $cloudTask['plan_status_label'] = (string)($manualTask['status_label'] ?? '');
-                $linked = true;
-            }
-            unset($cloudTask);
-
-            if (!$linked) {
-                $remaining[] = $manualTask;
-            }
+    /** @param array<string, mixed> $row */
+    private function manualScheduleLabel(array $row): string
+    {
+        $trigger = (string)($row['trigger_type'] ?? '');
+        if ($trigger === 'daily_fixed_time') {
+            return '每日 ' . ($this->shortTime($row['planned_send_at'] ?? '') ?: '时间待配置');
         }
+        if ($trigger === 'hourly_on_the_hour') {
+            return ($this->shortTime($row['hourly_start_time'] ?? '') ?: '09:00')
+                . '－'
+                . ($this->shortTime($row['hourly_end_time'] ?? '') ?: '22:00')
+                . ' 每小时整点';
+        }
+        if ($trigger === 'interval_minutes') {
+            return '从 '
+                . ($this->shortTime($row['hourly_start_time'] ?? '') ?: '09:00')
+                . ' 起，每 '
+                . max(5, (int)($row['interval_minutes'] ?? 60))
+                . ' 分钟';
+        }
+        return '手动测试';
+    }
 
-        return [$cloudTasks, $remaining];
+    private function sourceScopeLabel(string $scope): string
+    {
+        return match ($scope) {
+            'ctrip' => '携程',
+            'meituan' => '美团',
+            'dingdandao_pms', 'dingdandao', 'pms' => '订单来了 PMS',
+            default => 'PMS＋OTA 三源',
+        };
+    }
+
+    /** @return list<string> */
+    private function listValue(mixed $value): array
+    {
+        $parts = is_array($value) ? $value : explode(',', (string)$value);
+        return array_values(array_filter(array_map(
+            static fn(mixed $item): string => trim((string)$item),
+            $parts
+        )));
+    }
+
+    private function shortTime(mixed $value): string
+    {
+        return preg_match('/(\d{2}:\d{2})/', trim((string)$value), $matches) === 1
+            ? $matches[1]
+            : '';
+    }
+
+    private function scheduleRules(): ManualNotificationScheduleRuleService
+    {
+        return $this->scheduleRuleService ?? new ManualNotificationScheduleRuleService();
     }
 
     /** @return array<string, mixed>|null */

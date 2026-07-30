@@ -135,9 +135,8 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div v-if="collectionReliabilityLoading" class="p-6 text-center text-gray-500 border rounded-lg">数据健康加载中...</div>
-                                    <div v-else-if="collectionReliabilityError" class="p-4 border border-red-100 rounded-lg bg-red-50 text-red-700 text-sm">{{ collectionReliabilityError }}</div>
-                                    <template v-else="">
+                                    <div v-if="collectionReliabilityRefreshNotice" data-testid="ctrip-health-refresh-state" :class="collectionReliabilityRefreshNotice.className">{{ collectionReliabilityRefreshNotice.text }}</div>
+                                    <template v-if="collectionReliabilityHasCurrentSnapshot">
                                         <div v-if="ctripEbookingSecondaryPanelsReady" class="space-y-4">
                                         <div data-testid="ctrip-data-health-priority-strip" class="overflow-hidden rounded-lg border border-gray-200 bg-white">
                                             <div class="grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
@@ -2093,31 +2092,16 @@
                                     </div>
 
                                     <div v-if="downloadCenterTab === 'overview'" class="space-y-4">
-                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500">已存记录总数</div>
-                                                <div class="text-2xl font-bold text-gray-900">{{ formatOptionalNumber(onlineHistorySummary.total_records, '未取得') }}</div>
-                                            </div>
-                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500">最近一次入库时间</div>
-                                                <div class="text-lg font-semibold text-gray-900">{{ onlineHistorySummary.latest_fetch_time || '未取得' }}</div>
-                                            </div>
-                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500">今日入库记录数</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatOptionalNumber(onlineHistorySummary.today_records, '未取得') }}</div>
-                                            </div>
-                                            <div class="bg-white border border-gray-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500">异常/失败记录数</div>
-                                                <div class="text-2xl font-bold text-red-600">{{ formatOptionalNumber(onlineHistorySummary.failed_records, '未取得') }}</div>
-                                            </div>
-                                        </div>
-                                        <div class="text-xs text-gray-500">仅统计当前携程筛选结果；数据库回读未完成时显示“未取得”，不以 0 或其他平台记录补齐。</div>
+                                        <div v-if="onlineHistoryRefreshNotice" data-testid="online-history-refresh-state" :class="onlineHistoryRefreshNotice.className">{{ onlineHistoryRefreshNotice.text }}</div>
+                                        <template v-if="onlineHistoryHasCurrentSnapshot">
+                                        <div class="text-sm text-gray-600">已存记录总数：{{ formatOptionalNumber(onlineHistorySummary.total_records, '未取得') }} · 异常/失败记录数：{{ formatOptionalNumber(onlineHistorySummary.failed_records, '未取得') }}（未回读显示“未取得”，不以 0 或其他平台记录补齐）</div>
+                                        </template>
 
-                                        <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                        <div class="rounded-lg border bg-gray-50 p-4">
                                             <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">平台</label>
-                                                    <select v-model="onlineHistoryFilter.platform" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                    <select v-model="onlineHistoryFilter.platform" class="w-full rounded-lg border p-2">
                                                         <option value="all">全部</option>
                                                         <option value="ctrip">携程</option>
                                                         <option value="meituan">美团</option>
@@ -2125,7 +2109,7 @@
                                                 </div>
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">数据类型</label>
-                                                    <select v-model="onlineHistoryFilter.data_type" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                    <select v-model="onlineHistoryFilter.data_type" class="w-full rounded-lg border p-2">
                                                         <option value="all">全部</option>
                                                         <option value="business">经营数据</option>
                                                         <option value="traffic">流量数据</option>
@@ -2144,7 +2128,7 @@
                                                 </div>
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">酒店范围</label>
-                                                    <select v-model="onlineHistoryFilter.hotel_scope" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                    <select v-model="onlineHistoryFilter.hotel_scope" class="w-full rounded-lg border p-2">
                                                         <option value="all">全部酒店</option>
                                                         <option value="mine">我的酒店</option>
                                                         <option value="competitor_avg">竞争圈平均</option>
@@ -2155,7 +2139,7 @@
                                                 </div>
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">日期范围</label>
-                                                    <select v-model="onlineHistoryFilter.date_preset" @change="applyOnlineHistoryDatePreset" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                    <select v-model="onlineHistoryFilter.date_preset" @change="applyOnlineHistoryDatePreset" class="w-full rounded-lg border p-2">
                                                         <option value="7">近7天</option>
                                                         <option value="30">近30天</option>
                                                         <option value="month">本月</option>
@@ -2164,30 +2148,30 @@
                                                 </div>
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">开始日期</label>
-                                                    <input v-model="onlineHistoryFilter.start_date" type="date" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                    <input v-model="onlineHistoryFilter.start_date" type="date" class="w-full rounded-lg border p-2">
                                                 </div>
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">结束日期</label>
-                                                    <input v-model="onlineHistoryFilter.end_date" type="date" class="w-full px-3 py-2 border rounded-lg bg-white">
+                                                    <input v-model="onlineHistoryFilter.end_date" type="date" class="w-full rounded-lg border p-2">
                                                 </div>
                                             </div>
                                             <div class="mt-3 flex flex-col md:flex-row gap-3">
-                                                <input v-model.trim="onlineHistoryFilter.keyword" type="text" class="flex-1 px-3 py-2 border rounded-lg bg-white" placeholder="搜索酒店名称 / OTA酒店ID / 批次号">
+                                                <input v-model.trim="onlineHistoryFilter.keyword" type="text" class="flex-1 rounded-lg border p-2" placeholder="搜索酒店名称 / OTA酒店ID / 批次号">
                                                 <div class="flex flex-wrap gap-2">
-                                                    <button @click="onlineHistoryPage = 1; loadOnlineHistory()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                                                        <i class="fas fa-search mr-2"></i>查询已存数据
+                                                    <button @click="onlineHistoryPage = 1; loadOnlineHistory()" :disabled="onlineHistoryLoading" class="rounded-lg bg-blue-600 p-2 text-white disabled:opacity-50">
+                                                        {{ onlineHistoryLoading ? '查询中' : '查询已存数据' }}
                                                     </button>
-                                                    <button @click="resetOnlineHistoryFilter" class="px-4 py-2 bg-white border text-gray-700 rounded-lg hover:bg-gray-100">
+                                                    <button @click="resetOnlineHistoryFilter" class="rounded-lg border bg-white p-2 text-gray-700">
                                                         <i class="fas fa-undo mr-2"></i>重置筛选
                                                     </button>
-                                                    <button @click="refreshOnlineHistory" class="px-4 py-2 bg-white border text-gray-700 rounded-lg hover:bg-gray-100">
-                                                <i class="fas fa-sync-alt mr-2"></i>刷新最新抓取结果
+                                                    <button @click="refreshOnlineHistory" :disabled="onlineHistoryLoading" class="rounded-lg border bg-white p-2 text-gray-700 disabled:opacity-50">
+                                                刷新最新抓取结果
                                                     </button>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <div class="overflow-x-auto table-container">
+                                        <div v-if="onlineHistoryHasCurrentSnapshot" class="overflow-x-auto table-container">
                                             <table class="min-w-full bg-white border text-sm table-striped">
                                                 <thead>
                                                     <tr class="bg-gray-50">
@@ -2255,7 +2239,7 @@
                                                 </tbody>
                                             </table>
                                         </div>
-                                        <div v-if="onlineHistoryPagination.total &gt; 0" class="flex items-center justify-between">
+                                        <div v-if="onlineHistoryHasCurrentSnapshot &amp;&amp; onlineHistoryPagination.total &gt; 0" class="flex items-center justify-between">
                                             <div class="text-sm text-gray-500">
                                                 共 {{ onlineHistoryPagination.total }} 条记录，第 {{ onlineHistoryPagination.page }} / {{ Math.ceil(onlineHistoryPagination.total / onlineHistoryPagination.page_size) }} 页
                                             </div>

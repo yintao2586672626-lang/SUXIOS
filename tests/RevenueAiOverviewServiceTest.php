@@ -1332,6 +1332,175 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertFalse($overview['execution_summary']['auto_write_ota']);
     }
 
+    public function testThreeSourceFactLayerOverridesRepeatedOtaSnapshotsAndUsesPmsDenominator(): void
+    {
+        $metric = static function (
+            string $key,
+            string $label,
+            float|int|null $value,
+            string $unit,
+            string $scope,
+            string $dateBasis,
+            array $channels
+        ): array {
+            return [
+                'key' => $key,
+                'label' => $label,
+                'value' => $value,
+                'unit' => $unit,
+                'scope' => $scope,
+                'date_basis' => $dateBasis,
+                'source_channels' => $channels,
+                'status' => $value === null ? 'not_calculable' : 'ok',
+                'reason' => $value === null ? 'source_fact_missing' : '',
+                'truth' => [
+                    'status' => 'verified',
+                    'scope_label' => $scope,
+                ],
+            ];
+        };
+        $factLayer = [
+            'revenue_analysis_status' => 'ready',
+            'all_three_sources_readback_verified' => true,
+            'date_alignment' => [
+                'note' => '同一日期键分层比较，不混同 PMS 经营日与 OTA data_date 的业务语义。',
+            ],
+            'sources' => [
+                'dingdandao_pms' => ['data_status' => 'readback_verified'],
+                'ctrip_ota' => ['data_status' => 'readback_verified'],
+                'meituan_ota' => ['data_status' => 'readback_verified'],
+                'pricing_guard' => [
+                    'data_status' => 'missing',
+                    'minimum_floor_price' => null,
+                ],
+            ],
+            'facts' => [
+                'whole_hotel_accommodation' => [
+                    'room_revenue' => 7930.11,
+                    'sellable_room_nights' => 15,
+                    'revpar' => 528.67,
+                ],
+                'ota_channel' => [
+                    'combined' => [
+                        'revenue' => 1032.39,
+                        'room_nights' => 1,
+                        'adr' => 1032.39,
+                    ],
+                ],
+            ],
+            'analysis_metrics' => [
+                'ota_room_revenue' => $metric(
+                    'ota_room_revenue',
+                    '目标日 OTA 房费收入',
+                    1032.39,
+                    'CNY',
+                    'ota_channel',
+                    'data_date',
+                    ['ctrip', 'meituan']
+                ),
+                'ota_room_nights' => $metric(
+                    'ota_room_nights',
+                    '目标日 OTA 间夜',
+                    1,
+                    'room_nights',
+                    'ota_channel',
+                    'data_date',
+                    ['ctrip', 'meituan']
+                ),
+                'ota_adr' => $metric(
+                    'ota_adr',
+                    '目标日 OTA ADR',
+                    1032.39,
+                    'CNY',
+                    'ota_channel',
+                    'data_date',
+                    ['ctrip', 'meituan']
+                ),
+                'ota_contribution_revpar' => $metric(
+                    'ota_contribution_revpar',
+                    'OTA渠道收入/全酒店可售间夜',
+                    68.83,
+                    'CNY',
+                    'cross_source_comparison',
+                    'same_date_key_distinct_source_semantics',
+                    ['dingdandao_pms', 'ctrip', 'meituan']
+                ),
+                'whole_hotel_room_revenue' => $metric(
+                    'whole_hotel_room_revenue',
+                    '全酒店住宿房费',
+                    7930.11,
+                    'CNY',
+                    'whole_hotel_accommodation',
+                    'pms_business_date',
+                    ['dingdandao_pms']
+                ),
+            ],
+        ];
+
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $this->dataset([
+                $this->dailyFact('ctrip', 2168.0, 5, null),
+                $this->dailyFact('meituan', 1032.39, 1, null),
+            ]),
+            [
+                'ctrip' => $this->dataset([$this->dailyFact('ctrip', 2168.0, 5, null)]),
+                'meituan' => $this->dataset([$this->dailyFact('meituan', 1032.39, 1, null)]),
+            ],
+            [
+                'ctrip' => ['status' => 'ready'],
+                'meituan' => ['status' => 'ready'],
+            ],
+            [
+                'business_date' => '2026-07-30',
+                'hotel_id' => 80,
+                'revenue_fact_layer' => $factLayer,
+            ]
+        );
+
+        self::assertSame('ready', $overview['revenue_analysis_status']);
+        self::assertSame('three_source_layered', $overview['scope']);
+        self::assertSame(
+            'same_date_key_distinct_source_semantics',
+            $overview['date_basis']
+        );
+        self::assertSame(
+            ['dingdandao_pms', 'ctrip', 'meituan'],
+            $overview['source_channels']
+        );
+        self::assertSame(
+            1032.39,
+            $overview['metrics']['ota_room_revenue']['value']
+        );
+        self::assertSame(
+            1.0,
+            $overview['metrics']['ota_room_nights']['value']
+        );
+        self::assertSame(
+            68.83,
+            $overview['metrics']['ota_contribution_revpar']['value']
+        );
+        self::assertSame(
+            'cross_source_comparison',
+            $overview['metrics']['ota_contribution_revpar']['scope']
+        );
+        self::assertSame(
+            'whole_hotel_accommodation',
+            $overview['metrics']['ota_contribution_revpar']['denominator_scope']
+        );
+        self::assertTrue(
+            $overview['metrics']['ota_contribution_revpar']
+                ['whole_hotel_denominator_verified']
+        );
+        $gates = array_column(
+            $overview['pricing_readiness']['gates'],
+            null,
+            'key'
+        );
+        self::assertSame('ok', $gates['revpar_denominator']['status']);
+        self::assertSame('blocked', $gates['floor_price']['status']);
+        self::assertSame('floor_price_missing', $gates['floor_price']['reason']);
+    }
+
     /**
      * @param array<int, array<string, mixed>> $dailyFacts
      * @return array<string, mixed>

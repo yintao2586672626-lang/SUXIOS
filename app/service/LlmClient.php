@@ -741,8 +741,10 @@ class LlmClient
 
         $baseUrl = rtrim(trim((string)$config->base_url), '/');
         $modelName = trim((string)$config->model_name);
+        $provider = strtolower(trim((string)$config->provider));
+        $requiresApiKey = $provider !== 'ollama';
         $errorConfig = [
-            'provider' => (string)$config->provider,
+            'provider' => $provider,
             'model_key' => $requestedModelKey,
             'model' => $modelName,
             'source' => 'database',
@@ -753,23 +755,26 @@ class LlmClient
         if ($modelName === '') {
             return $this->configIssue('AI模型名称为空，请填写实际模型名。', $errorConfig);
         }
-        if (trim((string)$config->api_key_encrypted) === '') {
+        if ($requiresApiKey && trim((string)$config->api_key_encrypted) === '') {
             return $this->configIssue('AI模型 API Key 为空，请重新保存密钥。', $errorConfig);
         }
 
-        $secret = trim((string)env('AI_CONFIG_SECRET', ''));
-        if ($secret === '') {
-            return $this->configIssue('AI_CONFIG_SECRET 未配置，无法解密数据库中的模型密钥。', $errorConfig);
-        }
+        $apiKey = '';
+        if ($requiresApiKey) {
+            $secret = trim((string)env('AI_CONFIG_SECRET', ''));
+            if ($secret === '') {
+                return $this->configIssue('AI_CONFIG_SECRET 未配置，无法解密数据库中的模型密钥。', $errorConfig);
+            }
 
-        $apiKey = AiModelConfig::decryptApiKey((string)$config->api_key_encrypted, $secret);
-        if ($apiKey === null) {
-            return $this->configIssue('AI模型 API Key 解密失败，请确认 AI_CONFIG_SECRET 与保存密钥时一致。', $errorConfig);
+            $apiKey = AiModelConfig::decryptApiKey((string)$config->api_key_encrypted, $secret);
+            if ($apiKey === null) {
+                return $this->configIssue('AI模型 API Key 解密失败，请确认 AI_CONFIG_SECRET 与保存密钥时一致。', $errorConfig);
+            }
         }
 
         return [
             'ok' => true,
-            'provider' => (string)$config->provider,
+            'provider' => $provider,
             'base_url' => $baseUrl,
             'api_key' => $apiKey,
             'model' => $modelName,
@@ -1329,6 +1334,9 @@ class LlmClient
         if ($responseFormat !== []) {
             $payload['response_format'] = $responseFormat;
         }
+        if (strtolower(trim((string)($config['provider'] ?? ''))) === 'ollama') {
+            $payload['reasoning_effort'] = (string)($options['reasoning_effort'] ?? 'none');
+        }
 
         return $payload;
     }
@@ -1336,7 +1344,7 @@ class LlmClient
     private function nativeJsonSchemaResponseFormat(array $config, array $options): array
     {
         $provider = strtolower(trim((string)($config['provider'] ?? '')));
-        if ($provider !== 'openai') {
+        if (!in_array($provider, ['openai', 'ollama'], true)) {
             return [];
         }
 
@@ -1446,7 +1454,10 @@ class LlmClient
     protected function sendOnce(string $url, array $config, string $payloadJson, array $options): array
     {
         try {
-            $target = (new OutboundUrlGuard())->validate($url);
+            $guard = new OutboundUrlGuard();
+            $target = strtolower(trim((string)($config['provider'] ?? ''))) === 'ollama'
+                ? $guard->validateLocalLlm($url)
+                : $guard->validate($url);
         } catch (\Throwable $e) {
             return [
                 'response' => false,
@@ -1513,10 +1524,11 @@ class LlmClient
     private function buildCurlOptions(array $target, array $config, string $payloadJson, array $options): array
     {
         $timeout = $this->transportTimeoutSeconds($options);
-        $headers = [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . (string)($config['api_key'] ?? ''),
-        ];
+        $headers = ['Content-Type: application/json'];
+        $apiKey = trim((string)($config['api_key'] ?? ''));
+        if ($apiKey !== '') {
+            $headers[] = 'Authorization: Bearer ' . $apiKey;
+        }
         $requestId = $this->normalizeRequestId((string)($options['request_id'] ?? ''), false);
         if ($requestId !== '') {
             $headers[] = 'X-Request-ID: ' . $requestId;
@@ -1537,11 +1549,12 @@ class LlmClient
             CURLOPT_NOPROXY => '*',
             CURLOPT_RESOLVE => $target['curl_resolve'],
         ];
-        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
-            $curlOptions[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+        $isLocalHttp = str_starts_with(strtolower((string)$target['url']), 'http://');
+        if (defined('CURLOPT_PROTOCOLS')) {
+            $curlOptions[CURLOPT_PROTOCOLS] = $isLocalHttp ? CURLPROTO_HTTP : CURLPROTO_HTTPS;
         }
-        if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
-            $curlOptions[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;
+        if (defined('CURLOPT_REDIR_PROTOCOLS')) {
+            $curlOptions[CURLOPT_REDIR_PROTOCOLS] = $isLocalHttp ? CURLPROTO_HTTP : CURLPROTO_HTTPS;
         }
         return $curlOptions;
     }

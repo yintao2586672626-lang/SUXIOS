@@ -36,6 +36,13 @@ Choose the shortest verified path for the specific OTA task. Use Browser for loc
 | 自动获取 | 日常稳定采集、日报、巡检、预警、无需每次人工复制上下文 | 平台账号已授权，门店和系统酒店已绑定 | 使用门店独立 Profile，失效时提示人工登录，监听业务 JSON，按模块入库 | 不绕过验证码/短信/权限，不采集非授权门店 |
 | 手动获取 | 临时补数、首次接入、平台改版排障、自动采集失效后补录、用户已导出报表或抓到请求上下文 | 平台、酒店、日期、数据模块、导出文件或 Cookie/Payload/必要 ID | 校验字段，调用现有接口或导入解析，清洗、脱敏、去重、入库 | 不作为日常主线，不自动登录 OTA，不启动 Profile，不要求全量页面自动化 |
 
+## Common Collector Adapter Contract
+
+- 携程、美团、订单来了等网站共同遵循 `references/platform-collector-adapter-contract.md`。
+- 公共层统一范围声明、会话隔离、门店身份、最小请求、字段事实、保存回读、时间序列和失败状态。
+- 平台适配层只声明允许域名、身份字段、端点/Payload、JSON source path、指标、单位、日期角色、更新时间窗和对账规则。
+- 不为每个网站复制一套采集流程，也不把不同平台的同名字段强行视为同一口径。
+
 ## Ctrip Rules
 
 - 参考文档：`references/ctrip-browser-capture.md`。

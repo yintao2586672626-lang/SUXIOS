@@ -84,7 +84,7 @@ class AiConfig extends Base
         }
 
         $data = $this->request->param();
-        $error = $this->validateModelPayload($data, false);
+        $error = $this->validateModelPayload($data, false, (string) $model->provider);
         if ($error !== null) {
             return $this->error($error, 422);
         }
@@ -156,7 +156,9 @@ class AiConfig extends Base
             return $this->error('模型配置已禁用', 400);
         }
 
-        $apiKey = $this->decryptModelApiKey($model);
+        $apiKey = $this->providerRequiresApiKey((string) $model->provider)
+            ? $this->decryptModelApiKey($model)
+            : ['ok' => true, 'api_key' => ''];
         if ($apiKey['ok'] !== true) {
             return $this->error($apiKey['message'], (int) $apiKey['code']);
         }
@@ -193,25 +195,31 @@ class AiConfig extends Base
             return $this->error('provider 不在当前快速接入范围内', 422);
         }
         foreach ($definitions as $definition) {
-            $baseUrlError = $this->validateAiBaseUrl((string)($definition['base_url'] ?? ''));
+            $baseUrlError = $this->validateAiBaseUrl(
+                (string)($definition['base_url'] ?? ''),
+                (string)($definition['provider'] ?? $provider)
+            );
             if ($baseUrlError !== null) {
                 return $this->error($baseUrlError, 422);
             }
         }
-        if ($apiKey === '') {
+        if ($apiKey === '' && $this->providerRequiresApiKey($provider)) {
             return $this->error('API Key 不能为空', 422);
         }
 
-        $secret = $this->aiConfigSecret();
-        if ($secret === '') {
-            return $this->error('未配置 AI_CONFIG_SECRET', 400);
+        $encryptedApiKey = '';
+        $apiKeyMask = '';
+        if ($apiKey !== '') {
+            $secret = $this->aiConfigSecret();
+            if ($secret === '') {
+                return $this->error('未配置 AI_CONFIG_SECRET', 400);
+            }
+            $encryptedApiKey = AiModelConfig::encryptApiKey($apiKey, $secret);
+            if ($encryptedApiKey === null) {
+                return $this->error('API Key 加密失败', 500);
+            }
+            $apiKeyMask = AiModelConfig::maskApiKey($apiKey);
         }
-
-        $encryptedApiKey = AiModelConfig::encryptApiKey($apiKey, $secret);
-        if ($encryptedApiKey === null) {
-            return $this->error('API Key 加密失败', 500);
-        }
-        $apiKeyMask = AiModelConfig::maskApiKey($apiKey);
 
         $created = 0;
         $updated = 0;
@@ -265,7 +273,7 @@ class AiConfig extends Base
         ], '自动配置成功');
     }
 
-    private function validateModelPayload(array $data, bool $isCreate): ?string
+    private function validateModelPayload(array $data, bool $isCreate, string $existingProvider = ''): ?string
     {
         $requiredFields = ['name', 'model_key', 'provider', 'base_url', 'model_name'];
         foreach ($requiredFields as $field) {
@@ -281,7 +289,8 @@ class AiConfig extends Base
             return 'provider 只能包含字母、数字、下划线和中划线';
         }
         if (isset($data['base_url'])) {
-            $baseUrlError = $this->validateAiBaseUrl((string)$data['base_url']);
+            $provider = (string)($data['provider'] ?? $existingProvider);
+            $baseUrlError = $this->validateAiBaseUrl((string)$data['base_url'], $provider);
             if ($baseUrlError !== null) {
                 return $baseUrlError;
             }
@@ -290,10 +299,15 @@ class AiConfig extends Base
         return null;
     }
 
-    private function validateAiBaseUrl(string $baseUrl): ?string
+    private function validateAiBaseUrl(string $baseUrl, string $provider = ''): ?string
     {
         try {
-            (new OutboundUrlGuard())->validate($baseUrl);
+            $guard = new OutboundUrlGuard();
+            if (strtolower(trim($provider)) === 'ollama') {
+                $guard->validateLocalLlm($baseUrl);
+            } else {
+                $guard->validate($baseUrl);
+            }
             return null;
         } catch (InvalidArgumentException $exception) {
             return match ($exception->getMessage()) {
@@ -413,6 +427,19 @@ class AiConfig extends Base
             ];
         }
 
+        if ($provider === 'ollama') {
+            return [
+                $this->quickModelDefinition(
+                    '本机 Ollama Qwen3 8B',
+                    'ollama_qwen3_8b',
+                    'ollama',
+                    'http://127.0.0.1:11434/v1',
+                    'qwen3:8b',
+                    'local_gpu,ota_diagnosis,report'
+                ),
+            ];
+        }
+
         $directProviders = [
             'anthropic' => ['Anthropic Claude', 'anthropic_claude', 'https://api.anthropic.com/v1', 'ANTHROPIC_MODEL', 'claude-opus-4-7', 'long_context,code,report'],
             'gemini' => ['Google Gemini', 'gemini_flash', 'https://generativelanguage.googleapis.com/v1beta/openai', 'GEMINI_MODEL', 'gemini-3.5-flash', 'multimodal,workspace,report'],
@@ -503,6 +530,11 @@ class AiConfig extends Base
         return ['ok' => true, 'api_key' => $apiKey];
     }
 
+    private function providerRequiresApiKey(string $provider): bool
+    {
+        return strtolower(trim($provider)) !== 'ollama';
+    }
+
     private function testChatCompletion(string $baseUrl, string $modelName, string $apiKey, string $provider = ''): array
     {
         try {
@@ -526,6 +558,10 @@ class AiConfig extends Base
         if ($ch === false) {
             return ['ok' => false, 'message' => '网络请求失败', 'code' => 502];
         }
+        $headers = ['Content-Type: application/json'];
+        if ($apiKey !== '') {
+            $headers[] = 'Authorization: Bearer ' . $apiKey;
+        }
         $curlOptions = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
@@ -533,10 +569,7 @@ class AiConfig extends Base
             CURLOPT_CONNECTTIMEOUT => 8,
             CURLOPT_TIMEOUT => 30,
             CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $apiKey,
-            ],
+            CURLOPT_HTTPHEADER => $headers,
             CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
@@ -544,11 +577,12 @@ class AiConfig extends Base
             CURLOPT_NOPROXY => '*',
             CURLOPT_RESOLVE => $target['curl_resolve'],
         ];
-        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
-            $curlOptions[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+        $isLocalHttp = str_starts_with(strtolower((string)$target['url']), 'http://');
+        if (defined('CURLOPT_PROTOCOLS')) {
+            $curlOptions[CURLOPT_PROTOCOLS] = $isLocalHttp ? CURLPROTO_HTTP : CURLPROTO_HTTPS;
         }
-        if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
-            $curlOptions[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;
+        if (defined('CURLOPT_REDIR_PROTOCOLS')) {
+            $curlOptions[CURLOPT_REDIR_PROTOCOLS] = $isLocalHttp ? CURLPROTO_HTTP : CURLPROTO_HTTPS;
         }
         curl_setopt_array($ch, $curlOptions);
 

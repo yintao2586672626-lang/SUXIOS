@@ -7,6 +7,7 @@ use app\service\ManualNotificationDispatchLedgerService;
 use app\service\ManualNotificationBusinessPayloadService;
 use app\service\ManualNotificationScheduleService;
 use app\service\ManualNotificationService;
+use app\service\OperatingDailyReportPayloadService;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
@@ -377,6 +378,60 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         $result = $service->runDue($this->time('2026-07-26 18:01:00'));
 
         self::assertSame('preview', $result['status']);
+        self::assertSame('blocked', $result['results'][0]['status']);
+        self::assertSame(
+            'business_message_retest_required',
+            $result['results'][0]['reason_code']
+        );
+        self::assertNull($result['results'][0]['payload']);
+    }
+
+    public function testLegacyOperatingDailyContractRequiresRetestBeforeSchedule(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'dingdandao_pms',
+            'content_sections' => 'pms_summary,pms_efficiency',
+        ]);
+        $this->seedBusinessContractTest(
+            $notificationId,
+            'operating_daily_pms_ota_wecom.v1'
+        );
+        $dailyPayloads = new OperatingDailyReportPayloadService(
+            null,
+            static fn(int $tenantId, int $hotelId, string $date): array => [
+                'id' => 3,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'business_date' => $date,
+                'capture_status' => 'verified',
+                'quality_status' => 'verified',
+                'readback_status' => 'readback_verified',
+                'identity_status' => 'matched',
+                'reconciliation_status' => 'matched',
+                'captured_at' => $date . ' 17:30:00',
+                'summary' => [
+                    'total_room_fee' => 8745.66,
+                    'sold_room_nights' => 15,
+                    'derived_sellable_room_nights' => 15,
+                    'occupancy_rate_percent' => 100,
+                    'adr' => 583.04,
+                    'revpar' => 583.04,
+                ],
+            ]
+        );
+        $service = new ManualNotificationScheduleService(
+            null,
+            null,
+            null,
+            null,
+            null,
+            $dailyPayloads
+        );
+
+        $result = $service->runDue($this->time('2026-07-26 18:01:00'));
+
         self::assertSame('blocked', $result['results'][0]['status']);
         self::assertSame(
             'business_message_retest_required',

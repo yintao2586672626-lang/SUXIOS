@@ -247,6 +247,204 @@ final class RevenueOperationsKnowledgeServiceTest extends TestCase
         self::assertSame('active method', $context['entries'][0]['knowledge_type']);
     }
 
+    public function testContextUsesFairUnitSelectionAndReportsTruncation(): void
+    {
+        $service = new RevenueOperationsKnowledgeService();
+        $units = [];
+        $chunks = [];
+        $chunkId = 100;
+        foreach ([31, 30, 29] as $unitId) {
+            $units[] = [
+                'unit_id' => $unitId,
+                'hotel_id' => 0,
+                'created_by' => 0,
+                'name' => 'unit-' . $unitId,
+                'source' => RevenueOperationsKnowledgeService::SOURCE,
+                'status' => 'done',
+                'lifecycle_status' => 'active',
+            ];
+            for ($index = 1; $index <= 3; $index++) {
+                $chunks[] = [
+                    'chunk_id' => ++$chunkId,
+                    'unit_id' => $unitId,
+                    'type' => 'method-' . $index,
+                    'content' => [
+                        'scope' => 'generic_methodology',
+                        'evidence_level' => 'reviewed_method',
+                        'source_refs' => ['source-' . $unitId],
+                    ],
+                ];
+            }
+        }
+
+        $context = $service->buildContextFromRows($units, $chunks, ['limit' => 4]);
+
+        self::assertSame('partial', $context['status']);
+        self::assertTrue($context['truncated']);
+        self::assertSame(9, $context['eligible_entry_count']);
+        self::assertSame(5, $context['omitted_entry_count']);
+        self::assertSame(3, $context['selected_unit_count']);
+        self::assertSame([31, 30, 29, 31], array_column($context['entries'], 'unit_id'));
+        self::assertContains(
+            'revenue_operations_knowledge_truncated',
+            array_column($context['data_gaps'], 'code')
+        );
+    }
+
+    public function testContextHardFiltersExplicitPlatformTagsButKeepsGenericMethods(): void
+    {
+        $service = new RevenueOperationsKnowledgeService();
+        $units = [[
+            'unit_id' => 31,
+            'hotel_id' => 0,
+            'created_by' => 0,
+            'name' => 'platform-contracts',
+            'source' => RevenueOperationsKnowledgeService::SOURCE,
+            'status' => 'done',
+            'lifecycle_status' => 'active',
+        ]];
+        $chunks = [
+            [
+                'chunk_id' => 101,
+                'unit_id' => 31,
+                'type' => 'ctrip-rule',
+                'content' => [
+                    'scope' => 'platform_rule',
+                    'platforms' => ['ctrip'],
+                    'module_id' => 'ctrip_fulfillment',
+                    'evidence_level' => 'official_current_rule',
+                    'source_refs' => ['ctrip-rule'],
+                ],
+            ],
+            [
+                'chunk_id' => 102,
+                'unit_id' => 31,
+                'type' => 'meituan-rule',
+                'content' => [
+                    'scope' => 'platform_rule',
+                    'platforms' => ['meituan'],
+                    'module_id' => 'meituan_rule',
+                    'evidence_level' => 'official_current_rule',
+                    'source_refs' => ['meituan-rule'],
+                ],
+            ],
+            [
+                'chunk_id' => 103,
+                'unit_id' => 31,
+                'type' => 'generic-rule',
+                'content' => [
+                    'scope' => 'generic_methodology',
+                    'evidence_level' => 'reviewed_method',
+                    'source_refs' => ['generic-source'],
+                ],
+            ],
+        ];
+
+        $context = $service->buildContextFromRows($units, $chunks, ['platform' => 'ctrip']);
+
+        self::assertSame('available', $context['status']);
+        self::assertSame(['ctrip-rule', 'generic-rule'], array_column($context['entries'], 'knowledge_type'));
+        self::assertSame(1, $context['excluded_platform_mismatch_count']);
+        self::assertSame(['ctrip'], $context['platforms']);
+    }
+
+    public function testContextWithholdsUnresolvedClaimsAndKeepsExplicitResolutionOnly(): void
+    {
+        $service = new RevenueOperationsKnowledgeService();
+        $units = [[
+            'unit_id' => 31,
+            'hotel_id' => 0,
+            'created_by' => 0,
+            'name' => 'conflicting-rules',
+            'source' => RevenueOperationsKnowledgeService::SOURCE,
+            'status' => 'done',
+            'lifecycle_status' => 'active',
+            'reviewed_at' => '2026-07-30 00:00:00',
+        ]];
+        $chunks = [
+            [
+                'chunk_id' => 101,
+                'unit_id' => 31,
+                'type' => 'old-rule',
+                'content' => [
+                    'scope' => 'platform_rule',
+                    'evidence_level' => 'official_current_rule',
+                    'source_refs' => ['official-old'],
+                    'conflict_key' => 'feedback_window_days',
+                    'claim_value' => 30,
+                ],
+            ],
+            [
+                'chunk_id' => 102,
+                'unit_id' => 31,
+                'type' => 'new-rule',
+                'content' => [
+                    'scope' => 'platform_rule',
+                    'evidence_level' => 'official_current_rule',
+                    'source_refs' => ['official-new'],
+                    'conflict_key' => 'feedback_window_days',
+                    'claim_value' => 90,
+                ],
+            ],
+        ];
+
+        $unresolved = $service->buildContextFromRows($units, $chunks, [
+            'as_of' => '2026-07-30 12:00:00',
+        ]);
+        self::assertSame('empty', $unresolved['status']);
+        self::assertSame(0, $unresolved['entry_count']);
+        self::assertSame(1, $unresolved['unresolved_conflict_count']);
+        self::assertContains(
+            'knowledge_claim_conflict_unresolved',
+            array_column($unresolved['data_gaps'], 'code')
+        );
+
+        $chunks[1]['content']['resolution_status'] = 'resolved';
+        $resolved = $service->buildContextFromRows($units, $chunks, [
+            'as_of' => '2026-07-30 12:00:00',
+        ]);
+        self::assertSame('available', $resolved['status']);
+        self::assertSame([102], array_column($resolved['entries'], 'chunk_id'));
+        self::assertSame(1, $resolved['resolved_conflict_count']);
+        self::assertSame(0, $resolved['unresolved_conflict_count']);
+    }
+
+    public function testReviewDueKnowledgeIsVisibleAsPartialButNotDecisionSafe(): void
+    {
+        $service = new RevenueOperationsKnowledgeService();
+        $context = $service->buildContextFromRows([[
+            'unit_id' => 31,
+            'hotel_id' => 0,
+            'created_by' => 0,
+            'name' => 'review-due-method',
+            'source' => RevenueOperationsKnowledgeService::SOURCE,
+            'status' => 'done',
+            'lifecycle_status' => 'active',
+            'reviewed_at' => '2025-01-01 00:00:00',
+            'review_due_at' => '2025-04-01 00:00:00',
+        ]], [[
+            'chunk_id' => 101,
+            'unit_id' => 31,
+            'type' => 'reviewed-method',
+            'content' => [
+                'scope' => 'generic_methodology',
+                'evidence_level' => 'reviewed_method',
+                'source_refs' => ['method-review'],
+            ],
+        ]], [
+            'as_of' => '2026-07-30 12:00:00',
+        ]);
+
+        self::assertSame('partial', $context['status']);
+        self::assertSame(1, $context['entry_count']);
+        self::assertSame('review_due', $context['entries'][0]['knowledge_gate']['freshness_status']);
+        self::assertFalse($context['entries'][0]['knowledge_gate']['decision_safe']);
+        self::assertContains(
+            'knowledge_review_due',
+            array_column($context['data_gaps'], 'code')
+        );
+    }
+
     public function testKnowledgeArtifactsAreSeededAndKeepCaseScopeProtected(): void
     {
         $root = realpath(__DIR__ . '/..');

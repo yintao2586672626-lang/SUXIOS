@@ -84,7 +84,17 @@ final class KnowledgePayloadMapper
             $truthProfileTouched = true;
         }
         if ($truthProfileTouched) {
-            $data['reviewed_at'] = date('Y-m-d H:i:s');
+            $reviewedAt = new \DateTimeImmutable('now');
+            $data['reviewed_at'] = $reviewedAt->format('Y-m-d H:i:s');
+            $data['review_due_at'] = $reviewedAt->modify('+180 days')->format('Y-m-d H:i:s');
+        }
+        if (array_key_exists('review_due_at', $input)) {
+            $reviewDueAt = trim((string)$input['review_due_at']);
+            $normalizedReviewDueAt = $this->normalizeDateTime($reviewDueAt);
+            if ($normalizedReviewDueAt === null) {
+                throw new ValidateException('review_due_at must be a valid YYYY-MM-DD or YYYY-MM-DD HH:MM:SS value');
+            }
+            $data['review_due_at'] = $normalizedReviewDueAt;
         }
 
         return $data;
@@ -162,6 +172,7 @@ final class KnowledgePayloadMapper
             'readiness' => $this->readinessService->buildUnitReadiness($row, $resolvedChunkCount),
             'created_by' => (int)($row['created_by'] ?? 0),
             'reviewed_at' => (string)($row['reviewed_at'] ?? ''),
+            'review_due_at' => (string)($row['review_due_at'] ?? ''),
             'created_at' => (string)($row['created_at'] ?? ''),
             'updated_at' => (string)($row['updated_at'] ?? ''),
         ];
@@ -216,6 +227,20 @@ final class KnowledgePayloadMapper
             static fn(mixed $item): string => is_scalar($item) ? trim((string)$item) : '',
             $value
         ), static fn(string $item): bool => $item !== ''));
+    }
+
+    private function normalizeDateTime(string $value): ?string
+    {
+        foreach (['!Y-m-d H:i:s', '!Y-m-d'] as $format) {
+            $date = \DateTimeImmutable::createFromFormat($format, $value);
+            $errors = \DateTimeImmutable::getLastErrors();
+            if ($date !== false && ($errors === false
+                || ((int)$errors['warning_count'] === 0 && (int)$errors['error_count'] === 0)
+            )) {
+                return $date->format('Y-m-d H:i:s');
+            }
+        }
+        return null;
     }
 
     public function formatChunkRow(array $row): array

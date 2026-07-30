@@ -18,11 +18,14 @@ final class ManualNotificationService
     public const DYNAMIC_REPORT_TYPE = 'operating_target_report';
     public const OPERATING_DAILY_REPORT_TYPE = 'operating_daily_report';
     public const OPERATING_DAILY_CUSTOM_REPORT_TYPE = 'operating_daily_custom_report';
+    public const CTRIP_TEMPORAL_REPORT_TYPE =
+        CtripTemporalNotificationPayloadService::TEMPLATE_TYPE;
 
     private const TIMEZONE = 'Asia/Shanghai';
     private const TYPES = [
         self::OPERATING_DAILY_REPORT_TYPE => '经营日报',
         self::OPERATING_DAILY_CUSTOM_REPORT_TYPE => '经营日报（自定义模板）',
+        self::CTRIP_TEMPORAL_REPORT_TYPE => '携程经营播报（过去·如今·未来）',
         self::DYNAMIC_REPORT_TYPE => '每日经营目标报告',
         'ai_analysis_result' => 'AI分析结果',
         'anomaly_alert' => '异常预警',
@@ -120,7 +123,8 @@ final class ManualNotificationService
         private readonly ?WechatRobotDeliveryService $deliveries = null,
         private readonly ?ManualNotificationScheduleRuleService $scheduleRuleService = null,
         private readonly ?OperatingDailyReportPayloadService $operatingDailyPayloads = null,
-        private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null
+        private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null,
+        private readonly ?CtripTemporalNotificationPayloadService $ctripTemporalPayloads = null
     ) {
         $this->testDispatcher = $testDispatcher;
     }
@@ -133,6 +137,7 @@ final class ManualNotificationService
                 self::DYNAMIC_REPORT_TYPE,
                 self::OPERATING_DAILY_REPORT_TYPE,
                 self::OPERATING_DAILY_CUSTOM_REPORT_TYPE,
+                self::CTRIP_TEMPORAL_REPORT_TYPE,
                 ...self::BUSINESS_FACT_TYPES,
             ],
             true
@@ -142,6 +147,18 @@ final class ManualNotificationService
     public static function isBusinessFactReportType(string $type): bool
     {
         return in_array(trim($type), self::BUSINESS_FACT_TYPES, true);
+    }
+
+    public static function isCtripTemporalReportType(string $type): bool
+    {
+        return trim($type) === self::CTRIP_TEMPORAL_REPORT_TYPE;
+    }
+
+    public static function requiresTestedRenderContract(string $type): bool
+    {
+        return self::isBusinessFactReportType($type)
+            || self::isCtripTemporalReportType($type)
+            || self::isOperatingDailyReportType($type);
     }
 
     public static function isOperatingDailyReportType(string $type): bool
@@ -322,7 +339,11 @@ final class ManualNotificationService
         ) {
             throw new \InvalidArgumentException('manual_notification_target_required');
         }
-        if ($targetRobotId > 0 || $targetRobotName !== '') {
+        $preservingPausedTarget = is_array($existing)
+            && $normalized['enabled'] === false
+            && (int)($existing['test_robot_id'] ?? 0) === $targetRobotId
+            && trim((string)($existing['test_robot_name'] ?? '')) === $targetRobotName;
+        if (($targetRobotId > 0 || $targetRobotName !== '') && !$preservingPausedTarget) {
             $binding = $this->deliveryService()->resolvePlanRobot(
                 $tenantId,
                 $hotelId,
@@ -440,7 +461,44 @@ final class ManualNotificationService
     /** @return array<string, mixed> */
     public function dispatchHistory(int $tenantId, int $hotelId, int $limit = 50): array
     {
-        return $this->dispatchLedger()->history($tenantId, $hotelId, $limit);
+        $history = $this->dispatchLedger()->history($tenantId, $hotelId, $limit);
+        $notificationIds = array_values(array_unique(array_filter(
+            array_map(
+                static fn(array $item): int => (int)($item['notification_id'] ?? 0),
+                (array)($history['list'] ?? [])
+            ),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($notificationIds === []) {
+            return $history;
+        }
+
+        $plans = Db::name('manual_notifications')
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->whereIn('id', $notificationIds)
+            ->select()
+            ->toArray();
+        $planMap = [];
+        foreach ($plans as $plan) {
+            $presented = $this->present($plan);
+            $planMap[(int)$presented['id']] = $presented;
+        }
+        $history['list'] = array_map(static function (array $item) use ($planMap): array {
+            $plan = $planMap[(int)($item['notification_id'] ?? 0)] ?? null;
+            if (!is_array($plan)) {
+                return $item;
+            }
+            return $item + [
+                'plan_title' => (string)($plan['title'] ?? ''),
+                'source_scope' => (string)($plan['source_scope'] ?? ''),
+                'source_scope_label' => (string)($plan['source_scope_label'] ?? ''),
+                'template_type' => (string)($plan['template_type'] ?? ''),
+                'template_type_label' => (string)($plan['template_type_label'] ?? ''),
+                'data_scope_label' => (string)($plan['data_scope_label'] ?? ''),
+            ];
+        }, (array)($history['list'] ?? []));
+        return $history;
     }
 
     /**
@@ -779,7 +837,10 @@ final class ManualNotificationService
         if (!isset(self::SOURCE_SCOPES[$sourceScope])) {
             throw new \InvalidArgumentException('manual_notification_source_scope_invalid');
         }
-        if ($type === self::OPERATING_DAILY_CUSTOM_REPORT_TYPE) {
+        if (self::isCtripTemporalReportType($type)) {
+            $sourceScope = 'ctrip';
+            $contentSections = [];
+        } elseif ($type === self::OPERATING_DAILY_CUSTOM_REPORT_TYPE) {
             // The legacy free-form template may reference variables from all
             // three sources, so keep it on the combined compatibility scope.
             $sourceScope = 'combined';
@@ -894,35 +955,42 @@ final class ManualNotificationService
                     '缺少租户范围，动态经营目标报告不可预览。'
                 );
             }
-            $page = self::isBusinessFactReportType($type)
-                ? $this->businessPayloads()->pagePreview(
+            $page = self::isCtripTemporalReportType($type)
+                ? $this->ctripTemporalPayloads()->pagePreview(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    (string)$data['business_date']
+                )
+                : (self::isBusinessFactReportType($type)
+                    ? $this->businessPayloads()->pagePreview(
                     $tenantId,
                     $hotelId,
                     $hotelName,
                     (string)$data['business_date'],
                     $type
-                )
-                : (self::isOperatingDailyReportType($type)
-                    ? $this->dailyPayloads()->pagePreview(
-                        $tenantId,
-                        $hotelId,
-                        $hotelName,
-                        (string)$data['business_date'],
-                        (string)($data['source_scope'] ?? 'combined'),
-                        $this->contentSectionsFromValue(
-                            $data['content_sections'] ?? null,
-                            (string)($data['source_scope'] ?? 'combined')
-                        ),
-                        self::operatingDailyTemplateMode($type),
-                        (string)($data['title'] ?? ''),
-                        (string)($data['body'] ?? '')
                     )
-                    : $this->targetPayloads()->pagePreview(
-                        $tenantId,
-                        $hotelId,
-                        $hotelName,
-                        (string)$data['business_date']
-                    ));
+                    : (self::isOperatingDailyReportType($type)
+                        ? $this->dailyPayloads()->pagePreview(
+                            $tenantId,
+                            $hotelId,
+                            $hotelName,
+                            (string)$data['business_date'],
+                            (string)($data['source_scope'] ?? 'combined'),
+                            $this->contentSectionsFromValue(
+                                $data['content_sections'] ?? null,
+                                (string)($data['source_scope'] ?? 'combined')
+                            ),
+                            self::operatingDailyTemplateMode($type),
+                            (string)($data['title'] ?? ''),
+                            (string)($data['body'] ?? '')
+                        )
+                        : $this->targetPayloads()->pagePreview(
+                            $tenantId,
+                            $hotelId,
+                            $hotelName,
+                            (string)$data['business_date']
+                        )));
             $scheduleStatus = trim((string)($data['schedule_status'] ?? ''));
             if ($scheduleStatus === '') {
                 $scheduleStatus = (bool)$data['enabled']
@@ -1007,38 +1075,46 @@ final class ManualNotificationService
                 ];
             }
             $templateType = (string)$record['template_type'];
-            return self::isBusinessFactReportType($templateType)
-                ? $this->businessPayloads()->build(
+            return self::isCtripTemporalReportType($templateType)
+                ? $this->ctripTemporalPayloads()->build(
+                    $tenantId,
+                    $hotelId,
+                    $hotelName,
+                    $businessDate,
+                    $deliveryMode
+                )
+                : (self::isBusinessFactReportType($templateType)
+                    ? $this->businessPayloads()->build(
                     $tenantId,
                     $hotelId,
                     $hotelName,
                     $businessDate,
                     $templateType,
                     $deliveryMode
-                )
-                : (self::isOperatingDailyReportType($templateType)
-                    ? $this->dailyPayloads()->build(
-                        $tenantId,
-                        $hotelId,
-                        $hotelName,
-                        $businessDate,
-                        $deliveryMode,
-                        (string)($record['source_scope'] ?? 'combined'),
-                        $this->contentSectionsFromValue(
-                            $record['content_sections'] ?? null,
-                            (string)($record['source_scope'] ?? 'combined')
-                        ),
-                        self::operatingDailyTemplateMode($templateType),
-                        (string)($record['title'] ?? ''),
-                        (string)($record['body'] ?? '')
                     )
-                    : $this->targetPayloads()->build(
-                        $tenantId,
-                        $hotelId,
-                        $hotelName,
-                        $businessDate,
-                        $deliveryMode
-                    ));
+                    : (self::isOperatingDailyReportType($templateType)
+                        ? $this->dailyPayloads()->build(
+                            $tenantId,
+                            $hotelId,
+                            $hotelName,
+                            $businessDate,
+                            $deliveryMode,
+                            (string)($record['source_scope'] ?? 'combined'),
+                            $this->contentSectionsFromValue(
+                                $record['content_sections'] ?? null,
+                                (string)($record['source_scope'] ?? 'combined')
+                            ),
+                            self::operatingDailyTemplateMode($templateType),
+                            (string)($record['title'] ?? ''),
+                            (string)($record['body'] ?? '')
+                        )
+                        : $this->targetPayloads()->build(
+                            $tenantId,
+                            $hotelId,
+                            $hotelName,
+                            $businessDate,
+                            $deliveryMode
+                        )));
         }
 
         $previewRecord = $record;
@@ -1357,6 +1433,7 @@ final class ManualNotificationService
     private function defaultTitle(string $type, string $date): string
     {
         return match ($type) {
+            self::CTRIP_TEMPORAL_REPORT_TYPE => '携程经营播报',
             self::OPERATING_DAILY_REPORT_TYPE => $date . ' 经营日报',
             self::OPERATING_DAILY_CUSTOM_REPORT_TYPE => '今日经营数据汇总｜PMS＋OTA',
             self::DYNAMIC_REPORT_TYPE => $date . ' 每日经营目标报告',
@@ -1373,6 +1450,11 @@ final class ManualNotificationService
     private function defaultBody(string $type, string $date): string
     {
         return match ($type) {
+            self::CTRIP_TEMPORAL_REPORT_TYPE => implode("\n", [
+                '携程经营播报',
+                '按同门店、同日期的可信回读数据生成“过去、如今、未来”。',
+                '缺失字段和缺失时段不补零、不补旧值；采集超过1小时才显示过期提醒。',
+            ]),
             self::OPERATING_DAILY_CUSTOM_REPORT_TYPE =>
                 OperatingDailyReportPayloadService::defaultCustomTemplate()['body'],
             self::OPERATING_DAILY_REPORT_TYPE => implode("\n", [
@@ -1595,6 +1677,7 @@ final class ManualNotificationService
     private function dataScopeLabel(string $type): string
     {
         return match ($type) {
+            self::CTRIP_TEMPORAL_REPORT_TYPE => '携程 OTA 过去复盘、如今监控与未来需求',
             self::OPERATING_DAILY_REPORT_TYPE,
             self::OPERATING_DAILY_CUSTOM_REPORT_TYPE => 'PMS＋OTA 三源经营日报',
             self::DYNAMIC_REPORT_TYPE => '经营目标与已核验经营事实',
@@ -1661,6 +1744,12 @@ final class ManualNotificationService
     {
         return $this->businessMessagePayloads
             ?? new ManualNotificationBusinessPayloadService();
+    }
+
+    private function ctripTemporalPayloads(): CtripTemporalNotificationPayloadService
+    {
+        return $this->ctripTemporalPayloads
+            ?? new CtripTemporalNotificationPayloadService();
     }
 
     private function dispatchLedger(): ManualNotificationDispatchLedgerService

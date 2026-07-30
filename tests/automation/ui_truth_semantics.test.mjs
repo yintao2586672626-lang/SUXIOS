@@ -94,8 +94,12 @@ test('home temporal cards do not coerce null into zero or probability confidence
   assert.match(appMain, /规则置信指数（未校准）/);
   assert.match(appMain, /需满 14 个有效日才做两组 7 日对比/);
   assert.match(appMain, /最近 \$\{recentWindowDays\} 个有数据日均值/);
-  assert.match(appMain, /历史预测区间命中率：\$\{homeTemporalPercentText\(review\.range_hit_rate\)\}/);
+  assert.match(appMain, /预测运营结论已停用/);
+  assert.match(appMain, /整体命中率 \$\{homeTemporalPercentText\(review\.range_hit_rate\)\}（仅诊断）/);
+  assert.match(appMain, /按指标和 T\+周期分别回测；每个分组至少 \$\{policySamples\} 个到期样本/);
   assert.match(dualOtaPage, /data-testid="home-temporal-generate-inline"/);
+  assert.match(dualOtaPage, /data-testid="home-temporal-backtest-matrix"/);
+  assert.match(dualOtaPage, /审批通过后才生成运营任务[\s\S]*不自动调价/);
   assert.match(appMain, /status: 'blocked',[\s\S]*message: homeTemporalError\.value,[\s\S]*series: \[\]/);
   assert.doesNotMatch(appMain, /粗粒度区间 \$\{futureRange\}，置信度/);
 });

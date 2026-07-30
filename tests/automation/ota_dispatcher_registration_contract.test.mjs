@@ -48,13 +48,22 @@ test('task runs only as the current interactive user with bounded execution', ()
 
 test('task arguments are fixed and credential-shaped values are rejected', () => {
   assert.match(source, /\$dispatcherCommand = 'online-data:auto-fetch'/);
-  assert.match(source, /\$actionArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File/);
+  assert.match(source, /\$actionArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File/);
   assert.match(source, /\$dispatcherRunnerPath/);
+  assert.match(source, /-HotelId \{0\} -SourceIds "\{1\}" -Platforms "\{2\}"/);
+  assert.match(source, /scope_boundary/);
+  assert.match(source, /external_delivery = \$false/);
+  assert.match(source, /visible_window_expected = \$false/);
+  assert.match(source, /-Hidden/);
   assert.match(source, /cookie\|token\|password\|authorization\|spidertoken\|secret\|session\|credential/i);
   assert.match(source, /Authorized local-profile OTA (?:realtime |daily )?dispatcher/);
   const runner = readFileSync(path.join(repoRoot, 'scripts', 'run_ota_dispatcher.ps1'), 'utf8');
   assert.match(runner, /ValidateSet\('Daily', 'Realtime'\)/);
   assert.match(runner, /\$scheduleArgument = if \(\$Mode -eq 'Realtime'\) \{ '--realtime-only' \} else \{ '--daily-only' \}/);
+  assert.match(runner, /--hotel-id=\$HotelId/);
+  assert.match(runner, /--source-ids=\$SourceIds/);
+  assert.match(runner, /--platforms=\$Platforms/);
+  assert.match(runner, /Scoped OTA dispatcher requires HotelId, SourceIds, and Platforms together/);
 });
 
 test('realtime dispatcher is an independent hourly task with the same credential boundary', () => {
