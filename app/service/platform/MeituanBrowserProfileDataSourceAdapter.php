@@ -30,6 +30,16 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     public function fetch(array $source, array $options = []): array
     {
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+        $cdpUrl = trim((string)($options['cdp_url'] ?? $options['cdpUrl'] ?? ''));
+        if ($cdpUrl !== '' && $cdpUrl !== 'http://127.0.0.1:9223') {
+            return [
+                'status' => 'failed',
+                'status_code' => 'cloud_browser_cdp_url_invalid',
+                'error_code' => 'cloud_browser_cdp_url_invalid',
+                'message' => 'Cloud browser CDP endpoint is invalid.',
+                'payload' => [],
+            ];
+        }
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
         $storeId = $this->firstString($options, $config, ['platform_hotel_id', 'store_id', 'storeId', 'poi_id', 'poiId']);
         if ($storeId === '') {
@@ -43,7 +53,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $safeStoreId = $this->safeName($storeId);
         $interactive = $this->truthy($options['interactive_browser'] ?? $options['interactiveBrowser'] ?? false);
         $profileDir = $this->projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $safeStoreId;
-        if (!is_dir($profileDir) && !$interactive) {
+        if ($cdpUrl === '' && !is_dir($profileDir) && !$interactive) {
             return [
                 'status' => 'waiting_config',
                 'message' => 'Meituan browser Profile is not prepared: storage/meituan_profile_' . $safeStoreId,
@@ -135,6 +145,9 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if ($temporalScope !== '') {
             $args[] = '--temporal-scope=' . $temporalScope;
+        }
+        if ($cdpUrl !== '') {
+            $args[] = '--cdp-url=' . $cdpUrl;
         }
 
         try {

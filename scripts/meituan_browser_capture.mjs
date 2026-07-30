@@ -90,8 +90,11 @@ const temporalScope = String(args.temporalScope || args.temporal_scope || '').tr
 const sessionProbeOnly = booleanArg(args.sessionProbeOnly) || booleanArg(args.session_probe_only);
 const loginOnly = !sessionProbeOnly && (booleanArg(args.loginOnly) || booleanArg(args.authOnly) || booleanArg(args.prepareProfile));
 const authOnly = sessionProbeOnly || loginOnly;
+const connectedCloudProfile = Boolean(String(args.cdpUrl || args.cdp_url || '').trim());
 
-await mkdir(storageDir, { recursive: true });
+if (!connectedCloudProfile) {
+  await mkdir(storageDir, { recursive: true });
+}
 await mkdir(reportDir, { recursive: true });
 await mkdir(assetDir, { recursive: true });
 
@@ -319,7 +322,8 @@ try {
 
   console.log(JSON.stringify({
     output: outputPath,
-    profile_dir: storageDir,
+    profile_dir: connectedCloudProfile ? null : storageDir,
+    cloud_profile_cdp: connectedCloudProfile,
     auth_status: payload.auth_status,
     session_probe: payload.session_probe,
     counts: summarize(payload),
