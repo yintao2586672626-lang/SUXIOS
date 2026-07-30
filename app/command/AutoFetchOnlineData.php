@@ -6,6 +6,7 @@ namespace app\command;
 use app\model\User;
 use app\service\PlatformDataSyncService;
 use app\service\CloudOtaCollectionScopeService;
+use app\service\CloudOtaProfileLeaseService;
 use app\service\CtripCollectorWorkflowService;
 use app\service\OtaFailureNotificationService;
 use app\service\OtaOrderedCollectionPlanner;
@@ -1475,6 +1476,9 @@ class AutoFetchOnlineData extends Command
             'message' => 'scheduled_profile_source_missing',
         ], $missingPlatforms);
         $timing = [];
+        $cloudProfileLeases = $this->cloudCollectorScope === []
+            ? null
+            : new CloudOtaProfileLeaseService();
         foreach ($sources as $source) {
             $platform = strtolower((string)($source['platform'] ?? 'source'));
             $orderedExecution = $this->orderedBrowserProfileExecution(
@@ -1546,12 +1550,26 @@ class AutoFetchOnlineData extends Command
                         ),
                     ]);
                 }
-                $result = $service->syncDataSource(
-                    $systemUser,
-                    (int)$source['id'],
-                    $syncOptions
-                );
+                $result = $cloudProfileLeases instanceof CloudOtaProfileLeaseService
+                    ? $cloudProfileLeases->withReadOnlyLease(
+                        $source,
+                        $dataDate,
+                        static fn(string $cdpUrl): array => $service->syncDataSource(
+                            $systemUser,
+                            (int)$source['id'],
+                            array_replace($syncOptions, [
+                                'cdp_url' => $cdpUrl,
+                                'ctrip_section_concurrency' => 1,
+                            ])
+                        )
+                    )
+                    : $service->syncDataSource(
+                        $systemUser,
+                        (int)$source['id'],
+                        $syncOptions
+                    );
             } catch (\Throwable $e) {
+                $failureReasonCodes = $this->safeExceptionReasonCodes($e);
                 $failedCount++;
                 $failedPlatforms[$platform] = true;
                 $platformResults[] = [
@@ -1563,6 +1581,7 @@ class AutoFetchOnlineData extends Command
                     'run_readback' => [],
                     'ordered_collection' => $orderedPlan,
                     'message' => 'ordered_profile_capture_failed',
+                    'failure_reason_codes' => $failureReasonCodes,
                 ];
                 $messages[] = strtoupper($platform) . ' 数据源#' . (int)$source['id'] . ': ' . $e->getMessage();
                 continue;
@@ -2392,6 +2411,25 @@ class AutoFetchOnlineData extends Command
         }
         $timestamp = strtotime($startedAt);
         return $timestamp === false || (time() - $timestamp) > self::PROFILE_LOCK_STALE_SECONDS;
+    }
+
+    /** @return array<int,string> */
+    private function safeExceptionReasonCodes(\Throwable $error): array
+    {
+        $codes = [];
+        for ($current = $error, $depth = 0;
+            $current instanceof \Throwable && $depth < 8;
+            $current = $current->getPrevious(), $depth++
+        ) {
+            $message = strtolower(trim($current->getMessage()));
+            if ($message !== ''
+                && preg_match('/^[a-z][a-z0-9_:-]{2,127}$/D', $message) === 1
+            ) {
+                $codes[$message] = true;
+            }
+        }
+
+        return array_keys($codes) ?: ['ordered_profile_capture_failed'];
     }
 
     /** @return array<int, string> */

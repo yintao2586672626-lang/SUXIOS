@@ -245,12 +245,58 @@ final class CloudBrowserProfileService
         string $targetDate,
         string $platform
     ): array {
-        if ($tenantId <= 0 || $hotelId <= 0 || $ownerUserId <= 0) {
-            throw new RuntimeException('cloud_browser_collection_scope_invalid');
-        }
         $platform = $this->platform($platform);
         if (!in_array($platform, ['dingdandao', 'meituan_cloud_pms'], true)) {
             throw new RuntimeException('cloud_browser_collection_platform_unsupported');
+        }
+        return $this->validateCollectionProfile(
+            $profilePublicId,
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            $targetDate,
+            $platform
+        );
+    }
+
+    /**
+     * Read-only same-day preflight for a device-local OTA Profile.
+     *
+     * @return array<string,mixed>
+     */
+    public function validateOtaCollectionProfile(
+        string $profilePublicId,
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $targetDate,
+        string $platform
+    ): array {
+        $platform = $this->platform($platform);
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            throw new RuntimeException('cloud_browser_collection_platform_unsupported');
+        }
+        return $this->validateCollectionProfile(
+            $profilePublicId,
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            $targetDate,
+            $platform
+        );
+    }
+
+    /** @return array<string,mixed> */
+    private function validateCollectionProfile(
+        string $profilePublicId,
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $targetDate,
+        string $platform
+    ): array {
+        if ($tenantId <= 0 || $hotelId <= 0 || $ownerUserId <= 0) {
+            throw new RuntimeException('cloud_browser_collection_scope_invalid');
         }
         $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($targetDate), new DateTimeZone('Asia/Shanghai'));
@@ -299,21 +345,34 @@ final class CloudBrowserProfileService
             throw new RuntimeException('cloud_browser_collection_hotel_scope_invalid');
         }
 
-        $source = $platform === 'dingdandao'
-            ? [
+        $source = match ($platform) {
+            'dingdandao' => [
                 'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
                 'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
                 'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
-            ]
-            : [
+            ],
+            'meituan_cloud_pms' => [
                 'provider' => MeituanCloudPmsCaptureService::PROVIDER,
                 'source_scope' => MeituanCloudPmsCaptureService::SOURCE_SCOPE,
                 'source_url' => MeituanCloudPmsCaptureService::SOURCE_URL,
-            ];
+            ],
+            'ctrip' => [
+                'provider' => 'ctrip_ebooking',
+                'source_scope' => 'target_date_only',
+                'source_url' => 'https://ebooking.ctrip.com/home/mainland',
+            ],
+            'meituan' => [
+                'provider' => 'meituan_ebooking',
+                'source_scope' => 'target_date_only',
+                'source_url' => 'https://me.meituan.com/ebooking/',
+            ],
+        };
 
         return [
             'validated' => true,
-            'collection_kind' => 'operating_target_today',
+            'collection_kind' => in_array($platform, ['ctrip', 'meituan'], true)
+                ? 'ota_target_date'
+                : 'operating_target_today',
             'access_mode' => 'read_only',
             'platform' => $platform,
             'provider' => $source['provider'],

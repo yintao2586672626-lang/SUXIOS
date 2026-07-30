@@ -244,4 +244,43 @@ final class CloudBrowserProfileServiceTest extends TestCase
             self::assertSame('cloud_browser_collection_profile_not_ready', $error->getMessage());
         }
     }
+
+    public function testOtaProfileRequiresExactPlatformHotelUserAndSameDayScope(): void
+    {
+        $service = new CloudBrowserProfileService();
+        $entry = $service->requestLoginEntry(80, 7, 'ctrip');
+        $service->completeGatewayLogin(
+            (string)$entry['profile']['profile_id'],
+            (string)$entry['login_entry']['session_id'],
+            (string)$entry['login_entry']['ticket'],
+            date('Y-m-d H:i:s', time() + 86400)
+        );
+
+        $validated = $service->validateOtaCollectionProfile(
+            (string)$entry['profile']['profile_id'],
+            8,
+            80,
+            7,
+            date('Y-m-d'),
+            'ctrip'
+        );
+        self::assertTrue($validated['validated']);
+        self::assertSame('ota_target_date', $validated['collection_kind']);
+        self::assertSame('target_date_only', $validated['source_scope']);
+        self::assertSame('ctrip', $validated['profile']['platform']);
+
+        try {
+            $service->validateOtaCollectionProfile(
+                (string)$entry['profile']['profile_id'],
+                8,
+                80,
+                7,
+                date('Y-m-d'),
+                'meituan'
+            );
+            self::fail('cross-platform Profile use must be rejected');
+        } catch (\RuntimeException $error) {
+            self::assertSame('cloud_browser_collection_scope_mismatch', $error->getMessage());
+        }
+    }
 }
