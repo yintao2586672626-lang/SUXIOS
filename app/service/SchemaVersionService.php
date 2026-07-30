@@ -20,8 +20,9 @@ final class SchemaVersionService
     /**
      * Applied migrations remain immutable by default. These revisions are
      * narrowly allowed because they only added IF NOT EXISTS guards after the
-     * original DDL had already been applied. Both the old and current hashes
-     * must match exactly before the registry can be advanced.
+     * original DDL had already been applied, or normalized trailing whitespace
+     * without changing SQL. Both the old and current hashes must match exactly
+     * before the registry can be advanced.
      *
      * @var array<string, array<string, string>>
      */
@@ -37,6 +38,10 @@ final class SchemaVersionService
         '20260726_extend_manual_notification_schedule_runs_scope_robot.sql' => [
             '0a579e36892ff2585a658cb6877ffb6c20dfbeb3474033a78398642c6acfc4e2'
                 => '774a2e32a1bb61ce7cef9f1a15591374fc0ce50febd23897e965bcbf10379fb9',
+        ],
+        '20260730_zzzzz_harden_manual_notification_dispatch_claims.sql' => [
+            '9de6848d905344e105d7d0b3e44a41fd89b0af2c633c78769dc9610196491167'
+                => '3e588a9fc391f065976cf9a99a9db0c4ebe618014d2cf491df3c3c012059cce0',
         ],
     ];
     private const HISTORICAL_NOT_APPLICABLE_GUARDS = [
