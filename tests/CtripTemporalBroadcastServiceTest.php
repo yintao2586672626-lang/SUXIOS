@@ -318,21 +318,24 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
                 '23:00',
                 '2026-07-29T23:00:00+08:00',
                 3,
-                7
+                7,
+                -57.14
             ),
             $this->storedIntradayRow(
                 12,
                 '00:00',
                 '2026-07-30T00:00:00+08:00',
                 0,
-                4
+                4,
+                -100
             ),
             $this->storedIntradayRow(
                 13,
                 '01:00',
                 '2026-07-30T01:00:00+08:00',
                 5,
-                2
+                2,
+                150
             ),
             $this->storedIntradayRow(
                 14,
@@ -340,6 +343,7 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
                 '2026-07-30T02:00:00+08:00',
                 99,
                 88,
+                12.5,
                 1,
                 'pc_web'
             ),
@@ -392,7 +396,7 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
             $result['payload']['text']['content']
         );
         self::assertStringContainsString(
-            '当日走势：峰值 01:00 5｜最新 01:00 5',
+            '当日走势：峰值 01:00 5｜最新 01:00 5（上周同期 2｜较上周 +150%）',
             $result['payload']['text']['content']
         );
         self::assertStringNotContainsString('99', $result['payload']['text']['content']);
@@ -430,6 +434,60 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
             $result['payload']['text']['content']
         );
         self::assertStringNotContainsString('转化 10%', $result['payload']['text']['content']);
+    }
+
+    public function testIntradayComparisonUsesCapturedRatioAndKeepsMissingRatioExplicit(): void
+    {
+        $present = $this->present(['realtime_visitors' => 5]);
+        $present['intraday_visitor_trend'] = [[
+            'time' => '01:00',
+            'timestamp' => '2026-07-30T01:00:00+08:00',
+            'visitors' => 5,
+            'last_week_visitors' => 2,
+            'week_on_week_ratio' => 125,
+        ]];
+        $captured = $this->service()->build([
+            'system_hotel_id' => 80,
+            'hotel_name' => '敦煌漠蓝新',
+            'as_of_date' => '2026-07-30',
+            'message_mode' => 'realtime',
+            'present' => $present,
+        ], $this->time('2026-07-30 01:30:00'));
+
+        self::assertStringContainsString(
+            '最新 01:00 5（上周同期 2｜较上周 +125%）',
+            (string)$captured['payload']['text']['content']
+        );
+        self::assertStringNotContainsString(
+            '较上周 +150%',
+            (string)$captured['payload']['text']['content']
+        );
+        self::assertNotContains(
+            'present:intraday_week_on_week_ratio_missing_latest',
+            $captured['internal_gaps']
+        );
+
+        unset($present['intraday_visitor_trend'][0]['week_on_week_ratio']);
+        $missing = $this->service()->build([
+            'system_hotel_id' => 80,
+            'hotel_name' => '敦煌漠蓝新',
+            'as_of_date' => '2026-07-30',
+            'message_mode' => 'realtime',
+            'present' => $present,
+        ], $this->time('2026-07-30 01:30:00'));
+
+        self::assertStringContainsString(
+            '最新 01:00 5（上周同期 2）',
+            (string)$missing['payload']['text']['content']
+        );
+        self::assertContains(
+            'present:intraday_week_on_week_ratio_missing_latest',
+            $missing['internal_gaps']
+        );
+        self::assertStringNotContainsString(
+            '较上周 +150%',
+            (string)$missing['payload']['text']['content']
+        );
     }
 
     public function testStoredRowsRequireLineageAndReadbackBeforePreview(): void
@@ -743,6 +801,7 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
         string $timestamp,
         int $visitors,
         int $lastWeekVisitors,
+        float $weekOnWeekRatio,
         int $channelCode = 0,
         string $channel = 'app'
     ): array {
@@ -756,6 +815,7 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
         $row['raw_data']['metrics'] = [
             'intraday_visitor_count' => $visitors,
             'intraday_last_week_visitor_count' => $lastWeekVisitors,
+            'intraday_week_on_week_ratio' => $weekOnWeekRatio,
         ];
         return $row;
     }

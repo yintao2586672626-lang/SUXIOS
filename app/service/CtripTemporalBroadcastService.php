@@ -1271,6 +1271,9 @@ final class CtripTemporalBroadcastService
                 'last_week_visitors' => $this->numeric(
                     $metrics['intraday_last_week_visitor_count'] ?? null
                 ),
+                'week_on_week_ratio' => $this->numeric(
+                    $metrics['intraday_week_on_week_ratio'] ?? null
+                ),
             ];
         }
         return $points;
@@ -1431,6 +1434,12 @@ final class CtripTemporalBroadcastService
                 'last_week_visitors' => $this->numeric(
                     $point['last_week_visitors'] ?? $point['peer_visitors'] ?? null
                 ),
+                'week_on_week_ratio' => $this->numeric(
+                    $point['week_on_week_ratio']
+                    ?? $point['intraday_week_on_week_ratio']
+                    ?? $point['uv_ratio']
+                    ?? null
+                ),
                 'source_index' => $index,
             ];
         }
@@ -1456,13 +1465,33 @@ final class CtripTemporalBroadcastService
             }
         }
         $latest = $points[count($points) - 1];
+        $latestComparisons = [];
+        if ($latest['last_week_visitors'] !== null) {
+            $latestComparisons[] = '上周同期 '
+                . $this->integer($latest['last_week_visitors']);
+        }
+        if ($latest['week_on_week_ratio'] !== null) {
+            $latestComparisons[] = '较上周 '
+                . $this->signedPercent($latest['week_on_week_ratio']);
+        }
+        $latestComparison = $latestComparisons === []
+            ? ''
+            : '（' . implode('｜', $latestComparisons) . '）';
+        $gaps = [];
+        if ($latest['last_week_visitors'] === null) {
+            $gaps[] = 'intraday_last_week_missing_latest';
+        }
+        if ($latest['week_on_week_ratio'] === null) {
+            $gaps[] = 'intraday_week_on_week_ratio_missing_latest';
+        }
         return [
             'points' => $points,
             'summary' => '当日走势：峰值 ' . $peak['time'] . ' '
                 . $this->integer($peak['visitors'])
                 . '｜最新 ' . $latest['time'] . ' '
-                . $this->integer($latest['visitors']),
-            'gaps' => [],
+                . $this->integer($latest['visitors'])
+                . $latestComparison,
+            'gaps' => $gaps,
         ];
     }
 
@@ -1829,6 +1858,12 @@ final class CtripTemporalBroadcastService
     {
         $number = round((float)$value, 2);
         return rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.') . '%';
+    }
+
+    private function signedPercent(int|float $value): string
+    {
+        $number = round((float)$value, 2);
+        return ($number > 0 ? '+' : '') . $this->percent($number);
     }
 
     private function date(string $value, string $error): string
