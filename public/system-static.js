@@ -2139,6 +2139,23 @@ window.SUXI_SYSTEM_STATIC = (() => {
         return `${value.toFixed(2)}${metric.unit || ''}`;
     };
 
+    const requireDeferredStaticFunction = (namespace, key, missingMessage, onAccess = null) => (...args) => {
+        if (typeof onAccess === 'function') onAccess();
+        const owner = window[namespace];
+        const value = owner?.[key];
+        if (typeof value !== 'function') throw new Error(`${missingMessage}：${key}`);
+        return value.apply(owner, args);
+    };
+    const createLazyFactoryMethods = (factory, methods = []) => {
+        let instance = null;
+        return Object.fromEntries(methods.map(method => [method, (...args) => {
+            instance ||= factory();
+            const value = instance?.[method];
+            if (typeof value !== 'function') throw new Error(`延后初始化对象缺少方法：${method}`);
+            return value.apply(instance, args);
+        }]));
+    };
+
     return {
         aiModelConfigI18n,
         normalizeLocale,
@@ -2275,6 +2292,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         operationActionDataText,
         operationActionTarget,
         operationEffectMetricValue,
+        requireDeferredStaticFunction,
+        createLazyFactoryMethods,
         loadChartJs,
     };
 })();

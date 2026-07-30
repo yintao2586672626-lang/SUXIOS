@@ -48,6 +48,22 @@ function safeResourceName(value) {
 async function measureRun(browser, runIndex) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
+  const startupDiagnostics = [];
+  const recordStartupDiagnostic = (type, value) => {
+    if (startupDiagnostics.length >= 8) return;
+    const message = String(value || '').trim().slice(0, 800);
+    if (!message) return;
+    startupDiagnostics.push({ type, message });
+  };
+  page.on('pageerror', (error) => {
+    recordStartupDiagnostic('pageerror', `${error?.name || 'Error'}: ${error?.message || error}`);
+  });
+  page.on('console', (message) => {
+    const text = String(message?.text?.() || '');
+    if (message?.type?.() === 'error' && text.startsWith('[SUXIOS]')) {
+      recordStartupDiagnostic('console', text);
+    }
+  });
   try {
     if (networkProfile.conditions) {
       const cdp = await context.newCDPSession(page);
@@ -147,8 +163,9 @@ async function measureRun(browser, runIndex) {
     });
     const metrics = summarizeFrontendPerformance(snapshot);
     metrics.login_click_to_interactive_ms = loginClickToInteractiveMs;
-    const verificationStatus = authenticated
-      && !['verified', 'already_authenticated'].includes(authenticationStatus)
+    const verificationStatus = (
+      authenticated && !['verified', 'already_authenticated'].includes(authenticationStatus)
+    ) || startupDiagnostics.length > 0
       ? 'unverified'
       : 'verified';
 
@@ -158,6 +175,7 @@ async function measureRun(browser, runIndex) {
       verification_status: verificationStatus,
       authentication_status: authenticationStatus,
       authentication_blocker: authenticationBlocker,
+      startup_diagnostics: startupDiagnostics,
       auth_transition_ms: authTransitionMs,
       login_handoff: snapshot.loginHandoff,
       metrics,
@@ -223,6 +241,7 @@ const result = {
   verification_status: aggregate.unverified_run_count > 0 ? 'unverified' : 'verified',
   authentication_status: firstRun.authentication_status || null,
   authentication_blocker: firstRun.authentication_blocker || null,
+  startup_diagnostics: firstRun.startup_diagnostics || [],
   started_at: startedAt,
   network_profile: networkProfile.name,
   auth_transition_ms: firstRun.auth_transition_ms ?? null,

@@ -12,6 +12,7 @@ const index = fs.readFileSync('public/index.html', 'utf8');
 const bootstrap = fs.readFileSync('public/app-bootstrap.js', 'utf8');
 const bootstrapRuntime = fs.readFileSync('public/app-bootstrap.min.js', 'utf8');
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
+const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
 
 test('public login shell defers the authenticated application asset chain', () => {
@@ -170,6 +171,33 @@ test('authenticated startup paints the home render before loading the full rende
   );
   assert.match(appMain, /requestSuxiFullRenderForPage = \(page\) => \{[\s\S]*window\.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS\(\)/);
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
+});
+
+test('deferred data-health helpers are resolved lazily after the authenticated shell mounts', () => {
+  assert.match(systemStatic, /const requireDeferredStaticFunction = \(namespace, key, missingMessage, onAccess = null\)/);
+  assert.match(systemStatic, /const createLazyFactoryMethods = \(factory, methods = \[\]\)/);
+  assert.match(
+    appMain,
+    /const requirePlatformBatchHealthStatic = key => requireDeferredStaticFunction\('SUXI_DATA_HEALTH_STATIC'/,
+  );
+  assert.match(
+    appMain,
+    /const requireDataHealthStatic = key => requireDeferredStaticFunction\('SUXI_DATA_HEALTH_STATIC'[\s\S]*\(\) => dataHealthStaticVersion\.value\)/,
+  );
+  assert.match(
+    appMain,
+    /const dataHealthRefreshRequestState = createLazyFactoryMethods\(\s*createDataHealthRefreshRequestState,/,
+  );
+  assert.doesNotMatch(appMain, /const dataHealthRefreshRequestState = createDataHealthRefreshRequestState\(\);/);
+  assert.match(
+    appMain,
+    /window\.SUXI_DATA_HEALTH_STATIC\s*\?\s*otaConfigOverviewAllRows\.value[\s\S]*:\s*null/,
+  );
+  assert.match(
+    appMain,
+    /publishDataHealthStaticReady = \(\) => !!window\.SUXI_DATA_HEALTH_STATIC[\s\S]*dataHealthStaticVersion\.value \+= 1/,
+  );
+  assert.match(appMain, /const handleSuxiFullRenderReady = \(\) => \{[\s\S]*publishDataHealthStaticReady\(\);/);
 });
 
 test('login intent preloads only the authenticated entry before the sequential startup barrier', () => {

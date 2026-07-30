@@ -76,6 +76,8 @@
         };
     };
     const loadChartJs = requireAppSystemStatic('loadChartJs');
+    const requireDeferredStaticFunction = requireAppSystemStatic('requireDeferredStaticFunction');
+    const createLazyFactoryMethods = requireAppSystemStatic('createLazyFactoryMethods');
     const normalizeLocale = requireAppSystemStatic('normalizeLocale');
     const getInitialLocale = requireAppSystemStatic('getInitialLocale');
     const createAiModelConfigText = requireAppSystemStatic('createAiModelConfigText');
@@ -677,6 +679,7 @@
     let recoverSuxiRuntimeError = null;
     let requestSuxiFullRenderForPage = () => false;
     let publishSuxiAuthenticatedInteractiveReady = () => false;
+    let publishDataHealthStaticReady = () => false;
     const suxiRootComponent = {
         render(...args) {
             const activeRender = suxiActiveRender.value;
@@ -2013,13 +2016,7 @@
                 if (text === '策略禁用') return 'text-slate-500';
                 return 'text-slate-600';
             };
-            const requirePlatformBatchHealthStatic = (key) => {
-                const value = window.SUXI_DATA_HEALTH_STATIC?.[key];
-                if (typeof value !== 'function') {
-                    throw new Error(`缺少批量体检静态展示工具项：${key}`);
-                }
-                return value;
-            };
+            const requirePlatformBatchHealthStatic = key => requireDeferredStaticFunction('SUXI_DATA_HEALTH_STATIC', key, '缺少批量体检静态展示工具项');
             const platformBatchHealthBadgeClass = requirePlatformBatchHealthStatic('platformBatchHealthBadgeClass');
             const buildPlatformBatchHealthRows = requirePlatformBatchHealthStatic('buildPlatformBatchHealthRows');
             const buildPlatformBatchHealthSummaryCards = requirePlatformBatchHealthStatic('buildPlatformBatchHealthSummaryCards');
@@ -3605,15 +3602,9 @@
             const onlineDataCorrectionLedgerPagination = ref({ total: 0, page: 1, page_size: 20 });
             const onlineDataCorrectionLedgerRestoringId = ref(0);
             let onlineDataCorrectionLedgerRequestSeq = 0;
-            const requireDataHealthStatic = (key) => {
-                return (...args) => {
-                    const value = window.SUXI_DATA_HEALTH_STATIC?.[key];
-                    if (typeof value !== 'function') {
-                        throw new Error(`缺少数据健康静态展示工具项：${key}`);
-                    }
-                    return value(...args);
-                };
-            };
+            const dataHealthStaticVersion = ref(window.SUXI_DATA_HEALTH_STATIC ? 1 : 0);
+            publishDataHealthStaticReady = () => !!window.SUXI_DATA_HEALTH_STATIC && !!(dataHealthStaticVersion.value += 1);
+            const requireDataHealthStatic = key => requireDeferredStaticFunction('SUXI_DATA_HEALTH_STATIC', key, '缺少数据健康静态展示工具项', () => dataHealthStaticVersion.value);
             const onlineDataQualityStatusText = requireDataHealthStatic('onlineDataQualityStatusText');
             const onlineDataQualityStatusClass = requireDataHealthStatic('onlineDataQualityStatusClass');
             const onlineDataQualityPromptList = requireDataHealthStatic('onlineDataQualityPromptList');
@@ -3961,7 +3952,8 @@
             const dataHealthLastRefreshMode = ref('not_loaded');
             const dataHealthLastRefreshSource = ref('未刷新');
             const dataHealthLastRefreshAt = ref('');
-            const dataHealthRefreshRequestState = createDataHealthRefreshRequestState();
+            const dataHealthRefreshRequestState = createLazyFactoryMethods(
+                createDataHealthRefreshRequestState, ['reset', 'lightCacheKey', 'resolveLightRequest', 'rememberLightRequest', 'settleLightRequest']);
             const DATA_HEALTH_SECONDARY_PANEL_DELAY_MS = 900;
             const DATA_HEALTH_DETAIL_PANEL_DELAY_MS = 2600;
             const DATA_HEALTH_EMPLOYEE_PANEL_DELAY_MS = 4200;
@@ -34533,7 +34525,8 @@
             }, { deep: true });
             watch(otaConfigOverviewExpanded, persistOtaConfigOverviewPreferences, { deep: true });
             watch(
-                () => otaConfigOverviewAllRows.value.map(row => String(row?.key || '')).join('|'),
+                () => (dataHealthStaticVersion.value, window.SUXI_DATA_HEALTH_STATIC
+                    ? otaConfigOverviewAllRows.value.map(row => String(row?.key || '')).join('|') : null),
                 () => {
                     const available = new Set(otaConfigOverviewAllRows.value.map(row => String(row?.key || '')));
                     otaConfigOverviewSelectedKeys.value = otaConfigOverviewSelectedKeys.value.filter(key => available.has(String(key)));
@@ -45735,6 +45728,7 @@
     };
     const handleSuxiFullRenderReady = () => {
         document.documentElement.dataset.suxiFullRenderReady = '1';
+        publishDataHealthStaticReady();
         if (pendingFullRenderPage) requestSuxiFullRenderForPage(pendingFullRenderPage);
     };
     const handleSuxiFullRenderError = (event) => {

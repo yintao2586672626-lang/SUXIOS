@@ -116,6 +116,10 @@ test('CI isolates static contracts from runtime performance and preserves authen
   assert.match(measurement, /attempt_failures: attemptFailures/);
   assert.match(measurement, /retryableNavigationTimeout[\s\S]*startsWith\('page\.goto:'\)/);
   assert.match(measurement, /await measureRunWithRetry\(runIndex\)/);
+  assert.match(measurement, /page\.on\('pageerror'/);
+  assert.match(measurement, /text\.startsWith\('\[SUXIOS\]'\)/);
+  assert.match(measurement, /startup_diagnostics: startupDiagnostics/);
+  assert.match(measurement, /\|\| startupDiagnostics\.length > 0\s*\? 'unverified'/);
 
   const evidenceStep = performanceJob.slice(preserveEvidenceStep);
   assert.match(evidenceStep, /if:\s+always\(\)/);

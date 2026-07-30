@@ -134,4 +134,24 @@ test('startup artifacts are deterministic, current, smaller, and preserve export
       `${exportName} exports must be preserved by the startup bundle`,
     );
   }
+
+  const systemStatic = artifactSandbox.window.SUXI_SYSTEM_STATIC;
+  const deferredCall = systemStatic.requireDeferredStaticFunction(
+    'SUXI_DEFERRED_EXAMPLE',
+    'read',
+    'missing deferred example',
+  );
+  assert.throws(() => deferredCall(), /missing deferred example/);
+  artifactSandbox.window.SUXI_DEFERRED_EXAMPLE = { read: value => `ready:${value}` };
+  assert.equal(deferredCall('ok'), 'ready:ok');
+
+  let factoryCalls = 0;
+  const lazyMethods = systemStatic.createLazyFactoryMethods(() => {
+    factoryCalls += 1;
+    return { read: value => `lazy:${value}` };
+  }, ['read']);
+  assert.equal(factoryCalls, 0);
+  assert.equal(lazyMethods.read('ok'), 'lazy:ok');
+  assert.equal(lazyMethods.read('again'), 'lazy:again');
+  assert.equal(factoryCalls, 1);
 });
