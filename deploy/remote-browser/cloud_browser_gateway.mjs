@@ -34,6 +34,7 @@ const TICKET_PATTERN = /^[A-Za-z0-9_-]{32,96}$/;
 const LOGIN_PLATFORM_PATTERN = /^(ctrip|meituan|dingdandao)$/;
 const OTA_RECEIPT_PLATFORM_PATTERN = /^(ctrip|meituan)$/;
 const DINGDANDAO_PLATFORM_PATTERN = /^dingdandao$/;
+const PROFILE_LEASE_PLATFORM_PATTERN = LOGIN_PLATFORM_PATTERN;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DINGDANDAO_SOURCE_URL =
   'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
@@ -158,6 +159,23 @@ export async function decryptArchive(sourcePath, destinationPath, key, profileId
   }
 }
 
+const CHROMIUM_TRANSIENT_PROFILE_FILES = [
+  'SingletonCookie',
+  'SingletonLock',
+  'SingletonSocket',
+  'DevToolsActivePort',
+];
+
+export async function removeChromiumTransientProfileState(profilePath) {
+  const normalizedProfilePath = resolve(profilePath);
+  for (const name of CHROMIUM_TRANSIENT_PROFILE_FILES) {
+    await rm(join(normalizedProfilePath, name), {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
 async function runProcess(command, args, options = {}) {
   return await new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
@@ -240,6 +258,7 @@ export class EncryptedProfileVault {
     } finally {
       await rm(archivePath, { force: true });
     }
+    await removeChromiumTransientProfileState(runtimePath);
     return runtimePath;
   }
 
@@ -451,7 +470,7 @@ function validateCollectionOpenRequest(body) {
 function validateProfileLeaseOpenRequest(body) {
   return {
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-    platform: assertOpaque(body.platform, DINGDANDAO_PLATFORM_PATTERN, 'platform_invalid'),
+    platform: assertOpaque(body.platform, PROFILE_LEASE_PLATFORM_PATTERN, 'platform_invalid'),
     tenantId: positiveInteger(body.tenant_id, 'tenant_id_invalid'),
     hotelId: positiveInteger(body.hotel_id, 'hotel_id_invalid'),
     ownerUserId: positiveInteger(body.owner_user_id, 'owner_user_id_invalid'),
@@ -473,7 +492,7 @@ function validateProfileLeaseCloseRequest(body) {
       'profile_lease_id_invalid',
     ),
     profileId: assertOpaque(body.profile_id, PROFILE_ID_PATTERN, 'profile_id_invalid'),
-    platform: assertOpaque(body.platform, DINGDANDAO_PLATFORM_PATTERN, 'platform_invalid'),
+    platform: assertOpaque(body.platform, PROFILE_LEASE_PLATFORM_PATTERN, 'platform_invalid'),
     outcome: assertOpaque(
       body.outcome,
       /^(completed|cancelled|failed|session_expired|policy_blocked|window_expired)$/,
@@ -659,7 +678,7 @@ function delay(milliseconds) {
   });
 }
 
-async function waitForBrowserPage(
+export async function waitForBrowserPage(
   config,
   child,
   expectedTargetUrl = null,
@@ -667,11 +686,17 @@ async function waitForBrowserPage(
 ) {
   const endpoint = `http://127.0.0.1:${config.cdpPort}/json/list`;
   const deadline = Date.now() + timeoutMs;
+  let cdpPageObserved = false;
   while (Date.now() < deadline) {
     if (child?.exitCode !== null) throw new Error('browser_exited_before_cdp_ready');
     try {
       const response = await fetch(endpoint, { signal: AbortSignal.timeout(1000) });
       const targets = response.ok ? await response.json() : [];
+      cdpPageObserved = cdpPageObserved || (
+        Array.isArray(targets)
+        && targets.some((target) => target?.type === 'page'
+          && typeof target.webSocketDebuggerUrl === 'string')
+      );
       const page = Array.isArray(targets)
         ? targets.find((target) => target?.type === 'page'
           && typeof target.webSocketDebuggerUrl === 'string'
@@ -683,7 +708,11 @@ async function waitForBrowserPage(
     }
     await delay(100);
   }
-  throw new Error('browser_cdp_not_ready');
+  throw new Error(
+    cdpPageObserved
+      ? 'browser_owned_target_not_ready'
+      : 'browser_cdp_not_ready',
+  );
 }
 
 async function assertCdpPortAvailable(config) {
@@ -775,10 +804,55 @@ export function isDingdandaoReadOnlyRequestAllowed({
   return parsed.origin === source.origin && parsed.pathname === source.pathname;
 }
 
-async function installDingdandaoReadOnlyPolicy(
+export function isCloudProfileReadOnlyRequestAllowed({
+  platform,
+  url,
+  method,
+  resourceType,
+  postData = null,
+  today = shanghaiToday(),
+}) {
+  const normalizedPlatform = String(platform || '').toLowerCase();
+  if (normalizedPlatform === 'dingdandao') {
+    return isDingdandaoReadOnlyRequestAllowed({
+      url,
+      method,
+      resourceType,
+      postData,
+      today,
+    });
+  }
+  if (!['ctrip', 'meituan'].includes(normalizedPlatform)) return false;
+
+  let parsed;
+  try {
+    parsed = new URL(String(url || ''));
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:') return false;
+
+  const normalizedMethod = String(method || '').toUpperCase();
+  const normalizedResourceType = String(resourceType || '');
+  const approvedHost = normalizedPlatform === 'ctrip'
+    ? ['ctrip.com', 'ctripbiz.com', 'ctripbiz.cn']
+      .some(suffix => parsed.hostname === suffix || parsed.hostname.endsWith(`.${suffix}`))
+    : ['meituan.com', 'dianping.com']
+      .some(suffix => parsed.hostname === suffix || parsed.hostname.endsWith(`.${suffix}`));
+
+  if (['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod)) {
+    return normalizedResourceType !== 'Document' || approvedHost;
+  }
+  return normalizedMethod === 'POST'
+    && ['XHR', 'Fetch'].includes(normalizedResourceType)
+    && approvedHost;
+}
+
+async function installProfileReadOnlyPolicy(
   config,
   child,
   expectedTargetUrl = null,
+  platform = 'dingdandao',
 ) {
   if (typeof WebSocket !== 'function') {
     throw new Error('read_only_policy_websocket_unavailable');
@@ -834,7 +908,8 @@ async function installDingdandaoReadOnlyPolicy(
     }
     if (message.method !== 'Fetch.requestPaused') return;
     const paused = message.params || {};
-    const allowed = isDingdandaoReadOnlyRequestAllowed({
+    const allowed = isCloudProfileReadOnlyRequestAllowed({
+      platform,
       url: paused.request?.url,
       method: paused.request?.method,
       resourceType: paused.resourceType,
@@ -863,8 +938,13 @@ async function installDingdandaoReadOnlyPolicy(
       patterns: [{ urlPattern: '*', requestStage: 'Request' }],
     });
     await send('Browser.setDownloadBehavior', { behavior: 'deny' });
-    const navigation = await send('Page.navigate', { url: DINGDANDAO_SOURCE_URL });
+    const navigation = await send('Page.navigate', { url: platformStartUrl(platform) });
     if (navigation.errorText) throw new Error('read_only_navigation_failed');
+    await send('Runtime.enable');
+    await send('Runtime.evaluate', {
+      expression: "window.name='suxios_profile_lease_guarded'",
+      returnByValue: true,
+    });
   } catch (error) {
     closed = true;
     socket.close();
@@ -898,7 +978,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
   const startBrowserCall = dependencies.startBrowser || startBrowser;
   const stopBrowserCall = dependencies.stopBrowser || stopBrowser;
   const installReadOnlyPolicyCall = dependencies.installReadOnlyPolicy
-    || installDingdandaoReadOnlyPolicy;
+    || installProfileReadOnlyPolicy;
   const assertCdpPortAvailableCall = dependencies.assertCdpPortAvailable
     || assertCdpPortAvailable;
   const nowCall = dependencies.now || (() => new Date());
@@ -1124,12 +1204,18 @@ export async function createGateway(env = process.env, dependencies = {}) {
         if (sessions.size > 0 || profileLeases.size > 0) {
           throw new GatewayError('gateway_profile_lease_capacity_busy', 409);
         }
+        if (lease.leaseKind === 'binding_identity' && lease.platform !== 'dingdandao') {
+          throw new GatewayError('profile_lease_binding_platform_invalid', 422);
+        }
         const action = lease.leaseKind === 'binding_identity'
           ? 'validate_dingdandao_binding_lease'
-          : 'validate_dingdandao_collection';
+          : (lease.platform === 'dingdandao'
+            ? 'validate_dingdandao_collection'
+            : 'validate_ota_collection');
         validateProfileLeaseScope(
           await bridgeCall(action, {
             profile_id: lease.profileId,
+            platform: lease.platform,
             tenant_id: lease.tenantId,
             hotel_id: lease.hotelId,
             owner_user_id: lease.ownerUserId,
@@ -1160,6 +1246,7 @@ export async function createGateway(env = process.env, dependencies = {}) {
             config,
             browser,
             ownershipTargetUrl,
+            lease.platform,
           );
         } catch (error) {
           guard?.close();

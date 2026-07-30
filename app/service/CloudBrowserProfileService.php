@@ -220,9 +220,33 @@ final class CloudBrowserProfileService
         int $ownerUserId,
         string $targetDate
     ): array {
+        return $this->validateCollectionProfile(
+            $profilePublicId,
+            'dingdandao',
+            $tenantId,
+            $hotelId,
+            $ownerUserId,
+            $targetDate
+        );
+    }
+
+    /**
+     * Read-only same-day preflight for an encrypted browser Profile.
+     *
+     * @return array<string,mixed>
+     */
+    public function validateCollectionProfile(
+        string $profilePublicId,
+        string $platform,
+        int $tenantId,
+        int $hotelId,
+        int $ownerUserId,
+        string $targetDate
+    ): array {
         if ($tenantId <= 0 || $hotelId <= 0 || $ownerUserId <= 0) {
             throw new RuntimeException('cloud_browser_collection_scope_invalid');
         }
+        $platform = $this->platform($platform);
         $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', trim($targetDate), new DateTimeZone('Asia/Shanghai'));
         if (!$date instanceof DateTimeImmutable
@@ -236,7 +260,7 @@ final class CloudBrowserProfileService
         if ((int)$profile['tenant_id'] !== $tenantId
             || (int)$profile['system_hotel_id'] !== $hotelId
             || (int)$profile['owner_user_id'] !== $ownerUserId
-            || strtolower((string)$profile['platform']) !== 'dingdandao'
+            || strtolower((string)$profile['platform']) !== $platform
         ) {
             throw new RuntimeException('cloud_browser_collection_scope_mismatch');
         }
@@ -272,10 +296,16 @@ final class CloudBrowserProfileService
 
         return [
             'validated' => true,
-            'collection_kind' => 'operating_target_today',
+            'collection_kind' => $platform === 'dingdandao'
+                ? 'operating_target_today'
+                : 'ota_target_date',
             'access_mode' => 'read_only',
-            'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
-            'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
+            'source_scope' => $platform === 'dingdandao'
+                ? DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE
+                : 'target_date_only',
+            'source_url' => $platform === 'dingdandao'
+                ? DingdandaoOperatingTargetCaptureService::SOURCE_URL
+                : '',
             'target_date' => $date->format('Y-m-d'),
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,

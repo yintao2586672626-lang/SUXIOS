@@ -6,7 +6,10 @@ const root = new URL('../../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 
 test('Molanxin runner collects both OTA sources before PMS and stays preview only', async () => {
-  const runner = await read('scripts/run_molanxin_three_source_collection.php');
+  const [runner, preview] = await Promise.all([
+    read('scripts/run_molanxin_three_source_collection.php'),
+    read('scripts/run_molanxin_collection_preview.php'),
+  ]);
 
   assert.match(runner, /MOLANXIN_THREE_SOURCE_HOTEL_ID = 5/);
   assert.match(runner, /MOLANXIN_THREE_SOURCE_PLATFORMS = \['ctrip', 'meituan'\]/);
@@ -38,6 +41,16 @@ test('Molanxin runner collects both OTA sources before PMS and stays preview onl
   assert.match(runner, /'partial'/);
   assert.match(runner, /run_readback_status/);
   assert.match(runner, /capture_id/);
+  assert.match(runner, /'execution_diagnostics' => molanxinThreeSourceProcessDiagnostics/);
+  assert.match(runner, /'output_sha256' => hash\('sha256', \$output\)/);
+  assert.match(runner, /'exception_types' => \$exceptionTypes/);
+  assert.match(runner, /'reason_codes' => \$reasonCodes/);
+  assert.match(runner, /'php_locations' => array_slice\(\$locations, 0, 20\)/);
+  assert.match(runner, /'path_scopes' => \$pathScopes/);
+  assert.match(runner, /str_starts_with\(\$path, '\/var\/lib\/suxios\/app-cache\/'\)/);
+  assert.match(runner, /'retry_cooldown' => 'retry cooldown, skipped\.'/);
+  assert.match(runner, /'php_fatal_error' => 'PHP Fatal error:'/);
+  assert.match(runner, /platform facts, so it must never be echoed/);
   assert.match(runner, /'preview_only' => true/);
   assert.match(runner, /'dispatch_requested' => false/);
   assert.match(runner, /'message_sent' => false/);
@@ -46,6 +59,12 @@ test('Molanxin runner collects both OTA sources before PMS and stays preview onl
     runner,
     /WechatRobotDelivery|manual-notification:schedule|testPush|competitor_wechat_robot/,
   );
+  assert.match(preview, /DingdandaoOperatingTargetCaptureService/);
+  assert.match(preview, /verified_same_day_readback/);
+  assert.match(preview, /'identity_status'\] \?\? ''\)\s*=== 'matched'/);
+  assert.match(preview, /'readback_status'\] \?\? ''\)[\s\S]*?'readback_verified'/);
+  assert.match(preview, /'detail_row_count'\] \?\? 0\) > 0/);
+  assert.doesNotMatch(preview, /capture_reused[\s\S]*?message_sent'\s*=>\s*true/);
 });
 
 test('Molanxin systemd assets are unique and never operate existing units', async () => {
@@ -65,6 +84,8 @@ test('Molanxin systemd assets are unique and never operate existing units', asyn
   assert.doesNotMatch(service, /\/var\/www\/suxios\/current(?:\/|\s|$)/);
   assert.match(service, /^Environment=SUXIOS_OTA_CLOUD_COLLECTOR=1$/m);
   assert.match(service, /^RuntimeDirectory=suxios-molanxin-three-source-collection$/m);
+  assert.match(service, /^ReadWritePaths=.*\/var\/lib\/suxios\/app-cache/m);
+  assert.match(service, /^ReadWritePaths=.*\/var\/lib\/suxios\/app-locks/m);
   assert.match(service, /ExecStartPre=.*online-data:auto-fetch --validate-cloud-scope/);
   assert.match(service, /ExecStartPre=.*--hotel-id=\$\{SUXIOS_MOLANXIN_HOTEL_ID\}/);
   assert.match(service, /ExecStartPre=.*--source-ids=\$\{SUXIOS_MOLANXIN_OTA_SOURCE_IDS\}/);

@@ -76,6 +76,10 @@ $otaReceipt = null;
 $otaFailureReason = '';
 
 try {
+    $previousControlTokenFile = getenv(
+        'SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE'
+    );
+    putenv('SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE=' . $tokenFile);
     $otaProcess = molanxinThreeSourceRunProcess([
         $phpBinary,
         $root . '/think',
@@ -100,6 +104,15 @@ try {
     }
 } catch (Throwable) {
     $otaFailureReason = 'auto_fetch_process_failed';
+} finally {
+    if ($previousControlTokenFile === false) {
+        putenv('SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE');
+    } else {
+        putenv(
+            'SUXIOS_CLOUD_BROWSER_CONTROL_TOKEN_FILE='
+            . $previousControlTokenFile
+        );
+    }
 }
 
 $otaReady = is_array($otaReceipt)
@@ -184,6 +197,9 @@ $output = [
             ? (int)$otaProcess['exit_code']
             : null,
         'reason_code' => $otaReady ? '' : $otaFailureReason,
+        'execution_diagnostics' => molanxinThreeSourceProcessDiagnostics(
+            $otaProcess
+        ),
         'source_ids' => $otaSourceIds,
         'platforms' => MOLANXIN_THREE_SOURCE_PLATFORMS,
         'receipt' => molanxinThreeSourceReceiptSummary($otaReceipt),
@@ -492,6 +508,136 @@ function molanxinThreeSourceReceiptSummary(?array $receipt): ?array
         'dual_ota_p0_complete' =>
             ($receipt['dual_ota_p0_complete'] ?? false) === true,
         'source_tasks' => $tasks,
+    ];
+}
+
+/**
+ * Return only fixed diagnostic markers and an output digest. Child output can
+ * contain platform facts, so it must never be echoed into the service journal.
+ *
+ * @param array{exit_code:int,stdout:string,stderr:string}|null $process
+ * @return array{
+ *   output_sha256:string,
+ *   markers:array<int,string>,
+ *   exception_types:array<int,string>,
+ *   reason_codes:array<int,string>,
+ *   php_locations:array<int,string>,
+ *   path_scopes:array<int,string>
+ * }
+ */
+function molanxinThreeSourceProcessDiagnostics(?array $process): array
+{
+    if (!is_array($process)) {
+        return [
+            'output_sha256' => '',
+            'markers' => ['process_unavailable'],
+            'exception_types' => [],
+            'reason_codes' => [],
+            'php_locations' => [],
+            'path_scopes' => [],
+        ];
+    }
+    $output = (string)($process['stdout'] ?? '')
+        . "\n"
+        . (string)($process['stderr'] ?? '');
+    $markers = [];
+    $patterns = [
+        'schedule_started' => 'Start online data auto-fetch schedule check.',
+        'schedule_finished' => 'Online data auto-fetch schedule check finished.',
+        'retry_cooldown' => 'retry cooldown, skipped.',
+        'retry_exhausted' => 'retry exhausted, skipped.',
+        'profile_lock_active' => 'skipped_locked:',
+        'cloud_scope_blocked' => 'Cloud OTA collector blocked:',
+        'hotel_scope_missing' => 'hotel-id was not found or is disabled.',
+        'receipt_emitted' => MOLANXIN_THREE_SOURCE_RECEIPT_PREFIX,
+        'runtime_exception' => 'Uncaught ',
+        'php_fatal_error' => 'PHP Fatal error:',
+        'permission_denied' => 'Permission denied',
+        'open_stream_failed' => 'Failed to open stream',
+        'undefined_value' => 'Undefined ',
+        'mkdir_warning' => 'mkdir(',
+        'file_write_warning' => 'file_put_contents(',
+        'file_read_warning' => 'file_get_contents(',
+    ];
+    foreach ($patterns as $marker => $needle) {
+        if (str_contains($output, $needle)) {
+            $markers[] = $marker;
+        }
+    }
+    if ($markers === []) {
+        $markers[] = trim($output) === ''
+            ? 'no_child_output'
+            : 'unclassified_child_output';
+    }
+    preg_match_all(
+        '/\b(?:[A-Za-z_][A-Za-z0-9_]*\\\\)*'
+            . '[A-Za-z_][A-Za-z0-9_]*(?:Exception|Error)\b/',
+        $output,
+        $exceptionMatches
+    );
+    $exceptionTypes = array_values(array_unique(array_slice(
+        array_map('strval', $exceptionMatches[0] ?? []),
+        0,
+        10
+    )));
+    preg_match_all(
+        '/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*_'
+            . '(?:failed|blocked|invalid|missing|unverified|expired|required)\b/',
+        strtolower($output),
+        $reasonMatches
+    );
+    $reasonCodes = array_values(array_unique(array_slice(
+        array_map('strval', $reasonMatches[0] ?? []),
+        0,
+        20
+    )));
+    preg_match_all(
+        '/([A-Za-z0-9_.-]+\.php)(?:[:(]|\s+on\s+line\s+)(\d+)/i',
+        $output,
+        $locationMatches,
+        PREG_SET_ORDER
+    );
+    $locations = [];
+    foreach (array_slice($locationMatches, 0, 30) as $match) {
+        $locations[] = basename((string)($match[1] ?? ''))
+            . ':'
+            . (string)($match[2] ?? '');
+    }
+    $locations = array_values(array_unique(array_filter(
+        $locations,
+        static fn(string $value): bool => $value !== ':'
+    )));
+    preg_match_all(
+        '/(?:file_put_contents|file_get_contents|fopen|mkdir)\(([^),\r\n]+)/i',
+        $output,
+        $pathMatches
+    );
+    $pathScopes = [];
+    foreach (array_slice($pathMatches[1] ?? [], 0, 20) as $matchedPath) {
+        $path = trim((string)$matchedPath, " \t\n\r\0\x0B'\"");
+        $pathScopes[] = match (true) {
+            str_starts_with($path, '/var/lib/suxios/app-cache/') =>
+                'app_cache',
+            str_starts_with($path, '/var/lib/suxios/app-locks/') =>
+                'app_locks',
+            str_contains($path, '/runtime/') => 'release_runtime',
+            str_starts_with(
+                $path,
+                '/run/suxios-molanxin-three-source-collection/'
+            ) => 'service_runtime',
+            str_starts_with($path, '/tmp/') => 'private_tmp',
+            default => 'other:' . substr(hash('sha256', $path), 0, 12),
+        };
+    }
+    $pathScopes = array_values(array_unique($pathScopes));
+
+    return [
+        'output_sha256' => hash('sha256', $output),
+        'markers' => $markers,
+        'exception_types' => $exceptionTypes,
+        'reason_codes' => $reasonCodes,
+        'php_locations' => array_slice($locations, 0, 20),
+        'path_scopes' => $pathScopes,
     ];
 }
 

@@ -159,6 +159,26 @@ final class AutoFetchCloudBindingTest extends TestCase
         }
     }
 
+    public function testCloudFailureReasonChainKeepsOnlySafeMachineCodes(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'safeExceptionReasonCodes');
+        $error = new RuntimeException(
+            'cloud_ota_profile_collection_failed',
+            0,
+            new RuntimeException(
+                'cloud_ota_profile_gateway_failed',
+                0,
+                new RuntimeException('unsafe message with token=secret')
+            )
+        );
+
+        self::assertSame([
+            'cloud_ota_profile_collection_failed',
+            'cloud_ota_profile_gateway_failed',
+        ], $method->invoke($command, $error));
+    }
+
     /** @return array<string, mixed> */
     private function source(int $id, string $platform, array $config): array
     {

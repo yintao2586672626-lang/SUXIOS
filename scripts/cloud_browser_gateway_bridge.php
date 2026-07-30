@@ -54,6 +54,14 @@ try {
             requiredPositiveInt($input, 'owner_user_id'),
             requiredDate($input, 'target_date')
         ),
+        'validate_ota_collection' => $service->validateCollectionProfile(
+            requiredId($input, 'profile_id', 'cbp_'),
+            requiredPlatform($input, ['ctrip', 'meituan']),
+            requiredPositiveInt($input, 'tenant_id'),
+            requiredPositiveInt($input, 'hotel_id'),
+            requiredPositiveInt($input, 'owner_user_id'),
+            requiredDate($input, 'target_date')
+        ),
         'validate_dingdandao_binding_lease' => $dingdandaoCollection->bindingBootstrapScope(
             requiredId($input, 'profile_id', 'cbp_'),
             requiredPositiveInt($input, 'tenant_id'),
@@ -135,6 +143,16 @@ function requiredDate(array $input, string $key): string
     $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
     if (!$date instanceof DateTimeImmutable || $date->format('Y-m-d') !== $value) {
         throw new RuntimeException('gateway_' . $key . '_invalid');
+    }
+    return $value;
+}
+
+/** @param array<string,mixed> $input @param array<int,string> $allowed */
+function requiredPlatform(array $input, array $allowed): string
+{
+    $value = strtolower(requiredText($input, 'platform', 24));
+    if (!in_array($value, $allowed, true)) {
+        throw new RuntimeException('gateway_platform_invalid');
     }
     return $value;
 }

@@ -117,8 +117,11 @@ const parallelSectionsEnabled = !authOnly
   && !booleanArg(args.sequential_sections);
 const parallelFallbackEnabled = !booleanArg(args.disableParallelFallback);
 const includeResponseDataInOutput = booleanArg(args.includeResponseData || args.include_response_data || args.rawResponses || args.raw_responses);
+const connectedCloudProfile = Boolean(String(args.cdpUrl || args.cdp_url || '').trim());
 
-await mkdir(storageDir, { recursive: true });
+if (!connectedCloudProfile) {
+  await mkdir(storageDir, { recursive: true });
+}
 await mkdir(reportDir, { recursive: true });
 await mkdir(assetDir, { recursive: true });
 await mkdir(dirname(outputPath), { recursive: true });
@@ -229,7 +232,9 @@ const sessionProbeResponseDiagnostics = {
 };
 
 const browser = await launchOtaPersistentContext(storageDir, args);
-await grantCtripBrowserPermissions(browser);
+if (!connectedCloudProfile) {
+  await grantCtripBrowserPermissions(browser);
+}
 payload.cookie_injection = sessionProbeOnly
   ? { attempted: false, injected_count: 0, domains: [], reason: 'session_probe_only' }
   : await injectBrowserCookies(browser, args, 'ctrip');
@@ -324,7 +329,8 @@ try {
 
   console.log(JSON.stringify({
     output: outputPath,
-    profile_dir: storageDir,
+    profile_dir: connectedCloudProfile ? null : storageDir,
+    cloud_profile_cdp: connectedCloudProfile,
     auth_status: payload.auth_status,
     session_probe: payload.session_probe,
     counts: summarize(payload),

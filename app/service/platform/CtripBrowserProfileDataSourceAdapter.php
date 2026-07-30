@@ -61,6 +61,16 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
         $options = $workflow->applyFlowOptions($options, $config);
+        $cdpUrl = trim((string)($options['cdp_url'] ?? $options['cdpUrl'] ?? ''));
+        if ($cdpUrl !== '' && $cdpUrl !== 'http://127.0.0.1:9223') {
+            return [
+                'status' => 'failed',
+                'status_code' => 'cloud_browser_cdp_url_invalid',
+                'error_code' => 'cloud_browser_cdp_url_invalid',
+                'message' => 'Cloud browser CDP endpoint is invalid.',
+                'payload' => [],
+            ];
+        }
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
         $profileId = $this->firstString($options, $config, ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId']);
         if ($profileId === '') {
@@ -74,7 +84,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $interactive = $this->truthy($options['interactive_browser'] ?? $options['interactiveBrowser'] ?? false);
         $profileDir = $this->projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $this->safeName($profileId);
         $profilePrepared = is_dir($profileDir);
-        if (!$profilePrepared && !$interactive) {
+        if ($cdpUrl === '' && !$profilePrepared && !$interactive) {
             return [
                 'status' => 'waiting_config',
                 'message' => 'Ctrip browser Profile is not prepared: storage/ctrip_profile_' . $this->safeName($profileId),
@@ -164,7 +174,9 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         ]);
         $hotelName = $this->firstString($options, $config, ['hotel_name', 'hotelName', 'name']);
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
-        $sectionConcurrency = $this->resolveCtripSectionConcurrency($options, $config);
+        $sectionConcurrency = $cdpUrl === ''
+            ? $this->resolveCtripSectionConcurrency($options, $config)
+            : 1;
 
         try {
             if ($this->shouldCaptureSectionsSequentially($options, $sectionList)) {
@@ -181,7 +193,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $interactive,
                     $timeoutSeconds,
                     $fieldConfigPayload,
-                    $notApplicableSectionList
+                    $notApplicableSectionList,
+                    $cdpUrl
                 );
             }
 
@@ -203,6 +216,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     'section_concurrency' => $sectionConcurrency,
                     'parallel_fallback' => true,
                     'not_applicable_sections' => $notApplicableSectionList,
+                    'cdp_url' => $cdpUrl,
                 ]
             );
             if ($this->shouldFallbackToSequentialAfterParallel($result, $sectionList, $sectionConcurrency, $options)) {
@@ -219,7 +233,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $interactive,
                     $timeoutSeconds,
                     $fieldConfigPayload,
-                    $notApplicableSectionList
+                    $notApplicableSectionList,
+                    $cdpUrl
                 );
                 if (is_array($fallback['payload'] ?? null)) {
                     $fallback['payload']['parallel_capture_fallback'] = [
@@ -582,7 +597,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         bool $interactive,
         int $timeoutSeconds,
         array $fieldConfigPayload,
-        array $notApplicableSectionList = []
+        array $notApplicableSectionList = [],
+        string $cdpUrl = ''
     ): array {
         $payloads = [];
         $moduleResults = [];
@@ -606,6 +622,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 $sectionFieldConfig,
                 [
                     'not_applicable_sections' => $notApplicableSectionList,
+                    'cdp_url' => $cdpUrl,
                 ]
             );
             $moduleResults[] = $this->captureModuleResultSummary($section, $result);
@@ -710,6 +727,10 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $notApplicableSections = $this->normalizeOptionalSectionList($captureOptions['not_applicable_sections'] ?? []);
         if ($notApplicableSections !== []) {
             $args[] = '--not-applicable-sections=' . implode(',', $notApplicableSections);
+        }
+        $cdpUrl = trim((string)($captureOptions['cdp_url'] ?? ''));
+        if ($cdpUrl !== '') {
+            $args[] = '--cdp-url=' . $cdpUrl;
         }
         if ($hotelId !== '') {
             $args[] = '--hotel-id=' . $hotelId;

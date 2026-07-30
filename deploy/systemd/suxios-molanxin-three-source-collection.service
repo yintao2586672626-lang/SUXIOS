@@ -31,5 +31,5 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/run/suxios-molanxin-three-source-collection -/var/www/suxios/molanxin-three-source-current/runtime -/var/www/suxios/molanxin-three-source-current/storage
+ReadWritePaths=/run/suxios-molanxin-three-source-collection /var/lib/suxios/app-cache /var/lib/suxios/app-locks -/var/www/suxios/molanxin-three-source-current/runtime -/var/www/suxios/molanxin-three-source-current/storage
 UMask=0027

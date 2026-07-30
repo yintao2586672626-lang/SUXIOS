@@ -5,6 +5,7 @@ declare(strict_types=1);
 use app\service\SingleHotelCollectionPreviewRunService;
 use app\service\SingleHotelOperatingBriefService;
 use app\service\SingleHotelOperatingDigestService;
+use app\service\DingdandaoOperatingTargetCaptureService;
 use think\App;
 use think\facade\Db;
 
@@ -75,19 +76,48 @@ $runId = 0;
 
 try {
     $runId = $runs->start($hotelId, $observedAt);
-    $collection = molanxinRunJsonProcess([
-        $phpBinary,
-        $root . '/scripts/run_dingdandao_profile_lease_collection.php',
-        '--hotel-id=' . $hotelId,
-        '--owner-user-id=' . $ownerUserId,
-        '--profile-id=' . $profileId,
-        '--target-date=' . $targetDate,
-        '--control-token-file=' . $tokenFile,
-        '--runtime-directory=' . $runtimeDirectory,
-        '--node-binary=' . $nodeBinary,
-        '--collector-script=' . $root . '/scripts/run_dingdandao_cloud_collection.php',
-        '--collection-only',
-    ], $root);
+    $verifiedCapture = (new DingdandaoOperatingTargetCaptureService())
+        ->latest($tenantId, $hotelId, $targetDate);
+    $reuseVerifiedCapture = (int)($verifiedCapture['id'] ?? 0) > 0
+        && (int)($verifiedCapture['tenant_id'] ?? 0) === $tenantId
+        && (int)($verifiedCapture['hotel_id'] ?? 0) === $hotelId
+        && (string)($verifiedCapture['business_date'] ?? '') === $targetDate
+        && (string)($verifiedCapture['provider'] ?? '') === 'dingdandao_pms'
+        && (string)($verifiedCapture['identity_status'] ?? '') === 'matched'
+        && (string)($verifiedCapture['source_scope'] ?? '') === 'today_only'
+        && (string)($verifiedCapture['capture_status'] ?? '') === 'verified'
+        && (string)($verifiedCapture['quality_status'] ?? '') === 'verified'
+        && (string)($verifiedCapture['readback_status'] ?? '')
+            === 'readback_verified'
+        && (int)($verifiedCapture['detail_row_count'] ?? 0) > 0;
+    $collection = $reuseVerifiedCapture
+        ? [
+            'status' => 'saved_capture_and_base_facts_ready',
+            'runner_mode' => 'collection_only',
+            'hotel_id' => $hotelId,
+            'target_date' => $targetDate,
+            'capture_id' => (int)$verifiedCapture['id'],
+            'base_fact_ready' => true,
+            'operating_target_record_id' => 0,
+            'operating_target_sync_status' => 'skipped_collection_only',
+            'message_sent' => false,
+            'sensitive_values_exposed' => false,
+            'capture_reused' => true,
+            'capture_reuse_reason' => 'verified_same_day_readback',
+        ]
+        : molanxinRunJsonProcess([
+            $phpBinary,
+            $root . '/scripts/run_dingdandao_profile_lease_collection.php',
+            '--hotel-id=' . $hotelId,
+            '--owner-user-id=' . $ownerUserId,
+            '--profile-id=' . $profileId,
+            '--target-date=' . $targetDate,
+            '--control-token-file=' . $tokenFile,
+            '--runtime-directory=' . $runtimeDirectory,
+            '--node-binary=' . $nodeBinary,
+            '--collector-script=' . $root . '/scripts/run_dingdandao_cloud_collection.php',
+            '--collection-only',
+        ], $root);
     if (!in_array((string)($collection['status'] ?? ''), [
         'saved_capture_and_base_facts_ready',
     ], true)
@@ -175,6 +205,7 @@ try {
         'stage' => 'three_source_preview',
         'business_date' => $targetDate,
         'capture_id' => (int)$collection['capture_id'],
+        'capture_reused' => ($collection['capture_reused'] ?? false) === true,
         'operating_target_record_id' => (int)(
             $collection['operating_target_record_id'] ?? 0
         ),
