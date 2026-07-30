@@ -88,6 +88,145 @@ trait OnlineDataRequestConcern
         return $summary;
     }
 
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{successful_request_count:int,usable_request_count:int,request_gap_count:int,request_complete:bool}
+     */
+    private function buildCtripCookieApiRequestCoverage(array $payload, int $requestCount): array
+    {
+        $successfulRequestCount = 0;
+        $usableRequestCount = 0;
+        foreach (is_array($payload['responses'] ?? null) ? $payload['responses'] : [] as $response) {
+            if (!is_array($response)) {
+                continue;
+            }
+            $status = (int)($response['status'] ?? 0);
+            $successful = $status >= 200
+                && $status < 300
+                && trim((string)($response['business_error'] ?? '')) === ''
+                && trim((string)($response['error'] ?? '')) === '';
+            if (!$successful) {
+                continue;
+            }
+            $successfulRequestCount++;
+            if ((int)($response['catalog_fact_count'] ?? 0) > 0
+                || (int)($response['standard_row_count'] ?? 0) > 0) {
+                $usableRequestCount++;
+            }
+        }
+
+        $requestCount = max(0, $requestCount);
+        $requestGapCount = max(0, $requestCount - $usableRequestCount);
+        $errors = is_array($payload['errors'] ?? null) ? $payload['errors'] : [];
+
+        return [
+            'successful_request_count' => $successfulRequestCount,
+            'usable_request_count' => $usableRequestCount,
+            'request_gap_count' => $requestGapCount,
+            'request_complete' => $requestCount > 0
+                && $successfulRequestCount === $requestCount
+                && $usableRequestCount === $requestCount
+                && $errors === [],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function findStoredCtripExecutionConfig(string $configId, int $systemHotelId): array
+    {
+        foreach ($this->getStoredCtripConfigList() as $config) {
+            if (!is_array($config)) {
+                continue;
+            }
+            $storedConfigId = trim((string)($config['config_id'] ?? $config['id'] ?? ''));
+            if ($storedConfigId === $configId
+                && $this->otaConfigBoundSystemHotelId($config) === $systemHotelId) {
+                return $config;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Competition-circle endpoints do not always echo hotelId. In that case the
+     * already verified config -> system hotel -> requested platform hotel chain
+     * is sufficient, while any explicit returned-ID conflict remains blocked by
+     * validateCtripPayloadHotelIdentity().
+     *
+     * @param array<string, mixed> $identityCheck
+     * @param array<string, mixed> $storedConfig
+     */
+    private function canUseStoredCtripCompetitionIdentity(
+        string $requestSource,
+        array $identityCheck,
+        array $storedConfig,
+        int $systemHotelId
+    ): bool {
+        if ($requestSource !== 'competition_circle'
+            || $storedConfig === []
+            || empty($identityCheck['ok'])
+            || (string)($identityCheck['status'] ?? '') !== 'no_platform_hotel_id'
+        ) {
+            return false;
+        }
+
+        $capturedIds = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            is_array($identityCheck['captured_hotel_ids'] ?? null)
+                ? $identityCheck['captured_hotel_ids']
+                : []
+        ))));
+        if ($capturedIds !== []) {
+            return false;
+        }
+
+        $expectedIds = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            is_array($identityCheck['expected_hotel_ids'] ?? null)
+                ? $identityCheck['expected_hotel_ids']
+                : []
+        ))));
+        $storedIds = array_values(array_map(
+            'strval',
+            $this->extractExpectedCtripPlatformHotelIds($storedConfig, $systemHotelId)
+        ));
+
+        return $expectedIds !== []
+            && $storedIds !== []
+            && array_diff($expectedIds, $storedIds) === []
+            && array_intersect($expectedIds, $storedIds) !== [];
+    }
+
+    private function ctripCompetitionIdentityBlockedResponse(string $status, string $message, int $systemHotelId): Response
+    {
+        $identityCheck = [
+            'ok' => false,
+            'status' => $status,
+            'warning' => true,
+            'target_system_hotel_id' => $systemHotelId,
+            'message' => $message,
+        ];
+        return $this->error(
+            $message,
+            409,
+            $this->ctripCookieApiClientPayload([
+                'status' => 'save_blocked',
+                'is_ready' => false,
+                'saved_count' => 0,
+                'row_count' => 0,
+                'request_count' => 0,
+                'successful_request_count' => 0,
+                'usable_request_count' => 0,
+                'request_gap_count' => 0,
+                'request_complete' => false,
+                'readback_verified' => false,
+                'save_status' => 'blocked',
+                'persistence_status' => 'blocked',
+                'identity_check' => $identityCheck,
+            ])
+        );
+    }
+
     /** @param array<string, mixed> $payload */
     private function ctripCookieApiClientPayload(array $payload): array
     {
@@ -1675,9 +1814,51 @@ trait OnlineDataRequestConcern
         int $systemHotelId
     ): Response {
         $autoSave = $this->isTruthyRequestValue($requestData['auto_save'] ?? true);
+        $requestSource = strtolower(trim((string)($requestData['request_source'] ?? '')));
         $cookies = trim((string)($credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? ''));
         if ($cookies === '') {
             return $this->error('OTA 凭据缺少登录 Cookies', 409);
+        }
+        $storedConfig = [];
+        if ($requestSource === 'competition_circle') {
+            $configId = trim((string)($requestData['config_id'] ?? ''));
+            try {
+                $storedConfig = $this->findStoredCtripExecutionConfig($configId, $systemHotelId);
+            } catch (\Throwable) {
+                return $this->ctripCompetitionIdentityBlockedResponse(
+                    'stored_config_unavailable',
+                    '携程配置元数据读取失败，未发起竞争圈接口请求。',
+                    $systemHotelId
+                );
+            }
+            if ($storedConfig === []) {
+                return $this->ctripCompetitionIdentityBlockedResponse(
+                    'stored_config_not_found',
+                    '未找到与当前门店匹配的携程配置，未发起竞争圈接口请求。',
+                    $systemHotelId
+                );
+            }
+
+            $storedPlatformHotelIds = $this->extractExpectedCtripPlatformHotelIds($storedConfig, $systemHotelId);
+            if ($storedPlatformHotelIds === []) {
+                return $this->ctripCompetitionIdentityBlockedResponse(
+                    'expected_platform_hotel_id_missing',
+                    '当前门店未配置可校验的携程 hotelId，未发起竞争圈接口请求；请先补充真实携程 hotelId。',
+                    $systemHotelId
+                );
+            }
+
+            $requestedPlatformHotelIds = $this->extractExpectedCtripPlatformHotelIds($requestData, $systemHotelId);
+            $matchingPlatformHotelIds = array_values(array_intersect($requestedPlatformHotelIds, $storedPlatformHotelIds));
+            if ($requestedPlatformHotelIds !== [] && $matchingPlatformHotelIds === []) {
+                return $this->ctripCompetitionIdentityBlockedResponse(
+                    'stored_platform_hotel_id_mismatch',
+                    '请求中的携程 hotelId 与当前门店已保存配置不一致，未发起竞争圈接口请求。',
+                    $systemHotelId
+                );
+            }
+
+            $requestData['ctrip_hotel_id'] = (string)($matchingPlatformHotelIds[0] ?? $storedPlatformHotelIds[0]);
         }
 
         try {
@@ -1727,11 +1908,14 @@ trait OnlineDataRequestConcern
 
             $payload = $this->readLocalJsonFile($prepared['output_path']);
             $capturedCounts = $this->buildCtripCaptureCounts($payload);
+            $requestCount = count($prepared['config']['endpoints'] ?? []);
+            $requestCoverage = $this->buildCtripCookieApiRequestCoverage($payload, $requestCount);
             $saveResult = [
                 'saved_count' => 0,
                 'business_saved' => 0,
                 'traffic_saved' => 0,
                 'standard_saved' => 0,
+                'standard_expected_count' => 0,
                 'modules' => [],
             ];
             $identityCheck = null;
@@ -1773,10 +1957,22 @@ trait OnlineDataRequestConcern
                         $saveBlockedIdentity = $identityCheck;
                     }
                     if ($saveBlockedIdentity === null && ($identityCheck['status'] ?? '') === 'no_platform_hotel_id') {
-                        $identityCheck['ok'] = false;
-                        $identityCheck['warning'] = true;
-                        $identityCheck['message'] = '携程返回数据未识别到可校验酒店身份，已阻止 Cookie API 自动入库；请确认 Cookie 对应门店并补充真实携程 hotelId。';
-                        $saveBlockedIdentity = $identityCheck;
+                        if ($this->canUseStoredCtripCompetitionIdentity(
+                            $requestSource,
+                            $identityCheck,
+                            $storedConfig,
+                            $systemHotelId
+                        )) {
+                            $identityCheck['ok'] = true;
+                            $identityCheck['status'] = 'verified_stored_config_request_binding';
+                            $identityCheck['identity_source'] = 'stored_config_request_binding';
+                            $identityCheck['message'] = '携程响应未返回 hotelId，已按当前门店已验证配置与请求绑定完成身份校验。';
+                        } else {
+                            $identityCheck['ok'] = false;
+                            $identityCheck['warning'] = true;
+                            $identityCheck['message'] = '携程返回数据未识别到可校验酒店身份，已阻止 Cookie API 自动入库；请确认 Cookie 对应门店并补充真实携程 hotelId。';
+                            $saveBlockedIdentity = $identityCheck;
+                        }
                     }
                     if ($saveBlockedIdentity === null) {
                         $requestHotelId = trim((string)($payload['hotel_id'] ?? $prepared['config']['hotel_id'] ?? $systemHotelId ?? ''));
@@ -1789,12 +1985,33 @@ trait OnlineDataRequestConcern
                 }
             }
 
+            $standardExpectedCount = max(0, (int)($saveResult['standard_expected_count'] ?? 0));
+            $standardReadbackCount = max(0, (int)($saveResult['standard_saved'] ?? 0));
+            $readbackVerified = $autoSave && (
+                $requestSource === 'competition_circle'
+                    ? $standardExpectedCount > 0 && $standardReadbackCount === $standardExpectedCount
+                    : (int)($saveResult['saved_count'] ?? 0) > 0
+            );
             $readiness = $this->buildCtripCookieApiReadiness($payload, $capturedCounts, $saveResult, $autoSave);
             if ($saveBlockedIdentity !== null) {
                 $readiness['status'] = 'save_blocked';
                 $readiness['is_ready'] = false;
                 $readiness['warning'] = (string)($saveBlockedIdentity['message'] ?? '携程 Cookie API 已采集但未完成门店归属，未入库。');
                 $readiness['next_action'] = '在酒店管理中补充真实携程 hotelId 后重试。';
+            } elseif ($autoSave && (int)($capturedCounts['standard_rows'] ?? 0) > 0 && !$readbackVerified) {
+                $readiness['status'] = 'readback_incomplete';
+                $readiness['is_ready'] = false;
+                $readiness['warning'] = '携程数据已解析，但本次入库回读不完整，不标记为成功。';
+                $readiness['next_action'] = '检查数据库写入与回读状态后重试。';
+            } elseif ($requestSource === 'competition_circle' && !$requestCoverage['request_complete']) {
+                $readiness['status'] = 'partial';
+                $readiness['is_ready'] = false;
+                $readiness['warning'] = sprintf(
+                    '竞争圈接口仅返回 %d/%d 组可用数据，本次保留已验证入库结果，但不标记为完整采集。',
+                    (int)$requestCoverage['usable_request_count'],
+                    $requestCount
+                );
+                $readiness['next_action'] = '检查缺失接口的 Cookie、权限或返回结构后重试。';
             }
 
             if ($this->currentUser && isset($this->currentUser->id)) {
@@ -1817,7 +2034,7 @@ trait OnlineDataRequestConcern
                     ? 'skipped'
                     : ($capturedRowCount === 0
                         ? 'no_parsed_rows'
-                        : ($savedCount > 0 ? 'readback_verified' : 'readback_not_verified')));
+                        : ($readbackVerified ? 'readback_verified' : 'readback_not_verified')));
             $responsePayload = [
                 'status' => $readiness['status'],
                 'is_ready' => $readiness['is_ready'],
@@ -1836,9 +2053,16 @@ trait OnlineDataRequestConcern
                 'identity_check' => $saveBlockedIdentity ?? $identityCheck,
                 'save_status' => $saveStatus,
                 'persistence_status' => $saveStatus,
+                'readback_verified' => $readbackVerified,
+                'readback_expected_count' => $standardExpectedCount,
+                'readback_count' => $standardReadbackCount,
                 'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
                 'standard_section_counts' => $capturedCounts['standard_by_section'],
-                'request_count' => count($prepared['config']['endpoints'] ?? []),
+                'request_count' => $requestCount,
+                'successful_request_count' => $requestCoverage['successful_request_count'],
+                'usable_request_count' => $requestCoverage['usable_request_count'],
+                'request_gap_count' => $requestCoverage['request_gap_count'],
+                'request_complete' => $requestCoverage['request_complete'],
                 'cookie_source' => 'credential_vault',
                 'responses' => $this->summarizeCtripCookieApiResponses(
                     is_array($payload['responses'] ?? null) ? $payload['responses'] : []
@@ -1848,7 +2072,7 @@ trait OnlineDataRequestConcern
             ];
             $responsePayload = $this->ctripCookieApiClientPayload($responsePayload);
 
-            if ($autoSave && $saveBlockedIdentity === null && $capturedRowCount > 0 && $savedCount <= 0) {
+            if ($autoSave && $saveBlockedIdentity === null && $capturedRowCount > 0 && !$readbackVerified) {
                 return json([
                     'code' => 500,
                     'message' => '携程 Cookie API 已解析到数据，但数据库回读未通过；本次不标记为入库成功。',

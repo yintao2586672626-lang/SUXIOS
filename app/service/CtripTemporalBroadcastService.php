@@ -302,15 +302,16 @@ final class CtripTemporalBroadcastService
             $this->storedFact($flow, 'order_submit_user', ['0.ordersubmitnum'])
         );
 
-        foreach ($batch as $row) {
-            $price = $this->storedFact($row, 'starting_price');
-            if ($price === null) {
-                $price = $this->storedFact($row, 'lead_price');
-            }
-            if ($price !== null) {
-                $metrics['starting_price'] = $price;
-                break;
-            }
+        $priceRow = $this->storedEndpointRow($batch, 'traffic_hotel_min_price');
+        $price = $this->storedFact($priceRow, 'min_price', ['minprice']);
+        if ($price === null) {
+            $price = $this->storedFact($priceRow, 'starting_price');
+        }
+        if ($price === null) {
+            $price = $this->storedFact($priceRow, 'lead_price');
+        }
+        if ($price !== null) {
+            $metrics['starting_price'] = $price;
         }
 
         return [
@@ -455,6 +456,8 @@ final class CtripTemporalBroadcastService
     {
         $candidates = array_values(array_filter($rows, fn(array $row): bool =>
             (string)($row['data_date'] ?? '') === $asOfDate
+            && strtolower(trim((string)($row['data_period'] ?? ''))) === 'next_30_days'
+            && (int)($row['is_final'] ?? 0) === 0
             && $this->storedEndpointId($row) === 'traffic_search_details'
         ));
         $batch = $this->latestStoredBatch($candidates);
@@ -742,7 +745,7 @@ final class CtripTemporalBroadcastService
 
         $rows = is_array($segment['rows'] ?? null) ? $segment['rows'] : [];
         $endDate = (new DateTimeImmutable($asOfDate, new DateTimeZone(self::TIMEZONE)))
-            ->add(new DateInterval('P30D'))
+            ->add(new DateInterval('P29D'))
             ->format('Y-m-d');
         $normalized = [];
         $gaps = [];
@@ -759,9 +762,14 @@ final class CtripTemporalBroadcastService
             $targetDate = trim((string)($row['target_date'] ?? ''));
             if (!$this->validDate($targetDate)
                 || $targetDate < $asOfDate
-                || $targetDate > $endDate
             ) {
                 $gaps[] = 'future_target_date_out_of_range:' . $index;
+                continue;
+            }
+            // The cumulative response covers 30 calendar dates including as-of.
+            // Its shifted "yesterday" comparison can contain a comparison-only
+            // tail at +30 days; it is outside the requested future horizon.
+            if ($targetDate > $endDate) {
                 continue;
             }
 
@@ -1427,7 +1435,11 @@ final class CtripTemporalBroadcastService
             ];
         }
         if ($points === []) {
-            return ['points' => [], 'summary' => '', 'gaps' => []];
+            return [
+                'points' => [],
+                'summary' => '',
+                'gaps' => ['intraday_trend_missing'],
+            ];
         }
         usort($points, static function (array $left, array $right): int {
             $leftTimestamp = (string)($left['timestamp'] ?? '');

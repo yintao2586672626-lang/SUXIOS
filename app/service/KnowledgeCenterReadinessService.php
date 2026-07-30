@@ -27,18 +27,25 @@ final class KnowledgeCenterReadinessService
         $reviewDueAt = $this->normalizeDate($row['review_due_at'] ?? null);
         $asOf = $this->normalizeDate($row['_as_of'] ?? null) ?? new DateTimeImmutable('now');
         $chunkCount = max(0, $chunkCount);
-        $finalize = fn(array $readiness): array => $this->withTemporalStatus(
-            $this->withNotice(
-                $readiness,
-                $lifecycleStatus,
-                $lifecycleReason,
-                $knownKnowns,
-                $knownUnknowns,
-                $truthProfileVersion
+        $chunkGateSummary = is_array($row['_chunk_gate_summary'] ?? null)
+            ? $row['_chunk_gate_summary']
+            : [];
+        $hasChunkGateSummary = $chunkGateSummary !== [];
+        $finalize = fn(array $readiness): array => array_replace(
+            $this->withTemporalStatus(
+                $this->withNotice(
+                    $readiness,
+                    $lifecycleStatus,
+                    $lifecycleReason,
+                    $knownKnowns,
+                    $knownUnknowns,
+                    $truthProfileVersion
+                ),
+                $reviewedAt,
+                $reviewDueAt,
+                $asOf
             ),
-            $reviewedAt,
-            $reviewDueAt,
-            $asOf
+            ['chunk_gate_summary' => $chunkGateSummary]
         );
 
         if ($lifecycleStatus === 'quarantined') {
@@ -107,6 +114,115 @@ final class KnowledgeCenterReadinessService
                         'knowledge_review_due',
                         '知识已到复核日期',
                         '完成来源与口径复核后更新 reviewed_at 和 review_due_at'
+                    ),
+                ],
+                $chunkCount,
+                $hotelId
+            ));
+        }
+
+        if ($hasChunkGateSummary
+            && (int)($chunkGateSummary['unresolved_conflict_count'] ?? 0) > 0
+        ) {
+            return $finalize($this->readiness(
+                'unit_conflict_unresolved',
+                '存在冲突',
+                35,
+                false,
+                '逐项确认冲突事实的当前权威版本；未解决前不进入检索、决策或任务生成',
+                [
+                    $this->missing(
+                        'knowledge_conflict_unresolved',
+                        '知识片段存在未解决冲突',
+                        '为同一 conflict_key 明确唯一 current 或 authoritative 片段'
+                    ),
+                ],
+                $chunkCount,
+                $hotelId
+            ));
+        }
+
+        if ($hasChunkGateSummary
+            && (int)($chunkGateSummary['retrieval_safe_count'] ?? 0) <= 0
+        ) {
+            return $finalize($this->readiness(
+                'unit_chunks_unverified',
+                '片段未核验',
+                45,
+                false,
+                '补齐片段来源、证据等级、适用范围和复核日期后再开放检索',
+                [
+                    $this->missing(
+                        'retrieval_safe_chunk_missing',
+                        '缺少可追溯且可检索的知识片段',
+                        '至少一条片段通过共享知识门禁后再用于分析或任务'
+                    ),
+                ],
+                $chunkCount,
+                $hotelId
+            ));
+        }
+
+        if ($hasChunkGateSummary
+            && (int)($chunkGateSummary['review_due_count'] ?? 0) > 0
+        ) {
+            return $finalize($this->readiness(
+                'unit_chunks_review_due',
+                '片段待复核',
+                70,
+                false,
+                '复核已到期片段的来源版本和适用范围；到期内容仅可保留为历史参考',
+                [
+                    $this->missing(
+                        'knowledge_chunk_review_due',
+                        '部分知识片段已到复核日期',
+                        '更新 reviewed_at、review_due_at 及来源证据后重新评估'
+                    ),
+                ],
+                $chunkCount,
+                $hotelId
+            ));
+        }
+
+        if ($hasChunkGateSummary
+            && (int)($chunkGateSummary['decision_safe_count'] ?? 0) <= 0
+        ) {
+            return $finalize($this->readiness(
+                'unit_reference_only',
+                '仅供参考',
+                80,
+                false,
+                '该单元可检索但不可作为经营决策事实；完成当前性与 A/B 级证据复核后再升级',
+                [
+                    $this->missing(
+                        'decision_safe_chunk_missing',
+                        '缺少可用于决策的当前知识片段',
+                        '保留为参考资料，禁止自动生成经营结论或执行动作'
+                    ),
+                ],
+                $chunkCount,
+                $hotelId
+            ));
+        }
+
+        if ($hasChunkGateSummary
+            && (
+                (int)($chunkGateSummary['reference_only_count'] ?? 0) > 0
+                || (int)($chunkGateSummary['known_unknown_count'] ?? 0) > 0
+                || (int)($chunkGateSummary['blocked_count'] ?? 0) > 0
+            )
+        ) {
+            return $finalize($this->readiness(
+                'unit_partially_ready',
+                '部分就绪',
+                85,
+                false,
+                '仅允许已通过门禁的片段进入决策；其余片段继续作为参考、已知未知或阻断项补证',
+                [
+                    $this->missing(
+                        'knowledge_chunks_partially_ready',
+                        '知识单元仍含参考、未知或阻断片段',
+                        '按 chunk_gate_summary 逐项补齐证据、当前性和适用范围'
                     ),
                 ],
                 $chunkCount,

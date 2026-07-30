@@ -17,6 +17,7 @@ final class DingdandaoPmsIntegrationService
     private const STALE_PENDING_AFTER_SECONDS = 600;
     private const STALE_SENDING_AFTER_SECONDS = 180;
     private const RETRYABLE_DELIVERY_STATUSES = ['failed', 'partial', 'binding_missing'];
+    private const WECOM_MARKDOWN_MAX_BYTES = 3800;
 
     /** @var callable|null */
     private $delivery;
@@ -65,12 +66,28 @@ final class DingdandaoPmsIntegrationService
             $config,
             $latestCapture ?? $capture
         );
+        $requestedBusinessDate = trim($businessDate);
+        $requestedSourceScope = $requestedBusinessDate !== ''
+            && $requestedBusinessDate < date('Y-m-d')
+                ? DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE
+                : DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE;
+        $sourceScope = trim((string)($capture['source_scope'] ?? ''));
+        if (!in_array(
+            $sourceScope,
+            [
+                DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+                DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE,
+            ],
+            true
+        )) {
+            $sourceScope = $requestedSourceScope;
+        }
 
         return [
             'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
             'provider_label' => '订单来了 PMS',
             'source_url' => DingdandaoOperatingTargetCaptureService::SOURCE_URL,
-            'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+            'source_scope' => $sourceScope,
             'field_coverage' => [
                 'total_room_fee',
                 'adr',
@@ -328,6 +345,21 @@ final class DingdandaoPmsIntegrationService
                 'delivery_attempted' => false,
                 'trigger_type' => $triggerType,
                 'blockers' => $gate['blockers'],
+            ];
+        }
+        try {
+            $this->buildPayload($capture, $hotelName);
+        } catch (\LengthException) {
+            return [
+                'delivery_status' => 'blocked',
+                'delivery_attempted' => false,
+                'trigger_type' => $triggerType,
+                'blockers' => [
+                    $this->blocker(
+                        'pms_wecom_payload_too_large',
+                        '订单来了事实消息超过企业微信单条安全上限，已阻止发送，未静默截断数据。'
+                    ),
+                ],
             ];
         }
 
@@ -819,8 +851,25 @@ final class DingdandaoPmsIntegrationService
             }
             $errorSummary = $this->deliveryError($delivery);
             $deliveredAt = $deliveryStatus === 'sent' ? date('Y-m-d H:i:s') : null;
+            $responseReference = trim((string)(
+                $delivery['response_reference'] ?? ''
+            ));
+            $businessSuccess = $deliveryStatus === 'sent'
+                && str_starts_with($responseReference, 'wecom:errcode=0');
             $receipt = [
                 'delivery_status' => $deliveryStatus,
+                'result_code' => $businessSuccess
+                    ? 'wecom_business_success'
+                    : ($deliveryStatus === 'sent'
+                        ? 'wecom_receipt_unverified'
+                        : 'wecom_business_failed'),
+                'response_reference' => $responseReference !== ''
+                    ? $this->safeText($responseReference, 200)
+                    : null,
+                'payload_bytes' => strlen((string)(
+                    $payload['markdown']['content'] ?? ''
+                )),
+                'part_count' => 1,
                 'robot_count' => (int)($delivery['robot_count'] ?? 0),
                 'sent_count' => (int)($delivery['sent_count'] ?? 0),
                 'failed_count' => (int)($delivery['failed_count'] ?? 0),
@@ -965,9 +1014,14 @@ final class DingdandaoPmsIntegrationService
             }
             $providerHotelId = trim((string)($lockedConfig['provider_hotel_id'] ?? ''));
             $capturedProviderHotelId = trim((string)($capture['provider_hotel_id'] ?? ''));
+            $collectionValidation = $this->collectionContractValidation(
+                $lockedConfig,
+                $capture
+            );
             $canLearnProviderHotelId = $providerHotelId === ''
                 && $capturedProviderHotelId !== ''
                 && (int)($lockedConfig['status'] ?? 0) === 1
+                && ($collectionValidation['allowed'] ?? false) === true
                 && $this->sameText(
                     (string)($lockedConfig['provider_hotel_name'] ?? ''),
                     (string)($capture['provider_hotel_name'] ?? '')
@@ -1015,6 +1069,10 @@ final class DingdandaoPmsIntegrationService
                 '当前门店、当前日期没有订单来了采集记录。'
             );
         } else {
+            $blockers = array_merge(
+                $blockers,
+                $this->collectionContractBlockers($config, $capture)
+            );
             foreach ([
                 'quality_status' => 'verified',
                 'capture_status' => 'verified',
@@ -1092,6 +1150,10 @@ final class DingdandaoPmsIntegrationService
         if (!is_array($capture) || (int)($capture['id'] ?? 0) <= 0) {
             $blockers[] = $this->blocker('pms_capture_missing', '当前门店、当前日期没有订单来了采集记录。');
         } else {
+            $blockers = array_merge(
+                $blockers,
+                $this->collectionContractBlockers($config, $capture)
+            );
             $checks = [
                 'quality_status' => 'verified',
                 'capture_status' => 'verified',
@@ -1174,7 +1236,7 @@ final class DingdandaoPmsIntegrationService
         $trendDates = [];
         foreach ($trendDefinitions as $key => [$label, $prefix, $suffix]) {
             $points = is_array($trend[$key] ?? null)
-                ? array_slice($trend[$key], -7)
+                ? array_slice($trend[$key], -3)
                 : [];
             $values = [];
             foreach ($points as $point) {
@@ -1218,7 +1280,11 @@ final class DingdandaoPmsIntegrationService
         $lines[] = '> 仅展示未来 3/7/14/21 天累计；来源为订单来了 PMS。';
         $forwardLines = [];
         if (($forward['fact_scope'] ?? '') === 'whole_hotel_forward_room_status'
-            && ($forward['data_status'] ?? '') === 'verified'
+            && in_array(
+                (string)($forward['data_status'] ?? ''),
+                ['verified', 'verified_with_anomalies'],
+                true
+            )
             && ($forward['readback_status'] ?? '') === 'readback_verified'
         ) {
             $allowedHorizons = [3 => true, 7 => true, 14 => true, 21 => true];
@@ -1229,7 +1295,11 @@ final class DingdandaoPmsIntegrationService
                 }
                 $days = (int)($row['horizon_days'] ?? 0);
                 if (!isset($allowedHorizons[$days])
-                    || (string)($row['quality_status'] ?? '') !== 'verified'
+                    || !in_array(
+                        (string)($row['quality_status'] ?? ''),
+                        ['verified', 'warning'],
+                        true
+                    )
                 ) {
                     continue;
                 }
@@ -1266,6 +1336,28 @@ final class DingdandaoPmsIntegrationService
                     : '';
                 $forwardLines[] = '- ' . $days . ' 天' . $range
                     . '：' . implode('｜', $metrics);
+            }
+            foreach ((array)($forward['anomalies'] ?? []) as $anomaly) {
+                if (!is_array($anomaly)
+                    || ($anomaly['anomaly_type'] ?? '') !== 'oversold'
+                ) {
+                    continue;
+                }
+                $stayDate = trim((string)($anomaly['stay_date'] ?? ''));
+                $roomTypeName = $this->safeText(
+                    (string)($anomaly['room_type_name'] ?? '未知房型'),
+                    60
+                );
+                $oversoldRooms = (int)($anomaly['oversold_rooms'] ?? 0);
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $stayDate) !== 1
+                    || $oversoldRooms <= 0
+                ) {
+                    continue;
+                }
+                $forwardLines[] = '- ⚠ 超售提醒：'
+                    . mb_substr($stayDate, 5, 5)
+                    . '｜' . $roomTypeName
+                    . '｜' . $oversoldRooms . ' 间';
             }
         }
         $lines[] = $forwardLines === []
@@ -1311,10 +1403,14 @@ final class DingdandaoPmsIntegrationService
         $lines[] = '';
         $lines[] = '> 口径：订单来了住宿数据中心客房收入；不包含未返回的餐饮、会议等非房收入。';
         $lines[] = '> 本消息只读取已保存并回读的数据，不重新采集、不修改 PMS 或 OTA。';
+        $content = implode("\n", $lines);
+        if (strlen($content) > self::WECOM_MARKDOWN_MAX_BYTES) {
+            throw new \LengthException('dingdandao_pms_push_payload_too_large');
+        }
         return [
             'msgtype' => 'markdown',
             'markdown' => [
-                'content' => mb_strcut(implode("\n", $lines), 0, 3800, 'UTF-8'),
+                'content' => $content,
             ],
         ];
     }
@@ -1692,12 +1788,64 @@ final class DingdandaoPmsIntegrationService
     private function captureCanAutofillProviderId(?array $capture): bool
     {
         return is_array($capture)
+            && ((new CollectionResultContractService())
+                ->validateDingdandaoCaptureClaim($capture)['allowed'] ?? false) === true
             && trim((string)($capture['provider_hotel_id'] ?? '')) !== ''
             && (string)($capture['identity_status'] ?? '') === 'matched'
             && (string)($capture['capture_status'] ?? '') === 'verified'
             && (string)($capture['quality_status'] ?? '') === 'verified'
             && (string)($capture['reconciliation_status'] ?? '') === 'matched'
             && (string)($capture['readback_status'] ?? '') === 'readback_verified';
+    }
+
+    /**
+     * @param array<string,mixed>|null $config
+     * @param array<string,mixed> $capture
+     * @return array{allowed:bool,reason_codes:list<string>,contract:array<string,mixed>}
+     */
+    private function collectionContractValidation(
+        ?array $config,
+        array $capture
+    ): array {
+        $expectedScope = [];
+        if (is_array($config)) {
+            $expectedScope = [
+                'tenant_id' => $config['tenant_id'] ?? null,
+                'system_hotel_id' => $config['hotel_id'] ?? null,
+                'business_date' => $capture['business_date'] ?? null,
+            ];
+            $providerHotelId = trim((string)($config['provider_hotel_id'] ?? ''));
+            if ($providerHotelId !== '') {
+                $expectedScope['platform_hotel_id'] = $providerHotelId;
+            }
+        }
+        return (new CollectionResultContractService())
+            ->validateDingdandaoCaptureClaim($capture, $expectedScope);
+    }
+
+    /**
+     * @param array<string,mixed>|null $config
+     * @param array<string,mixed> $capture
+     * @return list<array{code:string,message:string}>
+     */
+    private function collectionContractBlockers(
+        ?array $config,
+        array $capture
+    ): array {
+        $validation = $this->collectionContractValidation($config, $capture);
+        if (($validation['allowed'] ?? false) === true) {
+            return [];
+        }
+        $reasonCodes = array_values((array)(
+            $validation['reason_codes'] ?? []
+        ));
+        return [$this->blocker(
+            'pms_collection_contract_blocked',
+            '订单来了采集结果未通过统一事实合约，不能作为事实或进入推送。'
+                . ($reasonCodes === []
+                    ? ''
+                    : ' 原因：' . implode(', ', $reasonCodes))
+        )];
     }
 
     /** @return array<string,mixed> */
@@ -1780,6 +1928,11 @@ final class DingdandaoPmsIntegrationService
     /** @param array<string,mixed> $row @return array<string,mixed> */
     private function publicDispatch(array $row): array
     {
+        $receipt = json_decode(
+            (string)($row['delivery_receipt_json'] ?? ''),
+            true
+        );
+        $receipt = is_array($receipt) ? $receipt : [];
         return [
             'id' => (int)($row['id'] ?? 0),
             'capture_id' => (int)($row['capture_id'] ?? 0),
@@ -1791,6 +1944,14 @@ final class DingdandaoPmsIntegrationService
             'error_summary' => $row['error_summary'] ?? null,
             'claimed_at' => $row['claimed_at'] ?? null,
             'delivered_at' => $row['delivered_at'] ?? null,
+            'result_code' => $receipt['result_code'] ?? null,
+            'response_reference' => $receipt['response_reference'] ?? null,
+            'payload_bytes' => isset($receipt['payload_bytes'])
+                ? (int)$receipt['payload_bytes']
+                : null,
+            'part_count' => isset($receipt['part_count'])
+                ? (int)$receipt['part_count']
+                : null,
         ];
     }
 

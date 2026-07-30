@@ -653,6 +653,27 @@ trait OnlineDataHistoryConcern
         }
 
         $conditions = [];
+        if (isset($columns['raw_data'])) {
+            $driver = strtolower((string)Db::connect()->getConfig('type'));
+            if ($driver === 'sqlite') {
+                $rawErrorCondition = "json_valid(`raw_data`) = 1 AND ("
+                    . "(json_type(`raw_data`, '$.error') IS NOT NULL "
+                    . "AND json_type(`raw_data`, '$.error') <> 'null' "
+                    . "AND TRIM(COALESCE(json_extract(`raw_data`, '$.error'), '')) NOT IN ('', '0', 'false', '[]', '{}')) OR "
+                    . "(json_type(`raw_data`, '$.errors') IS NOT NULL "
+                    . "AND json_type(`raw_data`, '$.errors') <> 'null' "
+                    . "AND TRIM(COALESCE(json_extract(`raw_data`, '$.errors'), '')) NOT IN ('', '0', 'false', '[]', '{}')))";
+            } else {
+                $rawErrorCondition = "JSON_VALID(`raw_data`) = 1 AND ("
+                    . "(JSON_CONTAINS_PATH(`raw_data`, 'one', '$.error') = 1 "
+                    . "AND JSON_TYPE(JSON_EXTRACT(`raw_data`, '$.error')) <> 'NULL' "
+                    . "AND TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`raw_data`, '$.error')), '')) NOT IN ('', '0', 'false', '[]', '{}')) OR "
+                    . "(JSON_CONTAINS_PATH(`raw_data`, 'one', '$.errors') = 1 "
+                    . "AND JSON_TYPE(JSON_EXTRACT(`raw_data`, '$.errors')) <> 'NULL' "
+                    . "AND TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`raw_data`, '$.errors')), '')) NOT IN ('', '0', 'false', '[]', '{}')))";
+            }
+            $conditions[] = "WHEN `raw_data` IS NOT NULL AND `raw_data` <> '' AND {$rawErrorCondition} THEN 'failed'";
+        }
         $failedRowStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_ROW_STATUSES) . "'";
         $unverifiedRowStatuses = "'" . implode("','", OnlineDataTrustStatusService::UNVERIFIED_ROW_STATUSES) . "'";
         $failedValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_VALIDATION_STATUSES) . "'";
@@ -670,24 +691,7 @@ trait OnlineDataHistoryConcern
 
         if (isset($columns['readback_verified'])) {
             $conditions[] = "WHEN COALESCE(`readback_verified`, 0) <> 1 THEN 'unverified'";
-            $conditions[] = "WHEN COALESCE(`readback_verified`, 0) = 1 THEN 'success'";
-        }
-
-        $hasStructuredStatus = isset($columns['status'])
-            || isset($columns['validation_status'])
-            || isset($columns['readback_verified']);
-        if (isset($columns['raw_data']) && !$hasStructuredStatus) {
-            $driver = strtolower((string)Db::connect()->getConfig('type'));
-            if ($driver === 'sqlite') {
-                $rawErrorCondition = "json_valid(`raw_data`) = 1 AND ("
-                    . "(json_type(`raw_data`, '$.error') IS NOT NULL AND json_type(`raw_data`, '$.error') <> 'null') OR "
-                    . "(json_type(`raw_data`, '$.errors') IS NOT NULL AND json_type(`raw_data`, '$.errors') <> 'null'))";
-            } else {
-                $rawErrorCondition = "JSON_VALID(`raw_data`) = 1 AND ("
-                    . "(JSON_CONTAINS_PATH(`raw_data`, 'one', '$.error') = 1 AND JSON_TYPE(JSON_EXTRACT(`raw_data`, '$.error')) <> 'NULL') OR "
-                    . "(JSON_CONTAINS_PATH(`raw_data`, 'one', '$.errors') = 1 AND JSON_TYPE(JSON_EXTRACT(`raw_data`, '$.errors')) <> 'NULL'))";
-            }
-            $conditions[] = "WHEN `raw_data` IS NOT NULL AND `raw_data` <> '' AND {$rawErrorCondition} THEN 'failed'";
+            $conditions[] = "WHEN COALESCE(`readback_verified`, 0) = 1 THEN 'partial'";
         }
 
         $metricFields = array_values(array_filter([
@@ -704,11 +708,11 @@ trait OnlineDataHistoryConcern
                 static fn (string $field): string => "COALESCE(`{$field}`, 0) > 0",
                 $metricFields
             ));
-            $conditions[] = "WHEN {$metricCondition} THEN 'success'";
+            $conditions[] = "WHEN {$metricCondition} THEN 'unverified'";
         }
 
         if (isset($columns['raw_data']) && !isset($columns['readback_verified'])) {
-            $conditions[] = "WHEN `raw_data` IS NOT NULL AND `raw_data` <> '' THEN 'success'";
+            $conditions[] = "WHEN `raw_data` IS NOT NULL AND `raw_data` <> '' THEN 'unverified'";
         }
 
         return "CASE\n" . implode("\n", $conditions) . "\nELSE 'empty' END";
@@ -1904,17 +1908,11 @@ trait OnlineDataHistoryConcern
         if ($validationClass !== 'usable') {
             return $validationClass;
         }
-        if ($rawData !== '') {
-            $decoded = json_decode($rawData, true);
-            if (is_array($decoded) && (isset($decoded['error']) || isset($decoded['errors']))) {
-                return 'failed';
-            }
+        if ($this->onlineHistoryRawDataHasFailure($rawData)) {
+            return 'failed';
         }
         if (array_key_exists('readback_verified', $row) && (int)$row['readback_verified'] !== 1) {
             return 'unverified';
-        }
-        if ($rawData !== '') {
-            return 'success';
         }
 
         $metrics = [
@@ -1926,21 +1924,124 @@ trait OnlineDataHistoryConcern
             $row['detail_exposure'] ?? 0,
             $row['order_submit_num'] ?? 0,
         ];
-        foreach ($metrics as $metric) {
-            if ((float)$metric > 0) {
-                return 'success';
+        $hasMetric = count(array_filter(
+            $metrics,
+            static fn(mixed $metric): bool => is_numeric($metric) && (float)$metric !== 0.0
+        )) > 0;
+        if ($rawData === '' && !$hasMetric) {
+            return 'empty';
+        }
+
+        $projectedStatus = strtolower(trim((string)($row['history_status'] ?? '')));
+        if (in_array($projectedStatus, ['failed', 'unverified', 'partial'], true)) {
+            return $projectedStatus;
+        }
+        if ($this->onlineHistorySourceVerificationComplete($row, $rawData)) {
+            return 'success';
+        }
+        return array_key_exists('readback_verified', $row)
+            && (int)$row['readback_verified'] === 1
+                ? 'partial'
+                : 'unverified';
+    }
+
+    private function onlineHistoryRawDataHasFailure(string $rawData): bool
+    {
+        if ($rawData === '') {
+            return false;
+        }
+        $decoded = json_decode($rawData, true);
+        if (!is_array($decoded)) {
+            return false;
+        }
+        foreach (['error', 'errors'] as $key) {
+            if (!array_key_exists($key, $decoded)) {
+                continue;
+            }
+            $value = $decoded[$key];
+            if ($value === null || $value === false || $value === '' || $value === 0 || $value === []) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private function onlineHistorySourceVerificationComplete(array $row, string $rawData): bool
+    {
+        $raw = json_decode($rawData, true);
+        $raw = is_array($raw) ? $raw : [];
+        $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
+        $sourceValidationStatus = strtolower(trim((string)(
+            $row['source_validation_status']
+            ?? $raw['source_validation_status']
+            ?? ''
+        )));
+        if ($validationStatus !== 'verified'
+            && !in_array($sourceValidationStatus, ['verified', 'source_verified'], true)
+        ) {
+            return false;
+        }
+
+        $platform = $this->onlineHistoryFirstText([
+            $row['platform'] ?? null,
+            $row['source'] ?? null,
+        ]);
+        $platformHotelId = $this->onlineHistoryFirstText([
+            $row['ota_hotel_id'] ?? null,
+            $row['hotel_id'] ?? null,
+            $raw['platform_hotel_id'] ?? null,
+            $raw['ota_hotel_id'] ?? null,
+            $raw['hotel_id'] ?? null,
+        ]);
+        $sourceMethod = $this->onlineHistoryFirstText([
+            $row['ingestion_method'] ?? null,
+            $row['source_method'] ?? null,
+            $raw['ingestion_method'] ?? null,
+            $raw['source_method'] ?? null,
+        ]);
+        $sourceTraceId = $this->onlineHistoryFirstText([
+            $row['source_trace_id'] ?? null,
+            $raw['source_trace_id'] ?? null,
+        ]);
+        $collectedAt = $this->onlineHistoryFirstText([
+            $row['snapshot_time'] ?? null,
+            $raw['collected_at'] ?? null,
+            $raw['captured_at'] ?? null,
+            $raw['snapshot_time'] ?? null,
+        ]);
+
+        return (int)($row['readback_verified'] ?? 0) === 1
+            && (int)($row['system_hotel_id'] ?? 0) > 0
+            && $platform !== ''
+            && $platformHotelId !== ''
+            && trim((string)($row['data_date'] ?? '')) !== ''
+            && !OnlineDataTrustStatusService::isUnverifiedIngestionMethod($sourceMethod)
+            && $sourceTraceId !== ''
+            && preg_match('/\d{2}:\d{2}(?::\d{2})?/', $collectedAt) === 1;
+    }
+
+    private function onlineHistoryFirstText(array $values): string
+    {
+        foreach ($values as $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if ($text !== '') {
+                return $text;
             }
         }
-        return 'empty';
+        return '';
     }
 
     private function historyStatusLabel(string $status): string
     {
         return [
-            'success' => '成功',
+            'success' => '来源已核验并回读',
             'failed' => '失败',
             'empty' => '数据为空',
-            'partial' => '部分数据',
+            'partial' => '已入库，来源待核',
             'unverified' => '未验证',
         ][$status] ?? $status;
     }

@@ -92,6 +92,14 @@ final class CloudNotificationTestDispatchContractTest extends TestCase
         self::assertStringContainsString('source_scope', $verifier);
         self::assertStringContainsString('content_sections', $verifier);
         self::assertStringContainsString('interval_minutes', $verifier);
+        self::assertStringContainsString(
+            'isOperatingDailyTriggerAllowed',
+            $verifier
+        );
+        self::assertStringContainsString(
+            'operating_daily_loop_schedule_forbidden',
+            $verifier
+        );
         self::assertStringNotContainsString("field('webhook", $verifier);
     }
 

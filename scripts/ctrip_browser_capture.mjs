@@ -52,6 +52,11 @@ import {
   evaluateCtripPlatformIdentity,
   extractCtripRequestPlatformIdentifiers,
 } from './lib/ctrip_platform_identity.mjs';
+import {
+  createOtaReadFallbackState,
+  observeOtaReadFallbackRequest,
+  replayObservedOtaReadRequests,
+} from './lib/ota_read_fallback.mjs';
 import { parseJsonTextSafely } from './lib/safe_json_parse_error.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
@@ -185,6 +190,7 @@ const payload = {
   business: [],
   traffic: [],
   reviews: [],
+  read_fallbacks: [],
   screenshots: [],
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
   auth_status: { status: 'pending', message: 'Login status has not been checked.' },
@@ -680,6 +686,10 @@ function createCaptureState(section) {
   return {
     activeCaptureSection: section || '',
     activeTrafficPlatform: section === 'traffic_report' ? 'Ctrip' : '',
+    readFallbackState: createOtaReadFallbackState('ctrip', {
+      maxTemplates: 12,
+      maxAttempts: 12,
+    }),
   };
 }
 
@@ -699,6 +709,7 @@ function createSectionCaptureTarget(section) {
     business: [],
     traffic: [],
     reviews: [],
+    read_fallbacks: [],
     screenshots: [],
     by_section: { [section]: [] },
   };
@@ -794,7 +805,7 @@ async function retrySectionsSequentially(context, sections) {
 }
 
 function mergeSectionCaptureTarget(target) {
-  for (const key of ['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'endpoint_discovery_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'screenshots']) {
+  for (const key of ['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'endpoint_discovery_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'read_fallbacks', 'screenshots']) {
     const rows = Array.isArray(target[key]) ? target[key] : [];
     payload[key].push(...rows);
   }
@@ -812,6 +823,21 @@ function sectionHasUsableData(target, section) {
   return target.responses.some(response => (
     (response.section === section || response.endpoint_id)
     && ((response.standard_row_count || 0) > 0 || (response.catalog_fact_count || 0) > 0 || (response.row_count || 0) > 0)
+  ));
+}
+
+function ctripEndpointNeedsReadFallback(target, endpointId) {
+  const normalizedEndpointId = String(endpointId || '').trim();
+  if (!normalizedEndpointId) {
+    return false;
+  }
+  return !(Array.isArray(target.responses) ? target.responses : []).some(response => (
+    String(response?.endpoint_id || '').trim() === normalizedEndpointId
+    && (
+      Number(response?.standard_row_count || 0) > 0
+      || Number(response?.catalog_fact_count || 0) > 0
+      || Number(response?.row_count || 0) > 0
+    )
   ));
 }
 
@@ -878,6 +904,23 @@ async function captureSection(page, section, url, confidence = '', target = payl
     await page.waitForTimeout(400);
   }
   await page.waitForLoadState('networkidle', { timeout: capturePlan.lightweight ? 3500 : 10000 }).catch(() => null);
+  await waitForPendingResponses(target, capturePlan.lightweight ? 1500 : 3000);
+  if (ok) {
+    const fallbackDiagnostics = await replayObservedOtaReadRequests(
+      page,
+      state.readFallbackState,
+      {
+        section,
+        targetDate: defaultDataDate,
+        maxAttempts: capturePlan.lightweight ? 1 : 3,
+        shouldReplay: template => ctripEndpointNeedsReadFallback(target, template.endpoint_id),
+      },
+    );
+    target.read_fallbacks.push(...fallbackDiagnostics);
+    if (fallbackDiagnostics.some(item => item.status === 'response_observed')) {
+      await waitForPendingResponses(target, capturePlan.lightweight ? 1500 : 3000);
+    }
+  }
 
   if (capturePlan.capture_screenshot) {
     const screenshot = join(assetDir, `${safeName(profileId)}_${section}_${timestamp()}.png`);
@@ -1172,6 +1215,28 @@ async function dismissBlockingOverlays(page) {
 }
 
 function registerResponseCapture(page, target, state = defaultCaptureState) {
+  page.on('request', request => {
+    const requestType = request.resourceType();
+    if (requestType !== 'xhr' && requestType !== 'fetch') {
+      return;
+    }
+    const url = request.url();
+    const endpoint = findCtripEndpointByUrl(url, {
+      preferredSection: state.activeCaptureSection || '',
+    });
+    if (!endpoint || !capturePlanAllowsEndpoint(endpoint)) {
+      return;
+    }
+    const requestPayload = request.postData() || '';
+    observeOtaReadFallbackRequest(state.readFallbackState, request, {
+      section: endpoint.section || state.activeCaptureSection || '',
+      endpointId: endpoint.id || '',
+      requestDateEvidence: extractOtaRequestDateEvidence({
+        url,
+        payload: requestPayload,
+      }),
+    });
+  });
   page.on('response', async response => {
     const finishPendingResponse = beginPendingResponse(target);
     try {
@@ -2316,6 +2381,7 @@ function summarize(data) {
     p3_evidence_drafts: data.p3_evidence_drafts.length,
     p3_evidence_ready: data.p3_evidence_drafts.filter(item => item.catalog_ready).length,
     responses: data.responses.length,
+    read_fallbacks: data.read_fallbacks.length,
     capture_gate: data.capture_gate?.status || 'unknown',
     capture_gap_status: data.capture_gap_report?.status || 'unknown',
     by_section: bySection,

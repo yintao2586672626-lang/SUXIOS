@@ -10,6 +10,8 @@ use think\facade\Db;
 
 class RevenueResearchService
 {
+    private const FORECAST_MAX_STALENESS_DAYS = 1;
+
     /**
      * @return array<string, mixed>
      */
@@ -28,10 +30,11 @@ class RevenueResearchService
         $localSources = $this->collectLocalSources($product, $hotelIds);
         $businessForecast = $this->buildBusinessForecast($hotelIds);
         $gaps = $this->evaluateGaps($product, $localSources);
-        $knowledgeContext = (new RevenueOperationsKnowledgeService())->load([
+        $retrievedKnowledgeContext = (new RevenueOperationsKnowledgeService())->load([
             'hotel_id' => count($hotelIds) === 1 ? (int)$hotelIds[0] : 0,
-            'limit' => 30,
+            'limit' => 100,
         ]);
+        $knowledgeContext = $this->decisionSafeKnowledgeContext($retrievedKnowledgeContext);
         $webResult = $modelKey === 'openai_fast'
             ? $this->callOpenAiWebSearch($this->resolveOpenAiConfig($modelKey), $product, $localSources, $gaps, $businessForecast, $knowledgeContext)
             : $this->callConfiguredModel($modelKey, $product, $localSources, $gaps, $businessForecast, $knowledgeContext);
@@ -46,8 +49,27 @@ class RevenueResearchService
             count($hotelIds) === 1 ? (int)$hotelIds[0] : 0
         );
         $readiness = $this->buildResearchReadiness($product, $status, $gaps, $businessForecast, $result);
+        if (($knowledgeContext['execution_ready'] ?? false) !== true) {
+            $module = trim((string)($product['module'] ?? ''));
+            $readiness = $this->withReadinessNotice($this->readiness(
+                'research_knowledge_gate_pending',
+                '知识证据待复核',
+                min(50, (int)($readiness['score'] ?? 50)),
+                false,
+                false,
+                '仅使用通过当前决策门禁的知识生成动作；先复核过期、冲突或未验证知识',
+                [[
+                    'code' => 'decision_safe_knowledge_missing_or_blocked',
+                    'label' => '可用于动作的当前知识',
+                    'next_action' => '复核知识来源、有效期、冲突状态和证据等级后重新生成',
+                ]],
+                $module,
+                $module !== '' && !str_starts_with($module, '待新增')
+            ));
+        }
         $researchDataGaps = array_values(array_unique(array_merge(
             $this->stringList($businessForecast['data_gaps'] ?? []),
+            $this->stringList($knowledgeContext['data_gap_codes'] ?? []),
             array_map(
                 static fn(array $gap): string => 'source_gap_' . (string)($gap['table'] ?? 'unknown'),
                 $gaps
@@ -63,6 +85,12 @@ class RevenueResearchService
             'web_sources' => $webResult['web_sources'],
             'business_forecast' => $businessForecast,
             'knowledge_context' => $knowledgeContext,
+            'knowledge_context_audit' => [
+                'retrieved_entry_count' => (int)($retrievedKnowledgeContext['entry_count'] ?? 0),
+                'decision_safe_entry_count' => (int)($knowledgeContext['entry_count'] ?? 0),
+                'excluded_for_decision_count' => (int)($knowledgeContext['excluded_for_decision_count'] ?? 0),
+                'execution_ready' => (bool)($knowledgeContext['execution_ready'] ?? false),
+            ],
             'result' => $result,
             'readiness' => $readiness,
             'gaps' => $gaps,
@@ -656,8 +684,6 @@ class RevenueResearchService
     private function collectLocalSources(array $product, array $hotelIds): array
     {
         return [
-            $this->knowledgeUnitsSummary($product, $hotelIds),
-            $this->knowledgeBaseSummary($product, $hotelIds),
             $this->tableSummary('online_daily_data', '平台日级数据', 'data_date', ['data_date', 'amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num', 'raw_data'], $hotelIds),
             $this->tableSummary('daily_reports', '经营日报', 'report_date', ['report_date', 'occupancy_rate', 'revenue', 'room_count', 'guest_count', 'report_data'], $hotelIds),
             $this->tableSummary('demand_forecasts', '需求预测结果', 'forecast_date', ['forecast_date', 'predicted_occupancy', 'predicted_demand', 'confidence_score', 'historical_data'], $hotelIds),
@@ -665,6 +691,54 @@ class RevenueResearchService
             $this->tableSummary('competitor_analysis', '竞对分析', 'analysis_date', ['analysis_date', 'our_price', 'competitor_price', 'price_difference', 'price_index', 'competitor_data'], $hotelIds),
             $this->tableSummary('operation_alerts', '运营预警', 'related_date', ['alert_type', 'level', 'title', 'message', 'source', 'status', 'raw_data'], $hotelIds),
         ];
+    }
+
+    /** @param array<string, mixed> $context @return array<string, mixed> */
+    private function decisionSafeKnowledgeContext(array $context): array
+    {
+        $entries = array_values(array_filter(
+            (array)($context['entries'] ?? []),
+            static fn(mixed $entry): bool => is_array($entry)
+                && (($entry['knowledge_gate']['decision_safe'] ?? false) === true)
+        ));
+        $originalCount = (int)($context['entry_count'] ?? count((array)($context['entries'] ?? [])));
+        $dataGapCodes = [];
+        foreach ((array)($context['data_gaps'] ?? []) as $gap) {
+            if (!is_array($gap)) {
+                continue;
+            }
+            $code = trim((string)($gap['code'] ?? ''));
+            if ($code !== '') {
+                $dataGapCodes[$code] = $code;
+            }
+        }
+        if ($entries === []) {
+            $dataGapCodes['decision_safe_knowledge_missing'] = 'decision_safe_knowledge_missing';
+        }
+        if ($originalCount > count($entries)) {
+            $dataGapCodes['knowledge_entries_excluded_by_decision_gate'] = 'knowledge_entries_excluded_by_decision_gate';
+        }
+
+        $blockingCodes = [
+            'knowledge_claim_conflict_unresolved',
+            'knowledge_review_due',
+            'knowledge_expired',
+            'knowledge_current_verification_required',
+            'decision_safe_knowledge_missing',
+        ];
+        $executionReady = $entries !== []
+            && array_intersect($blockingCodes, array_values($dataGapCodes)) === [];
+
+        return array_replace($context, [
+            'status' => $entries === [] ? 'blocked' : ($executionReady ? 'available' : 'partial'),
+            'entries' => $entries,
+            'entry_count' => count($entries),
+            'decision_safe_entry_count' => count($entries),
+            'excluded_for_decision_count' => max(0, $originalCount - count($entries)),
+            'data_gap_codes' => array_values($dataGapCodes),
+            'execution_ready' => $executionReady,
+            'protected_boundary' => 'only current A/B decision-safe knowledge may shape model actions; reference-only, review-due, conflicting and known-unknown knowledge is withheld and surfaced as a gap',
+        ]);
     }
 
     /**
@@ -792,10 +866,13 @@ class RevenueResearchService
         $available = array_values(array_intersect($fields, array_keys($columns)));
         $missing = array_values(array_diff($fields, $available));
         $countQuery = $this->scopedQuery($table, $columns, $hotelIds);
+        $this->applyDecisionEligibleSummaryScope($countQuery, $table, $columns, $dateColumn);
         $count = (int)$countQuery->count();
         $range = [];
         if ($dateColumn !== '' && isset($columns[$dateColumn]) && $count > 0) {
-            $rangeRow = $this->scopedQuery($table, $columns, $hotelIds)
+            $rangeQuery = $this->scopedQuery($table, $columns, $hotelIds);
+            $this->applyDecisionEligibleSummaryScope($rangeQuery, $table, $columns, $dateColumn);
+            $rangeRow = $rangeQuery
                 ->field('MIN(`' . $dateColumn . '`) AS min_date, MAX(`' . $dateColumn . '`) AS max_date')
                 ->find();
             if (is_array($rangeRow)) {
@@ -814,8 +891,65 @@ class RevenueResearchService
             'date_range' => $range,
             'fields_available' => $available,
             'fields_missing' => $missing,
+            'summary_scope' => $table === 'online_daily_data'
+                ? 'verified_historical_self_ota_rows_through_yesterday'
+                : 'scoped_table_inventory',
             'summary' => $count > 0 ? $label . '已存在 ' . $count . ' 条记录' : $label . '暂无记录',
         ];
+    }
+
+    /**
+     * @param array<int, int> $hotelIds
+     * @return array<string, mixed>
+     */
+    private function applyDecisionEligibleSummaryScope(
+        mixed $query,
+        string $table,
+        array $columns,
+        string $dateColumn
+    ): void {
+        if ($table !== 'online_daily_data') {
+            return;
+        }
+        if ($dateColumn !== '' && isset($columns[$dateColumn])) {
+            $query->where($dateColumn, '<=', date('Y-m-d', strtotime('-1 day')));
+        }
+        if (isset($columns['system_hotel_id'])) {
+            $query->where('system_hotel_id', '>', 0);
+        }
+        if (isset($columns['source'])) {
+            $query->whereIn('source', ['ctrip', 'meituan', 'qunar']);
+        }
+        if (isset($columns['data_type'])) {
+            $query->whereIn('data_type', ['business', 'business_overview', 'overview', 'operation']);
+        }
+        if (isset($columns['compare_type'])) {
+            $query->where('compare_type', 'self');
+        }
+        if (isset($columns['data_period'])) {
+            $query->where('data_period', 'historical_daily');
+        }
+        if (isset($columns['is_final'])) {
+            $query->where('is_final', 1);
+        }
+        if (isset($columns['readback_verified'])) {
+            $query->where('readback_verified', 1);
+        }
+        if (isset($columns['validation_status'])) {
+            $query->whereIn('validation_status', [
+                'normal',
+                'available',
+                'verified',
+                'valid',
+                'confirmed',
+                'approved',
+                'passed',
+                'ok',
+                'success',
+                'complete',
+                'completed',
+            ]);
+        }
     }
 
     /**
@@ -912,12 +1046,27 @@ class RevenueResearchService
             ->field($fieldSql)
             ->where('data_date', '>=', $forecastStartDate)
             ->where('data_date', '<=', $forecastEndDate)
-            ->whereIn('data_type', ['business', 'business_overview', 'overview', 'operation'])
+            ->whereIn('data_type', ['business', 'business_overview', 'overview', 'operation', 'order', 'orders'])
             ->where('compare_type', 'self')
             ->where('data_period', 'historical_daily')
             ->where('is_final', 1)
             ->where('readback_verified', 1)
-            ->whereIn('validation_status', ['normal', 'available', 'verified', 'valid', 'confirmed', 'approved', 'passed', 'ok', 'success', 'complete', 'completed']);
+            ->whereIn('validation_status', [
+                'normal',
+                'available',
+                'verified',
+                'valid',
+                'confirmed',
+                'approved',
+                'passed',
+                'ok',
+                'success',
+                'complete',
+                'completed',
+                'warning',
+                'partial',
+                'partial_success',
+            ]);
 
         $rows = [];
         $offset = 0;
@@ -965,7 +1114,7 @@ class RevenueResearchService
      * @param array<int, array<string, mixed>> $rows Canonical, verified OTA daily operating rows.
      * @return array<string, mixed>
      */
-    private function buildBusinessForecastFromRows(array $rows): array
+    private function buildBusinessForecastFromRows(array $rows, mixed $asOf = null): array
     {
         $daily = [];
         $sourceCounts = [];
@@ -1058,6 +1207,53 @@ class RevenueResearchService
             'start' => (string)($daily[0]['date'] ?? ''),
             'end' => (string)($daily[$observedDays - 1]['date'] ?? ''),
         ];
+        try {
+            $timezone = new \DateTimeZone('Asia/Shanghai');
+            $asOfDate = $asOf instanceof \DateTimeImmutable
+                ? $asOf->setTimezone($timezone)
+                : new \DateTimeImmutable(
+                    is_string($asOf) && trim($asOf) !== '' ? trim($asOf) : 'now',
+                    $timezone
+                );
+        } catch (\Throwable) {
+            $asOfDate = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        }
+        $forecastCutoff = $asOfDate->setTime(0, 0)->modify('-1 day');
+        $latestCompleteDate = null;
+        $stalenessDays = null;
+        $continuityWindowDays = min(14, $completeSampleDays);
+        $continuityStatus = $completeSampleDays > 0 ? 'contiguous' : 'not_available';
+        if ($completeSampleDays > 0) {
+            $latestCompleteDate = new \DateTimeImmutable(
+                (string)$completeDaily[$completeSampleDays - 1]['date'],
+                $timezone
+            );
+            $stalenessDays = (int)$latestCompleteDate->diff($forecastCutoff)->format('%r%a');
+            if ($stalenessDays < 0) {
+                $dataGaps[] = 'complete_operating_latest_date_after_forecast_cutoff';
+            } elseif ($stalenessDays > self::FORECAST_MAX_STALENESS_DAYS) {
+                $dataGaps[] = 'latest_complete_operating_day_stale';
+            }
+
+            $continuityRows = array_slice($completeDaily, -$continuityWindowDays);
+            for ($index = 1; $index < count($continuityRows); $index++) {
+                $previousDate = new \DateTimeImmutable((string)$continuityRows[$index - 1]['date'], $timezone);
+                $currentDate = new \DateTimeImmutable((string)$continuityRows[$index]['date'], $timezone);
+                if ($previousDate->modify('+1 day')->format('Y-m-d') !== $currentDate->format('Y-m-d')) {
+                    $continuityStatus = 'non_contiguous';
+                    $dataGaps[] = 'complete_operating_series_not_contiguous';
+                    break;
+                }
+            }
+        }
+        $sampleFreshness = [
+            'forecast_cutoff_date' => $forecastCutoff->format('Y-m-d'),
+            'latest_complete_date' => $latestCompleteDate?->format('Y-m-d'),
+            'staleness_days' => $stalenessDays,
+            'max_staleness_days' => self::FORECAST_MAX_STALENESS_DAYS,
+            'continuity_window_days' => $continuityWindowDays,
+            'continuity_status' => $continuityStatus,
+        ];
         if ($dataGaps !== []) {
             return [
                 'available' => false,
@@ -1071,6 +1267,7 @@ class RevenueResearchService
                 'metric_completeness' => $metricCompleteness,
                 'complete_sample_days' => $completeSampleDays,
                 'date_range' => $dateRange,
+                'sample_freshness' => $sampleFreshness,
                 'data_gaps' => $dataGaps,
                 'generated_at' => date('Y-m-d H:i:s'),
             ];
@@ -1105,6 +1302,7 @@ class RevenueResearchService
                 'metric_completeness' => $metricCompleteness,
                 'complete_sample_days' => $completeSampleDays,
                 'date_range' => $dateRange,
+                'sample_freshness' => $sampleFreshness,
                 'recent_7d' => $recent7,
                 'previous_7d' => $previous7,
                 'recent_30d' => $recent30,
@@ -1152,6 +1350,7 @@ class RevenueResearchService
             'metric_sample_days' => $metricSampleDays,
             'metric_completeness' => $metricCompleteness,
             'complete_sample_days' => $completeSampleDays,
+            'sample_freshness' => $sampleFreshness,
             'data_gaps' => [],
             'confidence' => $confidence,
             'date_range' => $forecastDateRange,
@@ -1171,16 +1370,17 @@ class RevenueResearchService
 
     /**
      * online_daily_data 同时保存本店日汇总、流量快照和竞品字段事实。
-     * 收益预测只允许每个酒店/渠道/日期的一条已验证日级经营汇总进入计算。
+     * 收益预测必须经过共享 OTA 标准 ETL；携程结账/产能字段和美团
+     * 营业卡片/订单聚合属于互补或替代证据，不能再由“最新非空行”决定。
      *
      * @param array<int, array<string, mixed>> $rows
      * @return array<int, array<string, mixed>>
      */
     private function selectCanonicalOnlineOperatingRows(array $rows): array
     {
-        $selected = [];
+        $selectedByGrain = [];
         foreach ($rows as $row) {
-            if (!$this->isCanonicalOnlineOperatingRow($row)) {
+            if (!$this->isForecastEtlCandidateRow($row)) {
                 continue;
             }
 
@@ -1191,32 +1391,103 @@ class RevenueResearchService
 
             $hotelId = (string)($row['system_hotel_id'] ?? $row['hotel_id'] ?? '');
             $source = strtolower(trim((string)($row['source'] ?? ''))) ?: 'unknown';
-            $key = $hotelId . '|' . $source . '|' . $date;
-            if (!isset($selected[$key]) || $this->preferCanonicalOnlineOperatingRow($row, $selected[$key])) {
-                $selected[$key] = $row;
+            $dataType = strtolower(trim((string)($row['data_type'] ?? 'business')));
+            $dimension = trim((string)($row['dimension'] ?? ''));
+            $key = implode('|', [$hotelId, $source, $date, $dataType, $dimension]);
+            if (!isset($selectedByGrain[$key])
+                || $this->preferCanonicalOnlineOperatingRow($row, $selectedByGrain[$key])
+            ) {
+                $selectedByGrain[$key] = $row;
             }
         }
 
-        $result = array_values($selected);
+        if ($selectedByGrain === []) {
+            return [];
+        }
+
+        $rowsById = [];
+        foreach ($selectedByGrain as $row) {
+            $rowId = (int)($row['id'] ?? 0);
+            if ($rowId > 0) {
+                $rowsById[$rowId] = $row;
+            }
+        }
+
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows(array_values($selectedByGrain));
+        $result = [];
+        foreach ((array)($dataset['fact_ota_daily'] ?? []) as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+            $trace = is_array($fact['source_trace'] ?? null) ? $fact['source_trace'] : [];
+            if (($trace['saved_success'] ?? false) !== true) {
+                continue;
+            }
+            $rowId = (int)($trace['row_id'] ?? 0);
+            $sourceRow = $rowsById[$rowId] ?? null;
+            if (!is_array($sourceRow)) {
+                continue;
+            }
+
+            $revenue = $this->nullableNumberValue($fact['revenue'] ?? null);
+            $roomNights = $this->nullableNumberValue($fact['room_nights'] ?? null);
+            $orders = $this->nullableNumberValue($fact['order_count'] ?? null);
+            if ($revenue === null && $roomNights === null && $orders === null) {
+                continue;
+            }
+            $semanticScope = trim((string)($fact['metric_semantic_scope'] ?? 'ota_daily_generic'));
+            if (trim((string)($sourceRow['dimension'] ?? '')) !== ''
+                && $semanticScope === 'ota_daily_generic'
+            ) {
+                continue;
+            }
+
+            $metricKeys = $this->forecastFactMetricKeys($fact);
+            if (OnlineDataTrustStatusService::classifyValidationStatus(
+                $sourceRow['validation_status'] ?? ''
+            ) === 'partial'
+                && !$this->metricScopedForecastFactsReady($sourceRow, $metricKeys)
+            ) {
+                continue;
+            }
+
+            $canonicalRow = $sourceRow;
+            $canonicalRow['data_date'] = (string)($fact['date_key'] ?? $sourceRow['data_date'] ?? '');
+            $canonicalRow['source'] = (string)($fact['platform_key'] ?? $sourceRow['source'] ?? '');
+            $canonicalRow['amount'] = $revenue;
+            $canonicalRow['quantity'] = $roomNights;
+            $canonicalRow['book_order_num'] = $orders;
+            $canonicalRow['calculation_basis'] = (string)($fact['calculation_basis'] ?? 'ota_daily_standard_fact');
+            $canonicalRow['metric_semantic_scope'] = $semanticScope;
+            $canonicalRow['field_fact_metric_keys'] = $metricKeys;
+            $result[] = $canonicalRow;
+        }
+
         usort($result, static function (array $left, array $right): int {
-            return strcmp((string)($left['data_date'] ?? ''), (string)($right['data_date'] ?? ''));
+            return [
+                (string)($left['data_date'] ?? ''),
+                (string)($left['source'] ?? ''),
+                (int)($left['id'] ?? 0),
+            ] <=> [
+                (string)($right['data_date'] ?? ''),
+                (string)($right['source'] ?? ''),
+                (int)($right['id'] ?? 0),
+            ];
         });
         return $result;
     }
 
     /** @param array<string, mixed> $row */
-    private function isCanonicalOnlineOperatingRow(array $row): bool
+    private function isForecastEtlCandidateRow(array $row): bool
     {
-        if (array_key_exists('dimension', $row) && trim((string)$row['dimension']) !== '') {
-            return false;
-        }
-
         $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
         if (!in_array($dataType, [
             'business',
             'business_overview',
             'overview',
             'operation',
+            'order',
+            'orders',
         ], true)) {
             return false;
         }
@@ -1238,20 +1509,10 @@ class RevenueResearchService
             return false;
         }
 
-        $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
-        if (!in_array($validationStatus, [
-            'normal',
-            'available',
-            'verified',
-            'valid',
-            'confirmed',
-            'approved',
-            'passed',
-            'ok',
-            'success',
-            'complete',
-            'completed',
-        ], true)) {
+        $validationClass = OnlineDataTrustStatusService::classifyValidationStatus(
+            $row['validation_status'] ?? ''
+        );
+        if (!in_array($validationClass, ['usable', 'partial'], true)) {
             return false;
         }
 
@@ -1281,6 +1542,40 @@ class RevenueResearchService
         }
 
         return true;
+    }
+
+    /**
+     * @param array<string, mixed> $fact
+     * @return array<int, string>
+     */
+    private function forecastFactMetricKeys(array $fact): array
+    {
+        $keys = [];
+        if ($this->nullableNumberValue($fact['revenue'] ?? null) !== null) {
+            $keys[] = 'order_amount';
+        }
+        if ($this->nullableNumberValue($fact['room_nights'] ?? null) !== null) {
+            $keys[] = 'room_nights';
+        }
+        if ($this->nullableNumberValue($fact['order_count'] ?? null) !== null) {
+            $keys[] = 'order_count';
+        }
+        return array_values(array_unique($keys));
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, string> $metricKeys
+     */
+    private function metricScopedForecastFactsReady(array $row, array $metricKeys): bool
+    {
+        if ($metricKeys === []) {
+            return false;
+        }
+        $raw = $this->decodeJsonValue($row['raw_data'] ?? null);
+        $status = OnlineDataFieldFactService::buildMetricStatus($row, $raw, $metricKeys);
+        return (string)($status['status'] ?? '') === 'ready'
+            && (array)($status['missing_requested_metric_keys'] ?? []) === [];
     }
 
     /** @param array<string, mixed> $row */
@@ -1981,6 +2276,7 @@ class RevenueResearchService
         array $knowledgeContext = []
     ): string
     {
+        $knowledgeContext = $this->decisionSafeKnowledgeContext($knowledgeContext);
         $sourceRule = $requiresWebSources
             ? '引用来源必须来自联网检索，并返回可点击来源。'
             : '当前默认使用 DeepSeek 配置模型，不要求联网引用；不得编造网页来源或假链接。';
@@ -2165,15 +2461,6 @@ class RevenueResearchService
             && ($truthContext === [] || $truthStatus === 'verified');
         if ($forecastTrusted) {
             $this->collectStructuredNumericTokens($businessForecast, $tokens);
-        }
-
-        $trustedStatuses = ['available', 'verified', 'ready', 'complete', 'completed', 'success', 'succeeded'];
-        foreach ($localSources as $source) {
-            $status = strtolower(trim((string)($source['status'] ?? '')));
-            if (!in_array($status, $trustedStatuses, true)) {
-                continue;
-            }
-            $this->collectStructuredNumericTokens($source, $tokens);
         }
 
         return $tokens;

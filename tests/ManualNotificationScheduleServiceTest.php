@@ -71,6 +71,8 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             hourly_end_time VARCHAR(8) NOT NULL DEFAULT "22:00:00",
             enabled INTEGER NOT NULL,
             schedule_status VARCHAR(32) NOT NULL,
+            last_test_status VARCHAR(32) NOT NULL,
+            last_tested_at DATETIME NULL,
             test_robot_id INTEGER NULL,
             test_robot_name VARCHAR(120) NULL,
             created_by INTEGER NOT NULL,
@@ -89,6 +91,9 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             request_kind VARCHAR(32) NOT NULL,
             business_date VARCHAR(10) NULL,
             payload_fingerprint VARCHAR(64) NULL,
+            tested_plan_fingerprint VARCHAR(64) NULL,
+            source_snapshot_refs_json TEXT NULL,
+            source_snapshot_fingerprint VARCHAR(64) NULL,
             operating_target_record_id INTEGER NULL,
             snapshot_revision_no INTEGER NULL,
             render_contract_version VARCHAR(48) NULL,
@@ -320,6 +325,204 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         );
     }
 
+    public function testCombinedOperatingDailyPreparesAllThreeSourcesInOneWindow(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'combined',
+            'content_sections' =>
+                'pms_summary,ctrip_traffic,meituan_traffic',
+        ]);
+        $this->seedBusinessContractTest(
+            $notificationId,
+            OperatingDailyReportPayloadService::RENDER_CONTRACT_VERSION
+        );
+        $events = [];
+        $sendCalls = 0;
+        $service = new ManualNotificationScheduleService(
+            sender: static function () use (&$events, &$sendCalls): array {
+                $events[] = 'send';
+                $sendCalls++;
+                return ['delivery_status' => 'sent'];
+            },
+            operatingDailyPayloads: $this->operatingDailyThreeSourcePayloads(),
+            meituanTemporalRefresher: static function (
+                array $row,
+                string $businessDate
+            ) use (&$events): array {
+                $events[] = 'meituan';
+                return [
+                    'status' => 'ready',
+                    'reason_code' =>
+                        'meituan_current_capture_saved_and_read_back',
+                    'target_date' => $businessDate,
+                    'sync_task_id' => 22,
+                    'saved_count' => 2,
+                    'readback_verified' => true,
+                ];
+            },
+            ctripTemporalRefresher: static function (
+                array $row,
+                string $businessDate
+            ) use (&$events): array {
+                $events[] = 'ctrip';
+                return [
+                    'status' => 'ready',
+                    'reason_code' =>
+                        'ctrip_current_capture_saved_and_read_back',
+                    'target_date' => $businessDate,
+                    'sync_task_id' => 21,
+                    'saved_count' => 3,
+                    'readback_verified' => true,
+                ];
+            },
+            pmsSourceRefresher: static function (
+                array $row,
+                string $businessDate
+            ) use (&$events): array {
+                $events[] = 'pms';
+                return [
+                    'status' => 'ready',
+                    'reason_code' =>
+                        'pms_current_capture_saved_and_read_back',
+                    'target_date' => $businessDate,
+                    'capture_id' => 301,
+                    'saved_count' => 1,
+                    'readback_verified' => true,
+                ];
+            }
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:01:00'),
+            true
+        );
+
+        self::assertSame(
+            ['pms', 'meituan', 'ctrip', 'send'],
+            $events,
+            json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+        self::assertSame(
+            'ready',
+            $result['results'][0]['pms_source_preparation']['status']
+        );
+        self::assertSame(
+            'ready',
+            $result['results'][0]['source_preparation']['status']
+        );
+        self::assertSame(
+            'ready',
+            $result['results'][0]['ctrip_source_preparation']['status']
+        );
+        self::assertSame(1, $sendCalls);
+        self::assertSame(1, $result['sent_count']);
+        self::assertSame('sent', $result['results'][0]['status']);
+        self::assertSame(
+            'wecom_business_success',
+            $result['results'][0]['reason_code']
+        );
+        $dispatch = Db::name('manual_notification_schedule_dispatches')
+            ->where('notification_id', $notificationId)
+            ->where('request_kind', 'scheduled')
+            ->find();
+        self::assertIsArray($dispatch);
+        $sourceRefs = json_decode(
+            (string)$dispatch['source_snapshot_refs_json'],
+            true
+        );
+        self::assertSame(
+            ['ctrip_traffic', 'meituan_traffic', 'pms'],
+            array_keys($sourceRefs)
+        );
+        self::assertSame(
+            'provider-hotel-80',
+            $sourceRefs['pms']['bound_provider_hotel_id']
+        );
+        self::assertSame(
+            'ctrip:trace-101',
+            $sourceRefs['ctrip_traffic']['source_trace_id']
+        );
+        self::assertSame(
+            'meituan:trace-64381',
+            $sourceRefs['meituan_traffic']['source_trace_id']
+        );
+    }
+
+    public function testPreparedSnapshotMismatchBlocksScheduledDelivery(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'source_scope' => 'combined',
+            'content_sections' =>
+                'pms_summary,ctrip_traffic,meituan_traffic',
+        ]);
+        $this->seedBusinessContractTest(
+            $notificationId,
+            OperatingDailyReportPayloadService::RENDER_CONTRACT_VERSION
+        );
+        $sendCalls = 0;
+        $service = new ManualNotificationScheduleService(
+            sender: static function () use (&$sendCalls): array {
+                $sendCalls++;
+                return ['delivery_status' => 'sent'];
+            },
+            operatingDailyPayloads: $this->operatingDailyThreeSourcePayloads(),
+            meituanTemporalRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'sync_task_id' => 22,
+                'saved_count' => 2,
+                'readback_verified' => true,
+            ],
+            ctripTemporalRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'sync_task_id' => 21,
+                'saved_count' => 3,
+                'readback_verified' => true,
+            ],
+            pmsSourceRefresher: static fn(
+                array $row,
+                string $businessDate
+            ): array => [
+                'status' => 'ready',
+                'target_date' => $businessDate,
+                'capture_id' => 999,
+                'saved_count' => 1,
+                'readback_verified' => true,
+            ]
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:01:00'),
+            true
+        );
+
+        self::assertSame(0, $sendCalls);
+        self::assertSame('dispatch_blocked', $result['status']);
+        self::assertSame('blocked', $result['results'][0]['status']);
+        self::assertSame(
+            'operating_daily_pms_prepared_snapshot_mismatch',
+            $result['results'][0]['reason_code']
+        );
+        self::assertFalse(
+            $result['results'][0]['prepared_snapshot_gate']['allowed']
+        );
+    }
+
     public function testSchedulerBuildsFutureRoomStatusFromDynamicBusinessFacts(): void
     {
         $notificationId = $this->insertRecord([
@@ -400,25 +603,66 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         );
         $dailyPayloads = new OperatingDailyReportPayloadService(
             null,
-            static fn(int $tenantId, int $hotelId, string $date): array => [
-                'id' => 3,
-                'tenant_id' => $tenantId,
-                'hotel_id' => $hotelId,
-                'business_date' => $date,
-                'capture_status' => 'verified',
-                'quality_status' => 'verified',
-                'readback_status' => 'readback_verified',
-                'identity_status' => 'matched',
-                'reconciliation_status' => 'matched',
-                'captured_at' => $date . ' 17:30:00',
-                'summary' => [
-                    'total_room_fee' => 8745.66,
-                    'sold_room_nights' => 15,
-                    'derived_sellable_room_nights' => 15,
-                    'occupancy_rate_percent' => 100,
-                    'adr' => 583.04,
-                    'revpar' => 583.04,
-                ],
+            static function (int $tenantId, int $hotelId, string $date): array {
+                $sourceUrl = \app\service\DingdandaoOperatingTargetCaptureService::SOURCE_URL;
+                $sourceApiPath = '/api/verified';
+                $providerHotelId = 'provider-hotel-' . $hotelId;
+                $captureEvidence =
+                    \app\service\DingdandaoOperatingTargetCaptureService::
+                    expectedCaptureEvidence(
+                        $sourceApiPath,
+                        $date,
+                        $providerHotelId,
+                        'full_diagnostic'
+                    );
+                if (!is_array($captureEvidence)) {
+                    throw new \RuntimeException(
+                        'dingdandao_test_capture_evidence_invalid'
+                    );
+                }
+                $sourceTraceId = (string)$captureEvidence['source_trace_id'];
+                return [
+                    'id' => 3,
+                    'tenant_id' => $tenantId,
+                    'hotel_id' => $hotelId,
+                    'provider' => 'dingdandao_pms',
+                    'provider_hotel_id' => $providerHotelId,
+                    'provider_hotel_name' => '敦煌漠蓝新',
+                    'business_date' => $date,
+                    'source_url' => $sourceUrl,
+                    'source_api_path' => $sourceApiPath,
+                    'source_scope' => 'today_only',
+                    'collection_mode' => 'full_diagnostic',
+                    'capture_method' => 'network_response',
+                    'capture_strategy' => 'verified_endpoint_recipe',
+                    'capture_status' => 'verified',
+                    'quality_status' => 'verified',
+                    'readback_status' => 'readback_verified',
+                    'identity_status' => 'matched',
+                    'reconciliation_status' => 'matched',
+                    'source_trace_id' => $sourceTraceId,
+                    'source_fingerprint' => str_repeat('b', 64),
+                    'detail_row_count' => 25,
+                    'captured_at' => $date . ' 17:30:00',
+                    'summary' => [
+                        'total_room_fee' => 8745.66,
+                        'sold_room_nights' => 15,
+                        'average_daily_room_nights' => 15.0,
+                        'derived_sellable_room_nights' => 15,
+                        'occupancy_rate_percent' => 100,
+                        'adr' => 583.04,
+                        'revpar' => 583.04,
+                    ],
+                    'capture_evidence' => $captureEvidence,
+                    'gaps' => [],
+                ];
+            },
+            null,
+            null,
+            static fn(): array => [
+                'configured' => true,
+                'expected_provider_hotel_id' => 'provider-hotel-80',
+                'expected_provider_hotel_name' => '敦煌漠蓝新',
             ]
         );
         $service = new ManualNotificationScheduleService(
@@ -495,7 +739,7 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         self::assertSame('preview', $result['status']);
         self::assertSame('blocked', $result['results'][0]['status']);
         self::assertSame(
-            'business_message_retest_required',
+            'manual_notification_schedule_test_evidence_invalid',
             $result['results'][0]['reason_code']
         );
     }
@@ -544,6 +788,95 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         self::assertSame('interval_minutes', $result['results'][0]['trigger_type']);
     }
 
+    public function testLegacyOperatingDailyLoopsAreBlockedAndReportedBeforeDelivery(): void
+    {
+        $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'trigger_type' => 'interval_minutes',
+            'interval_minutes' => 30,
+            'planned_send_at' => null,
+            'hourly_start_time' => '09:00:00',
+            'hourly_end_time' => '23:59:00',
+        ]);
+        $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::OPERATING_DAILY_CUSTOM_REPORT_TYPE,
+            'trigger_type' => 'hourly_on_the_hour',
+            'interval_minutes' => null,
+            'planned_send_at' => null,
+            'hourly_start_time' => '09:00:00',
+            'hourly_end_time' => '22:00:00',
+        ]);
+        $freshId = $this->insertRecord([
+            'planned_send_at' => '2026-07-26 10:00:00',
+        ]);
+        $sendCalls = 0;
+        $sourceRefreshCalls = 0;
+        $service = new ManualNotificationScheduleService(
+            sender: static function () use (&$sendCalls): array {
+                $sendCalls++;
+                return ['delivery_status' => 'sent'];
+            },
+            meituanTemporalRefresher: static function () use (
+                &$sourceRefreshCalls
+            ): array {
+                $sourceRefreshCalls++;
+                return ['status' => 'ready', 'readback_verified' => true];
+            },
+            ctripTemporalRefresher: static function () use (
+                &$sourceRefreshCalls
+            ): array {
+                $sourceRefreshCalls++;
+                return ['status' => 'ready', 'readback_verified' => true];
+            }
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 10:00:20'),
+            true,
+            ManualNotificationScheduleService::MODE_TEST,
+            1
+        );
+
+        self::assertSame('dispatch_blocked', $result['status']);
+        self::assertSame(3, $result['due_count']);
+        self::assertSame(2, $result['blocked_count']);
+        self::assertSame(1, $result['sent_count']);
+        self::assertSame(1, $sendCalls);
+        self::assertSame(0, $sourceRefreshCalls);
+        foreach (array_slice($result['results'], 0, 2) as $blocked) {
+            self::assertSame('blocked', $blocked['status']);
+            self::assertSame(
+                'operating_daily_fixed_time_required',
+                $blocked['reason_code']
+            );
+            self::assertFalse($blocked['delivery_attempted']);
+        }
+        self::assertSame($freshId, $result['results'][2]['notification_id']);
+        self::assertSame('sent', $result['results'][2]['status']);
+        self::assertSame(
+            1,
+            Db::name('manual_notification_schedule_dispatches')->count()
+        );
+        $run = Db::name('manual_notification_schedule_runs')
+            ->where('id', (int)$result['schedule_run_id'])
+            ->find();
+        self::assertSame('blocked', $run['status']);
+        self::assertSame(2, (int)$run['blocked_count']);
+        self::assertSame(1, (int)$run['sent_count']);
+        $scope = Db::name('manual_notification_schedule_run_scopes')
+            ->where('schedule_run_id', (int)$result['schedule_run_id'])
+            ->find();
+        self::assertSame('blocked', $scope['status']);
+        self::assertSame(2, (int)$scope['blocked_count']);
+        self::assertSame(1, (int)$scope['sent_count']);
+    }
+
     public function testExplicitDispatchUsesFakeSenderAndIsIdempotentPerWindowAndMode(): void
     {
         $notificationId = $this->insertRecord();
@@ -574,6 +907,168 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             $first['schedule_run_id'],
             $first['results'][0]['schedule_run_id']
         );
+    }
+
+    public function testClaimedWindowDoesNotConsumeTheNewDispatchLimit(): void
+    {
+        $claimedId = $this->insertRecord();
+        $freshId = $this->insertRecord();
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $ledger->claim(
+            $claimedId,
+            9,
+            80,
+            '2026-07-26 18:00',
+            ManualNotificationScheduleService::MODE_TEST,
+            'daily_fixed_time',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'already claimed'],
+                ],
+            ],
+            $this->time('2026-07-26 18:01:00')
+        );
+        $calls = [];
+        $service = new ManualNotificationScheduleService(
+            static function (
+                int $hotelId,
+                int $robotId,
+                array $payload,
+                array $context
+            ) use (&$calls): array {
+                $calls[] = $context['notification_id'] ?? 0;
+                return ['delivery_status' => 'sent'];
+            },
+            ledger: $ledger
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:02:00'),
+            true,
+            ManualNotificationScheduleService::MODE_TEST,
+            1
+        );
+
+        self::assertSame(2, $result['due_count']);
+        self::assertCount(2, $result['results']);
+        self::assertSame($claimedId, $result['results'][0]['notification_id']);
+        self::assertSame('skipped', $result['results'][0]['status']);
+        self::assertSame(
+            'dispatch_window_already_claimed',
+            $result['results'][0]['reason_code']
+        );
+        self::assertSame($freshId, $result['results'][1]['notification_id']);
+        self::assertSame('sent', $result['results'][1]['status']);
+        self::assertSame([$freshId], $calls);
+        self::assertSame(
+            2,
+            Db::name('manual_notification_schedule_dispatches')->count()
+        );
+    }
+
+    public function testEnabledRowWithoutCurrentSuccessfulTestIsBlockedAtRuntime(): void
+    {
+        $neverTestedId = $this->insertRecord([
+            'last_test_status' => 'never_tested',
+            'last_tested_at' => null,
+        ]);
+        $staleTestId = $this->insertRecord([
+            'last_test_status' => 'sent',
+            'last_tested_at' => '2026-07-26 11:59:59',
+            'update_time' => '2026-07-26 12:00:00',
+        ]);
+        $calls = 0;
+        $service = new ManualNotificationScheduleService(
+            static function () use (&$calls): array {
+                $calls++;
+                return ['delivery_status' => 'sent'];
+            }
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:02:00'),
+            true
+        );
+
+        self::assertSame('dispatch_blocked', $result['status']);
+        self::assertSame(2, $result['blocked_count']);
+        self::assertSame(0, $calls);
+        self::assertSame(
+            [$neverTestedId, $staleTestId],
+            array_column($result['results'], 'notification_id')
+        );
+        foreach ($result['results'] as $blocked) {
+            self::assertSame('blocked', $blocked['status']);
+            self::assertSame(
+                'manual_notification_schedule_test_evidence_invalid',
+                $blocked['reason_code']
+            );
+            self::assertFalse($blocked['delivery_attempted']);
+        }
+    }
+
+    public function testClaimedCtripWindowSkipsRefreshBeforeAnyBrowserWork(): void
+    {
+        $notificationId = $this->insertRecord([
+            'notification_type' =>
+                ManualNotificationService::CTRIP_TEMPORAL_REPORT_TYPE,
+            'template_type' =>
+                ManualNotificationService::CTRIP_TEMPORAL_REPORT_TYPE,
+            'source_scope' => 'ctrip',
+        ]);
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            '2026-07-26 18:00',
+            ManualNotificationScheduleService::MODE_TEST,
+            'daily_fixed_time',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'already claimed'],
+                ],
+            ],
+            $this->time('2026-07-26 18:01:00')
+        );
+        $refreshCalls = 0;
+        $service = new ManualNotificationScheduleService(
+            null,
+            null,
+            $ledger,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            static function () use (&$refreshCalls): array {
+                $refreshCalls++;
+                return [];
+            }
+        );
+
+        $result = $service->runDue(
+            $this->time('2026-07-26 18:02:00'),
+            true
+        );
+
+        self::assertSame('skipped', $result['results'][0]['status']);
+        self::assertSame(
+            'dispatch_window_already_claimed',
+            $result['results'][0]['reason_code']
+        );
+        self::assertSame(0, $refreshCalls);
     }
 
     public function testScheduleRunEvidenceIsReadBackOnlyForTheExactScope(): void
@@ -608,13 +1103,22 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             'update_time' => '2026-07-26 18:03:01',
         ]);
 
-        $scoped = (new ManualNotificationDispatchLedgerService())->latestScheduleRun(9, 80, 1);
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $scoped = $ledger->latestScheduleRun(9, 80, 1);
         self::assertSame($run['schedule_run_id'], $scoped['run_id']);
         self::assertSame(9, $scoped['scope_tenant_id']);
         self::assertSame(80, $scoped['scope_hotel_id']);
         self::assertSame(1, $scoped['scope_robot_id']);
+        self::assertSame(
+            $run['schedule_run_id'],
+            $ledger->latestScheduleRun(9, 80, 1, 'test')['run_id']
+        );
+        self::assertSame(
+            'not_run',
+            $ledger->latestScheduleRun(9, 80, 1, 'formal')['status']
+        );
 
-        $wrongRobot = (new ManualNotificationDispatchLedgerService())->latestScheduleRun(9, 80, 27);
+        $wrongRobot = $ledger->latestScheduleRun(9, 80, 27);
         self::assertSame('not_run', $wrongRobot['status']);
     }
 
@@ -933,6 +1437,430 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         self::assertFalse($late['automatic_retry_allowed']);
     }
 
+    public function testContradictorySuccessFlagCannotOverrideExplicitFailedDeliveryStatus(): void
+    {
+        $notificationId = $this->insertRecord();
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $startedAt = $this->time('2026-07-26 18:00:00');
+        $claim = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            '2026-07-26 18:00',
+            ManualNotificationScheduleService::MODE_TEST,
+            'daily_fixed_time',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [
+                'payload' => [
+                    'msgtype' => 'markdown',
+                    'markdown' => ['content' => 'contradictory receipt test'],
+                ],
+                'source_snapshot_refs' => [
+                    'pms' => [
+                        'source' => 'dingdandao_pms',
+                        'record_id' => 31,
+                        'business_date' => '2026-07-26',
+                        'source_scope' => 'historical_single_date',
+                        'capture_method' => 'network_response',
+                        'source_trace_id' => 'dingdandao:trace-31',
+                    ],
+                    'meituan_traffic' => [
+                        'source' => 'meituan',
+                        'record_id' => 41,
+                        'business_date' => '2026-07-26',
+                        'data_source_id' => 8,
+                        'sync_task_id' => 12,
+                        'source_trace_id' => 'meituan:trace-41',
+                    ],
+                ],
+            ],
+            $startedAt
+        );
+        self::assertSame(
+            31,
+            $claim['dispatch']['source_snapshot_refs']['pms']['record_id']
+        );
+        self::assertSame(
+            12,
+            $claim['dispatch']['source_snapshot_refs']['meituan_traffic']['sync_task_id']
+        );
+        self::assertMatchesRegularExpression(
+            '/^[a-f0-9]{64}$/',
+            (string)$claim['dispatch']['source_snapshot_fingerprint']
+        );
+        $attempt = $ledger->beginAttempt((int)$claim['dispatch']['id'], $startedAt);
+
+        $finished = $ledger->finishAttempt(
+            (int)$claim['dispatch']['id'],
+            (int)$attempt['attempt_id'],
+            [
+                'delivery_status' => 'failed',
+                'success' => true,
+                'reason' => 'provider status contradicted the generic success flag',
+            ],
+            $startedAt->modify('+1 second')
+        );
+
+        self::assertSame('outcome_unknown', $finished['status']);
+        self::assertSame('wecom_delivery_outcome_unknown', $finished['result_code']);
+        self::assertNotSame('wecom_business_success', $finished['result_code']);
+        self::assertFalse($finished['automatic_retry_allowed']);
+    }
+
+    public function testSentStatusWithFailureSignalsIsOutcomeUnknown(): void
+    {
+        $notificationId = $this->insertRecord();
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $startedAt = $this->time('2026-07-26 18:00:00');
+        $claim = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            'i:contradictory-sent',
+            ManualNotificationScheduleService::MODE_TEST,
+            'manual_test',
+            'immediate_test',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'receipt contract'],
+                ],
+            ],
+            $startedAt
+        );
+        $attempt = $ledger->beginAttempt(
+            (int)$claim['dispatch']['id'],
+            $startedAt
+        );
+        $finished = $ledger->finishAttempt(
+            (int)$claim['dispatch']['id'],
+            (int)$attempt['attempt_id'],
+            [
+                'delivery_status' => 'sent',
+                'success' => false,
+                'failed_count' => 1,
+                'sent_count' => 0,
+                'robot_count' => 1,
+            ],
+            $startedAt->modify('+1 second')
+        );
+
+        self::assertSame('outcome_unknown', $finished['status']);
+        self::assertSame(
+            'wecom_delivery_success_contradictory',
+            $finished['result_code']
+        );
+        self::assertFalse($finished['automatic_retry_allowed']);
+    }
+
+    public function testSourceSnapshotTamperingBlocksFirstAttemptAndRetry(): void
+    {
+        $notificationId = $this->insertRecord();
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $startedAt = $this->time('2026-07-26 18:00:00');
+        $candidate = [
+            'payload' => [
+                'msgtype' => 'text',
+                'text' => ['content' => 'source integrity'],
+            ],
+            'source_snapshot_refs' => [
+                'pms' => [
+                    'source' => 'dingdandao_pms',
+                    'record_id' => 31,
+                    'business_date' => '2026-07-26',
+                    'source_trace_id' => 'dingdandao:trace-31',
+                ],
+            ],
+        ];
+        $first = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            'i:source-integrity-first',
+            ManualNotificationScheduleService::MODE_TEST,
+            'manual_test',
+            'immediate_test',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            $candidate,
+            $startedAt
+        );
+        Db::name('manual_notification_schedule_dispatches')
+            ->where('id', (int)$first['dispatch']['id'])
+            ->update([
+                'source_snapshot_refs_json' => json_encode([
+                    'pms' => [
+                        'source' => 'dingdandao_pms',
+                        'record_id' => 999,
+                        'business_date' => '2026-07-26',
+                        'source_trace_id' => 'dingdandao:trace-31',
+                    ],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ]);
+        $blockedAttempt = $ledger->beginAttempt(
+            (int)$first['dispatch']['id'],
+            $startedAt
+        );
+        self::assertFalse($blockedAttempt['allowed']);
+        self::assertSame(
+            'dispatch_source_snapshot_integrity_mismatch',
+            $blockedAttempt['reason_code']
+        );
+        self::assertSame(
+            0,
+            Db::name('manual_notification_dispatch_attempts')
+                ->where('dispatch_id', (int)$first['dispatch']['id'])
+                ->count()
+        );
+
+        $retry = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            'i:source-integrity-retry',
+            ManualNotificationScheduleService::MODE_TEST,
+            'manual_test',
+            'immediate_test',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            $candidate,
+            $startedAt
+        );
+        $attempt = $ledger->beginAttempt(
+            (int)$retry['dispatch']['id'],
+            $startedAt
+        );
+        $failed = $ledger->finishAttempt(
+            (int)$retry['dispatch']['id'],
+            (int)$attempt['attempt_id'],
+            [
+                'delivery_status' => 'failed',
+                'error' => 'provider_rejected',
+            ],
+            $startedAt->modify('+1 second')
+        );
+        self::assertTrue($failed['retryable']);
+        Db::name('manual_notification_schedule_dispatches')
+            ->where('id', (int)$retry['dispatch']['id'])
+            ->update(['source_snapshot_refs_json' => '{"pms":']);
+        $corrupt = $ledger->existingDispatch(
+            $notificationId,
+            'i:source-integrity-retry',
+            ManualNotificationScheduleService::MODE_TEST
+        );
+        self::assertSame(
+            'invalid_json',
+            $corrupt['source_snapshot_integrity_status']
+        );
+        self::assertFalse($corrupt['retryable']);
+        try {
+            $ledger->dispatchForRetry(
+                9,
+                80,
+                (int)$retry['dispatch']['id'],
+                $startedAt->modify('+2 minutes')
+            );
+            self::fail('Tampered source evidence must block retry.');
+        } catch (\RuntimeException $error) {
+            self::assertSame(
+                'manual_notification_retry_source_snapshot_integrity_failed',
+                $error->getMessage()
+            );
+        }
+    }
+
+    public function testOperatingDailyReadyCandidateRequiresSourceReferences(): void
+    {
+        $notificationId = $this->insertRecord();
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(
+            'manual_notification_dispatch_source_snapshot_refs_required'
+        );
+        (new ManualNotificationDispatchLedgerService())->claim(
+            $notificationId,
+            9,
+            80,
+            'i:missing-source-refs',
+            ManualNotificationScheduleService::MODE_TEST,
+            'manual_test',
+            'immediate_test',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'missing refs'],
+                ],
+                'render_contract_version' =>
+                    OperatingDailyReportPayloadService::
+                    RENDER_CONTRACT_VERSION,
+            ],
+            $this->time('2026-07-26 18:00:00')
+        );
+    }
+
+    public function testFreshPreparationClaimPreventsDuplicateWork(): void
+    {
+        $notificationId = $this->insertRecord();
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $now = $this->time('2026-07-26 18:01:00');
+        $claim = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            '2026-07-26 18:00',
+            ManualNotificationScheduleService::MODE_TEST,
+            'daily_fixed_time',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [],
+            $now,
+            'claimed',
+            'dispatch_source_preparation_claimed'
+        );
+        self::assertTrue($claim['claimed']);
+        $sendCalls = 0;
+        $result = (new ManualNotificationScheduleService(
+            sender: static function () use (&$sendCalls): array {
+                $sendCalls++;
+                return ['delivery_status' => 'sent'];
+            },
+            ledger: $ledger
+        ))->runDue($now, true);
+
+        self::assertSame(0, $sendCalls);
+        self::assertSame(1, $result['due_count']);
+        self::assertSame('skipped', $result['results'][0]['status']);
+        self::assertSame(
+            'claimed',
+            $result['results'][0]['existing_status']
+        );
+        self::assertFalse($result['results'][0]['delivery_attempted']);
+        self::assertSame(
+            (int)$claim['dispatch']['id'],
+            (int)$result['results'][0]['dispatch_id']
+        );
+    }
+
+    public function testExpiredPreparationClaimIsReclaimedBeforeSending(): void
+    {
+        $notificationId = $this->insertRecord();
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $claim = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            '2026-07-26 18:00',
+            ManualNotificationScheduleService::MODE_TEST,
+            'daily_fixed_time',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [],
+            $this->time('2026-07-26 17:55:00'),
+            'claimed',
+            'dispatch_source_preparation_claimed'
+        );
+        $sendCalls = 0;
+        $result = (new ManualNotificationScheduleService(
+            sender: static function () use (&$sendCalls): array {
+                $sendCalls++;
+                return [
+                    'delivery_status' => 'sent',
+                    'response_reference' => 'wecom:errcode=0',
+                ];
+            },
+            ledger: $ledger
+        ))->runDue($this->time('2026-07-26 18:01:00'), true);
+
+        self::assertSame(1, $sendCalls);
+        self::assertSame('sent', $result['results'][0]['status']);
+        self::assertSame(
+            (int)$claim['dispatch']['id'],
+            (int)$result['results'][0]['dispatch_id']
+        );
+        self::assertSame(
+            1,
+            Db::name('manual_notification_dispatch_attempts')
+                ->where('dispatch_id', (int)$claim['dispatch']['id'])
+                ->count()
+        );
+    }
+
+    public function testPreparationFailureRetriesInsideTheSameDueWindow(): void
+    {
+        $notificationId = $this->insertRecord();
+        $ledger = new ManualNotificationDispatchLedgerService();
+        $failedAt = $this->time('2026-07-26 18:00:00');
+        $claim = $ledger->claim(
+            $notificationId,
+            9,
+            80,
+            '2026-07-26 18:00',
+            ManualNotificationScheduleService::MODE_TEST,
+            'daily_fixed_time',
+            'scheduled',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [],
+            $failedAt,
+            'claimed',
+            'dispatch_source_preparation_claimed'
+        );
+        self::assertTrue($claim['claimed']);
+        $attached = $ledger->attachCandidateToClaim(
+            (int)$claim['dispatch']['id'],
+            (string)$claim['dispatch']['claimed_at'],
+            ['business_date' => '2026-07-26'],
+            $failedAt,
+            'preparation_failed',
+            'source_preparation_failed'
+        );
+        self::assertTrue($attached['allowed']);
+        self::assertSame(
+            '2026-07-26 18:01:00',
+            $attached['dispatch']['next_retry_at']
+        );
+
+        $sendCalls = 0;
+        $result = (new ManualNotificationScheduleService(
+            sender: static function () use (&$sendCalls): array {
+                $sendCalls++;
+                return [
+                    'delivery_status' => 'sent',
+                    'response_reference' => 'wecom:errcode=0',
+                ];
+            },
+            ledger: $ledger
+        ))->runDue($this->time('2026-07-26 18:02:00'), true);
+
+        self::assertSame(1, $sendCalls);
+        self::assertSame('sent', $result['results'][0]['status']);
+        self::assertSame(
+            (int)$claim['dispatch']['id'],
+            (int)$result['results'][0]['dispatch_id']
+        );
+        self::assertSame(
+            1,
+            Db::name('manual_notification_dispatch_attempts')
+                ->where('dispatch_id', (int)$claim['dispatch']['id'])
+                ->count()
+        );
+    }
+
     public function testLimitAppliesAfterDueFilteringSoLaterDuePlansAreNotStarved(): void
     {
         $notDueId = $this->insertRecord([
@@ -977,6 +1905,8 @@ final class ManualNotificationScheduleServiceTest extends TestCase
             'hourly_end_time' => '22:00:00',
             'enabled' => 1,
             'schedule_status' => 'schedule_enabled',
+            'last_test_status' => 'sent',
+            'last_tested_at' => '2026-07-26 12:00:00',
             'test_robot_id' => ManualNotificationService::TEST_ROBOT_ID,
             'test_robot_name' => ManualNotificationService::TEST_ROBOT_NAME,
             'created_by' => 7,
@@ -997,35 +1927,273 @@ final class ManualNotificationScheduleServiceTest extends TestCase
                 'future_room_status'
             ]
     ): void {
-        Db::name('manual_notification_schedule_dispatches')->insert([
-            'schedule_run_id' => null,
-            'notification_id' => $notificationId,
+        $plan = Db::name('manual_notifications')
+            ->where('id', $notificationId)
+            ->find();
+        if (!is_array($plan)) {
+            throw new \RuntimeException('test_notification_missing');
+        }
+        $sourceRefs = $contractVersion
+            === OperatingDailyReportPayloadService::RENDER_CONTRACT_VERSION
+            ? [
+                'pms' => [
+                    'source' => 'dingdandao_pms',
+                    'record_id' => 301,
+                    'business_date' => '2026-07-26',
+                    'source_trace_id' => 'pms:test-301',
+                ],
+                'ctrip_traffic' => [
+                    'source' => 'ctrip',
+                    'record_id' => 401,
+                    'business_date' => '2026-07-26',
+                    'data_source_id' => 11,
+                    'sync_task_id' => 21,
+                    'source_trace_id' => 'ctrip:test-401',
+                ],
+                'meituan_traffic' => [
+                    'source' => 'meituan',
+                    'record_id' => 501,
+                    'business_date' => '2026-07-26',
+                    'data_source_id' => 12,
+                    'sync_task_id' => 22,
+                    'source_trace_id' => 'meituan:test-501',
+                ],
+            ]
+            : [];
+        $testedAt = $this->time('2026-07-26 17:00:00');
+        $claim = (new ManualNotificationDispatchLedgerService())->claim(
+            $notificationId,
+            9,
+            80,
+            'i:business-contract-test-' . $notificationId,
+            ManualNotificationScheduleService::MODE_TEST,
+            'manual_test',
+            'immediate_test',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'verified contract'],
+                ],
+                'tested_plan_fingerprint' =>
+                    ManualNotificationService::planFingerprint($plan),
+                'source_snapshot_refs' => $sourceRefs,
+                'render_contract_version' => $contractVersion,
+            ],
+            $testedAt
+        );
+        Db::name('manual_notification_schedule_dispatches')
+            ->where('id', (int)$claim['dispatch']['id'])
+            ->update([
+                'attempt_count' => 1,
+                'last_attempt_at' => '2026-07-26 17:00:00',
+                'response_reference' => 'test:verified',
+                'status' => 'sent',
+                'result_code' => 'wecom_business_success',
+                'dispatched_at' => '2026-07-26 17:00:01',
+                'update_time' => '2026-07-26 17:00:01',
+            ]);
+    }
+
+    private function operatingDailyThreeSourcePayloads(): OperatingDailyReportPayloadService
+    {
+        $pmsResolver = static function (
+            int $tenantId,
+            int $hotelId,
+            string $date
+        ): array {
+            if ($tenantId !== 9 || $hotelId !== 80 || $date !== '2026-07-26') {
+                return [];
+            }
+            $sourceApiPath = '/api/verified';
+            $providerHotelId = 'provider-hotel-80';
+            $captureEvidence =
+                \app\service\DingdandaoOperatingTargetCaptureService::
+                expectedCaptureEvidence(
+                    $sourceApiPath,
+                    $date,
+                    $providerHotelId,
+                    'full_diagnostic'
+                );
+            if (!is_array($captureEvidence)) {
+                throw new \RuntimeException(
+                    'dingdandao_test_capture_evidence_invalid'
+                );
+            }
+            return [
+                'id' => 301,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'provider' => 'dingdandao_pms',
+                'provider_hotel_id' => $providerHotelId,
+                'provider_hotel_name' => '敦煌漠蓝新',
+                'business_date' => $date,
+                'source_url' =>
+                    \app\service\DingdandaoOperatingTargetCaptureService::
+                    SOURCE_URL,
+                'source_api_path' => $sourceApiPath,
+                'source_scope' => 'today_only',
+                'collection_mode' => 'full_diagnostic',
+                'capture_method' => 'network_response',
+                'capture_strategy' => 'verified_endpoint_recipe',
+                'capture_status' => 'verified',
+                'quality_status' => 'verified',
+                'readback_status' => 'readback_verified',
+                'identity_status' => 'matched',
+                'reconciliation_status' => 'matched',
+                'source_trace_id' =>
+                    (string)$captureEvidence['source_trace_id'],
+                'source_fingerprint' => str_repeat('b', 64),
+                'detail_row_count' => 25,
+                'captured_at' => $date . ' 17:30:00',
+                'summary' => [
+                    'total_room_fee' => 8745.66,
+                    'sold_room_nights' => 15,
+                    'average_daily_room_nights' => 15.0,
+                    'derived_sellable_room_nights' => 15,
+                    'occupancy_rate_percent' => 100.0,
+                    'adr' => 583.04,
+                    'revpar' => 583.04,
+                ],
+                'capture_evidence' => $captureEvidence,
+                'gaps' => [],
+            ];
+        };
+        $rowResolver = static function (
+            int $tenantId,
+            int $hotelId,
+            string $date,
+            string $source,
+            string $dataType,
+            ?string $dimension
+        ): ?array {
+            if ($tenantId !== 9 || $hotelId !== 80 || $date !== '2026-07-26') {
+                return null;
+            }
+            if ($source === 'ctrip'
+                && $dataType === 'traffic'
+                && $dimension === 'realtime:ctrip'
+            ) {
+                return self::trustedOtaFixture([
+                    'id' => 101,
+                    'source' => 'ctrip',
+                    'data_source_id' => 7,
+                    'sync_task_id' => 21,
+                    'source_trace_id' => 'ctrip:trace-101',
+                    'snapshot_time' => $date . ' 17:40:00',
+                    'readback_verified' => 1,
+                    'data_period' => 'realtime_snapshot',
+                    'is_final' => 0,
+                    'detail_exposure' => 58,
+                    'book_order_num' => 0,
+                    'quantity' => 4,
+                    'raw_data' => [
+                        'metrics' => ['last_week_visitors' => 195],
+                    ],
+                ], $date, 'ctrip', 'traffic', $dimension, [
+                    'realtime_visitors',
+                    'last_week_visitors',
+                    'booking_order_count',
+                    'in_house_room_nights',
+                ]);
+            }
+            if ($source === 'meituan'
+                && $dataType === 'traffic'
+                && $dimension === null
+            ) {
+                return self::trustedOtaFixture([
+                    'id' => 64381,
+                    'platform' => 'meituan',
+                    'data_source_id' => 8,
+                    'sync_task_id' => 22,
+                    'source_trace_id' => 'meituan:trace-64381',
+                    'validation_status' => 'verified',
+                    'snapshot_time' => $date . ' 17:45:00',
+                    'readback_verified' => 1,
+                    'data_period' => 'realtime_snapshot',
+                    'is_final' => 0,
+                    'list_exposure' => 471,
+                    'detail_exposure' => 77,
+                    'raw_data' => [
+                        'exposure_to_browse_rate' => 16.35,
+                    ],
+                ], $date, 'meituan', 'traffic', $dimension, [
+                    'list_exposure',
+                    'detail_exposure',
+                ]);
+            }
+            return null;
+        };
+
+        return new OperatingDailyReportPayloadService(
+            null,
+            $pmsResolver,
+            $rowResolver,
+            null,
+            static fn(): array => [
+                'configured' => true,
+                'expected_provider_hotel_id' => 'provider-hotel-80',
+                'expected_provider_hotel_name' => '敦煌漠蓝新',
+            ]
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param list<string> $metricKeys
+     * @return array<string, mixed>
+     */
+    private static function trustedOtaFixture(
+        array $row,
+        string $date,
+        string $source,
+        string $dataType,
+        ?string $dimension,
+        array $metricKeys
+    ): array {
+        $trace = trim((string)($row['source_trace_id'] ?? ''));
+        $captureEvidence = [
+            'source_trace_id' => $trace,
+            'source_url_hash' => hash(
+                'sha256',
+                'https://fixture.suxios.test/' . $source . '/' . $dataType
+            ),
+        ];
+        $raw = is_array($row['raw_data'] ?? null)
+            ? $row['raw_data']
+            : [];
+        $raw['source_trace_id'] = $trace;
+        $raw['hotel_id'] = 'provider-hotel-80';
+        $raw['capture_evidence'] = $captureEvidence;
+        $raw['field_facts'] = array_map(
+            static fn(string $metricKey): array => [
+                'metric_key' => $metricKey,
+                'status' => 'captured',
+                'source_path' => 'fixture.metrics.' . $metricKey,
+                'storage_field' =>
+                    'online_daily_data.raw_data.facts.metric_key='
+                    . $metricKey,
+                'stored_value_present' => true,
+                'value' => 1,
+                'capture_evidence' => $captureEvidence,
+            ],
+            $metricKeys
+        );
+        return array_replace($row, [
             'tenant_id' => 9,
-            'hotel_id' => 80,
-            'dispatch_window' => 'i:business-contract-test-' . $notificationId,
-            'delivery_mode' => 'test',
-            'trigger_type' => 'manual_test',
-            'request_kind' => 'immediate_test',
-            'business_date' => '2026-07-26',
-            'payload_fingerprint' => str_repeat('a', 64),
-            'operating_target_record_id' => null,
-            'snapshot_revision_no' => null,
-            'render_contract_version' => $contractVersion,
-            'payload_snapshot_json' => '{}',
-            'attempt_count' => 1,
-            'max_attempts' => 3,
-            'next_retry_at' => null,
-            'last_attempt_at' => '2026-07-26 17:00:00',
-            'response_reference' => 'test:verified',
-            'robot_id' => ManualNotificationService::TEST_ROBOT_ID,
-            'robot_name' => ManualNotificationService::TEST_ROBOT_NAME,
-            'status' => 'sent',
-            'result_code' => 'sent',
-            'result_message' => null,
-            'claimed_at' => '2026-07-26 17:00:00',
-            'dispatched_at' => '2026-07-26 17:00:01',
-            'create_time' => '2026-07-26 17:00:00',
-            'update_time' => '2026-07-26 17:00:01',
+            'system_hotel_id' => 80,
+            'hotel_id' => 'provider-hotel-80',
+            'source' => $source,
+            'platform' => $source,
+            'data_date' => $date,
+            'data_type' => $dataType,
+            'dimension' => $dimension ?? '',
+            'validation_status' => 'verified',
+            'validation_flags' => '[]',
+            'ingestion_method' => 'browser_profile',
+            'raw_data' => $raw,
         ]);
     }
 

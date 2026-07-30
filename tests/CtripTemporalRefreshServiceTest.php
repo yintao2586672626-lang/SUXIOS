@@ -131,6 +131,63 @@ final class CtripTemporalRefreshServiceTest extends TestCase
         );
     }
 
+    public function testDailySupplementalFlowsAreNotRetriedAfterAnAttempt(): void
+    {
+        $date = date('Y-m-d');
+        $capturedAt = date('Y-m-d H:i:s');
+        $rows = [];
+        $flows = [];
+        $payloads = new CtripTemporalNotificationPayloadService(
+            static function () use (&$rows): array {
+                return $rows;
+            }
+        );
+        $service = new CtripTemporalRefreshService(
+            function (mixed $actor, int $sourceId, array $options) use (
+                &$flows,
+                &$rows,
+                $date,
+                $capturedAt
+            ): array {
+                $flows[] = (string)$options['collector_flow'];
+                $rows[] = $this->presentRow(5, 500, $date, $capturedAt);
+                return [
+                    'status' => 'success',
+                    'task_id' => 500,
+                    'saved_count' => 1,
+                    'readback_verified' => true,
+                ];
+            },
+            static fn(): array => ['id' => 25],
+            $payloads,
+            static fn(): array => ['historical_review', 'future_demand']
+        );
+
+        $result = $service->refresh(
+            (object)['id' => 7],
+            9,
+            80,
+            'Dunhuang Molan',
+            $date,
+            new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'))
+        );
+
+        self::assertSame('ready', $result['status']);
+        self::assertSame(['realtime'], $flows);
+        self::assertSame(
+            ['skipped', 'skipped', 'ready'],
+            array_column($result['flows'], 'status')
+        );
+        self::assertSame(
+            [
+                'ctrip_daily_flow_already_attempted',
+                'ctrip_daily_flow_already_attempted',
+                'ctrip_flow_saved_and_read_back',
+            ],
+            array_column($result['flows'], 'reason_code')
+        );
+    }
+
     public function testNonCurrentObservationBlocksWithoutStartingCapture(): void
     {
         $calls = 0;

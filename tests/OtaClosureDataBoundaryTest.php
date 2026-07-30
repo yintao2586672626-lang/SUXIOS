@@ -228,6 +228,61 @@ final class OtaClosureDataBoundaryTest extends TestCase
                 self::assertNull($syncMetadata['snapshot_time']);
             }
         }
+
+        $futureSearch = [
+            'data_date' => date('Y-m-d', strtotime('-2 days')),
+            'data_type' => 'traffic',
+            'data_period' => 'historical_daily',
+            'endpoint_id' => 'traffic_search_details',
+            'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-08-01:cumulative:self',
+            'raw_data' => [
+                'endpoint_id' => 'traffic_search_details',
+                'dimension_values' => ['target_date' => '2026-08-01'],
+                'metrics' => ['future_search_uv' => 80],
+            ],
+        ];
+        $futurePersisted = OnlineDailyDataPersistenceService::applyPeriodFields($futureSearch, $columns);
+        self::assertSame('next_30_days', $futurePersisted['data_period']);
+        self::assertSame(0, $futurePersisted['is_final']);
+
+        $futureSyncMetadata = $this->invokeNonPublic(
+            new PlatformDataSyncService(),
+            'resolveDataPeriodMetadata',
+            [$futureSearch, [], [], $futureSearch['data_date']]
+        );
+        self::assertSame('next_30_days', $futureSyncMetadata['data_period']);
+        self::assertSame(0, $futureSyncMetadata['is_final']);
+
+        $futureSyncFromPayload = $this->invokeNonPublic(
+            new PlatformDataSyncService(),
+            'resolveDataPeriodMetadata',
+            [[
+                'data_type' => 'traffic',
+                'data_period' => 'historical_daily',
+            ], [
+                'endpoint_id' => 'traffic_search_details',
+                'raw_data' => $futureSearch['raw_data'],
+            ], [], $futureSearch['data_date']]
+        );
+        self::assertSame('next_30_days', $futureSyncFromPayload['data_period']);
+        self::assertSame(0, $futureSyncFromPayload['is_final']);
+
+        $futureSyncWithEmptyNormalizedFields = $this->invokeNonPublic(
+            new PlatformDataSyncService(),
+            'resolveDataPeriodMetadata',
+            [[
+                'data_type' => 'traffic',
+                'data_period' => 'historical_daily',
+                'endpoint_id' => '',
+                'dimension' => '',
+                'raw_data' => '',
+            ], [
+                'endpoint_id' => 'traffic_search_details',
+                'raw_data' => $futureSearch['raw_data'],
+            ], [], $futureSearch['data_date']]
+        );
+        self::assertSame('next_30_days', $futureSyncWithEmptyNormalizedFields['data_period']);
+        self::assertSame(0, $futureSyncWithEmptyNormalizedFields['is_final']);
     }
 
     public function testEffectReviewRejectsCompetitorAndForecastRows(): void

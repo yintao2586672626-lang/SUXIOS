@@ -518,6 +518,15 @@ final class P0FieldLoopVerifierContractTest extends TestCase
         self::assertTrue($legacy['authoritative']);
         self::assertSame('legacy_dimensionless_core_snapshot', $legacy['reason']);
 
+        $unclassifiedDimensioned = p0_traffic_row_scope([
+            'dimension' => 'realtime:ctrip',
+        ], 'ctrip');
+        self::assertFalse($unclassifiedDimensioned['authoritative']);
+        self::assertSame(
+            'ctrip_unclassified_dimensioned_traffic_row',
+            $unclassifiedDimensioned['reason']
+        );
+
         $meituan = p0_traffic_row_scope(['dimension' => 'flow_conversion'], 'meituan');
         self::assertTrue($meituan['authoritative']);
 
@@ -784,6 +793,49 @@ final class P0FieldLoopVerifierContractTest extends TestCase
             '$complete = !$explicitMissing && !$storedValueMissing && $hasCaptureEvidence && $metricKey',
             $definition
         );
+    }
+
+    public function testLiveClosureInspectorAcceptsExactRootJsonPropertyPaths(): void
+    {
+        $inspector = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'inspect_phase1_ota_live_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\field_fact_source_path_structured')
+            && !function_exists('field_fact_source_path_structured')) {
+            $definition = $this->extractFunctionDefinition($inspector, 'field_fact_source_path_structured');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        self::assertTrue(field_fact_source_path_structured('visitorTotal'));
+        self::assertTrue(field_fact_source_path_structured('data.visitorTotal'));
+        self::assertTrue(field_fact_source_path_structured('$[0].visitorTotal'));
+        self::assertFalse(field_fact_source_path_structured('visitor total'));
+        self::assertFalse(field_fact_source_path_structured(''));
+    }
+
+    public function testLiveClosureInspectorKeepsOptionalReferenceGapsOutOfP0CoreEtlGate(): void
+    {
+        $inspector = (string)file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'inspect_phase1_ota_live_closure.php');
+        if (!function_exists(__NAMESPACE__ . '\\inspection_p0_core_etl_readiness')
+            && !function_exists('inspection_p0_core_etl_readiness')) {
+            $definition = $this->extractFunctionDefinition($inspector, 'inspection_p0_core_etl_readiness');
+            self::assertNotSame('', $definition);
+            eval($definition);
+        }
+
+        $trusted = ['source_trace' => ['saved_success' => true]];
+        $untrusted = ['source_trace' => ['saved_success' => false]];
+
+        self::assertSame(
+            [
+                'status' => 'ready',
+                'fact_count' => 2,
+                'trusted_fact_count' => 2,
+                'untrusted_fact_count' => 0,
+            ],
+            inspection_p0_core_etl_readiness([$trusted], [$trusted])
+        );
+        self::assertSame('blocked', inspection_p0_core_etl_readiness([$trusted], [$untrusted])['status']);
+        self::assertSame('empty', inspection_p0_core_etl_readiness([], [])['status']);
     }
 
     public function testAlreadyIngestedTrafficDoesNotRequireTemporaryPayloadFile(): void

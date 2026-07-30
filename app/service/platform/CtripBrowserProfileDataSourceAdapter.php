@@ -787,6 +787,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'payload' => ['output' => $outputPath, 'capture_sections' => $sections],
             ];
         }
+        $payload['read_fallbacks'] = $this->sanitizeReadFallbackDiagnostics($payload['read_fallbacks'] ?? []);
         $payload['output'] = $outputPath;
         $payload['data_source_capture'] = [
             'platform' => 'ctrip',
@@ -797,6 +798,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'not_applicable_sections' => $this->normalizeOptionalSectionList($payload['not_applicable_sections'] ?? []),
             'data_date' => $dataDate,
             'captured_by' => 'platform_data_source_sync',
+            'read_fallback_summary' => $this->readFallbackSummary($payload),
         ];
 
         $authOk = (bool)($payload['auth_status']['ok'] ?? false);
@@ -862,6 +864,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'standard_row_count' => count(is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : []),
             'business_count' => count(is_array($payload['business'] ?? null) ? $payload['business'] : []),
             'traffic_count' => count(is_array($payload['traffic'] ?? null) ? $payload['traffic'] : []),
+            'read_fallback_summary' => $this->readFallbackSummary($payload),
         ];
 
         return [
@@ -879,7 +882,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
     private function mergeSequentialCapturePayloads(array $payloads, array $moduleResults, array $sectionList, string $profileId, string $dataDate): array
     {
         $base = $payloads[0];
-        foreach (['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'screenshots'] as $key) {
+        foreach (['pages', 'responses', 'xhr_urls', 'unmatched_xhr_urls', 'endpoint_candidates', 'p3_evidence_drafts', 'rows', 'standard_rows', 'catalog_facts', 'business', 'traffic', 'reviews', 'read_fallbacks', 'screenshots'] as $key) {
             $base[$key] = $this->mergePayloadLists($payloads, $key);
         }
 
@@ -917,6 +920,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'capture_mode' => 'sequential_sections',
             'data_date' => $dataDate,
             'captured_by' => 'platform_data_source_sync',
+            'read_fallback_summary' => $this->readFallbackSummary($base),
         ];
         if (is_array($base['profile_field_config'] ?? null)) {
             $base['profile_field_config']['allowed_sections'] = $sectionList;
@@ -930,6 +934,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'section_count' => count($sectionList),
             'module_success_count' => count($moduleResults) - count($failures),
             'module_failure_count' => count($failures),
+            'read_fallback_summary' => $this->readFallbackSummary($base),
         ];
 
         return $base;
@@ -964,6 +969,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'business_count' => count(is_array($payload['business'] ?? null) ? $payload['business'] : []),
             'traffic_count' => count(is_array($payload['traffic'] ?? null) ? $payload['traffic'] : []),
             'capture_gate_status' => (string)($payload['capture_gate']['status'] ?? ''),
+            'read_fallback_summary' => $this->readFallbackSummary($payload),
         ];
     }
 
@@ -1188,10 +1194,94 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'platform_identity_validation' => $payload['platform_identity_validation'] ?? null,
             'pages' => $payload['pages'] ?? [],
             'xhr_urls' => array_slice(is_array($payload['xhr_urls'] ?? null) ? $payload['xhr_urls'] : [], 0, 20),
+            'read_fallback_summary' => $this->readFallbackSummary($payload),
+            'read_fallbacks' => $this->sanitizeReadFallbackDiagnostics($payload['read_fallbacks'] ?? []),
             'output' => $payload['output'] ?? '',
             'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
             'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function sanitizeReadFallbackDiagnostics(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $result = [];
+        foreach (array_slice($value, 0, 20) as $item) {
+            if (!is_array($item)
+                || ($item['sensitive_values_exposed'] ?? true) !== false
+                || strtolower(trim((string)($item['platform'] ?? ''))) !== 'ctrip'
+            ) {
+                continue;
+            }
+            $status = strtolower(trim((string)($item['status'] ?? '')));
+            if (!in_array($status, ['response_observed', 'blocked', 'failed'], true)) {
+                continue;
+            }
+            $safeRoute = strtolower(trim((string)($item['safe_route'] ?? '')));
+            if (preg_match('/^observed-read:[a-z0-9\/_-]{1,100}$/D', $safeRoute) !== 1) {
+                $safeRoute = '';
+            }
+            $fingerprint = strtolower(trim((string)($item['request_fingerprint'] ?? '')));
+            if (preg_match('/^[a-f0-9]{16,64}$/D', $fingerprint) !== 1) {
+                $fingerprint = '';
+            }
+            $diagnostic = [
+                'schema_version' => 1,
+                'platform' => 'ctrip',
+                'section' => $this->safeReadFallbackIdentifier($item['section'] ?? ''),
+                'endpoint_id' => $this->safeReadFallbackIdentifier($item['endpoint_id'] ?? ''),
+                'safe_route' => $safeRoute,
+                'request_fingerprint' => $fingerprint,
+                'status' => $status,
+                'reason' => $this->safeReadFallbackIdentifier($item['reason'] ?? ''),
+                'replay_source' => 'observed_request_same_origin',
+                'sensitive_values_exposed' => false,
+            ];
+            $httpStatus = (int)($item['http_status'] ?? 0);
+            if ($httpStatus >= 100 && $httpStatus <= 599) {
+                $diagnostic['http_status'] = $httpStatus;
+            }
+            $result[] = $diagnostic;
+        }
+        return $result;
+    }
+
+    /** @return array<string, mixed> */
+    private function readFallbackSummary(array $payload): array
+    {
+        $diagnostics = $this->sanitizeReadFallbackDiagnostics($payload['read_fallbacks'] ?? []);
+        $counts = [
+            'response_observed' => 0,
+            'blocked' => 0,
+            'failed' => 0,
+        ];
+        foreach ($diagnostics as $diagnostic) {
+            $status = (string)($diagnostic['status'] ?? '');
+            if (isset($counts[$status])) {
+                $counts[$status]++;
+            }
+        }
+        $summaryStatus = $counts['response_observed'] > 0
+            ? (($counts['blocked'] + $counts['failed']) > 0 ? 'partial' : 'response_observed')
+            : ($counts['failed'] > 0 ? 'failed' : ($counts['blocked'] > 0 ? 'blocked' : 'not_needed'));
+        return [
+            'status' => $summaryStatus,
+            'diagnostic_count' => count($diagnostics),
+            'attempted_count' => $counts['response_observed'] + $counts['failed'],
+            'response_observed_count' => $counts['response_observed'],
+            'blocked_count' => $counts['blocked'],
+            'failed_count' => $counts['failed'],
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    private function safeReadFallbackIdentifier(mixed $value): string
+    {
+        return substr((string)preg_replace('/[^a-z0-9_.:-]/', '', strtolower(trim((string)$value))), 0, 100);
     }
 
     private function captureGateFailedCheckIds(array $gate): array

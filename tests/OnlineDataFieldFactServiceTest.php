@@ -152,4 +152,93 @@ final class OnlineDataFieldFactServiceTest extends TestCase
         self::assertSame(1, $duplicateMetric['missing_count']);
         self::assertSame(1, $duplicateMetric['matching_desensitized_capture_evidence_count']);
     }
+
+    public function testMetricScopedStatusKeepsUnrelatedFieldGapsOutOfRequestedMetricTrust(): void
+    {
+        $traceId = 'ctrip:' . str_repeat('a', 64);
+        $sourceUrlHash = str_repeat('b', 64);
+        $row = [
+            'data_type' => 'business',
+            'amount' => 2168.0,
+            'quantity' => 3,
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $sourceUrlHash,
+        ];
+        $capturedAmount = [
+            'metric_key' => 'order_amount',
+            'source_path' => 'data.amount',
+            'storage_field' => 'online_daily_data.amount',
+            'stored_value_present' => true,
+            'status' => 'captured',
+            'capture_evidence' => [
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $sourceUrlHash,
+            ],
+        ];
+        $unrelatedMissing = [
+            'metric_key' => 'comment_score',
+            'source_path' => 'data.commentScore',
+            'storage_field' => 'online_daily_data.comment_score',
+            'status' => 'missing',
+        ];
+        $raw = ['field_facts' => [$capturedAmount, $unrelatedMissing]];
+
+        $wholeRow = OnlineDataFieldFactService::buildStatus($row, $raw);
+        $amountOnly = OnlineDataFieldFactService::buildMetricStatus($row, $raw, ['order_amount']);
+        $amountAndNights = OnlineDataFieldFactService::buildMetricStatus(
+            $row,
+            $raw,
+            ['order_amount', 'room_nights']
+        );
+
+        self::assertSame('partial', $wholeRow['status']);
+        self::assertSame('ready', $amountOnly['status']);
+        self::assertSame([], $amountOnly['missing_requested_metric_keys']);
+        self::assertSame('partial', $amountAndNights['status']);
+        self::assertSame(['room_nights'], $amountAndNights['missing_requested_metric_keys']);
+    }
+
+    public function testChannelSpecificMetricAliasesStayInsideTheirOwnPlatform(): void
+    {
+        $source = [
+            '_source_path' => 'data',
+            'listExposure' => 58,
+            'intentionUV' => 4,
+            'payOrderCnt' => 1,
+        ];
+        $ctrip = OnlineDataFieldFactService::attachToOnlineDailyRow([
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_type' => 'traffic',
+            'list_exposure' => 58,
+            'detail_exposure' => 4,
+            'order_submit_num' => 1,
+            'raw_data' => '{}',
+        ], $source);
+        $meituan = OnlineDataFieldFactService::attachToOnlineDailyRow([
+            'platform' => 'meituan',
+            'source' => 'meituan',
+            'data_type' => 'traffic',
+            'list_exposure' => 58,
+            'detail_exposure' => 4,
+            'order_submit_num' => 1,
+            'raw_data' => '{}',
+        ], $source);
+
+        $ctripKeys = array_column(
+            json_decode((string)$ctrip['raw_data'], true)['field_facts'] ?? [],
+            'metric_key'
+        );
+        $meituanKeys = array_column(
+            json_decode((string)$meituan['raw_data'], true)['field_facts'] ?? [],
+            'metric_key'
+        );
+        self::assertContains('list_exposure', $ctripKeys);
+        self::assertNotContains('mt_exposure', $ctripKeys);
+        self::assertNotContains('mt_intention_uv', $ctripKeys);
+        self::assertNotContains('mt_pay_orders', $ctripKeys);
+        self::assertContains('mt_exposure', $meituanKeys);
+        self::assertContains('mt_intention_uv', $meituanKeys);
+        self::assertContains('mt_pay_orders', $meituanKeys);
+    }
 }

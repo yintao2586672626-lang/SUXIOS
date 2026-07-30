@@ -163,7 +163,7 @@ requireIncludes('scripts/import_p0_ota_traffic_payload.php', 'P0 payload importe
   'cross-row metric coverage is not accepted',
   'traffic_evidence_execute_row_count_mismatch',
   'Traffic evidence rows, target-date rows, and execute payload rows must match before import.',
-  '$requiredStorageFields = p0_import_required_traffic_storage_fields()',
+  "$requiredStorageFields = p0_import_required_traffic_storage_fields((string)$options['platform'])",
   'p0_import_fact_has_desensitized_capture_evidence',
   'p0_import_build_traffic_evidence',
   'p0_import_preview_ui_status',

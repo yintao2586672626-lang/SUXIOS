@@ -6039,6 +6039,7 @@ trait AutoFetchConcern
         $modules[] = ['module' => 'browser_traffic', 'saved_count' => $trafficSaved, 'success' => $trafficSaved > 0];
 
         $standardRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripStandardRows($payload, $hotelId, $dataDate, $requestHotelId, $dataSourceId), $periodOptions);
+        $standardExpectedCount = count($standardRows);
         $reviewRows = array_values(array_filter($standardRows, static fn(array $row): bool => ($row['data_type'] ?? '') === 'review'));
         $reviewSaved = 0;
         $standardSaved = 0;
@@ -6055,6 +6056,7 @@ trait AutoFetchConcern
             'traffic_saved' => $trafficSaved,
             'review_saved' => $reviewSaved,
             'standard_saved' => $standardSaved,
+            'standard_expected_count' => $standardExpectedCount,
             'modules' => $modules,
         ];
     }

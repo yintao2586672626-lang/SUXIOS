@@ -137,6 +137,30 @@ final class KnowledgeDecisionGateServiceTest extends TestCase
         self::assertSame('resolved', $resolved['conflicts'][0]['status']);
     }
 
+    public function testUnverifiedEvidenceCannotSelfPromoteWithExplicitGradeOrAvailableStatus(): void
+    {
+        $gate = (new KnowledgeDecisionGateService())->assess([
+            'lifecycle_status' => 'active',
+        ], [
+            'lifecycle_status' => 'active',
+            'scope' => 'hotel_reference',
+            'evidence_level' => 'user_provided_unverified',
+            'evidence_grade' => 'A',
+            'source_refs' => ['uploaded-material'],
+            'accessed_at' => '2026-07-30 09:00:00',
+            'requires_current_verification' => true,
+            'current_verification_status' => 'available',
+        ], '2026-07-30 12:00:00');
+
+        self::assertSame('D', $gate['evidence_grade']);
+        self::assertSame('undated', $gate['freshness_status']);
+        self::assertSame('reference_only', $gate['status']);
+        self::assertFalse($gate['retrieval_safe']);
+        self::assertFalse($gate['decision_safe']);
+        self::assertFalse($gate['task_draft_safe']);
+        self::assertContains('knowledge_current_verification_required', $gate['reason_codes']);
+    }
+
     /**
      * @return array<string, mixed>
      */

@@ -27,6 +27,7 @@ final class PmsRealtimeSyncService
     private Closure $cdpProbe;
     private Closure $processRunner;
     private Closure $captureReader;
+    private Closure $captureValidator;
     private Closure $clock;
 
     public function __construct(
@@ -35,6 +36,7 @@ final class PmsRealtimeSyncService
         ?callable $cdpProbe = null,
         ?callable $processRunner = null,
         ?callable $captureReader = null,
+        ?callable $captureValidator = null,
         ?callable $clock = null,
         ?string $projectRoot = null,
         ?string $phpBinary = null
@@ -53,7 +55,8 @@ final class PmsRealtimeSyncService
             $targetDate
         ));
         $this->receiptLoader = Closure::fromCallable(
-            $receiptLoader ?: fn(): array => $this->loadLocalRunnerReceipt()
+            $receiptLoader ?: fn(int $hotelId, int $userId): array =>
+                $this->loadLocalRunnerReceipt($hotelId, $userId)
         );
         $this->cdpProbe = Closure::fromCallable(
             $cdpProbe ?: fn(string $url): bool => $this->probeLocalCdp($url)
@@ -64,12 +67,39 @@ final class PmsRealtimeSyncService
         $this->captureReader = Closure::fromCallable($captureReader ?: static fn(
             int $tenantId,
             int $hotelId,
-            string $targetDate
-        ): array => (new DingdandaoOperatingTargetCaptureService())->latest(
-            $tenantId,
-            $hotelId,
-            $targetDate
-        ));
+            string $targetDate,
+            int $captureId = 0
+        ): array => $captureId > 0
+            ? (new DingdandaoOperatingTargetCaptureService())->read(
+                $tenantId,
+                $hotelId,
+                $captureId
+            )
+            : (new DingdandaoOperatingTargetCaptureService())->latest(
+                $tenantId,
+                $hotelId,
+                $targetDate
+            ));
+        $this->captureValidator = Closure::fromCallable(
+            $captureValidator ?: static fn(
+                array $capture,
+                int $tenantId,
+                int $hotelId,
+                string $targetDate,
+                string $expectedSourceScope
+            ): bool => (
+                (new CollectionResultContractService())
+                    ->validateDingdandaoCaptureClaim(
+                        $capture,
+                        [
+                            'tenant_id' => $tenantId,
+                            'system_hotel_id' => $hotelId,
+                            'business_date' => $targetDate,
+                            'source_scope' => $expectedSourceScope,
+                        ]
+                    )['allowed'] ?? false
+            ) === true
+        );
         $this->clock = Closure::fromCallable(
             $clock ?: static fn(): DateTimeImmutable => new DateTimeImmutable(
                 'now',
@@ -86,13 +116,31 @@ final class PmsRealtimeSyncService
         string $targetDate
     ): array {
         $today = ($this->clock)()->setTimezone(new DateTimeZone('Asia/Shanghai'))->format('Y-m-d');
-        if ($targetDate !== $today) {
+        $parsedTargetDate = DateTimeImmutable::createFromFormat(
+            '!Y-m-d',
+            $targetDate,
+            new DateTimeZone('Asia/Shanghai')
+        );
+        if (!$parsedTargetDate instanceof DateTimeImmutable
+            || $parsedTargetDate->format('Y-m-d') !== $targetDate
+        ) {
             return $this->blocked(
-                'pms_live_today_only',
-                '实时 PMS 只读取今天；历史日期只能读取已保存快照。',
+                'pms_target_date_invalid',
+                'PMS 业务日期格式无效，本次未启动采集。',
                 $targetDate
             );
         }
+        if ($targetDate > $today) {
+            return $this->blocked(
+                'pms_target_date_in_future',
+                '未来业务日尚不能形成 PMS 经营事实，本次未启动采集。',
+                $targetDate
+            );
+        }
+        $historicalCollection = $targetDate < $today;
+        $expectedSourceScope = $historicalCollection
+            ? DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE
+            : DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE;
 
         $binding = ($this->bindingResolver)($tenantId, $hotelId, $userId, $targetDate);
         if (($binding['binding_status'] ?? '') !== 'configured') {
@@ -155,6 +203,7 @@ final class PmsRealtimeSyncService
             '--target-date=' . $targetDate,
             '--cdp-url=' . self::LOCAL_CDP_URL,
             '--sandbox-id=' . $sandboxId,
+            '--collection-mode=operating_indicators',
             '--require-sandbox',
         ]);
         $payload = $this->lastJsonObject(
@@ -164,6 +213,50 @@ final class PmsRealtimeSyncService
         $exitCode = (int)($process['exit_code'] ?? 1);
         if ($exitCode !== 0 || ($payload['status'] ?? '') !== 'saved_and_readback_verified') {
             $reason = $this->reason((string)($payload['reason'] ?? 'pms_live_collection_failed'));
+            $savedCaptureId = (int)($payload['capture_id'] ?? 0);
+            if (($payload['collection_success'] ?? false) === true
+                && ($payload['business_data_persisted'] ?? false) === true
+                && $savedCaptureId > 0
+            ) {
+                $savedCapture = ($this->captureReader)(
+                    $tenantId,
+                    $hotelId,
+                    $targetDate,
+                    $savedCaptureId
+                );
+                if ($this->captureMatches(
+                    $savedCapture,
+                    $savedCaptureId,
+                    $tenantId,
+                    $hotelId,
+                    $targetDate,
+                    $expectedSourceScope
+                )) {
+                    return [
+                        'status' => 'partial',
+                        'provider' => $provider,
+                        'target_date' => $targetDate,
+                        'capture_id' => $savedCaptureId,
+                        'captured_at' => (string)($savedCapture['captured_at'] ?? ''),
+                        'identity_status' => 'matched',
+                        'quality_status' => 'verified',
+                        'readback_status' => 'readback_verified',
+                        'source_scope' => $expectedSourceScope,
+                        'live_read' => !$historicalCollection,
+                        'historical_read' => $historicalCollection,
+                        'saved' => true,
+                        'readback_verified' => true,
+                        'downstream_blocker_code' => $reason,
+                        'failure_stage' => $this->reason(
+                            (string)($payload['failure_stage'] ?? 'downstream')
+                        ),
+                        'requires_login' => false,
+                        'message' => $historicalCollection
+                            ? '订单来了历史单日事实已保存并通过数据库回读，但后续同步未完成；已保留本次真实采集，不回退为旧快照。'
+                            : '订单来了实时事实已保存并通过数据库回读，但后续同步未完成；已保留本次真实采集，不回退为旧快照。',
+                    ];
+                }
+            }
             return $this->blocked(
                 $reason,
                 $this->reasonMessage($reason),
@@ -173,16 +266,21 @@ final class PmsRealtimeSyncService
             );
         }
 
-        $capture = ($this->captureReader)($tenantId, $hotelId, $targetDate);
         $captureId = (int)($payload['capture_id'] ?? 0);
-        if ($captureId <= 0
-            || (int)($capture['id'] ?? 0) !== $captureId
-            || (int)($capture['hotel_id'] ?? 0) !== $hotelId
-            || (string)($capture['business_date'] ?? '') !== $targetDate
-            || (string)($capture['identity_status'] ?? '') !== 'matched'
-            || (string)($capture['quality_status'] ?? '') !== 'verified'
-            || (string)($capture['readback_status'] ?? '') !== 'readback_verified'
-        ) {
+        $capture = ($this->captureReader)(
+            $tenantId,
+            $hotelId,
+            $targetDate,
+            $captureId
+        );
+        if (!$this->captureMatches(
+            $capture,
+            $captureId,
+            $tenantId,
+            $hotelId,
+            $targetDate,
+            $expectedSourceScope
+        )) {
             return $this->blocked(
                 'pms_live_readback_not_verified',
                 'PMS 已返回数据，但保存回读未完整通过，本次不标记为实时同步成功。',
@@ -201,11 +299,41 @@ final class PmsRealtimeSyncService
             'identity_status' => 'matched',
             'quality_status' => 'verified',
             'readback_status' => 'readback_verified',
-            'live_read' => true,
+            'source_scope' => $expectedSourceScope,
+            'live_read' => !$historicalCollection,
+            'historical_read' => $historicalCollection,
             'saved' => true,
             'readback_verified' => true,
-            'message' => '已从订单来了实时读取，并完成保存与数据库回读。',
+            'message' => $historicalCollection
+                ? '已按所选历史业务日从订单来了结构化接口补采，并完成保存与数据库回读。'
+                : '已从订单来了实时读取，并完成保存与数据库回读。',
         ];
+    }
+
+    /** @param array<string,mixed> $capture */
+    private function captureMatches(
+        array $capture,
+        int $captureId,
+        int $tenantId,
+        int $hotelId,
+        string $targetDate,
+        string $expectedSourceScope
+    ): bool {
+        return $captureId > 0
+            && (int)($capture['id'] ?? 0) === $captureId
+            && (int)($capture['hotel_id'] ?? 0) === $hotelId
+            && (string)($capture['business_date'] ?? '') === $targetDate
+            && (string)($capture['source_scope'] ?? '') === $expectedSourceScope
+            && (string)($capture['identity_status'] ?? '') === 'matched'
+            && (string)($capture['quality_status'] ?? '') === 'verified'
+            && (string)($capture['readback_status'] ?? '') === 'readback_verified'
+            && (($this->captureValidator)(
+                $capture,
+                $tenantId,
+                $hotelId,
+                $targetDate,
+                $expectedSourceScope
+            ) === true);
     }
 
     private function sandboxId(int $hotelId, int $userId): string
@@ -215,7 +343,7 @@ final class PmsRealtimeSyncService
             return $this->validSandboxId($configured) ? $configured : '';
         }
 
-        $receipt = ($this->receiptLoader)();
+        $receipt = ($this->receiptLoader)($hotelId, $userId);
         if (($receipt['execution_mode'] ?? '') !== 'local_shared_browser_sandbox'
             || (int)($receipt['hotel_id'] ?? 0) !== $hotelId
             || (int)($receipt['owner_user_id'] ?? 0) !== $userId
@@ -232,18 +360,35 @@ final class PmsRealtimeSyncService
     }
 
     /** @return array<string,mixed> */
-    private function loadLocalRunnerReceipt(): array
+    private function loadLocalRunnerReceipt(int $hotelId, int $userId): array
     {
-        $path = $this->projectRoot . DIRECTORY_SEPARATOR
-            . 'runtime' . DIRECTORY_SEPARATOR
-            . 'dingdandao_local_scheduler' . DIRECTORY_SEPARATOR
-            . 'latest.json';
-        if (!is_file($path)) {
+        if ($hotelId <= 0 || $userId <= 0) {
             return [];
         }
-        $raw = @file_get_contents($path);
-        $decoded = is_string($raw) ? json_decode($raw, true) : null;
-        return is_array($decoded) ? $decoded : [];
+        $root = $this->projectRoot . DIRECTORY_SEPARATOR
+            . 'runtime' . DIRECTORY_SEPARATOR
+            . 'dingdandao_local_scheduler';
+        $paths = [
+            $root . DIRECTORY_SEPARATOR . 'hotel_' . $hotelId
+                . DIRECTORY_SEPARATOR . 'user_' . $userId
+                . DIRECTORY_SEPARATOR . 'operating_indicators'
+                . DIRECTORY_SEPARATOR . 'latest.json',
+            $root . DIRECTORY_SEPARATOR . 'latest.json',
+        ];
+        foreach ($paths as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+            $raw = @file_get_contents($path);
+            $decoded = is_string($raw) ? json_decode($raw, true) : null;
+            if (is_array($decoded)
+                && (int)($decoded['hotel_id'] ?? 0) === $hotelId
+                && (int)($decoded['owner_user_id'] ?? 0) === $userId
+            ) {
+                return $decoded;
+            }
+        }
+        return [];
     }
 
     private function probeLocalCdp(string $url): bool

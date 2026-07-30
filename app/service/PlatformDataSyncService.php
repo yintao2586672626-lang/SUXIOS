@@ -914,22 +914,24 @@ final class PlatformDataSyncService
                 $normalizedCompareType = 'competitor_avg';
             }
 
-            $isCtripDailyBusinessOverview = $this->isCtripDailyBusinessOverviewRow($row, $platform, $dataType);
+            $isCtripCheckoutOverview = $this->isCtripCheckoutOverviewRow($row, $platform, $dataType);
             $normalizedRow = [
                 'hotel_id' => $normalizedHotelId,
                 'hotel_name' => $this->stringValue($row, ['hotel_name', 'hotelName', 'poi_name', 'poiName', 'name']) ?: (string)($source['hotel_name'] ?? $source['name'] ?? ''),
                 'data_date' => $date,
-                // Ctrip's daily business-overview payload contains two metric
-                // families. `amount`/`quantity` are not its booking result;
-                // the explicit `book*` fields are. Do not let zeros from the
-                // former hide the target-date booking facts.
-                'amount' => $isCtripDailyBusinessOverview
-                    ? $this->nullableNumericValue($row, ['bookAmount', 'book_amount'])
+                // Ctrip exposes checkout and booking families in the same
+                // response. The verified target-day revenue contract is the
+                // checkout pair amount/quantity; book* remains a distinct
+                // booking scope and must not overwrite this daily fact.
+                'amount' => $isCtripCheckoutOverview
+                    ? $this->nullableNumericValue($row, ['amount'])
                     : $this->amountValue($row, $dataType, $preserveMissingMetrics),
-                'quantity' => $isCtripDailyBusinessOverview
-                    ? $this->nullableRoundedInteger($row, ['bookQuantity', 'book_quantity'])
+                'quantity' => $isCtripCheckoutOverview
+                    ? $this->nullableRoundedInteger($row, ['quantity'])
                     : $this->quantityValue($row, $dataType, $preserveMissingMetrics),
-                'book_order_num' => $this->orderCountValue($row, $dataType, $preserveMissingMetrics),
+                'book_order_num' => $isCtripCheckoutOverview
+                    ? null
+                    : $this->orderCountValue($row, $dataType, $preserveMissingMetrics),
                 'comment_score' => $this->commentScoreValue($row, $dataType, $preserveMissingMetrics),
                 'qunar_comment_score' => $this->nullableNumericValue($row, ['qunar_comment_score', 'qunar_score']),
                 'system_hotel_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
@@ -962,7 +964,8 @@ final class PlatformDataSyncService
                 $dataType,
                 $normalizedRow,
                 $traceId,
-                $isCtripDailyBusinessOverview
+                $isCtripCheckoutOverview,
+                $platform
             );
             if ($fieldFacts !== []) {
                 $raw['field_facts'] = $fieldFacts;
@@ -1083,7 +1086,8 @@ final class PlatformDataSyncService
         string $dataType,
         array $normalizedRow,
         string $rowSourceTraceId = '',
-        bool $preferCtripBookingFields = false
+        bool $strictCtripCheckoutFields = false,
+        string $platform = ''
     ): array
     {
         $dataType = $this->normalizeDataType($dataType);
@@ -1094,12 +1098,21 @@ final class PlatformDataSyncService
 
         $facts = [];
         foreach ($definitions as $definition) {
+            $metricKey = strtolower(trim((string)($definition['metric_key'] ?? '')));
+            if (strtolower(trim($platform)) !== 'meituan'
+                && (
+                    str_starts_with($metricKey, 'mt_')
+                    || str_starts_with($metricKey, 'meituan_')
+                )
+            ) {
+                continue;
+            }
             $sourceKeys = is_array($definition['source_keys'] ?? null) ? $definition['source_keys'] : [];
-            if ($preferCtripBookingFields) {
+            if ($strictCtripCheckoutFields) {
                 $sourceKeys = match ((string)($definition['metric_key'] ?? '')) {
-                    'order_amount' => ['bookAmount', 'book_amount', ...$sourceKeys],
-                    'room_nights' => ['bookQuantity', 'book_quantity', ...$sourceKeys],
-                    'order_count' => ['bookOrderNum', 'book_order_num', ...$sourceKeys],
+                    'order_amount' => ['amount'],
+                    'room_nights' => ['quantity'],
+                    'order_count' => [],
                     default => $sourceKeys,
                 };
             }
@@ -1132,7 +1145,7 @@ final class PlatformDataSyncService
     }
 
     /** @param array<string, mixed> $row */
-    private function isCtripDailyBusinessOverviewRow(array $row, string $platform, string $dataType): bool
+    private function isCtripCheckoutOverviewRow(array $row, string $platform, string $dataType): bool
     {
         if (strtolower(trim($platform)) !== 'ctrip' || $this->normalizeDataType($dataType) !== 'business') {
             return false;
@@ -1186,7 +1199,14 @@ final class PlatformDataSyncService
             'source_field_present' => $source,
             'source_config_field_present' => $sourceConfig,
         ] as $proof => $candidate) {
-            if ($this->stringValue($candidate, $keys) !== '') {
+            $identifier = trim($this->stringValue($candidate, $keys));
+            if ($identifier !== ''
+                && !in_array(
+                    strtolower($identifier),
+                    ['-1', '0', 'null', 'unknown', 'n/a'],
+                    true
+                )
+            ) {
                 return [
                     'present' => true,
                     'source' => $sourceFamily,
@@ -2609,6 +2629,10 @@ final class PlatformDataSyncService
             'recovery_context_status' => mb_substr(trim((string)($stats['recovery_context_status'] ?? '')), 0, 120),
             'payload_keys' => $this->sanitizeSyncTaskPayloadKeys($stats['payload_keys'] ?? []),
         ];
+        $flowStats = $this->syncTaskFlowStatsFromOptions($stats);
+        if ($flowStats !== []) {
+            $safe = array_merge($safe, $flowStats);
+        }
 
         if (is_array($stats['sync_diagnostics'] ?? null)) {
             $safe['sync_diagnostics'] = $this->sanitizeSyncDiagnosticsForResponse($stats['sync_diagnostics'], $status);
@@ -2618,6 +2642,10 @@ final class PlatformDataSyncService
         }
         if (is_array($stats['run_readback'] ?? null)) {
             $safe['run_readback'] = $this->sanitizeRunReadbackReceipt($stats['run_readback']);
+        }
+        $readFallbackSummary = $this->sanitizeOtaReadFallbackSummary($stats['read_fallback_summary'] ?? null);
+        if ($readFallbackSummary !== []) {
+            $safe['read_fallback_summary'] = $readFallbackSummary;
         }
         if (is_array($stats['ordered_collection'] ?? null)) {
             $ordered = $stats['ordered_collection'];
@@ -2653,6 +2681,59 @@ final class PlatformDataSyncService
         return $safe;
     }
 
+    /** @return array<string, mixed> */
+    private function sanitizeOtaReadFallbackSummary(mixed $value): array
+    {
+        if (!is_array($value) || ($value['sensitive_values_exposed'] ?? true) !== false) {
+            return [];
+        }
+
+        $responseObserved = min(20, max(0, (int)($value['response_observed_count'] ?? 0)));
+        $blocked = min(20, max(0, (int)($value['blocked_count'] ?? 0)));
+        $failed = min(20, max(0, (int)($value['failed_count'] ?? 0)));
+        $diagnosticCount = min(20, $responseObserved + $blocked + $failed);
+        $attemptedCount = min(20, $responseObserved + $failed);
+        $status = $responseObserved > 0
+            ? (($blocked + $failed) > 0 ? 'partial' : 'response_observed')
+            : ($failed > 0 ? 'failed' : ($blocked > 0 ? 'blocked' : 'not_needed'));
+
+        return [
+            'status' => $status,
+            'diagnostic_count' => $diagnosticCount,
+            'attempted_count' => $attemptedCount,
+            'response_observed_count' => $responseObserved,
+            'blocked_count' => $blocked,
+            'failed_count' => $failed,
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    private function otaReadFallbackSummaryFromPayload(array $payload): array
+    {
+        $candidates = [
+            $payload['read_fallback_summary'] ?? null,
+            is_array($payload['sync_summary'] ?? null)
+                ? ($payload['sync_summary']['read_fallback_summary'] ?? null)
+                : null,
+            is_array($payload['data_source_capture'] ?? null)
+                ? ($payload['data_source_capture']['read_fallback_summary'] ?? null)
+                : null,
+        ];
+        $notNeeded = [];
+        foreach ($candidates as $candidate) {
+            $summary = $this->sanitizeOtaReadFallbackSummary($candidate);
+            if ($summary === []) {
+                continue;
+            }
+            if (($summary['status'] ?? '') !== 'not_needed') {
+                return $summary;
+            }
+            $notNeeded = $summary;
+        }
+        return $notNeeded;
+    }
+
     /** @param array<string, mixed> $receipt @return array<string, mixed> */
     private function sanitizeRunReadbackReceipt(array $receipt): array
     {
@@ -2678,6 +2759,10 @@ final class PlatformDataSyncService
         $targetDate = $this->normalizeDate($receipt['target_date'] ?? null) ?? '';
         $dataPeriod = $this->normalizeDataPeriod($receipt['data_period'] ?? '');
         $startedAt = $this->normalizeDateTime($receipt['started_at'] ?? '') ?? '';
+        $observedPlatformHotelId = trim((string)($receipt['observed_platform_hotel_id'] ?? ''));
+        if (preg_match('/^[A-Za-z0-9._:-]{1,120}$/D', $observedPlatformHotelId) !== 1) {
+            $observedPlatformHotelId = '';
+        }
 
         $readbackCount = max(0, (int)($receipt['readback_count'] ?? 0));
         $rowIdLimitExceeded = count($rowIds) > CloudOtaBundleCodec::MAX_ROWS;
@@ -2749,6 +2834,7 @@ final class PlatformDataSyncService
             'started_at' => $startedAt,
             'row_ids' => $rowIds,
             'source_trace_ids' => array_slice(array_values(array_unique($traceIds)), 0, 50),
+            'observed_platform_hotel_id' => $observedPlatformHotelId,
             'verified_metric_keys' => $metricKeys,
             'capture_strategy' => $captureStrategy,
             'fallback_from' => $fallbackFrom !== '' ? $fallbackFrom : null,
@@ -4685,12 +4771,12 @@ final class PlatformDataSyncService
                 $attemptCount = max(1, (int)($predecessor['attempt_count'] ?? 1)) + 1;
             }
 
-            $taskStats = [];
+            $taskStats = $this->syncTaskFlowStatsFromOptions($options);
             if ($predecessorId > 0) {
-                $taskStats = [
+                $taskStats = array_merge($taskStats, [
                     'predecessor_task_id' => $predecessorId,
                     'recovery_context_status' => $recoveryContextStatus,
-                ];
+                ]);
             }
             $orderedCollection = $this->orderedCollectionTaskPlanFromOptions(
                 $options,
@@ -4729,6 +4815,54 @@ final class PlatformDataSyncService
                 'task' => [],
             ];
         });
+    }
+
+    /**
+     * Keeps the bounded Ctrip collection flow auditable without persisting
+     * browser credentials, request payloads or raw responses in task metadata.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function syncTaskFlowStatsFromOptions(array $options): array
+    {
+        $stats = [];
+        $flow = (new CtripCollectorWorkflowService())->normalizeFlow(
+            $options['collector_flow']
+                ?? $options['collectorFlow']
+                ?? ''
+        );
+        if ($flow !== '') {
+            $stats['collector_flow'] = $flow;
+        }
+
+        $capturePlan = strtolower(trim((string)(
+            $options['capture_plan']
+                ?? $options['capturePlan']
+                ?? $options['ctrip_capture_plan']
+                ?? $options['ctripCapturePlan']
+                ?? ''
+        )));
+        if (in_array($capturePlan, [
+            'full',
+            'historical_review',
+            'realtime_broadcast',
+            'intraday_trend',
+            'future_demand',
+        ], true)) {
+            $stats['capture_plan'] = $capturePlan;
+        }
+
+        $dataDate = $this->normalizeDate(
+            $options['data_date']
+                ?? $options['dataDate']
+                ?? null
+        );
+        if ($dataDate !== null) {
+            $stats['data_date'] = $dataDate;
+        }
+
+        return $stats;
     }
 
     /**
@@ -4900,6 +5034,9 @@ final class PlatformDataSyncService
             'timing' => is_array($stats['timing'] ?? null)
                 ? $stats['timing']
                 : $this->emptySyncTiming(),
+            'read_fallback_summary' => is_array($stats['read_fallback_summary'] ?? null)
+                ? $stats['read_fallback_summary']
+                : null,
             'next_retry_at' => null,
         ];
         $collectionResult = $this->otaCollectionResult($source, $result);
@@ -4931,7 +5068,14 @@ final class PlatformDataSyncService
             'saved_count' => $savedCount,
             'payload_keys' => array_slice(array_keys($payload), 0, 30),
         ];
-        foreach (['predecessor_task_id', 'recovery_context_status', 'ordered_collection'] as $recoveryKey) {
+        foreach ([
+            'predecessor_task_id',
+            'recovery_context_status',
+            'ordered_collection',
+            'collector_flow',
+            'capture_plan',
+            'data_date',
+        ] as $recoveryKey) {
             if (array_key_exists($recoveryKey, $existingTaskStats)) {
                 $stats[$recoveryKey] = $existingTaskStats[$recoveryKey];
             }
@@ -4951,6 +5095,10 @@ final class PlatformDataSyncService
         );
         if ($safeDiagnostics !== []) {
             $stats['sync_diagnostics'] = $safeDiagnostics;
+        }
+        $readFallbackSummary = $this->otaReadFallbackSummaryFromPayload($payload);
+        if ($readFallbackSummary !== []) {
+            $stats['read_fallback_summary'] = $readFallbackSummary;
         }
         $stats['collection_quality'] = $this->buildSyncTaskCollectionQualitySnapshot(
             $status,
@@ -5034,6 +5182,9 @@ final class PlatformDataSyncService
             'timing' => $timing,
             'sync_diagnostics' => $safeDiagnostics !== [] ? $safeDiagnostics : null,
             'collection_quality' => $stats['collection_quality'],
+            'read_fallback_summary' => is_array($stats['read_fallback_summary'] ?? null)
+                ? $stats['read_fallback_summary']
+                : null,
             'module_status' => is_array($payload['module_status'] ?? null) ? $payload['module_status'] : null,
         ];
         $collectionResult = $this->otaCollectionResult($source, $result);
@@ -5084,6 +5235,9 @@ final class PlatformDataSyncService
             'timing' => $timing,
             'sync_diagnostics' => is_array($stats['sync_diagnostics'] ?? null) ? $stats['sync_diagnostics'] : null,
             'collection_quality' => is_array($stats['collection_quality'] ?? null) ? $stats['collection_quality'] : [],
+            'read_fallback_summary' => is_array($stats['read_fallback_summary'] ?? null)
+                ? $stats['read_fallback_summary']
+                : null,
             'module_status' => null,
         ];
         $collectionResult = $this->otaCollectionResult($source, $result);
@@ -5163,6 +5317,7 @@ final class PlatformDataSyncService
             'started_at' => $startedAt,
             'row_ids' => [],
             'source_trace_ids' => [],
+            'observed_platform_hotel_id' => '',
             'verified_metric_keys' => [],
             'capture_strategy' => 'not_recorded',
             'fallback_from' => null,
@@ -5263,6 +5418,29 @@ final class PlatformDataSyncService
         $traceIds = array_values(array_unique($traceIds));
         $receipt['row_ids'] = $rowIds;
         $receipt['source_trace_ids'] = array_slice($traceIds, 0, 50);
+        $receipt['observed_platform_hotel_id']
+            = $this->observedPlatformHotelIdFromRunRows($rows);
+        $config = is_array($source['config'] ?? null)
+            ? $source['config']
+            : $this->decodeConfig($source['config_json'] ?? []);
+        $expectedPlatformHotelId
+            = $this->syncTaskOtaStoreIdentifier($platform, $config);
+        if ($expectedPlatformHotelId === '') {
+            $expectedPlatformHotelId = trim((string)(
+                $config['external_hotel_id']
+                    ?? $source['external_hotel_id']
+                    ?? ''
+            ));
+        }
+        $receipt['platform_hotel_identifier_status']
+            = $expectedPlatformHotelId !== ''
+                && $receipt['observed_platform_hotel_id'] !== ''
+                && $this->otaHotelIdentifiersMatch(
+                    $expectedPlatformHotelId,
+                    $receipt['observed_platform_hotel_id']
+                )
+            ? 'ready'
+            : 'unverified';
         $receipt['verified_metric_keys'] = $this->verifiedCoreMetricKeysFromRunRows($rows, $source);
         $receipt = array_replace(
             $receipt,
@@ -5286,6 +5464,60 @@ final class PlatformDataSyncService
         }
 
         return $receipt;
+    }
+
+    /**
+     * Use only response-observed self identifiers. Ctrip uses `-1` for
+     * competitor/average rows inside an otherwise valid same-run response; it
+     * is a sentinel, not a second hotel and not evidence for the bound hotel.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     */
+    private function observedPlatformHotelIdFromRunRows(array $rows): string
+    {
+        $observed = [];
+        foreach ($rows as $row) {
+            $raw = $this->decodeConfig($row['raw_data'] ?? []);
+            $proof = strtolower(trim((string)(
+                $raw['platform_hotel_identifier_proof'] ?? ''
+            )));
+            if ($proof !== 'row_field_present') {
+                continue;
+            }
+            $compareType = strtolower(trim((string)(
+                $row['compare_type']
+                    ?? $raw['compare_type']
+                    ?? ''
+            )));
+            if (in_array(
+                $compareType,
+                [
+                    'competitor',
+                    'competitor_avg',
+                    'peer',
+                    'peer_avg',
+                    'competition_circle',
+                ],
+                true
+            )) {
+                continue;
+            }
+            $identifier = trim((string)($row['hotel_id'] ?? ''));
+            if ($identifier === ''
+                || in_array(
+                    strtolower($identifier),
+                    ['-1', '0', 'null', 'unknown', 'n/a'],
+                    true
+                )
+            ) {
+                continue;
+            }
+            $observed[strtolower($identifier)] = $identifier;
+        }
+
+        return count($observed) === 1
+            ? (string)array_values($observed)[0]
+            : '';
     }
 
     /**
@@ -5330,6 +5562,16 @@ final class PlatformDataSyncService
                     || (string)($observed['is_self'] ?? '') === '1'
                     || (string)($observed['isSelf'] ?? '') === '1';
             }));
+        }
+        $isCtrip = strtolower(trim((string)($source['platform'] ?? ''))) === 'ctrip';
+        if ($isCtrip) {
+            foreach ($operatingRows as $row) {
+                [$revenueReady, $roomNightsReady] = $this->ctripCheckoutReceiptMetricState($row);
+                if ($revenueReady && $roomNightsReady) {
+                    return ['revenue', 'room_nights', 'adr'];
+                }
+            }
+            return [];
         }
 
         $revenueVerified = false;
@@ -5379,6 +5621,57 @@ final class PlatformDataSyncService
     }
 
     /**
+     * Ctrip's checkout and booking values share one response. A run receipt may
+     * unlock revenue analysis only when the exact persisted checkout
+     * amount/quantity pair is backed by captured field facts from that row.
+     *
+     * @param array<string, mixed> $row
+     * @return array{0:bool,1:bool}
+     */
+    private function ctripCheckoutReceiptMetricState(array $row): array
+    {
+        $raw = $this->decodeConfig($row['raw_data'] ?? []);
+        $detail = is_array($raw['row'] ?? null) ? $raw['row'] : [];
+        $catalogRaw = $this->decodeConfig($detail['raw_data'] ?? []);
+        $endpointId = strtolower(trim((string)(
+            $detail['endpoint_id']
+            ?? $catalogRaw['endpoint_id']
+            ?? ''
+        )));
+        if ($endpointId !== 'business_market_overview') {
+            return [false, false];
+        }
+
+        $amountReady = false;
+        $roomNightsReady = false;
+        foreach ((array)($raw['field_facts'] ?? []) as $fact) {
+            if (!is_array($fact)
+                || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+                || ($fact['stored_value_present'] ?? false) !== true
+            ) {
+                continue;
+            }
+            $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
+            $sourceKey = strtolower(trim((string)($fact['source_key'] ?? '')));
+            if ($metricKey === 'order_amount'
+                && $sourceKey === 'amount'
+                && is_numeric($row['amount'] ?? null)
+            ) {
+                $amountReady = true;
+            }
+            if ($metricKey === 'room_nights'
+                && $sourceKey === 'quantity'
+                && is_numeric($row['quantity'] ?? null)
+                && (float)$row['quantity'] > 0
+            ) {
+                $roomNightsReady = true;
+            }
+        }
+
+        return [$amountReady, $roomNightsReady];
+    }
+
+    /**
      * Derive strategy evidence from the exact rows read back for this run.
      * Static data-source configuration is not sufficient to prove how a
      * particular collection result was obtained.
@@ -5408,27 +5701,25 @@ final class PlatformDataSyncService
             return $unverified;
         }
 
+        $policy = new OtaStructuredCaptureEvidenceService();
         foreach ($rows as $row) {
-            $raw = $this->decodeConfig($row['raw_data'] ?? []);
-            $evidence = is_array($raw['capture_evidence'] ?? null)
-                ? $raw['capture_evidence']
-                : [];
-            $sourceUrlHash = strtolower(trim((string)(
-                $evidence['source_url_hash']
-                ?? $raw['source_url_hash']
-                ?? ''
-            )));
-            $traceId = trim((string)(
-                $row['source_trace_id']
-                ?? $evidence['source_trace_id']
-                ?? $raw['source_trace_id']
-                ?? ''
-            ));
-            if (preg_match('/^[a-f0-9]{64}$/D', $sourceUrlHash) !== 1
-                || preg_match('/^[A-Za-z0-9._:-]{1,160}$/D', $traceId) !== 1
-            ) {
-                return $unverified;
+            $classification = $policy->classifyRow($row, $source);
+            if (($classification['allowed'] ?? false) === true) {
+                continue;
             }
+            if (($classification['status'] ?? '')
+                === OtaStructuredCaptureEvidenceService::STATUS_DOM
+            ) {
+                return [
+                    'capture_strategy' => 'dom_fallback',
+                    'fallback_from' => 'browser_response',
+                    'fallback_reason' => 'structured_response_unavailable',
+                    'response_evidence_type' => 'dom_fields',
+                    'recipe_plan_hash' => null,
+                    'recipe_count' => null,
+                ];
+            }
+            return $unverified;
         }
 
         return [
@@ -7509,7 +7800,9 @@ final class PlatformDataSyncService
             ?? $source['data_type']
             ?? ''
         ));
-        if ($dataType === 'traffic_forecast') {
+        if ($dataType === 'traffic_forecast'
+            || OnlineDailyDataPersistenceService::isFutureTargetRow($row, $payload, $source)
+        ) {
             $period = 'next_30_days';
         } elseif ($date === date('Y-m-d') && $period === 'historical_daily') {
             $period = 'realtime_snapshot';

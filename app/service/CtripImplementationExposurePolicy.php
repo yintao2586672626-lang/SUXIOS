@@ -196,6 +196,12 @@ final class CtripImplementationExposurePolicy
             'error_count',
             'database_readback',
             'readback_verified',
+            'readback_expected_count',
+            'readback_count',
+            'successful_request_count',
+            'usable_request_count',
+            'request_gap_count',
+            'request_complete',
         ]);
 
         $authStatus = is_array($payload['auth_status'] ?? null)

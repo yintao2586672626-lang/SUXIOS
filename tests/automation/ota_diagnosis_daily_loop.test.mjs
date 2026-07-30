@@ -107,6 +107,24 @@ test('metric cards distinguish missing values from verified zero', () => {
   assert.equal(cards.find(card => card.label === '曝光').value, '-');
 });
 
+test('diagnosis request preserves an empty model key for backend usage-scene routing', () => {
+  const body = api.buildOtaDiagnosisGenerateRequestBody({
+    selectedHotel: { hotel_id: 80, platform_hotel_id: 'mt-80' },
+    form: {
+      hotel_id: '80',
+      platform: 'meituan',
+      start_date: '2026-07-29',
+      end_date: '2026-07-29',
+    },
+    modelKey: '',
+  });
+
+  assert.equal(body.hotel_id, '80');
+  assert.equal(body.model_key, '');
+  assert.equal(body.start_date, '2026-07-29');
+  assert.equal(body.end_date, '2026-07-29');
+});
+
 test('blocked target-date evidence keeps revenue analysis and review blocked without duplicate gaps', () => {
   const result = {
     decision_status: 'blocked_by_data',

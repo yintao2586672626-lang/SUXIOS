@@ -66,6 +66,16 @@ final class MeituanTemporalService
         $asOf = $this->date($asOfDate);
         $this->assertHotelPermission($user, $systemHotelId, 'can_fetch_online_data');
         $now = new DateTimeImmutable('now', new DateTimeZone(self::TIMEZONE));
+        if (!$this->sameLocalDate($asOf, $now)) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => 'meituan_refresh_date_not_current',
+                'message' => 'Meituan realtime refresh only accepts the current local business date.',
+                'system_hotel_id' => $systemHotelId,
+                'as_of_date' => $asOf->format('Y-m-d'),
+                'tasks' => [],
+            ];
+        }
         $selection = $this->selectSource($user, $systemHotelId);
         if (($selection['status'] ?? '') !== 'ready') {
             return [
@@ -101,10 +111,9 @@ final class MeituanTemporalService
         $yesterday = $asOf->sub(new DateInterval('P1D'))->format('Y-m-d');
         if ((int)$now->format('H') < 9) {
             $tasks[] = $this->skippedTask('yesterday', 'before_platform_update_window');
-        } elseif ($this->hasVerifiedRowsCapturedOn(
+        } elseif ($this->hasCompleteVerifiedYesterdaySnapshotCapturedOn(
             $systemHotelId,
             $yesterday,
-            ['business', 'traffic_analysis'],
             $asOf->format('Y-m-d')
         )) {
             $tasks[] = $this->skippedTask('yesterday', 'verified_snapshot_already_collected_today');
@@ -161,7 +170,7 @@ final class MeituanTemporalService
             ->setTimezone(new DateTimeZone(self::TIMEZONE));
         $asOfText = $asOf->format('Y-m-d');
         $yesterdayText = $asOf->sub(new DateInterval('P1D'))->format('Y-m-d');
-        $futureEnd = $asOf->add(new DateInterval('P30D'))->format('Y-m-d');
+        $futureEnd = $asOf->add(new DateInterval('P29D'))->format('Y-m-d');
 
         $rows = array_values(array_filter($rows, static function ($row) use ($systemHotelId): bool {
             if (!is_array($row)) {
@@ -182,7 +191,7 @@ final class MeituanTemporalService
         ));
         $futureRows = array_values(array_filter($rows, static fn(array $row): bool =>
             strtolower((string)($row['data_type'] ?? '')) === 'traffic_forecast'
-            && (string)($row['data_date'] ?? '') > $asOfText
+            && (string)($row['data_date'] ?? '') >= $asOfText
             && (string)($row['data_date'] ?? '') <= $futureEnd
         ));
 
@@ -381,14 +390,11 @@ final class MeituanTemporalService
     {
         try {
             $result = $this->syncService->syncDataSource($user, $sourceId, $options);
-            $status = strtolower((string)($result['status'] ?? 'failed'));
-            $taskStatus = in_array($status, ['success', 'completed'], true)
-                ? 'completed'
-                : ($status === 'partial_success' ? 'partial' : 'blocked');
+            $outcome = $this->refreshTaskOutcome($result);
             return [
                 'segment' => $segment,
-                'status' => $taskStatus,
-                'reason_code' => $taskStatus === 'completed' ? 'capture_saved_and_read_back' : $this->refreshReason($result),
+                'status' => $outcome['status'],
+                'reason_code' => $outcome['reason_code'],
                 'message' => (string)($result['message'] ?? ''),
                 'data_source_id' => $sourceId,
                 'sync_task_id' => (int)($result['id'] ?? $result['task_id'] ?? 0),
@@ -409,6 +415,51 @@ final class MeituanTemporalService
         }
     }
 
+    /** @return array{status:string,reason_code:string} */
+    private function refreshTaskOutcome(array $result): array
+    {
+        $status = strtolower(trim((string)($result['status'] ?? 'failed')));
+        $taskId = (int)($result['id'] ?? $result['task_id'] ?? 0);
+        $savedCount = max(0, (int)($result['saved_count'] ?? 0));
+        $readbackVerified = ($result['readback_verified'] ?? false) === true;
+        $claimAllowed =
+            ($result['collection_result']['claim']['allowed'] ?? false) === true;
+
+        if (in_array($status, ['success', 'completed'], true)
+            && $taskId > 0
+            && $savedCount > 0
+            && $readbackVerified
+            && $claimAllowed) {
+            return ['status' => 'completed', 'reason_code' => 'capture_saved_and_read_back'];
+        }
+        if (in_array($status, ['success', 'completed'], true)
+            && $taskId > 0
+            && $savedCount === 0
+            && $readbackVerified
+            && strtolower(trim((string)($result['message'] ?? ''))) === 'platform_returned_authoritative_empty') {
+            return ['status' => 'partial', 'reason_code' => 'meituan_authoritative_empty_no_snapshot'];
+        }
+        if (in_array($status, ['success', 'completed'], true)
+            && $taskId > 0
+            && $savedCount > 0
+            && $readbackVerified
+            && !$claimAllowed
+        ) {
+            return ['status' => 'blocked', 'reason_code' => 'meituan_collection_claim_blocked'];
+        }
+        if (in_array($status, ['success', 'completed'], true)) {
+            return ['status' => 'blocked', 'reason_code' => 'meituan_capture_readback_missing'];
+        }
+        if ($status === 'partial_success'
+            && ($taskId <= 0 || ($savedCount > 0 && !$readbackVerified))) {
+            return ['status' => 'blocked', 'reason_code' => 'meituan_capture_readback_missing'];
+        }
+        return [
+            'status' => $status === 'partial_success' ? 'partial' : 'blocked',
+            'reason_code' => $this->refreshReason($result),
+        ];
+    }
+
     /** @return array<string, mixed> */
     private function skippedTask(string $segment, string $reason): array
     {
@@ -421,31 +472,42 @@ final class MeituanTemporalService
         ];
     }
 
-    private function hasVerifiedRowsCapturedOn(
+    private function hasCompleteVerifiedYesterdaySnapshotCapturedOn(
         int $systemHotelId,
         string $dataDate,
-        array $dataTypes,
         string $capturedDate
     ): bool {
-        $query = Db::name('online_daily_data')
+        $rows = Db::name('online_daily_data')
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'meituan')
-            ->whereIn('data_type', $dataTypes)
+            ->whereIn('data_type', ['business', 'traffic_analysis'])
             ->where('readback_verified', 1)
-            ->order('id', 'desc');
-        if (in_array('traffic_forecast', $dataTypes, true)) {
-            $start = $this->date($dataDate)->add(new DateInterval('P1D'))->format('Y-m-d');
-            $end = $this->date($dataDate)->add(new DateInterval('P30D'))->format('Y-m-d');
-            $query->whereBetween('data_date', [$start, $end]);
-        } else {
-            $query->where('data_date', $dataDate);
-        }
-        $rows = $query
-            ->limit(100)
+            ->where('data_date', $dataDate)
+            ->order('id', 'desc')
+            ->limit(200)
             ->select()
             ->toArray();
-        foreach ($rows as $row) {
-            if (str_starts_with($this->capturedAt($row), $capturedDate)) {
+
+        return $this->hasCompleteVerifiedYesterdaySnapshotRows($rows, $dataDate, $capturedDate);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     */
+    private function hasCompleteVerifiedYesterdaySnapshotRows(
+        array $rows,
+        string $dataDate,
+        string $capturedDate
+    ): bool {
+        $rows = array_values(array_filter($rows, function (array $row) use ($dataDate, $capturedDate): bool {
+            return (string)($row['data_date'] ?? '') === $dataDate
+                && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'traffic_analysis'], true)
+                && self::isOwnHotelRow($row)
+                && str_starts_with($this->capturedAt($row), $capturedDate);
+        }));
+        $snapshots = $this->buildSnapshotSeries($rows, self::YESTERDAY_METRICS, 'yesterday');
+        foreach ($snapshots as $snapshot) {
+            if (($snapshot['status'] ?? '') === 'ready') {
                 return true;
             }
         }
@@ -457,8 +519,8 @@ final class MeituanTemporalService
         string $asOfDate,
         string $capturedDate
     ): bool {
-        $start = $this->date($asOfDate)->add(new DateInterval('P1D'))->format('Y-m-d');
-        $end = $this->date($asOfDate)->add(new DateInterval('P30D'))->format('Y-m-d');
+        $start = $this->date($asOfDate)->format('Y-m-d');
+        $end = $this->date($asOfDate)->add(new DateInterval('P29D'))->format('Y-m-d');
         $rows = Db::name('online_daily_data')
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'meituan')
@@ -485,7 +547,7 @@ final class MeituanTemporalService
         string $asOfDate,
         string $capturedDate
     ): bool {
-        $futureEnd = $this->date($asOfDate)->add(new DateInterval('P30D'))->format('Y-m-d');
+        $futureEnd = $this->date($asOfDate)->add(new DateInterval('P29D'))->format('Y-m-d');
         $groups = [];
         foreach ($rows as $row) {
             if (!str_starts_with($this->capturedAt($row), $capturedDate)) {
@@ -596,7 +658,7 @@ final class MeituanTemporalService
         foreach ($rows as $row) {
             $date = (string)($row['data_date'] ?? '');
             $type = $this->forecastType($row);
-            if ($date <= $asOfDate || $date > $futureEnd || !in_array($type, ['pv', 'uv', 'advance_orders'], true)) {
+            if ($date < $asOfDate || $date > $futureEnd || !in_array($type, ['pv', 'uv', 'advance_orders'], true)) {
                 continue;
             }
             $snapshotGroups[$this->snapshotKey($row)][] = $row;
@@ -650,7 +712,7 @@ final class MeituanTemporalService
         foreach ($rows as $row) {
             $date = (string)($row['data_date'] ?? '');
             $type = $this->forecastType($row);
-            if ($date <= $asOfDate || $date > $futureEnd || !in_array($type, ['pv', 'uv', 'advance_orders'], true)) {
+            if ($date < $asOfDate || $date > $futureEnd || !in_array($type, ['pv', 'uv', 'advance_orders'], true)) {
                 continue;
             }
             $groups[$date][$type][] = $row;
@@ -673,7 +735,7 @@ final class MeituanTemporalService
                 'metrics' => $metrics,
             ];
         }
-        $expectedDays = (int)$this->date($asOfDate)->diff($this->date($futureEnd))->format('%a');
+        $expectedDays = (int)$this->date($asOfDate)->diff($this->date($futureEnd))->format('%a') + 1;
         $readyDays = count(array_filter($items, static fn(array $row): bool => $row['status'] === 'ready'));
         $status = $items === []
             ? 'missing'
@@ -694,6 +756,7 @@ final class MeituanTemporalService
     {
         $spec = $this->metricSpec($metricKey);
         foreach ($spec['types'] as $type) {
+            $candidates = [];
             foreach ($rows as $row) {
                 if (strtolower((string)($row['data_type'] ?? '')) !== $type) {
                     continue;
@@ -704,16 +767,53 @@ final class MeituanTemporalService
                 }
                 $fact = $this->fieldFact($row, $spec['fact_keys']);
                 $verified = $this->rowVerified($row) && $this->factVerified($fact);
-                return $this->metric(
+                $candidate = $this->metric(
                     $value,
                     $verified ? 'verified' : 'unverified',
                     $verified ? 'platform_direct' : 'field_or_readback_unverified',
                     $row,
                     $fact
                 );
+                $candidate['_route_priority'] = $this->metricRoutePriority($row, $metricKey);
+                $candidates[] = $candidate;
+            }
+            if ($candidates !== []) {
+                usort($candidates, static function (array $left, array $right): int {
+                    $route = ((int)($right['_route_priority'] ?? 0))
+                        <=> ((int)($left['_route_priority'] ?? 0));
+                    if ($route !== 0) {
+                        return $route;
+                    }
+                    return (($right['status'] ?? '') === 'verified' ? 1 : 0)
+                        <=> (($left['status'] ?? '') === 'verified' ? 1 : 0);
+                });
+                unset($candidates[0]['_route_priority']);
+                return $candidates[0];
             }
         }
         return $this->missingMetric();
+    }
+
+    private function metricRoutePriority(array $row, string $metricKey): int
+    {
+        if (!in_array($metricKey, [
+            'exposure_users',
+            'detail_visitors',
+            'paid_order_count',
+            'browse_to_pay_rate',
+        ], true)) {
+            return 0;
+        }
+        $raw = $this->rawRow($row);
+        $dimension = strtolower(trim((string)($row['dimension'] ?? $raw['dimension'] ?? $raw['analysis_type'] ?? '')));
+        $sourcePath = strtolower(trim((string)($raw['_source_path'] ?? $raw['source_path'] ?? '')));
+        if ($dimension === 'flow_conversion' || str_starts_with($sourcePath, 'data.myhotel')) {
+            return 100;
+        }
+        if (str_starts_with($sourcePath, 'dom.traffic.home_summary')) {
+            return 10;
+        }
+        return 50;
     }
 
     /** @param array<int, array<string, mixed>> $rows @return array<string, mixed> */
@@ -724,6 +824,7 @@ final class MeituanTemporalService
             'ad_exposure' => ['/广告曝光/u', '/paid.*exposure/i', '/ad.*exposure/i'],
             default => ['/整体曝光/u', '/总曝光/u', '/overall.*exposure/i', '/total.*exposure/i'],
         };
+        $unverifiedCandidate = null;
         foreach ($rows as $row) {
             if (strtolower((string)($row['data_type'] ?? '')) !== 'traffic_analysis') {
                 continue;
@@ -749,14 +850,19 @@ final class MeituanTemporalService
             }
             $fact = $this->fieldFact($row, ['analysis_value']);
             $verified = $this->rowVerified($row) && $this->factVerified($fact);
-            return $this->metric($value, $verified ? 'verified' : 'unverified', $verified ? 'platform_direct' : 'field_or_readback_unverified', $row, $fact);
+            $candidate = $this->metric($value, $verified ? 'verified' : 'unverified', $verified ? 'platform_direct' : 'field_or_readback_unverified', $row, $fact);
+            if ($verified) {
+                return $candidate;
+            }
+            $unverifiedCandidate ??= $candidate;
         }
-        return $this->missingMetric();
+        return $unverifiedCandidate ?? $this->missingMetric();
     }
 
     /** @param array<int, array<string, mixed>> $rows @return array<string, mixed> */
     private function forecastMetric(array $rows, bool $peer): array
     {
+        $unverifiedCandidate = null;
         foreach ($rows as $row) {
             $value = $peer
                 ? $this->rowMetricValue($row, '', ['peer_avg', 'peerAvg', 'peer_average'])
@@ -766,9 +872,13 @@ final class MeituanTemporalService
             }
             $fact = $this->fieldFact($row, [$peer ? 'forecast_peer_average' : 'forecast_current']);
             $verified = $this->rowVerified($row) && $this->factVerified($fact);
-            return $this->metric($value, $verified ? 'verified' : 'unverified', $verified ? 'platform_direct' : 'field_or_readback_unverified', $row, $fact);
+            $candidate = $this->metric($value, $verified ? 'verified' : 'unverified', $verified ? 'platform_direct' : 'field_or_readback_unverified', $row, $fact);
+            if ($verified) {
+                return $candidate;
+            }
+            $unverifiedCandidate ??= $candidate;
         }
-        return $this->missingMetric();
+        return $unverifiedCandidate ?? $this->missingMetric();
     }
 
     /** @return array{types:array<int,string>,field:string,raw_keys:array<int,string>,fact_keys:array<int,string>} */
@@ -887,6 +997,11 @@ final class MeituanTemporalService
             || $this->capturedAt($row) === '') {
             return false;
         }
+        if (((new OtaStructuredCaptureEvidenceService())
+                ->classifyRow($row)['allowed'] ?? false) !== true
+        ) {
+            return false;
+        }
         $raw = $this->raw($row);
         $dateSource = strtolower(trim((string)($raw['date_source'] ?? $this->rawRow($row)['date_source'] ?? '')));
         if ($dateSource === ''
@@ -897,8 +1012,26 @@ final class MeituanTemporalService
                 && $dateSource !== 'row')) {
             return false;
         }
+        $identifierReady = ($raw['platform_hotel_identifier_present'] ?? null) === true
+            && trim((string)($raw['platform_hotel_identifier_source'] ?? '')) !== ''
+            && !in_array(
+                strtolower(trim((string)($raw['platform_hotel_identifier_proof'] ?? ''))),
+                ['', 'missing', 'unverified'],
+                true
+            );
+        if (!$identifierReady) {
+            return false;
+        }
         $binding = strtolower(trim((string)($raw['platform_hotel_binding_status'] ?? '')));
-        return !in_array($binding, ['mismatch', 'conflict', 'unverified'], true);
+        if ($binding === '') {
+            return true;
+        }
+        return $binding === 'matched'
+            && !in_array(
+                strtolower(trim((string)($raw['platform_hotel_binding_proof'] ?? ''))),
+                ['', 'missing', 'unverified'],
+                true
+            );
     }
 
     /** @return array<string, mixed>|null */
@@ -918,9 +1051,21 @@ final class MeituanTemporalService
 
     private function factVerified(?array $fact): bool
     {
-        return is_array($fact)
-            && strtolower((string)($fact['status'] ?? '')) === 'captured'
-            && ($fact['stored_value_present'] ?? false) === true;
+        if (!is_array($fact)) {
+            return false;
+        }
+        $sourcePath = trim((string)($fact['source_path'] ?? ''));
+        return strtolower((string)($fact['status'] ?? '')) === 'captured'
+            && ($fact['stored_value_present'] ?? false) === true
+            && $sourcePath !== ''
+            && (str_contains($sourcePath, '.') || str_contains($sourcePath, '[') || str_contains($sourcePath, '/'));
+    }
+
+    private function sameLocalDate(DateTimeImmutable $left, DateTimeImmutable $right): bool
+    {
+        $timezone = new DateTimeZone(self::TIMEZONE);
+        return $left->setTimezone($timezone)->format('Y-m-d')
+            === $right->setTimezone($timezone)->format('Y-m-d');
     }
 
     private function rowMetricValue(array $row, string $field, array $rawKeys): float|int|null

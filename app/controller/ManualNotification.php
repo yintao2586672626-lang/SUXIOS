@@ -272,6 +272,8 @@ final class ManualNotification extends Base
             'manual_notification_body_chinese_only' => '通知正文只允许中文、数字和常用标点',
             'manual_notification_send_method_invalid' => '请选择有效的发送方式',
             'manual_notification_trigger_invalid' => '请选择有效的发送触发方式',
+            'manual_notification_operating_daily_fixed_time_required'
+                => '经营日报不支持间隔或整点循环，请选择每日固定时间',
             'manual_notification_source_scope_invalid' => '请选择携程、美团、订单来了或三源汇总',
             'manual_notification_content_section_invalid' => '所选发送内容不属于当前数据源',
             'manual_notification_content_sections_required' => '至少选择一项要发送的内容',

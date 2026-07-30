@@ -17,6 +17,7 @@ use app\model\AiModelConfig;
 use app\model\User as UserModel;
 use app\service\AgentClosureReadinessService;
 use app\service\AiDecisionQualityService;
+use app\service\AiModelRoutingService;
 use app\service\CompetitorPriceReadinessService;
 use app\service\FeasibilityReportService;
 use app\service\KnowledgeDecisionGateService;
@@ -370,12 +371,16 @@ class Agent extends Base
         $endDate = trim((string) $this->request->param('end_date', ''));
         $analysisType = strtolower(trim((string) $this->request->param('analysis_type', 'traffic')));
         $analysisMode = strtolower(trim((string) $this->request->param('analysis_mode', 'auto')));
-        $modelKey = trim((string) $this->request->param('model_key', 'deepseek_v4_default'));
+        $requestedModelKey = trim((string) $this->request->param('model_key', ''));
+        $modelSelection = (new AiModelRoutingService())->resolve(
+            $requestedModelKey,
+            'ota_diagnosis',
+            'deepseek_v4_default',
+            'ollama'
+        );
+        $modelKey = (string)$modelSelection['model_key'];
         $modelMode = $this->request->param('model_mode', null);
         $modelOptions = $modelMode !== null && trim((string) $modelMode) !== '' ? ['model_mode' => $modelMode] : [];
-        if ($modelKey === '') {
-            $modelKey = 'deepseek_v4_default';
-        }
 
         if (!in_array($analysisMode, ['auto', 'rules_only'], true)) {
             return $this->error('analysis_mode 仅支持 auto、rules_only', 422);
@@ -384,6 +389,7 @@ class Agent extends Base
             $analysisMode,
             $this->isAllowedLlmModelKey($modelKey)
         );
+        $analysisRuntime['model_selection'] = $modelSelection;
         if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
             return $this->error('platform 仅支持 ctrip、meituan、qunar', 422);
         }
@@ -482,6 +488,10 @@ class Agent extends Base
                 $llmResult = $this->callLlm($this->buildOtaDiagnosisPrompt($result), $modelKey, $this->buildAiGovernanceMeta('ota_diagnosis', $result, [
                     'hotel_id' => $hotelId,
                     'user_id' => (int)($this->currentUser->id ?? 0),
+                    'business_date' => $endDate,
+                    'business_date_start' => $startDate,
+                    'business_date_end' => $endDate,
+                    'source_scope' => 'verified_ota_channel_only',
                 ]), $modelOptions);
                 $analysisRuntime['model_called'] = true;
                 if (($llmResult['ok'] ?? false) === true) {

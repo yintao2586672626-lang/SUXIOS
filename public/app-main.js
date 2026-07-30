@@ -7716,7 +7716,7 @@
             const revenueAiExecutionFocus = ref(null);
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260730-canonical-gap-hb96b4bdbff';
+            const revenueAiStaticVersion = '20260730-canonical-gap-hd8d1b7b750';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -7965,7 +7965,10 @@
             const revenueAiSummarizeDailyReportBlockingRows = requireRevenueAiStatic('summarizeAiDailyReportBlockingRows');
             const revenueAiBuildDailyReportEvidenceRows = requireRevenueAiStatic('buildAiDailyReportEvidenceRows');
             const revenueAiBuildDailyFactGate = requireRevenueAiStatic('buildAiDailyFactGate');
-            const revenueAiBusinessDate = computed(() => revenueAiResolveBusinessDate({ overview: revenueAiOverview.value }));
+            const revenueAiBusinessDate = computed(() => revenueAiResolveBusinessDate({
+                overview: revenueAiOverview.value,
+                selectedDate: priceSuggestionFilter.value.date,
+            }));
             const revenueAiMetricCards = computed(() => revenueAiBuildMetricCards({
                 overview: revenueAiOverview.value,
                 overviewError: revenueAiOverviewError.value,
@@ -10545,7 +10548,7 @@
             const meituanTemporalCopy = Object.freeze({
                 emptyReference: '尚无当前验证快照',
                 intro: '今日实时 → 昨日复盘 → 未来30天；不代表全酒店经营数据。最新采集：',
-                scheduleHint: '定时推送到点后先采集本店美团数据并完成数据库回读，再按门禁发送；默认生成 09:15 起每 4 小时的计划，可在企业微信推送页调整。计划保存并真实测试成功前不会启用。',
+                scheduleHint: '定时推送到点后先采集本店美团数据并完成数据库回读，再按门禁发送；默认生成每日 09:15 的固定时间计划，可在企业微信推送页调整。计划保存并真实测试成功前不会启用。',
                 loading: '正在读取当前门店数据…',
                 blockedPrefix: '当前采集被阻塞：',
                 todayNote: '只展示最新快照，不跨快照累加。',
@@ -15541,6 +15544,8 @@
                 keyword: '', status: '', tag: '', source: '',
                 module: '', role: '', scene: '', platform: '', evidence_level: '', version: '',
             });
+            const knowledgeCenterTargetHotelId = ref('');
+            const knowledgeSopTaskCreatingChunkId = ref(0);
             const knowledgeCenterPagination = ref({ total: 0, page: 1, page_size: 10, total_page: 1 });
             const showKnowledgeCenterUnitModal = ref(false);
             const showKnowledgeCenterChunksModal = ref(false);
@@ -15814,6 +15819,10 @@
             });
             const defaultKnowledgeCenterHotelId = () => {
                 const options = knowledgeCenterHotelOptions.value;
+                const selected = String(knowledgeCenterTargetHotelId.value || '').trim();
+                if (selected && options.some(item => String(item.id) === selected)) {
+                    return selected;
+                }
                 return options.length === 1 ? String(options[0].id) : '';
             };
             const knowledgeCenterBaseSourceOptions = requireSystemStatic('knowledgeCenterBaseSourceOptions');
@@ -17131,7 +17140,7 @@
                     const sharedPromise = window[WECHAT_NOTIFICATION_PANEL_LOAD_KEY]
                         || (window[WECHAT_NOTIFICATION_PANEL_LOAD_KEY] = new Promise((resolve, reject) => {
                             const script = document.createElement('script');
-                            script.src = 'wechat-notification-static.js?v=20260730-compact-workflow-h4db9caa3c7';
+                            script.src = 'wechat-notification-static.js?v=20260730-fixed-time-only-hf962b90d1d';
                             script.async = true;
                             script.dataset.suxiWechatNotificationPanel = '1';
                             script.onload = resolve;
@@ -21297,7 +21306,7 @@
             const operatingPmsRealtimeActionText = computed(() => (
                 String(operatingTargetForm.value.target_date || '') === operationToday
                     ? '实时同步 PMS'
-                    : '切到今日并实时同步'
+                    : '补采所选业务日 PMS'
             ));
             const operatingPmsControlsBusy = computed(() => (
                 operatingTargetLoading.value.current || operatingTargetLoading.value.liveSync
@@ -23588,13 +23597,8 @@
                 }
             };
             const syncOperatingPmsRealtime = async () => {
-                let context = operatingTargetContext();
+                const context = operatingTargetContext();
                 if (!context) return;
-                if (context.targetDate !== operationToday) {
-                    operatingTargetForm.value.target_date = operationToday;
-                    context = operatingTargetContext();
-                    if (!context) return;
-                }
                 if (operatingTargetLoading.value.liveSync) return;
                 operatingTargetLoading.value.liveSync = true;
                 operatingTargetError.value = '';
@@ -23608,18 +23612,18 @@
                         }),
                     });
                     if (res.code !== 200) {
-                        throw new Error(res.message || 'PMS 实时同步失败');
+                        throw new Error(res.message || 'PMS 数据获取失败');
                     }
                     operatingPmsRealtimeSyncResult.value = res.data || {
                         status: 'blocked',
-                        message: '实时同步未返回可核验结果。',
+                        message: 'PMS 数据获取未返回可核验结果。',
                     };
                     await loadOperatingTarget({ preserveRealtimeResult: true });
                     if (operatingPmsRealtimeSyncResult.value.status === 'synced') {
-                        showToast('PMS 实时数据已保存并完成数据库回读');
+                        showToast('PMS 数据已保存并完成数据库回读');
                     } else {
                         showToast(
-                            operatingPmsRealtimeSyncResult.value.message || 'PMS 实时同步未完成',
+                            operatingPmsRealtimeSyncResult.value.message || 'PMS 数据获取未完成',
                             'warning'
                         );
                     }
@@ -23629,7 +23633,7 @@
                         target_date: context.targetDate,
                         live_read: false,
                         readback_verified: false,
-                        message: operationErrorMessage(error, 'PMS 实时同步失败，本次未使用旧快照冒充新数据'),
+                        message: operationErrorMessage(error, 'PMS 数据获取失败，本次未使用旧快照冒充目标业务日数据'),
                     };
                 } finally {
                     operatingTargetLoading.value.liveSync = false;
@@ -23936,6 +23940,12 @@
                     String(manualNotificationForm.value.template_type || '')
                 )
             ));
+            const manualNotificationOperatingDailyTriggerAllowed = computed(() => (
+                !manualNotificationIsOperatingDaily.value
+                || ['manual_test', 'daily_fixed_time'].includes(
+                    String(manualNotificationForm.value.trigger_type || 'manual_test')
+                )
+            ));
             const manualNotificationFieldErrors = computed(() => {
                 if (!manualNotificationValidationActive.value) return {};
                 const form = manualNotificationForm.value || {};
@@ -23966,6 +23976,9 @@
                         ? form.content_sections
                         : String(form.content_sections || '').split(',').filter(Boolean);
                     if (!sections.length) errors.content_sections = '至少选择一项发送内容。';
+                    if (!manualNotificationOperatingDailyTriggerAllowed.value) {
+                        errors.trigger_type = '经营日报不支持循环发送，请选择每日固定时间。';
+                    }
                 }
                 if (!weekdays.length && triggerType !== 'manual_test') {
                     errors.active_weekdays = '至少选择一个生效星期。';
@@ -23973,7 +23986,9 @@
                 if (triggerType === 'daily_fixed_time' && !String(form.planned_send_at || '').trim()) {
                     errors.planned_send_at = '请设置每日发送时间。';
                 }
-                if (triggerType === 'hourly_on_the_hour') {
+                if (!manualNotificationIsOperatingDaily.value
+                    && triggerType === 'hourly_on_the_hour'
+                ) {
                     if (!String(form.hourly_start_time || '').trim()) {
                         errors.hourly_start_time = '请设置小时播报开始时间。';
                     }
@@ -23981,7 +23996,9 @@
                         errors.hourly_end_time = '请设置小时播报结束时间。';
                     }
                 }
-                if (triggerType === 'interval_minutes') {
+                if (!manualNotificationIsOperatingDaily.value
+                    && triggerType === 'interval_minutes'
+                ) {
                     const interval = Number(form.interval_minutes);
                     if (!Number.isFinite(interval) || interval < 5 || interval > 1440) {
                         errors.interval_minutes = '发送间隔应为 5–1440 分钟。';
@@ -24073,7 +24090,9 @@
                 return groups.filter(group => group.variables.length);
             });
             const manualNotificationDataStatus = computed(() => (
-                manualNotificationForm.value.schedule_status === 'schedule_enabled'
+                !manualNotificationOperatingDailyTriggerAllowed.value
+                    ? '旧循环计划已阻断'
+                    : manualNotificationForm.value.schedule_status === 'schedule_enabled'
                     ? (manualNotificationForm.value.send_method === 'wecom_formal'
                         ? '正式自动推送已启用'
                         : '测试群定时发送已启用')
@@ -24130,7 +24149,9 @@
                     item => String(item?.key || '') === String(form.trigger_type || '')
                 );
                 let schedule = trigger?.label || '待配置';
-                if (form.trigger_type === 'manual_test') {
+                if (!manualNotificationOperatingDailyTriggerAllowed.value) {
+                    schedule = '旧循环计划已停用，请改为每日固定时间';
+                } else if (form.trigger_type === 'manual_test') {
                     schedule = '仅保存/仅测试，未启用定时';
                 } else if (form.trigger_type === 'daily_fixed_time') {
                     schedule = form.planned_send_at || '每日发送时间待配置';
@@ -24264,6 +24285,7 @@
                 dataStatus: manualNotificationDataStatus.value,
                 latestDispatch: manualNotificationLatestDispatch.value,
                 validationErrors: manualNotificationFieldErrors.value,
+                operatingDaily: manualNotificationIsOperatingDaily.value,
                 error: manualNotificationError.value,
             }));
             const updateManualNotificationScheduleField = ({ field, value } = {}) => {
@@ -24805,6 +24827,21 @@
                 await loadAutomationMonitor();
                 startAutomationMonitorPolling();
             };
+            const manualNotificationPlanUsesForbiddenLoop = (item = {}) => (
+                ['operating_daily_report', 'operating_daily_custom_report'].includes(
+                    String(item?.template_type || item?.notification_type || '')
+                )
+                && !['manual_test', 'daily_fixed_time'].includes(
+                    String(item?.trigger_type || 'manual_test')
+                )
+            );
+            const manualNotificationPlanIsActive = (item = {}) => (
+                item?.enabled === true
+                && String(item?.schedule_status || '') === 'schedule_enabled'
+                && String(item?.trigger_type || '') !== 'manual_test'
+                && !manualNotificationPlanUsesForbiddenLoop(item)
+                && item?.schedule_effective_enabled !== false
+            );
             const manualNotificationOperatingDailyPlans = computed(() => (
                 (manualNotificationHistory.value?.list || []).filter((item) => (
                     ['operating_daily_report', 'operating_daily_custom_report', 'ctrip_temporal_report'].includes(
@@ -24814,6 +24851,9 @@
             ));
             const manualNotificationThreeSourceSummary = computed(() => {
                 const plans = manualNotificationOperatingDailyPlans.value;
+                const selectedBusinessDate = String(
+                    manualNotificationForm.value?.business_date || operationToday || ''
+                ).trim();
                 const dispatches = (manualNotificationDispatchHistory.value?.list || []).filter(
                     item => String(item?.status || '').toLowerCase() === 'sent'
                 );
@@ -24861,20 +24901,40 @@
                     const relatedPlanIds = new Set(
                         relatedPlans.map(item => Number(item?.id || 0)).filter(id => id > 0)
                     );
-                    const latestDelivery = dispatches.find(
+                    const relatedDispatches = dispatches.filter(
                         item => relatedPlanIds.has(Number(item?.notification_id || 0))
+                    );
+                    const currentDelivery = relatedDispatches.find(
+                        item => String(item?.business_date || '') === selectedBusinessDate
                     ) || null;
-                    const active = relatedPlans.some(item => (
-                        item?.enabled === true
-                        && String(item?.schedule_status || '') === 'schedule_enabled'
-                        && String(item?.trigger_type || '') !== 'manual_test'
-                    ));
+                    const latestDelivery = relatedDispatches[0] || null;
+                    const activePlans = relatedPlans.filter(
+                        manualNotificationPlanIsActive
+                    );
+                    const active = activePlans.length > 0;
+                    const activeModes = [...new Set(activePlans.map(item => (
+                        String(item?.send_method || '') === 'wecom_formal'
+                            ? 'formal'
+                            : 'test'
+                    )))];
                     return {
                         ...definition,
                         integrated: relatedPlans.length > 0,
                         active,
+                        activeModes,
+                        selectedBusinessDate,
+                        currentDelivery,
                         latestDelivery,
-                        deliveredAt: latestDelivery
+                        currentDeliveredAt: currentDelivery
+                            ? String(
+                                currentDelivery.dispatched_at
+                                || currentDelivery.last_attempt_at
+                                || currentDelivery.claimed_at
+                                || ''
+                            )
+                            : '',
+                        latestDeliveryBusinessDate: String(latestDelivery?.business_date || ''),
+                        latestDeliveredAt: latestDelivery
                             ? String(
                                 latestDelivery.dispatched_at
                                 || latestDelivery.last_attempt_at
@@ -24886,22 +24946,23 @@
                 });
                 return {
                     cards,
+                    selectedBusinessDate,
                     integratedCount: cards.filter(item => item.integrated).length,
                     activeCount: cards.filter(item => item.active).length,
-                    deliveredCount: cards.filter(item => item.latestDelivery !== null).length,
+                    activeModes: [...new Set(cards.flatMap(item => item.activeModes || []))],
+                    deliveredCount: cards.filter(item => item.currentDelivery !== null).length,
                 };
             });
             const manualNotificationSchedulerDisplay = computed(() => {
                 const sourceSummary = manualNotificationThreeSourceSummary.value;
-                const schedulerStatus = String(
-                    manualNotificationMetadata.value?.scheduler_status || 'not_connected'
-                );
-                const schedulerVerified = [
-                    'test_scope_ready',
-                    'formal_scope_ready',
-                    'schedule_enabled',
-                    'connected',
-                ].includes(schedulerStatus);
+                const scheduleRuns =
+                    manualNotificationMetadata.value?.latest_schedule_runs || {};
+                const activeModes = sourceSummary.activeModes || [];
+                const schedulerVerified = activeModes.length > 0
+                    && activeModes.every(mode => (
+                        String(scheduleRuns?.[mode]?.status || '')
+                            === `${mode}_scope_ready`
+                    ));
                 if (sourceSummary.activeCount > 0 && schedulerVerified) {
                     return {
                         label: '自动发送运行中',
@@ -24944,25 +25005,34 @@
                     <span class="sr-only" data-testid="manual-notification-automatic-source">${escapeManualNotificationTaskText(overview.source_label, '待核验')}</span>
                 </header>`;
                 const sourceCards = `<section class="border-b border-slate-100 px-5 py-4" data-testid="manual-notification-three-source-status">
-                    <h3 class="text-sm font-semibold text-slate-800">三源状态</h3>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="text-sm font-semibold text-slate-800">三源推送回执</h3>
+                        <p class="text-xs text-slate-500">核对业务日 ${escapeManualNotificationTaskText(sourceSummary.selectedBusinessDate, '未取得')}；历史回执不计作本日送达</p>
+                    </div>
                     <div class="mt-3 grid gap-3 md:grid-cols-3">
                         ${sourceSummary.cards.map((source) => {
-                            const badgeClass = source.active
+                            const badgeClass = source.currentDelivery
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : source.active
+                                    ? 'border-sky-200 bg-sky-50 text-sky-700'
                                 : source.latestDelivery
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                    ? 'border-slate-200 bg-slate-50 text-slate-600'
                                 : source.integrated
                                     ? 'border-amber-200 bg-amber-50 text-amber-700'
                                     : 'border-slate-200 bg-slate-50 text-slate-500';
-                            const badge = source.active
-                                ? '自动发送'
+                            const badge = source.currentDelivery
+                                ? '本业务日已送达'
+                                : source.active
+                                    ? '自动发送'
                                 : source.latestDelivery
-                                    ? '已送达'
+                                    ? '历史送达'
                                 : source.integrated
                                     ? '已配置'
                                     : '未配置';
-                            const evidence = source.latestDelivery
-                                ? `最近送达 ${escapeManualNotificationTaskText(source.deliveredAt, '时间未取得')}`
+                            const evidence = source.currentDelivery
+                                ? `业务日 ${escapeManualNotificationTaskText(source.selectedBusinessDate, '未取得')} · 回执 ${escapeManualNotificationTaskText(source.currentDeliveredAt, '时间未取得')}`
+                                : source.latestDelivery
+                                    ? `最近业务日 ${escapeManualNotificationTaskText(source.latestDeliveryBusinessDate, '未取得')} · 回执 ${escapeManualNotificationTaskText(source.latestDeliveredAt, '时间未取得')}`
                                 : source.integrated
                                     ? (source.active ? '等待送达回执' : '自动发送未启用')
                                     : '待配置';
@@ -24993,6 +25063,14 @@
                     const sourceScope = editable && task?.source_scope_label
                         ? `<span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">${escapeManualNotificationTaskText(task.source_scope_label)}</span>`
                         : '';
+                    const nextRunLabel = task?.next_run_at
+                        || (String(task?.trigger_type || '') === 'manual_test'
+                            ? '无定时运行'
+                            : String(task?.plan_status || '') === 'blocked'
+                                ? '计划已阻断'
+                                : ['paused', 'attention'].includes(String(task?.status || ''))
+                                    ? '计划未启用'
+                                    : '下次时间未取得');
                     return `<article class="p-5 text-sm" data-testid="manual-notification-automatic-task-${escapeManualNotificationTaskText(task?.key, 'unknown')}">
                         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div class="min-w-0">
@@ -25002,7 +25080,7 @@
                                     ${planStatus}
                                 </div>
                                 <p class="mt-1 text-slate-600" title="${escapeManualNotificationTaskText(task?.delivery_rule, '发送条件未取得')}">${escapeManualNotificationTaskText(task?.schedule, '时间未取得')} · ${mode}</p>
-                                <p class="mt-1 truncate text-xs text-slate-400" title="${escapeManualNotificationTaskText(task?.last_result)}">最近 ${escapeManualNotificationTaskText(task?.last_result)} · 下次 ${escapeManualNotificationTaskText(task?.next_run_at, '按周期执行')}</p>
+                                <p class="mt-1 truncate text-xs text-slate-400" title="${escapeManualNotificationTaskText(task?.last_result)}">最近 ${escapeManualNotificationTaskText(task?.last_result)} · 下次 ${escapeManualNotificationTaskText(nextRunLabel)}</p>
                             </div>
                             <div class="shrink-0">${action}</div>
                         </div>
@@ -25130,6 +25208,12 @@
             const manualNotificationComparablePlan = (item = {}) => {
                 const templateType = String(item?.template_type || item?.notification_type || '');
                 const triggerType = String(item?.trigger_type || 'manual_test');
+                const businessDateRule = String(item?.business_date_rule || 'today')
+                    .trim()
+                    .toLowerCase();
+                const dynamicBusinessDate = ['today', 'yesterday'].includes(
+                    businessDateRule
+                );
                 const list = (value) => (Array.isArray(value) ? value : String(value || '').split(','))
                     .map(entry => String(entry).trim())
                     .filter(Boolean);
@@ -25142,10 +25226,12 @@
                     template_type: templateType,
                     source_scope: String(item?.source_scope || 'combined'),
                     content_sections: ['operating_daily_report', 'operating_daily_custom_report'].includes(templateType)
-                        ? list(item?.content_sections).join(',')
+                        ? list(item?.content_sections).sort().join(',')
                         : '',
-                    business_date: String(item?.business_date || ''),
-                    business_date_rule: String(item?.business_date_rule || 'today'),
+                    business_date: dynamicBusinessDate
+                        ? ''
+                        : String(item?.business_date || ''),
+                    business_date_rule: businessDateRule,
                     title: String(item?.title || '').trim(),
                     body: String(item?.body || '').trim(),
                     send_method: String(item?.send_method || ''),
@@ -25340,9 +25426,11 @@
                     content_template_mode: mode,
                     ...(mode === 'custom' ? {
                         source_scope: 'combined',
-                        content_sections: Array.isArray(combinedSource?.default_sections)
-                            ? [...combinedSource.default_sections]
-                            : [],
+                        ...(shouldInitializeCustom ? {
+                            content_sections: Array.isArray(combinedSource?.default_sections)
+                                ? [...combinedSource.default_sections]
+                                : [],
+                        } : {}),
                     } : {}),
                     title: mode === 'custom' && shouldInitializeCustom
                         ? (dailyCustomTemplate.title || '今日经营数据汇总｜PMS＋OTA')
@@ -25363,7 +25451,7 @@
                     : token;
                 manualNotificationPreview.value = null;
             };
-            const applyManualNotificationRecord = (item) => {
+                const applyManualNotificationRecord = (item) => {
                 if (!item) return;
                 const weekdays = Array.isArray(item.active_weekdays)
                     ? item.active_weekdays.map(Number).filter(day => day >= 1 && day <= 7)
@@ -25405,13 +25493,15 @@
                         ? String(item.planned_send_at).replace(' ', 'T').slice(0, 16)
                         : '',
                     active_weekdays: weekdays.length ? weekdays : [1, 2, 3, 4, 5, 6, 7],
-                    effective_from: '',
-                    effective_to: '',
+                    effective_from: String(item.effective_from || ''),
+                    effective_to: String(item.effective_to || ''),
                     hourly_start_time: item.hourly_start_time || '09:00',
                     hourly_end_time: item.trigger_type === 'interval_minutes'
                         ? '23:59'
                         : (item.hourly_end_time || '22:00'),
                     enabled: item.enabled === true,
+                    schedule_effective_enabled:
+                        item.schedule_effective_enabled === true,
                     schedule_status: item.schedule_status || 'saved_only',
                     schedule_status_label: item.schedule_status_label || '',
                     next_run_at: item.next_run_at || null,
@@ -25475,9 +25565,9 @@
                         title: dailyTemplate.title || template?.title || '美团流量实时播报',
                         body: dailyTemplate.body || template?.body || '',
                         send_method: 'wecom_formal',
-                        trigger_type: 'interval_minutes',
-                        interval_minutes: 240,
-                        planned_send_at: '',
+                        trigger_type: 'daily_fixed_time',
+                        interval_minutes: 60,
+                        planned_send_at: `${operationToday}T09:15`,
                         active_weekdays: [1, 2, 3, 4, 5, 6, 7],
                         effective_from: '',
                         effective_to: '',
@@ -25494,7 +25584,7 @@
                     manualNotificationPreview.value = null;
                     manualNotificationEditing.value = true;
                     manualNotificationError.value = '';
-                    showToast('已生成美团定时推送配置；选择机器人并保存测试后启用');
+                    showToast('已生成美团每日固定时间推送配置；选择机器人并保存测试后启用');
                 } catch (error) {
                     manualNotificationError.value = operationErrorMessage(
                         error,
@@ -25515,8 +25605,6 @@
                         body: JSON.stringify({
                             ...manualNotificationForm.value,
                             hotel_id: context.hotelId,
-                            effective_from: '',
-                            effective_to: '',
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '通知预览失败');
@@ -25539,8 +25627,6 @@
                         body: JSON.stringify({
                             ...manualNotificationForm.value,
                             hotel_id: context.hotelId,
-                            effective_from: '',
-                            effective_to: '',
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '通知保存失败');
@@ -31185,6 +31271,9 @@
                     rawText,
                     fullJson: formatKnowledgeJson(content),
                     taskTemplate,
+                    platforms: knowledgeChunkTextList(content.platforms, 20)
+                        .map(item => String(item || '').trim().toLowerCase())
+                        .filter(Boolean),
                     contentKey: String(content.content_key || '').trim(),
                 };
             };
@@ -31418,33 +31507,85 @@
                 const unitId = Number(knowledgeCenterSelectedUnit.value?.unit_id || 0);
                 const chunkId = Number(chunk?.chunk_id || 0);
                 const hotelId = Number(defaultKnowledgeCenterHotelId() || 0);
+                const chunkView = knowledgeChunkView(chunk);
+                const declaredPlatforms = [...new Set(chunkView.platforms || [])];
+                const specificPlatforms = declaredPlatforms.filter(platform => !['all', 'all_ota', 'ota'].includes(platform));
+                const wildcardPlatform = declaredPlatforms.some(platform => ['all', 'all_ota', 'ota'].includes(platform));
+                const selectedPlatform = String(knowledgeCenterFilter.value.platform || '').trim().toLowerCase();
                 if (!unitId || !chunkId) {
                     showToast('SOP卡片标识缺失，无法生成任务', 'error');
                     return;
                 }
                 if (!hotelId) {
-                    showToast('请先选择或配置当前门店', 'warning');
+                    showToast('请先在知识中枢选择任务目标门店', 'warning');
                     return;
                 }
+                if (!selectedPlatform && specificPlatforms.length > 1 && !wildcardPlatform) {
+                    showToast('该SOP适用于多个平台，请先在平台筛选中选择具体平台', 'warning');
+                    return;
+                }
+                const requestedPlatform = selectedPlatform || 'ota';
                 const due = new Date();
                 due.setDate(due.getDate() + 7);
+                knowledgeSopTaskCreatingChunkId.value = chunkId;
                 try {
                     const res = await request(`/knowledge/${unitId}/chunks/${chunkId}/execution-intent`, {
                         method: 'POST',
                         body: JSON.stringify({
                             hotel_id: hotelId,
-                            platform: String(knowledgeCenterFilter.value.platform || 'ota'),
+                            platform: requestedPlatform,
                             due_at: due.toISOString().slice(0, 10),
                         }),
                     });
-                    if (res.code === 0) {
-                        const intentId = Number(res.data?.execution_intent?.id || 0);
-                        showToast(intentId ? `任务草稿已生成 #${intentId}，请到运营管理审批` : '任务草稿已生成，请到运营管理审批');
-                        return;
+                    if (res.code !== 0) {
+                        throw new Error(res.msg || 'SOP任务草稿生成失败');
                     }
-                    showToast(res.msg || 'SOP任务草稿生成失败', 'error');
+                    const responseIntent = res.data?.execution_intent || {};
+                    const intentId = Number(responseIntent.id || 0);
+                    if (!Number.isInteger(intentId) || intentId <= 0) {
+                        throw new Error('任务草稿创建结果缺少有效ID');
+                    }
+                    const persistedIntent = await readOperationExecutionIntent(intentId);
+                    const persistedEvidence = persistedIntent?.evidence && typeof persistedIntent.evidence === 'object'
+                        ? persistedIntent.evidence
+                        : {};
+                    const provenance = persistedEvidence?.knowledge_provenance && typeof persistedEvidence.knowledge_provenance === 'object'
+                        ? persistedEvidence.knowledge_provenance
+                        : {};
+                    const replayed = responseIntent.idempotent_replay === true;
+                    const persistedStatus = String(persistedIntent.status || '');
+                    if (Number(persistedIntent.hotel_id || 0) !== hotelId
+                        || String(persistedIntent.source_module || '') !== 'knowledge_sop'
+                        || Number(persistedIntent.source_record_id || 0) !== chunkId
+                        || Number(provenance.knowledge_unit_id || 0) !== unitId
+                        || Number(provenance.knowledge_chunk_id || 0) !== chunkId
+                        || Number(provenance.target_hotel_id || 0) !== hotelId
+                        || String(provenance.resolved_platform || '') !== String(persistedIntent.platform || '')
+                        || String(persistedIntent.blocked_reason || '').trim() !== ''
+                        || !['pending_approval', 'approved', 'rejected'].includes(persistedStatus)
+                        || (!replayed && (
+                            persistedStatus !== 'pending_approval'
+                            || (Array.isArray(persistedIntent.tasks) && persistedIntent.tasks.length > 0)
+                        ))
+                    ) {
+                        throw new Error('任务草稿数据库回读与知识来源、门店或平台不一致');
+                    }
+                    operationFilters.value.hotel_id = String(hotelId);
+                    await loadOperationActions();
+                    if (replayed) {
+                        const statusText = persistedStatus === 'approved'
+                            ? '已审批'
+                            : (persistedStatus === 'rejected' ? '已驳回' : '待审批');
+                        showToast(`该知识快照已有任务 #${intentId}（${statusText}），未重复创建`);
+                    } else {
+                        showToast(`任务草稿 #${intentId} 已保存并回读，等待人工审批`);
+                    }
                 } catch (error) {
                     showToast(error.message || 'SOP任务草稿生成失败', 'error');
+                } finally {
+                    if (knowledgeSopTaskCreatingChunkId.value === chunkId) {
+                        knowledgeSopTaskCreatingChunkId.value = 0;
+                    }
                 }
             };
 
@@ -32543,7 +32684,7 @@
                 platform: 'ctrip',
                 start_date: toLocalIsoDate(),
                 end_date: toLocalIsoDate(),
-                model_key: 'deepseek_chat',
+                model_key: '',
             });
             const otaDiagnosisForm = ref(createOtaDiagnosisForm());
             const otaDiagnosisLoading = ref(false);
@@ -32590,7 +32731,7 @@
             };
             const getSafeOtaDiagnosisModelKey = () => {
                 const modelKey = String(otaDiagnosisForm.value.model_key || '').trim();
-                return modelKey || 'deepseek_chat';
+                return modelKey;
             };
             const otaDiagnosisSelectedHotel = computed(() => otaDiagnosisHotelOptions.value.find(item => item.value === otaDiagnosisForm.value.hotel_id) || null);
             const otaDiagnosisFilteredHotelOptions = computed(() => {
@@ -39522,7 +39663,9 @@
                 success: { text: '完成', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
                 partial: { text: '未完整', className: 'border-amber-200 bg-amber-50 text-amber-700' },
                 failed: { text: '失败', className: 'border-red-200 bg-red-50 text-red-700' },
-                blocked: { text: '不可采集', className: 'border-slate-200 bg-slate-100 text-slate-500' },
+                identity_pending: { text: '身份待确认', className: 'border-amber-200 bg-amber-50 text-amber-700' },
+                configuration_gap: { text: '待配置', className: 'border-slate-200 bg-slate-100 text-slate-500' },
+                blocked: { text: '身份待确认', className: 'border-amber-200 bg-amber-50 text-amber-700' },
             });
             const ctripCompetitionBatchStatusMeta = Object.freeze({
                 running: { text: '采集中', className: 'border-blue-200 bg-blue-50 text-blue-700' },
@@ -39530,6 +39673,23 @@
                 partial: { text: '部分完成', className: 'border-amber-200 bg-amber-50 text-amber-700' },
                 failed: { text: '未完成', className: 'border-red-200 bg-red-50 text-red-700' },
             });
+            const buildCtripCompetitionBatchReadiness = (hotelId, config) => {
+                const readiness = buildCtripCookieApiConfigReadiness(config);
+                if (!readiness.ok) return readiness;
+                const platformHotelId = resolveCtripCookieApiRequestHotelId(hotelId, config, { allowForm: false });
+                if (!platformHotelId) {
+                    return {
+                        ...readiness,
+                        ok: false,
+                        reason: 'missing_platform_hotel_id',
+                        message: '缺少携程 hotelId，未发起接口请求；请先在酒店管理中补齐。',
+                    };
+                }
+                return {
+                    ...readiness,
+                    platformHotelId,
+                };
+            };
             const buildCtripCompetitionBatchTargets = () => [...hotels.value]
                 .filter(hotel => String(hotel?.id || '').trim())
                 .sort((left, right) => Number(left.id || 0) - Number(right.id || 0))
@@ -39540,33 +39700,60 @@
                         hotelId,
                         hotelName: String(hotel.name || getHotelNameById(hotelId) || `门店 ${hotelId}`).trim(),
                         config,
-                        readiness: buildCtripCookieApiConfigReadiness(config),
+                        readiness: buildCtripCompetitionBatchReadiness(hotelId, config),
                     };
                 });
-            const createCtripCompetitionBatchState = (targets = []) => {
-                const statusMeta = ctripCompetitionBatchStatusMeta.running;
+            const refreshCtripCompetitionBatchCounts = (state) => {
+                if (!state) return state;
+                const rows = Array.isArray(state.hotels) ? state.hotels : [];
+                state.completed_count = rows.filter(row => [
+                    'success',
+                    'partial',
+                    'failed',
+                    'identity_pending',
+                    'configuration_gap',
+                    'blocked',
+                ].includes(row.status)).length;
+                state.success_count = rows.filter(row => row.status === 'success').length;
+                state.partial_count = rows.filter(row => row.status === 'partial').length;
+                state.failed_count = rows.filter(row => row.status === 'failed').length;
+                state.identity_pending_count = rows.filter(row => (
+                    row.status === 'identity_pending'
+                    || (row.status === 'blocked' && row.is_executable)
+                )).length;
+                state.executable_count = rows.filter(row => row.is_executable).length;
+                state.configuration_gap_count = rows.filter(row => (
+                    row.status === 'configuration_gap'
+                    || (row.status === 'blocked' && !row.is_executable)
+                )).length;
+                state.blocked_count = state.identity_pending_count + state.configuration_gap_count;
+                return state;
+            };
+            const createCtripCompetitionBatchState = (targets = [], options = {}) => {
+                const status = String(options.status || 'running');
+                const statusMeta = ctripCompetitionBatchStatusMeta[status] || ctripCompetitionBatchStatusMeta.running;
                 const rows = targets.map(target => {
-                    const status = target.readiness.ok ? 'queued' : 'blocked';
-                    const rowMeta = ctripCompetitionBatchRowMeta[status];
+                    const rowStatus = target.readiness.ok ? 'queued' : 'configuration_gap';
+                    const rowMeta = ctripCompetitionBatchRowMeta[rowStatus];
                     return {
                         hotel_id: target.hotelId,
                         hotel_name: target.hotelName,
-                        status,
+                        status: rowStatus,
                         status_text: rowMeta.text,
                         status_class: rowMeta.className,
                         message: target.readiness.ok ? '' : target.readiness.message,
                         saved_count: 0,
+                        is_executable: target.readiness.ok,
                     };
                 });
-                return {
-                    status: 'running',
+                return refreshCtripCompetitionBatchCounts({
+                    status,
                     status_text: statusMeta.text,
                     status_class: statusMeta.className,
-                    completed_count: rows.filter(row => row.status === 'blocked').length,
-                    success_count: 0,
+                    message: String(options.message || '').trim(),
                     total_count: rows.length,
                     hotels: rows,
-                };
+                });
             };
             const updateCtripCompetitionBatchHotel = (hotelId, status, message = '', savedCount = 0) => {
                 const state = ctripOverviewCoreFetchState.value;
@@ -39584,44 +39771,60 @@
                         }
                         : row
                 ));
-                state.completed_count = state.hotels.filter(row => ['success', 'partial', 'failed', 'blocked'].includes(row.status)).length;
-                state.success_count = state.hotels.filter(row => row.status === 'success').length;
+                refreshCtripCompetitionBatchCounts(state);
             };
             const resolveCtripCompetitionBatchResponse = (response = null) => {
                 const data = response?.data || {};
                 const savedCount = Math.max(0, Number(data.saved_count) || 0);
                 const persistenceStatus = String(data.persistence_status || data.save_status || '').trim().toLowerCase();
                 if (response?.code !== 200) {
+                    const identityBlocked = data.identity_check?.ok === false || persistenceStatus === 'blocked';
                     return {
-                        status: data.identity_check ? 'blocked' : 'failed',
+                        status: identityBlocked ? 'identity_pending' : 'failed',
                         message: String(data.identity_check?.message || response?.message || '请求失败'),
                         savedCount,
                     };
                 }
                 if (persistenceStatus === 'blocked' || data.identity_check?.ok === false) {
                     return {
-                        status: 'blocked',
+                        status: 'identity_pending',
                         message: String(data.identity_check?.message || data.warning || '门店身份未通过校验'),
                         savedCount,
                     };
                 }
-                if (data.is_ready !== true || savedCount <= 0 || persistenceStatus !== 'readback_verified') {
+                if (data.request_complete !== true) {
+                    const usableRequestCount = Math.max(0, Number(data.usable_request_count) || 0);
+                    const requestCount = Math.max(0, Number(data.request_count) || 0);
+                    return {
+                        status: 'partial',
+                        message: String(data.warning || `竞争圈接口仅返回 ${usableRequestCount}/${requestCount || 4} 组可用数据`),
+                        savedCount,
+                    };
+                }
+                if (data.is_ready !== true
+                    || data.readback_verified !== true
+                    || savedCount <= 0
+                    || persistenceStatus !== 'readback_verified'
+                ) {
                     return {
                         status: 'partial',
                         message: String(data.warning || data.next_action || '未完成数据库回读'),
                         savedCount,
                     };
                 }
+                const readbackCount = Math.max(0, Number(data.readback_count) || savedCount);
                 return {
                     status: 'success',
-                    message: `已入库 ${savedCount} 条`,
+                    message: `4/4 接口完整，已入库并回读 ${readbackCount} 条`,
                     savedCount,
                 };
             };
             const resolveCtripCompetitionBatchError = (error = null) => {
                 const data = error?.data?.data || error?.data || {};
+                const persistenceStatus = String(data.persistence_status || data.save_status || '').trim().toLowerCase();
+                const identityBlocked = data.identity_check?.ok === false || persistenceStatus === 'blocked';
                 return {
-                    status: data.identity_check || String(data.persistence_status || '') === 'blocked' ? 'blocked' : 'failed',
+                    status: identityBlocked ? 'identity_pending' : 'failed',
                     message: String(data.identity_check?.message || error?.data?.message || data.message || error?.message || '请求失败'),
                     savedCount: Math.max(0, Number(data.saved_count) || 0),
                 };
@@ -39632,7 +39835,7 @@
                 const requestBody = buildCtripCookieApiFetchRequestBody({
                     configId: target.readiness.configId,
                     systemHotelId: target.hotelId,
-                    hotelId: resolveCtripCookieApiRequestHotelId(target.hotelId, target.config, { allowForm: false }),
+                    hotelId: target.readiness.platformHotelId,
                     dataDate: String(ctripOverviewForm.value.dataDate || '').trim(),
                     requestSource: 'competition_circle',
                 });
@@ -39648,7 +39851,7 @@
                     updateCtripCompetitionBatchHotel(target.hotelId, outcome.status, outcome.message, outcome.savedCount);
                 }
             };
-            const finishCtripCompetitionBatchState = () => {
+            const finishCtripCompetitionBatchState = (message = '') => {
                 const state = ctripOverviewCoreFetchState.value;
                 if (!state) return;
                 state.hotels = state.hotels.map(row => {
@@ -39662,15 +39865,28 @@
                         message: row.message || '采集流程未完成',
                     };
                 });
-                state.completed_count = state.hotels.length;
-                state.success_count = state.hotels.filter(row => row.status === 'success').length;
+                refreshCtripCompetitionBatchCounts(state);
                 const status = state.total_count > 0 && state.success_count === state.total_count
                     ? 'success'
-                    : (state.success_count > 0 ? 'partial' : 'failed');
+                    : (
+                        state.success_count > 0
+                        || state.partial_count > 0
+                        || state.identity_pending_count > 0
+                            ? 'partial'
+                            : 'failed'
+                    );
                 const statusMeta = ctripCompetitionBatchStatusMeta[status];
                 state.status = status;
                 state.status_text = statusMeta.text;
                 state.status_class = statusMeta.className;
+                state.message = String(message || '').trim();
+                if (!state.message && state.executable_count === 0) {
+                    state.message = '没有可执行门店，请先补齐携程授权配置和 hotelId。';
+                } else if (!state.message && status === 'success') {
+                    state.message = `全部 ${state.success_count} 家门店竞争圈已完成入库回读。`;
+                } else if (!state.message) {
+                    state.message = `入库成功 ${state.success_count} 家，身份待确认 ${state.identity_pending_count} 家，接口未完整 ${state.partial_count} 家，失败 ${state.failed_count} 家，配置缺口 ${state.configuration_gap_count} 家。`;
+                }
             };
 
             const prepareCtripOverviewFetchAction = async (tabName) => {
@@ -39797,9 +40013,35 @@
                         loadHotels(),
                         loadCtripConfigList({ force: true, applySelectedConfig: false }),
                     ]);
+                    if (hotelListLoadFailed.value || ctripConfigListLoadFailed.value) {
+                        const failedSources = [];
+                        if (hotelListLoadFailed.value) failedSources.push('门店列表');
+                        if (ctripConfigListLoadFailed.value) failedSources.push('携程配置');
+                        const message = `${failedSources.join('、')}加载失败，未发起任何竞争圈接口请求。`;
+                        ctripOverviewCoreFetchState.value = createCtripCompetitionBatchState([], {
+                            status: 'failed',
+                            message,
+                        });
+                        showToast(message, 'error');
+                        return;
+                    }
                     const targets = buildCtripCompetitionBatchTargets();
                     ctripOverviewCoreFetchState.value = createCtripCompetitionBatchState(targets);
+                    if (targets.length === 0) {
+                        const message = '当前账号没有可采集门店，未发起任何竞争圈接口请求。';
+                        ctripOverviewCoreFetchState.value = createCtripCompetitionBatchState([], {
+                            status: 'failed',
+                            message,
+                        });
+                        showToast(message, 'error');
+                        return;
+                    }
                     const readyTargets = targets.filter(target => target.readiness.ok);
+                    if (readyTargets.length === 0) {
+                        finishCtripCompetitionBatchState();
+                        showToast(ctripOverviewCoreFetchState.value.message, 'error');
+                        return;
+                    }
                     let nextTargetIndex = 0;
                     const worker = async () => {
                         while (nextTargetIndex < readyTargets.length) {
@@ -39815,14 +40057,15 @@
                     finishCtripCompetitionBatchState();
                     const state = ctripOverviewCoreFetchState.value;
                     showToast(
-                        `竞争圈采集完成：${state.success_count}/${state.total_count} 家`,
-                        state.status === 'success' ? 'success' : (state.success_count > 0 ? 'warning' : 'error')
+                        state.message,
+                        state.status === 'success' ? 'success' : (state.status === 'partial' ? 'warning' : 'error')
                     );
                     scheduleDataHealthPanelRefresh('light', { force: true, source: '全部门店竞争圈采集' });
                     scheduleOnlineHistoryRefresh();
                 } catch (error) {
-                    finishCtripCompetitionBatchState();
-                    showToast('全部门店竞争圈采集未完成', 'error');
+                    const message = `全部门店竞争圈采集未完成：${String(error?.message || '流程异常')}`;
+                    finishCtripCompetitionBatchState(message);
+                    showToast(message, 'error');
                 } finally {
                     ctripOverviewCoreFetchRunning.value = false;
                     ctripOverviewFetchActionLoading.value = '';
@@ -45149,7 +45392,7 @@
                 wechatNotificationPanelBody, wechatNotificationPanelProps, wechatNotificationPanelEvents, wechatNotificationHotelId, wechatNotificationLoading, wechatNotificationSaving, wechatNotificationTesting, wechatNotificationError, wechatNotificationState, wechatNotificationForm, wechatNotificationHotelOptions, wechatNotificationSelectedHotel, wechatNotificationBinding, wechatNotificationStatusText, wechatNotificationStatusClass, wechatNotificationLastTestText, loadWechatNotificationStatus, changeWechatNotificationHotel, saveWechatNotificationBinding, testWechatNotificationBinding,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
-                knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
+                knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterTargetHotelId, knowledgeSopTaskCreatingChunkId, knowledgeCenterPagination, knowledgeCenterStats,
                 knowledgeCenterVisibleChunks,
                 knowledgeCenterSourceOptions, knowledgeCenterHotelOptions, knowledgeCenterIsFiltered, knowledgeImportCurrentMeta,
                 knowledgeDistillationRunning, knowledgeDistillationFullTrain, knowledgeDistillationMaxBatches, knowledgeDistillationResult, knowledgeDistillationMetricRows,
@@ -45369,6 +45612,162 @@
             };
         }
     };
+    const normalizeMeituanFutureFlowRows = (rows = [], days = 30) => {
+        const limit = [3, 7, 15, 30].includes(Number(days)) ? Number(days) : 30;
+        return (Array.isArray(rows) ? rows : [])
+            .filter(row => /^\d{4}-\d{2}-\d{2}$/.test(String(row?.target_date || '')))
+            .slice()
+            .sort((left, right) => String(left.target_date).localeCompare(String(right.target_date)))
+            .slice(0, limit);
+    };
+    const meituanFutureFlowMetricValue = (row, key, peer = false) => {
+        const value = row?.metrics?.[`${key}${peer ? '_peer_avg' : ''}`]?.value;
+        if (value === null || value === undefined || value === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    };
+    const meituanFutureFlowMetricText = (value) => {
+        if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+            return '— / 未返回';
+        }
+        const number = Number(value);
+        return number.toLocaleString('zh-CN', {
+            maximumFractionDigits: Number.isInteger(number) ? 0 : 2,
+        });
+    };
+    const meituanFutureFlowSectionStatusText = (status) => ({
+        ready: '完整',
+        partial: '部分返回',
+        pending_source_update: '等待平台更新',
+        blocked: '采集受阻',
+        unverified: '待核验',
+        missing: '未返回',
+    }[String(status || '')] || '未返回');
+    const meituanFutureFlowBarHeight = (value, maximum) => {
+        if (value === null) return '0';
+        if (Number(value) === 0) return '2px';
+        return `${Math.max(3, Math.min(100, (Number(value) / Math.max(1, Number(maximum))) * 100))}%`;
+    };
+    const MEITUAN_FUTURE_FLOW_METRICS = Object.freeze([
+        { key: 'pv', label: 'PV' },
+        { key: 'uv', label: 'UV' },
+        { key: 'advance_orders', label: '提前订订单量' },
+    ]);
+    const MeituanFutureFlow = {
+        name: 'MeituanFutureFlow',
+        props: {
+            rows: { type: Array, default: () => [] },
+            capturedAt: { type: String, default: '' },
+        },
+        setup(props) {
+            const horizon = ref(30);
+            const metricKey = ref('pv');
+            const visibleRows = computed(() => normalizeMeituanFutureFlowRows(props.rows, horizon.value));
+            const selectedMetric = computed(() => (
+                MEITUAN_FUTURE_FLOW_METRICS.find(metric => metric.key === metricKey.value)
+                || MEITUAN_FUTURE_FLOW_METRICS[0]
+            ));
+            const chartMaximum = computed(() => Math.max(1, ...visibleRows.value.flatMap(row => [
+                meituanFutureFlowMetricValue(row, metricKey.value),
+                meituanFutureFlowMetricValue(row, metricKey.value, true),
+            ]).filter(value => value !== null)));
+            const pairCell = (row, key) => h('div', { class: 'whitespace-nowrap text-center font-medium' }, [
+                h('span', { class: 'text-blue-700' }, meituanFutureFlowMetricText(meituanFutureFlowMetricValue(row, key))),
+                h('span', { class: 'mx-1 text-slate-300' }, '/'),
+                h('span', { class: 'text-orange-700' }, meituanFutureFlowMetricText(meituanFutureFlowMetricValue(row, key, true))),
+            ]);
+            const chart = () => h('div', {
+                'data-testid': 'meituan-future-daily-chart',
+                class: 'mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50',
+            }, [
+                h('div', { class: 'flex h-60 min-w-[760px] items-end gap-1 px-3 pt-3' }, visibleRows.value.map(row => {
+                    const selfValue = meituanFutureFlowMetricValue(row, metricKey.value);
+                    const peerValue = meituanFutureFlowMetricValue(row, metricKey.value, true);
+                    return h('div', {
+                        key: `chart-${row.target_date}`,
+                        class: 'group relative flex h-full min-w-[22px] flex-1 flex-col justify-end',
+                    }, [
+                        h('div', { class: 'pointer-events-none absolute left-1/2 top-1 z-20 w-36 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-[10px] leading-4 text-slate-600 opacity-0 shadow-lg group-hover:opacity-100' }, [
+                            h('b', { class: 'block text-slate-800' }, row.target_date),
+                            h('span', { class: 'block text-blue-700' }, `本店 ${meituanFutureFlowMetricText(selfValue)}`),
+                            h('span', { class: 'block text-orange-700' }, `同行均值 ${meituanFutureFlowMetricText(peerValue)}`),
+                        ]),
+                        h('div', { class: 'flex h-44 items-end justify-center gap-px border-b border-slate-200' }, [
+                            selfValue === null ? null : h('span', {
+                                class: 'block w-2/5 rounded-t bg-blue-500',
+                                style: { height: meituanFutureFlowBarHeight(selfValue, chartMaximum.value) },
+                            }),
+                            peerValue === null ? null : h('span', {
+                                class: 'block w-2/5 rounded-t bg-orange-400',
+                                style: { height: meituanFutureFlowBarHeight(peerValue, chartMaximum.value) },
+                            }),
+                        ]),
+                        h('div', { class: 'mt-2 text-center text-[10px] text-slate-500' }, row.target_date.slice(5)),
+                    ]);
+                })),
+            ]);
+            const detailTable = () => h('div', { class: 'mt-4 overflow-x-auto' }, [
+                h('table', {
+                    'data-testid': 'meituan-future-daily-table',
+                    class: 'min-w-[760px] w-full text-sm',
+                }, [
+                    h('thead', { class: 'bg-slate-50 text-slate-700' }, [
+                        h('tr', [
+                            h('th', { class: 'px-3 py-2 text-left' }, '目标日期'),
+                            h('th', { class: 'px-3 py-2 text-center' }, 'PV（本店 / 同行）'),
+                            h('th', { class: 'px-3 py-2 text-center' }, 'UV（本店 / 同行）'),
+                            h('th', { class: 'px-3 py-2 text-center' }, '提前订（本店 / 同行）'),
+                            h('th', { class: 'px-3 py-2 text-center' }, '状态'),
+                        ]),
+                    ]),
+                    h('tbody', { class: 'divide-y divide-slate-100' }, visibleRows.value.map(row => h('tr', {
+                        key: `detail-${row.target_date}`,
+                        class: 'even:bg-slate-50/70',
+                    }, [
+                        h('td', { class: 'px-3 py-2 font-semibold text-slate-700' }, row.target_date),
+                        h('td', { class: 'px-3 py-2' }, [pairCell(row, 'pv')]),
+                        h('td', { class: 'px-3 py-2' }, [pairCell(row, 'uv')]),
+                        h('td', { class: 'px-3 py-2' }, [pairCell(row, 'advance_orders')]),
+                        h('td', { class: 'px-3 py-2 text-center text-slate-600' }, meituanFutureFlowSectionStatusText(row.status)),
+                    ]))),
+                ]),
+            ]);
+            return () => h('div', { 'data-testid': 'meituan-future-flow' }, [
+                h('div', { class: 'mt-3 flex flex-wrap items-center justify-between gap-2' }, [
+                    h('div', { class: 'inline-flex overflow-hidden rounded-lg border border-slate-200' }, [
+                        { days: 3, label: '3天' },
+                        { days: 7, label: '7天' },
+                        { days: 15, label: '15天' },
+                        { days: 30, label: '30天' },
+                    ].map(option => h('button', {
+                        key: option.days,
+                        type: 'button',
+                        onClick: () => { horizon.value = option.days; },
+                        class: ['border-r px-3 py-2 text-xs last:border-r-0', horizon.value === option.days ? 'bg-slate-900 text-white' : 'bg-white text-slate-600'],
+                    }, option.label))),
+                    h('div', { class: 'inline-flex overflow-hidden rounded-lg border border-slate-200' }, MEITUAN_FUTURE_FLOW_METRICS.map(metric => h('button', {
+                        key: metric.key,
+                        type: 'button',
+                        onClick: () => { metricKey.value = metric.key; },
+                        class: ['border-r px-3 py-2 text-xs last:border-r-0', metricKey.value === metric.key ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'],
+                    }, metric.label))),
+                ]),
+                h('div', { class: 'mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500' }, [
+                    h('span', `当前范围：${visibleRows.value[0]?.target_date || '—'} ～ ${visibleRows.value.at(-1)?.target_date || '—'}（${visibleRows.value.length}天）`),
+                    h('span', `采集时间：${props.capturedAt || '—'}`),
+                    h('span', `当前指标：${selectedMetric.value.label}`),
+                ]),
+                h('div', { class: 'mt-2 text-xs text-slate-500' }, [
+                    h('span', { class: 'mr-4 text-blue-700' }, '■ 本店'),
+                    h('span', { class: 'mr-4 text-orange-700' }, '■ 同行均值'),
+                    h('span', '0 为平台返回零值；— 为未返回。'),
+                ]),
+                visibleRows.value.length
+                    ? h('div', [chart(), detailTable()])
+                    : h('div', { class: 'mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500' }, '— / 未返回未来30天当前快照'),
+            ]);
+        },
+    };
     let suxiApp = null;
     const renderSuxiStartupError = (error) => {
         const appRoot = document.getElementById('app');
@@ -45395,6 +45794,7 @@
         `;
     };
     const configureSuxiApp = (app) => {
+        app.component('MeituanFutureFlow', MeituanFutureFlow);
         app.config.errorHandler = (error, _instance, info) => {
             console.error(
                 '[SUXIOS] Vue runtime error:',

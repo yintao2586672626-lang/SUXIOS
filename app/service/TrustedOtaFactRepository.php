@@ -184,8 +184,10 @@ class TrustedOtaFactRepository
 
         [$trustedRows, $supersededRows] = $this->selectCanonicalRows($trustedRows);
         [$trustedRows, $suppressedMixedTypeRows] = $this->preferSummaryFactsPerSourceDate($trustedRows);
+        [$trustedRows, $supersededSnapshotRows] = $this->selectLatestSummarySnapshotRows($trustedRows);
         $rows = [];
         foreach ($trustedRows as $row) {
+            $raw = $this->decodeRaw($row['raw_data'] ?? null);
             $rows[] = [
                 'row_id' => isset($row['id']) && is_numeric($row['id'])
                     ? (int)$row['id']
@@ -198,7 +200,11 @@ class TrustedOtaFactRepository
                 'amount' => $this->metricValue($row, 'amount', $dataGaps),
                 'quantity' => $this->metricValue($row, 'quantity', $dataGaps),
                 'book_order_num' => $this->metricValue($row, 'book_order_num', $dataGaps),
-                'source' => $this->normalizedSource($this->firstText($row, $this->decodeRaw($row['raw_data'] ?? null), ['source', 'platform'])),
+                'source' => $this->normalizedSource($this->firstText($row, $raw, ['source', 'platform'])),
+                'data_type' => $this->normalizedDataType(
+                    $this->firstText($row, $raw, ['data_type', 'dataType'])
+                ),
+                'snapshot_time' => trim((string)($row['snapshot_time'] ?? '')),
                 'metric_scope' => 'ota_channel',
                 'readback_verified' => in_array(
                     $row['readback_verified'] ?? null,
@@ -235,6 +241,7 @@ class TrustedOtaFactRepository
                 'rejected_reasons' => $rejectedReasons,
                 'superseded_period_rows' => $supersededRows,
                 'suppressed_mixed_type_rows' => $suppressedMixedTypeRows,
+                'superseded_snapshot_rows' => $supersededSnapshotRows,
             ],
         ];
     }
@@ -297,6 +304,68 @@ class TrustedOtaFactRepository
         });
 
         return [$selected, $suppressed];
+    }
+
+    /**
+     * Keep all event facts, but never combine daily summary dimensions from
+     * different sync tasks into one artificial snapshot. Legacy rows without
+     * task identity remain unchanged instead of guessing a grouping key.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{0:array<int, array<string, mixed>>,1:int}
+     */
+    private function selectLatestSummarySnapshotRows(array $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $raw = $this->decodeRaw($row['raw_data'] ?? null);
+            $key = implode('|', [
+                $this->normalizedSource($this->firstText($row, $raw, ['source', 'platform'])),
+                (string)($row['system_hotel_id'] ?? ''),
+                (string)($row['data_date'] ?? ''),
+            ]);
+            $groups[$key][] = $row;
+        }
+
+        $selected = [];
+        $superseded = 0;
+        foreach ($groups as $items) {
+            $summaryItems = array_values(array_filter($items, function (array $item): bool {
+                $raw = $this->decodeRaw($item['raw_data'] ?? null);
+                $dataType = $this->normalizedDataType(
+                    $this->firstText($item, $raw, ['data_type', 'dataType'])
+                );
+                return array_key_exists($dataType, self::SUMMARY_DATA_TYPE_PRIORITY);
+            }));
+            if ($summaryItems === []) {
+                array_push($selected, ...$items);
+                continue;
+            }
+
+            $taskIds = array_map(
+                static fn(array $item): int => max(0, (int)($item['sync_task_id'] ?? 0)),
+                $summaryItems
+            );
+            if (in_array(0, $taskIds, true)) {
+                array_push($selected, ...$items);
+                continue;
+            }
+
+            $latestTaskId = max($taskIds);
+            $latestRows = array_values(array_filter(
+                $items,
+                static fn(array $item): bool => (int)($item['sync_task_id'] ?? 0) === $latestTaskId
+            ));
+            array_push($selected, ...$latestRows);
+            $superseded += max(0, count($items) - count($latestRows));
+        }
+
+        usort($selected, static function (array $left, array $right): int {
+            $dateCompare = ((string)($left['data_date'] ?? '')) <=> ((string)($right['data_date'] ?? ''));
+            return $dateCompare !== 0 ? $dateCompare : ((int)($left['id'] ?? 0) <=> (int)($right['id'] ?? 0));
+        });
+
+        return [$selected, $superseded];
     }
 
     /** @return array<int, string> */
@@ -399,6 +468,14 @@ class TrustedOtaFactRepository
         $fieldFactReason = $this->metricFieldFactRejectionReason($row, $raw, $sourceTraceId);
         if ($fieldFactReason !== '') {
             return $fieldFactReason;
+        }
+        $captureClassification =
+            (new OtaStructuredCaptureEvidenceService())->classifyRow($row);
+        if (($captureClassification['allowed'] ?? false) !== true) {
+            return ($captureClassification['status'] ?? '')
+                    === OtaStructuredCaptureEvidenceService::STATUS_DOM
+                ? 'structured_capture_evidence_dom_only'
+                : 'structured_capture_evidence_unverified';
         }
 
         $flags = strtolower($this->flattenFlags($row['validation_flags'] ?? ''));

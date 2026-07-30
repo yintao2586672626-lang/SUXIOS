@@ -154,6 +154,242 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
         self::assertContains('target_date_readback_not_loaded', $contract['quality_flags']);
     }
 
+    public function testFloorPriceGapRoutesToTheRoomTypePricingGuard(): void
+    {
+        $queue = \business_chain_ctrip_chain_action_queue(
+            [
+                'source_scope' => 'ctrip_meituan_target_date_ota_channel',
+                'source_platforms' => ['ctrip', 'meituan'],
+                'manual_review_packet' => [
+                    'status' => 'blocked_ready_for_manual_review',
+                    'primary_action' => ['reason' => 'competitor_price_fields_missing'],
+                    'primary_blocker' => ['reason' => 'floor_price_missing'],
+                ],
+            ],
+            [
+                'status' => 'operation_intake_blocked_by_manual_review',
+                'operation_intake_packet' => [
+                    'candidate_blocked_reason' => 'floor_price_missing',
+                ],
+            ]
+        );
+
+        $item = $queue['items'][0];
+        self::assertSame('floor_price_missing', $item['evidence_code']);
+        self::assertSame('ai_decision_review_inputs', $item['stage']);
+        self::assertSame('agent-center', $item['target_entry']);
+        self::assertSame(
+            'room_type_floor_price_saved_and_readback_verified',
+            $item['required_gate']
+        );
+        self::assertSame(
+            'configure_room_type_floor_price_before_ai_review',
+            $item['next_action']
+        );
+    }
+
+    public function testNextRequiredGateAdvancesPastReadyP0ToTheRealDataGap(): void
+    {
+        $gate = \business_chain_next_required_gate(
+            [
+                'status' => 'ready',
+                'current_upstream_status' => 'ready',
+                'required_upstream_status' => 'ready',
+                'required_gate_command' => 'verify-ready-p0',
+            ],
+            [
+                'unique_remaining_gap' => [
+                    'code' => 'floor_price_missing',
+                    'status' => 'missing',
+                ],
+            ],
+            []
+        );
+
+        self::assertSame('data_gap', $gate['type']);
+        self::assertSame('', $gate['command']);
+        self::assertSame('floor_price_missing', $gate['evidence_code']);
+        self::assertSame('ai_decision_review_inputs', $gate['stage']);
+        self::assertSame('agent-center', $gate['target_entry']);
+        self::assertSame(
+            'room_type_floor_price_saved_and_readback_verified',
+            $gate['required_gate']
+        );
+        self::assertSame('missing', $gate['current_status']);
+    }
+
+    public function testNextRequiredGateKeepsP0FirstWhileItIsBlocked(): void
+    {
+        $gate = \business_chain_next_required_gate(
+            [
+                'status' => 'blocked',
+                'current_upstream_status' => 'missing_target_date_rows',
+                'required_upstream_status' => 'ready',
+                'required_gate_command' => 'verify-blocked-p0',
+            ],
+            [
+                'unique_remaining_gap' => [
+                    'code' => 'floor_price_missing',
+                    'status' => 'missing',
+                ],
+            ],
+            []
+        );
+
+        self::assertSame('p0_verifier', $gate['type']);
+        self::assertSame('verify-blocked-p0', $gate['command']);
+        self::assertSame('ready', $gate['required_status']);
+        self::assertSame('missing_target_date_rows', $gate['current_status']);
+    }
+
+    public function testNextRequiredGateRoutesPmsReadbackGapToPmsOperatingData(): void
+    {
+        $gate = \business_chain_next_required_gate(
+            [
+                'status' => 'ready',
+                'current_upstream_status' => 'ready',
+                'required_upstream_status' => 'ready',
+                'required_gate_command' => 'verify-ready-p0',
+            ],
+            [
+                'unique_remaining_gap' => [
+                    'code' => 'dingdandao_pms_not_readback_verified',
+                    'status' => 'not_verified',
+                ],
+            ],
+            []
+        );
+
+        self::assertSame('data_gap', $gate['type']);
+        self::assertSame('dingdandao_pms_not_readback_verified', $gate['evidence_code']);
+        self::assertSame('pms_collection', $gate['stage']);
+        self::assertSame('pms-operating-data', $gate['target_entry']);
+        self::assertSame(
+            'pms_collection_claim_and_readback_verified',
+            $gate['required_gate']
+        );
+        self::assertSame(
+            'recollect_pms_with_current_contract_and_exact_readback',
+            $gate['next_action']
+        );
+    }
+
+    public function testHistoricalPmsGapRoutesToAuthorizedSingleDateRecollection(): void
+    {
+        $gate = \business_chain_next_required_gate(
+            [
+                'status' => 'ready',
+                'current_upstream_status' => 'ready',
+                'required_upstream_status' => 'ready',
+            ],
+            [
+                'business_date' => '2026-07-29',
+                'unique_remaining_gap' => [
+                    'code' => 'dingdandao_pms_not_readback_verified',
+                    'status' => 'not_verified',
+                    'recovery_status' => 'historical_recollection_available',
+                    'live_recollection_allowed' => false,
+                    'historical_recollection_allowed' => true,
+                ],
+                'sources' => [
+                    'dingdandao_pms' => [
+                        'source' => [
+                            'capture_source_scope' => 'today_only',
+                        ],
+                    ],
+                ],
+            ],
+            []
+        );
+
+        self::assertSame('data_gap', $gate['type']);
+        self::assertSame('pms_historical_collection', $gate['stage']);
+        self::assertSame('pms-operating-data', $gate['target_entry']);
+        self::assertSame(
+            'historical_pms_single_date_collection_and_readback_verified',
+            $gate['required_gate']
+        );
+        self::assertSame(
+            'recollect_authorized_historical_pms_single_date_and_exact_readback',
+            $gate['next_action']
+        );
+        self::assertSame(
+            'historical_recollection_available',
+            $gate['recovery_status']
+        );
+        self::assertFalse($gate['live_recollection_allowed']);
+        self::assertTrue($gate['historical_recollection_allowed']);
+    }
+
+    public function testSelectedHotelP0GateCanBeReadyWhileGlobalVerifierRetainsNonP0Issues(): void
+    {
+        $plan = [
+            'status' => 'incomplete',
+            'verifier_exit_code' => 2,
+            'scope' => [
+                'system_hotel_id' => 80,
+                'platforms' => ['ctrip', 'meituan'],
+            ],
+            'platform_summaries' => [
+                $this->readyPlatformSummary('ctrip', 80),
+                $this->readyPlatformSummary('meituan', 80),
+            ],
+        ];
+
+        self::assertTrue(\business_chain_p0_execution_plan_ready($plan));
+    }
+
+    public function testSelectedHotelP0GateUsesHotelScopedReadinessWhenOtherHotelsAreIncomplete(): void
+    {
+        $summary = $this->readyPlatformSummary('ctrip', 80);
+        $summary['platform_ready'] = false;
+        $summary['next_steps'][] = [
+            'platform' => 'ctrip',
+            'system_hotel_id' => 77,
+            'hotel_ready' => false,
+            'operator_skip_active' => false,
+        ];
+
+        $plan = [
+            'status' => 'incomplete',
+            'verifier_exit_code' => 2,
+            'scope' => [
+                'system_hotel_id' => 80,
+                'platforms' => ['ctrip'],
+            ],
+            'platform_summaries' => [$summary],
+        ];
+
+        self::assertTrue(\business_chain_p0_execution_plan_ready($plan));
+    }
+
+    public function testSelectedHotelP0GateRejectsMissingPlatformsFailedVerifierAndOperatorSkip(): void
+    {
+        $readyPlan = [
+            'status' => 'incomplete',
+            'verifier_exit_code' => 2,
+            'scope' => [
+                'system_hotel_id' => 80,
+                'platforms' => ['ctrip', 'meituan'],
+            ],
+            'platform_summaries' => [
+                $this->readyPlatformSummary('ctrip', 80),
+            ],
+        ];
+        self::assertFalse(\business_chain_p0_execution_plan_ready($readyPlan));
+
+        $failedPlan = $readyPlan;
+        $failedPlan['status'] = 'failed';
+        $failedPlan['verifier_exit_code'] = 1;
+        $failedPlan['scope']['platforms'] = ['ctrip'];
+        self::assertFalse(\business_chain_p0_execution_plan_ready($failedPlan));
+
+        $skippedPlan = $readyPlan;
+        $skippedPlan['scope']['platforms'] = ['ctrip'];
+        $skippedPlan['platform_summaries'][0]['operator_skip_active'] = true;
+        self::assertFalse(\business_chain_p0_execution_plan_ready($skippedPlan));
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -181,6 +417,30 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
                 ],
             ],
             'p0_verifier_command' => 'verify --hotel=' . $hotelId,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function readyPlatformSummary(string $platform, int $hotelId): array
+    {
+        return [
+            'platform' => $platform,
+            'target_date_rows' => 10,
+            'traffic_rows' => 3,
+            'readback_check_supported' => true,
+            'readback_verified_rows' => 3,
+            'readback_unverified_rows' => 0,
+            'readback_status' => 'ready',
+            'platform_ready' => true,
+            'operator_skip_active' => false,
+            'next_steps' => [[
+                'platform' => $platform,
+                'system_hotel_id' => $hotelId,
+                'hotel_ready' => true,
+                'operator_skip_active' => false,
+            ]],
         ];
     }
 }

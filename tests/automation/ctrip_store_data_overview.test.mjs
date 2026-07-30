@@ -261,6 +261,9 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
   assert.match(quickActions, /已处理 \{\{ ctripOverviewCoreFetchState\.completed_count \}\}\/\{\{ ctripOverviewCoreFetchState\.total_count \}\}/);
   assert.match(quickActions, /hotel\.hotel_name/);
   assert.match(quickActions, /hotel\.status_text/);
+  assert.match(ctripFragment, /ctripOverviewCoreFetchState\.message/);
+  assert.match(ctripFragment, /hotel\.message/);
+  assert.match(html, /配置缺口 \$\{state\.configuration_gap_count\} 家/);
   assert.match(quickActions, /:disabled="ctripOverviewCoreFetchRunning \|\| !!ctripOverviewFetchActionLoading"/);
   assert.match(dataHealthOverviewSource, /抓取竞争/);
   assert.match(dataHealthOverviewSource, /抓取经营/);
@@ -307,7 +310,12 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
   const competitionBatchRunner = sliceBetween(
     html,
     'const executeCtripCompetitionBatchTarget = async (target) =>',
-    'const finishCtripCompetitionBatchState = () =>'
+    "const finishCtripCompetitionBatchState = (message = '') =>"
+  );
+  const competitionBatchResponseResolver = sliceBetween(
+    html,
+    'const resolveCtripCompetitionBatchResponse = (response = null) =>',
+    'const executeCtripCompetitionBatchTarget = async (target) =>'
   );
   assert.match(html, /const prepareCtripOverviewFetchAction = async \(tabName\) =>/);
   assert.match(quickActionRunner, /await prepareCtripOverviewFetchAction\(tabName\)/);
@@ -319,6 +327,8 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
   assert.match(html, /const ctripOverviewCoreFetchState = ref\(null\)/);
   assert.match(coreActionRunner, /loadHotels\(\)/);
   assert.match(coreActionRunner, /loadCtripConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
+  assert.match(coreActionRunner, /hotelListLoadFailed\.value \|\| ctripConfigListLoadFailed\.value/);
+  assert.match(coreActionRunner, /加载失败，未发起任何竞争圈接口请求/);
   assert.match(coreActionRunner, /const targets = buildCtripCompetitionBatchTargets\(\)/);
   assert.match(coreActionRunner, /targets\.filter\(target => target\.readiness\.ok\)/);
   assert.match(coreActionRunner, /Math\.min\(2, readyTargets\.length\)/);
@@ -329,6 +339,21 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
   assert.match(competitionBatchRunner, /requestSource: 'competition_circle'/);
   assert.match(competitionBatchRunner, /\/online-data\/fetch-ctrip-cookie-api/);
   assert.match(competitionBatchRunner, /systemHotelId: target\.hotelId/);
+  assert.match(competitionBatchRunner, /hotelId: target\.readiness\.platformHotelId/);
+  assert.match(competitionBatchResponseResolver, /data\.identity_check\?\.ok === false/);
+  assert.match(competitionBatchResponseResolver, /status: identityBlocked \? 'identity_pending' : 'failed'/);
+  assert.match(competitionBatchResponseResolver, /status: 'identity_pending'/);
+  assert.match(competitionBatchResponseResolver, /data\.request_complete !== true/);
+  assert.doesNotMatch(competitionBatchResponseResolver, /status: data\.identity_check \? 'blocked' : 'failed'/);
+  assert.match(html, /identity_pending: \{ text: '身份待确认'/);
+  assert.match(html, /configuration_gap: \{ text: '待配置'/);
+  assert.match(html, /identity_pending_count/);
+  assert.match(html, /\|\| state\.identity_pending_count > 0/);
+  assert.doesNotMatch(html, /blocked: \{ text: '不可采集'/);
+  assert.match(html, /入库成功 \$\{state\.success_count\} 家，身份待确认 \$\{state\.identity_pending_count\} 家/);
+  assert.match(ctripFragment, /入库成功 \{\{ ctripOverviewCoreFetchState\.success_count \}\}/);
+  assert.match(ctripFragment, /身份待确认 \{\{ ctripOverviewCoreFetchState\.identity_pending_count \}\}/);
+  assert.match(ctripFragment, /配置缺口 \{\{ ctripOverviewCoreFetchState\.configuration_gap_count \}\}/);
   assert.doesNotMatch(competitionBatchRunner, /\bcookies\s*:/);
   assert.doesNotMatch(competitionBatchRunner, /\bprofile_id\s*:/);
   assert.match(coreActionRunner, /scheduleDataHealthPanelRefresh\('light', \{ force: true/);
@@ -340,6 +365,8 @@ test('Ctrip overview batch capture runs competition circle only for every ready 
   assert.doesNotMatch(coreActionRunner, /openCtripOverviewFetchTab/);
   assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*tabName/);
   assert.doesNotMatch(coreActionRunner, /onlineDataTab\.value\s*=\s*'data-health'/);
+  assert.match(html, /reason: 'missing_platform_hotel_id'/);
+  assert.match(html, /缺少携程 hotelId，未发起接口请求/);
 
   const cookieApiRunner = sliceBetween(
     html,
@@ -380,6 +407,9 @@ test('Ctrip Cookie API save is guarded against cross-store hotel identity confli
   assert.match(cookieApiHandler, /reason'\s*=>\s*'hotel_identity_mismatch'/);
   assert.match(cookieApiHandler, /saved_count'\s*=>\s*0/);
   assert.match(cookieApiHandler, /expected_platform_hotel_id_missing/);
+  assert.match(cookieApiHandler, /findStoredCtripExecutionConfig\(\$configId, \$systemHotelId\)/);
+  assert.match(cookieApiHandler, /stored_platform_hotel_id_mismatch/);
+  assert.match(cookieApiHandler, /\$requestData\['ctrip_hotel_id'\]\s*=\s*\(string\)/);
   assert.match(cookieApiHandler, /\$saveBlockedIdentity\s*=\s*\$identityCheck/);
   assert.doesNotMatch(cookieApiHandler, /cookie_only_without_platform_hotel_id/);
   assert.doesNotMatch(cookieApiHandler, /expected_platform_hotel_id_missing[\s\S]{0,500}\$identityCheck\['ok'\]\s*=\s*true/);

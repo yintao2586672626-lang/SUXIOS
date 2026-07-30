@@ -2,8 +2,11 @@
 <?php
 declare(strict_types=1);
 
+use app\model\User;
+use app\service\CollectionResultContractService;
 use app\service\DingdandaoOperatingTargetCaptureService;
 use app\service\DingdandaoPmsIntegrationService;
+use app\service\PermissionService;
 use think\App;
 use think\facade\Db;
 
@@ -44,18 +47,30 @@ $nodeBinary = resolveLocalNodeBinary(
 );
 $sandboxId = trim((string)($options['sandbox-id'] ?? ''));
 $collectionMode = localCollectionMode(
-    (string)($options['collection-mode'] ?? 'full_diagnostic')
+    (string)($options['collection-mode']
+        ?? ($targetDate < $today ? 'operating_indicators' : 'full_diagnostic'))
 );
 $requireSandbox = array_key_exists('require-sandbox', $options);
 $pushRequested = array_key_exists('push', $options);
+$historicalCollection = localValidDate($targetDate) && $targetDate < $today;
+$expectedSourceScope = $historicalCollection
+    ? DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE
+    : DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE;
 
-if (!localValidDate($targetDate)
-    || $targetDate !== $today
-    || !localValidCdpUrl($cdpUrl)
+if (!localValidDate($targetDate) || !localValidCdpUrl($cdpUrl)
     || ($sandboxId !== '' && !localValidSandboxId($sandboxId))
     || ($requireSandbox && $sandboxId === '')
 ) {
     localFail('dingdandao_local_collection_arguments_invalid', 2);
+}
+if ($targetDate > $today) {
+    localFail('dingdandao_local_target_date_in_future', 2);
+}
+if ($historicalCollection && $collectionMode !== 'operating_indicators') {
+    localFail('dingdandao_local_historical_collection_mode_invalid', 2);
+}
+if ($historicalCollection && $pushRequested) {
+    localFail('dingdandao_local_historical_direct_push_not_allowed', 2);
 }
 
 $hotel = Db::name('hotels')
@@ -72,6 +87,21 @@ if (!is_array($hotel)
 
 $tenantId = (int)$hotel['tenant_id'];
 $hotelName = trim((string)$hotel['name']);
+$ownerUser = User::where('id', $ownerUserId)->find();
+if (!$ownerUser instanceof User
+    || (int)($ownerUser->tenant_id ?? 0) !== $tenantId
+    || (int)($ownerUser->status ?? 0) !== User::STATUS_ENABLED
+) {
+    localFail('dingdandao_local_owner_scope_invalid');
+}
+$authorization = (new PermissionService())->authorize(
+    $ownerUser,
+    'ota.collect',
+    $hotelId
+);
+if (($authorization['allowed'] ?? false) !== true) {
+    localFail('dingdandao_local_owner_permission_denied');
+}
 $integrationService = new DingdandaoPmsIntegrationService();
 $captureExpectation = $integrationService->captureExpectation(
     $tenantId,
@@ -108,6 +138,8 @@ if (!is_resource($lock) || !flock($lock, LOCK_EX | LOCK_NB)) {
 }
 
 $businessDataPersisted = false;
+$persistedCapture = null;
+$failureStage = 'collector';
 $result = null;
 $mainError = null;
 try {
@@ -123,6 +155,8 @@ try {
     if (($collector['status'] ?? '') !== 'captured_unverified'
         || ($collector['collection_mode'] ?? '') !== $collectionMode
         || !is_array($collector['capture'] ?? null)
+        || (string)($collector['capture']['source_scope'] ?? '')
+            !== $expectedSourceScope
         || ($collector['raw_response_exposed'] ?? null) !== false
         || ($collector['session_material_exposed'] ?? null) !== false
         || ($sandboxId !== ''
@@ -134,6 +168,7 @@ try {
         throw new RuntimeException('dingdandao_local_collection_payload_invalid');
     }
 
+    $failureStage = 'persistence';
     $capture = (new DingdandaoOperatingTargetCaptureService())->save(
         $tenantId,
         $hotelId,
@@ -144,17 +179,37 @@ try {
         $expectedProviderHotelId
     );
     $businessDataPersisted = true;
+    $persistedCapture = $capture;
+    $failureStage = 'readback_validation';
     if (($capture['quality_status'] ?? '') !== 'verified'
         || ($capture['capture_status'] ?? '') !== 'verified'
         || ($capture['readback_status'] ?? '') !== 'readback_verified'
         || ($capture['identity_status'] ?? '') !== 'matched'
         || ($capture['reconciliation_status'] ?? '') !== 'matched'
         || (string)($capture['business_date'] ?? '') !== $targetDate
+        || (string)($capture['source_scope'] ?? '') !== $expectedSourceScope
         || (int)($capture['hotel_id'] ?? 0) !== $hotelId
     ) {
         throw new RuntimeException('dingdandao_local_collection_readback_not_verified');
     }
+    $collectionValidation =
+        (new CollectionResultContractService())->validateDingdandaoCaptureClaim(
+            $capture,
+            [
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'business_date' => $targetDate,
+                'provider_hotel_id' => $expectedProviderHotelId,
+                'source_scope' => $expectedSourceScope,
+            ]
+        );
+    if (($collectionValidation['allowed'] ?? false) !== true) {
+        throw new RuntimeException(
+            'dingdandao_local_collection_contract_not_verified'
+        );
+    }
 
+    $failureStage = 'prefill';
     $prefill = $integrationService->prefill(
         $tenantId,
         $hotelId,
@@ -167,6 +222,7 @@ try {
         throw new RuntimeException('dingdandao_local_collection_prefill_readback_failed');
     }
 
+    $failureStage = 'operating_target_sync';
     $targetSync = $integrationService->syncVerifiedCapture(
         $tenantId,
         $hotelId,
@@ -177,35 +233,40 @@ try {
         throw new RuntimeException('dingdandao_local_collection_target_sync_blocked');
     }
 
+    $failureStage = 'push';
     $push = [
         'delivery_status' => 'not_requested',
         'delivery_attempted' => false,
+        'error_summary' => null,
     ];
     if ($pushRequested) {
-        $push = $integrationService->dispatchVerifiedCapture(
-            $tenantId,
-            $hotelId,
-            $ownerUserId,
-            $hotelName,
-            $capture,
-            'manual'
-        );
-        if (!in_array(
-            (string)($push['delivery_status'] ?? ''),
-            ['sent', 'already_sent'],
-            true
-        )) {
-            $blockerCodes = localBlockerCodes((array)($push['blockers'] ?? []));
-            throw new RuntimeException(
-                $blockerCodes !== []
-                    ? 'dingdandao_local_push_blocked_' . implode('_', $blockerCodes)
-                    : 'dingdandao_local_push_failed'
+        try {
+            $push = $integrationService->dispatchVerifiedCapture(
+                $tenantId,
+                $hotelId,
+                $ownerUserId,
+                $hotelName,
+                $capture,
+                'manual'
             );
+        } catch (Throwable $pushError) {
+            $push = [
+                'delivery_status' => 'orchestration_failed',
+                'delivery_attempted' => false,
+                'error_summary' => localSafeReason($pushError->getMessage()),
+            ];
         }
     }
+    $messageSent = in_array(
+        (string)($push['delivery_status'] ?? ''),
+        ['sent', 'already_sent'],
+        true
+    ) && (string)($push['result_code'] ?? '') === 'wecom_business_success';
 
     $result = [
         'status' => 'saved_and_readback_verified',
+        'collection_success' => true,
+        'business_data_persisted' => true,
         'execution_mode' => 'local_cdp',
         'collection_mode' => $collectionMode,
         'sandbox_id' => $sandboxId !== '' ? $sandboxId : null,
@@ -222,8 +283,12 @@ try {
         'reconciliation_status' => (string)$capture['reconciliation_status'],
         'quality_status' => (string)$capture['quality_status'],
         'readback_status' => (string)$capture['readback_status'],
-        'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+        'collection_contract_status' => 'verified',
+        'source_scope' => (string)($capture['source_scope'] ?? ''),
         'summary' => (array)($capture['summary'] ?? []),
+        'room_fee_summary_row_count' => count(
+            (array)($capture['room_fee_summary_rows'] ?? [])
+        ),
         'detail_row_count' => (int)($capture['detail_row_count'] ?? 0),
         'trend_point_counts' => localTrendPointCounts(
             (array)($capture['trend'] ?? [])
@@ -234,6 +299,9 @@ try {
         'forward_room_status' => localForwardRoomStatusSummary(
             (array)($capture['forward_room_status'] ?? [])
         ),
+        'component_coverage' => is_array($capture['component_coverage'] ?? null)
+            ? $capture['component_coverage']
+            : [],
         'operating_target_sync' => [
             'status' => (string)($targetSync['status'] ?? 'partial'),
             'sync_status' => (string)($targetSync['sync_status'] ?? 'unknown'),
@@ -247,11 +315,16 @@ try {
             'delivery_attempted' => ($push['delivery_attempted'] ?? false) === true,
             'dispatch_id' => (int)($push['id'] ?? 0),
             'robot_id' => (int)($push['robot_id'] ?? 0),
-            'message_sent' => in_array(
-                (string)($push['delivery_status'] ?? ''),
-                ['sent', 'already_sent'],
-                true
-            ),
+            'message_sent' => $messageSent,
+            'delivery_satisfied' => !$pushRequested || $messageSent,
+            'result_code' => $push['result_code'] ?? null,
+            'response_reference' => $push['response_reference'] ?? null,
+            'payload_bytes' => isset($push['payload_bytes'])
+                ? (int)$push['payload_bytes']
+                : null,
+            'error_summary' => isset($push['error_summary'])
+                ? localSafeReason((string)$push['error_summary'])
+                : null,
             'blocker_codes' => localBlockerCodes((array)($push['blockers'] ?? [])),
         ],
         'raw_response_exposed' => false,
@@ -269,7 +342,20 @@ if ($mainError !== null || !is_array($result)) {
     localFail(
         $mainError ?? 'dingdandao_local_collection_failed',
         1,
-        $businessDataPersisted
+        $businessDataPersisted,
+        [
+            'failure_stage' => $failureStage,
+            'hotel_id' => $hotelId,
+            'target_date' => $targetDate,
+            'collection_mode' => $collectionMode,
+            'sandbox_id' => $sandboxId !== '' ? $sandboxId : null,
+            'capture_id' => (int)($persistedCapture['id'] ?? 0),
+            'identity_status' => $persistedCapture['identity_status'] ?? null,
+            'reconciliation_status' =>
+                $persistedCapture['reconciliation_status'] ?? null,
+            'quality_status' => $persistedCapture['quality_status'] ?? null,
+            'readback_status' => $persistedCapture['readback_status'] ?? null,
+        ]
     );
 }
 
@@ -495,10 +581,12 @@ function localForwardRoomStatusSummary(array $forward): array
             'booked_room_nights' => $row['booked_room_nights'] ?? null,
             'remaining_sellable_room_nights' =>
                 $row['remaining_sellable_room_nights'] ?? null,
+            'oversold_room_nights' => $row['oversold_room_nights'] ?? null,
             'occupancy_rate_percent' => $row['occupancy_rate_percent'] ?? null,
             'adr' => $row['adr'] ?? null,
             'revpar' => $row['revpar'] ?? null,
             'quality_status' => (string)($row['quality_status'] ?? 'partial'),
+            'gap_codes' => (array)($row['gap_codes'] ?? []),
         ];
     }
     return [
@@ -522,6 +610,8 @@ function localForwardRoomStatusSummary(array $forward): array
         'display_horizons' => (array)($forward['display_horizons'] ?? []),
         'horizons' => $horizons,
         'gap_codes' => (array)($forward['gap_codes'] ?? []),
+        'anomaly_count' => count((array)($forward['anomalies'] ?? [])),
+        'anomalies' => (array)($forward['anomalies'] ?? []),
     ];
 }
 
@@ -534,12 +624,32 @@ function localSafeReason(string $reason): string
 function localFail(
     string $reason,
     int $exitCode = 1,
-    bool $businessDataPersisted = false
+    bool $businessDataPersisted = false,
+    array $context = []
 ): never {
+    $readbackVerified = $businessDataPersisted
+        && (string)($context['readback_status'] ?? '') === 'readback_verified'
+        && (int)($context['capture_id'] ?? 0) > 0;
     fwrite(STDERR, json_encode([
-        'status' => 'blocked',
+        'status' => $readbackVerified ? 'saved_downstream_blocked' : 'blocked',
         'reason' => localSafeReason($reason),
+        'collection_success' => $readbackVerified,
         'business_data_persisted' => $businessDataPersisted,
+        'failure_stage' => isset($context['failure_stage'])
+            ? localSafeReason((string)$context['failure_stage'])
+            : null,
+        'hotel_id' => (int)($context['hotel_id'] ?? 0),
+        'target_date' => $context['target_date'] ?? null,
+        'collection_mode' => $context['collection_mode'] ?? null,
+        'sandbox_id' => $context['sandbox_id'] ?? null,
+        'sandbox_selection' => trim((string)($context['sandbox_id'] ?? '')) !== ''
+            ? 'explicit_marker'
+            : null,
+        'capture_id' => (int)($context['capture_id'] ?? 0),
+        'identity_status' => $context['identity_status'] ?? null,
+        'reconciliation_status' => $context['reconciliation_status'] ?? null,
+        'quality_status' => $context['quality_status'] ?? null,
+        'readback_status' => $context['readback_status'] ?? null,
         'message_sent' => false,
         'raw_response_exposed' => false,
         'session_material_exposed' => false,

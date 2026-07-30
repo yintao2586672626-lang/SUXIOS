@@ -38,7 +38,6 @@ final class KnowledgeDecisionGateService
         $reviewedAt = $this->firstDate([
             $content['reviewed_at'] ?? null,
             $unit['reviewed_at'] ?? null,
-            $content['accessed_at'] ?? null,
         ]);
         $validFrom = $this->firstDate([
             $content['valid_from'] ?? null,
@@ -79,7 +78,7 @@ final class KnowledgeDecisionGateService
         )));
         $hasCurrentVerification = in_array(
             $currentVerificationStatus,
-            ['verified', 'verified_current', 'matched', 'available'],
+            ['verified', 'verified_current', 'matched'],
             true
         );
 
@@ -296,16 +295,7 @@ final class KnowledgeDecisionGateService
      */
     public function classifyEvidenceGrade(array $content): string
     {
-        $explicit = strtoupper(trim((string)($content['evidence_grade'] ?? '')));
-        if (in_array($explicit, ['A', 'B', 'C', 'D', 'U'], true)) {
-            return $explicit;
-        }
-
         $level = strtolower(trim((string)($content['evidence_level'] ?? '')));
-        if ($level === '') {
-            return 'U';
-        }
-
         if ($this->containsAny($level, [
             'unverified',
             'synthetic',
@@ -319,6 +309,14 @@ final class KnowledgeDecisionGateService
             'live_recheck_required',
         ])) {
             return 'D';
+        }
+
+        $explicit = strtoupper(trim((string)($content['evidence_grade'] ?? '')));
+        if (in_array($explicit, ['A', 'B', 'C', 'D', 'U'], true)) {
+            return $explicit;
+        }
+        if ($level === '') {
+            return 'U';
         }
         if ($this->containsAny($level, [
             'official_current',

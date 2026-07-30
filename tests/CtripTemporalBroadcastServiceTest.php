@@ -35,7 +35,7 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
             $this->time('2026-07-30 01:30:00')
         );
 
-        self::assertSame('available', $result['status']);
+        self::assertSame('partial', $result['status']);
         self::assertTrue($result['send_gate']['should_send']);
         self::assertSame(0, $result['segments']['present']['metrics']['starting_price']['value']);
         self::assertSame('captured', $result['segments']['present']['metrics']['starting_price']['status']);
@@ -83,6 +83,10 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
         );
         self::assertContains(
             'present:derived_metric_unavailable:exposure_to_detail_rate',
+            $result['internal_gaps']
+        );
+        self::assertContains(
+            'present:intraday_trend_missing',
             $result['internal_gaps']
         );
         $content = $result['payload']['text']['content'];
@@ -510,6 +514,148 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
         );
     }
 
+    public function testStoredStartingPriceUsesExactMinimumPriceEndpointAndPreservesZero(): void
+    {
+        $result = $this->service()->buildFromStoredRows(
+            [
+                $this->storedRow(720, 'traffic_hotel_min_price', [
+                    $this->fact('min_price', 0, 'minPrice'),
+                ]),
+                $this->storedRow(721, 'business_realtime', [
+                    $this->fact('starting_price', 999, 'unrelated.startingPrice'),
+                ]),
+            ],
+            80,
+            'Dunhuang Molan',
+            '2026-07-30',
+            'realtime',
+            '',
+            false,
+            $this->time('2026-07-30 01:30:00')
+        );
+
+        self::assertSame(
+            0,
+            $result['segments']['present']['metrics']['starting_price']['value']
+        );
+        self::assertStringContainsString(
+            '0.00',
+            (string)$result['payload']['text']['content']
+        );
+        self::assertStringNotContainsString(
+            '999',
+            (string)$result['payload']['text']['content']
+        );
+    }
+
+    public function testStoredFutureRejectsRealtimeSnapshotLookalike(): void
+    {
+        $lookalike = $this->storedFutureRow(
+            730,
+            '2026-08-01',
+            'self',
+            ['future_search_uv' => 999]
+        );
+        $lookalike['data_period'] = 'realtime_snapshot';
+
+        $blocked = $this->service()->buildFromStoredRows(
+            [$lookalike],
+            80,
+            'Dunhuang Molan',
+            '2026-07-30',
+            'future',
+            '',
+            false,
+            $this->time('2026-07-30 01:30:00')
+        );
+        self::assertSame('blocked', $blocked['segments']['future']['status']);
+        self::assertNull($blocked['payload']);
+
+        $verified = $this->service()->buildFromStoredRows(
+            [
+                $this->storedFutureRow(
+                    731,
+                    '2026-08-01',
+                    'self',
+                    ['future_search_uv' => 20]
+                ),
+            ],
+            80,
+            'Dunhuang Molan',
+            '2026-07-30',
+            'future',
+            '',
+            false,
+            $this->time('2026-07-30 01:30:00')
+        );
+        self::assertSame('available', $verified['segments']['future']['status']);
+        self::assertSame(
+            20,
+            $verified['segments']['future']['rows'][0]['metrics']
+                ['future_search_uv']['value']
+        );
+    }
+
+    public function testFutureUsesThirtyInclusiveDatesAndIgnoresShiftedComparisonTail(): void
+    {
+        $result = $this->service()->buildFromStoredRows(
+            [
+                $this->storedFutureRow(
+                    740,
+                    '2026-08-28',
+                    'self',
+                    ['future_search_uv' => 20]
+                ),
+                $this->storedFutureRow(
+                    741,
+                    '2026-08-28',
+                    'competitor_avg',
+                    ['future_search_uv' => 8]
+                ),
+                $this->storedFutureRow(
+                    742,
+                    '2026-08-29',
+                    'self',
+                    ['future_search_uv' => 999],
+                    'yesterday'
+                ),
+                $this->storedFutureRow(
+                    743,
+                    '2026-08-29',
+                    'competitor_avg',
+                    ['future_search_uv' => 888],
+                    'yesterday'
+                ),
+            ],
+            80,
+            'Dunhuang Molan',
+            '2026-07-30',
+            'future',
+            '',
+            false,
+            $this->time('2026-07-30 01:30:00')
+        );
+
+        self::assertSame('available', $result['segments']['future']['status']);
+        self::assertCount(1, $result['segments']['future']['rows']);
+        self::assertSame(
+            '2026-08-28',
+            $result['segments']['future']['rows'][0]['target_date']
+        );
+        self::assertNotContains(
+            'future:future_metrics_missing:2026-08-29',
+            $result['internal_gaps']
+        );
+        self::assertStringNotContainsString(
+            '999',
+            (string)$result['payload']['text']['content']
+        );
+        self::assertStringNotContainsString(
+            '888',
+            (string)$result['payload']['text']['content']
+        );
+    }
+
     private function service(): CtripTemporalBroadcastService
     {
         return new CtripTemporalBroadcastService();
@@ -580,6 +726,7 @@ final class CtripTemporalBroadcastServiceTest extends TestCase
         string $window = 'cumulative'
     ): array {
         $row = $this->storedRow($id, 'traffic_search_details', []);
+        $row['data_period'] = 'next_30_days';
         $row['raw_data']['dimension_values'] = [
             'target_date' => $targetDate,
             'search_window' => $window,

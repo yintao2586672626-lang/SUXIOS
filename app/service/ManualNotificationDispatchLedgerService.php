@@ -17,6 +17,8 @@ final class ManualNotificationDispatchLedgerService
 {
     public const RENDER_CONTRACT_VERSION = 'operating_target_wecom.v1';
     public const SENDING_LEASE_SECONDS = 180;
+    public const PREPARATION_LEASE_SECONDS = 180;
+    public const PREPARATION_RETRY_SECONDS = 60;
 
     /**
      * @param array<string, mixed> $candidate
@@ -60,6 +62,21 @@ final class ManualNotificationDispatchLedgerService
                 ? $payloadFingerprint
                 : null;
         }
+        $sourceSnapshotRefs = $this->strictSourceSnapshotRefs(
+            $candidate['source_snapshot_refs'] ?? []
+        );
+        $this->assertSourceSnapshotSchema($sourceSnapshotRefs);
+        $this->assertRequiredSourceSnapshots(
+            $candidate,
+            $sourceSnapshotRefs,
+            $payload !== null && $initialStatus === 'claimed'
+        );
+        $sourceSnapshotFingerprint = $sourceSnapshotRefs === []
+            ? null
+            : hash('sha256', $this->json($sourceSnapshotRefs));
+        $testedPlanFingerprint = $this->testedPlanFingerprint(
+            $candidate['tested_plan_fingerprint'] ?? null
+        );
 
         $data = [
             'notification_id' => $notificationId,
@@ -102,6 +119,37 @@ final class ManualNotificationDispatchLedgerService
         )) {
             $data['schedule_run_id'] = $this->positiveOrNull($scheduleRunId);
         }
+        if ($this->tableHasColumn(
+            'manual_notification_schedule_dispatches',
+            'source_snapshot_refs_json'
+        )) {
+            $data['source_snapshot_refs_json'] = $sourceSnapshotRefs === []
+                ? null
+                : $this->json($sourceSnapshotRefs);
+        }
+        if ($this->tableHasColumn(
+            'manual_notification_schedule_dispatches',
+            'source_snapshot_fingerprint'
+        )) {
+            $data['source_snapshot_fingerprint'] = $sourceSnapshotFingerprint;
+        }
+        if ($testedPlanFingerprint !== null) {
+            if (!$this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'tested_plan_fingerprint'
+            )) {
+                throw new \RuntimeException(
+                    'manual_notification_dispatch_tested_plan_schema_missing'
+                );
+            }
+            $data['tested_plan_fingerprint'] =
+                $testedPlanFingerprint;
+        } elseif ($this->tableHasColumn(
+            'manual_notification_schedule_dispatches',
+            'tested_plan_fingerprint'
+        )) {
+            $data['tested_plan_fingerprint'] = null;
+        }
 
         try {
             $dispatchId = (int)Db::name('manual_notification_schedule_dispatches')
@@ -118,12 +166,233 @@ final class ManualNotificationDispatchLedgerService
                 ->where('delivery_mode', $deliveryMode)
                 ->find();
             if (is_array($existing)) {
+                if ($this->reclaimExpiredPreparationDispatch(
+                    (int)$existing['id'],
+                    $now,
+                    $data
+                )) {
+                    $reclaimed = $this->findDispatch((int)$existing['id']);
+                    return [
+                        'claimed' => true,
+                        'dispatch' => $this->present($reclaimed),
+                    ];
+                }
                 $this->recoverExpiredSendingDispatch((int)$existing['id'], $now);
                 $existing = $this->findDispatch((int)$existing['id']);
                 return ['claimed' => false, 'dispatch' => $this->present($existing)];
             }
             throw $exception;
         }
+    }
+
+    /**
+     * Replace the empty reservation with the exact saved candidate before any
+     * sender call. The claimed-at lease token prevents an expired worker from
+     * attaching after another worker has reclaimed the window.
+     *
+     * @param array<string, mixed> $candidate
+     * @return array{allowed:bool,reason_code:string,dispatch:array<string,mixed>}
+     */
+    public function attachCandidateToClaim(
+        int $dispatchId,
+        string $expectedClaimedAt,
+        array $candidate,
+        DateTimeImmutable $now,
+        string $status = 'claimed',
+        string $resultCode = 'dispatch_candidate_attached',
+        ?string $resultMessage = null
+    ): array {
+        $this->assertTables();
+        $status = $this->token(
+            $status,
+            24,
+            'manual_notification_dispatch_status_invalid'
+        );
+        if (!in_array(
+            $status,
+            ['claimed', 'preparation_failed', 'blocked'],
+            true
+        )) {
+            throw new \InvalidArgumentException(
+                'manual_notification_dispatch_status_invalid'
+            );
+        }
+        $expectedClaimedAt = trim($expectedClaimedAt);
+        if ($dispatchId <= 0 || $expectedClaimedAt === '') {
+            throw new \InvalidArgumentException(
+                'manual_notification_dispatch_claim_lease_invalid'
+            );
+        }
+
+        return Db::transaction(function () use (
+            $dispatchId,
+            $expectedClaimedAt,
+            $candidate,
+            $now,
+            $status,
+            $resultCode,
+            $resultMessage
+        ): array {
+            $row = Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->lock(true)
+                ->find();
+            if (!is_array($row)) {
+                throw new \RuntimeException(
+                    'manual_notification_dispatch_not_found'
+                );
+            }
+            $currentClaimedAt = trim((string)($row['claimed_at'] ?? ''));
+            if (strtolower(trim((string)($row['status'] ?? ''))) !== 'claimed'
+                || (int)($row['attempt_count'] ?? 0) !== 0
+                || !hash_equals($currentClaimedAt, $expectedClaimedAt)
+            ) {
+                return [
+                    'allowed' => false,
+                    'reason_code' => 'dispatch_claim_lease_lost',
+                    'dispatch' => $this->present($row),
+                ];
+            }
+
+            $payload = is_array($candidate['payload'] ?? null)
+                ? $candidate['payload']
+                : null;
+            if ($status === 'claimed' && $payload === null) {
+                return [
+                    'allowed' => false,
+                    'reason_code' => 'dispatch_candidate_payload_missing',
+                    'dispatch' => $this->present($row),
+                ];
+            }
+            $payloadFingerprint = $payload === null
+                ? trim((string)(
+                    $candidate['payload_fingerprint']
+                    ?? $candidate['preview_fingerprint']
+                    ?? ''
+                ))
+                : hash('sha256', $this->json($payload));
+            if ($payload === null
+                && preg_match('/^[a-f0-9]{64}$/D', $payloadFingerprint) !== 1
+            ) {
+                $payloadFingerprint = null;
+            }
+            $sourceSnapshotRefs = $this->strictSourceSnapshotRefs(
+                $candidate['source_snapshot_refs'] ?? []
+            );
+            $this->assertSourceSnapshotSchema($sourceSnapshotRefs);
+            $this->assertRequiredSourceSnapshots(
+                $candidate,
+                $sourceSnapshotRefs,
+                $payload !== null && $status === 'claimed'
+            );
+            $sourceSnapshotFingerprint = $sourceSnapshotRefs === []
+                ? null
+                : hash('sha256', $this->json($sourceSnapshotRefs));
+            $testedPlanFingerprint = $this->testedPlanFingerprint(
+                $candidate['tested_plan_fingerprint'] ?? null
+            );
+            $timestamp = $now->format('Y-m-d H:i:s');
+            $update = [
+                'business_date' => $this->dateOrNull(
+                    (string)($candidate['business_date']
+                        ?? $row['business_date']
+                        ?? '')
+                ),
+                'payload_fingerprint' => $payloadFingerprint,
+                'operating_target_record_id' => $this->positiveOrNull(
+                    $candidate['operating_target_record_id'] ?? null
+                ),
+                'snapshot_revision_no' => $this->positiveOrNull(
+                    $candidate['snapshot_revision_no'] ?? null
+                ),
+                'render_contract_version' => $this->renderContractVersion(
+                    $candidate['render_contract_version'] ?? null
+                ),
+                'payload_snapshot_json' => $payload === null
+                    ? null
+                    : $this->json($payload),
+                'status' => $status,
+                'result_code' => $this->safeText($resultCode, 64),
+                'result_message' => $resultMessage === null
+                    ? null
+                    : $this->safeText($resultMessage, 255),
+                'next_retry_at' => $status === 'preparation_failed'
+                    ? $now->modify(
+                        '+' . self::PREPARATION_RETRY_SECONDS . ' seconds'
+                    )->format('Y-m-d H:i:s')
+                    : null,
+                'update_time' => $timestamp,
+            ];
+            if ($this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'source_snapshot_refs_json'
+            )) {
+                $update['source_snapshot_refs_json'] =
+                    $sourceSnapshotRefs === []
+                        ? null
+                        : $this->json($sourceSnapshotRefs);
+            }
+            if ($this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'source_snapshot_fingerprint'
+            )) {
+                $update['source_snapshot_fingerprint'] =
+                    $sourceSnapshotFingerprint;
+            }
+            if ($testedPlanFingerprint !== null) {
+                if (!$this->tableHasColumn(
+                    'manual_notification_schedule_dispatches',
+                    'tested_plan_fingerprint'
+                )) {
+                    throw new \RuntimeException(
+                        'manual_notification_dispatch_tested_plan_schema_missing'
+                    );
+                }
+                $update['tested_plan_fingerprint'] =
+                    $testedPlanFingerprint;
+            } elseif ($this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'tested_plan_fingerprint'
+            )) {
+                $update['tested_plan_fingerprint'] = null;
+            }
+            Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->update($update);
+            return [
+                'allowed' => true,
+                'reason_code' => (string)$update['result_code'],
+                'dispatch' => $this->present($this->findDispatch($dispatchId)),
+            ];
+        });
+    }
+
+    /**
+     * Read the exact idempotency slot before any source refresh is started.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function existingDispatch(
+        int $notificationId,
+        string $dispatchWindow,
+        string $deliveryMode
+    ): ?array {
+        $this->assertTables();
+        if ($notificationId <= 0) {
+            throw new \InvalidArgumentException('manual_notification_dispatch_scope_invalid');
+        }
+        $dispatchWindow = $this->dispatchWindow($dispatchWindow);
+        $deliveryMode = $this->token(
+            $deliveryMode,
+            16,
+            'manual_notification_delivery_mode_invalid'
+        );
+        $row = Db::name('manual_notification_schedule_dispatches')
+            ->where('notification_id', $notificationId)
+            ->where('dispatch_window', $dispatchWindow)
+            ->where('delivery_mode', $deliveryMode)
+            ->find();
+        return is_array($row) ? $this->present($row) : null;
     }
 
     /**
@@ -160,8 +429,54 @@ final class ManualNotificationDispatchLedgerService
             if ($status === 'outcome_unknown' && !$allowOutcomeUnknownRetry) {
                 return ['allowed' => false, 'reason_code' => 'dispatch_status_outcome_unknown'];
             }
-            if (in_array($status, ['sent', 'sending', 'blocked'], true)) {
+            if (in_array(
+                $status,
+                ['sent', 'sending', 'blocked', 'preparation_failed'],
+                true
+            )) {
                 return ['allowed' => false, 'reason_code' => 'dispatch_status_' . $status];
+            }
+            if (!in_array($status, ['claimed', 'failed', 'outcome_unknown'], true)) {
+                return [
+                    'allowed' => false,
+                    'reason_code' => 'dispatch_status_invalid',
+                ];
+            }
+            $payload = $this->decodePayload(
+                $row['payload_snapshot_json'] ?? null
+            );
+            $payloadFingerprint = strtolower(trim((string)(
+                $row['payload_fingerprint'] ?? ''
+            )));
+            if ($payload === null
+                || preg_match(
+                    '/^[a-f0-9]{64}$/D',
+                    $payloadFingerprint
+                ) !== 1
+                || !hash_equals(
+                    $payloadFingerprint,
+                    hash('sha256', $this->json($payload))
+                )
+            ) {
+                return [
+                    'allowed' => false,
+                    'reason_code' => $payload === null
+                        ? 'dispatch_candidate_not_attached'
+                        : 'dispatch_payload_integrity_failed',
+                ];
+            }
+            $sourceIntegrity = $this->sourceSnapshotIntegrity($row);
+            if (!in_array(
+                $sourceIntegrity['status'],
+                ['verified', 'not_applicable'],
+                true
+            )) {
+                return [
+                    'allowed' => false,
+                    'reason_code' =>
+                        'dispatch_source_snapshot_integrity_'
+                        . $sourceIntegrity['status'],
+                ];
             }
             $requestKind = $requestKindOverride === null
                 ? (string)($row['request_kind'] ?? 'scheduled')
@@ -327,6 +642,16 @@ final class ManualNotificationDispatchLedgerService
         ) {
             throw new \RuntimeException('manual_notification_retry_payload_integrity_failed');
         }
+        $sourceIntegrity = $this->sourceSnapshotIntegrity($row);
+        if (!in_array(
+            $sourceIntegrity['status'],
+            ['verified', 'not_applicable'],
+            true
+        )) {
+            throw new \RuntimeException(
+                'manual_notification_retry_source_snapshot_integrity_failed'
+            );
+        }
         return [
             'dispatch' => $this->present($row),
             'payload' => $payload,
@@ -338,6 +663,19 @@ final class ManualNotificationDispatchLedgerService
             'hotel_id' => (int)$row['hotel_id'],
             'previous_status' => $status,
         ];
+    }
+
+    /** @return array{status:string,refs:array<string,array<string,int|string>>} */
+    public function sourceSnapshotIntegrityStatus(int $dispatchId): array
+    {
+        $this->assertTables();
+        if ($dispatchId <= 0) {
+            throw new \InvalidArgumentException(
+                'manual_notification_dispatch_scope_invalid'
+            );
+        }
+        $row = $this->findDispatch($dispatchId);
+        return $this->sourceSnapshotIntegrity($row);
     }
 
     /**
@@ -421,9 +759,16 @@ final class ManualNotificationDispatchLedgerService
     public function latestScheduleRun(
         int $tenantId = 0,
         int $hotelId = 0,
-        int $robotId = 0
+        int $robotId = 0,
+        string $mode = ''
     ): array
     {
+        $mode = strtolower(trim($mode));
+        if ($mode !== '' && !in_array($mode, ['test', 'formal'], true)) {
+            throw new \InvalidArgumentException(
+                'manual_notification_schedule_mode_invalid'
+            );
+        }
         if (!$this->tableExists('manual_notification_schedule_runs')) {
             return [
                 'status' => 'not_deployed',
@@ -431,11 +776,17 @@ final class ManualNotificationDispatchLedgerService
             ];
         }
         $query = Db::name('manual_notification_schedule_runs');
+        if ($mode !== '') {
+            $query->where('runner_mode', $mode);
+        }
         $dispatchLinkedScope = null;
         $planObservation = null;
         if ($hotelId > 0) {
             $explicitScope = Db::name('manual_notification_schedule_runs')
                 ->where('scope_hotel_id', $hotelId);
+            if ($mode !== '') {
+                $explicitScope->where('runner_mode', $mode);
+            }
             if ($tenantId > 0 && $this->tableHasColumn(
                 'manual_notification_schedule_runs',
                 'scope_tenant_id'
@@ -460,6 +811,9 @@ final class ManualNotificationDispatchLedgerService
                 $dispatchScope = Db::name('manual_notification_schedule_dispatches')
                     ->where('hotel_id', $hotelId)
                     ->where('schedule_run_id', '>', 0);
+                if ($mode !== '') {
+                    $dispatchScope->where('delivery_mode', $mode);
+                }
                 if ($tenantId > 0) {
                     $dispatchScope->where('tenant_id', $tenantId);
                 }
@@ -479,6 +833,9 @@ final class ManualNotificationDispatchLedgerService
             if ($this->tableExists('manual_notification_schedule_run_scopes')) {
                 $observationScope = Db::name('manual_notification_schedule_run_scopes')
                     ->where('hotel_id', $hotelId);
+                if ($mode !== '') {
+                    $observationScope->where('runner_mode', $mode);
+                }
                 if ($tenantId > 0) {
                     $observationScope->where('tenant_id', $tenantId);
                 }
@@ -706,6 +1063,95 @@ final class ManualNotificationDispatchLedgerService
     }
 
     /**
+     * Recover only reservations that provably have not crossed the sender
+     * boundary. Sending attempts remain outcome-unknown and are never reclaimed
+     * automatically.
+     *
+     * @param array<string, mixed> $freshReservation
+     */
+    private function reclaimExpiredPreparationDispatch(
+        int $dispatchId,
+        DateTimeImmutable $now,
+        array $freshReservation
+    ): bool {
+        if ($dispatchId <= 0) {
+            return false;
+        }
+        return Db::transaction(function () use (
+            $dispatchId,
+            $now,
+            $freshReservation
+        ): bool {
+            $dispatch = Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->lock(true)
+                ->find();
+            if (!is_array($dispatch)
+                || (int)($dispatch['attempt_count'] ?? 0) !== 0
+            ) {
+                return false;
+            }
+            $status = strtolower(trim((string)($dispatch['status'] ?? '')));
+            $retryDue = false;
+            if ($status === 'claimed') {
+                $leaseStartedAt = trim((string)(
+                    $dispatch['claimed_at']
+                    ?? $dispatch['update_time']
+                    ?? ''
+                ));
+                try {
+                    $leaseStarted = new DateTimeImmutable(
+                        $leaseStartedAt,
+                        $now->getTimezone()
+                    );
+                    $retryDue = ($now->getTimestamp()
+                        - $leaseStarted->getTimestamp())
+                        >= self::PREPARATION_LEASE_SECONDS;
+                } catch (\Throwable) {
+                    $retryDue = false;
+                }
+            } elseif ($status === 'preparation_failed') {
+                $nextRetryAt = trim((string)(
+                    $dispatch['next_retry_at'] ?? ''
+                ));
+                try {
+                    $retryDue = $nextRetryAt !== ''
+                        && new DateTimeImmutable(
+                            $nextRetryAt,
+                            $now->getTimezone()
+                        ) <= $now;
+                } catch (\Throwable) {
+                    $retryDue = false;
+                }
+            }
+            if (!$retryDue) {
+                return false;
+            }
+
+            unset(
+                $freshReservation['create_time'],
+                $freshReservation['dispatched_at']
+            );
+            $freshReservation['status'] = 'claimed';
+            $freshReservation['result_code'] =
+                'dispatch_preparation_reclaimed';
+            $freshReservation['result_message'] = null;
+            $freshReservation['next_retry_at'] = null;
+            $freshReservation['last_attempt_at'] = null;
+            $freshReservation['response_reference'] = null;
+            $freshReservation['dispatched_at'] = null;
+            $freshReservation['claimed_at'] = $now->format(
+                'Y-m-d H:i:s'
+            );
+            $freshReservation['update_time'] = $freshReservation['claimed_at'];
+            $updated = Db::name('manual_notification_schedule_dispatches')
+                ->where('id', $dispatchId)
+                ->update($freshReservation);
+            return $updated > 0;
+        });
+    }
+
+    /**
      * @param array<string, mixed> $delivery
      * @return array{status:string,result_code:string,result_message:?string,response_reference:?string}
      */
@@ -720,8 +1166,43 @@ final class ManualNotificationDispatchLedgerService
             ];
         }
         $deliveryStatus = strtolower(trim((string)($delivery['delivery_status'] ?? '')));
-        $sent = $deliveryStatus === 'sent' || ($delivery['success'] ?? false) === true;
-        if ($sent) {
+        if ($deliveryStatus === 'sent') {
+            $failures = array_values(array_filter(
+                (array)($delivery['failures'] ?? []),
+                static fn(mixed $failure): bool => is_array($failure)
+                    ? $failure !== []
+                    : trim((string)$failure) !== ''
+            ));
+            $failedCount = max(0, (int)($delivery['failed_count'] ?? 0));
+            $robotCount = max(0, (int)(
+                $delivery['robot_count']
+                ?? $delivery['target_count']
+                ?? 0
+            ));
+            $sentCount = max(0, (int)(
+                $delivery['sent_count']
+                ?? $delivery['success_count']
+                ?? 0
+            ));
+            $contradictory = ($delivery['success'] ?? null) === false
+                || $failures !== []
+                || $failedCount > 0
+                || ($robotCount > 0 && $sentCount !== $robotCount);
+            if ($contradictory) {
+                return [
+                    'status' => 'outcome_unknown',
+                    'result_code' =>
+                        'wecom_delivery_success_contradictory',
+                    'result_message' => $this->safeText(
+                        '发送器同时返回成功与失败信号，未将本次记录为已送达；需人工核对回执。',
+                        255
+                    ),
+                    'response_reference' => $this->safeText(
+                        (string)($delivery['response_reference'] ?? ''),
+                        120
+                    ) ?: null,
+                ];
+            }
             return [
                 'status' => 'sent',
                 'result_code' => 'wecom_business_success',
@@ -733,7 +1214,8 @@ final class ManualNotificationDispatchLedgerService
             ];
         }
 
-        $ambiguous = $deliveryStatus === 'partial';
+        $ambiguous = $deliveryStatus === 'partial'
+            || ($delivery['success'] ?? false) === true;
         $messages = [];
         foreach ((array)($delivery['failures'] ?? []) as $failure) {
             if (!is_array($failure)) {
@@ -765,8 +1247,16 @@ final class ManualNotificationDispatchLedgerService
     private function present(array $row): array
     {
         $status = strtolower(trim((string)($row['status'] ?? '')));
+        $sourceIntegrity = $this->sourceSnapshotIntegrity($row);
+        $sourceIntegrityValid = in_array(
+            $sourceIntegrity['status'],
+            ['verified', 'not_applicable'],
+            true
+        );
         $retryable = in_array($status, ['failed', 'outcome_unknown'], true)
-            && (int)($row['attempt_count'] ?? 0) < max(1, (int)($row['max_attempts'] ?? 3));
+            && (int)($row['attempt_count'] ?? 0)
+                < max(1, (int)($row['max_attempts'] ?? 3))
+            && $sourceIntegrityValid;
         return [
             'id' => (int)$row['id'],
             'schedule_run_id' => $this->positiveOrNull($row['schedule_run_id'] ?? null),
@@ -779,6 +1269,12 @@ final class ManualNotificationDispatchLedgerService
             'request_kind' => (string)($row['request_kind'] ?? 'scheduled'),
             'business_date' => $row['business_date'] ?? null,
             'payload_fingerprint' => $row['payload_fingerprint'] ?? null,
+            'tested_plan_fingerprint' =>
+                $row['tested_plan_fingerprint'] ?? null,
+            'source_snapshot_refs' => $sourceIntegrity['refs'],
+            'source_snapshot_fingerprint' => $row['source_snapshot_fingerprint'] ?? null,
+            'source_snapshot_integrity_status' =>
+                $sourceIntegrity['status'],
             'operating_target_record_id' => $this->positiveOrNull(
                 $row['operating_target_record_id'] ?? null
             ),
@@ -841,6 +1337,200 @@ final class ManualNotificationDispatchLedgerService
         }
         $decoded = json_decode($value, true);
         return is_array($decoded) ? $decoded : null;
+    }
+
+    /** @return array<string, array<string, int|string>> */
+    private function strictSourceSnapshotRefs(mixed $value): array
+    {
+        if ($value === null || $value === '' || $value === []) {
+            return [];
+        }
+        if (!is_array($value)) {
+            throw new \InvalidArgumentException(
+                'manual_notification_source_snapshot_refs_invalid'
+            );
+        }
+        $normalized = $this->sourceSnapshotRefs($value);
+        if (count($normalized) !== count($value)) {
+            throw new \InvalidArgumentException(
+                'manual_notification_source_snapshot_refs_invalid'
+            );
+        }
+        return $normalized;
+    }
+
+    /** @param array<string, array<string, int|string>> $sourceSnapshotRefs */
+    private function assertSourceSnapshotSchema(array $sourceSnapshotRefs): void
+    {
+        if ($sourceSnapshotRefs === []) {
+            return;
+        }
+        if (!$this->tableHasColumn(
+            'manual_notification_schedule_dispatches',
+            'source_snapshot_refs_json'
+        ) || !$this->tableHasColumn(
+            'manual_notification_schedule_dispatches',
+            'source_snapshot_fingerprint'
+        )) {
+            throw new \RuntimeException(
+                'manual_notification_dispatch_source_snapshot_schema_missing'
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @param array<string, array<string, int|string>> $sourceSnapshotRefs
+     */
+    private function assertRequiredSourceSnapshots(
+        array $candidate,
+        array $sourceSnapshotRefs,
+        bool $readyForAttempt
+    ): void {
+        if (!$readyForAttempt
+            || trim((string)($candidate['render_contract_version'] ?? ''))
+                !== OperatingDailyReportPayloadService::RENDER_CONTRACT_VERSION
+        ) {
+            return;
+        }
+        if ($sourceSnapshotRefs === []) {
+            throw new \RuntimeException(
+                'manual_notification_dispatch_source_snapshot_refs_required'
+            );
+        }
+    }
+
+    private function testedPlanFingerprint(mixed $value): ?string
+    {
+        $fingerprint = strtolower(trim((string)$value));
+        if ($fingerprint === '') {
+            return null;
+        }
+        if (preg_match('/^[a-f0-9]{64}$/D', $fingerprint) !== 1) {
+            throw new \InvalidArgumentException(
+                'manual_notification_tested_plan_fingerprint_invalid'
+            );
+        }
+        return $fingerprint;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array{status:string,refs:array<string,array<string,int|string>>}
+     */
+    private function sourceSnapshotIntegrity(array $row): array
+    {
+        $required = trim((string)($row['render_contract_version'] ?? ''))
+            === OperatingDailyReportPayloadService::RENDER_CONTRACT_VERSION;
+        $hasRefsColumn = $this->tableHasColumn(
+            'manual_notification_schedule_dispatches',
+            'source_snapshot_refs_json'
+        );
+        $hasFingerprintColumn = $this->tableHasColumn(
+            'manual_notification_schedule_dispatches',
+            'source_snapshot_fingerprint'
+        );
+        if (!$hasRefsColumn || !$hasFingerprintColumn) {
+            return [
+                'status' => $required ? 'schema_missing' : 'not_applicable',
+                'refs' => [],
+            ];
+        }
+
+        $raw = $row['source_snapshot_refs_json'] ?? null;
+        $fingerprint = strtolower(trim((string)(
+            $row['source_snapshot_fingerprint'] ?? ''
+        )));
+        $hasRaw = is_array($raw)
+            ? $raw !== []
+            : is_string($raw) && trim($raw) !== '';
+        if (!$hasRaw) {
+            return [
+                'status' => $required || $fingerprint !== ''
+                    ? 'missing_refs'
+                    : 'not_applicable',
+                'refs' => [],
+            ];
+        }
+        $decoded = $this->decodePayload($raw);
+        if ($decoded === null) {
+            return ['status' => 'invalid_json', 'refs' => []];
+        }
+        $refs = $this->sourceSnapshotRefs($decoded);
+        if (count($refs) !== count($decoded)) {
+            return ['status' => 'invalid_refs', 'refs' => $refs];
+        }
+        if ($refs === []) {
+            return ['status' => 'missing_refs', 'refs' => []];
+        }
+        if ($fingerprint === '') {
+            return ['status' => 'missing_fingerprint', 'refs' => $refs];
+        }
+        if (preg_match('/^[a-f0-9]{64}$/D', $fingerprint) !== 1) {
+            return ['status' => 'mismatch', 'refs' => $refs];
+        }
+        $actual = hash('sha256', $this->json($refs));
+        return [
+            'status' => hash_equals($fingerprint, $actual)
+                ? 'verified'
+                : 'mismatch',
+            'refs' => $refs,
+        ];
+    }
+
+    /**
+     * Keep only identifiers needed to trace a sent message back to its saved,
+     * exact-date source rows. Raw source payloads and credentials are excluded.
+     *
+     * @return array<string, array<string, int|string>>
+     */
+    private function sourceSnapshotRefs(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $result = [];
+        foreach (array_slice($value, 0, 12, true) as $key => $reference) {
+            if (!is_array($reference)) {
+                continue;
+            }
+            $name = strtolower(trim((string)$key));
+            if (preg_match('/^[a-z0-9_]{1,40}$/D', $name) !== 1) {
+                continue;
+            }
+            $recordId = (int)($reference['record_id'] ?? 0);
+            if ($recordId <= 0) {
+                continue;
+            }
+            $clean = ['record_id' => $recordId];
+            foreach (['data_source_id', 'sync_task_id'] as $field) {
+                $number = (int)($reference[$field] ?? 0);
+                if ($number > 0) {
+                    $clean[$field] = $number;
+                }
+            }
+            foreach ([
+                'source' => 32,
+                'business_date' => 10,
+                'source_scope' => 32,
+                'capture_method' => 48,
+                'data_type' => 40,
+                'dimension' => 160,
+                'source_trace_id' => 120,
+                'provider_hotel_id' => 120,
+                'provider_hotel_name' => 120,
+                'bound_provider_hotel_id' => 120,
+                'bound_provider_hotel_name' => 120,
+            ] as $field => $limit) {
+                $text = $this->safeText((string)($reference[$field] ?? ''), $limit);
+                if ($text !== '') {
+                    $clean[$field] = $text;
+                }
+            }
+            $result[$name] = $clean;
+        }
+        ksort($result);
+        return $result;
     }
 
     private function assertTables(): void

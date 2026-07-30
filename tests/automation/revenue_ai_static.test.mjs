@@ -677,6 +677,13 @@ test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
     '2026-06-24',
   );
   assert.equal(
+    helpers.resolveRevenueAiBusinessDate({
+      selectedDate: '2026-06-27',
+      now: new Date('2026-06-27T10:00:00'),
+    }),
+    '2026-06-27',
+  );
+  assert.equal(
     helpers.resolveRevenueAiBusinessDate({ now: new Date('2026-06-27T10:00:00') }),
     '2026-06-26',
   );
@@ -1081,6 +1088,133 @@ test('Revenue AI surfaces the canonical three-source facts without promoting OTA
   assert.equal(pms.value, '已保存并回读');
   assert.match(pms.detail, /全酒店住宿收入/);
   assert.equal(api.status, '可作为输入');
+});
+
+test('Revenue AI keeps verified dual-OTA facts visible while a PMS source gap blocks cross-source analysis', () => {
+  const overview = {
+    scope: 'three_source_layered',
+    revenue_analysis_status: 'blocked',
+    metrics: {
+      ota_room_revenue: {
+        value: 4354.39,
+        unit: 'CNY',
+        status: 'ok',
+        scope: 'ota_channel',
+      },
+      ota_room_nights: {
+        value: 5,
+        unit: 'room_nights',
+        status: 'ok',
+        scope: 'ota_channel',
+      },
+      ota_adr: {
+        value: 870.88,
+        unit: 'CNY',
+        status: 'ok',
+        scope: 'ota_channel',
+      },
+      whole_hotel_room_revenue: {
+        value: null,
+        unit: 'CNY',
+        status: 'not_calculable',
+        scope: 'whole_hotel_accommodation',
+      },
+      whole_hotel_sellable_room_nights: {
+        value: null,
+        unit: 'room_nights',
+        status: 'not_calculable',
+        scope: 'whole_hotel_accommodation',
+      },
+      ota_contribution_revpar: {
+        value: null,
+        unit: 'CNY',
+        status: 'not_calculable',
+        scope: 'cross_source_comparison',
+      },
+    },
+    three_source_fact_layer: {
+      source_completeness: {
+        dingdandao_pms: 'not_verified',
+        ctrip_ota: 'readback_verified',
+        meituan_ota: 'readback_verified',
+      },
+      all_three_sources_readback_verified: false,
+      sources: {
+        dingdandao_pms: { data_status: 'not_verified' },
+        ctrip_ota: { data_status: 'readback_verified' },
+        meituan_ota: { data_status: 'readback_verified' },
+      },
+      facts: {
+        ota_channel: {
+          combined: {
+            revenue: 4354.39,
+            orders: 3,
+            room_nights: 5,
+          },
+        },
+      },
+      analysis_gaps: [{
+        code: 'dingdandao_pms_not_readback_verified',
+        source: 'dingdandao_pms',
+        status: 'not_verified',
+        category: 'source_identity_or_readback',
+      }],
+      ai_review_gaps: [{
+        code: 'dingdandao_pms_not_readback_verified',
+        source: 'dingdandao_pms',
+        status: 'not_verified',
+        category: 'source_identity_or_readback',
+      }],
+      unique_remaining_gap: {
+        code: 'dingdandao_pms_not_readback_verified',
+        source: 'dingdandao_pms',
+        status: 'not_verified',
+        category: 'source_identity_or_readback',
+      },
+    },
+    p1_revenue_closure: {
+      status: 'partial',
+      calculation_allowed: true,
+      scope_statement: 'legacy Ctrip-only closure',
+      sections: {
+        revenue: { value: null, unit: 'CNY', status: 'not_calculable' },
+        orders: { value: null, unit: 'orders', status: 'not_calculable' },
+        room_nights: { value: null, unit: 'room_nights', status: 'not_calculable' },
+        adr_conversion: { metrics: {} },
+      },
+      missing_items: { items: [{ code: 'legacy_missing' }] },
+      anomaly_judgment: {
+        items: [
+          { code: 'ota_collection_quality:unverified' },
+          { code: 'critical_metric_untrusted:totals.adr' },
+          { code: 'p0_ota_gate_not_ready' },
+          { code: 'p0_ota_gate_missing:ctrip_p0_not_ready' },
+        ],
+      },
+    },
+  };
+
+  const closure = helpers.buildRevenueAiBusinessClosure({ overview });
+  assert.equal(closure.status, 'blocked');
+  assert.equal(closure.calculationAllowed, false);
+  assert.equal(closure.rows[0].stage, '三源数据');
+  assert.match(closure.summary, /携程、美团 OTA 渠道事实已回读/);
+  assert.match(closure.summary, /PMS 与跨源指标保持为空/);
+  assert.equal(closure.rows[1].metrics[0].value, '¥4354.39');
+  assert.equal(closure.rows[1].metrics[1].value, '3单');
+  assert.equal(closure.rows[1].metrics[2].value, '5.00间夜');
+  assert.equal(closure.rows[1].metrics[3].value, '¥870.88');
+  assert.match(closure.rows[1].metrics[4].reasonText, /当前三源收益事实层不承载/);
+  assert.match(closure.rows[1].metrics[5].reasonText, /当前三源收益事实层不承载/);
+  assert.equal(closure.missingRows.length, 1);
+  assert.equal(
+    closure.missingRows[0].code,
+    'dingdandao_pms_not_readback_verified',
+  );
+  assert.equal(closure.anomalyRows.length, 0);
+  assert.match(closure.summaryChips[0].detail, /PMS 全酒店住宿事实尚未完成同店同日回读验证/);
+  assert.doesNotMatch(closure.summaryChips[0].detail, /P0|OTA.*门/);
+  assert.doesNotMatch(closure.nextAction, /补齐已验证 OTA/);
 });
 
 test('Revenue AI metric cards expose the complete four-state truth envelope for each number', () => {

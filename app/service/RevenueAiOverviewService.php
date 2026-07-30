@@ -258,12 +258,12 @@ class RevenueAiOverviewService
         $metricContext = [
             'source_channels' => $displaySourceChannels,
             'last_success_at' => $lastSuccessAt,
+            'date_basis' => 'data_date',
+            'scope' => 'ota_channel',
+            'scope_note' => '指标仅代表已加载 OTA 渠道数据，不代表全酒店经营口径。',
+            'hotel_id' => $hotelId,
+            'business_date' => $businessDate,
         ];
-        $metricContext['date_basis'] = 'data_date';
-        $metricContext['scope'] = 'ota_channel';
-        $metricContext['scope_note'] = '指标仅代表已加载 OTA 渠道数据，不代表全酒店经营口径。';
-        $metricContext['hotel_id'] = $hotelId;
-        $metricContext['business_date'] = $businessDate;
         $otaRoomRevenue = $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_revenue'] ?? null) : null;
         $otaRoomNights = $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_nights'] ?? null) : null;
         $roomRevenueContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.room_revenue');

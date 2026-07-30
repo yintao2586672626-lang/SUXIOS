@@ -81,6 +81,10 @@ final class CtripImplementationExposurePolicyTest extends TestCase
             'status' => 'ready',
             'saved_count' => 12,
             'row_count' => 12,
+            'request_count' => 4,
+            'usable_request_count' => 4,
+            'request_complete' => true,
+            'readback_verified' => true,
             'responses' => [['url' => 'https://example.invalid/private']],
             'diagnosis_summary' => ['endpoint_id' => 'privateEndpoint'],
             'output' => 'private/output.json',
@@ -100,6 +104,9 @@ final class CtripImplementationExposurePolicyTest extends TestCase
 
         self::assertSame('ready', $capture['status']);
         self::assertSame(12, $capture['saved_count']);
+        self::assertSame(4, $capture['usable_request_count']);
+        self::assertTrue($capture['request_complete']);
+        self::assertTrue($capture['readback_verified']);
         self::assertSame('task_scoped', $capture['collection_contract']);
         self::assertArrayNotHasKey('responses', $capture);
         self::assertArrayNotHasKey('diagnosis_summary', $capture);

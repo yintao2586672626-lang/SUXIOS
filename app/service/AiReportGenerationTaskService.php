@@ -21,10 +21,15 @@ final class AiReportGenerationTaskService
 
     /** @var callable|null */
     private $launcher;
+    private AiModelRoutingService $modelRoutingService;
 
-    public function __construct(?callable $launcher = null)
+    public function __construct(
+        ?callable $launcher = null,
+        ?AiModelRoutingService $modelRoutingService = null
+    )
     {
         $this->launcher = $launcher;
+        $this->modelRoutingService = $modelRoutingService ?? new AiModelRoutingService();
     }
 
     public function enqueue(
@@ -40,9 +45,17 @@ final class AiReportGenerationTaskService
             throw new \InvalidArgumentException('hotel_id is not permitted');
         }
         $reportDate = $this->normalizeDate($reportDate);
-        $modelKey = trim((string)($options['model_key'] ?? '')) ?: 'deepseek_v4_default';
         $useLlm = !array_key_exists('use_llm', $options)
             || filter_var($options['use_llm'], FILTER_VALIDATE_BOOL);
+        $requestedModelKey = trim((string)($options['model_key'] ?? ''));
+        $modelKey = $useLlm
+            ? (string)$this->modelRoutingService->resolve(
+                $requestedModelKey,
+                'report',
+                'deepseek_v4_default',
+                'ollama'
+            )['model_key']
+            : ($requestedModelKey !== '' ? $requestedModelKey : 'deepseek_v4_default');
         $promptVersion = AiDailyReportService::promptVersion();
         $trustedInputVersion = AiDailyReportService::trustedInputVersion();
         $trustedInputRevision = $this->resolveTrustedInputRevision($hotelId, $reportDate);

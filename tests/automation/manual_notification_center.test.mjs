@@ -93,7 +93,7 @@ test('notification center keeps one plan list with a compact editor and preview'
   assert.doesNotMatch(fragmentSource, /data-testid="manual-notification-history"|已保存计划/);
   assert.doesNotMatch(fragmentSource, /我的模板消息/);
   assert.match(fragmentSource, /消息预览/);
-  assert.doesNotMatch(fragmentSource, /预览在企业微信里的展示格式，根据上方选择的计划生成/);
+  assert.match(fragmentSource, /预览在企业微信里的展示格式，根据上方选择的计划生成/);
   assert.doesNotMatch(fragmentSource, /实时渲染/);
   assert.match(schedulePanelSource, /安全规则/);
   assert.match(schedulePanelSource, /运行详情/);
@@ -153,6 +153,23 @@ test('notification plans expose persisted schedule rules and truthful runtime st
     assert.match(appMainSource, new RegExp(field));
   }
   assert.match(appMainSource, /applyManualNotificationRecord\(record\)/);
+  const applyRecord = appMainSource.slice(
+    appMainSource.indexOf('const applyManualNotificationRecord = (item) =>'),
+    appMainSource.indexOf('const openMeituanTemporalSchedule = async'),
+  );
+  assert.match(applyRecord, /effective_from:\s*String\(item\.effective_from \|\| ''\)/);
+  assert.match(applyRecord, /effective_to:\s*String\(item\.effective_to \|\| ''\)/);
+  assert.doesNotMatch(applyRecord, /effective_from:\s*'',\s*effective_to:\s*''/);
+  const previewRecord = appMainSource.slice(
+    appMainSource.indexOf('const previewManualNotification = async'),
+    appMainSource.indexOf('const saveManualNotification = async'),
+  );
+  const saveRecord = appMainSource.slice(
+    appMainSource.indexOf('const saveManualNotification = async'),
+    appMainSource.indexOf('const testManualNotification = async'),
+  );
+  assert.doesNotMatch(previewRecord, /effective_(?:from|to):\s*''/);
+  assert.doesNotMatch(saveRecord, /effective_(?:from|to):\s*''/);
   assert.match(notificationUiSource, /manual-notification-source-scope/);
   assert.match(notificationUiSource, /manual-notification-content-sections/);
   assert.match(notificationUiSource, /发送来源/);
@@ -190,6 +207,37 @@ test('operating daily keeps custom compatibility while common templates choose a
   assert.match(
     serviceSource,
     /\$type === self::OPERATING_DAILY_CUSTOM_REPORT_TYPE[\s\S]{0,500}\$sourceScope = 'combined'/,
+  );
+});
+
+test('operating daily plans allow only manual test or one daily fixed time', () => {
+  assert.match(
+    serviceSource,
+    /OPERATING_DAILY_TRIGGER_TYPES\s*=\s*\[\s*'manual_test',\s*'daily_fixed_time'/,
+  );
+  assert.match(
+    serviceSource,
+    /manual_notification_operating_daily_fixed_time_required/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /operatingDaily:\s*\{\s*type:\s*Boolean/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /metadata\.operating_daily_trigger_types/,
+  );
+  assert.match(
+    schedulePanelSource,
+    /manual-notification-operating-daily-loop-blocked/,
+  );
+  assert.match(
+    appMainSource,
+    /operatingDaily:\s*manualNotificationIsOperatingDaily\.value/,
+  );
+  assert.match(
+    appMainSource,
+    /经营日报不支持循环发送，请选择每日固定时间/,
   );
 });
 
@@ -284,6 +332,45 @@ test('dynamic operating-target template supports save then immediate test withou
   assert.doesNotMatch(fragmentSource, /后端预览已验证/);
 });
 
+test('rolling notification dates and section sets do not create false unsaved changes', () => {
+  const comparableStart = appMainSource.indexOf(
+    'const manualNotificationComparablePlan ='
+  );
+  const comparableEnd = appMainSource.indexOf(
+    'const manualNotificationHasUnsavedChanges =',
+    comparableStart
+  );
+  const comparableSource = appMainSource.slice(
+    comparableStart,
+    comparableEnd
+  );
+  assert.match(
+    comparableSource,
+    /\['today', 'yesterday'\]\.includes\(\s*businessDateRule\s*\)/
+  );
+  assert.match(
+    comparableSource,
+    /business_date:\s*dynamicBusinessDate\s*\?\s*''\s*:\s*String\(item\?\.business_date/
+  );
+  assert.match(
+    comparableSource,
+    /list\(item\?\.content_sections\)\.sort\(\)\.join\(','\)/
+  );
+
+  const modeStart = appMainSource.indexOf(
+    'const selectManualNotificationContentMode ='
+  );
+  const modeEnd = appMainSource.indexOf(
+    'const insertManualNotificationVariable =',
+    modeStart
+  );
+  const modeSource = appMainSource.slice(modeStart, modeEnd);
+  assert.match(
+    modeSource,
+    /\.\.\.\(shouldInitializeCustom\s*\?\s*\{\s*content_sections:/
+  );
+});
+
 test('dispatch history is independent and never treats missing receipts as delivery success', () => {
   assert.match(fragmentSource, /manualNotificationDispatchPanelBody/);
   assert.match(notificationUiSource, /data-testid': 'manual-notification-dispatch-history'/);
@@ -318,7 +405,11 @@ test('test push remains explicit and uses the persisted authorized plan robot', 
   assert.match(appMainSource, /scope_label: '当前酒店通道'/);
   assert.match(appMainSource, /applyCurrentHotelNotificationChannel/);
   assert.match(notificationUiSource, /当前酒店企业微信群机器人 Webhook 已绑定/);
-  assert.match(appMainSource, /formal_scope_ready/);
+  assert.match(appMainSource, /latest_schedule_runs/);
+  assert.match(appMainSource, /activeModes\.every/);
+  assert.match(appMainSource, /=== `\$\{mode\}_scope_ready`/);
+  assert.match(notificationUiSource, /metadata\.latest_schedule_runs\?\.\[scheduleMode\]/);
+  assert.match(notificationUiSource, /=== `\$\{scheduleMode\}_scope_ready`/);
   assert.match(fragmentSource, /manualNotificationSchedulerDisplay\.label/);
   assert.match(appMainSource, /manualNotificationTestAllowed/);
   assert.doesNotMatch(appMainSource, /测试推送仅允许酒店80绑定的1号漠蓝测试机器人/);

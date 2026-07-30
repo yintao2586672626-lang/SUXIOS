@@ -24,13 +24,18 @@ final class CtripTemporalRefreshService
     /** @var callable|null */
     private $sourceLoader;
 
+    /** @var callable|null */
+    private $dailyFlowAttemptLoader;
+
     public function __construct(
         ?callable $syncRunner = null,
         ?callable $sourceLoader = null,
-        private readonly ?CtripTemporalNotificationPayloadService $payloads = null
+        private readonly ?CtripTemporalNotificationPayloadService $payloads = null,
+        ?callable $dailyFlowAttemptLoader = null
     ) {
         $this->syncRunner = $syncRunner;
         $this->sourceLoader = $sourceLoader;
+        $this->dailyFlowAttemptLoader = $dailyFlowAttemptLoader;
     }
 
     /** @return array<string, mixed> */
@@ -75,23 +80,39 @@ final class CtripTemporalRefreshService
         $segments = is_array($before['segments'] ?? null)
             ? $before['segments']
             : [];
+        $attemptedDailyFlows = $this->dailyAttemptedFlows(
+            $sourceId,
+            $hotelId,
+            $businessDate
+        );
         $flows = [];
-        if ($this->segmentNeedsDailyRefresh(
-            (array)($segments['past'] ?? []),
-            $businessDate
-        )) {
-            $flows[] = 'historical_review';
-        }
-        if ($this->segmentNeedsDailyRefresh(
-            (array)($segments['future'] ?? []),
-            $businessDate
-        )) {
-            $flows[] = 'future_demand';
+        $flowResults = [];
+        foreach ([
+            'past' => 'historical_review',
+            'future' => 'future_demand',
+        ] as $segmentName => $flow) {
+            if (!$this->segmentNeedsDailyRefresh(
+                (array)($segments[$segmentName] ?? []),
+                $businessDate
+            )) {
+                continue;
+            }
+            if (in_array($flow, $attemptedDailyFlows, true)) {
+                $flowResults[] = [
+                    'flow' => $flow,
+                    'status' => 'skipped',
+                    'task_id' => 0,
+                    'saved_count' => 0,
+                    'readback_verified' => false,
+                    'reason_code' => 'ctrip_daily_flow_already_attempted',
+                ];
+                continue;
+            }
+            $flows[] = $flow;
         }
         $flows[] = 'realtime';
 
         $workflow = new CtripCollectorWorkflowService();
-        $flowResults = [];
         $savedCount = 0;
         $realtimeTaskId = 0;
         foreach ($flows as $flow) {
@@ -199,6 +220,69 @@ final class CtripTemporalRefreshService
             ->order('id', 'desc')
             ->find();
         return is_array($source) ? $source : [];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function dailyAttemptedFlows(
+        int $sourceId,
+        int $hotelId,
+        string $businessDate
+    ): array {
+        if ($this->dailyFlowAttemptLoader !== null) {
+            $loaded = call_user_func(
+                $this->dailyFlowAttemptLoader,
+                $sourceId,
+                $hotelId,
+                $businessDate
+            );
+            return $this->normalizeDailyFlows($loaded);
+        }
+
+        try {
+            $rows = Db::name('platform_data_sync_tasks')
+                ->where('data_source_id', $sourceId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('platform', 'ctrip')
+                ->where('trigger_type', 'manual_notification_schedule')
+                ->whereBetween('create_time', [
+                    $businessDate . ' 00:00:00',
+                    $businessDate . ' 23:59:59',
+                ])
+                ->field('stats_json')
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $flows = [];
+        foreach ($rows as $row) {
+            $stats = json_decode((string)($row['stats_json'] ?? ''), true);
+            if (!is_array($stats)) {
+                continue;
+            }
+            $flows[] = $stats['collector_flow'] ?? '';
+        }
+        return $this->normalizeDailyFlows($flows);
+    }
+
+    /** @return array<int, string> */
+    private function normalizeDailyFlows(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $workflow = new CtripCollectorWorkflowService();
+        $flows = [];
+        foreach ($value as $flow) {
+            $normalized = $workflow->normalizeFlow($flow);
+            if (in_array($normalized, ['historical_review', 'future_demand'], true)) {
+                $flows[] = $normalized;
+            }
+        }
+        return array_values(array_unique($flows));
     }
 
     /** @param array<string, mixed> $options @return array<string, mixed> */

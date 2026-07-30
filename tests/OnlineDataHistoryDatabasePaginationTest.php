@@ -152,6 +152,85 @@ final class OnlineDataHistoryDatabasePaginationTest extends TestCase
         self::assertSame(['unverified', 'failed'], array_column($rows, 'projected_status'));
     }
 
+    public function testLightweightHistoryStatusTreatsReadbackOnlyAsPartialAndDetectsRawFailure(): void
+    {
+        Db::name('online_daily_data')->delete(true);
+        Db::name('online_daily_data')->insertAll([
+            $this->row(2, '2026-07-16 10:00:00', 'business', '', '{"error":null,"errors":[]}'),
+            $this->row(1, '2026-07-16 09:00:00', 'business', '', '{"error":"capture failed"}'),
+        ]);
+
+        $subject = new class {
+            use OnlineDataHistoryConcern;
+        };
+        $method = new ReflectionMethod($subject, 'onlineHistoryLightweightStatusExpression');
+        $expression = $method->invoke($subject, self::columns());
+        $rows = Db::name('online_daily_data')
+            ->field('id')
+            ->fieldRaw($expression . ' AS projected_status')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+
+        self::assertSame(['partial', 'failed'], array_column($rows, 'projected_status'));
+    }
+
+    public function testHydratedHistoryRequiresSourceIdentityBeforeSuccess(): void
+    {
+        $subject = new class {
+            use OnlineDataHistoryConcern;
+        };
+        $method = new ReflectionMethod($subject, 'resolveHistoryStatus');
+
+        $readbackOnly = $this->row(
+            2,
+            '2026-07-16 10:00:00',
+            'business',
+            '',
+            '{"error":null,"errors":[]}'
+        );
+        self::assertSame(
+            'partial',
+            $method->invoke($subject, $readbackOnly, (string)$readbackOnly['raw_data'])
+        );
+
+        $sourceVerified = $this->row(
+            1,
+            '2026-07-16 09:00:00',
+            'business',
+            '',
+            '{}',
+            'verified'
+        );
+        $sourceVerified['hotel_id'] = 'ctrip-7001';
+        $sourceVerified['ingestion_method'] = 'browser_profile';
+        $sourceVerified['source_trace_id'] = 'trace-verified-1';
+        $sourceVerified['snapshot_time'] = '2026-07-16 08:59:00';
+        self::assertSame(
+            'success',
+            $method->invoke($subject, $sourceVerified, (string)$sourceVerified['raw_data'])
+        );
+    }
+
+    public function testForwardMigrationNoLongerTreatsReadbackAloneAsHistorySuccess(): void
+    {
+        $migration = (string)file_get_contents(
+            __DIR__ . '/../database/migrations/20260730_zzzz_harden_online_history_truth_status.sql'
+        );
+
+        self::assertStringContainsString(
+            "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) = 'verified'",
+            $migration
+        );
+        self::assertStringContainsString("OR `snapshot_time` IS NULL", $migration);
+        self::assertStringContainsString("THEN 'success'", $migration);
+        self::assertStringContainsString("ELSE 'partial'", $migration);
+        self::assertStringNotContainsString(
+            "WHEN COALESCE(`readback_verified`, 0) = 1 THEN 'success'",
+            $migration
+        );
+    }
+
     private static function createSchema(): void
     {
         Db::execute(<<<'SQL'

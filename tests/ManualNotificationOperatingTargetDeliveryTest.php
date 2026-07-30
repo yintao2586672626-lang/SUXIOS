@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\ManualNotificationScheduleService;
+use app\service\ManualNotificationDispatchLedgerService;
 use app\service\ManualNotificationService;
 use app\service\OperatingTargetService;
 use DateTimeImmutable;
@@ -129,6 +130,7 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             request_kind VARCHAR(32) NOT NULL,
             business_date VARCHAR(10) NULL,
             payload_fingerprint VARCHAR(64) NULL,
+            tested_plan_fingerprint VARCHAR(64) NULL,
             operating_target_record_id INTEGER NULL,
             snapshot_revision_no INTEGER NULL,
             render_contract_version VARCHAR(48) NULL,
@@ -213,6 +215,43 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
             'name' => ManualNotificationService::TEST_ROBOT_NAME,
             'status' => 1,
         ]);
+    }
+
+    public function testSourceReferencesFailClosedBeforeSchemaMigration(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(
+            'manual_notification_dispatch_source_snapshot_schema_missing'
+        );
+        (new ManualNotificationDispatchLedgerService())->claim(
+            1,
+            9,
+            80,
+            'i:schema-missing',
+            ManualNotificationScheduleService::MODE_TEST,
+            'manual_test',
+            'immediate_test',
+            ManualNotificationService::TEST_ROBOT_ID,
+            ManualNotificationService::TEST_ROBOT_NAME,
+            '2026-07-26',
+            [
+                'payload' => [
+                    'msgtype' => 'text',
+                    'text' => ['content' => 'schema check'],
+                ],
+                'source_snapshot_refs' => [
+                    'pms' => [
+                        'source' => 'dingdandao_pms',
+                        'record_id' => 31,
+                        'business_date' => '2026-07-26',
+                    ],
+                ],
+            ],
+            new DateTimeImmutable(
+                '2026-07-26 18:00:00',
+                new DateTimeZone('Asia/Shanghai')
+            )
+        );
     }
 
     public function testReadyAccommodationTargetFlowsThroughImmediateAndScheduledDelivery(): void
@@ -349,8 +388,9 @@ final class ManualNotificationOperatingTargetDeliveryTest extends TestCase
 
         self::assertSame('blocked', $result['delivery_status']);
         self::assertSame([], $calls);
-        self::assertSame('blocked', $result['dispatch']['status']);
+        self::assertSame('preparation_failed', $result['dispatch']['status']);
         self::assertSame(0, $result['dispatch']['attempt_count']);
+        self::assertNotNull($result['dispatch']['next_retry_at']);
         self::assertSame('awaiting_test', $result['schedule_status']);
         self::assertSame(0, Db::name('manual_notification_dispatch_attempts')->count());
         self::assertNull(

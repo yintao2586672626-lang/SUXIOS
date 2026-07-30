@@ -3392,7 +3392,7 @@
           <input v-model="operatingTargetForm.target_date" @change="loadOperatingTarget" data-testid="pms-operating-data-date" type="date" class="rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
         </label>
         <button data-testid="pms-operating-data-load" @click="loadOperatingTarget" :disabled="operatingPmsControlsBusy" class="pms-operating-read-button">{{ operatingTargetLoading.current ? '读取中...' : '读取已保存数据' }}</button>
-        <button data-testid="pms-operating-data-live-sync" @click="syncOperatingPmsRealtime" :disabled="operatingPmsControlsBusy || operatingHotelPmsBindingLoading || operatingHotelPmsBinding?.binding_status !== 'configured'" :title="operatingHotelPmsBinding?.binding_status === 'configured' ? '' : '请先为当前门店配置唯一 PMS'" class="pms-operating-live-button">{{ operatingTargetLoading.liveSync ? '正在实时同步...' : operatingPmsRealtimeActionText }}</button>
+        <button data-testid="pms-operating-data-live-sync" @click="syncOperatingPmsRealtime" :disabled="operatingPmsControlsBusy || operatingHotelPmsBindingLoading || operatingHotelPmsBinding?.binding_status !== 'configured'" :title="operatingHotelPmsBinding?.binding_status === 'configured' ? '' : '请先为当前门店配置唯一 PMS'" class="pms-operating-live-button">{{ operatingTargetLoading.liveSync ? '正在获取并核验...' : operatingPmsRealtimeActionText }}</button>
       </div>
     </div>
   </section>
@@ -3952,7 +3952,10 @@
 
                         <aside class="self-start rounded-3xl border border-slate-200 bg-[#f5f7f6] p-5 shadow-sm xl:sticky xl:top-6" data-testid="manual-notification-live-preview">
                             <div class="flex items-center justify-between">
-                                <h2 class="text-lg font-semibold text-slate-900">消息预览</h2>
+                                <div>
+                                    <h2 class="text-lg font-semibold text-slate-900">消息预览</h2>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500">预览在企业微信里的展示格式，根据上方选择的计划生成。</p>
+                                </div>
                                 <span class="rounded-full border px-3 py-1 text-xs font-medium" :class="manualNotificationDataStatus === '已保存待启用/数据门禁' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-600'" :title="manualNotificationPreview ? (manualNotificationPreview.schedule_status_label || '状态未取得') : manualNotificationDataStatus">{{ manualNotificationPreview ? '预览 · 未发送' : manualNotificationDataStatus }}</span>
                             </div>
                             <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
@@ -5841,6 +5844,10 @@
                                     <option value="done">已完成</option>
                                     <option value="pending">待处理</option>
                                     <option value="error">异常</option>
+                                </select>
+                                <select v-model="knowledgeCenterTargetHotelId" class="md:w-52 px-3 py-2 border rounded-lg text-sm" aria-label="运营任务目标门店">
+                                    <option value="">任务目标门店</option>
+                                    <option v-for="hotel in knowledgeCenterHotelOptions" :key="'knowledge-task-hotel-' + hotel.id" :value="String(hotel.id)">{{ hotel.name }}</option>
                                 </select>
                                 <button @click="loadKnowledgeCenter" class="btn-secondary text-sm flex items-center justify-center gap-2">
                                     <i class="fas fa-sync-alt" :class="{ 'fa-spin': knowledgeCenterLoading }"></i>刷新
@@ -7762,16 +7769,20 @@
                                         </div>
                                         <div v-if="ctripOverviewCoreFetchState" data-testid="ctrip-overview-core-fetch-status" class="p-3 border-b bg-slate-50">
                                             <div class="flex flex-wrap items-center gap-2">
-                                                <strong class="text-sm text-slate-900">全部门店竞争圈</strong>
-                                                <span :class="['rounded border px-2 text-xs', ctripOverviewCoreFetchState.status_class]">{{ ctripOverviewCoreFetchState.status_text }}</span>
-                                                <span class="text-xs text-slate-500">成功 {{ ctripOverviewCoreFetchState.success_count }}</span>
-                                                <span class="ml-auto text-xs text-slate-600">已处理 {{ ctripOverviewCoreFetchState.completed_count }}/{{ ctripOverviewCoreFetchState.total_count }}</span>
-                                            </div>
-                                            <div class="mt-2 grid max-h-48 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
-                                                <div v-for="hotel in ctripOverviewCoreFetchState.hotels" :key="hotel.hotel_id" :class="['flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs', hotel.status_class]" :title="hotel.message">
-                                                    <span class="truncate">{{ hotel.hotel_name }}</span>
-                                                    <span class="shrink-0">{{ hotel.status_text }}</span>
-                                                </div>
+                                                 <strong class="text-sm text-slate-900">全部门店竞争圈</strong>
+                                                 <span :class="['rounded border px-2 text-xs', ctripOverviewCoreFetchState.status_class]">{{ ctripOverviewCoreFetchState.status_text }}</span>
+                                                 <span class="text-xs text-emerald-700">入库成功 {{ ctripOverviewCoreFetchState.success_count }}</span>
+                                                 <span v-if="ctripOverviewCoreFetchState.identity_pending_count" class="text-xs text-amber-700">身份待确认 {{ ctripOverviewCoreFetchState.identity_pending_count }}</span>
+                                                 <span v-if="ctripOverviewCoreFetchState.configuration_gap_count" class="text-xs text-slate-500">配置缺口 {{ ctripOverviewCoreFetchState.configuration_gap_count }}</span>
+                                                 <span v-if="ctripOverviewCoreFetchState.failed_count" class="text-xs text-red-700">失败 {{ ctripOverviewCoreFetchState.failed_count }}</span>
+                                                 <span class="ml-auto text-xs text-slate-600">已处理 {{ ctripOverviewCoreFetchState.completed_count }}/{{ ctripOverviewCoreFetchState.total_count }}</span>
+                                             </div>
+                                             <div v-if="ctripOverviewCoreFetchState.message" class="mt-1 text-xs text-slate-600">{{ ctripOverviewCoreFetchState.message }}</div>
+                                             <div class="mt-2 grid max-h-48 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
+                                                 <div v-for="hotel in ctripOverviewCoreFetchState.hotels" :key="hotel.hotel_id" :class="['flex items-start justify-between gap-2 rounded border px-2 py-1 text-xs', hotel.status_class]" :title="hotel.message">
+                                                     <span class="min-w-0 truncate">{{ hotel.hotel_name }}<span v-if="hotel.message" class="opacity-80"> · {{ hotel.message }}</span></span>
+                                                     <span class="shrink-0">{{ hotel.status_text }}</span>
+                                                 </div>
                                             </div>
                                         </div>
                                         <div v-if="ctripEbookingModuleCardsReady" class="px-4 py-3 border-b bg-gray-50 grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
@@ -11500,21 +11511,7 @@
                                         <section :class="mtUi.panel">
                                             <h4 class="text-lg font-bold">未来30天 <small :class="mtStatusClass(mtSummary?.future?.status)">{{ mtStatusText(mtSummary?.future?.status) }}</small></h4>
                                             <p>{{ mtCopy.futureNote }}</p>
-                                            <div class="overflow-x-auto">
-                                                <table class="min-w-full text-sm">
-                                                    <thead><tr class="bg-gray-50 text-left"><th>目标日期</th><th>未来 PV / 同行均值</th><th>未来 UV / 同行均值</th><th>提前订订单量 / 同行均值</th><th>状态</th></tr></thead>
-                                                    <tbody>
-                                                        <tr v-for="row in mtFutureRows" :key="row.target_date" class="border-t">
-                                                            <td><b>{{ row.target_date }}</b></td>
-                                                            <td>{{ mtText(row.metrics?.pv, 'pv') }} / {{ mtText(row.metrics?.pv_peer_avg, 'pv_peer_avg') }}</td>
-                                                            <td>{{ mtText(row.metrics?.uv, 'uv') }} / {{ mtText(row.metrics?.uv_peer_avg, 'uv_peer_avg') }}</td>
-                                                            <td>{{ mtText(row.metrics?.advance_orders, 'advance_orders') }} / {{ mtText(row.metrics?.advance_orders_peer_avg, 'advance_orders_peer_avg') }}</td>
-                                                            <td>{{ mtStatusText(row.status) }}</td>
-                                                        </tr>
-                                                        <tr v-if="!mtFutureRows.length"><td colspan="5" class="p-4 text-center text-gray-400">{{ mtCopy.futureEmpty }}</td></tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                            <meituan-future-flow :rows="mtFutureRows" :captured-at="mtSummary?.future?.captured_at"></meituan-future-flow>
                                         </section>
 
                                         <section v-if="mtReferences.length" :class="mtUi.referencePanel">
@@ -12580,11 +12577,11 @@
                                                     <h3 class="font-semibold text-gray-800">房型与最低保护价</h3>
                                                     <div class="mt-1 text-xs text-gray-500">人工配置项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。</div>
                                                 </div>
-                                                <button @click="loadRoomTypes" class="px-3 py-1.5 text-sm rounded border border-gray-200 text-gray-600 hover:bg-gray-50">
+                                                <button @click="loadRoomTypes" class="btn-secondary text-sm">
                                                     <i class="fas fa-rotate mr-1"></i>刷新
                                                 </button>
                                             </div>
-                                            <form @submit.prevent="saveRoomTypeConfig" class="mt-3 grid grid-cols-1 md:grid-cols-7 gap-2">
+                                            <form @submit.prevent="saveRoomTypeConfig" class="mt-3 grid md:grid-cols-7 gap-2">
                                                 <input v-model.trim="roomTypeConfigForm.name" class="input-field" maxlength="80" required placeholder="房型名称">
                                                 <input type="number" v-model.number="roomTypeConfigForm.base_price" class="input-field" min="0.01" step="0.01" required placeholder="基础价">
                                                 <input type="number" v-model.number="roomTypeConfigForm.min_price" class="input-field" min="0.01" step="0.01" required placeholder="最低保护价">
@@ -12595,45 +12592,45 @@
                                                     <option :value="0">停用</option>
                                                 </select>
                                                 <div class="flex gap-2">
-                                                    <button type="submit" :disabled="roomTypeConfigSaving" class="flex-1 rounded bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50">
+                                                    <button type="submit" :disabled="roomTypeConfigSaving" class="btn-primary flex-1 disabled:opacity-50">
                                                         <i :class="roomTypeConfigSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>{{ roomTypeConfigForm.id ? '更新' : '保存' }}
                                                     </button>
-                                                    <button type="button" @click="resetRoomTypeConfigForm" class="rounded border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50" title="清空">
+                                                    <button type="button" @click="resetRoomTypeConfigForm" class="btn-secondary" title="清空">
                                                         <i class="fas fa-eraser"></i>
                                                     </button>
                                                 </div>
                                             </form>
-                                            <div class="mt-3 overflow-x-auto">
-                                                <table class="w-full text-xs">
+                                            <div class="mt-3 overflow-auto">
+                                                <table class="w-full text-xs text-left">
                                                     <thead class="bg-gray-50 text-gray-500">
                                                         <tr>
-                                                            <th class="px-3 py-2 text-left">房型</th>
-                                                            <th class="px-3 py-2 text-right">基础价</th>
-                                                            <th class="px-3 py-2 text-right">最低保护</th>
-                                                            <th class="px-3 py-2 text-right">最高限制</th>
-                                                            <th class="px-3 py-2 text-right">房量</th>
-                                                            <th class="px-3 py-2 text-left">状态</th>
-                                                            <th class="px-3 py-2 text-left">操作</th>
+                                                            <th class="p-2">房型</th>
+                                                            <th class="p-2 text-right">基础价</th>
+                                                            <th class="p-2 text-right">最低保护</th>
+                                                            <th class="p-2 text-right">最高限制</th>
+                                                            <th class="p-2 text-right">房量</th>
+                                                            <th class="p-2">状态</th>
+                                                            <th class="p-2">操作</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody class="divide-y divide-gray-100">
                                                         <tr v-for="item in roomTypeConfigList" :key="item.id">
-                                                            <td class="px-3 py-2 font-medium text-gray-800">{{ item.name }}</td>
-                                                            <td class="px-3 py-2 text-right">{{ item.base_price > 0 ? '¥' + item.base_price : '--' }}</td>
-                                                            <td class="px-3 py-2 text-right">{{ item.min_price > 0 ? '¥' + item.min_price : '--' }}</td>
-                                                            <td class="px-3 py-2 text-right">{{ item.max_price > 0 ? '¥' + item.max_price : '--' }}</td>
-                                                            <td class="px-3 py-2 text-right">{{ item.room_count ?? '--' }}</td>
-                                                            <td class="px-3 py-2">
-                                                                <span :class="['inline-flex rounded border px-2 py-0.5', Number(item.is_enabled) === 1 ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-500']">
+                                                            <td class="p-2 font-medium text-gray-800">{{ item.name }}</td>
+                                                            <td class="p-2 text-right">{{ item.base_price > 0 ? '¥' + item.base_price : '--' }}</td>
+                                                            <td class="p-2 text-right">{{ item.min_price > 0 ? '¥' + item.min_price : '--' }}</td>
+                                                            <td class="p-2 text-right">{{ item.max_price > 0 ? '¥' + item.max_price : '--' }}</td>
+                                                            <td class="p-2 text-right">{{ item.room_count ?? '--' }}</td>
+                                                            <td class="p-2">
+                                                                <span :class="['badge', Number(item.is_enabled) === 1 ? 'badge-success' : 'bg-gray-100 text-gray-600']">
                                                                     {{ Number(item.is_enabled) === 1 ? '启用' : '停用' }}
                                                                 </span>
                                                             </td>
-                                                            <td class="px-3 py-2">
+                                                            <td class="p-2">
                                                                 <button @click="editRoomTypeConfig(item)" class="text-blue-600 hover:text-blue-800">编辑</button>
                                                             </td>
                                                         </tr>
                                                         <tr v-if="roomTypeConfigList.length === 0">
-                                                            <td colspan="7" class="px-3 py-5 text-center text-gray-400">暂无房型配置，携程调价建议生成会保持受阻</td>
+                                                            <td colspan="7" class="p-4 text-center text-gray-400">暂无房型配置，携程调价建议生成会保持受阻</td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
@@ -18855,7 +18852,9 @@ Authorization: Bearer xxx"></textarea>
                                             <div class="text-sm font-semibold text-blue-900">可生成运营任务草稿</div>
                                             <div class="text-xs text-blue-700 mt-1">带入步骤、验收条件、来源版本与7天截止日期；仍需人工审批。</div>
                                         </div>
-                                        <button type="button" @click="createKnowledgeSopTask(chunk)" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 whitespace-nowrap">转运营任务</button>
+                                        <button type="button" @click="createKnowledgeSopTask(chunk)" :disabled="knowledgeSopTaskCreatingChunkId === Number(chunk.chunk_id)" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs disabled:opacity-60">
+                                            {{ knowledgeSopTaskCreatingChunkId === Number(chunk.chunk_id) ? '生成并回读中' : '转运营任务' }}
+                                        </button>
                                     </div>
                                 </div>
                                 <details v-if="view.rawText" class="mt-3 rounded-lg border border-gray-100 bg-gray-50">

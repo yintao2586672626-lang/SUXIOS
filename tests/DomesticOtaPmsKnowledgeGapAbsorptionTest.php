@@ -110,6 +110,32 @@ final class DomesticOtaPmsKnowledgeGapAbsorptionTest extends TestCase
         );
     }
 
+    public function testDianpingForwardCorrectionSeparatesOfficialFactsFromPrivateUnknowns(): void
+    {
+        $root = realpath(__DIR__ . '/..');
+        self::assertIsString($root);
+
+        $migrationPath = $root
+            . '/database/migrations/20260730_zzz_clarify_dianping_known_unknown_boundary.sql';
+        self::assertFileExists($migrationPath);
+        $migration = (string)file_get_contents($migrationPath);
+
+        self::assertStringContainsString(
+            "'$.evidence_level', 'official_current_rule'",
+            $migration
+        );
+        self::assertStringContainsString(
+            "'$.unknown_policy', 'explicit_gap_only_never_infer'",
+            $migration
+        );
+        self::assertStringContainsString("'operation_task_creation'", $migration);
+        self::assertStringContainsString("'automatic_ota_write'", $migration);
+        self::assertStringContainsString(
+            "`truth_profile_version` = '2026-07-30.4'",
+            $migration
+        );
+    }
+
     public function testVerifierAndRetrievalServicesKeepTheBoundaryExecutable(): void
     {
         $root = realpath(__DIR__ . '/..');

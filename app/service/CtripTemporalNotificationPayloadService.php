@@ -213,20 +213,44 @@ final class CtripTemporalNotificationPayloadService
                 ->where('readback_verified', 1);
         };
 
-        $presentRows = $baseQuery()
+        $latestPresentBatchId = (int)($baseQuery()
             ->where('data_date', $businessDate)
             ->where('data_period', 'realtime_snapshot')
-            ->order('id', 'desc')
-            ->limit(2500)
-            ->select()
-            ->toArray();
-        $futureRows = $baseQuery()
+            ->where('is_final', 0)
+            ->where('sync_task_id', '>', 0)
+            ->order('sync_task_id', 'desc')
+            ->value('sync_task_id') ?? 0);
+        $presentRows = $latestPresentBatchId > 0
+            ? $baseQuery()
+                ->where('data_date', $businessDate)
+                ->where('data_period', 'realtime_snapshot')
+                ->where('is_final', 0)
+                ->where('sync_task_id', $latestPresentBatchId)
+                ->order('id', 'desc')
+                ->limit(500)
+                ->select()
+                ->toArray()
+            : [];
+        $latestFutureBatchId = (int)($baseQuery()
             ->where('data_date', $businessDate)
+            ->where('data_period', 'next_30_days')
+            ->where('is_final', 0)
             ->where('dimension', 'like', '%traffic_search_details%')
-            ->order('id', 'desc')
-            ->limit(1500)
-            ->select()
-            ->toArray();
+            ->where('sync_task_id', '>', 0)
+            ->order('sync_task_id', 'desc')
+            ->value('sync_task_id') ?? 0);
+        $futureRows = $latestFutureBatchId > 0
+            ? $baseQuery()
+                ->where('data_date', $businessDate)
+                ->where('data_period', 'next_30_days')
+                ->where('is_final', 0)
+                ->where('dimension', 'like', '%traffic_search_details%')
+                ->where('sync_task_id', $latestFutureBatchId)
+                ->order('id', 'desc')
+                ->limit(500)
+                ->select()
+                ->toArray()
+            : [];
         $pastRows = $baseQuery()
             ->whereBetween('data_date', [$from, $yesterday])
             ->where('data_period', 'historical_daily')

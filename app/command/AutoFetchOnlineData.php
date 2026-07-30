@@ -6,6 +6,7 @@ namespace app\command;
 use app\model\User;
 use app\service\PlatformDataSyncService;
 use app\service\CloudOtaCollectionScopeService;
+use app\service\CtripCollectorWorkflowService;
 use app\service\OtaFailureNotificationService;
 use app\service\OtaOrderedCollectionPlanner;
 use app\service\P0OtaFieldLoopVerifierRunner;
@@ -1505,7 +1506,7 @@ class AutoFetchOnlineData extends Command
                 continue;
             }
             try {
-                $result = $service->syncDataSource($systemUser, (int)$source['id'], [
+                $syncOptions = [
                     'trigger_type' => 'daily_profile_reuse',
                     'data_date' => $dataDate,
                     'data_period' => $dataPeriod,
@@ -1534,7 +1535,22 @@ class AutoFetchOnlineData extends Command
                             'platform' => $platform,
                             'platform_hotel_id' => $this->cloudCollectorPlatformHotelId($source),
                         ],
-                ]);
+                ];
+                if ($platform === 'ctrip' && $dataPeriod === 'realtime_snapshot') {
+                    $syncOptions = (new CtripCollectorWorkflowService())->applyFlowOptions([
+                        ...$syncOptions,
+                        'collector_flow' => 'realtime',
+                        'bounded_capture_sections' => implode(
+                            ',',
+                            (array)($orderedPlan['sections'] ?? [])
+                        ),
+                    ]);
+                }
+                $result = $service->syncDataSource(
+                    $systemUser,
+                    (int)$source['id'],
+                    $syncOptions
+                );
             } catch (\Throwable $e) {
                 $failedCount++;
                 $failedPlatforms[$platform] = true;

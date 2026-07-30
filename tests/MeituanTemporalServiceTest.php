@@ -294,7 +294,7 @@ final class MeituanTemporalServiceTest extends TestCase
     public function testFutureLatestSnapshotDoesNotBlendOlderTabsAndKeepsReferenceSeparate(): void
     {
         $rows = [];
-        $start = new DateTimeImmutable('2026-07-30', new DateTimeZone('Asia/Shanghai'));
+        $start = new DateTimeImmutable('2026-07-29', new DateTimeZone('Asia/Shanghai'));
         for ($day = 0; $day < 30; $day++) {
             $targetDate = $start->modify('+' . $day . ' days')->format('Y-m-d');
             foreach (['pv' => [31, 11], 'uv' => [20, 8], 'advance_orders' => [2, 0.5]] as $type => [$current, $peer]) {
@@ -324,6 +324,14 @@ final class MeituanTemporalServiceTest extends TestCase
         self::assertNull($summary['future']['rows'][0]['metrics']['uv']['value']);
         self::assertSame(410, $summary['future']['latest_verified_reference']['sync_task_id']);
         self::assertCount(30, $summary['future']['latest_verified_reference']['rows']);
+        self::assertSame(
+            '2026-07-29',
+            $summary['future']['latest_verified_reference']['rows'][0]['target_date']
+        );
+        self::assertSame(
+            '2026-08-27',
+            $summary['future']['latest_verified_reference']['rows'][29]['target_date']
+        );
     }
 
     public function testRefreshPrefersReusableOwningProfileOverFailedProjection(): void
@@ -359,7 +367,7 @@ final class MeituanTemporalServiceTest extends TestCase
     public function testFutureRefreshGateRequiresOneCompleteSemanticSnapshot(): void
     {
         $rows = [];
-        $start = new DateTimeImmutable('2026-07-30', new DateTimeZone('Asia/Shanghai'));
+        $start = new DateTimeImmutable('2026-07-29', new DateTimeZone('Asia/Shanghai'));
         for ($day = 0; $day < 30; $day++) {
             $targetDate = $start->modify('+' . $day . ' days')->format('Y-m-d');
             foreach (['pv', 'uv', 'advance_orders'] as $type) {
@@ -419,6 +427,225 @@ final class MeituanTemporalServiceTest extends TestCase
             'status' => 'waiting_config',
             'message' => 'Profile session login required.',
         ]));
+    }
+
+    public function testRefreshOnlyCompletesAfterSaveAndExactReadback(): void
+    {
+        $method = new \ReflectionMethod(MeituanTemporalService::class, 'refreshTaskOutcome');
+        $service = new MeituanTemporalService();
+
+        self::assertSame([
+            'status' => 'completed',
+            'reason_code' => 'capture_saved_and_read_back',
+        ], $method->invoke($service, [
+            'status' => 'success',
+            'task_id' => 1985,
+            'saved_count' => 2,
+            'readback_verified' => true,
+            'collection_result' => [
+                'claim' => ['allowed' => true],
+            ],
+        ]));
+        self::assertSame([
+            'status' => 'partial',
+            'reason_code' => 'meituan_authoritative_empty_no_snapshot',
+        ], $method->invoke($service, [
+            'status' => 'success',
+            'task_id' => 1986,
+            'saved_count' => 0,
+            'readback_verified' => true,
+            'message' => 'platform_returned_authoritative_empty',
+        ]));
+        self::assertSame([
+            'status' => 'blocked',
+            'reason_code' => 'meituan_capture_readback_missing',
+        ], $method->invoke($service, [
+            'status' => 'success',
+            'task_id' => 1987,
+            'saved_count' => 2,
+            'readback_verified' => false,
+        ]));
+        self::assertSame([
+            'status' => 'blocked',
+            'reason_code' => 'meituan_collection_claim_blocked',
+        ], $method->invoke($service, [
+            'status' => 'success',
+            'task_id' => 1988,
+            'saved_count' => 2,
+            'readback_verified' => true,
+            'collection_result' => [
+                'claim' => [
+                    'allowed' => false,
+                    'reason_codes' => ['structured_response_required'],
+                ],
+            ],
+        ]));
+        self::assertSame([
+            'status' => 'blocked',
+            'reason_code' => 'meituan_capture_readback_missing',
+        ], $method->invoke($service, [
+            'status' => 'success',
+            'task_id' => 0,
+            'saved_count' => 2,
+            'readback_verified' => true,
+        ]));
+        self::assertSame([
+            'status' => 'blocked',
+            'reason_code' => 'meituan_profile_login_required',
+        ], $method->invoke($service, [
+            'status' => 'waiting_config',
+            'task_id' => 0,
+            'saved_count' => 0,
+            'readback_verified' => false,
+            'message' => 'Profile session login required.',
+        ]));
+    }
+
+    public function testRefreshDateMustMatchCurrentShanghaiBusinessDate(): void
+    {
+        $method = new \ReflectionMethod(MeituanTemporalService::class, 'sameLocalDate');
+        $service = new MeituanTemporalService();
+
+        self::assertTrue($method->invoke(
+            $service,
+            new DateTimeImmutable('2026-07-30 00:05:00', new DateTimeZone('Asia/Shanghai')),
+            new DateTimeImmutable('2026-07-29 16:05:00', new DateTimeZone('UTC'))
+        ));
+        self::assertFalse($method->invoke(
+            $service,
+            new DateTimeImmutable('2026-07-29 23:59:59', new DateTimeZone('Asia/Shanghai')),
+            new DateTimeImmutable('2026-07-30 00:00:00', new DateTimeZone('Asia/Shanghai'))
+        ));
+    }
+
+    public function testYesterdayRefreshGateRequiresOneCompleteVerifiedSnapshot(): void
+    {
+        $capturedAt = '2026-07-30 09:05:00';
+        $rows = [$this->completeBusinessRow(80, 601, '2026-07-29', $capturedAt)];
+        $method = new \ReflectionMethod(
+            MeituanTemporalService::class,
+            'hasCompleteVerifiedYesterdaySnapshotRows'
+        );
+        $service = new MeituanTemporalService();
+
+        self::assertFalse($method->invoke($service, $rows, '2026-07-29', '2026-07-30'));
+        foreach ([
+            'overall exposure' => 1567,
+            'organic exposure' => 271,
+            'ad exposure' => 1296,
+        ] as $label => $value) {
+            $rows[] = $this->row(80, 601, 'traffic_analysis', '2026-07-29', [
+                'data_value' => $value,
+                'dimension' => $label,
+            ], [
+                'name' => $label,
+                'value' => $value,
+            ], ['analysis_value'], $capturedAt);
+        }
+        self::assertTrue($method->invoke($service, $rows, '2026-07-29', '2026-07-30'));
+
+        $rows[] = $this->completeBusinessRow(80, 602, '2026-07-29', '2026-07-30 10:00:00');
+        self::assertTrue($method->invoke($service, $rows, '2026-07-29', '2026-07-30'));
+    }
+
+    public function testMetricsRequirePlatformHotelIdentityAndStructuredFieldPath(): void
+    {
+        $business = $this->completeBusinessRow(80, 701, '2026-07-29', '2026-07-29 18:00:00');
+        $traffic = $this->completeTrafficRow(80, 701, '2026-07-29', '2026-07-29 18:00:00');
+        $raw = json_decode((string)$traffic['raw_data'], true);
+        unset($raw['platform_hotel_identifier_present']);
+        $traffic['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE);
+
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            [$business, $traffic],
+            80,
+            '2026-07-29'
+        );
+        self::assertSame('unverified', $summary['today']['metrics']['exposure_users']['status']);
+
+        $traffic = $this->completeTrafficRow(80, 702, '2026-07-29', '2026-07-29 19:00:00');
+        $raw = json_decode((string)$traffic['raw_data'], true);
+        foreach ($raw['field_facts'] as &$fact) {
+            if (($fact['metric_key'] ?? '') === 'exposure_users') {
+                $fact['source_path'] = 'exposure_users';
+            }
+        }
+        unset($fact);
+        $traffic['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE);
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            [$this->completeBusinessRow(80, 702, '2026-07-29', '2026-07-29 19:00:00'), $traffic],
+            80,
+            '2026-07-29'
+        );
+        self::assertSame('unverified', $summary['today']['metrics']['exposure_users']['status']);
+    }
+
+    public function testVerifiedCandidateWinsInsideOneSnapshotWithoutBorrowingAcrossSnapshots(): void
+    {
+        $unverified = $this->row(80, 703, 'traffic', '2026-07-29', [
+            'list_exposure' => 999,
+        ], [
+            'exposure_users' => 999,
+        ], ['exposure_users'], '2026-07-29 20:00:00');
+        $raw = json_decode((string)$unverified['raw_data'], true);
+        unset($raw['platform_hotel_identifier_present']);
+        $unverified['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE);
+
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows([
+            $this->completeBusinessRow(80, 703, '2026-07-29', '2026-07-29 20:00:00'),
+            $unverified,
+            $this->completeTrafficRow(80, 703, '2026-07-29', '2026-07-29 20:00:00'),
+        ], 80, '2026-07-29');
+
+        self::assertSame(81, $summary['today']['metrics']['exposure_users']['value']);
+        self::assertSame('verified', $summary['today']['metrics']['exposure_users']['status']);
+        self::assertSame(703, $summary['today']['metrics']['exposure_users']['sync_task_id']);
+    }
+
+    public function testFlowConversionModuleWinsOverHomeSummaryInsideTheSameTask(): void
+    {
+        $home = $this->row(80, 704, 'traffic', '2026-07-29', [
+            'list_exposure' => 896,
+            'detail_exposure' => 121,
+            'book_order_num' => 3,
+            'flow_rate' => 2.48,
+        ], [
+            '_source_path' => 'dom.traffic.home_summary',
+            'exposure_users' => 896,
+            'detail_visitors' => 121,
+            'paid_order_count' => 3,
+            'browse_to_pay_rate' => 2.48,
+        ], [
+            'exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
+        ], '2026-07-29 21:00:00');
+        $flow = $this->row(80, 704, 'traffic', '2026-07-29', [
+            'dimension' => 'flow_conversion',
+            'list_exposure' => 102,
+            'detail_exposure' => 19,
+            'book_order_num' => 1,
+            'flow_rate' => 5.26,
+        ], [
+            '_source_path' => 'data.myHotel',
+            'dimension' => 'flow_conversion',
+            'exposure_users' => 102,
+            'detail_visitors' => 19,
+            'paid_order_count' => 1,
+            'browse_to_pay_rate' => 5.26,
+        ], [
+            'exposure_users', 'detail_visitors', 'paid_order_count', 'browse_to_pay_rate',
+        ], '2026-07-29 21:00:00');
+
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows([
+            $this->completeBusinessRow(80, 704, '2026-07-29', '2026-07-29 21:00:00'),
+            $home,
+            $flow,
+        ], 80, '2026-07-29');
+
+        self::assertSame(102, $summary['today']['metrics']['exposure_users']['value']);
+        self::assertSame(19, $summary['today']['metrics']['detail_visitors']['value']);
+        self::assertSame(1, $summary['today']['metrics']['paid_order_count']['value']);
+        self::assertSame(5.26, $summary['today']['metrics']['browse_to_pay_rate']['value']);
+        self::assertSame('ready', $summary['today']['status']);
     }
 
     private function completeBusinessRow(
@@ -487,6 +714,12 @@ final class MeituanTemporalServiceTest extends TestCase
         array $capturedFacts,
         string $capturedAt = '2026-07-29 18:00:00'
     ): array {
+        $traceId = 'trace-' . $taskId . '-' . $dataType;
+        $urlHash = hash('sha256', 'meituan-fixture:' . $traceId);
+        $captureSource = strtolower(trim((string)(
+            $rawRow['_capture_source'] ?? 'xhr:traffic:business_data'
+        )));
+        $sourcePath = trim((string)($rawRow['_source_path'] ?? 'data'));
         $facts = [];
         foreach ($capturedFacts as $metricKey) {
             $facts[] = [
@@ -494,6 +727,12 @@ final class MeituanTemporalServiceTest extends TestCase
                 'status' => 'captured',
                 'stored_value_present' => true,
                 'source_path' => '$.' . $metricKey,
+                'capture_evidence' => [
+                    'capture_source' => $captureSource,
+                    'source_path' => $sourcePath,
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $urlHash,
+                ],
             ];
         }
         return array_merge([
@@ -505,7 +744,8 @@ final class MeituanTemporalServiceTest extends TestCase
             'compare_type' => $dataType === 'traffic_forecast' ? 'forecast' : 'self',
             'data_source_id' => 18,
             'sync_task_id' => $taskId,
-            'source_trace_id' => 'trace-' . $taskId . '-' . $dataType,
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => $traceId,
             'snapshot_time' => $capturedAt,
             'readback_verified' => 1,
             'raw_data' => json_encode([
@@ -514,11 +754,30 @@ final class MeituanTemporalServiceTest extends TestCase
                     'date_source' => $dataType === 'traffic_forecast'
                         ? 'row.dateTime'
                         : 'page.business_period_selection.readback',
+                    '_capture_source' => $captureSource,
+                    '_source_path' => $sourcePath,
+                    'capture_evidence' => [
+                        'capture_source' => $captureSource,
+                        'source_path' => $sourcePath,
+                        'source_trace_id' => $traceId,
+                        'source_url_hash' => $urlHash,
+                    ],
                 ]),
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $urlHash,
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $urlHash,
+                ],
                 'date_source' => $dataType === 'traffic_forecast'
                     ? 'row.dateTime'
                     : 'page.business_period_selection.readback',
                 'captured_at' => $capturedAt,
+                'platform_hotel_identifier_present' => true,
+                'platform_hotel_identifier_source' => 'row.poi_id',
+                'platform_hotel_identifier_proof' => 'row_field_present',
+                'platform_hotel_binding_status' => 'matched',
+                'platform_hotel_binding_proof' => 'source_and_response_match',
                 'field_facts' => $facts,
             ], JSON_UNESCAPED_UNICODE),
         ], $columns);

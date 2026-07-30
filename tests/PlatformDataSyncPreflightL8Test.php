@@ -235,8 +235,8 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             'update_time' => '2026-07-15 08:01:00',
         ]);
         $facts = [
-            ['metric_key' => 'order_amount', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'orderAmount'],
-            ['metric_key' => 'room_nights', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'roomNights'],
+            ['metric_key' => 'order_amount', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'amount'],
+            ['metric_key' => 'room_nights', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'quantity'],
         ];
         $common = [
             'tenant_id' => self::TENANT_ID,
@@ -261,7 +261,11 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             'amount' => 1200,
             'quantity' => 3,
             'source_trace_id' => 'target-run-trace',
-            'raw_data' => json_encode(['field_facts' => $facts], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'raw_data' => json_encode([
+                'row' => ['endpoint_id' => 'business_market_overview'],
+                'platform_hotel_identifier_proof' => 'row_field_present',
+                'field_facts' => $facts,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]));
         $forecastRowId = (int)Db::name('online_daily_data')->insertGetId(array_merge($common, [
             'data_date' => '2026-07-15',
@@ -309,6 +313,7 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
         );
         self::assertSame([$targetRowId], $receipt['row_ids']);
         self::assertSame(1, $receipt['readback_count']);
+        self::assertSame('CTRIP-TC145-101', $receipt['observed_platform_hotel_id']);
         self::assertSame(['revenue', 'room_nights', 'adr'], $receipt['verified_metric_keys']);
 
         $missingTargetReceipt = $method->invoke(

@@ -156,4 +156,122 @@ final class KnowledgeCenterReadinessServiceTest extends TestCase
             array_column($readiness['missing_evidence'], 'code')
         );
     }
+
+    public function testTruthMappedUnitCannotBeReadyWhenNoChunkPassesRetrievalGate(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'hotel_id' => 8,
+            'known_knowns' => ['已确认事实'],
+            'known_unknowns' => ['待验证事实'],
+            'truth_profile_version' => '2026-07-30.4',
+            '_chunk_gate_summary' => [
+                'total_count' => 2,
+                'retrieval_safe_count' => 0,
+                'decision_safe_count' => 0,
+                'blocked_count' => 2,
+            ],
+        ], 2);
+
+        self::assertSame('unit_chunks_unverified', $readiness['stage']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertSame(
+            ['retrieval_safe_chunk_missing'],
+            array_column($readiness['missing_evidence'], 'code')
+        );
+        self::assertSame(2, $readiness['chunk_gate_summary']['blocked_count']);
+    }
+
+    public function testRetrievalSafeReferenceCannotBeReportedAsDecisionReady(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'hotel_id' => 8,
+            'known_knowns' => ['已确认事实'],
+            'known_unknowns' => ['待验证事实'],
+            'truth_profile_version' => '2026-07-30.4',
+            '_chunk_gate_summary' => [
+                'total_count' => 1,
+                'retrieval_safe_count' => 1,
+                'decision_safe_count' => 0,
+                'reference_only_count' => 1,
+            ],
+        ], 1);
+
+        self::assertSame('unit_reference_only', $readiness['stage']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertSame(
+            ['decision_safe_chunk_missing'],
+            array_column($readiness['missing_evidence'], 'code')
+        );
+    }
+
+    public function testUnresolvedChunkConflictBlocksUnitEvenWhenAnotherChunkIsDecisionSafe(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'hotel_id' => 8,
+            'known_knowns' => ['已确认事实'],
+            'known_unknowns' => ['待验证事实'],
+            'truth_profile_version' => '2026-07-30.4',
+            '_chunk_gate_summary' => [
+                'total_count' => 3,
+                'retrieval_safe_count' => 1,
+                'decision_safe_count' => 1,
+                'unresolved_conflict_count' => 1,
+            ],
+        ], 3);
+
+        self::assertSame('unit_conflict_unresolved', $readiness['stage']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertSame(
+            ['knowledge_conflict_unresolved'],
+            array_column($readiness['missing_evidence'], 'code')
+        );
+    }
+
+    public function testMixedSafeAndKnownUnknownChunksRemainPartiallyReady(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'hotel_id' => 8,
+            'known_knowns' => ['已确认事实'],
+            'known_unknowns' => ['待验证事实'],
+            'truth_profile_version' => '2026-07-30.4',
+            '_chunk_gate_summary' => [
+                'total_count' => 2,
+                'retrieval_safe_count' => 2,
+                'decision_safe_count' => 1,
+                'known_unknown_count' => 1,
+            ],
+        ], 2);
+
+        self::assertSame('unit_partially_ready', $readiness['stage']);
+        self::assertFalse($readiness['closed_loop']);
+        self::assertSame(
+            ['knowledge_chunks_partially_ready'],
+            array_column($readiness['missing_evidence'], 'code')
+        );
+    }
+
+    public function testAllDecisionSafeChunksKeepUnitReady(): void
+    {
+        $readiness = (new KnowledgeCenterReadinessService())->buildUnitReadiness([
+            'status' => 'done',
+            'hotel_id' => 8,
+            'known_knowns' => ['已确认事实'],
+            'known_unknowns' => ['待验证事实'],
+            'truth_profile_version' => '2026-07-30.4',
+            '_chunk_gate_summary' => [
+                'total_count' => 2,
+                'retrieval_safe_count' => 2,
+                'decision_safe_count' => 2,
+                'task_draft_safe_count' => 2,
+            ],
+        ], 2);
+
+        self::assertSame('unit_ready', $readiness['stage']);
+        self::assertTrue($readiness['closed_loop']);
+        self::assertSame(2, $readiness['chunk_gate_summary']['decision_safe_count']);
+    }
 }

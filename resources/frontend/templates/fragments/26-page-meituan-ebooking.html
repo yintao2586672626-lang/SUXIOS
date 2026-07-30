@@ -928,21 +928,7 @@
                                         <section :class="mtUi.panel">
                                             <h4 class="text-lg font-bold">未来30天 <small :class="mtStatusClass(mtSummary?.future?.status)">{{ mtStatusText(mtSummary?.future?.status) }}</small></h4>
                                             <p>{{ mtCopy.futureNote }}</p>
-                                            <div class="overflow-x-auto">
-                                                <table class="min-w-full text-sm">
-                                                    <thead><tr class="bg-gray-50 text-left"><th>目标日期</th><th>未来 PV / 同行均值</th><th>未来 UV / 同行均值</th><th>提前订订单量 / 同行均值</th><th>状态</th></tr></thead>
-                                                    <tbody>
-                                                        <tr v-for="row in mtFutureRows" :key="row.target_date" class="border-t">
-                                                            <td><b>{{ row.target_date }}</b></td>
-                                                            <td>{{ mtText(row.metrics?.pv, 'pv') }} / {{ mtText(row.metrics?.pv_peer_avg, 'pv_peer_avg') }}</td>
-                                                            <td>{{ mtText(row.metrics?.uv, 'uv') }} / {{ mtText(row.metrics?.uv_peer_avg, 'uv_peer_avg') }}</td>
-                                                            <td>{{ mtText(row.metrics?.advance_orders, 'advance_orders') }} / {{ mtText(row.metrics?.advance_orders_peer_avg, 'advance_orders_peer_avg') }}</td>
-                                                            <td>{{ mtStatusText(row.status) }}</td>
-                                                        </tr>
-                                                        <tr v-if="!mtFutureRows.length"><td colspan="5" class="p-4 text-center text-gray-400">{{ mtCopy.futureEmpty }}</td></tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                            <meituan-future-flow :rows="mtFutureRows" :captured-at="mtSummary?.future?.captured_at"></meituan-future-flow>
                                         </section>
 
                                         <section v-if="mtReferences.length" :class="mtUi.referencePanel">

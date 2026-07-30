@@ -98,7 +98,11 @@ test('Ctrip overview tasks stay Ctrip-only and history controls remain usable fo
     'data-testid="ctrip-data-health-priority-strip"',
     'data-testid="ctrip-store-overview-business-board"',
   );
-  const historyFilters = sliceBetween(page, 'onlineHistoryFilter.platform', '<div class="overflow-x-auto table-container">');
+  const historyFilters = sliceBetween(
+    page,
+    'onlineHistoryFilter.platform',
+    '<div v-if="onlineHistoryHasCurrentSnapshot" class="overflow-x-auto table-container">',
+  );
 
   assert.match(appMain, /const ctripDataHealthCookieAlertRows = computed\(\(\) => dataHealthCookieAlertRows\.value\.filter\(dataHealthRowIsCtrip\)\)/);
   assert.match(appMain, /const ctripDataHealthTodayWorkOrders = computed\(\(\) => buildDataHealthTodayWorkOrders\(\{/);

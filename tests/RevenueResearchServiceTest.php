@@ -466,6 +466,7 @@ final class RevenueResearchServiceTest extends TestCase
             [
                 'id' => 17652,
                 'system_hotel_id' => 80,
+                'hotel_id' => '130079194',
                 'data_date' => '2026-07-15',
                 'source' => 'ctrip',
                 'data_type' => 'business',
@@ -572,7 +573,7 @@ final class RevenueResearchServiceTest extends TestCase
 
         self::assertCount(1, $rows);
         self::assertSame(17652, $rows[0]['id']);
-        self::assertSame(5939, $rows[0]['amount']);
+        self::assertSame(5939.0, $rows[0]['amount']);
         self::assertSame('敦煌漠蓝新', $rows[0]['hotel_name']);
     }
 
@@ -590,6 +591,7 @@ final class RevenueResearchServiceTest extends TestCase
                 'source' => RevenueOperationsKnowledgeService::SOURCE,
                 'entries' => [[
                     'scope' => 'generic_methodology',
+                    'knowledge_gate' => ['decision_safe' => true],
                     'knowledge_type' => '建议卡契约',
                     'content' => ['readiness_rule' => 'missing facts means data gaps only'],
                 ]],
@@ -602,11 +604,56 @@ final class RevenueResearchServiceTest extends TestCase
         self::assertStringContainsString('generic_methodology', $prompt);
     }
 
+    public function testReferenceOnlyKnowledgeIsWithheldFromActionPromptAndBlocksExecution(): void
+    {
+        $service = new RevenueResearchService();
+        $context = $this->invokeNonPublic($service, 'decisionSafeKnowledgeContext', [[
+            'status' => 'partial',
+            'entry_count' => 2,
+            'entries' => [
+                [
+                    'chunk_id' => 1,
+                    'content' => ['rule' => 'SAFE_RULE'],
+                    'knowledge_gate' => ['decision_safe' => true],
+                ],
+                [
+                    'chunk_id' => 2,
+                    'content' => ['rule' => 'UNSAFE_RULE'],
+                    'knowledge_gate' => [
+                        'decision_safe' => false,
+                        'status' => 'reference_only',
+                    ],
+                ],
+            ],
+            'data_gaps' => [[
+                'code' => 'knowledge_review_due',
+                'label' => 'review due',
+            ]],
+        ]]);
+
+        self::assertSame([1], array_column($context['entries'], 'chunk_id'));
+        self::assertSame(1, $context['excluded_for_decision_count']);
+        self::assertFalse($context['execution_ready']);
+        self::assertContains('knowledge_review_due', $context['data_gap_codes']);
+
+        $prompt = $this->invokeNonPublic($service, 'buildPrompt', [
+            ['name' => 'demand', 'module' => 'revenue', 'query' => 'pickup'],
+            [],
+            [],
+            ['decision_ready' => true],
+            false,
+            $context,
+        ]);
+        self::assertStringContainsString('SAFE_RULE', $prompt);
+        self::assertStringNotContainsString('UNSAFE_RULE', $prompt);
+    }
+
     public function testCanonicalSelectorPrefersExplicitZeroMetricsOverNewerMissingFields(): void
     {
         $service = new RevenueResearchService();
         $base = [
             'system_hotel_id' => 80,
+            'hotel_id' => '130079194',
             'data_date' => '2026-07-14',
             'source' => 'ctrip',
             'data_type' => 'business',
@@ -639,9 +686,9 @@ final class RevenueResearchServiceTest extends TestCase
 
         self::assertCount(1, $rows);
         self::assertSame(1, $rows[0]['id']);
-        self::assertSame(0, $rows[0]['amount']);
-        self::assertSame(0, $rows[0]['quantity']);
-        self::assertSame(0, $rows[0]['book_order_num']);
+        self::assertSame(0.0, $rows[0]['amount']);
+        self::assertSame(0.0, $rows[0]['quantity']);
+        self::assertSame(0.0, $rows[0]['book_order_num']);
     }
 
     public function testCanonicalForecastSelectorRequiresReadbackCollectionTimeAndNonManualSource(): void
@@ -649,6 +696,7 @@ final class RevenueResearchServiceTest extends TestCase
         $service = new RevenueResearchService();
         $base = [
             'system_hotel_id' => 80,
+            'hotel_id' => '130079194',
             'hotel_name' => '测试酒店',
             'data_date' => '2026-07-14',
             'source' => 'ctrip',
@@ -677,6 +725,204 @@ final class RevenueResearchServiceTest extends TestCase
 
         self::assertCount(1, $rows);
         self::assertSame(6, $rows[0]['id']);
+    }
+
+    public function testForecastSelectorUsesSharedCtripAndMeituanStandardFacts(): void
+    {
+        $service = new RevenueResearchService();
+        $sourceUrlHash = str_repeat('b', 64);
+        $fact = static function (
+            string $metricKey,
+            string $storageField,
+            string $sourcePath,
+            string $traceId
+        ) use ($sourceUrlHash): array {
+            return [
+                'metric_key' => $metricKey,
+                'storage_field' => $storageField,
+                'source_path' => $sourcePath,
+                'source_key' => match ($metricKey) {
+                    'order_amount' => 'amount',
+                    'room_nights' => 'quantity',
+                    'order_count' => 'book_order_num',
+                    default => $metricKey,
+                },
+                'status' => 'captured',
+                'stored_value_present' => true,
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $sourceUrlHash,
+                ],
+            ];
+        };
+        $common = [
+            'system_hotel_id' => 80,
+            'data_date' => '2026-07-29',
+            'compare_type' => 'self',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'readback_verified' => 1,
+            'ingestion_method' => 'browser_profile',
+            'snapshot_time' => '2026-07-30 10:06:10',
+            'source_url_hash' => $sourceUrlHash,
+        ];
+        $ctripCheckoutTrace = 'ctrip:' . str_repeat('1', 64);
+        $ctripCapacityTrace = 'ctrip:' . str_repeat('2', 64);
+        $meituanBusinessTrace = 'meituan:' . str_repeat('3', 64);
+        $meituanOrderTrace = 'meituan:' . str_repeat('4', 64);
+
+        $rows = $this->invokeNonPublic($service, 'selectCanonicalOnlineOperatingRows', [[
+            array_replace($common, [
+                'id' => 68698,
+                'hotel_id' => 'ctrip-hotel-80',
+                'hotel_name' => 'Ctrip Checkout',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => 'catalog:business_overview:business_market_overview:order_amount:data.amount',
+                'validation_status' => 'partial',
+                'amount' => 2168,
+                'quantity' => 3,
+                'sync_task_id' => 2042,
+                'source_trace_id' => $ctripCheckoutTrace,
+                'raw_data' => json_encode([
+                    'row' => [
+                        'endpoint_id' => 'business_market_overview',
+                        'amount' => 2168,
+                        'quantity' => 3,
+                    ],
+                    'field_facts' => [
+                        $fact('order_amount', 'online_daily_data.amount', 'data.amount', $ctripCheckoutTrace),
+                        $fact('room_nights', 'online_daily_data.quantity', 'data.quantity', $ctripCheckoutTrace),
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+            array_replace($common, [
+                'id' => 68699,
+                'hotel_id' => 'ctrip-hotel-80',
+                'hotel_name' => 'Ctrip Capacity',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => 'catalog:business_overview:business_capacity:occupied_rooms:occupiedRooms',
+                'validation_status' => 'partial',
+                'quantity' => 2,
+                'book_order_num' => 1,
+                'sync_task_id' => 2042,
+                'source_trace_id' => $ctripCapacityTrace,
+                'raw_data' => json_encode([
+                    'row' => [
+                        'endpoint_id' => 'business_capacity',
+                        'quantity' => 2,
+                        'book_order_num' => 1,
+                    ],
+                    'field_facts' => [
+                        $fact('order_count', 'online_daily_data.book_order_num', 'data.bookOrderNum', $ctripCapacityTrace),
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+            array_replace($common, [
+                'id' => 68703,
+                'hotel_id' => 'ctrip-hotel-80',
+                'hotel_name' => 'Ctrip Booking Fields',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => '',
+                'validation_status' => 'normal',
+                'amount' => 3322,
+                'quantity' => 4,
+                'book_order_num' => 2,
+                'sync_task_id' => 2042,
+                'source_trace_id' => 'ctrip:' . str_repeat('5', 64),
+                'raw_data' => json_encode([
+                    'row' => [
+                        'endpoint_id' => 'business_market_overview',
+                        'bookAmount' => 3322,
+                        'bookQuantity' => 4,
+                        'bookOrderNum' => 2,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+            array_replace($common, [
+                'id' => 68706,
+                'hotel_id' => 'meituan-hotel-80',
+                'hotel_name' => 'Meituan Business Cards',
+                'source' => 'meituan',
+                'data_type' => 'business',
+                'dimension' => '',
+                'validation_status' => 'normal',
+                'amount' => 5272.34,
+                'quantity' => 6,
+                'book_order_num' => 3,
+                'sync_task_id' => 2043,
+                'source_trace_id' => $meituanBusinessTrace,
+                'raw_data' => json_encode([
+                    'row' => [
+                        'sales_amount' => 5272.34,
+                        'sales_room_nights' => 6,
+                        'sales_avg_price' => 878.72,
+                        'amount' => 5272.34,
+                        'quantity' => 6,
+                        'room_nights' => 6,
+                        'book_order_num' => 3,
+                        'compare_type' => 'self',
+                        'is_self' => true,
+                        'business_evidence_source' => 'page.business_period_selection.readback',
+                        'date_source' => 'page.business_period_selection.readback',
+                        'date_scope_evidence' => 'meituan_business_yesterday_tab',
+                        '_capture_source' => 'xhr:traffic:business_data',
+                        '_meituan_business_metric_sources' => [
+                            'sales_amount' => [
+                                'source_path' => 'data.cards.7.value',
+                                'source_kind' => 'card',
+                            ],
+                            'sales_room_nights' => [
+                                'source_path' => 'data.cards.5.value',
+                                'source_kind' => 'card',
+                            ],
+                        ],
+                    ],
+                    'field_facts' => [
+                        $fact('order_amount', 'online_daily_data.amount', 'data.amount', $meituanBusinessTrace),
+                        $fact('room_nights', 'online_daily_data.quantity', 'data.quantity', $meituanBusinessTrace),
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+            array_replace($common, [
+                'id' => 66381,
+                'hotel_id' => 'meituan-hotel-80',
+                'hotel_name' => 'Meituan Old Order Aggregate',
+                'source' => 'meituan',
+                'data_type' => 'order',
+                'dimension' => '',
+                'validation_status' => 'normal',
+                'amount' => 5501.8,
+                'quantity' => 6,
+                'book_order_num' => 3,
+                'sync_task_id' => 1990,
+                'source_trace_id' => $meituanOrderTrace,
+                'raw_data' => json_encode([
+                    'row' => [
+                        'amount' => 5501.8,
+                        'quantity' => 6,
+                        'room_nights' => 6,
+                        'compare_type' => 'self',
+                        'is_self' => true,
+                        'amount_scope' => 'meituan_sale_price_total',
+                        'pagination_complete' => true,
+                        'floor_price_used_as_revenue' => false,
+                        'guarantee_amount_used_as_revenue' => false,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+        ]]);
+
+        self::assertSame([68698, 68699, 68706], array_column($rows, 'id'));
+        self::assertSame(7440.34, array_sum(array_column($rows, 'amount')));
+        self::assertSame(9.0, array_sum(array_column($rows, 'quantity')));
+        self::assertSame(4.0, array_sum(array_column($rows, 'book_order_num')));
+        self::assertSame(
+            ['ctrip_checkout_daily', 'ctrip_capacity_daily', 'meituan_business_sales_daily'],
+            array_column($rows, 'metric_semantic_scope')
+        );
     }
 
     public function testBusinessForecastTruthContextExposesFullOtaEvidenceBoundary(): void
@@ -756,7 +1002,7 @@ final class RevenueResearchServiceTest extends TestCase
             ['data_date' => '2026-07-10', 'amount' => 0, 'quantity' => 1, 'book_order_num' => 1, 'source' => 'ctrip'],
             ['data_date' => '2026-07-11', 'amount' => 200, 'quantity' => 2, 'book_order_num' => 2, 'source' => 'ctrip'],
             ['data_date' => '2026-07-12', 'amount' => 300, 'quantity' => 3, 'book_order_num' => 3, 'source' => 'ctrip'],
-        ]]);
+        ], '2026-07-13 12:00:00']);
 
         self::assertTrue($forecast['available']);
         self::assertTrue($forecast['decision_ready']);
@@ -768,6 +1014,28 @@ final class RevenueResearchServiceTest extends TestCase
         self::assertNull($forecast['forecast_7d']['trend_adjustment_percent']);
         self::assertNotNull($forecast['forecast_7d']['adr']);
         self::assertNotNull($forecast['forecast_7d']['aov']);
+    }
+
+    public function testStaleOrNonContiguousCompleteSamplesCannotDriveForecast(): void
+    {
+        $service = new RevenueResearchService();
+        $stale = $this->invokeNonPublic($service, 'buildBusinessForecastFromRows', [[
+            ['data_date' => '2026-07-08', 'amount' => 100, 'quantity' => 1, 'book_order_num' => 1, 'source' => 'ctrip'],
+            ['data_date' => '2026-07-09', 'amount' => 200, 'quantity' => 2, 'book_order_num' => 2, 'source' => 'ctrip'],
+            ['data_date' => '2026-07-10', 'amount' => 300, 'quantity' => 3, 'book_order_num' => 3, 'source' => 'ctrip'],
+        ], '2026-07-15 12:00:00']);
+        $nonContiguous = $this->invokeNonPublic($service, 'buildBusinessForecastFromRows', [[
+            ['data_date' => '2026-07-10', 'amount' => 100, 'quantity' => 1, 'book_order_num' => 1, 'source' => 'ctrip'],
+            ['data_date' => '2026-07-12', 'amount' => 200, 'quantity' => 2, 'book_order_num' => 2, 'source' => 'ctrip'],
+            ['data_date' => '2026-07-13', 'amount' => 300, 'quantity' => 3, 'book_order_num' => 3, 'source' => 'ctrip'],
+        ], '2026-07-14 12:00:00']);
+
+        self::assertFalse($stale['decision_ready']);
+        self::assertContains('latest_complete_operating_day_stale', $stale['data_gaps']);
+        self::assertSame(4, $stale['sample_freshness']['staleness_days']);
+        self::assertFalse($nonContiguous['decision_ready']);
+        self::assertContains('complete_operating_series_not_contiguous', $nonContiguous['data_gaps']);
+        self::assertSame('non_contiguous', $nonContiguous['sample_freshness']['continuity_status']);
     }
 
     public function testForecastAndDailyRowsKeepMissingOperandsNull(): void
@@ -850,6 +1118,22 @@ final class RevenueResearchServiceTest extends TestCase
         ], 'done', [], $forecast, $result);
         self::assertSame('research_model_numeric_claim_unverified', $readiness['stage']);
         self::assertFalse($readiness['execution_ready']);
+    }
+
+    public function testLocalInventoryCountsCannotWhitelistModelBusinessNumbers(): void
+    {
+        $service = new RevenueResearchService();
+        $forecast = $this->trustedForecastForModelNumericValidation();
+        $tokens = $this->invokeNonPublic($service, 'trustedModelNumericTokens', [[[
+            'source' => 'knowledge_units',
+            'status' => 'available',
+            'count' => 25,
+            'unit_id' => 888,
+        ]], $forecast]);
+
+        self::assertArrayNotHasKey('25', $tokens);
+        self::assertArrayNotHasKey('888', $tokens);
+        self::assertArrayHasKey('7000', $tokens);
     }
 
     public function testModelExactStructuredForecastNumbersAreRetained(): void

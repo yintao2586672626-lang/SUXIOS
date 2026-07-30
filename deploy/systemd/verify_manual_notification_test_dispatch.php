@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use app\service\ManualNotificationService;
+use app\service\ManualNotificationScheduleRuleService;
 use think\App;
 use think\facade\Db;
 
@@ -30,7 +31,7 @@ try {
     Db::query(
         'SELECT `source_scope`,`content_sections`,`business_date_rule`,`active_weekdays`,'
         . '`effective_from`,`effective_to`,`hourly_start_time`,`hourly_end_time`,'
-        . '`interval_minutes`'
+        . '`interval_minutes`,`last_test_status`,`last_tested_at`,`update_time`'
         . ' FROM `manual_notifications` WHERE 1 = 0'
     );
 
@@ -50,9 +51,89 @@ try {
         ->where('schedule_status', 'schedule_enabled')
         ->whereIn('trigger_type', ['daily_fixed_time', 'hourly_on_the_hour', 'interval_minutes'])
         ->where('send_method', 'wecom_test')
-        ->field('id,hotel_id,template_type,test_robot_id,test_robot_name')
+        ->field(
+            'id,hotel_id,notification_type,template_type,trigger_type,'
+            . 'planned_send_at,active_weekdays,effective_from,effective_to,'
+            . 'hourly_start_time,hourly_end_time,interval_minutes,'
+            . 'last_test_status,last_tested_at,update_time,'
+            . 'test_robot_id,test_robot_name'
+        )
         ->select()
         ->toArray();
+    $policyBlocked = [];
+    $records = array_values(array_filter(
+        $records,
+        static function (array $record) use (&$policyBlocked): bool {
+            $templateType = trim((string)(
+                $record['template_type']
+                ?? $record['notification_type']
+                ?? ''
+            ));
+            $triggerType = trim((string)($record['trigger_type'] ?? ''));
+            $allowed = !ManualNotificationService::isOperatingDailyReportType(
+                $templateType
+            ) || ManualNotificationService::isOperatingDailyTriggerAllowed(
+                $triggerType
+            );
+            if (!$allowed) {
+                $policyBlocked[] = (int)($record['id'] ?? 0);
+            }
+            return $allowed;
+        }
+    ));
+    if ($policyBlocked !== []) {
+        throw new RuntimeException(
+            'operating_daily_loop_schedule_forbidden ids='
+            . implode(',', $policyBlocked)
+        );
+    }
+    $invalidTestEvidence = [];
+    $records = array_values(array_filter(
+        $records,
+        static function (array $record) use (&$invalidTestEvidence): bool {
+            $testedAt = trim((string)($record['last_tested_at'] ?? ''));
+            $updatedAt = trim((string)($record['update_time'] ?? ''));
+            $testedTimestamp = $testedAt === '' ? false : strtotime($testedAt);
+            $updatedTimestamp = $updatedAt === '' ? false : strtotime($updatedAt);
+            $valid = strtolower(trim((string)(
+                $record['last_test_status'] ?? ''
+            ))) === 'sent'
+                && $testedTimestamp !== false
+                && $updatedTimestamp !== false
+                && $testedTimestamp >= $updatedTimestamp;
+            if (!$valid) {
+                $invalidTestEvidence[] = (int)($record['id'] ?? 0);
+            }
+            return $valid;
+        }
+    ));
+    if ($invalidTestEvidence !== []) {
+        throw new RuntimeException(
+            'manual_notification_schedule_test_evidence_invalid ids='
+            . implode(',', $invalidTestEvidence)
+        );
+    }
+    $scheduleRules = new ManualNotificationScheduleRuleService();
+    $now = new DateTimeImmutable(
+        'now',
+        new DateTimeZone(ManualNotificationScheduleRuleService::TIMEZONE)
+    );
+    $expired = [];
+    $records = array_values(array_filter(
+        $records,
+        static function (array $record) use ($scheduleRules, $now, &$expired): bool {
+            $hasFutureRun = $scheduleRules->nextRunAt($record, $now) !== null;
+            if (!$hasFutureRun) {
+                $expired[] = (int)($record['id'] ?? 0);
+            }
+            return $hasFutureRun;
+        }
+    ));
+    if ($expired !== []) {
+        throw new RuntimeException(
+            'enabled_schedule_window_expired ids=' . implode(',', $expired)
+        );
+    }
     $outsideScope = [];
     foreach ($records as $record) {
         if ((int)($record['hotel_id'] ?? 0) !== 80

@@ -193,7 +193,9 @@
                                             <div class="text-sm font-semibold text-blue-900">可生成运营任务草稿</div>
                                             <div class="text-xs text-blue-700 mt-1">带入步骤、验收条件、来源版本与7天截止日期；仍需人工审批。</div>
                                         </div>
-                                        <button type="button" @click="createKnowledgeSopTask(chunk)" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 whitespace-nowrap">转运营任务</button>
+                                        <button type="button" @click="createKnowledgeSopTask(chunk)" :disabled="knowledgeSopTaskCreatingChunkId === Number(chunk.chunk_id)" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs disabled:opacity-60">
+                                            {{ knowledgeSopTaskCreatingChunkId === Number(chunk.chunk_id) ? '生成并回读中' : '转运营任务' }}
+                                        </button>
                                     </div>
                                 </div>
                                 <details v-if="view.rawText" class="mt-3 rounded-lg border border-gray-100 bg-gray-50">

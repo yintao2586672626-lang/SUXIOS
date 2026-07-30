@@ -307,7 +307,11 @@ requireText('app/controller/DailyReport.php', 'buildDailyOtaServiceQualitySummar
 requireText('scripts/meituan_browser_capture.mjs', "login: 'https://me.meituan.com/ebooking/'", 'Meituan browser capture uses eBooking entry');
 requireText('scripts/meituan_browser_capture.mjs', "const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'traffic,orders');", 'Meituan browser capture has traffic/orders default sections');
 requireText('scripts/meituan_browser_capture.mjs', "if (wantsSection('reviews'))", 'Meituan browser capture supports reviews');
-requireText('scripts/meituan_browser_capture.mjs', "if (wantsSection('traffic'))", 'Meituan browser capture supports traffic');
+requireRegex(
+  'scripts/meituan_browser_capture.mjs',
+  /if \(wantsSection\('traffic'\)(?: \|\| wantsSection\('room_types'\))?\)/,
+  'Meituan browser capture supports traffic',
+);
 requireText('scripts/meituan_browser_capture.mjs', "if (args.adsUrl && wantsSection('ads'))", 'Meituan browser capture supports ads');
 requireText('scripts/meituan_browser_capture.mjs', "if (wantsSection('orders'))", 'Meituan browser capture supports orders');
 requireText('scripts/meituan_browser_capture.mjs', 'trafficForecast', 'Meituan browser capture keeps traffic forecast/realtime-like data');

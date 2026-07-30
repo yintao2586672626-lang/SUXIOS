@@ -185,7 +185,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             'structured_json',
             $first['capture_evidence']['response_evidence_type']
         );
-        self::assertSame(22, $first['capture_evidence']['recipe_count']);
+        self::assertSame(23, $first['capture_evidence']['recipe_count']);
         self::assertNull($first['capture_evidence']['fallback_from']);
         self::assertNull($first['capture_evidence']['fallback_reason']);
         self::assertSame(
@@ -212,6 +212,31 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         );
         self::assertSame(5, count($first['trend']));
         self::assertSame(5, count($first['county_context']['trend']));
+        self::assertSame(1, count($first['room_fee_summary_rows']));
+        self::assertSame(
+            10135.29,
+            $first['room_fee_summary_rows'][0]['room_fee']
+        );
+        self::assertSame(
+            'dingdandao_operating_target_capture.v4',
+            $first['capture_contract_version']
+        );
+        self::assertSame(
+            10135.09,
+            $first['revenue_overview']['total_accommodation_turnover']
+        );
+        self::assertNotSame(
+            $first['summary']['total_room_fee'],
+            $first['revenue_overview']['total_accommodation_turnover']
+        );
+        self::assertSame(
+            -0.2,
+            $first['revenue_overview']['subjects'][2]['single_day_total']
+        );
+        self::assertSame(
+            'readback_verified',
+            $first['revenue_overview']['readback_status']
+        );
         self::assertSame(
             633.46,
             $first['trend']['adr'][1]['value']
@@ -226,9 +251,370 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             63,
             $first['forward_room_status']['horizons'][1]['booked_room_nights']
         );
+        self::assertSame(
+            'verified',
+            $first['component_coverage']['components']['operating_core']['status']
+        );
+        self::assertSame(
+            'verified',
+            $first['component_coverage']['components']
+                ['accommodation_revenue_overview']['status']
+        );
+        self::assertSame(
+            'partial',
+            $first['component_coverage']['components']['hotel_trend']['status']
+        );
+        self::assertSame(
+            'verified',
+            $first['component_coverage']['components']['forward_room_status']['status']
+        );
+        self::assertSame(
+            'readable_unmodeled',
+            $first['component_coverage']['components']['auxiliary_details']['status']
+        );
+        self::assertSame(
+            'partial',
+            $first['component_coverage']['components']['full_diagnostic']['status']
+        );
+        self::assertSame(
+            'observation_date_window',
+            $first['component_coverage']['components']['hotel_trend']['date_role']
+        );
+        self::assertSame(
+            'stay_date_window',
+            $first['component_coverage']['components']['forward_room_status']['date_role']
+        );
+        self::assertSame(
+            'realtime_snapshot',
+            $first['component_coverage']['temporal_context']['current']['snapshot_role']
+        );
+        self::assertSame(
+            'forward_snapshot',
+            $first['component_coverage']['temporal_context']['future']['snapshot_role']
+        );
+        self::assertSame(
+            DingdandaoOperatingTargetCaptureService::FORWARD_SOURCE_URL,
+            $first['component_coverage']['source_surfaces']
+                ['forward_room_calendar']['source_page_url']
+        );
+        self::assertSame(
+            'room_fee / sellable_room_nights',
+            $first['forward_room_status']['metric_definitions']['revpar']['formula']
+        );
         self::assertSame($first['id'], $second['id']);
         self::assertSame(1, (int)Db::name('dingdandao_operating_target_captures')->count());
         self::assertSame(17, (int)Db::name('dingdandao_room_fee_capture_details')->count());
+    }
+
+    public function testTrustedHistoricalSingleDateCaptureSavesAndReadsBack(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->historicalInput();
+
+        $first = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+        $second = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame('2026-07-26', $first['business_date']);
+        self::assertSame(
+            DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE,
+            $first['source_scope']
+        );
+        self::assertSame('operating_indicators', $first['collection_mode']);
+        self::assertSame('verified', $first['quality_status']);
+        self::assertSame('readback_verified', $first['readback_status']);
+        self::assertTrue($first['collection_result']['claim']['allowed']);
+        self::assertSame(
+            'historical_daily_snapshot',
+            $first['component_coverage']['temporal_context']['current']['snapshot_role']
+        );
+        self::assertSame(
+            'not_requested',
+            $first['component_coverage']['temporal_context']['future']['status']
+        );
+        self::assertSame($first['id'], $second['id']);
+        self::assertSame(
+            1,
+            (int)Db::name('dingdandao_operating_target_captures')->count()
+        );
+    }
+
+    public function testHistoricalCaptureRejectsFullDiagnosticAndWrongScopeBeforeWriting(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $fullDiagnostic = $this->historicalInput();
+        $fullDiagnostic['collection_mode'] = 'full_diagnostic';
+        $fullDiagnostic['capture_evidence'] = $this->validCaptureEvidence(
+            (string)$fullDiagnostic['source_api_path'],
+            (string)$fullDiagnostic['business_date'],
+            (string)$fullDiagnostic['provider_hotel_id'],
+            'full_diagnostic'
+        );
+        try {
+            $service->save(
+                8,
+                5,
+                7,
+                '敦煌漠蓝新',
+                $fullDiagnostic,
+                true,
+                'provider-hotel-5'
+            );
+            self::fail('historical full diagnostic must be rejected');
+        } catch (\InvalidArgumentException $error) {
+            self::assertSame('dingdandao_capture_not_verified', $error->getMessage());
+        }
+
+        $wrongScope = $this->historicalInput();
+        $wrongScope['source_scope'] = DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE;
+        try {
+            $service->save(
+                8,
+                5,
+                7,
+                '敦煌漠蓝新',
+                $wrongScope,
+                true,
+                'provider-hotel-5'
+            );
+            self::fail('historical facts with today-only scope must be rejected');
+        } catch (\InvalidArgumentException $error) {
+            self::assertSame('dingdandao_capture_not_verified', $error->getMessage());
+        }
+
+        self::assertSame(
+            0,
+            (int)Db::name('dingdandao_operating_target_captures')->count()
+        );
+    }
+
+    public function testManualHistoricalInputCannotSelfAttestAsVerified(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $this->historicalInput()
+        );
+
+        self::assertSame('unverified', $capture['quality_status']);
+        self::assertFalse($capture['collection_result']['claim']['allowed']);
+        self::assertContains(
+            'dingdandao_trusted_collection_required',
+            array_column($capture['gaps'], 'code')
+        );
+    }
+
+    public function testTrustedCaptureRequiresNetworkResponseMethod(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['capture_method'] = 'browser_assist_dom';
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('dingdandao_capture_not_verified');
+        try {
+            $service->save(
+                8,
+                5,
+                7,
+                '敦煌漠蓝新',
+                $input,
+                true,
+                'provider-hotel-5'
+            );
+        } finally {
+            self::assertSame(
+                0,
+                (int)Db::name('dingdandao_operating_target_captures')->count()
+            );
+        }
+    }
+
+    public function testLegacyAuxiliaryRowsRemainReadableButDiagnosticCoverageIsPartial(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $this->validInput(),
+            true,
+            'provider-hotel-5'
+        );
+        $row = Db::name('dingdandao_operating_target_captures')
+            ->where('id', (int)$capture['id'])
+            ->find();
+        $snapshot = json_decode(
+            (string)$row['snapshot_json'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        foreach ($snapshot['auxiliary_query_status'] as &$status) {
+            unset($status['observed_row_count']);
+        }
+        unset($status);
+        Db::name('dingdandao_operating_target_captures')
+            ->where('id', (int)$capture['id'])
+            ->update([
+                'snapshot_json' => json_encode(
+                    $snapshot,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                ),
+            ]);
+
+        $readback = $service->latest(8, 5, '2026-07-27');
+
+        self::assertSame($capture['id'], $readback['id']);
+        self::assertSame(
+            'verified',
+            $readback['component_coverage']['components']['operating_core']['status']
+        );
+        self::assertSame(
+            'partial',
+            $readback['component_coverage']['components']['auxiliary_details']['status']
+        );
+        self::assertContains(
+            'dingdandao_auxiliary_rows_unverified',
+            $readback['component_coverage']['components']['auxiliary_details']['gap_codes']
+        );
+    }
+
+    public function testMissingPersistedRoomFeeSummaryBlocksCoreWithoutReadFailure(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $this->validInput(),
+            true,
+            'provider-hotel-5'
+        );
+        $row = Db::name('dingdandao_operating_target_captures')
+            ->where('id', (int)$capture['id'])
+            ->find();
+        $snapshot = json_decode(
+            (string)$row['snapshot_json'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        unset($snapshot['room_fee_summary_rows']);
+        Db::name('dingdandao_operating_target_captures')
+            ->where('id', (int)$capture['id'])
+            ->update([
+                'snapshot_json' => json_encode(
+                    $snapshot,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                ),
+            ]);
+
+        $readback = $service->latest(8, 5, '2026-07-27');
+
+        self::assertSame($capture['id'], $readback['id']);
+        self::assertSame(
+            'partial',
+            $readback['component_coverage']['components']['operating_core']['status']
+        );
+        self::assertFalse($readback['collection_result']['claim']['allowed']);
+        self::assertContains(
+            'pms_operating_core_not_verified',
+            $readback['collection_result']['claim']['reason_codes']
+        );
+        self::assertContains(
+            'dingdandao_operating_core_sum_detail_missing',
+            $readback['collection_result']['claim']['reason_codes']
+        );
+    }
+
+    public function testTrustedCaptureRejectsSumDetailMismatchBeforeWriting(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['room_fee_summary_rows'][0]['room_fee'] = 1;
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('dingdandao_capture_not_verified');
+        try {
+            $service->save(
+                8,
+                5,
+                7,
+                '敦煌漠蓝新',
+                $input,
+                true,
+                'provider-hotel-5'
+            );
+        } finally {
+            self::assertSame(
+                0,
+                (int)Db::name('dingdandao_operating_target_captures')->count()
+            );
+        }
+    }
+
+    public function testStructuredCountyFactsDoNotRequireOptionalRegionLabel(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable('2026-07-27 08:10:00')
+        );
+        $input = $this->validInput();
+        $input['county_context']['region_name'] = null;
+        unset($input['county_context']['field_trace']['region_name']);
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            '敦煌漠蓝新',
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame('readable_separate', $capture['county_context']['data_status']);
+        self::assertNull($capture['county_context']['region_name']);
+        self::assertSame(
+            'missing_optional',
+            $capture['county_context']['region_name_status']
+        );
+        self::assertSame(6053.86, $capture['county_context']['summary']['total_room_fee']);
     }
 
     public function testTrustedCaptureRejectsWrongProviderAnchorBeforeWriting(): void
@@ -312,6 +698,50 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         );
     }
 
+    public function testMissingRevenueOverviewStaysNullAndMarksCurrentContextPartial(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-07-27 08:10:00'
+            )
+        );
+        $input = $this->validInput();
+        $input['revenue_overview'] = [
+            'data_status' => 'partial',
+            'gap_codes' => [
+                'dingdandao_revenue_overview_request_failed',
+            ],
+        ];
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame('verified', $capture['quality_status']);
+        self::assertNull(
+            $capture['revenue_overview']['total_accommodation_turnover']
+        );
+        self::assertSame(
+            'partial',
+            $capture['component_coverage']['components']
+                ['accommodation_revenue_overview']['status']
+        );
+        self::assertSame(
+            'partial',
+            $capture['component_coverage']['temporal_context']['current']['status']
+        );
+        self::assertContains(
+            'dingdandao_revenue_overview_request_failed',
+            $capture['component_coverage']['temporal_context']['current']['gap_codes']
+        );
+    }
+
     public function testVerifiedDisplayWindowsSurviveMissingTrailingDays(): void
     {
         $service = new DingdandaoOperatingTargetCaptureService(
@@ -367,6 +797,68 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
                 $capture['forward_room_status']['horizons'],
                 'horizon_days'
             )
+        );
+    }
+
+    public function testOversoldForwardRowsAreSavedAsWarningsInsteadOfDiscarded(): void
+    {
+        $service = new DingdandaoOperatingTargetCaptureService(
+            static fn(): DateTimeImmutable => new DateTimeImmutable(
+                '2026-07-27 08:10:00'
+            )
+        );
+        $input = $this->validInput();
+        $forward = $input['forward_room_status'];
+        $forward['data_status'] = 'verified_with_anomalies';
+        $forward['daily_rows'][5]['oversold_rooms'] = 1;
+        $forward['room_types'][0]['daily_rows'][5]['oversold_rooms'] = 1;
+        $forward['gap_codes'] = ['dingdandao_forward_oversold_present'];
+        $forward['anomalies'] = [[
+            'anomaly_type' => 'oversold',
+            'stay_date' => '2026-08-01',
+            'provider_room_type_id' => 'room-type-1',
+            'room_type_name' => '景观大床房',
+            'oversold_rooms' => 1,
+        ]];
+        foreach ($forward['horizons'] as &$horizon) {
+            if ((int)$horizon['horizon_days'] < 7) {
+                continue;
+            }
+            $horizon['oversold_room_nights'] = 1;
+            $horizon['quality_status'] = 'warning';
+            $horizon['gap_codes'] = [
+                'dingdandao_forward_oversold_present',
+            ];
+        }
+        unset($horizon);
+        $input['forward_room_status'] = $forward;
+
+        $capture = $service->save(
+            8,
+            5,
+            7,
+            (string)$input['provider_hotel_name'],
+            $input,
+            true,
+            'provider-hotel-5'
+        );
+
+        self::assertSame(
+            'verified_with_anomalies',
+            $capture['forward_room_status']['data_status']
+        );
+        self::assertSame(
+            'readback_verified',
+            $capture['forward_room_status']['readback_status']
+        );
+        self::assertCount(31, $capture['forward_room_status']['daily_rows']);
+        self::assertSame(
+            '2026-08-01',
+            $capture['forward_room_status']['anomalies'][0]['stay_date']
+        );
+        self::assertSame(
+            'warning',
+            $capture['component_coverage']['components']['forward_room_status']['status']
         );
     }
 
@@ -429,6 +921,13 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             'provider_hotel_name' => '敦煌漠蓝新',
             'identity_evidence_type' => 'verified_api_store_identity',
             'summary' => $summary,
+            'room_fee_summary_rows' => [[
+                'provider_room_type_id' => 'room-type-1',
+                'room_type' => '大床房',
+                'source_row_index' => 1,
+                'room_fee' => 10135.29,
+            ]],
+            'revenue_overview' => $this->validRevenueOverview($businessDate),
             'room_fee_details' => $details,
             'trend' => [
                 'total_room_fee' => [
@@ -450,6 +949,50 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
                 'sold_room_nights' => [
                     ['date' => '2026-07-26', 'value' => 15],
                     ['date' => '2026-07-27', 'value' => 16],
+                ],
+            ],
+            'auxiliary_query_status' => [
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsSumDetail',
+                    'type' => 1,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                    'observed_row_count' => 1,
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+                    'type' => 1,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                    'observed_row_count' => 1,
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsSumDetail',
+                    'type' => 2,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                    'observed_row_count' => 1,
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+                    'type' => 2,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                    'observed_row_count' => 1,
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsSumDetail',
+                    'type' => 3,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                    'observed_row_count' => 1,
+                ],
+                [
+                    'api_path' => '/v2/um-b/web/pro/data/businessIndicatorsDailyDetail',
+                    'type' => 3,
+                    'fact_scope' => 'auxiliary_metric_only',
+                    'status' => 'readable_not_promoted',
+                    'observed_row_count' => 1,
                 ],
             ],
             'county_context' => [
@@ -508,6 +1051,96 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         ];
     }
 
+    /** @return array<string,mixed> */
+    private function validRevenueOverview(string $businessDate): array
+    {
+        $totalTrend = [[
+            'observation_date' => $businessDate,
+            'amount' => 10135.09,
+        ]];
+        return [
+            'contract_version' =>
+                'dingdandao_accommodation_revenue_overview.v1',
+            'fact_scope' => 'whole_hotel_accommodation_turnover',
+            'source_page_url' =>
+                DingdandaoOperatingTargetCaptureService::SOURCE_URL,
+            'source_api_path' => '/v2/um-b/web/pro/data/sumAccBusiness',
+            'data_status' => 'verified',
+            'business_date_from' => $businessDate,
+            'business_date_to' => $businessDate,
+            'total_accommodation_turnover' => 10135.09,
+            'subjects' => [
+                [
+                    'provider_subject_type' => -1,
+                    'subject_name' => 'total',
+                    'source_row_index' => 1,
+                    'single_day_total' => 10135.09,
+                    'period_total' => 10135.09,
+                    'percent' => 100,
+                    'daily_points' => $totalTrend,
+                ],
+                [
+                    'provider_subject_type' => 1,
+                    'subject_name' => 'room_fee',
+                    'source_row_index' => 2,
+                    'single_day_total' => 10135.29,
+                    'period_total' => 10135.29,
+                    'percent' => 100,
+                    'daily_points' => [[
+                        'observation_date' => $businessDate,
+                        'amount' => 10135.29,
+                    ]],
+                ],
+                [
+                    'provider_subject_type' => 7,
+                    'subject_name' => 'breakfast_guest_consumption',
+                    'source_row_index' => 3,
+                    'single_day_total' => -0.2,
+                    'period_total' => -0.2,
+                    'percent' => 0,
+                    'daily_points' => [[
+                        'observation_date' => $businessDate,
+                        'amount' => -0.2,
+                    ]],
+                ],
+            ],
+            'total_trend' => $totalTrend,
+            'reconciliation_status' => 'source_total_preserved',
+            'metric_boundaries' => [],
+            'gap_codes' => [],
+            'field_trace' => [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function historicalInput(): array
+    {
+        $input = $this->validInput();
+        $businessDate = '2026-07-26';
+        $collectionMode = 'operating_indicators';
+        $input['source_scope'] =
+            DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE;
+        $input['collection_mode'] = $collectionMode;
+        $input['business_date'] = $businessDate;
+        $input['captured_at'] = '2026-07-27 08:05:00';
+        $input['capture_evidence'] = $this->validCaptureEvidence(
+            (string)$input['source_api_path'],
+            $businessDate,
+            (string)$input['provider_hotel_id'],
+            $collectionMode
+        );
+        $input['revenue_overview'] = $this->validRevenueOverview($businessDate);
+        $input['trend'] = [
+            'total_room_fee' => [[
+                'date' => $businessDate,
+                'value' => (float)$input['summary']['total_room_fee'],
+            ]],
+        ];
+        $input['auxiliary_query_status'] = [];
+        unset($input['county_context'], $input['forward_room_status']);
+        return $input;
+    }
+
     /**
      * @return array<string,mixed>
      */
@@ -529,6 +1162,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             ? [
                 'store_identity',
                 'operating_total',
+                'accommodation_revenue_overview',
                 'sum_detail_room_fee',
                 'daily_detail_room_fee',
                 'sum_detail_room_nights',
@@ -553,6 +1187,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             : [
                 'store_identity',
                 'operating_total',
+                'accommodation_revenue_overview',
                 'sum_detail_room_fee',
                 'daily_detail_room_fee',
                 'trend_total_room_fee',
@@ -680,6 +1315,7 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
                 'booked_room_nights' => 9 * $days,
                 'remaining_sellable_room_nights' => 6 * $days,
                 'unavailable_room_nights' => $days,
+                'oversold_room_nights' => 0,
                 'room_fee' => 4500 * $days,
                 'occupancy_rate_percent' => 60,
                 'adr' => 500,
@@ -691,6 +1327,8 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
         return [
             'contract_version' => 'dingdandao_forward_room_status.v1',
             'fact_scope' => 'whole_hotel_forward_room_status',
+            'source_page_url' =>
+                DingdandaoOperatingTargetCaptureService::FORWARD_SOURCE_URL,
             'source_api_path' => '/v2/hm-b/pro/web/accom/roomStat/forward/v2',
             'data_status' => 'verified',
             'as_of_date' => $asOfDate,
@@ -724,7 +1362,62 @@ final class DingdandaoOperatingTargetCaptureServiceTest extends TestCase
             'horizons' => $horizons,
             'reconciliation_status' => 'matched',
             'gap_codes' => [],
+            'anomalies' => [],
+            'metric_definitions' => $this->forwardMetricDefinitions(),
             'field_trace' => [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function forwardMetricDefinitions(): array
+    {
+        return [
+            'remaining_sellable_rooms' => [
+                'provider_field' => 'availableSale',
+                'definition' =>
+                    'remaining rooms that can still be sold for the stay date',
+            ],
+            'booked_rooms' => [
+                'provider_field' => 'occupy',
+                'definition' => 'rooms already sold for the stay date',
+            ],
+            'unavailable_rooms' => [
+                'provider_field' => 'unavailableSale',
+                'definition' =>
+                    'rooms unavailable because of stop, maintenance, hold, or linked closure',
+                'components' => [
+                    'stopped',
+                    'maintenance',
+                    'held',
+                    'linked_closed',
+                ],
+            ],
+            'room_fee' => [
+                'provider_field' => 'roomFee',
+                'definition' => 'room fee only',
+                'material_exclusions' => [
+                    'guest_room_consumption',
+                    'penalties',
+                    'other_non_room_fee_revenue',
+                ],
+            ],
+            'sellable_room_nights' => [
+                'provider_field' => 'avaRoom',
+                'formula' => 'remaining_sellable_rooms + booked_rooms',
+            ],
+            'occupancy_rate_percent' => [
+                'provider_field' => 'occ',
+                'formula' => 'sold_room_nights / sellable_room_nights * 100',
+            ],
+            'adr' => [
+                'provider_field' => 'adr',
+                'formula' => 'room_fee / sold_room_nights',
+            ],
+            'revpar' => [
+                'provider_field' => 'revPar',
+                'formula' => 'room_fee / sellable_room_nights',
+                'equivalent_formula' => 'occupancy_rate_decimal * adr',
+            ],
         ];
     }
 

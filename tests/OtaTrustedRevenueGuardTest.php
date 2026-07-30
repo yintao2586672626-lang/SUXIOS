@@ -79,17 +79,35 @@ final class OtaTrustedRevenueGuardTest extends TestCase
 
     public function testMissingProvenanceCannotBecomeTrustedRevenue(): void
     {
-        $row = $this->row();
+        $row = $this->row([
+            'data_source_id' => 101,
+            'sync_task_id' => 1529,
+        ]);
         unset($row['source_trace_id']);
 
         $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([$row]);
         $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
         $trace = $dataset['fact_ota_daily'][0]['source_trace'];
 
+        self::assertSame('blocked', $dataset['status']);
         self::assertFalse($trace['saved_success']);
         self::assertContains('provenance_missing', $trace['failure_reasons']);
         self::assertFalse($metrics['metric_trust']['totals.revenue']['saved_success']);
         self::assertSame('blocked', $metrics['credibility_gate']['status']);
+    }
+
+    public function testMissingReadbackEvidenceCannotBecomeReadyOrTrusted(): void
+    {
+        $row = $this->row();
+        unset($row['readback_verified']);
+
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([$row]);
+        $trace = $dataset['fact_ota_daily'][0]['source_trace'];
+
+        self::assertSame('blocked', $dataset['status']);
+        self::assertFalse($trace['readback_verified']);
+        self::assertFalse($trace['saved_success']);
+        self::assertContains('readback_unverified', $trace['failure_reasons']);
     }
 
     public function testUnverifiedManualOverrideCannotInheritPlatformTrust(): void
@@ -183,6 +201,8 @@ final class OtaTrustedRevenueGuardTest extends TestCase
             'quantity' => 1,
             'book_order_num' => 1,
             'source_trace_id' => 'trace-self-row',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-07-15 12:00:01',
             'update_time' => '2026-07-15 12:00:00',
             'raw_data' => '{}',
         ], $overrides);

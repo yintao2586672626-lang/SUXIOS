@@ -274,33 +274,68 @@ final class CloudMessageTaskOverviewService
         }
 
         return array_map(function (array $row) use ($robot, $now): array {
-            $status = (string)($row['schedule_status'] ?? '');
+            $storedStatus = (string)($row['schedule_status'] ?? '');
             $enabled = (int)($row['enabled'] ?? 0) === 1;
-            $active = $enabled && $status === 'schedule_enabled';
             $trigger = (string)($row['trigger_type'] ?? '');
+            $templateType = (string)(
+                $row['template_type']
+                ?? $row['notification_type']
+                ?? ''
+            );
+            $operatingDailyLoopBlocked =
+                ManualNotificationService::isOperatingDailyReportType(
+                    $templateType
+                )
+                && !ManualNotificationService::isOperatingDailyTriggerAllowed(
+                    $trigger
+                );
+            $status = $operatingDailyLoopBlocked ? 'blocked' : $storedStatus;
+            $activeCandidate = $enabled
+                && $status === 'schedule_enabled'
+                && $trigger !== 'manual_test';
             $sourceScope = (string)($row['source_scope'] ?? 'combined');
-            $nextRunAt = $active
+            $nextRunAt = $activeCandidate
                 ? $this->scheduleRules()->nextRunAt($row, $now)
                 : null;
+            $scheduleExpired = $activeCandidate && $nextRunAt === null;
+            if ($scheduleExpired) {
+                $status = 'schedule_expired';
+            }
+            $active = $activeCandidate && !$scheduleExpired;
             return [
                 'key' => 'manual_notification_' . (int)$row['id'],
                 'notification_id' => (int)$row['id'],
                 'notification_type' => (string)($row['notification_type'] ?? ''),
-                'template_type' => (string)($row['template_type'] ?? $row['notification_type'] ?? ''),
+                'template_type' => $templateType,
                 'source_scope' => $sourceScope,
                 'source_scope_label' => $this->sourceScopeLabel($sourceScope),
                 'content_sections' => $this->listValue($row['content_sections'] ?? ''),
                 'business_date_rule' => (string)($row['business_date_rule'] ?? 'today'),
                 'trigger_type' => $trigger,
                 'name' => trim((string)($row['title'] ?? '')) ?: ('自定义定时消息 #' . (int)$row['id']),
-                'status' => $active ? 'active' : ($enabled ? 'attention' : 'paused'),
-                'status_label' => $active
-                    ? '运行中'
-                    : ($enabled ? '等待真实测试' : '已暂停'),
+                'status' => $operatingDailyLoopBlocked
+                    ? 'blocked'
+                    : ($scheduleExpired
+                        ? 'attention'
+                        : ($active ? 'active' : ($enabled ? 'attention' : 'paused'))),
+                'status_label' => $operatingDailyLoopBlocked
+                    ? '循环计划已停用'
+                    : ($scheduleExpired
+                        ? '计划已过期'
+                        : ($active
+                            ? '运行中'
+                            : ($enabled ? '等待真实测试' : '已暂停'))),
                 'plan_status' => $status,
-                'plan_status_label' => $active
-                    ? '已启用'
-                    : ($enabled ? '待测试' : '已暂停'),
+                'plan_status_label' => $operatingDailyLoopBlocked
+                    ? '已阻断'
+                    : ($scheduleExpired
+                        ? '已过期'
+                        : ($active
+                            ? '已启用'
+                            : ($enabled ? '待测试' : '已暂停'))),
+                'block_reason_code' => $operatingDailyLoopBlocked
+                    ? 'operating_daily_fixed_time_required'
+                    : ($scheduleExpired ? 'manual_notification_schedule_window_expired' : null),
                 'schedule' => $this->manualScheduleLabel($row),
                 'delivery_mode' => 'manual_schedule',
                 'delivery_rule' => $this->sourceScopeLabel($sourceScope)
@@ -313,14 +348,20 @@ final class CloudMessageTaskOverviewService
                     ?: (string)($robot['name'] ?? '机器人绑定未取得'),
                 'last_run_at' => (string)($row['last_tested_at'] ?? ''),
                 'next_run_at' => $nextRunAt,
-                'last_result' => $active
-                    ? '计划已启用；实际发送以回执为准'
-                    : ($status === 'test_verified'
-                        ? '测试发送已验证，计划当前暂停'
-                        : ($status === 'awaiting_test'
-                            ? '等待一次真实测试成功'
-                            : '尚未取得成功发送回执')),
-                'service_result' => $active ? 'configured' : 'unverified',
+                'last_result' => $operatingDailyLoopBlocked
+                    ? '旧循环计划已停用，请改为每日固定时间并重新测试'
+                    : ($scheduleExpired
+                        ? '计划没有未来运行时段，请调整生效日期后重新测试'
+                        : ($active
+                            ? '计划已启用；实际发送以回执为准'
+                            : ($status === 'test_verified'
+                                ? '测试发送已验证，计划当前暂停'
+                                : ($status === 'awaiting_test'
+                                    ? '等待一次真实测试成功'
+                                    : '尚未取得成功发送回执')))),
+                'service_result' => $operatingDailyLoopBlocked
+                    ? 'blocked'
+                    : ($active ? 'configured' : 'unverified'),
                 'source' => 'database',
                 'source_label' => '宿析OS通知配置',
                 'editable' => true,
@@ -333,6 +374,18 @@ final class CloudMessageTaskOverviewService
     private function manualScheduleLabel(array $row): string
     {
         $trigger = (string)($row['trigger_type'] ?? '');
+        $templateType = (string)(
+            $row['template_type']
+            ?? $row['notification_type']
+            ?? ''
+        );
+        if (ManualNotificationService::isOperatingDailyReportType($templateType)
+            && !ManualNotificationService::isOperatingDailyTriggerAllowed(
+                $trigger
+            )
+        ) {
+            return '循环计划已停用，需改为每日固定时间';
+        }
         if ($trigger === 'daily_fixed_time') {
             return '每日 ' . ($this->shortTime($row['planned_send_at'] ?? '') ?: '时间待配置');
         }

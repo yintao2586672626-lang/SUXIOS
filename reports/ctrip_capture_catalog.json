@@ -71,16 +71,21 @@
         "traffic_hotel_seq",
         "traffic_flow_transform",
         "traffic_order_overview",
+        "traffic_realtime_visitor_trend",
         "traffic_hotel_min_price"
       ],
       "expected_endpoint_ids": [
         "business_realtime",
+        "business_capacity",
         "business_flow_compete",
+        "business_visitor_title",
         "business_hotel_seq",
         "business_flow_transform",
         "traffic_hotel_seq",
         "traffic_flow_transform",
-        "traffic_order_overview"
+        "traffic_order_overview",
+        "traffic_realtime_visitor_trend",
+        "traffic_hotel_min_price"
       ]
     },
     "historical_review": {
@@ -95,6 +100,7 @@
         "traffic_order_trend"
       ],
       "expected_endpoint_ids": [
+        "traffic_flow_transform",
         "traffic_order_trend"
       ]
     },

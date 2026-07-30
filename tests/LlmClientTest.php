@@ -63,6 +63,10 @@ final class LlmClientTest extends TestCase
             [
                 'module' => 'agent',
                 'scenario' => 'ota_diagnosis',
+                'business_date' => '2026-07-15',
+                'business_date_start' => '2026-07-14',
+                'business_date_end' => '2026-07-15',
+                'source_scope' => 'verified_ota_channel_only',
                 'prompt_version' => 'ota_diagnosis:v1',
                 'knowledge_sources' => [
                     ['ref' => 'knowledge_units#7', 'title' => 'OTA metric knowledge'],
@@ -81,6 +85,10 @@ final class LlmClientTest extends TestCase
         self::assertSame('ota_diagnosis:v1', $governance['prompt_version']);
         self::assertSame(hash('sha256', $prompt), $governance['prompt_hash']);
         self::assertSame('deepseek_chat', $governance['model_key']);
+        self::assertSame('2026-07-15', $governance['business_date']);
+        self::assertSame('2026-07-14', $governance['business_date_start']);
+        self::assertSame('2026-07-15', $governance['business_date_end']);
+        self::assertSame('verified_ota_channel_only', $governance['source_scope']);
         self::assertSame(0.42, $governance['confidence_score']);
         self::assertTrue($governance['low_confidence']);
         self::assertTrue($governance['human_confirmation_required']);

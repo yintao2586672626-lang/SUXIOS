@@ -29,6 +29,89 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         self::assertSame(0, $row['is_final']);
     }
 
+    public function testCtripTargetDateSearchTrafficCannotBecomeFinalHistoricalData(): void
+    {
+        $columns = [
+            'data_period' => true,
+            'snapshot_time' => true,
+            'snapshot_bucket' => true,
+            'is_final' => true,
+        ];
+        $row = OnlineDailyDataPersistenceService::applyPeriodFields([
+            'data_date' => '2026-07-12',
+            'data_type' => 'traffic',
+            'data_period' => 'historical_daily',
+            'endpoint_id' => 'traffic_search_details',
+            'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-07-14:cumulative:self',
+            'raw_data' => [
+                'endpoint_id' => 'traffic_search_details',
+                'dimension_values' => ['target_date' => '2026-07-14'],
+                'metrics' => [
+                    'future_search_pv' => 84,
+                    'future_search_uv' => 64,
+                    'future_search_order_count' => null,
+                ],
+            ],
+        ], $columns);
+
+        self::assertSame('next_30_days', $row['data_period']);
+        self::assertSame(0, $row['is_final']);
+        self::assertNull($row['snapshot_time']);
+        self::assertSame('', $row['snapshot_bucket']);
+    }
+
+    public function testEmptyNormalizedFieldsCannotHideSourceFutureTargetEvidence(): void
+    {
+        $columns = [
+            'data_period' => true,
+            'snapshot_time' => true,
+            'snapshot_bucket' => true,
+            'is_final' => true,
+        ];
+        $sourceRow = [
+            'endpoint_id' => 'traffic_search_details',
+            'dimension' => 'catalog:traffic_report:traffic_search_details:future_search:2026-08-01:cumulative:self',
+            'raw_data' => [
+                'endpoint_id' => 'traffic_search_details',
+                'dimension_values' => ['target_date' => '2026-08-01'],
+                'metrics' => ['future_search_uv' => 80],
+            ],
+        ];
+        $row = OnlineDailyDataPersistenceService::applyPeriodFields([
+            'data_date' => '2026-07-30',
+            'data_type' => 'traffic',
+            'data_period' => 'historical_daily',
+            'endpoint_id' => '',
+            'dimension' => '',
+            'raw_data' => '',
+        ], $columns, $sourceRow);
+
+        self::assertSame('next_30_days', $row['data_period']);
+        self::assertSame(0, $row['is_final']);
+        self::assertTrue(OnlineDailyDataPersistenceService::isFutureTargetRow(
+            ['endpoint_id' => 'another_endpoint'],
+            $sourceRow
+        ));
+    }
+
+    public function testGenericTrafficTextCannotSelfDeclareFuturePeriod(): void
+    {
+        $row = OnlineDailyDataPersistenceService::applyPeriodFields([
+            'data_date' => '2026-07-12',
+            'data_type' => 'traffic',
+            'data_period' => 'historical_daily',
+            'dimension' => 'future-looking label without endpoint identity',
+        ], [
+            'data_period' => true,
+            'snapshot_time' => true,
+            'snapshot_bucket' => true,
+            'is_final' => true,
+        ]);
+
+        self::assertSame('historical_daily', $row['data_period']);
+        self::assertSame(1, $row['is_final']);
+    }
+
     public function testRealtimeSnapshotUsesMinuteBucketSoRepeatedChecksRemainReviewable(): void
     {
         $row = OnlineDailyDataPersistenceService::applyPeriodFields(
@@ -68,6 +151,29 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             'SOURCE ./database/migrations/20260710_fix_traffic_forecast_period.sql;',
             $init
         );
+    }
+
+    public function testFutureSearchPeriodRepairIsDryRunFirstAndNeverMintsTrust(): void
+    {
+        $script = (string)file_get_contents(
+            dirname(__DIR__) . '/scripts/repair_future_search_period_roles.php'
+        );
+
+        self::assertStringContainsString("\$argument === '--execute'", $script);
+        self::assertStringContainsString('--hotel-id=<positive system hotel id> is required', $script);
+        self::assertStringContainsString(
+            'OnlineDailyDataPersistenceService::isFutureTargetRow',
+            $script
+        );
+        self::assertStringContainsString("data_period = 'next_30_days'", $script);
+        self::assertStringContainsString('is_final = 0', $script);
+        self::assertStringContainsString('readback_verified = 0', $script);
+        self::assertStringContainsString("'readback_trust_minted' => 0", $script);
+        self::assertStringContainsString("'business_metric_fields_modified' => 0", $script);
+        self::assertStringContainsString("'rows_deleted' => 0", $script);
+        self::assertStringContainsString('older_version_same_canonical_identity', $script);
+        self::assertStringContainsString('remaining_misclassified_future_target_rows', $script);
+        self::assertStringNotContainsString('DELETE FROM online_daily_data', $script);
     }
 
     public function testMinuteBucketSchemaChangeLivesInANewMigration(): void

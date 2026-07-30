@@ -442,7 +442,9 @@ final class OnlineDailyDataPersistenceService
 
         $dataDate = self::normalizeDate($merged['data_date'] ?? $merged['dataDate'] ?? '');
         $dataType = strtolower(str_replace(['-', ' '], '_', trim((string)($merged['data_type'] ?? $merged['dataType'] ?? ''))));
-        if (in_array($dataType, ['traffic_forecast', 'trafficforecast', 'flow_forecast', 'flowforecast', 'forecast'], true)) {
+        if (in_array($dataType, ['traffic_forecast', 'trafficforecast', 'flow_forecast', 'flowforecast', 'forecast'], true)
+            || self::isFutureTargetRow($data, $sourceRow)
+        ) {
             $period = 'next_30_days';
         } elseif ($dataDate === date('Y-m-d') && $period === 'historical_daily') {
             $period = 'realtime_snapshot';
@@ -474,6 +476,91 @@ final class OnlineDailyDataPersistenceService
         }
 
         return $data;
+    }
+
+    /**
+     * Future-search rows are captured on one date but describe demand for a
+     * target stay date. They must never enter the finalized historical fact
+     * layer merely because their generic data type is `traffic`.
+     *
+     * The classifier is deliberately narrow: only the catalog endpoint whose
+     * contract is target-date future search is accepted. A generic dimension
+     * containing the word "future" is not sufficient evidence.
+     *
+     * Empty normalized fields and conflicting wrapper metadata must not hide
+     * explicit target-date endpoint evidence from the source payload. When
+     * that evidence exists, the safe period role is non-final future data.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> ...$contextRows
+     */
+    public static function isFutureTargetRow(array $row, array ...$contextRows): bool
+    {
+        $endpointIds = [];
+        $hasFutureMetric = false;
+        $hasTargetDate = false;
+        $hasFutureDimension = false;
+
+        foreach ([$row, ...$contextRows] as $candidate) {
+            $raw = self::decodeArrayValue($candidate['raw_data'] ?? $candidate['rawData'] ?? []);
+            $detail = self::decodeArrayValue($raw['row'] ?? []);
+            foreach ([$candidate, $raw, $detail] as $container) {
+                foreach (['endpoint_id', 'endpointId'] as $field) {
+                    $endpointId = strtolower(trim((string)($container[$field] ?? '')));
+                    if ($endpointId !== '') {
+                        $endpointIds[$endpointId] = true;
+                    }
+                }
+
+                $dimension = strtolower(trim((string)($container['dimension'] ?? '')));
+                if (str_contains($dimension, ':future_search:')) {
+                    $hasFutureDimension = true;
+                }
+
+                $dimensionValues = self::decodeArrayValue(
+                    $container['dimension_values'] ?? $container['dimensionValues'] ?? []
+                );
+                foreach ([
+                    $dimensionValues['target_date'] ?? null,
+                    $dimensionValues['targetDate'] ?? null,
+                    $container['target_date'] ?? null,
+                    $container['targetDate'] ?? null,
+                ] as $targetDate) {
+                    if (self::normalizeDate($targetDate) !== null) {
+                        $hasTargetDate = true;
+                        break;
+                    }
+                }
+
+                $metrics = self::decodeArrayValue($container['metrics'] ?? []);
+                foreach ([
+                    'future_search_pv',
+                    'future_search_uv',
+                    'future_search_order_count',
+                    'future_search_conversion_rate',
+                ] as $metricKey) {
+                    if (array_key_exists($metricKey, $metrics)) {
+                        $hasFutureMetric = true;
+                        break;
+                    }
+                }
+
+                $facts = self::decodeArrayValue($container['facts'] ?? []);
+                foreach ($facts as $fact) {
+                    if (!is_array($fact)) {
+                        continue;
+                    }
+                    $metricKey = strtolower(trim((string)($fact['metric_key'] ?? $fact['metricKey'] ?? '')));
+                    if (str_starts_with($metricKey, 'future_search_') || $metricKey === 'target_date') {
+                        $hasFutureMetric = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return isset($endpointIds['traffic_search_details'])
+            && ($hasTargetDate || $hasFutureMetric || $hasFutureDimension);
     }
 
     public static function applyPeriodQuery($query, array $data, array $columns): void
@@ -513,6 +600,19 @@ final class OnlineDailyDataPersistenceService
 
         $timestamp = strtotime($value);
         return $timestamp === false ? null : date('Y-m-d H:i:s', $timestamp);
+    }
+
+    /** @return array<string, mixed> */
+    private static function decodeArrayValue(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null): int

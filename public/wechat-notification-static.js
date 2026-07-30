@@ -286,6 +286,7 @@
             dataStatus: { type: String, default: '仅保存/仅测试' },
             latestDispatch: { type: Object, default: null },
             validationErrors: { type: Object, default: () => ({}) },
+            operatingDaily: { type: Boolean, default: false },
             error: { type: String, default: '' },
         },
         emits: ['field-change'],
@@ -326,6 +327,7 @@
                 ...(Array.isArray(options) ? options : []).map(option => h('option', {
                     key: String(option?.key ?? option?.id ?? ''),
                     value: String(option?.key ?? option?.id ?? ''),
+                    disabled: option?.disabled === true,
                 }, option?.label || option?.name || '未命名')),
             ]);
 
@@ -333,6 +335,13 @@
                 const metadata = props.metadata || {};
                 const form = props.form || {};
                 const triggerType = String(form.trigger_type || 'manual_test');
+                const operatingDailyTriggerAllowed = (
+                    !props.operatingDaily
+                    || ['manual_test', 'daily_fixed_time'].includes(triggerType)
+                );
+                const planActive = form.enabled
+                    && form.schedule_status === 'schedule_enabled'
+                    && operatingDailyTriggerAllowed;
                 const weekdays = (Array.isArray(form.active_weekdays)
                     ? form.active_weekdays
                     : String(form.active_weekdays || '').split(',')
@@ -347,13 +356,17 @@
                     '发送当天数据'
                 );
                 const latest = props.latestDispatch || null;
-                const scheduleRun = metadata.latest_schedule_run || {};
-                const schedulerReady = [
-                    'test_scope_ready',
-                    'formal_scope_ready',
-                    'schedule_enabled',
-                    'connected',
-                ].includes(String(metadata.scheduler_status || ''));
+                const scheduleMode = String(form.send_method || '') === 'wecom_formal'
+                    ? 'formal'
+                    : 'test';
+                const modeScheduleRun = metadata.latest_schedule_runs?.[scheduleMode];
+                const legacyScheduleRun = metadata.latest_schedule_run || {};
+                const scheduleRun = modeScheduleRun
+                    || (String(legacyScheduleRun.runner_mode || '') === scheduleMode
+                        ? legacyScheduleRun
+                        : {});
+                const schedulerReady = String(scheduleRun.status || '')
+                    === `${scheduleMode}_scope_ready`;
                 const lastRun = scheduleRun.observed_at
                     || latest?.claimed_at
                     || latest?.last_attempt_at
@@ -362,7 +375,9 @@
                     ? `${latest.status === 'sent' ? '已送达' : latest.status === 'failed' ? '发送失败' : latest.status === 'blocked' ? '门禁阻断' : latest.status === 'outcome_unknown' ? '结果不明确' : '执行记录未取得'} · ${latest.dispatched_at || latest.last_attempt_at || latest.claimed_at || '时间未取得'}`
                     : '未取得发送回执';
                 const blocker = props.error
-                    || (!form.enabled
+                    || (!operatingDailyTriggerAllowed
+                        ? '旧循环计划已停用，请改为每日固定时间并重新测试'
+                        : !form.enabled
                         ? '计划已暂停'
                         : form.schedule_status === 'awaiting_test'
                             ? '等待一次真实测试成功'
@@ -401,6 +416,30 @@
                 const visibleSourceScopes = customWholeReport
                     ? sourceScopes.filter(item => item?.key === 'combined')
                     : sourceScopes;
+                const allTriggerOptions = Array.isArray(metadata.trigger_types)
+                    ? metadata.trigger_types
+                    : [];
+                const configuredOperatingDailyTriggers = Array.isArray(
+                    metadata.operating_daily_trigger_types
+                ) && metadata.operating_daily_trigger_types.length
+                    ? metadata.operating_daily_trigger_types
+                    : allTriggerOptions.filter(option => (
+                        ['manual_test', 'daily_fixed_time'].includes(String(option?.key || ''))
+                    ));
+                const triggerOptions = props.operatingDaily
+                    ? [
+                        ...configuredOperatingDailyTriggers,
+                        ...(!operatingDailyTriggerAllowed ? [{
+                            key: triggerType,
+                            label: `${optionLabel(
+                                allTriggerOptions,
+                                triggerType,
+                                '旧循环计划'
+                            )}（已停用，请改为每日固定时间）`,
+                            disabled: true,
+                        }] : []),
+                    ]
+                    : allTriggerOptions;
 
                 return h('section', {
                     class: 'rounded-2xl border border-[#eadfc9] bg-[#fffdf8] p-4',
@@ -411,15 +450,25 @@
                             h('h3', { class: 'font-semibold text-slate-900' }, '自动发送设置'),
                         ]),
                         h('span', {
-                            class: `rounded-full border px-2.5 py-1 text-xs font-medium ${form.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'}`,
+                            class: `rounded-full border px-2.5 py-1 text-xs font-medium ${planActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : !operatingDailyTriggerAllowed ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-600'}`,
                             'data-testid': 'manual-notification-plan-toggle-status',
-                        }, form.enabled ? '本计划已开启' : '本计划已暂停'),
+                        }, planActive
+                            ? '本计划已开启'
+                            : !operatingDailyTriggerAllowed
+                                ? '旧循环计划已阻断'
+                                : '本计划已暂停'),
                     ]),
                     h('div', { class: 'mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4' }, [
                         summary('数据范围', props.dataScopeLabel, 'manual-notification-data-scope'),
                         summary('数据日期', dateRuleLabel, 'manual-notification-date-rule-summary'),
                         summary('计划状态', form.schedule_status_label || props.dataStatus),
-                        summary('下次运行', form.next_run_at || '保存并通过测试后计算', 'manual-notification-next-run'),
+                        summary(
+                            '下次运行',
+                            !operatingDailyTriggerAllowed
+                                ? '循环计划已停用'
+                                : (form.next_run_at || '保存并通过测试后计算'),
+                            'manual-notification-next-run'
+                        ),
                     ]),
                     h('fieldset', {
                         class: 'mt-4',
@@ -498,7 +547,7 @@
                         fieldError('business_date')),
                         field('发送频率', select(
                             'trigger_type',
-                            metadata.trigger_types,
+                            triggerOptions,
                             'manual-notification-trigger'
                         ), '', fieldError('trigger_type')),
                         ...(triggerType === 'daily_fixed_time' ? [
@@ -508,7 +557,7 @@
                                 'manual-notification-planned-time'
                             ), '', fieldError('planned_send_at')),
                         ] : []),
-                        ...(triggerType === 'hourly_on_the_hour' ? [
+                        ...(!props.operatingDaily && triggerType === 'hourly_on_the_hour' ? [
                             h('div', { class: 'grid grid-cols-2 gap-3' }, [
                                 field('小时播报开始', input(
                                     'hourly_start_time',
@@ -524,7 +573,7 @@
                                 ), '', fieldError('hourly_end_time')),
                             ]),
                         ] : []),
-                        ...(triggerType === 'interval_minutes' ? [
+                        ...(!props.operatingDaily && triggerType === 'interval_minutes' ? [
                             field('每隔多久发送', input(
                                 'interval_minutes',
                                 'number',
@@ -539,6 +588,13 @@
                                 { step: 60 }
                             ), '',
                             fieldError('hourly_start_time')),
+                        ] : []),
+                        ...(!operatingDailyTriggerAllowed ? [
+                            h('p', {
+                                class: 'md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800',
+                                role: 'alert',
+                                'data-testid': 'manual-notification-operating-daily-loop-blocked',
+                            }, '该旧计划使用循环发送，现已停止执行。请选择“每日固定时间”并重新保存、测试后再启用。'),
                         ] : []),
                         h('fieldset', {
                             class: 'md:col-span-2',

@@ -76,6 +76,52 @@ final class ManualNotificationScheduleRuleServiceTest extends TestCase
         ));
     }
 
+    public function testEmptyOrInvalidWeekdaysNeverExpandToEveryDay(): void
+    {
+        $service = new ManualNotificationScheduleRuleService();
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        $observedAt = new DateTimeImmutable(
+            '2026-07-29 09:15:30',
+            $timezone
+        );
+        $row = [
+            'trigger_type' => 'daily_fixed_time',
+            'planned_send_at' => '2026-07-01 09:15:00',
+            'active_weekdays' => '',
+        ];
+
+        self::assertNull($service->dueWindow($row, $observedAt));
+        self::assertNull($service->nextRunAt($row, $observedAt));
+
+        $row['active_weekdays'] = '0,8,invalid';
+        self::assertNull($service->dueWindow($row, $observedAt));
+        self::assertNull($service->nextRunAt($row, $observedAt));
+    }
+
+    public function testUtcObservationUsesShanghaiWeekdayAndBusinessDate(): void
+    {
+        $service = new ManualNotificationScheduleRuleService();
+        $row = [
+            'trigger_type' => 'daily_fixed_time',
+            'planned_send_at' => '2026-07-01 00:15:00',
+            'business_date_rule' => 'yesterday',
+            'active_weekdays' => '3',
+        ];
+        $observedAt = new DateTimeImmutable(
+            '2026-07-28 16:15:30',
+            new DateTimeZone('UTC')
+        );
+
+        self::assertSame(
+            '2026-07-29 00:15',
+            $service->dueWindow($row, $observedAt)
+        );
+        self::assertSame(
+            '2026-07-28',
+            $service->resolveBusinessDate($row, $observedAt)
+        );
+    }
+
     public function testMinuteIntervalUsesConfiguredStartMinuteAndSystemDayEnd(): void
     {
         $service = new ManualNotificationScheduleRuleService();

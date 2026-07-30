@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\CollectionResultContractService;
+use app\service\DingdandaoOperatingTargetCaptureService;
 use app\service\RevenueFactLayerService;
 use PHPUnit\Framework\TestCase;
 
@@ -104,6 +106,105 @@ final class RevenueFactLayerServiceTest extends TestCase
             'meituan_ota_not_readback_verified',
             array_column($layer['analysis_gaps'], 'code')
         );
+        self::assertSame(
+            ['meituan_ota_not_readback_verified'],
+            array_column($layer['ai_review_gaps'], 'code')
+        );
+        self::assertSame(
+            'meituan_ota_not_readback_verified',
+            $layer['unique_remaining_gap']['code']
+        );
+    }
+
+    public function testDeniedPmsCollectionClaimKeepsFactsNullAndAnalysisBlocked(): void
+    {
+        $capture = $this->pmsCapture();
+        $capture['collection_result'] =
+            (new CollectionResultContractService())
+                ->fromDingdandaoCapture($capture);
+        $capture['collection_result']['claim'] = [
+            'allowed' => false,
+            'reason_codes' => ['readback_mismatch'],
+        ];
+
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(),
+            '2026-07-30',
+            $capture,
+            $this->otaResult(),
+            []
+        );
+
+        self::assertSame('blocked', $layer['revenue_analysis_status']);
+        self::assertSame(
+            'not_verified',
+            $layer['sources']['dingdandao_pms']['data_status']
+        );
+        self::assertNull(
+            $layer['facts']['whole_hotel_accommodation']['room_revenue']
+        );
+        self::assertContains(
+            'collection_claim_not_allowed',
+            $layer['sources']['dingdandao_pms']['source']
+                ['collection_claim_reason_codes']
+        );
+        self::assertSame(
+            ['dingdandao_pms_not_readback_verified'],
+            array_column($layer['ai_review_gaps'], 'code')
+        );
+        self::assertSame(
+            'dingdandao_pms_not_readback_verified',
+            $layer['unique_remaining_gap']['code']
+        );
+        self::assertContains(
+            'collection_claim_not_allowed',
+            $layer['unique_remaining_gap']['evidence_gap_codes']
+        );
+        self::assertStringContainsString(
+            '来源声明未放行',
+            $layer['unique_remaining_gap']['display_reason']
+        );
+        self::assertStringContainsString(
+            '不得补写',
+            $layer['unique_remaining_gap']['next_action']
+        );
+    }
+
+    public function testHistoricalTodayOnlyPmsGapRequiresHistoricalEvidence(): void
+    {
+        $capture = $this->pmsCapture('2026-07-29');
+        $capture['collection_result'] =
+            (new CollectionResultContractService())
+                ->fromDingdandaoCapture($capture);
+        $capture['collection_result']['claim'] = [
+            'allowed' => false,
+            'reason_codes' => ['source_evidence_mismatch'],
+        ];
+
+        $ota = $this->otaResult();
+        foreach ($ota['rows'] as &$row) {
+            $row['data_date'] = '2026-07-29';
+        }
+        unset($row);
+
+        $layer = (new RevenueFactLayerService())->assemble(
+            $this->hotel(),
+            '2026-07-29',
+            $capture,
+            $ota,
+            []
+        );
+
+        $gap = $layer['unique_remaining_gap'];
+        self::assertSame('dingdandao_pms_not_readback_verified', $gap['code']);
+        self::assertSame(
+            'historical_recollection_available',
+            $gap['recovery_status']
+        );
+        self::assertFalse($gap['live_recollection_allowed']);
+        self::assertTrue($gap['historical_recollection_allowed']);
+        self::assertStringContainsString('历史业务日', $gap['next_action']);
+        self::assertStringContainsString('单日经营指标补采', $gap['next_action']);
     }
 
     public function testOperatorFloorPriceClosesTheFactLayerReviewInputGap(): void
@@ -147,31 +248,96 @@ final class RevenueFactLayerServiceTest extends TestCase
     }
 
     /** @return array<string,mixed> */
-    private function pmsCapture(): array
+    private function pmsCapture(string $businessDate = '2026-07-30'): array
     {
+        $sourceApiPath = '/api/verified';
+        $sourceUrl = DingdandaoOperatingTargetCaptureService::SOURCE_URL;
+        $providerHotelId = '5206408';
+        $collectionMode = 'full_diagnostic';
+        $recipeEvidence =
+            DingdandaoOperatingTargetCaptureService::expectedRecipeEvidence(
+                $collectionMode
+            );
+        self::assertIsArray($recipeEvidence);
+        $traceBasis = [
+            'platform' => 'dingdandao',
+            'section' => 'pms_full_diagnostic',
+            'source_path' => $sourceApiPath . '#data',
+            'capture_source' => 'existing_session_direct_post',
+            'source_url_hash' => hash('sha256', $sourceUrl),
+            'source_kind' => 'pms',
+            'business_module' => 'accommodation_operating',
+            'source_method' => 'authorized_browser_endpoint',
+            'collection_mode' => $collectionMode,
+            'data_date' => $businessDate,
+            'provider_hotel_id_hash' => hash('sha256', $providerHotelId),
+            'capture_strategy' => 'verified_endpoint_recipe',
+            'fallback_from' => null,
+            'fallback_reason' => null,
+            'response_evidence_type' => 'structured_json',
+            'recipe_plan_hash' => $recipeEvidence['recipe_plan_hash'],
+            'recipe_count' => $recipeEvidence['recipe_count'],
+        ];
+        $sourceTraceId = 'dingdandao:' . hash(
+            'sha256',
+            (string)json_encode(
+                $traceBasis,
+                JSON_UNESCAPED_UNICODE
+                | JSON_UNESCAPED_SLASHES
+                | JSON_PRESERVE_ZERO_FRACTION
+                | JSON_INVALID_UTF8_SUBSTITUTE
+            )
+        );
         return [
             'id' => 6,
             'tenant_id' => 80,
             'hotel_id' => 80,
             'provider' => 'dingdandao_pms',
-            'provider_hotel_id' => '5206408',
+            'provider_hotel_id' => $providerHotelId,
             'provider_hotel_name' => '敦煌漠蓝',
-            'business_date' => '2026-07-30',
-            'source_scope' => 'today_only',
+            'business_date' => $businessDate,
+            'source_url' => $sourceUrl,
+            'source_api_path' => $sourceApiPath,
+            'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+            'collection_mode' => $collectionMode,
+            'capture_method' => 'network_response',
+            'capture_strategy' => 'verified_endpoint_recipe',
             'capture_status' => 'verified',
             'quality_status' => 'verified',
             'identity_status' => 'matched',
             'reconciliation_status' => 'matched',
             'readback_status' => 'readback_verified',
-            'captured_at' => '2026-07-30 01:36:11',
+            'captured_at' => $businessDate . ' 01:36:11',
+            'source_trace_id' => $sourceTraceId,
             'source_fingerprint' => str_repeat('c', 64),
+            'detail_row_count' => 1,
             'summary' => [
                 'total_room_fee' => 7930.11,
                 'sold_room_nights' => 15,
+                'average_daily_room_nights' => 15.0,
                 'derived_sellable_room_nights' => 15,
                 'occupancy_rate_percent' => 100.0,
                 'adr' => 528.67,
                 'revpar' => 528.67,
+            ],
+            'capture_evidence' => [
+                'source_path' => $sourceApiPath . '#data',
+                'capture_source' => 'existing_session_direct_post',
+                'section' => 'pms_full_diagnostic',
+                'source_kind' => 'pms',
+                'business_module' => 'accommodation_operating',
+                'source_method' => 'authorized_browser_endpoint',
+                'collection_mode' => $collectionMode,
+                'data_date' => $businessDate,
+                'provider_hotel_id_hash' => hash('sha256', $providerHotelId),
+                'source_url_hash' => hash('sha256', $sourceUrl),
+                'capture_strategy' => 'verified_endpoint_recipe',
+                'fallback_from' => null,
+                'fallback_reason' => null,
+                'response_evidence_type' => 'structured_json',
+                'recipe_plan_hash' => $recipeEvidence['recipe_plan_hash'],
+                'recipe_count' => $recipeEvidence['recipe_count'],
+                'source_trace_id' => $sourceTraceId,
             ],
         ];
     }

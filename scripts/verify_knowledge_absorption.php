@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use app\service\RevenueOperationsKnowledgeService;
 use app\service\KnowledgeCenterReadinessService;
+use app\service\KnowledgeChunkGateSummaryService;
 use app\service\KnowledgeDecisionGateService;
 use app\controller\Agent;
 use think\App;
@@ -42,9 +43,18 @@ function normalizedStrings(mixed $value): array
 }
 
 $requiredUnits = [
-    '携程订单履约与结算官方语义合同' => ['ctrip'],
-    '订单来了PMS当前版本官方语义合同' => ['pms', 'dingdandao'],
-    '大众点评独立评价规则官方语义合同' => ['dianping'],
+    '携程订单履约与结算官方语义合同' => [
+        'platforms' => ['ctrip'],
+        'truth_profile_version' => '2026-07-30.3',
+    ],
+    '订单来了PMS当前版本官方语义合同' => [
+        'platforms' => ['pms', 'dingdandao'],
+        'truth_profile_version' => '2026-07-30.3',
+    ],
+    '大众点评独立评价规则官方语义合同' => [
+        'platforms' => ['dianping'],
+        'truth_profile_version' => '2026-07-30.4',
+    ],
 ];
 $errors = [];
 $summary = [
@@ -58,7 +68,9 @@ $summary = [
 try {
     $readinessService = new KnowledgeCenterReadinessService();
     $decisionGate = new KnowledgeDecisionGateService();
-    foreach ($requiredUnits as $name => $requiredPlatforms) {
+    foreach ($requiredUnits as $name => $requiredContract) {
+        $requiredPlatforms = (array)($requiredContract['platforms'] ?? []);
+        $requiredTruthProfileVersion = (string)($requiredContract['truth_profile_version'] ?? '');
         $unit = Db::name('knowledge_units')
             ->where('name', $name)
             ->where('source', RevenueOperationsKnowledgeService::SOURCE)
@@ -71,7 +83,7 @@ try {
 
         $unitId = (int)($unit['unit_id'] ?? 0);
         $chunks = Db::name('knowledge_chunks')
-            ->field('chunk_id,type,content')
+            ->field('chunk_id,unit_id,type,content')
             ->where('unit_id', $unitId)
             ->select()
             ->toArray();
@@ -103,7 +115,7 @@ try {
         }
         if ((string)($unit['status'] ?? '') !== 'done'
             || (string)($unit['lifecycle_status'] ?? '') !== 'active'
-            || (string)($unit['truth_profile_version'] ?? '') !== '2026-07-30.3'
+            || (string)($unit['truth_profile_version'] ?? '') !== $requiredTruthProfileVersion
         ) {
             $errors[] = 'unit_contract_incomplete:' . $name;
         }
@@ -116,6 +128,11 @@ try {
         if (!is_array($mirror)) {
             $errors[] = 'missing_knowledge_base_mirror:' . $name;
         }
+        $chunkGateSummary = (new KnowledgeChunkGateSummaryService())->summarize(
+            [$unit],
+            $chunks
+        )[$unitId] ?? [];
+        $unit['_chunk_gate_summary'] = $chunkGateSummary;
         $readiness = $readinessService->buildUnitReadiness($unit, $activeChunkCount);
         if (($readiness['stage'] ?? '') !== 'unit_global_reference'
             || ($readiness['closed_loop'] ?? false) !== true
@@ -130,6 +147,7 @@ try {
             'mirror_id' => (int)($mirror['id'] ?? 0),
             'readiness_stage' => (string)($readiness['stage'] ?? ''),
             'readiness_score' => (int)($readiness['score'] ?? 0),
+            'chunk_gate_summary' => $chunkGateSummary,
         ];
     }
 

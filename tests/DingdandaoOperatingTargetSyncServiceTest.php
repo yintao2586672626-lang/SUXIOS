@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\DingdandaoOperatingTargetCaptureService;
 use app\service\DingdandaoOperatingTargetSyncService;
 use app\service\DingdandaoPmsIntegrationService;
 use app\service\OperatingTargetService;
@@ -178,17 +179,40 @@ final class DingdandaoOperatingTargetSyncServiceTest extends TestCase
     private function insertVerifiedCapture(): int
     {
         $now = '2026-07-28 08:10:00';
-        return (int)Db::name('dingdandao_operating_target_captures')->insertGetId([
+        $sourceUrl =
+            'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData';
+        $sourceApiPath = '/api/verified-read';
+        $providerHotelId = 'provider-hotel-5';
+        $captureEvidence =
+            DingdandaoOperatingTargetCaptureService::expectedCaptureEvidence(
+                $sourceApiPath,
+                '2026-07-28',
+                $providerHotelId,
+                'full_diagnostic'
+            );
+        self::assertIsArray($captureEvidence);
+        $sourceTraceId = (string)$captureEvidence['source_trace_id'];
+        $snapshot = [
+            'collection_mode' => 'full_diagnostic',
+            'room_fee_summary_rows' => [[
+                'provider_room_type_id' => 'room-type-1',
+                'room_type' => 'verified-room-type',
+                'source_row_index' => 1,
+                'room_fee' => 10135.29,
+            ]],
+            'capture_evidence' => $captureEvidence,
+        ];
+        $captureId = (int)Db::name('dingdandao_operating_target_captures')->insertGetId([
             'tenant_id' => 8,
             'hotel_id' => 5,
             'provider' => 'dingdandao_pms',
-            'provider_hotel_id' => 'provider-hotel-5',
+            'provider_hotel_id' => $providerHotelId,
             'provider_hotel_name' => 'provider-hotel-name',
             'expected_hotel_name' => 'provider-hotel-name',
             'identity_evidence_type' => 'verified_api_store_identity',
             'identity_status' => 'matched',
-            'source_url' => 'https://www.dingdandao.com/pmsManage/report/pro/dataCenter/accommodationData',
-            'source_api_path' => '/api/verified-read',
+            'source_url' => $sourceUrl,
+            'source_api_path' => $sourceApiPath,
             'source_scope' => 'today_only',
             'capture_method' => 'network_response',
             'business_date' => '2026-07-28',
@@ -200,7 +224,7 @@ final class DingdandaoOperatingTargetSyncServiceTest extends TestCase
             'average_daily_room_nights' => 16,
             'derived_sellable_room_nights' => 16,
             'detail_room_fee_total' => 10135.29,
-            'detail_row_count' => 0,
+            'detail_row_count' => 1,
             'reconciliation_status' => 'matched',
             'capture_status' => 'verified',
             'quality_status' => 'verified',
@@ -208,7 +232,10 @@ final class DingdandaoOperatingTargetSyncServiceTest extends TestCase
             'gap_codes_json' => '[]',
             'trend_json' => '[]',
             'field_trace_json' => '{}',
-            'snapshot_json' => '{}',
+            'snapshot_json' => json_encode(
+                $snapshot,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            ),
             'source_fingerprint' => str_repeat('a', 64),
             'captured_at' => $now,
             'captured_by' => 7,
@@ -217,6 +244,19 @@ final class DingdandaoOperatingTargetSyncServiceTest extends TestCase
             'create_time' => $now,
             'update_time' => $now,
         ]);
+        Db::name('dingdandao_room_fee_capture_details')->insert([
+            'capture_id' => $captureId,
+            'tenant_id' => 8,
+            'hotel_id' => 5,
+            'business_date' => '2026-07-28',
+            'row_kind' => 'room',
+            'room_type' => 'verified-room-type',
+            'room_number' => 'R1',
+            'room_fee' => 10135.29,
+            'source_row_index' => 1,
+            'create_time' => $now,
+        ]);
+        return $captureId;
     }
 
     private static function createSchema(): void

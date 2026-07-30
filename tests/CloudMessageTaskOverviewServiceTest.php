@@ -178,20 +178,16 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
         }
     }
 
-    public function testSavedPlanRemainsSeparateFromGenericCloudTimerEvidence(): void
+    public function testSavedPlansSeparateFixedTimeFromBlockedLegacyLoop(): void
     {
-        $notificationId = (int)Db::name('manual_notifications')->insertGetId([
+        $base = [
             'tenant_id' => 80,
             'hotel_id' => 80,
-            'title' => '今日经营数据汇总｜PMS＋OTA',
             'notification_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
             'template_type' => ManualNotificationService::OPERATING_DAILY_REPORT_TYPE,
             'source_scope' => 'meituan',
             'content_sections' => 'meituan_traffic,meituan_conversion',
             'business_date_rule' => 'today',
-            'trigger_type' => 'interval_minutes',
-            'interval_minutes' => 30,
-            'planned_send_at' => null,
             'active_weekdays' => '1,2,3,4,5,6,7',
             'effective_from' => null,
             'effective_to' => null,
@@ -203,7 +199,23 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
             'test_robot_id' => 1,
             'test_robot_name' => '漠蓝测试',
             'update_time' => '2026-07-28 22:23:04',
-        ]);
+        ];
+        $fixedId = (int)Db::name('manual_notifications')->insertGetId(
+            array_replace($base, [
+                'title' => '美团每日固定经营日报',
+                'trigger_type' => 'daily_fixed_time',
+                'interval_minutes' => null,
+                'planned_send_at' => '2026-07-28 22:45:00',
+            ])
+        );
+        $legacyLoopId = (int)Db::name('manual_notifications')->insertGetId(
+            array_replace($base, [
+                'title' => '旧美团循环经营日报',
+                'trigger_type' => 'interval_minutes',
+                'interval_minutes' => 30,
+                'planned_send_at' => null,
+            ])
+        );
         $units = [
             'suxios-cloud-hotel-daily@80.timer' => $this->timer(
                 '2026-07-28 09:01:38',
@@ -218,16 +230,30 @@ final class CloudMessageTaskOverviewServiceTest extends TestCase
         ))->overview(80, 80);
 
         $tasks = array_column($overview['tasks'], null, 'key');
-        self::assertSame(2, $overview['task_count']);
+        self::assertSame(3, $overview['task_count']);
         self::assertArrayHasKey('daily_operating_report', $tasks);
         self::assertArrayNotHasKey('editable', $tasks['daily_operating_report']);
-        self::assertArrayHasKey('manual_notification_' . $notificationId, $tasks);
-        $plan = $tasks['manual_notification_' . $notificationId];
-        self::assertTrue($plan['editable']);
-        self::assertSame('美团', $plan['source_scope_label']);
-        self::assertSame('从 09:15 起，每 30 分钟', $plan['schedule']);
-        self::assertSame('2026-07-28 22:45:00', $plan['next_run_at']);
-        self::assertSame('configured', $plan['service_result']);
+        $fixed = $tasks['manual_notification_' . $fixedId];
+        self::assertTrue($fixed['editable']);
+        self::assertSame('美团', $fixed['source_scope_label']);
+        self::assertSame('每日 22:45', $fixed['schedule']);
+        self::assertSame('2026-07-28 22:45:00', $fixed['next_run_at']);
+        self::assertSame('configured', $fixed['service_result']);
+
+        $legacy = $tasks['manual_notification_' . $legacyLoopId];
+        self::assertSame('blocked', $legacy['status']);
+        self::assertSame('blocked', $legacy['plan_status']);
+        self::assertSame('已阻断', $legacy['plan_status_label']);
+        self::assertSame(
+            '循环计划已停用，需改为每日固定时间',
+            $legacy['schedule']
+        );
+        self::assertNull($legacy['next_run_at']);
+        self::assertSame('blocked', $legacy['service_result']);
+        self::assertSame(
+            'operating_daily_fixed_time_required',
+            $legacy['block_reason_code']
+        );
     }
 
     /** @return array<string, string> */

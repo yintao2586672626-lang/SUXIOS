@@ -272,6 +272,62 @@ final class OnlineDataFieldFactService
     }
 
     /**
+     * Evaluate only the field facts that support the requested metrics.
+     *
+     * A persisted endpoint row may truthfully remain `partial` because other,
+     * unrelated fields were absent. Downstream consumers can use a metric from
+     * that row only when every requested metric has its own captured source
+     * path, storage target, desensitized evidence and stored-value readback.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @param array<int, string> $metricKeys
+     * @return array<string, mixed>
+     */
+    public static function buildMetricStatus(array $row, array $raw, array $metricKeys): array
+    {
+        $requested = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            $metricKeys
+        ), static fn(string $value): bool => $value !== '')));
+        sort($requested, SORT_STRING);
+
+        $facts = self::extractFieldFacts($raw);
+        $matchingFacts = array_values(array_filter(
+            $facts,
+            static fn(mixed $fact): bool => is_array($fact)
+                && in_array(
+                    strtolower(trim((string)($fact['metric_key'] ?? $fact['field_key'] ?? $fact['field'] ?? ''))),
+                    $requested,
+                    true
+                )
+        ));
+        $metricRaw = array_replace($raw, [
+            'field_facts' => $matchingFacts,
+            'field_fact_summary' => self::summarizeFacts($matchingFacts),
+        ]);
+        $status = self::buildStatus($row, $metricRaw);
+        $captured = array_values(array_unique(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            is_array($status['captured_metric_keys'] ?? null)
+                ? $status['captured_metric_keys']
+                : []
+        )));
+        sort($captured, SORT_STRING);
+        $missing = array_values(array_diff($requested, $captured));
+        sort($missing, SORT_STRING);
+
+        if ($requested === [] || $missing !== [] || (string)($status['status'] ?? '') !== 'ready') {
+            $status['status'] = $matchingFacts === [] ? 'not_loaded' : 'partial';
+            $status['label'] = $matchingFacts === [] ? '字段事实未写入' : '指标字段事实不完整';
+        }
+        $status['requested_metric_keys'] = $requested;
+        $status['missing_requested_metric_keys'] = $missing;
+        $status['metric_scoped'] = true;
+        return $status;
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
@@ -480,9 +536,33 @@ final class OnlineDataFieldFactService
         if ($definitions === []) {
             return [];
         }
+        $platform = strtolower(trim((string)(
+            $row['platform']
+                ?? $row['source']
+                ?? $raw['platform']
+                ?? $raw['source']
+                ?? $source['platform']
+                ?? $source['source']
+                ?? ''
+        )));
+        if (str_starts_with($platform, 'ctrip')) {
+            $platform = 'ctrip';
+        } elseif (str_starts_with($platform, 'meituan')) {
+            $platform = 'meituan';
+        }
 
         $facts = [];
         foreach ($definitions as $definition) {
+            $metricKey = strtolower(trim((string)($definition['metric_key'] ?? '')));
+            if ($platform !== ''
+                && $platform !== 'meituan'
+                && (
+                    str_starts_with($metricKey, 'mt_')
+                    || str_starts_with($metricKey, 'meituan_')
+                )
+            ) {
+                continue;
+            }
             $sourceKey = self::firstPresentKey($source, (array)($definition['source_keys'] ?? []));
             if ($sourceKey === '' && $raw !== $source) {
                 $sourceKey = self::firstPresentKey($raw, (array)($definition['source_keys'] ?? []));

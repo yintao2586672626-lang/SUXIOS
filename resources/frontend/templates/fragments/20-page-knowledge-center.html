@@ -20,6 +20,10 @@
                                     <option value="pending">待处理</option>
                                     <option value="error">异常</option>
                                 </select>
+                                <select v-model="knowledgeCenterTargetHotelId" class="md:w-52 px-3 py-2 border rounded-lg text-sm" aria-label="运营任务目标门店">
+                                    <option value="">任务目标门店</option>
+                                    <option v-for="hotel in knowledgeCenterHotelOptions" :key="'knowledge-task-hotel-' + hotel.id" :value="String(hotel.id)">{{ hotel.name }}</option>
+                                </select>
                                 <button @click="loadKnowledgeCenter" class="btn-secondary text-sm flex items-center justify-center gap-2">
                                     <i class="fas fa-sync-alt" :class="{ 'fa-spin': knowledgeCenterLoading }"></i>刷新
                                 </button>

@@ -74,7 +74,10 @@ test('splits lightweight Ctrip JSON capture into past, realtime, intraday trend,
   assert.equal(realtime.lightweight, true);
   assert.equal(realtime.capture_endpoint_ids.includes('traffic_hotel_min_price'), true);
   assert.equal(realtime.capture_endpoint_ids.includes('traffic_realtime_visitor_trend'), true);
+  assert.equal(realtime.expected_endpoint_ids.includes('business_capacity'), true);
+  assert.equal(realtime.expected_endpoint_ids.includes('business_visitor_title'), true);
   assert.equal(realtime.expected_endpoint_ids.includes('traffic_realtime_visitor_trend'), true);
+  assert.equal(realtime.expected_endpoint_ids.includes('traffic_hotel_min_price'), true);
   assert.equal(realtime.capture_endpoint_ids.includes('traffic_search_details'), false);
   assert.equal(realtime.capture_screenshot, false);
 
@@ -88,7 +91,10 @@ test('splits lightweight Ctrip JSON capture into past, realtime, intraday trend,
   assert.equal(past.lightweight, true);
   assert.equal(past.capture_endpoint_ids.includes('traffic_flow_transform'), true);
   assert.equal(past.capture_endpoint_ids.includes('traffic_order_trend'), true);
-  assert.deepEqual(past.expected_endpoint_ids, ['traffic_order_trend']);
+  assert.deepEqual(past.expected_endpoint_ids, [
+    'traffic_flow_transform',
+    'traffic_order_trend',
+  ]);
   const pastTraffic = getCtripSectionInteractionPlan('traffic_report', 'historical_review');
   assert.equal(pastTraffic.length, 6);
   assert.equal(pastTraffic.some((step) => step.reason.includes('Qunar')), false);
@@ -2679,6 +2685,8 @@ test('expands Ctrip future search arrays into scoped target-date rows without re
     });
     assert.equal(JSON.stringify(rows).includes('must-not-survive'), false);
     assert.equal(rows[0].raw_data.metric_status, 'partial');
+    assert.equal(rows[0].data_period, 'next_30_days');
+    assert.equal(rows[0].is_final, 0);
     assert.notEqual(rows[0].dimension, rows[1].dimension);
   }
 });

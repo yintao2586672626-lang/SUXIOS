@@ -35,6 +35,9 @@ param(
     [ValidateRange(0, 23)]
     [int]$EndHour = 23,
 
+    [ValidateRange(0, 23)]
+    [int[]]$Hours = @(),
+
     [string]$HealthUrl = 'http://127.0.0.1:8080/api/health',
 
     [string]$RunAsUser = "$env:USERDOMAIN\$env:USERNAME",
@@ -52,7 +55,12 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$taskName = "Dingdandao H$HotelId"
+$modeLabel = if ($CollectionMode -eq 'full_diagnostic') {
+    'Diagnostic'
+} else {
+    'Core'
+}
+$taskName = "Dingdandao H$HotelId $modeLabel"
 $taskPath = '\SUXIOS\'
 
 function Resolve-ExecutablePath {
@@ -88,8 +96,13 @@ function Write-Plan {
     Write-Output ($Plan | ConvertTo-Json -Depth 8)
 }
 
-if ($EndHour -lt $StartHour) {
+if ($Hours.Count -eq 0 -and $EndHour -lt $StartHour) {
     throw 'EndHour must be greater than or equal to StartHour.'
+}
+$scheduleHours = if ($Hours.Count -gt 0) {
+    @($Hours | Sort-Object -Unique)
+} else {
+    @($StartHour..$EndHour)
 }
 
 $resolvedRoot = $null
@@ -205,8 +218,13 @@ $plan = [ordered]@{
         path = $taskPath
         exists = $null -ne $existingTask
         state = if ($null -ne $existingTask) { [string]$existingTask.State } else { 'absent' }
-        schedule = "hourly $StartHour-$EndHour at :$('{0:d2}' -f $Minute) Asia/Shanghai"
-        trigger_count = ($EndHour - $StartHour) + 1
+        schedule = if ($Hours.Count -gt 0) {
+            "daily at $($scheduleHours -join ','):$('{0:d2}' -f $Minute) host-local time"
+        } else {
+            "hourly $StartHour-$EndHour at :$('{0:d2}' -f $Minute) host-local time"
+        }
+        trigger_hours = $scheduleHours
+        trigger_count = $scheduleHours.Count
         multiple_instances = 'IgnoreNew'
     }
     action = [ordered]@{
@@ -222,7 +240,7 @@ $plan = [ordered]@{
         browser_host_auto_start = 'headless'
         credentials_in_arguments = $false
         explicit_sandbox_required = $true
-        local_receipt = 'runtime/dingdandao_local_scheduler/latest.json'
+        local_receipt = "runtime/dingdandao_local_scheduler/hotel_$HotelId/user_$OwnerUserId/$CollectionMode/latest.json"
         enable_requires_switch = '-Enable'
     }
     preflight = $checks
@@ -269,7 +287,7 @@ if ($PSCmdlet.ShouldProcess("$taskPath$taskName", 'Register scheduled task witho
         -Execute $powershellPath `
         -Argument $actionArguments `
         -WorkingDirectory $effectiveRoot
-    $triggers = @($StartHour..$EndHour | ForEach-Object {
+    $triggers = @($scheduleHours | ForEach-Object {
         New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.Date.AddHours($_).AddMinutes($Minute))
     })
     $principal = New-ScheduledTaskPrincipal `

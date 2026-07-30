@@ -57,20 +57,46 @@ final class KnowledgePayloadMapperTest extends TestCase
     {
         $mapper = new KnowledgePayloadMapper();
 
-        self::assertSame([
-            'unit_id' => 9,
-            'type' => 'policy',
-            'content' => ['rule' => '18:00后确认'],
-        ], $mapper->normalizeChunkData([
+        $policy = $mapper->normalizeChunkData([
             'type' => 'policy',
             'content' => '{"rule":"18:00后确认"}',
-        ], 9));
+        ], 9);
+        $plain = $mapper->normalizeChunkData(['content' => '保留原始文本'], 9);
 
-        self::assertSame([
-            'unit_id' => 9,
-            'type' => 'manual',
-            'content' => ['text' => '保留原始文本'],
-        ], $mapper->normalizeChunkData(['content' => '保留原始文本'], 9));
+        self::assertSame(9, $policy['unit_id']);
+        self::assertSame('policy', $policy['type']);
+        self::assertSame('18:00后确认', $policy['content']['rule']);
+        self::assertSame('保留原始文本', $plain['content']['text']);
+        foreach ([$policy['content'], $plain['content']] as $content) {
+            self::assertSame('hotel_specific_reference_unverified', $content['scope']);
+            self::assertSame('user_provided_unverified', $content['evidence_level']);
+            self::assertSame('D', $content['evidence_grade']);
+            self::assertSame('unverified', $content['current_verification_status']);
+            self::assertContains('operation_task_creation', $content['blocked_uses']);
+        }
+    }
+
+    public function testNormalizeChunkDataStripsClientClaimedDecisionAuthority(): void
+    {
+        $content = (new KnowledgePayloadMapper())->normalizeChunkData([
+            'type' => 'sop',
+            'content' => [
+                'scope' => 'platform_rule',
+                'evidence_level' => 'official_current_rule',
+                'evidence_grade' => 'A',
+                'reviewed_at' => '2026-07-30 09:00:00',
+                'current_verification_status' => 'verified',
+                'task_template' => ['title' => 'client supplied SOP'],
+            ],
+        ], 9)['content'];
+
+        self::assertSame('hotel_specific_reference_unverified', $content['scope']);
+        self::assertSame('user_provided_unverified', $content['evidence_level']);
+        self::assertSame('official_current_rule', $content['submitted_evidence_level']);
+        self::assertSame('D', $content['evidence_grade']);
+        self::assertSame('unverified', $content['current_verification_status']);
+        self::assertArrayNotHasKey('reviewed_at', $content);
+        self::assertContains('operation_task_creation', $content['blocked_uses']);
     }
 
     public function testFormattingPreservesKnowledgeResponseShape(): void

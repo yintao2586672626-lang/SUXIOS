@@ -176,12 +176,53 @@ final class RevenueFactLayerService
             if ($status === 'readback_verified') {
                 continue;
             }
-            $analysisGaps[] = $this->gap(
+            $gap = $this->gap(
                 $source . '_not_readback_verified',
                 $source,
                 $status,
                 'source_identity_or_readback'
             );
+            if ($source === 'dingdandao_pms') {
+                $currentDate = (new DateTimeImmutable(
+                    'now',
+                    new \DateTimeZone('Asia/Shanghai')
+                ))->format('Y-m-d');
+                $pmsHistorical = $businessDate < $currentDate;
+                $pmsFuture = $businessDate > $currentDate;
+                $gap['recovery_status'] = $pmsHistorical
+                    ? 'historical_recollection_available'
+                    : (
+                        $pmsFuture
+                            ? 'future_date_recollection_not_allowed'
+                            : 'live_recollection_available'
+                    );
+                $gap['live_recollection_allowed'] =
+                    !$pmsHistorical && !$pmsFuture;
+                $gap['historical_recollection_allowed'] = $pmsHistorical;
+                $claimReasonCodes = $this->textList(
+                    (array)($pms['source']['collection_claim_reason_codes'] ?? []),
+                    120
+                );
+                if ($claimReasonCodes !== []) {
+                    $gap['evidence_gap_codes'] = $claimReasonCodes;
+                    $gap['display_reason'] =
+                        'PMS capture 已保存回读，但未通过当前来源证据合同：'
+                        . implode('、', array_map(
+                            fn(string $code): string =>
+                                $this->pmsClaimGapLabel($code),
+                            $claimReasonCodes
+                        ))
+                        . '。';
+                }
+                $gap['next_action'] = $pmsHistorical
+                    ? '使用授权结构化接口按该历史业务日执行单日经营指标补采，保存后精确回读；不得补写，也不得用今天、旧快照或人工数据冒充。'
+                    : (
+                        $pmsFuture
+                            ? '未来业务日尚不能形成 PMS 经营事实，请保持未验证并等待业务日到达。'
+                            : '使用当前验证采集器重新采集并完成精确回读；旧记录不得补写或冒充新来源证据。'
+                    );
+            }
+            $analysisGaps[] = $gap;
         }
 
         $allThreeSourcesReady = $analysisGaps === [];
@@ -194,7 +235,9 @@ final class RevenueFactLayerService
             );
 
         $aiReviewGaps = $analysisGaps;
-        if (($pricingGuard['data_status'] ?? '') !== 'ready') {
+        if ($analysisGaps === []
+            && ($pricingGuard['data_status'] ?? '') !== 'ready'
+        ) {
             $aiReviewGaps[] = $this->gap(
                 'floor_price_missing',
                 'pricing_guard',
@@ -289,8 +332,18 @@ final class RevenueFactLayerService
         );
         $adr = $this->number($summary['adr'] ?? null);
         $revpar = $this->number($summary['revpar'] ?? null);
+        $collectionValidation = (new CollectionResultContractService())
+            ->validateDingdandaoCaptureClaim($capture, [
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+            ]);
+        $collectionResult = is_array($collectionValidation['contract'] ?? null)
+            ? $collectionValidation['contract']
+            : [];
 
-        $trusted = (int)($capture['tenant_id'] ?? 0) === $tenantId
+        $trusted = ($collectionValidation['allowed'] ?? false) === true
+            && (int)($capture['tenant_id'] ?? 0) === $tenantId
             && (int)($capture['hotel_id'] ?? 0) === $hotelId
             && (string)($capture['business_date'] ?? '') === $businessDate
             && (string)($capture['provider'] ?? '')
@@ -384,6 +437,12 @@ final class RevenueFactLayerService
                 'readback_status' => $trusted
                     ? 'readback_verified'
                     : (string)($capture['readback_status'] ?? 'not_verified'),
+                'collection_result' => $collectionResult,
+                'collection_claim_reason_codes' => $trusted
+                    ? []
+                    : array_values((array)(
+                        $collectionValidation['reason_codes'] ?? []
+                    )),
             ],
             'allowed_uses' => $trusted
                 ? [
@@ -1090,6 +1149,19 @@ final class RevenueFactLayerService
             'status' => $status,
             'category' => $category,
         ];
+    }
+
+    private function pmsClaimGapLabel(string $code): string
+    {
+        return match ($code) {
+            'business_module_missing' => '业务模块标识缺失',
+            'source_method_missing' => '来源方法缺失',
+            'source_trace_missing' => '来源追踪标识缺失',
+            'collection_strategy_unverified' => '采集策略未验证',
+            'collection_claim_not_allowed' => '来源声明未放行',
+            'collection_contract_mismatch' => '来源合同与回读记录不一致',
+            default => $code,
+        };
     }
 
     /** @param array<int,array<string,mixed>> $rows */

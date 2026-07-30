@@ -49,6 +49,79 @@ final class AiDailyReportTrustedInputTest extends TestCase
         self::assertContains('ota_evidence_hotel_scope_mismatch', array_column($crossHotel['gaps'], 'code'));
     }
 
+    public function testTrustedEvaluatorScopesPartialValidationToExactMetricFieldFacts(): void
+    {
+        $service = new AiDailyReportService();
+        $traceId = 'ctrip:' . str_repeat('a', 64);
+        $sourceUrlHash = str_repeat('b', 64);
+        $fact = static function (
+            string $metricKey,
+            string $storageField,
+            string $sourceKey
+        ) use ($traceId, $sourceUrlHash): array {
+            return [
+                'metric_key' => $metricKey,
+                'storage_field' => $storageField,
+                'source_key' => $sourceKey,
+                'source_path' => 'data.' . $sourceKey,
+                'status' => 'captured',
+                'stored_value_present' => true,
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $sourceUrlHash,
+                ],
+            ];
+        };
+        $refs = [[
+            'key' => 'online_daily_data#68698',
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'data_source_id' => 11,
+            'data_date' => '2026-07-29',
+            'field_fact_metric_keys' => ['order_amount', 'room_nights'],
+        ]];
+        $row = [
+            'id' => 68698,
+            'system_hotel_id' => 80,
+            'data_source_id' => 11,
+            'data_date' => '2026-07-29',
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'data_type' => 'business',
+            'validation_status' => 'partial',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-07-30 10:06:10',
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $sourceUrlHash,
+            'amount' => 2168,
+            'quantity' => 3,
+            'raw_data' => json_encode([
+                'field_facts' => [
+                    $fact('order_amount', 'online_daily_data.amount', 'amount'),
+                    $fact('room_nights', 'online_daily_data.quantity', 'quantity'),
+                    [
+                        'metric_key' => 'comment_score',
+                        'source_path' => 'data.commentScore',
+                        'storage_field' => 'online_daily_data.comment_score',
+                        'status' => 'missing',
+                    ],
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ];
+
+        $trusted = $service->evaluateTrustedOtaRows($refs, [$row], 80, '2026-07-29');
+        self::assertTrue($trusted['verified']);
+        self::assertTrue($trusted['source_refs'][0]['metric_field_fact_verified']);
+        self::assertSame('requested_metric_field_facts', $trusted['source_refs'][0]['validation_scope']);
+
+        $raw = json_decode((string)$row['raw_data'], true);
+        $raw['field_facts'] = [$raw['field_facts'][0]];
+        $row['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE);
+        $blocked = $service->evaluateTrustedOtaRows($refs, [$row], 80, '2026-07-29');
+        self::assertFalse($blocked['verified']);
+        self::assertContains('ota_evidence_validation_untrusted', array_column($blocked['gaps'], 'code'));
+    }
+
     public function testTrustedAuxiliaryOnlyEvidenceDoesNotUnlockReportGeneration(): void
     {
         $service = new AiDailyReportService();
@@ -129,6 +202,57 @@ final class AiDailyReportTrustedInputTest extends TestCase
         self::assertSame(0, $fake->callCount);
         self::assertSame('blocked_by_data_quality', $result['model_status']);
         self::assertNull($result['report']);
+    }
+
+    public function testVerifiedInputCarriesHotelDateSourceAndHumanReviewGovernance(): void
+    {
+        $fake = new TrustedInputCountingLlmClient();
+        $service = new AiDailyReportService(null, $fake);
+        $enhance = new ReflectionMethod($service, 'tryEnhanceWithLlm');
+        $enhance->setAccessible(true);
+
+        $result = $enhance->invoke($service, [
+            'summary' => 'Verified OTA channel rule report.',
+            'data_gaps' => [],
+        ], [
+            'input_trust' => ['readback_verified' => true],
+            'scope' => [
+                'hotel_id' => 7,
+                'report_date' => '2026-07-15',
+                'source_data_date' => '2026-07-15',
+                'source_data_dates' => ['2026-07-15'],
+                'source_freshness_status' => 'fresh',
+            ],
+            'source_refs' => [[
+                'key' => 'online_daily_data#42',
+                'source' => 'ctrip',
+                'platform' => 'Ctrip',
+                'data_source_id' => 11,
+                'data_date' => '2026-07-15',
+                'readback_verified' => true,
+                'validation_status' => 'available',
+            ]],
+            'operation' => [
+                'ota' => [
+                    'data_status' => 'ok',
+                    'orders' => 3,
+                    'evidence_refs' => [['source_ref' => 'online_daily_data#42']],
+                ],
+            ],
+        ], 'ollama_qwen3_8b', ['user_id' => 19]);
+
+        self::assertSame(1, $fake->callCount);
+        self::assertSame('ok', $result['model_status']);
+        self::assertSame('ollama_qwen3_8b', $fake->lastModelKey);
+        $governance = $fake->lastSchema['x-governance'] ?? [];
+        self::assertSame('ai_daily_report', $governance['module']);
+        self::assertSame('verified_ota_daily_report_explanation', $governance['scenario']);
+        self::assertSame(7, $governance['hotel_id']);
+        self::assertSame(19, $governance['user_id']);
+        self::assertSame('2026-07-15', $governance['business_date']);
+        self::assertSame('verified_ota_channel_only', $governance['source_scope']);
+        self::assertTrue($governance['human_confirmation_required']);
+        self::assertSame('online_daily_data#42', $governance['knowledge_sources'][0]['ref']);
     }
 
     public function testUnverifiedInputIsMergedIntoRuleGapsAndBlocksEveryExecutionAction(): void
@@ -473,10 +597,22 @@ final class AiDailyReportTrustedInputTest extends TestCase
 final class TrustedInputCountingLlmClient extends LlmClient
 {
     public int $callCount = 0;
+    public array $lastSchema = [];
+    public string $lastModelKey = '';
 
     public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
     {
         $this->callCount++;
-        return ['summary' => 'This fake must never be called.'];
+        $this->lastSchema = $schema;
+        $this->lastModelKey = $modelKey;
+        return [
+            'summary' => 'Verified OTA explanation.',
+            'ai_interpretation' => [
+                'possible_explanations' => ['Possible channel explanation.'],
+                'conflicting_evidence' => [],
+                'missing_information' => [],
+                'confidence' => 'medium',
+            ],
+        ];
     }
 }

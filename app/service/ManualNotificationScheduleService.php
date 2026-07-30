@@ -31,11 +31,17 @@ final class ManualNotificationScheduleService
     /** @var callable|null */
     private $ctripTemporalRefresher;
 
+    /** @var callable|null */
+    private $pmsSourceRefresher;
+
     /** @var array<string, array<string, mixed>> */
     private array $meituanPreparationCache = [];
 
     /** @var array<string, array<string, mixed>> */
     private array $ctripPreparationCache = [];
+
+    /** @var array<string, array<string, mixed>> */
+    private array $pmsPreparationCache = [];
 
     public function __construct(
         ?callable $sender = null,
@@ -47,11 +53,64 @@ final class ManualNotificationScheduleService
         private readonly ?ManualNotificationBusinessPayloadService $businessMessagePayloads = null,
         ?callable $meituanTemporalRefresher = null,
         private readonly ?CtripTemporalNotificationPayloadService $ctripTemporalPayloads = null,
-        ?callable $ctripTemporalRefresher = null
+        ?callable $ctripTemporalRefresher = null,
+        ?callable $pmsSourceRefresher = null
     ) {
         $this->sender = $sender;
         $this->meituanTemporalRefresher = $meituanTemporalRefresher;
         $this->ctripTemporalRefresher = $ctripTemporalRefresher;
+        $this->pmsSourceRefresher = $pmsSourceRefresher;
+    }
+
+    /**
+     * Run the same exact-date source preparation before either an immediate
+     * test or a scheduled delivery.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    public function prepareSourcesForDelivery(
+        array $row,
+        string $businessDate,
+        DateTimeImmutable $observedAt
+    ): array {
+        $pms = $this->preparePmsSource(
+            $row,
+            $businessDate,
+            $observedAt,
+            true
+        );
+        $meituan = $this->prepareMeituanSource(
+            $row,
+            $businessDate,
+            $observedAt,
+            true
+        );
+        $ctrip = $this->prepareCtripSource(
+            $row,
+            $businessDate,
+            $observedAt,
+            true
+        );
+        foreach ([$pms, $meituan, $ctrip] as $preparation) {
+            if (($preparation['status'] ?? '') === 'blocked') {
+                return [
+                    'status' => 'blocked',
+                    'reason_code' => (string)($preparation['reason_code']
+                        ?? 'source_preparation_blocked'),
+                    'pms' => $pms,
+                    'meituan' => $meituan,
+                    'ctrip' => $ctrip,
+                ];
+            }
+        }
+        return [
+            'status' => 'ready',
+            'reason_code' => 'source_preparation_ready',
+            'pms' => $pms,
+            'meituan' => $meituan,
+            'ctrip' => $ctrip,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -103,6 +162,7 @@ final class ManualNotificationScheduleService
 
             $results = [];
             $dueCount = 0;
+            $newWorkCount = 0;
             $sentCount = 0;
             $failedCount = 0;
             $blockedCount = 0;
@@ -115,19 +175,53 @@ final class ManualNotificationScheduleService
                 if ($window === null) {
                     continue;
                 }
-                if ($dueCount >= $limit) {
-                    break;
-                }
-                $dueCount++;
-                $result = $this->processDueRecord(
+                $result = $this->operatingDailyLoopBlock(
                     $row,
                     $window,
                     $now,
-                    $dispatch,
                     $mode,
-                    $scopeRobotId,
                     $runId
                 );
+                if ($result === null && $dispatch) {
+                    $existingDispatch = $this->dispatchLedger()->existingDispatch(
+                        (int)($row['id'] ?? 0),
+                        $window,
+                        $mode
+                    );
+                    if ($existingDispatch !== null
+                        && !$this->preparationReservationRetryDue(
+                            $existingDispatch,
+                            $now
+                        )
+                    ) {
+                        $result = $this->existingDispatchResult(
+                            $this->dueResultBase(
+                                $row,
+                                $window,
+                                $now,
+                                $mode,
+                                $runId
+                            ),
+                            $existingDispatch
+                        );
+                    }
+                }
+                if ($result === null) {
+                    if ($newWorkCount >= $limit) {
+                        break;
+                    }
+                    $newWorkCount++;
+                    $result = $this->processDueRecord(
+                        $row,
+                        $window,
+                        $now,
+                        $dispatch,
+                        $mode,
+                        $scopeRobotId,
+                        $runId
+                    );
+                }
+                $dueCount++;
                 $status = (string)($result['status'] ?? '');
                 if ($status === 'sent') {
                     $sentCount++;
@@ -173,6 +267,51 @@ final class ManualNotificationScheduleService
         }
     }
 
+    /**
+     * Legacy database rows may predate the fixed-time-only policy. Keep them
+     * visible to scheduler health reporting, but never let an hourly or minute
+     * loop reach the delivery pipeline.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>|null
+     */
+    private function operatingDailyLoopBlock(
+        array $row,
+        string $window,
+        DateTimeImmutable $now,
+        string $mode,
+        ?int $scheduleRunId
+    ): ?array {
+        $templateType = trim((string)(
+            $row['template_type']
+            ?? $row['notification_type']
+            ?? ''
+        ));
+        $triggerType = trim((string)($row['trigger_type'] ?? ''));
+        if (!ManualNotificationService::isOperatingDailyReportType($templateType)
+            || ManualNotificationService::isOperatingDailyTriggerAllowed($triggerType)
+        ) {
+            return null;
+        }
+
+        return [
+            'notification_id' => (int)($row['id'] ?? 0),
+            'hotel_id' => (int)($row['hotel_id'] ?? 0),
+            'business_date' => $this->scheduleRules()->resolveBusinessDate(
+                $row,
+                $now
+            ),
+            'trigger_type' => $triggerType,
+            'dispatch_window' => $window,
+            'mode' => $mode,
+            'schedule_run_id' => $scheduleRunId,
+            'status' => 'blocked',
+            'reason_code' => 'operating_daily_fixed_time_required',
+            'message' => '经营日报已停用循环调度，请改为每日固定时间并重新测试。',
+            'delivery_attempted' => false,
+        ];
+    }
+
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private function processDueRecord(
         array $row,
@@ -184,18 +323,31 @@ final class ManualNotificationScheduleService
         ?int $scheduleRunId
     ): array {
         $notificationId = (int)($row['id'] ?? 0);
-        $hotelId = (int)($row['hotel_id'] ?? 0);
         $tenantId = (int)($row['tenant_id'] ?? 0);
-        $businessDate = $this->scheduleRules()->resolveBusinessDate($row, $now);
-        $base = [
-            'notification_id' => $notificationId,
-            'hotel_id' => $hotelId,
-            'business_date' => $businessDate,
-            'trigger_type' => (string)($row['trigger_type'] ?? ''),
-            'dispatch_window' => $window,
-            'mode' => $mode,
-            'schedule_run_id' => $scheduleRunId,
-        ];
+        $base = $this->dueResultBase(
+            $row,
+            $window,
+            $now,
+            $mode,
+            $scheduleRunId
+        );
+        $hotelId = (int)$base['hotel_id'];
+        $businessDate = (string)$base['business_date'];
+        if (!$this->hasCurrentSuccessfulTestEvidence($row)) {
+            return $base + [
+                'status' => 'blocked',
+                'reason_code' =>
+                    'manual_notification_schedule_test_evidence_invalid',
+                'message' =>
+                    '当前计划没有覆盖最新版本的成功测试凭证，本轮未发送。',
+                'delivery_attempted' => false,
+            ];
+        }
+        $customContractBlocker =
+            ManualNotificationService::operatingDailyCustomContractBlocker(
+                $row,
+                $businessDate
+            );
 
         $identity = $this->resolveTargetIdentity($row, $mode);
         if (($identity['eligible'] ?? false) === true
@@ -207,25 +359,168 @@ final class ManualNotificationScheduleService
                 'reason_code' => 'scoped_robot_identity_mismatch',
             ];
         }
-        $sourcePreparation = ($identity['eligible'] ?? false) === true
-            ? $this->prepareMeituanSource($row, $businessDate, $now, $dispatch)
-            : [
-                'status' => 'skipped',
-                'reason_code' => 'target_identity_not_ready',
+        $robotId = (int)(
+            $identity['robot_id']
+            ?? $row['test_robot_id']
+            ?? 0
+        );
+        $robotName = trim((string)(
+            $identity['robot_name']
+            ?? $row['test_robot_name']
+            ?? ''
+        ));
+        $planFingerprint = ManualNotificationService::planFingerprint($row);
+        $reservedDispatch = null;
+        $claimLease = '';
+        if ($dispatch) {
+            $earlyBlockedReason = null;
+            $earlyBlockedMessage = null;
+            if (($identity['eligible'] ?? false) !== true) {
+                $earlyBlockedReason = (string)(
+                    $identity['reason_code'] ?? 'target_binding_missing'
+                );
+                $earlyBlockedMessage =
+                    '企业微信机器人身份、作用域或酒店归属未通过校验。';
+            } elseif ($this->sender === null) {
+                $earlyBlockedReason = 'explicit_sender_missing';
+                $earlyBlockedMessage = '云端调度未注入真实发送器。';
+            } elseif (is_array($customContractBlocker)) {
+                $earlyBlockedReason = (string)(
+                    $customContractBlocker['reason_code']
+                    ?? 'operating_daily_custom_contract_invalid'
+                );
+                $earlyBlockedMessage = $this->candidateBlockerMessage(
+                    $customContractBlocker
+                );
+            }
+            $reservation = $this->dispatchLedger()->claim(
+                $notificationId,
+                $tenantId,
+                $hotelId,
+                $window,
+                $mode,
+                (string)($row['trigger_type'] ?? ''),
+                'scheduled',
+                $robotId,
+                $robotName,
+                $businessDate,
+                [
+                    'business_date' => $businessDate,
+                    'tested_plan_fingerprint' => $planFingerprint,
+                ],
+                $now,
+                $earlyBlockedReason === null ? 'claimed' : 'blocked',
+                $earlyBlockedReason
+                    ?? 'dispatch_source_preparation_claimed',
+                $earlyBlockedMessage,
+                $scheduleRunId
+            );
+            $reservedDispatch = $reservation['dispatch'];
+            if ($reservation['claimed'] === false) {
+                return $this->existingDispatchResult(
+                    $base,
+                    $reservedDispatch
+                );
+            }
+            if ($earlyBlockedReason !== null) {
+                return $base + [
+                    'status' => 'blocked',
+                    'reason_code' => $earlyBlockedReason,
+                    'dispatch_id' => (int)$reservedDispatch['id'],
+                    'delivery_attempted' => false,
+                ];
+            }
+            $claimLease = (string)$reservedDispatch['claimed_at'];
+        } elseif (is_array($customContractBlocker)
+            && ($identity['eligible'] ?? false) === true
+        ) {
+            return $base + [
+                'status' => 'blocked',
+                'reason_code' => (string)(
+                    $customContractBlocker['reason_code']
+                    ?? 'operating_daily_custom_contract_invalid'
+                ),
+                'payload' => null,
+                'report_gate' =>
+                    $customContractBlocker['formal_send_gate'] ?? null,
+                'delivery_attempted' => false,
             ];
+        }
+        $preparations = ($identity['eligible'] ?? false) === true
+            ? ($dispatch
+                ? $this->prepareSourcesForDelivery(
+                    $row,
+                    $businessDate,
+                    $now
+                )
+                : [
+                    'status' => 'ready',
+                    'reason_code' => 'source_preparation_preview_only',
+                    'pms' => $this->preparePmsSource(
+                        $row,
+                        $businessDate,
+                        $now,
+                        false
+                    ),
+                    'meituan' => $this->prepareMeituanSource(
+                        $row,
+                        $businessDate,
+                        $now,
+                        false
+                    ),
+                    'ctrip' => $this->prepareCtripSource(
+                        $row,
+                        $businessDate,
+                        $now,
+                        false
+                    ),
+                ])
+            : [
+                'status' => 'blocked',
+                'reason_code' => 'target_identity_not_ready',
+                'pms' => [
+                    'status' => 'skipped',
+                    'reason_code' => 'target_identity_not_ready',
+                ],
+                'meituan' => [
+                    'status' => 'skipped',
+                    'reason_code' => 'target_identity_not_ready',
+                ],
+                'ctrip' => [
+                    'status' => 'skipped',
+                    'reason_code' => 'target_identity_not_ready',
+                ],
+            ];
+        $pmsPreparation = $preparations['pms'];
+        $base['pms_source_preparation'] = $pmsPreparation;
+        $sourcePreparation = $preparations['meituan'];
         $base['source_preparation'] = $sourcePreparation;
-        $ctripPreparation = ($identity['eligible'] ?? false) === true
-            ? $this->prepareCtripSource($row, $businessDate, $now, $dispatch)
-            : [
-                'status' => 'skipped',
-                'reason_code' => 'target_identity_not_ready',
-            ];
+        $ctripPreparation = $preparations['ctrip'];
         $base['ctrip_source_preparation'] = $ctripPreparation;
         $candidate = $this->deliveryCandidate(
             $row,
             $businessDate,
             $mode
         );
+        if (($pmsPreparation['status'] ?? '') === 'blocked') {
+            $reasonCode = (string)($pmsPreparation['reason_code']
+                ?? 'pms_current_capture_not_ready');
+            $candidate = [
+                'status' => 'blocked',
+                'reason_code' => $reasonCode,
+                'business_date' => $businessDate,
+                'payload' => null,
+                'formal_send_gate' => [
+                    'allowed' => false,
+                    'status' => 'formal_send_blocked',
+                    'blockers' => [[
+                        'code' => $reasonCode,
+                        'message' =>
+                            'PMS 当次采集未完成保存回读，本轮未发送。',
+                    ]],
+                ],
+            ];
+        }
         if (($sourcePreparation['status'] ?? '') === 'blocked') {
             $reasonCode = (string)($sourcePreparation['reason_code']
                 ?? 'meituan_current_capture_not_ready');
@@ -258,6 +553,40 @@ final class ManualNotificationScheduleService
                     'blockers' => [[
                         'code' => $reasonCode,
                         'message' => '携程当次采集未完成保存回读，本轮未发送。',
+                    ]],
+                ],
+            ];
+        }
+        $preparedSnapshotGate = $dispatch
+            ? $this->preparedSnapshotGate(
+                $row,
+                $businessDate,
+                $candidate,
+                $preparations
+            )
+            : [
+                'allowed' => true,
+                'reason_code' => 'prepared_snapshot_preview_only',
+                'message' => '',
+            ];
+        $base['prepared_snapshot_gate'] = $preparedSnapshotGate;
+        if (($preparedSnapshotGate['allowed'] ?? false) !== true
+            && ($candidate['status'] ?? '') === 'ready'
+        ) {
+            $reasonCode = (string)($preparedSnapshotGate['reason_code']
+                ?? 'operating_daily_prepared_snapshot_mismatch');
+            $candidate = [
+                ...$candidate,
+                'status' => 'blocked',
+                'reason_code' => $reasonCode,
+                'payload' => null,
+                'formal_send_gate' => [
+                    'allowed' => false,
+                    'status' => 'formal_send_blocked',
+                    'blockers' => [[
+                        'code' => $reasonCode,
+                        'message' => (string)($preparedSnapshotGate['message']
+                            ?? '当次采集回执与消息引用快照不一致，本轮未发送。'),
                     ]],
                 ],
             ];
@@ -329,43 +658,29 @@ final class ManualNotificationScheduleService
             $blockedMessage = '云端调度未注入真实发送器。';
         }
 
-        $robotId = (int)($identity['robot_id'] ?? $row['test_robot_id'] ?? 0);
-        $robotName = trim((string)($identity['robot_name'] ?? $row['test_robot_name'] ?? ''));
-        $claim = $this->dispatchLedger()->claim(
-            $notificationId,
-            $tenantId,
-            $hotelId,
-            $window,
-            $mode,
-            (string)($row['trigger_type'] ?? ''),
-            'scheduled',
-            $robotId,
-            $robotName,
-            $businessDate,
+        if (!is_array($reservedDispatch)) {
+            throw new \RuntimeException(
+                'manual_notification_dispatch_reservation_missing'
+            );
+        }
+        $candidate['business_date'] = $businessDate;
+        $candidate['tested_plan_fingerprint'] = $planFingerprint;
+        $attached = $this->dispatchLedger()->attachCandidateToClaim(
+            (int)$reservedDispatch['id'],
+            $claimLease,
             $candidate,
             $now,
-            $blockedReason === null ? 'claimed' : 'blocked',
-            $blockedReason ?? 'dispatch_claimed',
-            $blockedMessage,
-            $scheduleRunId
+            $blockedReason === null ? 'claimed' : 'preparation_failed',
+            $blockedReason ?? 'dispatch_candidate_attached',
+            $blockedMessage
         );
-        $claimedDispatch = $claim['dispatch'];
-        if ($claim['claimed'] === false) {
-            $existingStatus = (string)($claimedDispatch['status'] ?? 'unknown');
-            if (in_array($existingStatus, ['failed', 'outcome_unknown', 'blocked'], true)) {
-                return $base + [
-                    'status' => $existingStatus,
-                    'reason_code' => (string)($claimedDispatch['result_code'] ?? ('dispatch_status_' . $existingStatus)),
-                    'dispatch_id' => (int)$claimedDispatch['id'],
-                    'existing_status' => $existingStatus,
-                    'delivery_attempted' => false,
-                ];
-            }
+        $claimedDispatch = $attached['dispatch'];
+        if (($attached['allowed'] ?? false) !== true) {
             return $base + [
-                'status' => 'skipped',
-                'reason_code' => 'dispatch_window_already_claimed',
+                'status' => 'blocked',
+                'reason_code' => (string)($attached['reason_code']
+                    ?? 'dispatch_claim_lease_lost'),
                 'dispatch_id' => (int)$claimedDispatch['id'],
-                'existing_status' => $existingStatus,
                 'delivery_attempted' => false,
             ];
         }
@@ -441,7 +756,9 @@ final class ManualNotificationScheduleService
         DateTimeImmutable $observedAt,
         bool $dispatch
     ): array {
-        if (trim((string)($row['source_scope'] ?? '')) !== 'meituan') {
+        if (trim((string)($row['source_scope'] ?? '')) !== 'meituan'
+            && !$this->operatingDailyRequiresSource($row, 'meituan')
+        ) {
             return [
                 'status' => 'not_required',
                 'reason_code' => 'non_meituan_plan',
@@ -613,6 +930,122 @@ final class ManualNotificationScheduleService
         ];
     }
 
+    /**
+     * @param array<string, mixed> $base
+     * @param array<string, mixed> $dispatch
+     * @return array<string, mixed>
+     */
+    private function existingDispatchResult(array $base, array $dispatch): array
+    {
+        $existingStatus = (string)($dispatch['status'] ?? 'unknown');
+        if (in_array($existingStatus, ['failed', 'outcome_unknown', 'blocked'], true)) {
+            return $base + [
+                'status' => $existingStatus,
+                'reason_code' => (string)(
+                    $dispatch['result_code']
+                        ?? ('dispatch_status_' . $existingStatus)
+                ),
+                'dispatch_id' => (int)($dispatch['id'] ?? 0),
+                'existing_status' => $existingStatus,
+                'delivery_attempted' => false,
+            ];
+        }
+        return $base + [
+            'status' => 'skipped',
+            'reason_code' => 'dispatch_window_already_claimed',
+            'dispatch_id' => (int)($dispatch['id'] ?? 0),
+            'existing_status' => $existingStatus,
+            'delivery_attempted' => false,
+        ];
+    }
+
+    /** @param array<string, mixed> $dispatch */
+    private function preparationReservationRetryDue(
+        array $dispatch,
+        DateTimeImmutable $now
+    ): bool {
+        if ((int)($dispatch['attempt_count'] ?? 0) !== 0) {
+            return false;
+        }
+        $status = strtolower(trim((string)($dispatch['status'] ?? '')));
+        $timestamp = '';
+        $minimumAge = 0;
+        if ($status === 'claimed') {
+            $timestamp = trim((string)(
+                $dispatch['claimed_at']
+                ?? $dispatch['updated_at']
+                ?? ''
+            ));
+            $minimumAge =
+                ManualNotificationDispatchLedgerService::
+                PREPARATION_LEASE_SECONDS;
+        } elseif ($status === 'preparation_failed') {
+            $timestamp = trim((string)($dispatch['next_retry_at'] ?? ''));
+        } else {
+            return false;
+        }
+        if ($timestamp === '') {
+            return false;
+        }
+        try {
+            $at = new DateTimeImmutable($timestamp, $now->getTimezone());
+        } catch (\Throwable) {
+            return false;
+        }
+        if ($status === 'preparation_failed') {
+            return $at <= $now;
+        }
+        return ($now->getTimestamp() - $at->getTimestamp()) >= $minimumAge;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function hasCurrentSuccessfulTestEvidence(array $row): bool
+    {
+        if (strtolower(trim((string)($row['last_test_status'] ?? '')))
+            !== 'sent'
+        ) {
+            return false;
+        }
+        $testedAt = trim((string)($row['last_tested_at'] ?? ''));
+        $updatedAt = trim((string)($row['update_time'] ?? ''));
+        if ($testedAt === '' || $updatedAt === '') {
+            return false;
+        }
+        try {
+            $timezone = new DateTimeZone(self::TIMEZONE);
+            $tested = new DateTimeImmutable($testedAt, $timezone);
+            $updated = new DateTimeImmutable($updatedAt, $timezone);
+            return $tested >= $updated;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function dueResultBase(
+        array $row,
+        string $window,
+        DateTimeImmutable $now,
+        string $mode,
+        ?int $scheduleRunId
+    ): array {
+        return [
+            'notification_id' => (int)($row['id'] ?? 0),
+            'hotel_id' => (int)($row['hotel_id'] ?? 0),
+            'business_date' => $this->scheduleRules()->resolveBusinessDate(
+                $row,
+                $now
+            ),
+            'trigger_type' => (string)($row['trigger_type'] ?? ''),
+            'dispatch_window' => $window,
+            'mode' => $mode,
+            'schedule_run_id' => $scheduleRunId,
+        ];
+    }
+
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private function prepareCtripSource(
         array $row,
@@ -622,7 +1055,7 @@ final class ManualNotificationScheduleService
     ): array {
         if (!ManualNotificationService::isCtripTemporalReportType(
             (string)($row['template_type'] ?? '')
-        )) {
+        ) && !$this->operatingDailyRequiresSource($row, 'ctrip')) {
             return [
                 'status' => 'not_required',
                 'reason_code' => 'non_ctrip_temporal_plan',
@@ -647,26 +1080,34 @@ final class ManualNotificationScheduleService
             return $this->ctripPreparationCache[$cacheKey] + ['reused_in_run' => true];
         }
 
-        $actorId = (int)($row['created_by'] ?? 0);
-        $actor = $actorId > 0
-            ? User::where('id', $actorId)->where('status', 1)->find()
-            : null;
-        if (!$actor) {
-            $result = [
-                'status' => 'blocked',
-                'reason_code' => 'ctrip_schedule_actor_missing',
-            ];
-        } else {
+        if ($this->ctripTemporalRefresher !== null) {
             try {
-                $result = $this->ctripTemporalRefresher !== null
-                    ? call_user_func(
-                        $this->ctripTemporalRefresher,
-                        $row,
-                        $businessDate,
-                        $observedAt,
-                        $actor
-                    )
-                    : (new CtripTemporalRefreshService())->refresh(
+                $result = call_user_func(
+                    $this->ctripTemporalRefresher,
+                    $row,
+                    $businessDate,
+                    $observedAt
+                );
+                $result = is_array($result) ? $result : [];
+            } catch (\Throwable) {
+                $result = [
+                    'status' => 'blocked',
+                    'reason_code' => 'ctrip_current_capture_failed',
+                ];
+            }
+        } else {
+            $actorId = (int)($row['created_by'] ?? 0);
+            $actor = $actorId > 0
+                ? User::where('id', $actorId)->where('status', 1)->find()
+                : null;
+            if (!$actor) {
+                $result = [
+                    'status' => 'blocked',
+                    'reason_code' => 'ctrip_schedule_actor_missing',
+                ];
+            } else {
+                try {
+                    $result = (new CtripTemporalRefreshService())->refresh(
                         $actor,
                         (int)($row['tenant_id'] ?? 0),
                         $hotelId,
@@ -674,12 +1115,13 @@ final class ManualNotificationScheduleService
                         $businessDate,
                         $observedAt
                     );
-                $result = is_array($result) ? $result : [];
-            } catch (\Throwable) {
-                $result = [
-                    'status' => 'blocked',
-                    'reason_code' => 'ctrip_current_capture_failed',
-                ];
+                    $result = is_array($result) ? $result : [];
+                } catch (\Throwable) {
+                    $result = [
+                        'status' => 'blocked',
+                        'reason_code' => 'ctrip_current_capture_failed',
+                    ];
+                }
             }
         }
 
@@ -704,6 +1146,312 @@ final class ManualNotificationScheduleService
 
         $this->ctripPreparationCache[$cacheKey] = $result;
         return $result;
+    }
+
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private function preparePmsSource(
+        array $row,
+        string $businessDate,
+        DateTimeImmutable $observedAt,
+        bool $dispatch
+    ): array {
+        if (!$this->operatingDailyRequiresSource($row, 'pms')) {
+            return [
+                'status' => 'not_required',
+                'reason_code' => 'non_pms_operating_daily_plan',
+            ];
+        }
+        if ((string)($row['business_date_rule'] ?? 'today') !== 'today') {
+            return [
+                'status' => 'not_required',
+                'reason_code' =>
+                    'historical_business_date_uses_verified_snapshot',
+            ];
+        }
+        if (!$dispatch) {
+            return [
+                'status' => 'preview_only',
+                'reason_code' => 'current_capture_runs_before_real_dispatch',
+            ];
+        }
+
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        $cacheKey = $hotelId . '|' . $businessDate;
+        if (isset($this->pmsPreparationCache[$cacheKey])) {
+            return $this->pmsPreparationCache[$cacheKey]
+                + ['reused_in_run' => true];
+        }
+
+        try {
+            $result = $this->pmsSourceRefresher !== null
+                ? call_user_func(
+                    $this->pmsSourceRefresher,
+                    $row,
+                    $businessDate,
+                    $observedAt
+                )
+                : $this->refreshPmsSource(
+                    $row,
+                    $businessDate,
+                    $observedAt
+                );
+            $result = is_array($result) ? $result : [];
+        } catch (\Throwable) {
+            $result = [
+                'status' => 'blocked',
+                'reason_code' => 'pms_current_capture_failed',
+            ];
+        }
+
+        if (($result['status'] ?? '') === 'ready') {
+            if (($result['readback_verified'] ?? false) !== true
+                || (int)($result['capture_id'] ?? 0) <= 0
+                || (string)($result['target_date'] ?? '') !== $businessDate
+            ) {
+                $result = [
+                    ...$result,
+                    'status' => 'blocked',
+                    'reason_code' => 'pms_current_capture_readback_missing',
+                ];
+            }
+        } elseif (($result['status'] ?? '') !== 'blocked') {
+            $result = [
+                ...$result,
+                'status' => 'blocked',
+                'reason_code' => (string)($result['reason_code']
+                    ?? 'pms_current_capture_not_ready'),
+            ];
+        }
+
+        $this->pmsPreparationCache[$cacheKey] = $result;
+        return $result;
+    }
+
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private function refreshPmsSource(
+        array $row,
+        string $businessDate,
+        DateTimeImmutable $observedAt
+    ): array {
+        $timezone = new DateTimeZone(self::TIMEZONE);
+        $observedAt = $observedAt->setTimezone($timezone);
+        $liveNow = new DateTimeImmutable('now', $timezone);
+        if ($businessDate !== $liveNow->format('Y-m-d')
+            || abs($liveNow->getTimestamp() - $observedAt->getTimestamp())
+                >= self::DUE_GRACE_SECONDS
+        ) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => 'pms_dispatch_observation_not_current',
+            ];
+        }
+        $tenantId = (int)($row['tenant_id'] ?? 0);
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        $actorId = (int)($row['created_by'] ?? 0);
+        if ($tenantId <= 0 || $hotelId <= 0 || $actorId <= 0) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => 'pms_schedule_actor_scope_missing',
+            ];
+        }
+
+        $sync = (new PmsRealtimeSyncService())->sync(
+            $tenantId,
+            $hotelId,
+            $actorId,
+            $businessDate
+        );
+        if (!in_array(
+            (string)($sync['status'] ?? ''),
+            ['synced', 'partial'],
+            true
+        ) || ($sync['readback_verified'] ?? false) !== true
+            || (int)($sync['capture_id'] ?? 0) <= 0
+            || (string)($sync['target_date'] ?? '') !== $businessDate
+        ) {
+            return [
+                'status' => 'blocked',
+                'reason_code' => (string)($sync['reason_code']
+                    ?? $sync['downstream_blocker_code']
+                    ?? 'pms_current_capture_readback_missing'),
+            ];
+        }
+        return [
+            'status' => 'ready',
+            'reason_code' => 'pms_current_capture_saved_and_read_back',
+            'data_scope' => 'whole_property_pms',
+            'target_date' => $businessDate,
+            'captured_at' => (string)($sync['captured_at'] ?? ''),
+            'capture_id' => (int)$sync['capture_id'],
+            'saved_count' => 1,
+            'readback_verified' => true,
+        ];
+    }
+
+    /**
+     * Require the rendered message to reference the exact capture or sync task
+     * returned by the current source preparation.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $candidate
+     * @param array<string, mixed> $preparations
+     * @return array{allowed:bool,reason_code:string,message:string}
+     */
+    public function preparedSnapshotGate(
+        array $row,
+        string $businessDate,
+        array $candidate,
+        array $preparations
+    ): array {
+        if (!ManualNotificationService::isOperatingDailyReportType(
+            (string)($row['template_type']
+                ?? $row['notification_type']
+                ?? '')
+        ) || (string)($row['business_date_rule'] ?? 'today') !== 'today'
+        ) {
+            return [
+                'allowed' => true,
+                'reason_code' => 'prepared_snapshot_match_not_required',
+                'message' => '',
+            ];
+        }
+        if (($candidate['status'] ?? '') !== 'ready') {
+            return [
+                'allowed' => true,
+                'reason_code' => 'candidate_already_blocked',
+                'message' => '',
+            ];
+        }
+        $refs = is_array($candidate['source_snapshot_refs'] ?? null)
+            ? $candidate['source_snapshot_refs']
+            : [];
+        $definitions = [
+            'pms' => [
+                'required' => $this->operatingDailyRequiresSource($row, 'pms'),
+                'id_field' => 'capture_id',
+                'keys' => ['pms'],
+                'reason' =>
+                    'operating_daily_pms_prepared_snapshot_mismatch',
+                'label' => 'PMS',
+            ],
+            'meituan' => [
+                'required' =>
+                    $this->operatingDailyRequiresSource($row, 'meituan'),
+                'id_field' => 'sync_task_id',
+                'prefixes' => ['meituan_'],
+                'reason' =>
+                    'operating_daily_meituan_prepared_snapshot_mismatch',
+                'label' => '美团',
+            ],
+            'ctrip' => [
+                'required' =>
+                    $this->operatingDailyRequiresSource($row, 'ctrip'),
+                'id_field' => 'sync_task_id',
+                'prefixes' => ['ctrip_', 'qunar_'],
+                'reason' =>
+                    'operating_daily_ctrip_prepared_snapshot_mismatch',
+                'label' => '携程/去哪儿',
+            ],
+        ];
+        foreach ($definitions as $source => $definition) {
+            if (($definition['required'] ?? false) !== true) {
+                continue;
+            }
+            $preparation = is_array($preparations[$source] ?? null)
+                ? $preparations[$source]
+                : [];
+            $preparedId = (int)($preparation[$definition['id_field']] ?? 0);
+            if (($preparation['status'] ?? '') !== 'ready'
+                || (string)($preparation['target_date'] ?? '') !== $businessDate
+                || $preparedId <= 0
+            ) {
+                return [
+                    'allowed' => false,
+                    'reason_code' => (string)$definition['reason'],
+                    'message' => $definition['label']
+                        . ' 当次采集回执缺少精确日期或快照标识。',
+                ];
+            }
+            $sourceRefs = [];
+            foreach ($refs as $key => $reference) {
+                if (!is_array($reference)) {
+                    continue;
+                }
+                $matches = in_array(
+                    (string)$key,
+                    (array)($definition['keys'] ?? []),
+                    true
+                );
+                foreach ((array)($definition['prefixes'] ?? []) as $prefix) {
+                    if (str_starts_with((string)$key, (string)$prefix)) {
+                        $matches = true;
+                    }
+                }
+                if ($matches) {
+                    $sourceRefs[] = $reference;
+                }
+            }
+            if ($sourceRefs === []) {
+                return [
+                    'allowed' => false,
+                    'reason_code' => (string)$definition['reason'],
+                    'message' => $definition['label']
+                        . ' 消息缺少当次采集来源引用。',
+                ];
+            }
+            $referenceField = $source === 'pms'
+                ? 'record_id'
+                : 'sync_task_id';
+            $expectedSource = match ($source) {
+                'pms' => 'dingdandao_pms',
+                'ctrip' => 'ctrip',
+                default => 'meituan',
+            };
+            foreach ($sourceRefs as $reference) {
+                $basicReferenceMatches =
+                    strtolower(trim((string)($reference['source'] ?? '')))
+                        === $expectedSource
+                    && (string)($reference['business_date'] ?? '')
+                        === $businessDate
+                    && (int)($reference['record_id'] ?? 0) > 0
+                    && trim((string)(
+                        $reference['source_trace_id'] ?? ''
+                    )) !== '';
+                if ($source !== 'pms') {
+                    $basicReferenceMatches = $basicReferenceMatches
+                        && (int)($reference['data_source_id'] ?? 0) > 0;
+                } else {
+                    $capturedProviderId = trim((string)(
+                        $reference['provider_hotel_id'] ?? ''
+                    ));
+                    $boundProviderId = trim((string)(
+                        $reference['bound_provider_hotel_id'] ?? ''
+                    ));
+                    $basicReferenceMatches = $basicReferenceMatches
+                        && $capturedProviderId !== ''
+                        && $boundProviderId !== ''
+                        && hash_equals(
+                            $boundProviderId,
+                            $capturedProviderId
+                        );
+                }
+                if (!$basicReferenceMatches
+                    || (int)($reference[$referenceField] ?? 0) !== $preparedId
+                ) {
+                    return [
+                        'allowed' => false,
+                        'reason_code' => (string)$definition['reason'],
+                        'message' => $definition['label']
+                            . ' 当次采集回执与消息引用快照不一致。',
+                    ];
+                }
+            }
+        }
+        return [
+            'allowed' => true,
+            'reason_code' => 'operating_daily_prepared_snapshot_matched',
+            'message' => '',
+        ];
     }
 
     /**
@@ -752,6 +1500,19 @@ final class ManualNotificationScheduleService
             (string)($row['template_type'] ?? '')
         )) {
             $templateType = (string)($row['template_type'] ?? '');
+            if (ManualNotificationService::isOperatingDailyReportType(
+                $templateType
+            )) {
+                $contractBlocker =
+                    ManualNotificationService::
+                    operatingDailyCustomContractBlocker(
+                        $row,
+                        $businessDate
+                    );
+                if (is_array($contractBlocker)) {
+                    return $contractBlocker;
+                }
+            }
             $candidate = ManualNotificationService::isCtripTemporalReportType(
                 $templateType
             )
@@ -1150,6 +1911,10 @@ final class ManualNotificationScheduleService
                 'manual_notification_schedule_dispatches',
                 'request_kind'
             )
+            || !$this->tableHasColumn(
+                'manual_notification_schedule_dispatches',
+                'tested_plan_fingerprint'
+            )
         ) {
             return [
                 'eligible' => false,
@@ -1166,6 +1931,10 @@ final class ManualNotificationScheduleService
             ->where('robot_id', $robotId)
             ->where('robot_name', trim($robotName))
             ->where('render_contract_version', $contractVersion)
+            ->where(
+                'tested_plan_fingerprint',
+                ManualNotificationService::planFingerprint($row)
+            )
             ->where('status', 'sent')
             ->where('dispatched_at', '>=', $planUpdatedAt)
             ->order('dispatched_at', 'desc')
@@ -1176,6 +1945,20 @@ final class ManualNotificationScheduleService
                 'eligible' => false,
                 'reason_code' => 'business_message_retest_required',
                 'message' => '当前动态业务消息合同未在该机器人真实测试成功；旧静态计划不会自动继承发送权限。',
+            ];
+        }
+        $sourceIntegrity = $this->dispatchLedger()
+            ->sourceSnapshotIntegrityStatus((int)$tested['id']);
+        if (!in_array(
+            $sourceIntegrity['status'],
+            ['verified', 'not_applicable'],
+            true
+        )) {
+            return [
+                'eligible' => false,
+                'reason_code' => 'business_message_retest_required',
+                'message' =>
+                    '最近测试记录的来源快照证据不完整，请重新测试后再启用定时发送。',
             ];
         }
         return ['eligible' => true];
@@ -1194,6 +1977,41 @@ final class ManualNotificationScheduleService
     private function scheduleRules(): ManualNotificationScheduleRuleService
     {
         return $this->scheduleRuleService ?? new ManualNotificationScheduleRuleService();
+    }
+
+    /** @param array<string, mixed> $row */
+    private function operatingDailyRequiresSource(
+        array $row,
+        string $source
+    ): bool {
+        if (!ManualNotificationService::isOperatingDailyReportType(
+            (string)($row['template_type']
+                ?? $row['notification_type']
+                ?? '')
+        )) {
+            return false;
+        }
+        $sourceScope = trim((string)($row['source_scope'] ?? 'combined'));
+        $scopeSource = $source === 'pms' ? 'dingdandao_pms' : $source;
+        if ($sourceScope !== 'combined') {
+            return $sourceScope === $scopeSource;
+        }
+        $sections = $this->contentSections($row['content_sections'] ?? null);
+        if ($sections === []) {
+            return true;
+        }
+        foreach ($sections as $section) {
+            if (($source === 'pms' && str_starts_with($section, 'pms_'))
+                || ($source === 'ctrip'
+                    && (str_starts_with($section, 'ctrip_')
+                        || str_starts_with($section, 'qunar_')))
+                || ($source === 'meituan'
+                    && str_starts_with($section, 'meituan_'))
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return list<string> */

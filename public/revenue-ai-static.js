@@ -236,9 +236,11 @@
         return `${year}-${month}-${day}`;
     };
 
-    const resolveRevenueAiBusinessDate = ({ overview = null, now = new Date() } = {}) => {
+    const resolveRevenueAiBusinessDate = ({ overview = null, selectedDate = '', now = new Date() } = {}) => {
         const overviewDate = String(overview?.business_date || '').trim();
         if (overviewDate) return overviewDate;
+        const explicitDate = String(selectedDate || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(explicitDate)) return explicitDate;
         const current = now instanceof Date ? new Date(now.getTime()) : new Date(now);
         if (Number.isNaN(current.getTime())) return '';
         current.setDate(current.getDate() - 1);
@@ -556,13 +558,25 @@
         const factLayer = overview.three_source_fact_layer && typeof overview.three_source_fact_layer === 'object'
             ? overview.three_source_fact_layer
             : {};
+        const hasFactLayerContract = Object.keys(factLayer).length > 0
+            && (
+                Object.prototype.hasOwnProperty.call(factLayer, 'source_completeness')
+                || Object.prototype.hasOwnProperty.call(factLayer, 'analysis_gaps')
+                || Object.prototype.hasOwnProperty.call(factLayer, 'facts')
+            );
         const factLayerReady = overview.revenue_analysis_status === 'ready'
             && factLayer.all_three_sources_readback_verified === true;
+        const factLayerOtaReady = factLayer.all_three_sources_readback_verified === true
+            || (
+                factLayer?.sources?.ctrip_ota?.data_status === 'readback_verified'
+                && factLayer?.sources?.meituan_ota?.data_status === 'readback_verified'
+            );
+        const useCanonicalOtaMetrics = factLayerReady || factLayerOtaReady;
         const canonicalOta = factLayer?.facts?.ota_channel?.combined || {};
-        const revenueMetric = factLayerReady
+        const revenueMetric = useCanonicalOtaMetrics
             ? (overview.metrics?.ota_room_revenue || {})
             : revenueAiClosureMetric(closure, ['sections', 'revenue']);
-        const orderMetric = factLayerReady
+        const orderMetric = useCanonicalOtaMetrics
             ? {
                 key: 'ota_orders',
                 value: canonicalOta.orders ?? null,
@@ -572,25 +586,65 @@
                 truth: overview.metrics?.ota_room_revenue?.truth || {},
             }
             : revenueAiClosureMetric(closure, ['sections', 'orders']);
-        const roomNightMetric = factLayerReady
+        const roomNightMetric = useCanonicalOtaMetrics
             ? (overview.metrics?.ota_room_nights || {})
             : revenueAiClosureMetric(closure, ['sections', 'room_nights']);
-        const adrMetric = factLayerReady
+        const adrMetric = useCanonicalOtaMetrics
             ? (overview.metrics?.ota_adr || {})
             : revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'adr']);
-        const flowMetric = revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'flow_rate']);
-        const submitMetric = revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'submit_rate']);
+        const canonicalConversionPlaceholder = (key) => ({
+            key,
+            value: null,
+            unit: 'percent',
+            status: 'not_calculable',
+            reason: '当前三源收益事实层不承载该转化指标，保持为空，不影响已回读 OTA 收益事实。',
+        });
+        const flowMetric = useCanonicalOtaMetrics
+            ? canonicalConversionPlaceholder('flow_rate')
+            : revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'flow_rate']);
+        const submitMetric = useCanonicalOtaMetrics
+            ? canonicalConversionPlaceholder('submit_rate')
+            : revenueAiClosureMetric(closure, ['sections', 'adr_conversion', 'metrics', 'submit_rate']);
         const canonicalFactLayerGaps = revenueAiCanonicalFactLayerGaps(overview);
         const legacyMissingRows = revenueAiClosureIssueRows(closure.missing_items?.items, 'missing');
         const missingRows = canonicalFactLayerGaps === null
             ? legacyMissingRows
             : revenueAiClosureIssueRows(canonicalFactLayerGaps, 'missing');
-        const anomalyRows = revenueAiClosureIssueRows(closure.anomaly_judgment?.items, 'anomaly');
+        const legacyAnomalyRows = revenueAiClosureIssueRows(closure.anomaly_judgment?.items, 'anomaly');
+        const anomalyRows = hasFactLayerContract && factLayerOtaReady
+            ? legacyAnomalyRows.filter((row) => {
+                const code = String(row?.code || '');
+                return code !== 'ota_collection_quality:unverified'
+                    && code !== 'p0_ota_gate_not_ready'
+                    && !code.startsWith('critical_metric_untrusted:')
+                    && !code.startsWith('p0_ota_gate_missing:');
+            })
+            : legacyAnomalyRows;
         const execution = overview.execution_summary || {};
         const operationStatus = execution.status || 'not_loaded';
         const aiDecision = decisionUse.ai_decision_support || {};
         const closureStatus = overview.revenue_analysis_status || closure.status || overview.data_status || 'unknown';
-        const calculationAllowed = factLayerReady || closure.calculation_allowed === true;
+        const calculationAllowed = hasFactLayerContract
+            ? factLayerReady
+            : closure.calculation_allowed === true;
+        const canonicalBlockingGap = Array.isArray(canonicalFactLayerGaps)
+            ? (canonicalFactLayerGaps[0] || null)
+            : null;
+        const calculationDetail = hasFactLayerContract
+            ? (
+                factLayerReady
+                    ? '三源事实已完成同店同日回读。'
+                    : String(
+                        canonicalBlockingGap?.display_reason
+                        || canonicalBlockingGap?.message
+                        || '三源事实层仍有必需来源缺口。'
+                    )
+            )
+            : revenueAiReasonText(revenueUse.status || (calculationAllowed ? '' : 'blocked_by_data_credibility'));
+        const canonicalNextAction = hasFactLayerContract && !factLayerReady
+            ? String(canonicalBlockingGap?.next_action || '补齐唯一三源事实缺口后重新审核。')
+            : '';
+        const aiDecisionAllowed = hasFactLayerContract ? factLayerReady : aiDecision.allowed === true;
         const metricChips = [
             revenueAiClosureMetricChip(revenueMetric, '收入', 'revenue'),
             revenueAiClosureMetricChip(orderMetric, '订单', 'orders'),
@@ -601,9 +655,9 @@
         ];
         const revenueAnalysisStatus = factLayerReady
             ? 'ready'
-            : revenueAiClosureGroupStatus(metricChips);
+            : (factLayerOtaReady ? 'partial' : revenueAiClosureGroupStatus(metricChips));
         const summaryChips = [
-            revenueAiClosureSummaryChip('calculation', '收益计算', calculationAllowed ? '允许' : '阻断', calculationAllowed ? 'ok' : 'blocked', revenueAiReasonText(revenueUse.status || (calculationAllowed ? '' : 'blocked_by_data_credibility'))),
+            revenueAiClosureSummaryChip('calculation', '收益计算', calculationAllowed ? '允许' : '阻断', calculationAllowed ? 'ok' : 'blocked', calculationDetail),
             revenueAiClosureSummaryChip('missing', '缺失项', `${missingRows.length}项`, missingRows.length > 0 ? 'warning' : 'ok', missingRows.length > 0 ? '继续补齐缺失项' : '未发现关键缺失项'),
             revenueAiClosureSummaryChip('anomaly', '异常判断', `${anomalyRows.length}项`, anomalyRows.length > 0 ? 'warning' : 'ok', anomalyRows.length > 0 ? '需人工复核' : '未命中异常'),
         ];
@@ -615,18 +669,31 @@
             scopeText: revenueAiScopeLabel(overview.scope || closure.scope || 'ota'),
             summary: factLayerReady
                 ? 'PMS 仅承载全酒店住宿事实，携程/美团仅承载 OTA 渠道事实；收入不跨口径相加。'
-                : (closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。'),
+                : (
+                    factLayerOtaReady
+                        ? '携程、美团 OTA 渠道事实已回读；PMS 全酒店住宿事实仍缺当前来源证据，PMS 与跨源指标保持为空，OTA 不冒充全酒店收入。'
+                        : (closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。')
+                ),
             calculationAllowed,
             summaryChips,
-            nextAction: revenueAiClosureNextAction({ calculationAllowed, missingRows, anomalyRows, operationStatus }),
+            nextAction: canonicalNextAction || revenueAiClosureNextAction({
+                calculationAllowed,
+                missingRows,
+                anomalyRows,
+                operationStatus,
+            }),
             rows: [
                 {
                     key: 'ota-data',
-                    stage: factLayerReady ? '三源数据' : 'OTA数据',
-                    title: factLayerReady ? 'PMS＋携程＋美团同店同日准入' : '已验证数据准入',
+                    stage: hasFactLayerContract ? '三源数据' : 'OTA数据',
+                    title: hasFactLayerContract ? 'PMS＋携程＋美团同店同日准入' : '已验证数据准入',
                     primary: calculationAllowed ? '可进入收益计算' : '阻断收益计算',
-                    secondary: factLayerReady
-                        ? 'PMS=全酒店住宿；携程/美团=OTA渠道；缺失值保持为空。'
+                    secondary: hasFactLayerContract
+                        ? (
+                            factLayerReady
+                                ? 'PMS=全酒店住宿；携程/美团=OTA渠道；缺失值保持为空。'
+                                : '携程/美团 OTA 已回读；PMS 与跨源指标继续为空，等待当前来源证据通过。'
+                        )
                         : (closure.scope_statement || '只读取 OTA 渠道事实和 metric_trust。'),
                     statusLabel: revenueAiStatusLabel(closureStatus),
                     className: revenueAiStatusClass(closureStatus),
@@ -645,17 +712,21 @@
                     key: 'ai-decision',
                     stage: 'AI决策',
                     title: '只读建议输入',
-                    primary: aiDecision.allowed === true ? '可作为 AI 输入' : 'AI 输入阻断',
-                    secondary: revenueAiReasonText(aiDecision.status || (aiDecision.allowed === true ? '' : 'blocked_by_data_credibility')),
-                    statusLabel: revenueAiStatusLabel(aiDecision.allowed === true ? 'ready' : 'blocked'),
-                    className: revenueAiStatusClass(aiDecision.allowed === true ? 'ready' : 'blocked'),
+                    primary: aiDecisionAllowed ? '可作为 AI 输入' : 'AI 输入阻断',
+                    secondary: calculationDetail,
+                    statusLabel: revenueAiStatusLabel(aiDecisionAllowed ? 'ready' : 'blocked'),
+                    className: revenueAiStatusClass(aiDecisionAllowed ? 'ready' : 'blocked'),
                 },
                 {
                     key: 'operation-execution',
                     stage: '运营执行',
                     title: '人工执行闭环',
                     primary: execution.display || revenueAiStatusLabel(operationStatus),
-                    secondary: execution.reason ? revenueAiReasonText(execution.reason) : '建议需人工审核、执行证据和效果复盘。',
+                    secondary: canonicalNextAction || (
+                        execution.reason
+                            ? revenueAiReasonText(execution.reason)
+                            : '建议需人工审核、执行证据和效果复盘。'
+                    ),
                     statusLabel: revenueAiStatusLabel(operationStatus),
                     className: revenueAiStatusClass(operationStatus),
                 },

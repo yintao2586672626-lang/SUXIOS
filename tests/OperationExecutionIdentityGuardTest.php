@@ -1,0 +1,82 @@
+<?php
+declare(strict_types=1);
+
+namespace Tests;
+
+use app\service\operation\ExecutionFlowReadService;
+use app\service\operation\ExecutionOutcomeService;
+use PHPUnit\Framework\TestCase;
+
+final class OperationExecutionIdentityGuardTest extends TestCase
+{
+    public function testCrossHotelTenantChildrenAreExcludedFromExecutionFlow(): void
+    {
+        $service = new ExecutionFlowReadService(new ExecutionOutcomeService());
+        $intent = [
+            'id' => 10,
+            'hotel_id' => 7,
+            'tenant_id' => 3,
+            'status' => 'approved',
+            'source_module' => 'knowledge_sop',
+        ];
+        $validTask = [
+            'id' => 20,
+            'intent_id' => 10,
+            'hotel_id' => 7,
+            'tenant_id' => 3,
+            'status' => 'executed',
+        ];
+        $wrongHotelTask = [
+            'id' => 21,
+            'intent_id' => 10,
+            'hotel_id' => 8,
+            'tenant_id' => 4,
+            'status' => 'executed',
+        ];
+        $validEvidence = [
+            'id' => 30,
+            'task_id' => 20,
+            'tenant_id' => 3,
+            'evidence_type' => 'manual',
+        ];
+        $wrongTenantEvidence = [
+            'id' => 31,
+            'task_id' => 20,
+            'tenant_id' => 4,
+            'evidence_type' => 'manual',
+        ];
+
+        $item = $service->buildItem(
+            $intent,
+            [$validTask, $wrongHotelTask],
+            [$validEvidence, $wrongTenantEvidence]
+        );
+
+        self::assertSame('mismatch_excluded', $item['identity']['status']);
+        self::assertSame(2, $item['identity']['gap_count']);
+        self::assertSame(20, $item['execution']['task_id']);
+        self::assertSame(1, $item['evidence']['count']);
+        self::assertSame(30, $item['evidence']['latest']['id']);
+    }
+
+    public function testRejectedIntentDoesNotInflateExecutedHeadline(): void
+    {
+        $service = new ExecutionFlowReadService(new ExecutionOutcomeService());
+        $summary = $service->buildSummary([[
+            'stage' => 'rejected',
+            'approval' => ['status' => 'rejected'],
+            'execution' => ['status' => 'executed'],
+            'evidence_truth' => [
+                'source_verified' => false,
+                'operator_attested' => true,
+            ],
+            'roi' => ['status' => 'data_gap'],
+        ]]);
+
+        self::assertSame(0, $summary['executed']);
+        self::assertSame(1, $summary['operator_reported_executed']);
+        self::assertSame(0, $summary['source_verified_executed']);
+        self::assertSame(0.0, $summary['execution_rate']);
+        self::assertSame(100.0, $summary['operator_reported_execution_rate']);
+    }
+}

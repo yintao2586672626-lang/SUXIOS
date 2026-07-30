@@ -51,6 +51,20 @@ test('frontend saves and reads the integration then requires confirmation for re
   assert.match(appMain, /window\.confirm\(/);
 });
 
+test('PMS sync preserves the selected business date and labels historical recovery truthfully', () => {
+  const syncMethod = appMain.slice(
+    appMain.indexOf('const syncOperatingPmsRealtime'),
+    appMain.indexOf('const prefillOperatingTargetFromDailyReport'),
+  );
+  assert.match(appMain, /补采所选业务日 PMS/);
+  assert.match(fragment, /正在获取并核验/);
+  assert.match(syncMethod, /target_date:\s*context\.targetDate/);
+  assert.doesNotMatch(
+    syncMethod,
+    /operatingTargetForm\.value\.target_date\s*=\s*operationToday/,
+  );
+});
+
 test('backend reuses the existing WeCom sender behind verified and idempotent gates', () => {
   assert.match(routes, /pms\/dingdandao\/integration/);
   assert.match(routes, /pms\/dingdandao\/push/);

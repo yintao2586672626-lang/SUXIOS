@@ -417,6 +417,56 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertArrayNotHasKey('target_price', $payload['target_value']);
     }
 
+    public function testForecastNextDayActualBuildsNonCausalSourceVerifiedEvidence(): void
+    {
+        $service = new OperationManagementService();
+        $method = new \ReflectionMethod($service, 'buildTemporalForecastEvidencePayload');
+        $method->setAccessible(true);
+        $payload = $method->invoke($service, [
+            'id' => 701,
+            'executed_at' => '2026-08-02 18:00:00',
+        ], [
+            'hotel_id' => 7,
+            'platform' => 'all_ota',
+            'object_type' => 'operation_checklist',
+            'date_start' => '2026-08-01',
+            'date_end' => '2026-08-02',
+            'expected_metric' => 'ota_revenue',
+        ], [
+            'status' => 'ready',
+            'forecast_point_id' => 88,
+            'forecast_run_id' => 'run-88',
+            'system_hotel_id' => 7,
+            'metric_key' => 'ota_revenue',
+            'target_date' => '2026-08-02',
+            'predicted_value' => 1000,
+            'lower_bound' => 850,
+            'upper_bound' => 1150,
+            'actual_value' => 1080,
+            'within_range' => true,
+            'absolute_error' => 80,
+            'source_row_ids' => [17652, 43491],
+            'readback_count' => 2,
+            'readback_at' => '2026-08-03 08:10:00',
+        ]);
+
+        self::assertIsArray($payload);
+        self::assertSame('source_verified_metric_readback', $payload['evidence_type']);
+        self::assertSame(['ota_revenue' => 1000.0], $payload['before']);
+        self::assertSame(['ota_revenue' => 1080.0], $payload['after']);
+        self::assertSame('all_ota', $payload['platform_response']['platform']);
+        self::assertSame('2026-08-01', $payload['platform_response']['date_start']);
+        self::assertSame('2026-08-02', $payload['platform_response']['date_end']);
+        self::assertSame(
+            'forecast_target_actual_next_day_readback',
+            $payload['platform_response']['measurement_policy']
+        );
+        self::assertFalse($payload['platform_response']['causality_claimed']);
+        self::assertSame('observed_not_attributed', $payload['platform_response']['effect_evidence_status']);
+        self::assertFalse($payload['platform_response']['automatic_price_write']);
+        self::assertStringNotContainsString('target_price', json_encode($payload));
+    }
+
     public function testForecastOperationExecutionRequiresAnExplicitNextDayReviewDate(): void
     {
         $service = new OperationManagementService();
@@ -436,6 +486,7 @@ final class OperationExecutionLoopTest extends TestCase
                 'evidence' => [
                     'platform_response' => [
                         'mode' => 'manual_operation_execution',
+                        'automatic_price_write' => false,
                         'completed_action' => '已人工检查活动展示与库存状态',
                     ],
                     'remark' => '人工动作已执行',
@@ -464,12 +515,101 @@ final class OperationExecutionLoopTest extends TestCase
                 'evidence' => [
                     'platform_response' => [
                         'mode' => 'manual_operation_execution',
+                        'automatic_price_write' => false,
                         'next_review_date' => (new \DateTimeImmutable('today'))->modify('+1 day')->format('Y-m-d'),
                     ],
                 ],
             ],
             3
         );
+    }
+
+    public function testForecastOperationExecutionRejectsAutomaticPriceInstructions(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('manual-only');
+
+        $service->buildExecutionTaskUpdate(
+            ['id' => 9, 'status' => 'pending_execute'],
+            [
+                'id' => 4,
+                'status' => 'approved',
+                'source_module' => \app\service\TemporalInsightService::OPERATION_SOURCE_MODULE,
+            ],
+            [
+                'status' => 'executed',
+                'evidence' => [
+                    'platform_response' => [
+                        'mode' => 'manual_operation_execution',
+                        'completed_action' => 'manual listing and campaign review completed',
+                        'next_review_date' => (new \DateTimeImmutable('today'))->modify('+1 day')->format('Y-m-d'),
+                        'automatic_price_write' => true,
+                        'target_price' => 288,
+                    ],
+                ],
+            ],
+            3
+        );
+    }
+
+    public function testForecastOperationExecutionRejectsPriceInstructionsOutsidePlatformResponse(): void
+    {
+        $service = new OperationManagementService();
+        $nextDay = (new \DateTimeImmutable('today'))->modify('+1 day')->format('Y-m-d');
+        $base = [
+            'status' => 'executed',
+            'evidence' => [
+                'platform_response' => [
+                    'mode' => 'manual_operation_execution',
+                    'completed_action' => 'manual listing and campaign review completed',
+                    'next_review_date' => $nextDay,
+                    'automatic_price_write' => false,
+                ],
+            ],
+        ];
+        $attempts = [
+            array_replace_recursive($base, [
+                'status' => 'executing',
+                'target_value' => ['target_price' => 288],
+            ]),
+            array_replace_recursive($base, [
+                'target_value' => ['target_price' => 288],
+            ]),
+            array_replace_recursive($base, [
+                'evidence' => [
+                    'platform_response' => [
+                        'operator_execution_evidence' => ['approvedPrice' => 288],
+                    ],
+                ],
+            ]),
+            array_replace_recursive($base, [
+                'evidence' => [
+                    'platform_response' => [
+                        'operator_execution_evidence' => ['autoWriteOta' => true],
+                    ],
+                ],
+            ]),
+        ];
+
+        foreach ($attempts as $attempt) {
+            try {
+                $service->buildExecutionTaskUpdate(
+                    ['id' => 9, 'status' => 'pending_execute'],
+                    [
+                        'id' => 4,
+                        'status' => 'approved',
+                        'source_module' => \app\service\TemporalInsightService::OPERATION_SOURCE_MODULE,
+                    ],
+                    $attempt,
+                    3
+                );
+                self::fail('Forecast execution price instructions must be rejected regardless of nesting.');
+            } catch (InvalidArgumentException $exception) {
+                self::assertStringContainsString('manual-only', $exception->getMessage());
+            }
+        }
     }
 
     public function testForecastOperationExecutionPersistsEvidenceAndNextDayReviewBoundary(): void

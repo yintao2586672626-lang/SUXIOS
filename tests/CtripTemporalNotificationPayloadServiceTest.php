@@ -79,6 +79,43 @@ final class CtripTemporalNotificationPayloadServiceTest extends TestCase
         );
     }
 
+    public function testDatabaseLoaderKeepsRealtimeAndFuturePeriodsSeparate(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__)
+                . '/app/service/CtripTemporalNotificationPayloadService.php'
+        );
+
+        self::assertStringContainsString(
+            "->where('data_period', 'realtime_snapshot')",
+            $source
+        );
+        self::assertStringContainsString(
+            "->where('data_period', 'next_30_days')",
+            $source
+        );
+        self::assertStringContainsString(
+            "->where('is_final', 0)",
+            $source
+        );
+        self::assertStringContainsString(
+            '$latestPresentBatchId',
+            $source
+        );
+        self::assertStringContainsString(
+            '$latestFutureBatchId',
+            $source
+        );
+        self::assertStringContainsString(
+            "->where('sync_task_id', \$latestPresentBatchId)",
+            $source
+        );
+        self::assertStringContainsString(
+            "->where('sync_task_id', \$latestFutureBatchId)",
+            $source
+        );
+    }
+
     public function testManualNotificationTemplateForcesCtripScopeAndUsesDynamicPayload(): void
     {
         $date = date('Y-m-d');

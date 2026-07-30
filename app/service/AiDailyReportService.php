@@ -33,18 +33,21 @@ class AiDailyReportService
     private LlmClient $llmClient;
     private AiDecisionQualityService $decisionQualityService;
     private OtaCompetitionAnalysisBundleService $competitionBundleService;
+    private AiModelRoutingService $modelRoutingService;
 
     public function __construct(
         ?OperationManagementService $operationService = null,
         ?LlmClient $llmClient = null,
         ?AiDecisionQualityService $decisionQualityService = null,
-        ?OtaCompetitionAnalysisBundleService $competitionBundleService = null
+        ?OtaCompetitionAnalysisBundleService $competitionBundleService = null,
+        ?AiModelRoutingService $modelRoutingService = null
     )
     {
         $this->operationService = $operationService ?? new OperationManagementService();
         $this->llmClient = $llmClient ?? new LlmClient();
         $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
         $this->competitionBundleService = $competitionBundleService ?? new OtaCompetitionAnalysisBundleService();
+        $this->modelRoutingService = $modelRoutingService ?? new AiModelRoutingService();
     }
 
     public static function promptVersion(): string
@@ -156,11 +159,25 @@ class AiDailyReportService
         $edition = OtaCompetitionAnalysisBundleService::normalizeEdition($options['edition'] ?? 'lite');
         $actorIsAdmin = ($options['actor_is_admin'] ?? false) === true;
         OtaCompetitionAnalysisBundleService::assertGenerationAllowed($edition, $actorIsAdmin);
-        $modelKey = trim((string)($options['model_key'] ?? ''));
-        if ($modelKey === '') {
-            $modelKey = self::DEFAULT_MODEL_KEY;
-        }
         $useLlm = !array_key_exists('use_llm', $options) || filter_var($options['use_llm'], FILTER_VALIDATE_BOOL);
+        $requestedModelKey = trim((string)($options['model_key'] ?? ''));
+        $modelSelection = $useLlm
+            ? $this->modelRoutingService->resolve(
+                $requestedModelKey,
+                'report',
+                self::DEFAULT_MODEL_KEY,
+                'ollama'
+            )
+            : [
+                'model_key' => $requestedModelKey !== '' ? $requestedModelKey : self::DEFAULT_MODEL_KEY,
+                'provider' => '',
+                'usage_scene' => 'report',
+                'selection_mode' => 'not_requested',
+                'requested_model_key' => $requestedModelKey,
+                'config_id' => 0,
+            ];
+        $modelKey = (string)$modelSelection['model_key'];
+        $snapshot['model_selection'] = $modelSelection;
 
         $inputTrust = $this->verifyTrustedOtaSnapshot($snapshot, $selectedHotelId, $reportDate);
         $snapshot['source_refs'] = $inputTrust['source_refs'];
@@ -247,7 +264,9 @@ class AiDailyReportService
             $modelStatus = 'blocked_by_data_quality';
             $modelMessage = $this->trustedInputBlockMessage($inputTrust['gaps']);
         } elseif ($useLlm) {
-            $llmResult = $this->tryEnhanceWithLlm($ruleReport, $snapshot, $modelKey);
+            $llmResult = $this->tryEnhanceWithLlm($ruleReport, $snapshot, $modelKey, [
+                'user_id' => $userId,
+            ]);
             $modelStatus = $llmResult['model_status'];
             $modelMessage = $llmResult['model_message'];
             if (is_array($llmResult['report'])) {
@@ -1613,6 +1632,9 @@ class AiDailyReportService
                     'snapshot_time' => (string)($evidence['snapshot_time'] ?? ''),
                     'updated_at' => (string)($evidence['updated_at'] ?? ''),
                     'metric_keys' => array_values((array)($evidence['metric_keys'] ?? [])),
+                    'field_fact_metric_keys' => array_values((array)($evidence['field_fact_metric_keys'] ?? [])),
+                    'calculation_basis' => (string)($evidence['calculation_basis'] ?? ''),
+                    'metric_semantic_scope' => (string)($evidence['metric_semantic_scope'] ?? ''),
                 ];
             }
         }
@@ -1805,7 +1827,34 @@ class AiDailyReportService
             }
 
             $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
-            if (!in_array($validationStatus, self::TRUSTED_VALIDATION_STATUSES, true)) {
+            $metricFieldFactKeys = array_values(array_unique(array_filter(array_map(
+                static fn(mixed $value): string => strtolower(trim((string)$value)),
+                is_array($sourceRef['field_fact_metric_keys'] ?? null)
+                    ? $sourceRef['field_fact_metric_keys']
+                    : []
+            ), static fn(string $value): bool => $value !== '')));
+            $metricFieldFactStatus = [];
+            $metricScopedValidationTrusted = false;
+            if (!in_array($validationStatus, self::TRUSTED_VALIDATION_STATUSES, true)
+                && OnlineDataTrustStatusService::classifyValidationStatus($validationStatus) === 'partial'
+                && $metricFieldFactKeys !== []
+            ) {
+                $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
+                $metricFieldFactStatus = OnlineDataFieldFactService::buildMetricStatus(
+                    $row,
+                    $raw,
+                    $metricFieldFactKeys
+                );
+                $metricScopedValidationTrusted = (string)($metricFieldFactStatus['status'] ?? '') === 'ready'
+                    && (array)($metricFieldFactStatus['missing_requested_metric_keys'] ?? []) === [];
+            }
+            $sourceRefs[$index]['metric_field_fact_verified'] = $metricScopedValidationTrusted;
+            $sourceRefs[$index]['validation_scope'] = $metricScopedValidationTrusted
+                ? 'requested_metric_field_facts'
+                : 'row';
+            if (!in_array($validationStatus, self::TRUSTED_VALIDATION_STATUSES, true)
+                && !$metricScopedValidationTrusted
+            ) {
                 $rowTrusted = false;
                 $gaps[] = $this->trustedInputGap(
                     'ota_evidence_validation_untrusted',
@@ -2510,7 +2559,12 @@ class AiDailyReportService
         return 'overall';
     }
 
-    private function tryEnhanceWithLlm(array $ruleReport, array $snapshot, string $modelKey): array
+    private function tryEnhanceWithLlm(
+        array $ruleReport,
+        array $snapshot,
+        string $modelKey,
+        array $governanceContext = []
+    ): array
     {
         $trustedPayload = $this->buildTrustedLlmPayload($ruleReport, $snapshot);
         $readinessBlock = $this->llmSnapshotReadinessBlock($snapshot, $trustedPayload);
@@ -2522,6 +2576,27 @@ class AiDailyReportService
                     : 'blocked_by_data_quality',
                 'model_message' => $readinessBlock,
                 'validation_basis' => [],
+            ];
+        }
+
+        $reportScope = is_array($trustedPayload['report_scope'] ?? null)
+            ? $trustedPayload['report_scope']
+            : [];
+        $businessDate = substr(trim((string)($reportScope['report_date'] ?? '')), 0, 10);
+        $knowledgeSources = [];
+        foreach (array_values(array_filter(
+            (array)($trustedPayload['verified_source_refs'] ?? []),
+            'is_array'
+        )) as $sourceRef) {
+            $ref = trim((string)($sourceRef['key'] ?? ''));
+            if ($ref === '') {
+                continue;
+            }
+            $knowledgeSources[] = [
+                'ref' => $ref,
+                'source' => (string)($sourceRef['source'] ?? $sourceRef['platform'] ?? 'online_daily_data'),
+                'date' => (string)($sourceRef['data_date'] ?? $businessDate),
+                'label' => (string)($sourceRef['label'] ?? 'verified OTA readback'),
             ];
         }
 
@@ -2540,6 +2615,22 @@ class AiDailyReportService
                         'confidence' => ['type' => 'string', 'enum' => ['low', 'medium', 'high']],
                     ],
                 ],
+            ],
+            'x-governance' => [
+                'module' => 'ai_daily_report',
+                'scenario' => 'verified_ota_daily_report_explanation',
+                'hotel_id' => (int)($reportScope['hotel_id'] ?? 0),
+                'user_id' => max(0, (int)($governanceContext['user_id'] ?? 0)),
+                'business_date' => $businessDate,
+                'business_date_start' => $businessDate,
+                'business_date_end' => $businessDate,
+                'source_scope' => 'verified_ota_channel_only',
+                'prompt_version' => self::PROMPT_VERSION,
+                'decision_impact' => 'operational',
+                'human_confirmation_required' => true,
+                'human_confirmation_reason' => 'AI explanation is advisory and must be reviewed before any operation action.',
+                'knowledge_sources' => $knowledgeSources,
+                'evaluation_set' => 'ai_daily_report_verified_ota_v1',
             ],
         ];
 

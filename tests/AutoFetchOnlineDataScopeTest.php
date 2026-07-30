@@ -460,6 +460,26 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertStringNotContainsString('ota_local_collector_accounts', $source);
     }
 
+    public function testRealtimeProfileScheduleUsesLightweightCtripBroadcastPlan(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php'
+        );
+
+        self::assertStringContainsString(
+            "\$platform === 'ctrip' && \$dataPeriod === 'realtime_snapshot'",
+            $source
+        );
+        self::assertStringContainsString(
+            "'collector_flow' => 'realtime'",
+            $source
+        );
+        self::assertStringContainsString(
+            "new CtripCollectorWorkflowService()",
+            $source
+        );
+    }
+
     public function testExplicitCtripTemporalFlowSurvivesBackgroundAndDataSourceSyncBoundaries(): void
     {
         $source = (string)file_get_contents(

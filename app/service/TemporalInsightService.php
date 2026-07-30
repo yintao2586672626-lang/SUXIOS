@@ -22,6 +22,8 @@ final class TemporalInsightService
     private const METHOD = 'weekday_recent_trend_interval';
     private const CONFIDENCE_TYPE = 'uncalibrated_rule_index';
     private const CONFIDENCE_SEMANTICS = '由样本覆盖、稳定性和新鲜度加权形成的规则指数，未经概率校准，不代表预测命中概率。';
+    private const SOURCE_REFS_CONTRACT = 'temporal_metric_source.v1';
+    private const ALL_OTA_EXPECTED_PLATFORMS = ['ctrip', 'meituan'];
     private const BACKTEST_LOOKBACK_DAYS = 90;
     private const MIN_OPERATIONAL_HISTORY_DAYS = 21;
     private const MIN_BACKTEST_SAMPLES_PER_COHORT = 10;
@@ -157,34 +159,32 @@ final class TemporalInsightService
         $runId = 'tf_' . date('YmdHis') . '_' . substr(bin2hex(random_bytes(6)), 0, 12);
         $asOfTime = date('Y-m-d H:i:s');
         $tenantId = $this->tenantIdForHotel($hotelId);
-        $sourceRefs = json_encode([
-            'table' => 'online_daily_data',
-            'metric_scope' => 'ota_channel',
-            'period' => 'historical_daily',
-            'is_final' => 1,
-            'start_date' => $sourceStart,
-            'end_date' => $sourceEnd,
-            'source_rows' => (int)($history['source_row_count'] ?? 0),
-            'source_fact_rows' => (int)($history['source_fact_count'] ?? 0),
-            'fact_rows' => (int)($history['fact_count'] ?? 0),
-            'trusted_fact_rows' => (int)($history['fact_count'] ?? 0),
-            'excluded_fact_rows' => (int)($history['excluded_fact_count'] ?? 0),
-            'excluded_fact_reason_counts' => $history['excluded_fact_reason_counts'] ?? [],
-            'row_ids' => array_slice($history['source_row_ids'] ?? [], 0, 20),
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
         $metricMeta = [];
         foreach ($plan['metrics'] as $metric) {
             $metricMeta[(string)$metric['metric_key']] = $metric;
         }
-        $sourceQualityStatus = $this->forecastSourceQualityStatus(
-            is_array($history['data_quality'] ?? null) ? $history['data_quality'] : []
-        );
+        $metricQuality = is_array($history['metric_quality'] ?? null)
+            ? $history['metric_quality']
+            : [];
 
         $rows = [];
         foreach ($plan['points'] as $point) {
             $metricKey = (string)$point['metric_key'];
             $meta = $metricMeta[$metricKey] ?? [];
+            $quality = is_array($metricQuality[$metricKey] ?? null)
+                ? $metricQuality[$metricKey]
+                : [];
+            $sourceQualityStatus = $this->forecastSourceQualityStatus($quality);
+            $sourceRefs = json_encode(
+                $this->buildMetricForecastSourceRefs(
+                    $metricKey,
+                    $history,
+                    $quality,
+                    $sourceStart,
+                    $sourceEnd
+                ),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
             $rows[] = [
                 'tenant_id' => $tenantId,
                 'system_hotel_id' => $hotelId,
@@ -272,6 +272,173 @@ final class TemporalInsightService
             'calibration_status' => 'not_calibrated',
             'operational_policy' => $this->operationalPolicy(),
             'boundary' => '仅提供趋势、区间与未校准规则置信指数，不生成执行价格，不自动写入 OTA。',
+        ];
+    }
+
+    /**
+     * Re-read the finalized actual for one immutable forecast point. This is
+     * an observation/accuracy receipt, not proof that a manual action caused
+     * the outcome.
+     *
+     * @return array<string, mixed>
+     */
+    public function forecastActualReadback(
+        int $forecastPointId,
+        int $hotelId,
+        string $metricKey,
+        string $targetDate
+    ): array {
+        $metricKey = strtolower(trim($metricKey));
+        $targetDate = $this->date($targetDate, 'target_date');
+        if ($forecastPointId <= 0
+            || $hotelId <= 0
+            || !array_key_exists($metricKey, self::METRICS)
+            || !$this->tableExists(self::FORECAST_TABLE)
+        ) {
+            return [
+                'status' => 'unavailable',
+                'reason_code' => 'forecast_identity_invalid',
+                'metric_key' => $metricKey,
+                'target_date' => $targetDate,
+            ];
+        }
+
+        $forecast = Db::name(self::FORECAST_TABLE)
+            ->where('id', $forecastPointId)
+            ->where('system_hotel_id', $hotelId)
+            ->where('metric_key', $metricKey)
+            ->where('target_date', $targetDate)
+            ->find();
+        if (!is_array($forecast)
+            || (string)($forecast['metric_scope'] ?? '') !== 'ota_channel'
+            || (string)($forecast['platform'] ?? '') !== 'all_ota'
+        ) {
+            return [
+                'status' => 'unavailable',
+                'reason_code' => 'forecast_identity_mismatch',
+                'metric_key' => $metricKey,
+                'target_date' => $targetDate,
+            ];
+        }
+        if (!$this->forecastSourceRefsOperationallyVerified($forecast)) {
+            return [
+                'status' => 'unavailable',
+                'reason_code' => 'forecast_source_contract_unverified',
+                'forecast_point_id' => $forecastPointId,
+                'metric_key' => $metricKey,
+                'target_date' => $targetDate,
+            ];
+        }
+        if ($targetDate >= date('Y-m-d')) {
+            return [
+                'status' => 'unavailable',
+                'reason_code' => 'target_actual_not_final',
+                'forecast_point_id' => $forecastPointId,
+                'metric_key' => $metricKey,
+                'target_date' => $targetDate,
+            ];
+        }
+
+        $bundle = $this->loadPeriodFacts(
+            [$hotelId],
+            $targetDate,
+            $targetDate,
+            'historical_daily',
+            true
+        );
+        return $this->buildForecastActualReadback($forecast, $bundle);
+    }
+
+    /**
+     * @param array<string, mixed> $forecast
+     * @param array<string, mixed> $bundle
+     * @return array<string, mixed>
+     */
+    private function buildForecastActualReadback(array $forecast, array $bundle): array
+    {
+        $metricKey = strtolower(trim((string)($forecast['metric_key'] ?? '')));
+        $targetDate = trim((string)($forecast['target_date'] ?? ''));
+        $quality = is_array($bundle['metric_quality'][$metricKey] ?? null)
+            ? $bundle['metric_quality'][$metricKey]
+            : [];
+        $actual = null;
+        foreach (is_array($bundle['series'] ?? null) ? $bundle['series'] : [] as $day) {
+            if (!is_array($day) || (string)($day['date'] ?? '') !== $targetDate) {
+                continue;
+            }
+            $actual = is_numeric($day[$metricKey] ?? null) ? (float)$day[$metricKey] : null;
+            break;
+        }
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): int => max(0, (int)$value),
+            is_array($quality['row_ids'] ?? null) ? $quality['row_ids'] : []
+        ))));
+        sort($rowIds, SORT_NUMERIC);
+        $readbackAt = trim((string)(
+            $quality['latest_readback_at']
+            ?? $bundle['latest_snapshot_time']
+            ?? ''
+        ));
+        if ($actual === null
+            || (string)($quality['quality_status'] ?? '') !== 'ready'
+            || (string)($quality['platform_coverage_status'] ?? '') !== 'ready'
+            || (string)($quality['freshness_status'] ?? '') !== 'current'
+            || $rowIds === []
+            || $readbackAt === ''
+            || strtotime($readbackAt) === false
+        ) {
+            return [
+                'status' => 'unavailable',
+                'reason_code' => $actual === null
+                    ? 'trusted_actual_missing'
+                    : 'trusted_actual_quality_incomplete',
+                'forecast_point_id' => (int)($forecast['id'] ?? 0),
+                'metric_key' => $metricKey,
+                'target_date' => $targetDate,
+                'data_quality' => $quality,
+            ];
+        }
+
+        $predicted = is_numeric($forecast['predicted_value'] ?? null)
+            ? (float)$forecast['predicted_value']
+            : null;
+        $lower = is_numeric($forecast['lower_bound'] ?? null)
+            ? (float)$forecast['lower_bound']
+            : null;
+        $upper = is_numeric($forecast['upper_bound'] ?? null)
+            ? (float)$forecast['upper_bound']
+            : null;
+        if ($predicted === null || $lower === null || $upper === null) {
+            return [
+                'status' => 'unavailable',
+                'reason_code' => 'forecast_interval_missing',
+                'forecast_point_id' => (int)($forecast['id'] ?? 0),
+                'metric_key' => $metricKey,
+                'target_date' => $targetDate,
+            ];
+        }
+
+        return [
+            'status' => 'ready',
+            'contract_version' => 'temporal_metric_actual.v1',
+            'forecast_point_id' => (int)($forecast['id'] ?? 0),
+            'forecast_run_id' => (string)($forecast['forecast_run_id'] ?? ''),
+            'system_hotel_id' => (int)($forecast['system_hotel_id'] ?? 0),
+            'metric_scope' => 'ota_channel',
+            'metric_key' => $metricKey,
+            'target_date' => $targetDate,
+            'predicted_value' => $predicted,
+            'lower_bound' => $lower,
+            'upper_bound' => $upper,
+            'actual_value' => $actual,
+            'within_range' => $actual >= $lower && $actual <= $upper,
+            'absolute_error' => $this->roundMetric($metricKey, abs($actual - $predicted)),
+            'source_row_ids' => $rowIds,
+            'readback_count' => (int)($quality['trusted_fact_rows'] ?? count($rowIds)),
+            'readback_at' => date('Y-m-d H:i:s', (int)strtotime($readbackAt)),
+            'data_quality' => $quality,
+            'causality_claimed' => false,
+            'effect_evidence_status' => 'observed_not_attributed',
         ];
     }
 
@@ -532,7 +699,11 @@ final class TemporalInsightService
 
         $dates = array_map(static fn(array $row): string => (string)$row['target_date'], $forecasts);
         $actualBundle = $this->loadPeriodFacts([$hotelId], min($dates), max($dates), 'historical_daily', true);
-        $review = $this->buildBacktestSummary($forecasts, $actualBundle['series'] ?? []);
+        $review = $this->buildBacktestSummary(
+            $forecasts,
+            $actualBundle['series'] ?? [],
+            $actualBundle['metric_quality'] ?? []
+        );
         $review['status'] = (int)($review['matched_points'] ?? 0) > 0 ? 'ready' : 'waiting_actual';
         $review['label'] = '回看当时';
         $review['period'] = ['start_date' => $reviewStart, 'end_date' => $yesterday];
@@ -558,9 +729,14 @@ final class TemporalInsightService
      *
      * @param array<int, array<string, mixed>> $forecastRows
      * @param array<int, array<string, mixed>> $actualSeries
+     * @param array<string, array<string, mixed>> $actualMetricQuality
      * @return array<string, mixed>
      */
-    public function buildBacktestSummary(array $forecastRows, array $actualSeries): array
+    public function buildBacktestSummary(
+        array $forecastRows,
+        array $actualSeries,
+        array $actualMetricQuality = []
+    ): array
     {
         $actualByDate = [];
         foreach ($actualSeries as $item) {
@@ -597,7 +773,14 @@ final class TemporalInsightService
                     (int)($existing['id'] ?? 0)
                 )
                 : '';
-            if (!is_array($existing) || strcmp($version, $existingVersion) >= 0) {
+            $candidateTimingVerified = $this->forecastTimingOperationallyVerified($row);
+            $existingTimingVerified = is_array($existing)
+                && $this->forecastTimingOperationallyVerified($existing);
+            if (!is_array($existing)
+                || ($candidateTimingVerified && !$existingTimingVerified)
+                || ($candidateTimingVerified === $existingTimingVerified
+                    && strcmp($version, $existingVersion) >= 0)
+            ) {
                 $deduplicated[$identity] = $row;
             }
         }
@@ -636,15 +819,22 @@ final class TemporalInsightService
                 'operational_matched_points' => 0,
                 'operational_range_hits' => 0,
                 'source_quality_excluded_points' => 0,
+                'actual_quality_excluded_points' => 0,
                 'absolute_error_total' => 0.0,
                 'absolute_error_count' => 0,
                 'absolute_percentage_error_total' => 0.0,
                 'absolute_percentage_error_count' => 0,
             ];
             $cohortStats[$cohortKey]['forecast_points']++;
-            $operationalSampleEligible = (int)($forecast['sample_days'] ?? 0) >= self::MIN_OPERATIONAL_HISTORY_DAYS
+            $forecastSourceEligible = (int)($forecast['sample_days'] ?? 0) >= self::MIN_OPERATIONAL_HISTORY_DAYS
                 && strtolower(trim((string)($forecast['data_quality_status'] ?? ''))) === 'ready'
                 && $this->forecastSourceRefsOperationallyVerified($forecast);
+            $actualOperationallyVerified = $this->actualMetricDateOperationallyVerified(
+                $metricKey,
+                $date,
+                $actualMetricQuality
+            );
+            $operationalSampleEligible = $forecastSourceEligible && $actualOperationallyVerified;
 
             $actual = $actualByDate[$date][$metricKey] ?? null;
             $actual = is_numeric($actual) ? (float)$actual : null;
@@ -671,8 +861,12 @@ final class TemporalInsightService
                     if ($withinRange) {
                         $cohortStats[$cohortKey]['operational_range_hits']++;
                     }
-                } else {
+                }
+                if (!$forecastSourceEligible) {
                     $cohortStats[$cohortKey]['source_quality_excluded_points']++;
+                }
+                if (!$actualOperationallyVerified) {
+                    $cohortStats[$cohortKey]['actual_quality_excluded_points']++;
                 }
             } else {
                 $cohortStats[$cohortKey]['missing_actual_points']++;
@@ -703,6 +897,8 @@ final class TemporalInsightService
                 'within_range' => $withinRange,
                 'absolute_error' => $absoluteError !== null ? $this->roundMetric($metricKey, $absoluteError) : null,
                 'error_percent' => $errorPercent !== null ? round($errorPercent, 1) : null,
+                'forecast_source_operationally_verified' => $forecastSourceEligible,
+                'actual_operationally_verified' => $actualOperationallyVerified,
                 'operational_sample_eligible' => $operationalSampleEligible,
                 'outcome' => $outcome,
             ];
@@ -756,6 +952,7 @@ final class TemporalInsightService
                 'matched_points' => $cohortMatched,
                 'missing_actual_points' => (int)$stats['missing_actual_points'],
                 'source_quality_excluded_points' => (int)$stats['source_quality_excluded_points'],
+                'actual_quality_excluded_points' => (int)$stats['actual_quality_excluded_points'],
                 'range_hits' => (int)$stats['operational_range_hits'],
                 'range_hit_rate' => $rangeHitRate,
                 'mean_absolute_error' => $absoluteErrorCount > 0
@@ -886,6 +1083,8 @@ final class TemporalInsightService
                     'review_at' => $this->shiftDate($targetDate, 1) . ' 10:00:00',
                     'source_policy' => 'manual_approval_then_manual_execution_evidence_then_next_day_review',
                 ],
+                'expected_delta_status' => 'not_quantified',
+                'effect_measurement_policy' => 'next_day_target_actual_observation_without_causality_claim',
                 'automatic_price_write' => false,
             ],
             'evidence' => [
@@ -901,6 +1100,7 @@ final class TemporalInsightService
                 'backtest_cohort' => $cohort,
                 'operational_gate' => $gate,
                 'source_policy' => 'immutable_forecast_plus_metric_horizon_backtest',
+                'expected_delta_status' => 'not_quantified',
                 'protected_boundary' => 'Pending review only. Approval creates a manual operation checklist task; no OTA price or inventory write is performed.',
                 'review_required' => true,
                 'automatic_price_write' => false,
@@ -999,7 +1199,7 @@ final class TemporalInsightService
         }
     }
 
-    /** @return array<string, int|float|string|bool> */
+    /** @return array<string, mixed> */
     private function operationalPolicy(): array
     {
         return [
@@ -1008,6 +1208,7 @@ final class TemporalInsightService
             'minimum_history_days_per_metric' => self::MIN_OPERATIONAL_HISTORY_DAYS,
             'minimum_matured_samples_per_metric_horizon' => self::MIN_BACKTEST_SAMPLES_PER_COHORT,
             'minimum_range_hit_rate_percent' => self::MIN_RANGE_HIT_RATE_PERCENT,
+            'all_ota_required_platforms' => self::ALL_OTA_EXPECTED_PLATFORMS,
             'insufficient_sample_action' => 'disable_operational_conclusion',
             'execution_mode' => 'human_review_only',
             'automatic_price_write' => false,
@@ -1027,10 +1228,25 @@ final class TemporalInsightService
      */
     private function forecastSourceQualityStatus(array $quality): string
     {
-        if ((int)($quality['trusted_facts'] ?? 0) <= 0) {
+        $trustedFacts = (int)(
+            $quality['trusted_facts']
+            ?? $quality['trusted_fact_rows']
+            ?? 0
+        );
+        if ($trustedFacts <= 0) {
             return 'insufficient';
         }
         if ((int)($quality['rejected_rows'] ?? 0) > 0 || (int)($quality['trace_failures'] ?? 0) > 0) {
+            return 'partial';
+        }
+        if (array_key_exists('platform_coverage_status', $quality)
+            && (string)$quality['platform_coverage_status'] !== 'ready'
+        ) {
+            return 'partial';
+        }
+        if (array_key_exists('freshness_status', $quality)
+            && !in_array((string)$quality['freshness_status'], ['current', 'not_assessed'], true)
+        ) {
             return 'partial';
         }
 
@@ -1048,10 +1264,22 @@ final class TemporalInsightService
     }
 
     /** @param array<string, mixed> $forecast */
-    private function forecastSourceRefsOperationallyVerified(array $forecast): bool
+    private function forecastSourceRefsOperationallyVerified(
+        array $forecast,
+        bool $requireOperationalQuality = true
+    ): bool
     {
+        if (!$this->forecastTimingOperationallyVerified($forecast)) {
+            return false;
+        }
+
         $refs = $this->decodeArray($forecast['source_refs_json'] ?? []);
-        if ((string)($refs['table'] ?? '') !== 'online_daily_data'
+        $metricKey = strtolower(trim((string)($forecast['metric_key'] ?? '')));
+        if ((string)($refs['contract_version'] ?? '') !== self::SOURCE_REFS_CONTRACT
+            || !array_key_exists($metricKey, self::METRICS)
+            || (string)($refs['metric_key'] ?? '') !== $metricKey
+            || (string)($refs['fact_key'] ?? '') !== self::METRICS[$metricKey]
+            || (string)($refs['table'] ?? '') !== 'online_daily_data'
             || (string)($refs['metric_scope'] ?? '') !== 'ota_channel'
             || (string)($refs['period'] ?? '') !== 'historical_daily'
             || (int)($refs['is_final'] ?? 0) !== 1
@@ -1068,6 +1296,27 @@ final class TemporalInsightService
             || (string)($refs['end_date'] ?? '') !== $sourceEnd
         ) {
             return false;
+        }
+
+        $trustedDates = array_values(array_unique(array_filter(
+            array_map('strval', is_array($refs['trusted_dates'] ?? null) ? $refs['trusted_dates'] : []),
+            static fn(string $date): bool => preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1
+        )));
+        sort($trustedDates, SORT_STRING);
+        $trustedDays = (int)($refs['trusted_days'] ?? 0);
+        $sampleDays = (int)($forecast['sample_days'] ?? 0);
+        if ($trustedDays <= 0
+            || count($trustedDates) !== $trustedDays
+            || $sampleDays !== $trustedDays
+            || (string)($refs['latest_trusted_date'] ?? '') !== $trustedDates[$trustedDays - 1]
+            || ($requireOperationalQuality && $trustedDates[$trustedDays - 1] !== $sourceEnd)
+        ) {
+            return false;
+        }
+        foreach ($trustedDates as $trustedDate) {
+            if ($trustedDate < $sourceStart || $trustedDate > $sourceEnd) {
+                return false;
+            }
         }
 
         $trustedFacts = (int)$refs['trusted_fact_rows'];
@@ -1088,12 +1337,244 @@ final class TemporalInsightService
             return false;
         }
 
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): int => max(0, (int)$value),
+            is_array($refs['row_ids'] ?? null) ? $refs['row_ids'] : []
+        ))));
+        sort($rowIds, SORT_NUMERIC);
+        $expectedPlatforms = $this->normalizedPlatformList($refs['expected_platforms'] ?? []);
+        $observedPlatforms = $this->normalizedPlatformList($refs['observed_platforms'] ?? []);
+        $platformsByDate = $this->normalizePlatformsByDate($refs['platforms_by_date'] ?? []);
+        $coverageStatus = (string)($refs['platform_coverage_status'] ?? '');
+        $coverageCompleteDays = 0;
+        foreach ($platformsByDate as $platforms) {
+            if ($platforms === []
+                || array_diff($platforms, self::ALL_OTA_EXPECTED_PLATFORMS) !== []
+            ) {
+                return false;
+            }
+            if (array_diff(self::ALL_OTA_EXPECTED_PLATFORMS, $platforms) === []) {
+                $coverageCompleteDays++;
+            }
+        }
+        if ($rowIds === []
+            || $expectedPlatforms !== self::ALL_OTA_EXPECTED_PLATFORMS
+            || $observedPlatforms === []
+            || !in_array($coverageStatus, ['ready', 'partial'], true)
+            || (int)($refs['coverage_complete_days'] ?? -1) !== $coverageCompleteDays
+            || array_keys($platformsByDate) !== $trustedDates
+            || ($requireOperationalQuality && $coverageStatus !== 'ready')
+            || ($requireOperationalQuality && $coverageCompleteDays !== $trustedDays)
+        ) {
+            return false;
+        }
+        $digest = trim((string)($refs['source_identity_digest'] ?? ''));
+        if (preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
+            || !hash_equals(
+                $this->metricSourceIdentityDigest(
+                    $metricKey,
+                    $trustedDates,
+                    $rowIds,
+                    $platformsByDate
+                ),
+                $digest
+            )
+        ) {
+            return false;
+        }
+
+        if (!$requireOperationalQuality) {
+            return true;
+        }
+
         return $this->forecastSourceQualityStatus([
-            'trusted_facts' => $trustedFacts,
+            'trusted_fact_rows' => $trustedFacts,
             'rejected_rows' => 0,
-            'trace_failures' => 0,
+            'trace_failures' => (int)($refs['trace_failures'] ?? 0),
             'excluded_fact_reason_counts' => $reasonCounts,
+            'platform_coverage_status' => (string)($refs['platform_coverage_status'] ?? ''),
+            'freshness_status' => (string)($refs['freshness_status'] ?? ''),
         ]) === 'ready';
+    }
+
+    /** @param array<string, mixed> $forecast */
+    private function forecastTimingOperationallyVerified(array $forecast): bool
+    {
+        $asOfDate = trim((string)($forecast['as_of_date'] ?? ''));
+        $asOfTime = trim((string)($forecast['as_of_time'] ?? ''));
+        $targetDate = trim((string)($forecast['target_date'] ?? ''));
+        $sourceStart = trim((string)($forecast['source_start_date'] ?? ''));
+        $sourceEnd = trim((string)($forecast['source_end_date'] ?? ''));
+        $horizonDays = (int)($forecast['horizon_days'] ?? 0);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOfDate) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $asOfTime) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $sourceStart) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/', $sourceEnd) !== 1
+            || $horizonDays <= 0
+        ) {
+            return false;
+        }
+
+        return substr($asOfTime, 0, 10) === $asOfDate
+            && $targetDate === $this->shiftDate($asOfDate, $horizonDays)
+            && $sourceEnd === $this->shiftDate($asOfDate, -1)
+            && $sourceStart === $this->shiftDate($sourceEnd, -27);
+    }
+
+    /**
+     * An operational backtest actual must be the finalized all-OTA fact for
+     * the exact metric and target date. A trusted Ctrip-only or Meituan-only
+     * value remains useful diagnostically, but cannot calibrate an all-OTA
+     * forecast cohort.
+     *
+     * @param array<string, array<string, mixed>> $actualMetricQuality
+     */
+    private function actualMetricDateOperationallyVerified(
+        string $metricKey,
+        string $date,
+        array $actualMetricQuality
+    ): bool {
+        $quality = is_array($actualMetricQuality[$metricKey] ?? null)
+            ? $actualMetricQuality[$metricKey]
+            : null;
+        if ($quality === null || preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) {
+            return false;
+        }
+
+        $trustedDates = array_values(array_unique(array_filter(
+            array_map('strval', is_array($quality['trusted_dates'] ?? null) ? $quality['trusted_dates'] : []),
+            static fn(string $trustedDate): bool =>
+                preg_match('/^\d{4}-\d{2}-\d{2}$/', $trustedDate) === 1
+        )));
+        $expectedPlatforms = $this->normalizedPlatformList($quality['expected_platforms'] ?? []);
+        $platformsByDate = $this->normalizePlatformsByDate($quality['platforms_by_date'] ?? []);
+        $observedPlatforms = $platformsByDate[$date] ?? [];
+
+        return in_array($date, $trustedDates, true)
+            && $expectedPlatforms === self::ALL_OTA_EXPECTED_PLATFORMS
+            && array_diff(self::ALL_OTA_EXPECTED_PLATFORMS, $observedPlatforms) === [];
+    }
+
+    /**
+     * A forecast point carries only the evidence for its own metric. This
+     * prevents a trusted revenue row from making an unrelated traffic metric
+     * look operationally verified (or vice versa).
+     *
+     * @param array<string, mixed> $history
+     * @param array<string, mixed> $quality
+     * @return array<string, mixed>
+     */
+    private function buildMetricForecastSourceRefs(
+        string $metricKey,
+        array $history,
+        array $quality,
+        string $sourceStart,
+        string $sourceEnd
+    ): array {
+        $trustedDates = array_values(array_map(
+            'strval',
+            is_array($quality['trusted_dates'] ?? null) ? $quality['trusted_dates'] : []
+        ));
+        sort($trustedDates, SORT_STRING);
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): int => max(0, (int)$value),
+            is_array($quality['row_ids'] ?? null) ? $quality['row_ids'] : []
+        ))));
+        sort($rowIds, SORT_NUMERIC);
+        $platformsByDate = $this->normalizePlatformsByDate($quality['platforms_by_date'] ?? []);
+
+        return [
+            'contract_version' => self::SOURCE_REFS_CONTRACT,
+            'table' => 'online_daily_data',
+            'metric_scope' => 'ota_channel',
+            'period' => 'historical_daily',
+            'is_final' => 1,
+            'metric_key' => $metricKey,
+            'fact_key' => self::METRICS[$metricKey] ?? '',
+            'start_date' => $sourceStart,
+            'end_date' => $sourceEnd,
+            'source_rows' => (int)($history['source_row_count'] ?? 0),
+            'source_fact_rows' => (int)($quality['source_fact_rows'] ?? 0),
+            'fact_rows' => (int)($quality['trusted_fact_rows'] ?? 0),
+            'trusted_fact_rows' => (int)($quality['trusted_fact_rows'] ?? 0),
+            'trusted_days' => count($trustedDates),
+            'trusted_dates' => $trustedDates,
+            'latest_trusted_date' => (string)($quality['latest_trusted_date'] ?? ''),
+            'excluded_fact_rows' => (int)($quality['excluded_fact_rows'] ?? 0),
+            'excluded_fact_reason_counts' => is_array($quality['excluded_fact_reason_counts'] ?? null)
+                ? $quality['excluded_fact_reason_counts']
+                : [],
+            'trace_failures' => (int)($quality['trace_failures'] ?? 0),
+            'expected_platforms' => $this->normalizedPlatformList($quality['expected_platforms'] ?? []),
+            'observed_platforms' => $this->normalizedPlatformList($quality['observed_platforms'] ?? []),
+            'platforms_by_date' => $platformsByDate,
+            'platform_coverage_status' => (string)($quality['platform_coverage_status'] ?? 'insufficient'),
+            'coverage_complete_days' => (int)($quality['coverage_complete_days'] ?? 0),
+            'freshness_status' => (string)($quality['freshness_status'] ?? 'stale'),
+            'row_ids' => $rowIds,
+            'source_identity_digest' => $this->metricSourceIdentityDigest(
+                $metricKey,
+                $trustedDates,
+                $rowIds,
+                $platformsByDate
+            ),
+        ];
+    }
+
+    /** @return array<int, string> */
+    private function normalizedPlatformList(mixed $value): array
+    {
+        $platforms = [];
+        foreach (is_array($value) ? $value : [] as $platform) {
+            $platform = strtolower(trim((string)$platform));
+            if ($platform !== '') {
+                $platforms[$platform] = true;
+            }
+        }
+        $result = array_values(array_keys($platforms));
+        sort($result, SORT_STRING);
+        return $result;
+    }
+
+    /** @return array<string, array<int, string>> */
+    private function normalizePlatformsByDate(mixed $value): array
+    {
+        $result = [];
+        foreach (is_array($value) ? $value : [] as $date => $platforms) {
+            $date = trim((string)$date);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) {
+                continue;
+            }
+            $normalized = $this->normalizedPlatformList($platforms);
+            if ($normalized !== []) {
+                $result[$date] = $normalized;
+            }
+        }
+        ksort($result, SORT_STRING);
+        return $result;
+    }
+
+    /**
+     * @param array<int, string> $trustedDates
+     * @param array<int, int> $rowIds
+     * @param array<string, array<int, string>> $platformsByDate
+     */
+    private function metricSourceIdentityDigest(
+        string $metricKey,
+        array $trustedDates,
+        array $rowIds,
+        array $platformsByDate
+    ): string {
+        sort($trustedDates, SORT_STRING);
+        sort($rowIds, SORT_NUMERIC);
+        $platformsByDate = $this->normalizePlatformsByDate($platformsByDate);
+        return hash('sha256', json_encode([
+            'metric_key' => $metricKey,
+            'trusted_dates' => array_values($trustedDates),
+            'row_ids' => array_values($rowIds),
+            'platforms_by_date' => $platformsByDate,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     }
 
     /**
@@ -1111,6 +1592,7 @@ final class TemporalInsightService
             'metrics' => $this->trendSummary($series),
             'series' => $series,
             'data_quality' => $bundle['data_quality'] ?? [],
+            'metric_quality' => $bundle['metric_quality'] ?? [],
             'data_gaps' => $bundle['data_gaps'] ?? [],
             'source' => [
                 'table' => 'online_daily_data',
@@ -1205,19 +1687,29 @@ final class TemporalInsightService
             ->limit(250000)
             ->select()
             ->toArray();
-        $rows = array_values(array_filter($rows, fn(array $row): bool =>
-            (string)($row['data_type'] ?? '') !== 'business'
-            || $this->isVerifiedCtripDailyBusinessOverview($row)
-        ));
+        $operatingRows = $this->selectOperatingFactRows($rows);
+        $rows = $operatingRows['rows'];
+        $futureTargetRowsExcluded = $operatingRows['future_target_rows_excluded'];
         if ($rows === []) {
-            return $this->emptyFactBundle('no_rows');
+            $empty = $this->emptyFactBundle(
+                $futureTargetRowsExcluded > 0 ? 'only_future_target_rows' : 'no_rows'
+            );
+            if ($futureTargetRowsExcluded > 0) {
+                $empty['data_gaps'][] = [
+                    'code' => 'future_target_rows_excluded_from_operating_period',
+                    'period' => $period,
+                    'count' => $futureTargetRowsExcluded,
+                ];
+                $empty['data_quality']['future_target_rows_excluded'] = $futureTargetRowsExcluded;
+            }
+            return $empty;
         }
 
         $dataset = $this->etl->buildDatasetFromRows($rows);
         $dailyFacts = is_array($dataset['fact_ota_daily'] ?? null) ? $dataset['fact_ota_daily'] : [];
         $trafficFacts = is_array($dataset['fact_ota_traffic'] ?? null) ? $dataset['fact_ota_traffic'] : [];
         $facts = array_merge($dailyFacts, $trafficFacts);
-        $aggregated = $this->aggregateFacts($facts);
+        $aggregated = $this->aggregateFacts($facts, $endDate);
         $quality = is_array($dataset['data_quality'] ?? null) ? $dataset['data_quality'] : [];
         $rejectedCount = is_array($quality['rejected_rows'] ?? null) ? count($quality['rejected_rows']) : 0;
         $traceFailures = (int)($aggregated['trace_failures'] ?? 0);
@@ -1227,12 +1719,53 @@ final class TemporalInsightService
             ? $aggregated['excluded_fact_reason_counts']
             : [];
         $dataGaps = is_array($aggregated['data_gaps'] ?? null) ? $aggregated['data_gaps'] : [];
+        if ($futureTargetRowsExcluded > 0) {
+            array_unshift($dataGaps, [
+                'code' => 'future_target_rows_excluded_from_operating_period',
+                'period' => $period,
+                'count' => $futureTargetRowsExcluded,
+            ]);
+        }
         if ($rejectedCount > 0) {
             array_unshift($dataGaps, [
                 'code' => 'etl_rows_rejected',
                 'reason' => 'etl_validation_rejected',
                 'count' => $rejectedCount,
             ]);
+        }
+        $metricQuality = is_array($aggregated['metric_quality'] ?? null)
+            ? $aggregated['metric_quality']
+            : [];
+        foreach ($metricQuality as $metricKey => $metric) {
+            if (!is_array($metric)) {
+                continue;
+            }
+            $trustedDays = (int)($metric['trusted_days'] ?? 0);
+            if ($trustedDays < self::MIN_OPERATIONAL_HISTORY_DAYS) {
+                $dataGaps[] = [
+                    'code' => 'metric_history_insufficient',
+                    'metric_key' => (string)$metricKey,
+                    'valid_days' => $trustedDays,
+                    'required_days' => self::MIN_OPERATIONAL_HISTORY_DAYS,
+                    'missing_days' => self::MIN_OPERATIONAL_HISTORY_DAYS - $trustedDays,
+                ];
+            }
+            if ((string)($metric['platform_coverage_status'] ?? '') === 'partial') {
+                $dataGaps[] = [
+                    'code' => 'metric_platform_coverage_incomplete',
+                    'metric_key' => (string)$metricKey,
+                    'count' => count((array)($metric['incomplete_platform_dates'] ?? [])),
+                    'dates' => array_values((array)($metric['incomplete_platform_dates'] ?? [])),
+                ];
+            }
+            if ($trustedDays > 0 && (string)($metric['freshness_status'] ?? '') !== 'current') {
+                $dataGaps[] = [
+                    'code' => 'metric_latest_fact_stale',
+                    'metric_key' => (string)$metricKey,
+                    'latest_trusted_date' => (string)($metric['latest_trusted_date'] ?? ''),
+                    'expected_end_date' => $endDate,
+                ];
+            }
         }
         $status = $trustedFactCount === 0
             ? 'empty'
@@ -1257,39 +1790,53 @@ final class TemporalInsightService
             'excluded_fact_count' => $excludedFactCount,
             'excluded_fact_reason_counts' => $excludedReasonCounts,
             'source_row_ids' => $aggregated['source_row_ids'],
+            'metric_quality' => $metricQuality,
             'latest_snapshot_time' => $latestSnapshotTime,
             'data_gaps' => $dataGaps,
             'data_quality' => [
                 'status' => $status,
                 'canonical_rows' => (int)($quality['canonical_rows'] ?? count($rows)),
                 'superseded_period_rows' => (int)($quality['superseded_period_rows'] ?? 0),
+                'superseded_ctrip_checkout_rows' => (int)($quality['superseded_ctrip_checkout_rows'] ?? 0),
+                'superseded_meituan_revenue_rows' => (int)($quality['superseded_meituan_revenue_rows'] ?? 0),
+                'future_target_rows_excluded' => $futureTargetRowsExcluded,
                 'rejected_rows' => $rejectedCount,
                 'trace_failures' => $traceFailures,
                 'source_facts' => count($facts),
                 'trusted_facts' => $trustedFactCount,
                 'excluded_facts' => $excludedFactCount,
                 'excluded_fact_reason_counts' => $excludedReasonCounts,
+                'metric_quality' => $metricQuality,
                 'data_gaps' => $dataGaps,
                 'missing_values_are_null' => true,
             ],
         ];
     }
 
-    /** @param array<string, mixed> $row */
-    private function isVerifiedCtripDailyBusinessOverview(array $row): bool
+    /**
+     * Legacy target-date search rows can remain as non-final realtime versions
+     * when an exact canonical future row already exists. They stay preserved
+     * for evidence, but cannot become a current or historical operating fact.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{rows:array<int, array<string, mixed>>,future_target_rows_excluded:int}
+     */
+    private function selectOperatingFactRows(array $rows): array
     {
-        if (strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))) !== 'ctrip'
-            || strtolower(trim((string)($row['validation_status'] ?? ''))) !== 'normal') {
-            return false;
+        $selected = [];
+        $excluded = 0;
+        foreach ($rows as $row) {
+            if (OnlineDailyDataPersistenceService::isFutureTargetRow($row)) {
+                $excluded++;
+                continue;
+            }
+            $selected[] = $row;
         }
-        $raw = $this->decodeArray($row['raw_data'] ?? []);
-        $detail = $this->decodeArray($raw['row'] ?? []);
-        $summary = $this->decodeArray($raw['field_fact_summary'] ?? []);
 
-        return strtolower(trim((string)($detail['endpoint_id'] ?? ''))) === 'business_market_overview'
-            && strtolower(trim((string)($detail['section'] ?? ''))) === 'business_overview'
-            && (int)($summary['missing_count'] ?? 1) === 0
-            && trim((string)($row['source_trace_id'] ?? '')) !== '';
+        return [
+            'rows' => $selected,
+            'future_target_rows_excluded' => $excluded,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -1309,7 +1856,7 @@ final class TemporalInsightService
      * @param array<int, array<string, mixed>> $facts
      * @return array<string, mixed>
      */
-    private function aggregateFacts(array $facts): array
+    private function aggregateFacts(array $facts, ?string $expectedEndDate = null): array
     {
         $days = [];
         $sourceRowIds = [];
@@ -1317,21 +1864,64 @@ final class TemporalInsightService
         $trustedFactCount = 0;
         $excludedFactCount = 0;
         $excludedReasonCounts = [];
+        $metricQuality = [];
+        foreach (self::METRICS as $metricKey => $factKey) {
+            $metricQuality[$metricKey] = [
+                'metric_key' => $metricKey,
+                'fact_key' => $factKey,
+                'source_fact_rows' => 0,
+                'trusted_fact_rows' => 0,
+                'excluded_fact_rows' => 0,
+                'trace_failures' => 0,
+                'excluded_fact_reason_counts' => [],
+                '_trusted_dates' => [],
+                '_expected_platforms' => array_fill_keys(self::ALL_OTA_EXPECTED_PLATFORMS, true),
+                '_observed_platforms' => [],
+                '_platforms_by_date' => [],
+                '_row_ids' => [],
+                '_latest_readback_at' => '',
+            ];
+        }
+
         foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
             $trace = is_array($fact['source_trace'] ?? null) ? $fact['source_trace'] : [];
+            $platform = strtolower(trim((string)($fact['platform_key'] ?? '')));
+            $rowId = is_numeric($trace['row_id'] ?? null) ? (int)$trace['row_id'] : 0;
+            $compareTypeExclusion = $this->compareTypeExclusionReason($fact);
+            $metricValues = [];
+            foreach (self::METRICS as $metricKey => $factKey) {
+                if (is_numeric($fact[$factKey] ?? null)) {
+                    $metricValues[$metricKey] = (float)$fact[$factKey];
+                    $metricQuality[$metricKey]['source_fact_rows']++;
+                }
+            }
+
             if (($trace['saved_success'] ?? false) !== true) {
+                $reasons = $this->traceFailureReasonCodes($trace);
                 $traceFailures++;
                 $excludedFactCount++;
-                foreach ($this->traceFailureReasonCodes($trace) as $reason) {
+                foreach ($reasons as $reason) {
                     $excludedReasonCounts[$reason] = (int)($excludedReasonCounts[$reason] ?? 0) + 1;
+                }
+                foreach (array_keys($metricValues) as $metricKey) {
+                    $this->recordMetricFactExclusion($metricQuality[$metricKey], $reasons, true);
                 }
                 continue;
             }
 
-            $compareTypeExclusion = $this->compareTypeExclusionReason($fact);
             if ($compareTypeExclusion !== null) {
                 $excludedFactCount++;
                 $excludedReasonCounts[$compareTypeExclusion] = (int)($excludedReasonCounts[$compareTypeExclusion] ?? 0) + 1;
+                foreach (array_keys($metricValues) as $metricKey) {
+                    $this->recordMetricFactExclusion(
+                        $metricQuality[$metricKey],
+                        [$compareTypeExclusion],
+                        false
+                    );
+                }
                 continue;
             }
 
@@ -1339,8 +1929,16 @@ final class TemporalInsightService
             if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) {
                 $excludedFactCount++;
                 $excludedReasonCounts['date_key_invalid'] = (int)($excludedReasonCounts['date_key_invalid'] ?? 0) + 1;
+                foreach (array_keys($metricValues) as $metricKey) {
+                    $this->recordMetricFactExclusion(
+                        $metricQuality[$metricKey],
+                        ['date_key_invalid'],
+                        false
+                    );
+                }
                 continue;
             }
+
             $trustedFactCount++;
             if (!isset($days[$date])) {
                 $days[$date] = [
@@ -1355,19 +1953,32 @@ final class TemporalInsightService
                     '_platforms' => [],
                 ];
             }
-            foreach (self::METRICS as $metricKey => $factKey) {
-                $value = $fact[$factKey] ?? null;
-                if (is_numeric($value)) {
-                    $days[$date][$metricKey] = ($days[$date][$metricKey] ?? 0.0) + (float)$value;
-                    $days[$date]['_counts'][$metricKey]++;
+            foreach ($metricValues as $metricKey => $value) {
+                $days[$date][$metricKey] = ($days[$date][$metricKey] ?? 0.0) + $value;
+                $days[$date]['_counts'][$metricKey]++;
+                $metricQuality[$metricKey]['trusted_fact_rows']++;
+                $metricQuality[$metricKey]['_trusted_dates'][$date] = true;
+                if ($platform !== '') {
+                    $metricQuality[$metricKey]['_observed_platforms'][$platform] = true;
+                    $metricQuality[$metricKey]['_platforms_by_date'][$date][$platform] = true;
+                }
+                if ($rowId > 0) {
+                    $metricQuality[$metricKey]['_row_ids'][$rowId] = true;
+                }
+                foreach (['updated_at', 'collected_at'] as $timestampField) {
+                    $timestamp = trim((string)($trace[$timestampField] ?? ''));
+                    if ($timestamp !== ''
+                        && strcmp($timestamp, (string)$metricQuality[$metricKey]['_latest_readback_at']) > 0
+                    ) {
+                        $metricQuality[$metricKey]['_latest_readback_at'] = $timestamp;
+                    }
                 }
             }
-            $platform = trim((string)($fact['platform_key'] ?? ''));
             if ($platform !== '') {
                 $days[$date]['_platforms'][$platform] = true;
             }
-            if (is_numeric($trace['row_id'] ?? null)) {
-                $sourceRowIds[(int)$trace['row_id']] = true;
+            if ($rowId > 0) {
+                $sourceRowIds[$rowId] = true;
             }
         }
 
@@ -1382,8 +1993,16 @@ final class TemporalInsightService
                 }
             }
             $day['platforms'] = array_values(array_keys($day['_platforms']));
+            sort($day['platforms'], SORT_STRING);
             unset($day['_counts'], $day['_platforms']);
             $series[] = $day;
+        }
+
+        foreach ($metricQuality as $metricKey => $quality) {
+            $metricQuality[$metricKey] = $this->finalizeMetricQuality(
+                $quality,
+                $expectedEndDate
+            );
         }
 
         ksort($excludedReasonCounts);
@@ -1396,15 +2015,115 @@ final class TemporalInsightService
             ];
         }
 
+        $sourceRowIds = array_values(array_keys($sourceRowIds));
+        sort($sourceRowIds, SORT_NUMERIC);
         return [
             'series' => $series,
-            'source_row_ids' => array_values(array_keys($sourceRowIds)),
+            'source_row_ids' => $sourceRowIds,
             'trace_failures' => $traceFailures,
             'trusted_fact_count' => $trustedFactCount,
             'excluded_fact_count' => $excludedFactCount,
             'excluded_fact_reason_counts' => $excludedReasonCounts,
+            'metric_quality' => $metricQuality,
             'data_gaps' => $dataGaps,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $quality
+     * @param array<int, string> $reasons
+     */
+    private function recordMetricFactExclusion(array &$quality, array $reasons, bool $traceFailure): void
+    {
+        $quality['excluded_fact_rows'] = (int)($quality['excluded_fact_rows'] ?? 0) + 1;
+        if ($traceFailure) {
+            $quality['trace_failures'] = (int)($quality['trace_failures'] ?? 0) + 1;
+        }
+        foreach ($reasons as $reason) {
+            $reason = trim((string)$reason);
+            if ($reason === '') {
+                continue;
+            }
+            $quality['excluded_fact_reason_counts'][$reason] =
+                (int)($quality['excluded_fact_reason_counts'][$reason] ?? 0) + 1;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $quality
+     * @return array<string, mixed>
+     */
+    private function finalizeMetricQuality(array $quality, ?string $expectedEndDate): array
+    {
+        $trustedDates = array_values(array_keys((array)($quality['_trusted_dates'] ?? [])));
+        sort($trustedDates, SORT_STRING);
+        $expectedPlatforms = array_values(array_keys((array)($quality['_expected_platforms'] ?? [])));
+        sort($expectedPlatforms, SORT_STRING);
+        $observedPlatforms = array_values(array_keys((array)($quality['_observed_platforms'] ?? [])));
+        sort($observedPlatforms, SORT_STRING);
+        if ($expectedPlatforms === []) {
+            $expectedPlatforms = $observedPlatforms;
+        }
+
+        $platformsByDate = [];
+        foreach ((array)($quality['_platforms_by_date'] ?? []) as $date => $platforms) {
+            $platformsByDate[(string)$date] = array_values(array_keys((array)$platforms));
+            sort($platformsByDate[(string)$date], SORT_STRING);
+        }
+        ksort($platformsByDate, SORT_STRING);
+        $incompleteDates = [];
+        foreach ($trustedDates as $date) {
+            if ($expectedPlatforms === []
+                || array_diff($expectedPlatforms, $platformsByDate[$date] ?? []) !== []
+            ) {
+                $incompleteDates[] = $date;
+            }
+        }
+        $coverageCompleteDays = count($trustedDates) - count($incompleteDates);
+        $coverageStatus = $trustedDates === []
+            ? 'insufficient'
+            : ($incompleteDates === [] ? 'ready' : 'partial');
+        $latestTrustedDate = $trustedDates !== [] ? $trustedDates[count($trustedDates) - 1] : '';
+        $expectedEndDate = trim((string)$expectedEndDate);
+        $freshnessStatus = preg_match('/^\d{4}-\d{2}-\d{2}$/', $expectedEndDate) === 1
+            ? ($latestTrustedDate === $expectedEndDate ? 'current' : 'stale')
+            : 'not_assessed';
+        $rowIds = array_values(array_keys((array)($quality['_row_ids'] ?? [])));
+        sort($rowIds, SORT_NUMERIC);
+        $reasonCounts = is_array($quality['excluded_fact_reason_counts'] ?? null)
+            ? $quality['excluded_fact_reason_counts']
+            : [];
+        ksort($reasonCounts, SORT_STRING);
+        $latestReadbackAt = trim((string)($quality['_latest_readback_at'] ?? ''));
+
+        unset(
+            $quality['_trusted_dates'],
+            $quality['_expected_platforms'],
+            $quality['_observed_platforms'],
+            $quality['_platforms_by_date'],
+            $quality['_row_ids'],
+            $quality['_latest_readback_at']
+        );
+        $quality['trusted_days'] = count($trustedDates);
+        $quality['trusted_dates'] = $trustedDates;
+        $quality['latest_trusted_date'] = $latestTrustedDate;
+        $quality['required_operational_days'] = self::MIN_OPERATIONAL_HISTORY_DAYS;
+        $quality['missing_operational_days'] = max(
+            0,
+            self::MIN_OPERATIONAL_HISTORY_DAYS - count($trustedDates)
+        );
+        $quality['expected_platforms'] = $expectedPlatforms;
+        $quality['observed_platforms'] = $observedPlatforms;
+        $quality['platforms_by_date'] = $platformsByDate;
+        $quality['platform_coverage_status'] = $coverageStatus;
+        $quality['coverage_complete_days'] = $coverageCompleteDays;
+        $quality['incomplete_platform_dates'] = $incompleteDates;
+        $quality['freshness_status'] = $freshnessStatus;
+        $quality['row_ids'] = $rowIds;
+        $quality['latest_readback_at'] = $latestReadbackAt;
+        $quality['excluded_fact_reason_counts'] = $reasonCounts;
+        $quality['quality_status'] = $this->forecastSourceQualityStatus($quality);
+        return $quality;
     }
 
     /** @param array<string, mixed> $trace @return array<int, string> */
@@ -1647,6 +2366,10 @@ final class TemporalInsightService
             $reasonCodes[] = 'forecast_source_quality_not_ready';
             $reasons[] = '预测来源质量尚未 ready；未回读、来源身份缺失或校验失败的事实不能进入运营结论。';
         }
+        if (!$this->forecastSourceRefsOperationallyVerified($forecast)) {
+            $reasonCodes[] = 'forecast_source_identity_not_verified';
+            $reasons[] = '预测点的指标来源、实时生成时点或周期身份未通过验证，不能借用同分组结论。';
+        }
         $matchedPoints = (int)($cohort['matched_points'] ?? 0);
         if ($matchedPoints < self::MIN_BACKTEST_SAMPLES_PER_COHORT) {
             $reasonCodes[] = 'backtest_sample_lt_' . self::MIN_BACKTEST_SAMPLES_PER_COHORT;
@@ -1725,6 +2448,41 @@ final class TemporalInsightService
     /** @return array<string, mixed> */
     private function emptyFactBundle(string $reason): array
     {
+        $metricQuality = [];
+        $dataGaps = [];
+        foreach (self::METRICS as $metricKey => $factKey) {
+            $metricQuality[$metricKey] = [
+                'metric_key' => $metricKey,
+                'fact_key' => $factKey,
+                'source_fact_rows' => 0,
+                'trusted_fact_rows' => 0,
+                'excluded_fact_rows' => 0,
+                'trace_failures' => 0,
+                'excluded_fact_reason_counts' => [],
+                'trusted_days' => 0,
+                'trusted_dates' => [],
+                'latest_trusted_date' => '',
+                'required_operational_days' => self::MIN_OPERATIONAL_HISTORY_DAYS,
+                'missing_operational_days' => self::MIN_OPERATIONAL_HISTORY_DAYS,
+                'expected_platforms' => [],
+                'observed_platforms' => [],
+                'platforms_by_date' => [],
+                'platform_coverage_status' => 'insufficient',
+                'coverage_complete_days' => 0,
+                'incomplete_platform_dates' => [],
+                'freshness_status' => 'stale',
+                'row_ids' => [],
+                'latest_readback_at' => '',
+                'quality_status' => 'insufficient',
+            ];
+            $dataGaps[] = [
+                'code' => 'metric_history_insufficient',
+                'metric_key' => $metricKey,
+                'valid_days' => 0,
+                'required_days' => self::MIN_OPERATIONAL_HISTORY_DAYS,
+                'missing_days' => self::MIN_OPERATIONAL_HISTORY_DAYS,
+            ];
+        }
         return [
             'status' => 'empty',
             'reason' => $reason,
@@ -1735,15 +2493,17 @@ final class TemporalInsightService
             'excluded_fact_count' => 0,
             'excluded_fact_reason_counts' => [],
             'source_row_ids' => [],
+            'metric_quality' => $metricQuality,
             'latest_snapshot_time' => null,
-            'data_gaps' => [],
+            'data_gaps' => $dataGaps,
             'data_quality' => [
                 'status' => 'empty',
                 'source_facts' => 0,
                 'trusted_facts' => 0,
                 'excluded_facts' => 0,
                 'excluded_fact_reason_counts' => [],
-                'data_gaps' => [],
+                'metric_quality' => $metricQuality,
+                'data_gaps' => $dataGaps,
                 'missing_values_are_null' => true,
             ],
         ];

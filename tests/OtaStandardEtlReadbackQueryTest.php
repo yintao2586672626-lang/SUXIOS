@@ -98,6 +98,33 @@ SQL);
         self::assertSame(100.0, $dataset['fact_ota_daily'][0]['revenue']);
     }
 
+    public function testMissingSourceTraceKeepsReadbackFactVisibleButDatasetCannotBeReady(): void
+    {
+        $row = $this->row(4, 400, 1, 'normal');
+        $row['source_trace_id'] = null;
+        Db::name('online_daily_data')->insert($row);
+
+        $dataset = (new OtaStandardEtlService())->buildDataset([
+            'system_hotel_id' => 80,
+            'start_date' => '2026-07-18',
+            'end_date' => '2026-07-18',
+        ]);
+        $factsByRowId = [];
+        foreach ($dataset['fact_ota_daily'] as $fact) {
+            $factsByRowId[$fact['source_trace']['row_id']] = $fact;
+        }
+
+        self::assertSame('partial', $dataset['status']);
+        self::assertCount(2, $dataset['fact_ota_daily']);
+        self::assertFalse($factsByRowId[4]['source_trace']['saved_success']);
+        self::assertContains(
+            'provenance_missing',
+            $factsByRowId[4]['source_trace']['failure_reasons']
+        );
+        self::assertSame(1, $dataset['data_quality']['trusted_rows']);
+        self::assertSame(1, $dataset['data_quality']['untrusted_rows']);
+    }
+
     /** @return array<string, mixed> */
     private function row(int $id, float $amount, int $readbackVerified, string $validationStatus): array
     {

@@ -302,7 +302,7 @@ final class OtaStandardModuleTest extends TestCase
 
     public function testAdvertisingAndQualityFactsDoNotPolluteRevenueMetrics(): void
     {
-        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows($this->trustedRows([
             [
                 'id' => 31,
                 'system_hotel_id' => 7,
@@ -314,6 +314,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source_trace_id' => 'trace-business-41',
                 'update_time' => '2026-05-27 10:00:00',
                 'amount' => 1200,
+                'room_revenue' => 1200,
                 'quantity' => 6,
                 'book_order_num' => 4,
                 'raw_data' => json_encode(['available_rooms' => 10], JSON_UNESCAPED_UNICODE),
@@ -350,7 +351,7 @@ final class OtaStandardModuleTest extends TestCase
                 'data_value' => 88.6,
                 'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
             ],
-        ]);
+        ]));
 
         self::assertCount(1, $dataset['fact_ota_daily']);
         self::assertCount(1, $dataset['fact_ota_advertising']);
@@ -372,7 +373,7 @@ final class OtaStandardModuleTest extends TestCase
 
     public function testRevenueMetricsExposeTraceableChannelMetrics(): void
     {
-        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows($this->trustedRows([
             [
                 'id' => 71,
                 'system_hotel_id' => 7,
@@ -489,7 +490,7 @@ final class OtaStandardModuleTest extends TestCase
                 'update_time' => '2026-05-27 10:30:00',
                 'raw_data' => json_encode(['forecastType' => 'detail_uv', 'current' => 260, 'peerAvg' => 310], JSON_UNESCAPED_UNICODE),
             ],
-        ]);
+        ]));
 
         self::assertCount(1, $dataset['fact_ota_search_keyword']);
         self::assertCount(1, $dataset['fact_ota_peer_rank']);
@@ -542,7 +543,7 @@ final class OtaStandardModuleTest extends TestCase
 
     public function testInsightAnalysisIncludesAdvertisingEfficiencyAndServiceQualityModules(): void
     {
-        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows($this->trustedRows([
             [
                 'id' => 41,
                 'system_hotel_id' => 7,
@@ -554,6 +555,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source_trace_id' => 'trace-business-41-analysis',
                 'update_time' => '2026-05-27 10:00:00',
                 'amount' => 1200,
+                'room_revenue' => 1200,
                 'quantity' => 6,
                 'book_order_num' => 4,
                 'raw_data' => json_encode(['available_rooms' => 10], JSON_UNESCAPED_UNICODE),
@@ -590,7 +592,7 @@ final class OtaStandardModuleTest extends TestCase
                 'data_value' => 88.6,
                 'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
             ],
-        ]);
+        ]));
         $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
         $analysis = (new OtaInsightAnalysisService())->analyzeMetrics($metrics);
 
@@ -655,6 +657,7 @@ final class OtaStandardModuleTest extends TestCase
                     'data_type' => 'business',
                     'data_date' => '2026-05-20',
                     'source_trace_id' => 'trace-business-12',
+                    'readback_verified' => 1,
                     'update_time' => '2026-05-20 10:00:00',
                     'amount' => 1000,
                     'quantity' => 5,
@@ -835,6 +838,8 @@ final class OtaStandardModuleTest extends TestCase
                 'platform' => 'Meituan',
                 'data_type' => 'business',
                 'data_date' => '2026-05-19',
+                'source_trace_id' => 'trace-business-10',
+                'readback_verified' => 1,
                 'amount' => 300,
                 'quantity' => 2,
                 'book_order_num' => 1,
@@ -1501,6 +1506,382 @@ final class OtaStandardModuleTest extends TestCase
         self::assertNull($daily['net_revpar']);
     }
 
+    public function testMeituanBusinessSalesCardsSupersedeOlderOrderAggregate(): void
+    {
+        $businessRaw = [
+            'sales_amount' => 5272.34,
+            'sales_room_nights' => 6,
+            'sales_avg_price' => 878.72,
+            'paid_order_count' => 3,
+            'amount' => 5272.34,
+            'quantity' => 6,
+            'room_nights' => 6,
+            'book_order_num' => 3,
+            'compare_type' => 'self',
+            'is_self' => true,
+            'business_evidence_source' => 'page.business_period_selection.readback',
+            'date_source' => 'page.business_period_selection.readback',
+            'date_scope_evidence' => 'meituan_business_yesterday_tab',
+            '_capture_source' => 'xhr:traffic:business_data',
+            '_meituan_business_metric_sources' => [
+                'sales_amount' => [
+                    'source_path' => 'data.cards.7.value',
+                    'source_kind' => 'card',
+                ],
+                'sales_room_nights' => [
+                    'source_path' => 'data.cards.5.value',
+                    'source_kind' => 'card',
+                ],
+            ],
+        ];
+        $capturedFacts = [
+            [
+                'metric_key' => 'order_amount',
+                'storage_field' => 'online_daily_data.amount',
+                'source_key' => 'amount',
+                'source_path' => 'data.amount',
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ],
+            [
+                'metric_key' => 'room_nights',
+                'storage_field' => 'online_daily_data.quantity',
+                'source_key' => 'quantity',
+                'source_path' => 'data.quantity',
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ],
+        ];
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            [
+                'id' => 68706,
+                'system_hotel_id' => 80,
+                'hotel_id' => 'meituan-hotel-80',
+                'hotel_name' => 'Hotel Meituan Business Cards',
+                'source' => 'meituan',
+                'data_type' => 'business',
+                'data_date' => '2026-07-29',
+                'amount' => 5272.34,
+                'quantity' => 6,
+                'book_order_num' => 3,
+                'compare_type' => 'self',
+                'sync_task_id' => 2043,
+                'source_trace_id' => 'trace-meituan-business-cards',
+                'readback_verified' => 1,
+                'update_time' => '2026-07-30 10:06:10',
+                'raw_data' => json_encode([
+                    'row' => $businessRaw,
+                    'field_facts' => $capturedFacts,
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'id' => 66381,
+                'system_hotel_id' => 80,
+                'hotel_id' => 'meituan-hotel-80',
+                'hotel_name' => 'Hotel Meituan Order Aggregate',
+                'source' => 'meituan',
+                'data_type' => 'order',
+                'data_date' => '2026-07-29',
+                'amount' => 5501.8,
+                'quantity' => 6,
+                'book_order_num' => 3,
+                'compare_type' => 'self',
+                'sync_task_id' => 1990,
+                'source_trace_id' => 'trace-meituan-order-aggregate',
+                'readback_verified' => 1,
+                'update_time' => '2026-07-30 02:09:11',
+                'raw_data' => json_encode([
+                    'row' => [
+                        'amount' => 5501.8,
+                        'quantity' => 6,
+                        'room_nights' => 6,
+                        'compare_type' => 'self',
+                        'is_self' => true,
+                        'amount_scope' => 'meituan_sale_price_total',
+                        'pagination_complete' => true,
+                    ],
+                    'field_facts' => $capturedFacts,
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+        self::assertCount(1, $dataset['fact_ota_daily']);
+        self::assertSame(1, $dataset['data_quality']['superseded_meituan_revenue_rows']);
+        self::assertSame('meituan_business_sales_daily', $dataset['fact_ota_daily'][0]['metric_semantic_scope']);
+        self::assertSame('verified_meituan_business_sales_cards', $dataset['fact_ota_daily'][0]['room_revenue_basis']);
+        self::assertSame(5272.34, $metrics['totals']['revenue']);
+        self::assertSame(5272.34, $metrics['totals']['room_revenue']);
+        self::assertSame(6.0, $metrics['totals']['room_nights']);
+        self::assertSame(3, $metrics['totals']['order_count']);
+        self::assertSame(878.72, $metrics['totals']['adr']);
+        self::assertTrue($metrics['metric_trust']['totals.adr']['saved_success']);
+    }
+
+    public function testVerifiedMeituanSalePriceTotalCanServeAsRoomRevenue(): void
+    {
+        $rawRow = [
+            'amount' => 5501.8,
+            'quantity' => 6,
+            'room_nights' => 6,
+            'compare_type' => 'self',
+            'is_self' => true,
+            'amount_scope' => 'meituan_sale_price_total',
+            'amount_source' => 'orderBasePriceModel.salePrice.price',
+            'amount_source_unit' => 'cent',
+            'amount_storage_unit' => 'yuan',
+            'quantity_scope' => 'booked_room_nights',
+            'quantity_source' => 'partRefundInfo.totalRoomNightCount',
+            'pagination_complete' => true,
+            'floor_price_used_as_revenue' => false,
+            'guarantee_amount_used_as_revenue' => false,
+        ];
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 45,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'meituan-hotel-80',
+            'hotel_name' => 'Hotel Meituan Sale Price',
+            'source' => 'meituan',
+            'data_type' => 'order',
+            'data_date' => '2026-07-29',
+            'amount' => 5501.8,
+            'quantity' => 6,
+            'book_order_num' => 3,
+            'compare_type' => 'self',
+            'source_trace_id' => 'trace-meituan-sale-price-45',
+            'readback_verified' => 1,
+            'update_time' => '2026-07-30 02:10:58',
+            'raw_data' => json_encode([
+                'row' => $rawRow,
+                'field_facts' => [
+                    [
+                        'metric_key' => 'order_amount',
+                        'storage_field' => 'online_daily_data.amount',
+                        'source_path' => 'data.results.amount',
+                        'status' => 'captured',
+                    ],
+                    [
+                        'metric_key' => 'room_nights',
+                        'storage_field' => 'online_daily_data.quantity',
+                        'source_path' => 'data.results.quantity',
+                        'status' => 'captured',
+                    ],
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        $daily = $dataset['fact_ota_daily'][0];
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+
+        self::assertSame(5501.8, $daily['room_revenue']);
+        self::assertSame('verified_meituan_sale_price_total', $daily['room_revenue_basis']);
+        self::assertSame(916.97, $daily['adr']);
+        self::assertSame(916.97, $metrics['totals']['adr']);
+        self::assertTrue($metrics['metric_trust']['totals.adr']['saved_success']);
+        self::assertTrue($metrics['credibility_gate']['decision_use']['revenue_analysis']['allowed']);
+    }
+
+    public function testCtripCheckoutFactsAreCanonicalAndCapacityDoesNotPolluteAdr(): void
+    {
+        $capturedFact = static function (
+            string $metricKey,
+            string $storageField,
+            string $sourceKey
+        ): array {
+            return [
+                'metric_key' => $metricKey,
+                'storage_field' => $storageField,
+                'source_key' => $sourceKey,
+                'source_path' => '$.' . $sourceKey,
+                'status' => 'captured',
+                'stored_value_present' => true,
+            ];
+        };
+        $common = [
+            'system_hotel_id' => 80,
+            'hotel_id' => 'ctrip-hotel-80',
+            'hotel_name' => 'Hotel Ctrip Checkout',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'data_date' => '2026-07-29',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'sync_task_id' => 2042,
+            'readback_verified' => 1,
+        ];
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            array_replace($common, [
+                'id' => 68698,
+                'dimension' => 'catalog:business_overview:business_market_overview:order_amount:data.amount',
+                'amount' => 2168,
+                'quantity' => 3,
+                'source_trace_id' => 'ctrip:checkout-catalog',
+                'update_time' => '2026-07-30 02:10:50',
+                'raw_data' => json_encode([
+                    'row' => [
+                        'endpoint_id' => 'business_market_overview',
+                        'amount' => 2168,
+                        'quantity' => 3,
+                    ],
+                    'field_facts' => [
+                        $capturedFact('order_amount', 'online_daily_data.amount', 'amount'),
+                        $capturedFact('room_nights', 'online_daily_data.quantity', 'quantity'),
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+            array_replace($common, [
+                'id' => 68703,
+                'amount' => 3322,
+                'quantity' => 4,
+                'book_order_num' => 2,
+                'source_trace_id' => 'ctrip:booking-generic',
+                'update_time' => '2026-07-30 02:10:58',
+                'raw_data' => json_encode([
+                    'row' => [
+                        'endpoint_id' => 'business_market_overview',
+                        'amount' => 2168,
+                        'quantity' => 3,
+                        'bookAmount' => 3322,
+                        'bookQuantity' => 4,
+                        'bookOrderNum' => 2,
+                    ],
+                    'field_facts' => [
+                        $capturedFact('order_amount', 'online_daily_data.amount', 'bookAmount'),
+                        $capturedFact('room_nights', 'online_daily_data.quantity', 'bookQuantity'),
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+            array_replace($common, [
+                'id' => 68699,
+                'dimension' => 'catalog:business_overview:business_capacity:occupied_rooms:occupiedRooms',
+                'quantity' => 2,
+                'book_order_num' => 1,
+                'source_trace_id' => 'ctrip:capacity-catalog',
+                'update_time' => '2026-07-30 02:10:51',
+                'raw_data' => json_encode([
+                    'row' => [
+                        'endpoint_id' => 'business_capacity',
+                        'quantity' => 2,
+                        'book_order_num' => 1,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+        ]);
+
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+        $checkout = array_values(array_filter(
+            $dataset['fact_ota_daily'],
+            static fn(array $fact): bool => ($fact['metric_semantic_scope'] ?? '') === 'ctrip_checkout_daily'
+        ))[0];
+        $capacity = array_values(array_filter(
+            $dataset['fact_ota_daily'],
+            static fn(array $fact): bool => ($fact['metric_semantic_scope'] ?? '') === 'ctrip_capacity_daily'
+        ))[0];
+
+        self::assertSame(1, $dataset['data_quality']['superseded_ctrip_checkout_rows']);
+        self::assertSame(2168.0, $checkout['room_revenue']);
+        self::assertSame('verified_ctrip_checkout_sales', $checkout['room_revenue_basis']);
+        self::assertSame(3.0, $checkout['room_nights']);
+        self::assertSame(722.67, $checkout['adr']);
+        self::assertNull($checkout['order_count']);
+        self::assertNull($capacity['room_nights']);
+        self::assertSame(2.0, $capacity['occupied_room_nights']);
+        self::assertSame(1, $capacity['order_count']);
+        self::assertSame(2168.0, $metrics['totals']['revenue']);
+        self::assertSame(2168.0, $metrics['totals']['room_revenue']);
+        self::assertSame(3.0, $metrics['totals']['room_nights']);
+        self::assertSame(1, $metrics['totals']['order_count']);
+        self::assertSame(722.67, $metrics['totals']['adr']);
+    }
+
+    public function testCtripBookingFieldsAloneCannotUnlockCheckoutRevenue(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 68703,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'ctrip-hotel-80',
+            'hotel_name' => 'Hotel Ctrip Booking Only',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'data_date' => '2026-07-29',
+            'amount' => 3322,
+            'quantity' => 4,
+            'book_order_num' => 2,
+            'source_trace_id' => 'ctrip:booking-only',
+            'readback_verified' => 1,
+            'raw_data' => json_encode([
+                'row' => [
+                    'endpoint_id' => 'business_market_overview',
+                    'bookAmount' => 3322,
+                    'bookQuantity' => 4,
+                    'bookOrderNum' => 2,
+                ],
+                'field_facts' => [
+                    [
+                        'metric_key' => 'order_amount',
+                        'storage_field' => 'online_daily_data.amount',
+                        'source_key' => 'bookAmount',
+                        'source_path' => '$.data.bookAmount',
+                        'status' => 'captured',
+                        'stored_value_present' => true,
+                    ],
+                    [
+                        'metric_key' => 'room_nights',
+                        'storage_field' => 'online_daily_data.quantity',
+                        'source_key' => 'bookQuantity',
+                        'source_path' => '$.data.bookQuantity',
+                        'status' => 'captured',
+                        'stored_value_present' => true,
+                    ],
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        $daily = $dataset['fact_ota_daily'][0];
+        self::assertSame('ctrip_booking_or_unverified_excluded', $daily['metric_semantic_scope']);
+        self::assertNull($daily['gross_revenue']);
+        self::assertNull($daily['room_revenue']);
+        self::assertNull($daily['room_nights']);
+        self::assertNull($daily['order_count']);
+        self::assertNull($daily['adr']);
+    }
+
+    public function testMeituanOrderAmountWithoutExactSalePriceEvidenceStaysGenericRevenue(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 46,
+            'system_hotel_id' => 80,
+            'hotel_id' => 'meituan-hotel-80',
+            'hotel_name' => 'Hotel Meituan Generic Amount',
+            'source' => 'meituan',
+            'data_type' => 'order',
+            'data_date' => '2026-07-29',
+            'amount' => 5501.8,
+            'quantity' => 6,
+            'book_order_num' => 3,
+            'compare_type' => 'self',
+            'source_trace_id' => 'trace-meituan-generic-46',
+            'readback_verified' => 1,
+            'update_time' => '2026-07-30 02:10:58',
+            'raw_data' => json_encode([
+                'row' => [
+                    'amount' => 5501.8,
+                    'quantity' => 6,
+                    'room_nights' => 6,
+                    'compare_type' => 'self',
+                    'is_self' => true,
+                    'pagination_complete' => true,
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        $daily = $dataset['fact_ota_daily'][0];
+        self::assertSame(5501.8, $daily['gross_revenue']);
+        self::assertNull($daily['room_revenue']);
+        self::assertNull($daily['room_revenue_basis']);
+        self::assertNull($daily['adr']);
+    }
+
     public function testP1ClosureCannotBeReadyWhenAChildMetricIsNotCalculable(): void
     {
         $metrics = (new OtaRevenueMetricService())->summarizeDataset([
@@ -1565,6 +1946,7 @@ final class OtaStandardModuleTest extends TestCase
                 'data_type' => 'business',
                 'data_date' => '2026-05-18',
                 'source_trace_id' => 'trace-business-1',
+                'readback_verified' => 1,
                 'update_time' => '2026-05-18 10:00:00',
                 'amount' => 1200,
                 'room_revenue' => 1200,
@@ -1592,6 +1974,7 @@ final class OtaStandardModuleTest extends TestCase
                 'data_type' => 'traffic',
                 'data_date' => '2026-05-18',
                 'source_trace_id' => 'trace-traffic-2',
+                'readback_verified' => 1,
                 'update_time' => '2026-05-18 10:05:00',
                 'list_exposure' => 1000,
                 'detail_exposure' => 200,
@@ -1609,6 +1992,7 @@ final class OtaStandardModuleTest extends TestCase
                 'data_type' => 'review',
                 'data_date' => '2026-05-18',
                 'source_trace_id' => 'trace-review-3',
+                'readback_verified' => 1,
                 'dimension' => 'review:meituan',
                 'comment_score' => 3.0,
                 'quantity' => 1,
@@ -1621,6 +2005,15 @@ final class OtaStandardModuleTest extends TestCase
                 ], JSON_UNESCAPED_UNICODE),
             ],
         ];
+    }
+
+    /** @param array<int, array<string, mixed>> $rows @return array<int, array<string, mixed>> */
+    private function trustedRows(array $rows): array
+    {
+        return array_map(static function (array $row): array {
+            $row['readback_verified'] = 1;
+            return $row;
+        }, $rows);
     }
 
     /**

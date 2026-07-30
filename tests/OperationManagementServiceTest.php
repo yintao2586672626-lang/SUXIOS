@@ -9,6 +9,48 @@ use Tests\Support\ReflectionHelper;
 
 final class OperationManagementServiceTest extends TestCase
 {
+    public function testSelectedHotelScopeNarrowsTwoHotelPermissionSetForAllAggregationEntrypoints(): void
+    {
+        $service = new OperationManagementService();
+
+        self::assertSame(
+            [8],
+            $this->invokeNonPublic($service, 'scopeHotelIdsForSelection', [[7, 8], 8])
+        );
+
+        foreach (['fullData', 'rootCause', 'strategySimulation', 'createAction', 'alerts'] as $methodName) {
+            $method = new \ReflectionMethod(OperationManagementService::class, $methodName);
+            $lines = file($method->getFileName()) ?: [];
+            $source = implode('', array_slice(
+                $lines,
+                $method->getStartLine() - 1,
+                $method->getEndLine() - $method->getStartLine() + 1
+            ));
+
+            self::assertStringContainsString(
+                'scopeHotelIdsForSelection',
+                $source,
+                $methodName . ' must narrow permitted hotel ids when one hotel is selected'
+            );
+        }
+    }
+
+    public function testSelectedHotelScopeRejectsHotelOutsidePermissionSet(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->invokeNonPublic($service, 'scopeHotelIdsForSelection', [[7, 8], 9]);
+    }
+
+    public function testHotelScopedOperationAnalysisRejectsImplicitPortfolioAggregation(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->invokeNonPublic($service, 'scopeHotelIdsForSelection', [[7, 8], null]);
+    }
+
     public function testMissingTrustedFunnelIsNullInsteadOfARealZero(): void
     {
         $service = new OperationManagementService();
@@ -288,6 +330,92 @@ final class OperationManagementServiceTest extends TestCase
         self::assertNull($summary['adr'], 'A zero denominator must not produce a fake ADR zero.');
         self::assertSame('ok', $summary['data_status']);
         self::assertSame([], $summary['data_gaps']);
+    }
+
+    public function testDashboardSummaryAllowsOnlyRequestedMetricsFromPartialFieldFacts(): void
+    {
+        $service = new OperationManagementService();
+        $traceId = 'ctrip:' . str_repeat('a', 64);
+        $sourceUrlHash = str_repeat('b', 64);
+        $capturedFact = static function (
+            string $metricKey,
+            string $storageField,
+            string $sourceKey
+        ) use ($traceId, $sourceUrlHash): array {
+            return [
+                'metric_key' => $metricKey,
+                'storage_field' => $storageField,
+                'source_key' => $sourceKey,
+                'source_path' => 'data.' . $sourceKey,
+                'status' => 'captured',
+                'stored_value_present' => true,
+                'capture_evidence' => [
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $sourceUrlHash,
+                ],
+            ];
+        };
+        $partialCheckout = $this->trustedOtaOperatingRow([
+            'id' => 68698,
+            'system_hotel_id' => 80,
+            'hotel_id' => 130079194,
+            'data_date' => '2026-07-29',
+            'source_trace_id' => $traceId,
+            'source_url_hash' => $sourceUrlHash,
+            'validation_status' => 'partial',
+            'dimension' => 'catalog:business_overview:business_market_overview:order_amount:data.amount',
+            'amount' => 2168,
+            'quantity' => 3,
+            'book_order_num' => null,
+            'raw_data' => json_encode([
+                'row' => [
+                    'endpoint_id' => 'business_market_overview',
+                    'amount' => 2168,
+                    'quantity' => 3,
+                ],
+                'field_facts' => [
+                    $capturedFact('order_amount', 'online_daily_data.amount', 'amount'),
+                    $capturedFact('room_nights', 'online_daily_data.quantity', 'quantity'),
+                    [
+                        'metric_key' => 'comment_score',
+                        'source_path' => 'data.commentScore',
+                        'storage_field' => 'online_daily_data.comment_score',
+                        'status' => 'missing',
+                    ],
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [],
+            [$partialCheckout],
+            [80],
+            80,
+            '2026-07-29',
+        ]);
+        $withoutMetricFacts = $partialCheckout;
+        $withoutMetricFacts['raw_data'] = json_encode([
+            'row' => [
+                'endpoint_id' => 'business_market_overview',
+                'amount' => 2168,
+                'quantity' => 3,
+            ],
+        ], JSON_UNESCAPED_UNICODE);
+        $blocked = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [],
+            [$withoutMetricFacts],
+            [80],
+            80,
+            '2026-07-29',
+        ]);
+
+        self::assertSame(2168.0, $summary['revenue']);
+        self::assertSame(3.0, $summary['room_nights']);
+        self::assertNull($summary['orders']);
+        self::assertSame(['order_amount', 'room_nights'], $summary['evidence_refs'][0]['field_fact_metric_keys']);
+        self::assertSame('ctrip_checkout_daily', $summary['evidence_refs'][0]['metric_semantic_scope']);
+        self::assertNull($blocked['revenue']);
+        self::assertNull($blocked['room_nights']);
     }
 
     public function testTrustedOtaFactRejectsUnverifiedPartialFailedAndIncompleteEvidence(): void

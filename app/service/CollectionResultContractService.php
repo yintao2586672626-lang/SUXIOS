@@ -34,10 +34,10 @@ final class CollectionResultContractService
      */
     public function fromDingdandaoCapture(array $capture): array
     {
-        $evidence = is_array($capture['capture_evidence'] ?? null)
-            ? $capture['capture_evidence']
-            : [];
+        $evidence = $this->dingdandaoCaptureEvidence($capture);
         $summary = is_array($capture['summary'] ?? null) ? $capture['summary'] : [];
+        $sourceScope = strtolower(trim((string)($capture['source_scope'] ?? '')));
+        $captureMethod = strtolower(trim((string)($capture['capture_method'] ?? '')));
         $tenantId = $this->positiveIntOrNull($capture['tenant_id'] ?? null);
         $hotelId = $this->positiveIntOrNull($capture['hotel_id'] ?? null);
         $captureId = $this->positiveIntOrNull($capture['id'] ?? null);
@@ -77,6 +77,20 @@ final class CollectionResultContractService
             if ($code !== null) {
                 $blockers[] = $code;
             }
+        }
+        $operatingCore = is_array(
+            $capture['component_coverage']['components']['operating_core'] ?? null
+        )
+            ? $capture['component_coverage']['components']['operating_core']
+            : [];
+        if ($operatingCore !== []
+            && ($operatingCore['status'] ?? '') !== 'verified'
+        ) {
+            $blockers[] = 'pms_operating_core_not_verified';
+            $blockers = array_merge(
+                $blockers,
+                $this->safeReasonList($operatingCore['gap_codes'] ?? [])
+            );
         }
         if ($tenantId === null || $hotelId === null) {
             $blockers[] = 'collection_scope_missing';
@@ -131,11 +145,27 @@ final class CollectionResultContractService
         if ($sourceTraceId === null) {
             $blockers[] = 'source_trace_missing';
         }
+        if (!in_array(
+            $sourceScope,
+            [
+                DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+                DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE,
+            ],
+            true
+        )) {
+            $blockers[] = 'source_scope_unverified';
+        }
+        if ($captureMethod !== 'network_response') {
+            $blockers[] = 'collection_method_unverified';
+        }
         if ($sourceFingerprint === null) {
             $blockers[] = 'source_fingerprint_missing';
         }
         if (($strategy['status'] ?? '') !== 'verified') {
             $blockers[] = 'collection_strategy_unverified';
+        }
+        if (!$this->dingdandaoSourceEvidenceMatches($capture)) {
+            $blockers[] = 'source_evidence_mismatch';
         }
         $blockers = $this->uniqueReasonCodes($blockers);
         $claimAllowed = $blockers === [];
@@ -185,6 +215,7 @@ final class CollectionResultContractService
                 'target_stay_date' => null,
                 'date_role' => 'business_date',
                 'source_method' => $sourceMethod,
+                'source_scope' => $sourceScope !== '' ? $sourceScope : null,
             ],
             'run' => [
                 'run_id' => $captureId,
@@ -228,6 +259,322 @@ final class CollectionResultContractService
     }
 
     /**
+     * Rebuilds the PMS collection contract from the persisted capture and
+     * verifies that any declared envelope still describes the same run.
+     * Callers may provide the exact scope they are about to consume.
+     *
+     * Missing collection_result remains compatible with trusted in-memory
+     * fixtures because the envelope is rebuilt from the same strict evidence.
+     *
+     * @param array<string,mixed> $capture
+     * @param array<string,mixed> $expectedScope
+     * @return array{allowed:bool,reason_codes:list<string>,contract:array<string,mixed>}
+     */
+    public function validateDingdandaoCaptureClaim(
+        array $capture,
+        array $expectedScope = []
+    ): array {
+        $contract = $this->fromDingdandaoCapture($capture);
+        $declared = is_array($capture['collection_result'] ?? null)
+            ? $capture['collection_result']
+            : $contract;
+        $reasonCodes = [];
+
+        if (($contract['claim']['allowed'] ?? false) !== true) {
+            $reasonCodes = array_merge(
+                $reasonCodes,
+                $this->safeReasonList(
+                    $contract['claim']['reason_codes']
+                        ?? $contract['blockers']
+                        ?? []
+                )
+            );
+        }
+        if (($declared['claim']['allowed'] ?? false) !== true) {
+            $reasonCodes[] = 'collection_claim_not_allowed';
+            $reasonCodes = array_merge(
+                $reasonCodes,
+                $this->safeReasonList(
+                    $declared['claim']['reason_codes']
+                        ?? $declared['blockers']
+                        ?? []
+                )
+            );
+        }
+        if ($this->dingdandaoCriticalContract($declared)
+            !== $this->dingdandaoCriticalContract($contract)
+        ) {
+            $reasonCodes[] = 'collection_contract_mismatch';
+        }
+
+        $scope = is_array($contract['scope'] ?? null)
+            ? $contract['scope']
+            : [];
+        $run = is_array($contract['run'] ?? null)
+            ? $contract['run']
+            : [];
+        $references = is_array($contract['references'] ?? null)
+            ? $contract['references']
+            : [];
+        $expectedTenantId = $this->positiveIntOrNull(
+            $expectedScope['tenant_id'] ?? null
+        );
+        $expectedHotelId = $this->positiveIntOrNull(
+            $expectedScope['system_hotel_id']
+                ?? $expectedScope['hotel_id']
+                ?? null
+        );
+        $expectedDate = $this->dateOrNull(
+            $expectedScope['data_date']
+                ?? $expectedScope['business_date']
+                ?? null
+        );
+        $expectedPlatformHotelId = $this->textOrNull(
+            $expectedScope['platform_hotel_id']
+                ?? $expectedScope['provider_hotel_id']
+                ?? null,
+            120
+        );
+        $expectedSourceScope = strtolower(trim((string)(
+            $expectedScope['source_scope'] ?? ''
+        )));
+
+        if ($expectedTenantId !== null
+            && (int)($scope['tenant_id'] ?? 0) !== $expectedTenantId
+        ) {
+            $reasonCodes[] = 'tenant_scope_mismatch';
+        }
+        if ($expectedHotelId !== null
+            && (int)($scope['system_hotel_id'] ?? 0) !== $expectedHotelId
+        ) {
+            $reasonCodes[] = 'hotel_scope_mismatch';
+        }
+        if ($expectedDate !== null
+            && (string)($scope['data_date'] ?? '') !== $expectedDate
+        ) {
+            $reasonCodes[] = 'target_date_scope_mismatch';
+        }
+        if ($expectedPlatformHotelId !== null
+            && !hash_equals(
+                $expectedPlatformHotelId,
+                (string)($scope['platform_hotel_id'] ?? '')
+            )
+        ) {
+            $reasonCodes[] = 'platform_hotel_scope_mismatch';
+        }
+        if ($expectedSourceScope !== ''
+            && (string)($scope['source_scope'] ?? '') !== $expectedSourceScope
+        ) {
+            $reasonCodes[] = 'source_scope_mismatch';
+        }
+
+        $captureId = $this->positiveIntOrNull($capture['id'] ?? null);
+        $sourceFingerprint = $this->sha256OrNull(
+            $capture['source_fingerprint'] ?? null
+        );
+        if (($contract['contract_version'] ?? '') !== self::CONTRACT_VERSION
+            || (string)($scope['platform'] ?? '') !== 'dingdandao_pms'
+            || (string)($scope['business_module'] ?? '')
+                !== 'accommodation_operating'
+            || (string)($scope['date_role'] ?? '') !== 'business_date'
+            || (string)($scope['source_method'] ?? '')
+                !== 'authorized_browser_endpoint'
+            || (string)($contract['identity_status'] ?? '') !== 'matched'
+            || (string)($contract['collection_status'] ?? '') !== 'verified'
+            || (string)($contract['quality_status'] ?? '') !== 'verified'
+        ) {
+            $reasonCodes[] = 'collection_contract_not_verified';
+        }
+        if ($captureId === null
+            || (int)($run['run_id'] ?? 0) !== $captureId
+            || (int)($references['capture_id'] ?? 0) !== $captureId
+            || (string)($contract['snapshot_ref'] ?? '')
+                !== 'dingdandao_operating_target_capture#' . $captureId
+        ) {
+            $reasonCodes[] = 'capture_reference_mismatch';
+        }
+        if ((string)($contract['readback_status'] ?? '')
+                !== 'readback_verified'
+            || !is_numeric($contract['saved_count'] ?? null)
+            || (int)$contract['saved_count'] <= 0
+            || (int)($contract['counts']['saved'] ?? 0)
+                !== (int)$contract['saved_count']
+            || (int)($contract['counts']['readback'] ?? 0)
+                !== (int)$contract['saved_count']
+        ) {
+            $reasonCodes[] = 'readback_mismatch';
+        }
+        if ($sourceFingerprint === null
+            || !hash_equals(
+                $sourceFingerprint,
+                (string)($references['source_fingerprint'] ?? '')
+            )
+            || !is_array($references['source_trace_ids'] ?? null)
+            || $references['source_trace_ids'] === []
+        ) {
+            $reasonCodes[] = 'source_reference_mismatch';
+        }
+
+        if (!$this->dingdandaoSourceEvidenceMatches($capture)) {
+            $reasonCodes[] = 'source_evidence_mismatch';
+        }
+
+        $reasonCodes = $this->uniqueReasonCodes($reasonCodes);
+        return [
+            'allowed' => $reasonCodes === [],
+            'reason_codes' => $reasonCodes,
+            'contract' => $contract,
+        ];
+    }
+
+    /** @param array<string,mixed> $contract @return array<string,mixed> */
+    private function dingdandaoCriticalContract(array $contract): array
+    {
+        return [
+            'contract_version' => $contract['contract_version'] ?? null,
+            'scope' => $contract['scope'] ?? null,
+            'run' => $contract['run'] ?? null,
+            'identity_status' => $contract['identity_status'] ?? null,
+            'collection_status' => $contract['collection_status'] ?? null,
+            'quality_status' => $contract['quality_status'] ?? null,
+            'metrics' => $contract['metrics'] ?? null,
+            'counts' => $contract['counts'] ?? null,
+            'saved_count' => $contract['saved_count'] ?? null,
+            'readback_status' => $contract['readback_status'] ?? null,
+            'snapshot_ref' => $contract['snapshot_ref'] ?? null,
+            'references' => $contract['references'] ?? null,
+            'blockers' => $contract['blockers'] ?? null,
+            'claim' => $contract['claim'] ?? null,
+        ];
+    }
+
+    /** @param array<string,mixed> $capture */
+    private function dingdandaoSourceEvidenceMatches(array $capture): bool
+    {
+        $evidence = $this->dingdandaoCaptureEvidence($capture);
+        $providerHotelId = $this->textOrNull(
+            $capture['provider_hotel_id'] ?? null,
+            120
+        );
+        $businessDate = $this->dateOrNull($capture['business_date'] ?? null);
+        $sourceUrl = trim((string)($capture['source_url'] ?? ''));
+        $sourceApiPath = trim((string)($capture['source_api_path'] ?? ''));
+        $sourceTraceId = $this->referenceOrNull(
+            $capture['source_trace_id'] ?? $evidence['source_trace_id'] ?? null,
+            200
+        );
+        $collectionMode = strtolower(trim((string)(
+            $capture['collection_mode']
+                ?? $evidence['collection_mode']
+                ?? ''
+        )));
+        $sourceScope = strtolower(trim((string)($capture['source_scope'] ?? '')));
+        $capturedAt = $this->dateTimeOrNull($capture['captured_at'] ?? null);
+        $capturedDate = $capturedAt === null ? null : substr($capturedAt, 0, 10);
+        $sourceDateScopeMatches =
+            $sourceScope === DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE
+                ? $capturedDate === $businessDate
+                : (
+                    $sourceScope
+                        === DingdandaoOperatingTargetCaptureService::HISTORICAL_SOURCE_SCOPE
+                    && $collectionMode === 'operating_indicators'
+                    && $capturedDate !== null
+                    && $businessDate !== null
+                    && $capturedDate >= $businessDate
+                );
+        $legacyExpectedEvidence =
+            DingdandaoOperatingTargetCaptureService::
+            expectedLegacyV2CaptureEvidence($capture);
+        if (is_array($legacyExpectedEvidence)) {
+            return $this->dingdandaoEvidenceExactlyMatches(
+                $evidence,
+                $legacyExpectedEvidence
+            ) && hash_equals(
+                (string)$legacyExpectedEvidence['source_trace_id'],
+                (string)$sourceTraceId
+            );
+        }
+
+        $expectedEvidence = $providerHotelId === null
+            || $businessDate === null
+            ? null
+            : DingdandaoOperatingTargetCaptureService::expectedCaptureEvidence(
+                $sourceApiPath,
+                $businessDate,
+                $providerHotelId,
+                $collectionMode
+            );
+        if ((string)($capture['provider'] ?? '')
+                !== DingdandaoOperatingTargetCaptureService::PROVIDER
+            || $sourceUrl !== DingdandaoOperatingTargetCaptureService::SOURCE_URL
+            || !$sourceDateScopeMatches
+            || (string)($capture['capture_method'] ?? '') !== 'network_response'
+            || $providerHotelId === null
+            || $businessDate === null
+            || $sourceApiPath === ''
+            || !str_starts_with($sourceApiPath, '/')
+            || $sourceTraceId === null
+            || !in_array(
+                $collectionMode,
+                ['operating_indicators', 'full_diagnostic'],
+                true
+            )
+            || $expectedEvidence === null
+        ) {
+            return false;
+        }
+
+        return $this->dingdandaoEvidenceExactlyMatches(
+            $evidence,
+            $expectedEvidence
+        ) && hash_equals(
+            (string)$expectedEvidence['source_trace_id'],
+            $sourceTraceId
+        );
+    }
+
+    /** @param array<string,mixed> $capture @return array<string,mixed> */
+    private function dingdandaoCaptureEvidence(array $capture): array
+    {
+        $evidence = is_array($capture['capture_evidence'] ?? null)
+            ? $capture['capture_evidence']
+            : [];
+        if ($evidence !== []) {
+            return $evidence;
+        }
+        return DingdandaoOperatingTargetCaptureService::
+            expectedLegacyV2CaptureEvidence($capture) ?? [];
+    }
+
+    /**
+     * @param array<string,mixed> $actual
+     * @param array<string,mixed> $expected
+     */
+    private function dingdandaoEvidenceExactlyMatches(
+        array $actual,
+        array $expected
+    ): bool {
+        $actualKeys = array_keys($actual);
+        $expectedKeys = array_keys($expected);
+        sort($actualKeys);
+        sort($expectedKeys);
+        if ($actualKeys !== $expectedKeys) {
+            return false;
+        }
+        foreach ($expected as $key => $expectedValue) {
+            $actualValue = $actual[$key] ?? null;
+            $matches = is_string($expectedValue)
+                ? is_string($actualValue)
+                    && hash_equals($expectedValue, $actualValue)
+                : $actualValue === $expectedValue;
+            if (!$matches) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Accepts either an exact run_readback receipt or the outer sync result
      * containing it. Values remain in the authoritative stored rows; this
      * envelope only carries their verified references.
@@ -253,12 +600,20 @@ final class CollectionResultContractService
         $startedAt = $this->dateTimeOrNull($receipt['started_at'] ?? null);
         $dataPeriod = $this->textOrNull($receipt['data_period'] ?? null, 80);
         $platformHotelId = $this->textOrNull($context['platform_hotel_id'] ?? null, 120);
+        $observedPlatformHotelId = $this->textOrNull(
+            $receipt['observed_platform_hotel_id'] ?? null,
+            120
+        );
         $rowIds = $this->positiveUniqueInts($receipt['row_ids'] ?? []);
         $traceIds = $this->safeReferences($receipt['source_trace_ids'] ?? [], 160);
         $readbackCount = max(0, (int)($receipt['readback_count'] ?? 0));
         $readbackVerified = ($receipt['readback_verified'] ?? false) === true;
-        $identityMatched =
+        $declaredIdentityReady =
             strtolower(trim((string)($receipt['platform_hotel_identifier_status'] ?? ''))) === 'ready';
+        $identityMatched = $declaredIdentityReady
+            && $platformHotelId !== null
+            && $observedPlatformHotelId !== null
+            && hash_equals($platformHotelId, $observedPlatformHotelId);
         $fieldFactStatus = strtolower(trim((string)($receipt['field_fact_status'] ?? '')));
         $pageFieldFactStatus = strtolower(trim((string)($receipt['page_field_fact_status'] ?? '')));
         $p0Status = strtolower(trim((string)($receipt['p0_status'] ?? '')));
@@ -301,6 +656,15 @@ final class CollectionResultContractService
         if (($strategy['status'] ?? '') !== 'verified') {
             $blockers[] = 'collection_strategy_unverified';
         }
+        if (!in_array(
+            (string)($strategy['selected'] ?? ''),
+            ['browser_response', 'verified_endpoint_recipe'],
+            true
+        ) || (string)($strategy['response_evidence_type'] ?? '')
+            !== 'structured_json'
+        ) {
+            $blockers[] = 'structured_response_required';
+        }
         if ($targetDate === null) {
             $blockers[] = 'target_date_unverified';
         }
@@ -318,7 +682,13 @@ final class CollectionResultContractService
         ) {
             $blockers[] = 'readback_mismatch';
         }
-        if (!$identityMatched) {
+        if (!$declaredIdentityReady) {
+            $blockers[] = 'hotel_identity_mismatch';
+        } elseif ($observedPlatformHotelId === null) {
+            $blockers[] = 'platform_hotel_identity_observation_missing';
+        } elseif ($platformHotelId !== null
+            && !hash_equals($platformHotelId, $observedPlatformHotelId)
+        ) {
             $blockers[] = 'hotel_identity_mismatch';
         }
         if ($fieldFactStatus !== 'ready' || $pageFieldFactStatus !== 'ready') {
@@ -469,6 +839,7 @@ final class CollectionResultContractService
                 'data_source_id' => $dataSourceId,
                 'row_ids' => $rowIds,
                 'source_trace_ids' => $traceIds,
+                'observed_platform_hotel_id' => $observedPlatformHotelId,
                 'source_fingerprint' => null,
             ],
             'blockers' => $blockers,

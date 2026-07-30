@@ -1278,13 +1278,16 @@ export const CTRIP_CAPTURE_PLANS = {
     ],
     expected_endpoint_ids: [
       'business_realtime',
+      'business_capacity',
       'business_flow_compete',
+      'business_visitor_title',
       'business_hotel_seq',
       'business_flow_transform',
       'traffic_hotel_seq',
       'traffic_flow_transform',
       'traffic_order_overview',
       'traffic_realtime_visitor_trend',
+      'traffic_hotel_min_price',
     ],
     click_refresh: false,
     probe_popups: false,
@@ -1313,6 +1316,7 @@ export const CTRIP_CAPTURE_PLANS = {
       'traffic_order_trend',
     ],
     expected_endpoint_ids: [
+      'traffic_flow_transform',
       'traffic_order_trend',
     ],
     click_refresh: false,
@@ -3992,6 +3996,8 @@ function buildStandardRow(facts, context) {
   }
 
   if (String(first.endpoint_id || '') === 'traffic_search_details') {
+    row.data_period = 'next_30_days';
+    row.is_final = 0;
     row.raw_data.metric_status = missingFields.length > 0 ? 'partial' : 'captured';
     return row;
   }

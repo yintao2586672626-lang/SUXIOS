@@ -42,6 +42,19 @@ final class OnlineDataTrustStatusServiceTest extends TestCase
         self::assertSame('2026-07-19 08:31:00', $truth['persistence']['stored_at']);
     }
 
+    public function testMissingPlatformHotelIdentityCannotBePromotedToVerified(): void
+    {
+        $row = $this->readyRow();
+        unset($row['hotel_id']);
+
+        $truth = OnlineDataTrustStatusService::truthEnvelope($row, $this->readyFieldFacts());
+
+        self::assertSame('unverified', $truth['status']);
+        self::assertSame('', $truth['hotel']['platform_hotel_id']);
+        self::assertContains('platform_hotel_id_missing', $truth['evidence_gap_codes']);
+        self::assertStringContainsString('平台门店标识缺失', $truth['failure_reason']);
+    }
+
     public function testManualImportRemainsUnverifiedEvenAfterDatabaseReadback(): void
     {
         $row = $this->readyRow();

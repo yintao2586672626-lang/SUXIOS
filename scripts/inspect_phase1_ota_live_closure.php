@@ -2346,7 +2346,13 @@ function field_fact_source_path_structured(string $sourcePath): bool
 {
     $sourcePath = trim($sourcePath);
     return $sourcePath !== ''
-        && (str_contains($sourcePath, '.') || str_contains($sourcePath, '[') || str_contains($sourcePath, '/'));
+        && (
+            str_contains($sourcePath, '.')
+            || str_contains($sourcePath, '[')
+            || str_contains($sourcePath, '/')
+            // A single identifier is a valid root-level JSON property path.
+            || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $sourcePath) === 1
+        );
 }
 
 /**
@@ -2705,6 +2711,38 @@ function rows_list(mixed $value): array
 }
 
 /**
+ * Optional peer/rank facts may remain reference-only without invalidating
+ * already trusted P0 daily and traffic facts.
+ *
+ * @param array<int, mixed> $daily
+ * @param array<int, mixed> $traffic
+ * @return array{status:string,fact_count:int,trusted_fact_count:int,untrusted_fact_count:int}
+ */
+function inspection_p0_core_etl_readiness(array $daily, array $traffic): array
+{
+    $facts = array_values(array_filter(
+        array_merge($daily, $traffic),
+        'is_array'
+    ));
+    $trustedFactCount = count(array_filter(
+        $facts,
+        static fn(array $fact): bool =>
+            ($fact['source_trace']['saved_success'] ?? false) === true
+    ));
+    $factCount = count($facts);
+    $untrustedFactCount = $factCount - $trustedFactCount;
+
+    return [
+        'status' => $factCount === 0
+            ? 'empty'
+            : ($untrustedFactCount === 0 ? 'ready' : 'blocked'),
+        'fact_count' => $factCount,
+        'trusted_fact_count' => $trustedFactCount,
+        'untrusted_fact_count' => $untrustedFactCount,
+    ];
+}
+
+/**
  * @param array<string, bool> $columns
  * @param array<string, mixed> $options
  * @param array<string, mixed> $result
@@ -2774,12 +2812,27 @@ function inspect_platform(string $platform, array $columns, array $options, arra
     $advertising = rows_list($dataset['fact_ota_advertising'] ?? []);
     $quality = rows_list($dataset['fact_ota_quality'] ?? []);
     $metrics = (new OtaRevenueMetricService())->summarizeDataset($dataset);
+    $p0CoreEtl = inspection_p0_core_etl_readiness($daily, $traffic);
+    $datasetStatus = (string)($dataset['status'] ?? '');
 
-    if (($dataset['status'] ?? '') === 'ready') {
+    if ($datasetStatus === 'ready') {
         add_check($checks, 'etl_ready', 'proved', 'OTA standard ETL produced readable facts.');
+    } elseif ($datasetStatus === 'partial' && $p0CoreEtl['status'] === 'ready') {
+        add_check(
+            $checks,
+            'etl_ready',
+            'proved',
+            'P0 daily and traffic facts are fully trusted; unrelated reference-only facts remain partial.',
+            [
+                'etl_status' => $datasetStatus,
+                'p0_core_etl' => $p0CoreEtl,
+                'scope_policy' => 'untrusted_optional_peer_or_rank_facts_do_not_block_trusted_p0_daily_and_traffic_facts',
+            ]
+        );
     } else {
         add_check($checks, 'etl_ready', 'missing', 'OTA standard ETL is not ready for this scope.', [
-            'etl_status' => $dataset['status'] ?? null,
+            'etl_status' => $datasetStatus,
+            'p0_core_etl' => $p0CoreEtl,
         ]);
         add_missing($result, $platform . '_etl_not_ready', 'OTA standard ETL did not produce readable facts.', [
             'platform' => $platform,
@@ -2882,7 +2935,11 @@ function inspect_platform(string $platform, array $columns, array $options, arra
         ],
         'field_facts' => $fieldFacts,
         'etl' => [
-            'status' => $dataset['status'] ?? null,
+            'status' => $datasetStatus,
+            'p0_core_status' => $p0CoreEtl['status'],
+            'p0_core_fact_count' => $p0CoreEtl['fact_count'],
+            'p0_core_trusted_fact_count' => $p0CoreEtl['trusted_fact_count'],
+            'p0_core_untrusted_fact_count' => $p0CoreEtl['untrusted_fact_count'],
             'daily_facts' => count($daily),
             'traffic_facts' => count($traffic),
             'advertising_facts' => count($advertising),

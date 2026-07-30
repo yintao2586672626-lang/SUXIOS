@@ -74,6 +74,8 @@ final class TrustedOtaFactRepositoryTest extends TestCase
             . 'update_time TEXT NULL, '
             . 'ingestion_method TEXT NULL, '
             . 'source_trace_id TEXT NULL, '
+            . 'data_source_id INTEGER NULL, '
+            . 'sync_task_id INTEGER NULL, '
             . 'raw_data TEXT NULL, '
             . 'readback_verified INTEGER NOT NULL DEFAULT 0'
         );
@@ -209,6 +211,51 @@ final class TrustedOtaFactRepositoryTest extends TestCase
         self::assertSame(2, $result['data_quality']['suppressed_mixed_type_rows']);
     }
 
+    public function testDailySummaryDimensionsNeverBlendAcrossSyncTasks(): void
+    {
+        $this->insertRow([
+            'dimension' => 'room-a',
+            'amount' => 100,
+            'quantity' => 1,
+            'book_order_num' => 1,
+            'sync_task_id' => 1001,
+            'snapshot_time' => '2026-07-01 10:00:00',
+            'update_time' => '2026-07-01 10:00:00',
+        ]);
+        $this->insertRow([
+            'dimension' => 'room-b',
+            'amount' => 50,
+            'quantity' => 1,
+            'book_order_num' => 1,
+            'sync_task_id' => 1001,
+            'snapshot_time' => '2026-07-01 10:00:00',
+            'update_time' => '2026-07-01 10:00:00',
+        ]);
+        $this->insertRow([
+            'dimension' => 'room-a',
+            'amount' => 120,
+            'quantity' => 1,
+            'book_order_num' => 1,
+            'sync_task_id' => 1002,
+            'snapshot_time' => '2026-07-01 11:00:00',
+            'update_time' => '2026-07-01 11:00:00',
+        ]);
+
+        $result = (new TrustedOtaFactRepository())->pricingHistory(
+            80,
+            '2026-07-01',
+            '2026-07-01'
+        );
+
+        self::assertSame('ready', $result['data_status']);
+        self::assertCount(1, $result['rows']);
+        self::assertSame(120.0, $result['rows'][0]['amount']);
+        self::assertSame(1002, $result['rows'][0]['sync_task_id']);
+        self::assertSame('business', $result['rows'][0]['data_type']);
+        self::assertSame(1, $result['data_quality']['superseded_period_rows']);
+        self::assertSame(1, $result['data_quality']['superseded_snapshot_rows']);
+    }
+
     public function testFailsClosedWhenReadbackProofColumnIsMissing(): void
     {
         $this->recreateTable(
@@ -237,6 +284,8 @@ final class TrustedOtaFactRepositoryTest extends TestCase
             . 'validation_flags TEXT NOT NULL, '
             . 'ingestion_method TEXT NOT NULL, '
             . 'source_trace_id TEXT NOT NULL, '
+            . 'data_source_id INTEGER NOT NULL, '
+            . 'sync_task_id INTEGER NOT NULL, '
             . 'raw_data TEXT NOT NULL, '
             . 'readback_verified INTEGER NOT NULL DEFAULT 0'
         );
@@ -253,6 +302,8 @@ final class TrustedOtaFactRepositoryTest extends TestCase
             'validation_flags' => '',
             'ingestion_method' => 'browser_profile',
             'source_trace_id' => 'trace-metrics-missing',
+            'data_source_id' => 18,
+            'sync_task_id' => 1000,
             'raw_data' => $this->encodeRaw($this->trustedRawData($fixtureRow)),
             'readback_verified' => 1,
         ]);
@@ -300,6 +351,27 @@ final class TrustedOtaFactRepositoryTest extends TestCase
             $row['raw_data'] = $this->encodeRaw($this->trustedRawData($row));
             self::assertSame('', $method->invoke($service, $row), $status);
         }
+    }
+
+    public function testDomOnlyProfileRowCannotBecomeATrustedOtaFact(): void
+    {
+        $service = new TrustedOtaFactRepository();
+        $method = new \ReflectionMethod($service, 'rejectionReason');
+        $method->setAccessible(true);
+        $row = $this->defaultRow();
+        $raw = $this->trustedRawData($row);
+        $raw['row']['_capture_source'] = 'dom:traffic:home_summary';
+        $raw['row']['_source_path'] = 'dom.traffic.home_summary';
+        $raw['row']['capture_evidence']['capture_source']
+            = 'dom:traffic:home_summary';
+        $raw['row']['capture_evidence']['source_path']
+            = 'dom.traffic.home_summary';
+        $row['raw_data'] = $this->encodeRaw($raw);
+
+        self::assertSame(
+            'structured_capture_evidence_dom_only',
+            $method->invoke($service, $row)
+        );
     }
 
     public function testRejectsMissingTraceBindingAndEachUnprovenMetricFact(): void
@@ -417,6 +489,8 @@ final class TrustedOtaFactRepositoryTest extends TestCase
             'update_time' => '2026-07-02 01:00:00',
             'ingestion_method' => 'browser_profile',
             'source_trace_id' => 'trace-80',
+            'data_source_id' => 18,
+            'sync_task_id' => 1000,
             'readback_verified' => 1,
         ];
     }
@@ -429,9 +503,30 @@ final class TrustedOtaFactRepositoryTest extends TestCase
     private function trustedRawData(array $row, array $extra = []): array
     {
         $traceId = trim((string)($row['source_trace_id'] ?? ''));
+        $urlHash = hash('sha256', 'trusted-fixture:' . $traceId);
+        $platform = strtolower(trim((string)($row['platform'] ?? 'ctrip')));
+        $captureSource = $platform === 'meituan'
+            ? 'xhr:traffic:business_data'
+            : 'xhr:business';
+        $sourcePath = 'data';
         $raw = [
             'data_type' => (string)($row['data_type'] ?? ''),
             'source_trace_id' => $traceId,
+            'source_url_hash' => $urlHash,
+            'capture_evidence' => [
+                'source_trace_id' => $traceId,
+                'source_url_hash' => $urlHash,
+            ],
+            'row' => [
+                '_capture_source' => $captureSource,
+                '_source_path' => $sourcePath,
+                'capture_evidence' => [
+                    'capture_source' => $captureSource,
+                    'source_path' => $sourcePath,
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $urlHash,
+                ],
+            ],
             'platform_hotel_identifier_present' => true,
             'platform_hotel_identifier_source' => ($row['platform'] ?? 'ctrip') === 'meituan'
                 ? 'poi_id_family'
@@ -451,9 +546,15 @@ final class TrustedOtaFactRepositoryTest extends TestCase
                 'metric_key' => $metricKey,
                 'normalized_field' => $field,
                 'storage_field' => 'online_daily_data.' . $field,
+                'source_path' => $sourcePath . '.' . $field,
                 'status' => 'captured',
                 'stored_value_present' => true,
-                'capture_evidence' => ['source_trace_id' => $traceId],
+                'capture_evidence' => [
+                    'capture_source' => $captureSource,
+                    'source_path' => $sourcePath,
+                    'source_trace_id' => $traceId,
+                    'source_url_hash' => $urlHash,
+                ],
             ];
         }
 

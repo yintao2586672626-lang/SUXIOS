@@ -30,7 +30,7 @@ test('manual notification page exposes truthful cloud automation task evidence',
   assert.match(appMainSource, /\/\^\(ctrip\|qunar\)_\//);
   assert.match(appMainSource, /data-manual-notification-edit-id/);
   assert.match(appMainSource, /handleManualNotificationAutomaticTaskClick/);
-  assert.match(appMainSource, /三源状态/);
+  assert.match(appMainSource, /三源推送回执/);
   assert.match(appMainSource, /推送计划/);
   for (const source of ['ctrip', 'meituan', 'dingdandao_pms']) {
     assert.match(appMainSource, new RegExp(`key: '${source}'`));
@@ -58,11 +58,41 @@ test('three-source integration and automatic scheduling remain separate states',
   assert.match(appMainSource, /启用计划前不会自动发送/);
   assert.match(appMainSource, /item\?\.enabled === true/);
   assert.match(appMainSource, /schedule_status \|\| ''\) === 'schedule_enabled'/);
+  assert.match(appMainSource, /const manualNotificationPlanUsesForbiddenLoop/);
+  assert.match(appMainSource, /const manualNotificationPlanIsActive/);
+  assert.match(appMainSource, /!manualNotificationPlanUsesForbiddenLoop\(item\)/);
+  assert.match(appMainSource, /schedule_effective_enabled !== false/);
+  assert.match(appMainSource, /旧循环计划已阻断/);
+  assert.match(appMainSource, /String\(task\?\.trigger_type \|\| ''\) === 'manual_test'/);
+  assert.match(appMainSource, /无定时运行/);
+  assert.match(appMainSource, /计划已阻断/);
+  assert.doesNotMatch(appMainSource, /按周期执行/);
   assert.match(notificationSource, /manualNotificationSchedulerDisplay\.label/);
   assert.match(notificationSource, /manualNotificationSchedulerDisplay\.note/);
   assert.match(notificationSource, /:title="manualNotificationSchedulerDisplay\.note"/);
   assert.doesNotMatch(notificationSource, /manual-notification-scheduler-note/);
   assert.doesNotMatch(appMainSource, /三源已接入 · 自动发送已启用/);
+});
+
+test('three-source delivery distinguishes the selected business date from historical receipts', () => {
+  assert.match(appMainSource, /const selectedBusinessDate = String\(/);
+  assert.match(
+    appMainSource,
+    /String\(item\?\.business_date \|\| ''\) === selectedBusinessDate/,
+  );
+  assert.match(appMainSource, /currentDelivery/);
+  assert.match(appMainSource, /本业务日已送达/);
+  assert.match(appMainSource, /历史送达/);
+  assert.match(appMainSource, /最近业务日/);
+  assert.match(appMainSource, /历史回执不计作本日送达/);
+  assert.match(
+    appMainSource,
+    /deliveredCount: cards\.filter\(item => item\.currentDelivery !== null\)\.length/,
+  );
+  assert.doesNotMatch(
+    appMainSource,
+    /source\.latestDelivery\s*\?\s*'已送达'/,
+  );
 });
 
 test('the unified current-hotel channel precedes automatic task evidence', () => {

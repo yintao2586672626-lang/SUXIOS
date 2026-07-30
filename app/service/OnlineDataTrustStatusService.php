@@ -89,6 +89,15 @@ final class OnlineDataTrustStatusService
         )));
     }
 
+    public static function isUnverifiedIngestionMethod(mixed $method): bool
+    {
+        return in_array(
+            strtolower(trim((string)$method)),
+            self::UNVERIFIED_INGESTION_METHODS,
+            true
+        );
+    }
+
     /** @param array<int, string> $statuses */
     public static function quotedSqlList(array $statuses): string
     {
@@ -150,6 +159,15 @@ final class OnlineDataTrustStatusService
         ]) !== false;
         $readbackVerified = (int)($row['readback_verified'] ?? 0) === 1;
         $systemHotelId = max(0, (int)($row['system_hotel_id'] ?? 0));
+        $platformHotelId = self::firstText([
+            $row['platform_hotel_id'] ?? null,
+            $row['hotel_id'] ?? null,
+            $row['ota_hotel_id'] ?? null,
+            $raw['platform_hotel_id'] ?? null,
+            $raw['hotel_id'] ?? null,
+            $raw['ota_hotel_id'] ?? null,
+            $platform === 'meituan' ? ($raw['poi_id'] ?? null) : null,
+        ]);
         $hotelName = self::firstText([
             $row['system_hotel_name'] ?? null,
             $row['hotel_name'] ?? null,
@@ -180,6 +198,7 @@ final class OnlineDataTrustStatusService
         $gapCodes = [];
         $gapTexts = [];
         self::appendTruthGap($gapCodes, $gapTexts, $systemHotelId <= 0, 'system_hotel_missing', '门店绑定缺失');
+        self::appendTruthGap($gapCodes, $gapTexts, $platformHotelId === '', 'platform_hotel_id_missing', '平台门店标识缺失');
         self::appendTruthGap($gapCodes, $gapTexts, $platform === '', 'platform_missing', '平台来源缺失');
         self::appendTruthGap($gapCodes, $gapTexts, $dataDate === '', 'data_date_missing', '业务日期缺失');
         self::appendTruthGap($gapCodes, $gapTexts, $sourceMethod === '', 'source_method_missing', '来源方式未记录');
@@ -212,7 +231,10 @@ final class OnlineDataTrustStatusService
             );
         }
 
-        $identityComplete = $systemHotelId > 0 && $platform !== '' && $dataDate !== '';
+        $identityComplete = $systemHotelId > 0
+            && $platformHotelId !== ''
+            && $platform !== ''
+            && $dataDate !== '';
         if ($collectionFailed) {
             $status = 'collection_failed';
         } elseif ($sourceMethodUnverified || $explicitlyUnverified) {
@@ -239,7 +261,7 @@ final class OnlineDataTrustStatusService
             'scope_label' => 'OTA渠道数据，不代表全酒店经营',
             'hotel' => [
                 'system_hotel_id' => $systemHotelId > 0 ? $systemHotelId : null,
-                'platform_hotel_id' => self::firstText([$row['hotel_id'] ?? $row['ota_hotel_id'] ?? null]),
+                'platform_hotel_id' => $platformHotelId,
                 'name' => $hotelName,
             ],
             'platform' => $platform,

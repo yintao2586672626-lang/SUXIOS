@@ -457,6 +457,56 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
         );
     }
 
+    public function testSourceEvidenceDateMismatchBlocksBeforeDelivery(): void
+    {
+        $calls = 0;
+        $service = new DingdandaoPmsIntegrationService(
+            static function () use (&$calls): array {
+                $calls++;
+                return ['delivery_status' => 'sent'];
+            }
+        );
+        $this->saveEnabledConfig($service);
+        $capture = $this->verifiedCapture();
+        $snapshot = json_decode(
+            (string)Db::name('dingdandao_operating_target_captures')
+                ->where('id', 501)
+                ->value('snapshot_json'),
+            true
+        );
+        self::assertIsArray($snapshot);
+        $snapshot['capture_evidence']['data_date'] = '2026-07-27';
+        Db::name('dingdandao_operating_target_captures')
+            ->where('id', 501)
+            ->update([
+                'snapshot_json' => json_encode(
+                    $snapshot,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                ),
+            ]);
+
+        $result = $service->dispatchVerifiedCapture(
+            80,
+            80,
+            7,
+            'fixture-hotel',
+            $capture,
+            'capture'
+        );
+
+        self::assertSame('blocked', $result['delivery_status']);
+        self::assertFalse($result['delivery_attempted']);
+        self::assertSame(0, $calls);
+        self::assertContains(
+            'pms_collection_contract_blocked',
+            array_column($result['blockers'], 'code')
+        );
+        self::assertSame(
+            0,
+            (int)Db::name('dingdandao_pms_push_dispatches')->count()
+        );
+    }
+
     public function testDispatchUsesDatabaseFactsInsteadOfCallerMutation(): void
     {
         $payloads = [];
@@ -473,6 +523,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
                     'sent_count' => 1,
                     'failed_count' => 0,
                     'failures' => [],
+                    'response_reference' => 'wecom:errcode=0;robots=1',
                 ];
             }
         );
@@ -582,6 +633,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
                     'sent_count' => 1,
                     'failed_count' => 0,
                     'failures' => [],
+                    'response_reference' => 'wecom:errcode=0;robots=1',
                 ];
             }
         );
@@ -607,7 +659,12 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
 
         self::assertSame('sent', $sent['delivery_status']);
         self::assertTrue($sent['delivery_attempted']);
+        self::assertSame('wecom_business_success', $sent['result_code']);
+        self::assertSame('wecom:errcode=0;robots=1', $sent['response_reference']);
+        self::assertLessThanOrEqual(3800, $sent['payload_bytes']);
+        self::assertSame(1, $sent['part_count']);
         self::assertSame('already_sent', $duplicate['delivery_status']);
+        self::assertSame('wecom_business_success', $duplicate['result_code']);
         self::assertFalse($duplicate['delivery_attempted']);
         self::assertCount(1, $calls);
         self::assertSame(80, $calls[0]['hotelId']);
@@ -648,6 +705,74 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
         self::assertSame(
             'sent',
             (string)Db::name('dingdandao_pms_push_dispatches')->value('delivery_status')
+        );
+    }
+
+    public function testVerifiedOversoldForwardFactIsPushedAsWarningWithoutDiscardingHorizons(): void
+    {
+        $calls = [];
+        $service = new DingdandaoPmsIntegrationService(
+            static function (
+                int $hotelId,
+                int $robotId,
+                array $payload
+            ) use (&$calls): array {
+                $calls[] = compact('hotelId', 'robotId', 'payload');
+                return [
+                    'delivery_status' => 'sent',
+                    'robot_count' => 1,
+                    'sent_count' => 1,
+                    'failed_count' => 0,
+                    'failures' => [],
+                    'response_reference' => 'wecom:errcode=0;robots=1',
+                ];
+            }
+        );
+        $this->saveEnabledConfig($service);
+        $capture = $this->verifiedCapture(false);
+        $forward = $capture['forward_room_status'];
+        $forward['data_status'] = 'verified_with_anomalies';
+        $forward['daily_rows'][1]['oversold_rooms'] = 2;
+        $forward['room_types'][0]['daily_rows'][1]['oversold_rooms'] = 2;
+        $forward['gap_codes'] = ['dingdandao_forward_oversold_present'];
+        $forward['anomalies'] = [[
+            'anomaly_type' => 'oversold',
+            'stay_date' => '2026-07-29',
+            'provider_room_type_id' => 'room-type-1',
+            'room_type_name' => '测试房型',
+            'oversold_rooms' => 2,
+        ]];
+        foreach ($forward['horizons'] as &$horizon) {
+            $horizon['oversold_room_nights'] = 2;
+            $horizon['quality_status'] = 'warning';
+            $horizon['gap_codes'] = [
+                'dingdandao_forward_oversold_present',
+            ];
+        }
+        unset($horizon);
+        $capture['forward_room_status'] = $forward;
+        $this->insertVerifiedCaptureRow($capture);
+
+        $sent = $service->dispatchVerifiedCapture(
+            80,
+            80,
+            7,
+            '敦煌漠蓝新',
+            $capture,
+            'capture'
+        );
+
+        self::assertSame('sent', $sent['delivery_status']);
+        self::assertSame('wecom_business_success', $sent['result_code']);
+        self::assertCount(1, $calls);
+        $content = $calls[0]['payload']['markdown']['content'];
+        self::assertStringContainsString(
+            '3 天（07-29 至 07-31）：已订12 间夜',
+            $content
+        );
+        self::assertStringContainsString(
+            '⚠ 超售提醒：07-29｜测试房型｜2 间',
+            $content
         );
     }
 
@@ -700,16 +825,17 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
         $stored = Db::name('dingdandao_pms_push_dispatches')->where('capture_id', 501)->find();
         self::assertSame(2, (int)$stored['attempt_count']);
         self::assertSame('sent', $stored['delivery_status']);
-        self::assertSame(
-            [
-                'delivery_status' => 'sent',
-                'robot_count' => 1,
-                'sent_count' => 1,
-                'failed_count' => 0,
-                'failures' => [],
-            ],
-            json_decode((string)$stored['delivery_receipt_json'], true)
-        );
+        $receipt = json_decode((string)$stored['delivery_receipt_json'], true);
+        self::assertIsArray($receipt);
+        self::assertSame('sent', $receipt['delivery_status']);
+        self::assertSame('wecom_receipt_unverified', $receipt['result_code']);
+        self::assertNull($receipt['response_reference']);
+        self::assertGreaterThan(0, $receipt['payload_bytes']);
+        self::assertSame(1, $receipt['part_count']);
+        self::assertSame(1, $receipt['robot_count']);
+        self::assertSame(1, $receipt['sent_count']);
+        self::assertSame(0, $receipt['failed_count']);
+        self::assertSame([], $receipt['failures']);
     }
 
     public function testFreshPendingIsNotRetriedEvenWhenExplicitlyRequested(): void
@@ -1022,17 +1148,38 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
     {
         $countyContext = $this->verifiedCountyContext();
         $forwardRoomStatus = $this->verifiedForwardRoomStatus();
+        $sourceApiPath = '/api/verified';
+        $sourceUrl = DingdandaoOperatingTargetCaptureService::SOURCE_URL;
+        $providerHotelId = 'provider-hotel-80';
+        $captureEvidence =
+            DingdandaoOperatingTargetCaptureService::expectedCaptureEvidence(
+                $sourceApiPath,
+                '2026-07-28',
+                $providerHotelId,
+                'full_diagnostic'
+            );
+        self::assertIsArray($captureEvidence);
+        $sourceTraceId = (string)$captureEvidence['source_trace_id'];
         $capture = [
             'id' => 501,
+            'tenant_id' => 80,
             'hotel_id' => 80,
             'business_date' => '2026-07-28',
-            'provider_hotel_id' => 'provider-hotel-80',
+            'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+            'provider_hotel_id' => $providerHotelId,
             'provider_hotel_name' => '敦煌漠蓝',
+            'source_url' => $sourceUrl,
+            'source_api_path' => $sourceApiPath,
+            'source_scope' => DingdandaoOperatingTargetCaptureService::SOURCE_SCOPE,
+            'collection_mode' => 'full_diagnostic',
+            'capture_method' => 'network_response',
+            'capture_strategy' => 'verified_endpoint_recipe',
             'identity_status' => 'matched',
             'capture_status' => 'verified',
             'quality_status' => 'verified',
             'reconciliation_status' => 'matched',
             'readback_status' => 'readback_verified',
+            'source_trace_id' => $sourceTraceId,
             'source_fingerprint' => str_repeat('a', 64),
             'summary' => [
                 'total_room_fee' => 8275.67,
@@ -1043,6 +1190,12 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
                 'average_daily_room_nights' => 13.0,
                 'derived_sellable_room_nights' => 15,
             ],
+            'room_fee_summary_rows' => [[
+                'provider_room_type_id' => 'room-type-1',
+                'room_type' => '测试房型',
+                'source_row_index' => 1,
+                'room_fee' => 8275.67,
+            ]],
             'detail_row_count' => 25,
             'detail_room_fee_total' => 8275.67,
             'trend' => [
@@ -1070,6 +1223,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             'county_context' => $countyContext,
             'forward_room_status' => $forwardRoomStatus,
             'captured_at' => '2026-07-28 00:30:00',
+            'capture_evidence' => $captureEvidence,
         ];
         if ($persist) {
             $this->insertVerifiedCaptureRow($capture);
@@ -1168,6 +1322,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
                 'booked_room_nights' => 4 * $days,
                 'remaining_sellable_room_nights' => 11 * $days,
                 'unavailable_room_nights' => 0,
+                'oversold_room_nights' => 0,
                 'room_fee' => 1280 * $days,
                 'occupancy_rate_percent' => 26.67,
                 'adr' => 320,
@@ -1179,6 +1334,8 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
         return [
             'contract_version' => 'dingdandao_forward_room_status.v1',
             'fact_scope' => 'whole_hotel_forward_room_status',
+            'source_page_url' =>
+                DingdandaoOperatingTargetCaptureService::FORWARD_SOURCE_URL,
             'source_api_path' => '/v2/hm-b/pro/web/accom/roomStat/forward/v2',
             'data_status' => 'verified',
             'readback_status' => 'readback_verified',
@@ -1195,6 +1352,57 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             'display_semantics' => 'future_days_after_as_of_date',
             'source_coverage_status' => 'complete',
             'source_gap_codes' => [],
+            'metric_definitions' => [
+                'remaining_sellable_rooms' => [
+                    'provider_field' => 'availableSale',
+                    'definition' =>
+                        'remaining rooms that can still be sold for the stay date',
+                ],
+                'booked_rooms' => [
+                    'provider_field' => 'occupy',
+                    'definition' => 'rooms already sold for the stay date',
+                ],
+                'unavailable_rooms' => [
+                    'provider_field' => 'unavailableSale',
+                    'definition' =>
+                        'rooms unavailable because of stop, maintenance, hold, or linked closure',
+                    'components' => [
+                        'stopped',
+                        'maintenance',
+                        'held',
+                        'linked_closed',
+                    ],
+                ],
+                'room_fee' => [
+                    'provider_field' => 'roomFee',
+                    'definition' => 'room fee only',
+                    'material_exclusions' => [
+                        'guest_room_consumption',
+                        'penalties',
+                        'other_non_room_fee_revenue',
+                    ],
+                ],
+                'sellable_room_nights' => [
+                    'provider_field' => 'avaRoom',
+                    'formula' =>
+                        'remaining_sellable_rooms + booked_rooms',
+                ],
+                'occupancy_rate_percent' => [
+                    'provider_field' => 'occ',
+                    'formula' =>
+                        'sold_room_nights / sellable_room_nights * 100',
+                ],
+                'adr' => [
+                    'provider_field' => 'adr',
+                    'formula' => 'room_fee / sold_room_nights',
+                ],
+                'revpar' => [
+                    'provider_field' => 'revPar',
+                    'formula' => 'room_fee / sellable_room_nights',
+                    'equivalent_formula' =>
+                        'occupancy_rate_decimal * adr',
+                ],
+            ],
             'daily_rows' => $dailyRows,
             'room_types' => [[
                 'provider_room_type_id' => 'room-type-1',
@@ -1205,6 +1413,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             'horizons' => $horizons,
             'reconciliation_status' => 'matched',
             'gap_codes' => [],
+            'anomalies' => [],
             'field_trace' => [],
         ];
     }
@@ -1255,9 +1464,10 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             'field_trace_json' => '{}',
             'snapshot_json' => json_encode([
                 'collection_mode' => 'full_diagnostic',
+                'room_fee_summary_rows' => $capture['room_fee_summary_rows'],
                 'county_context' => $capture['county_context'],
                 'forward_room_status' => $capture['forward_room_status'],
-                'capture_evidence' => [],
+                'capture_evidence' => $capture['capture_evidence'],
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'source_fingerprint' => $capture['source_fingerprint'],
             'captured_at' => $capture['captured_at'],

@@ -8,9 +8,11 @@ use app\model\KnowledgeChunk;
 use app\model\KnowledgeUnit;
 use app\service\KnowledgeDocumentTextExtractor;
 use app\service\KnowledgeDecisionGateService;
+use app\service\KnowledgeChunkGateSummaryService;
 use app\service\KnowledgeDistillationService;
 use app\service\KnowledgeMaterialIngestionService;
 use app\service\KnowledgePayloadMapper;
+use app\service\KnowledgeSopExecutionProvenanceService;
 use app\service\OperationManagementService;
 use InvalidArgumentException;
 use think\exception\ValidateException;
@@ -86,20 +88,25 @@ class Knowledge extends Base
             $rows = $query->page($pagination['page'], $pagination['page_size'])->select()->toArray();
             $ids = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['unit_id'] ?? 0), $rows)));
             $chunkCounts = [];
+            $chunkGateSummaries = [];
             if ($ids) {
-                $countRows = KnowledgeChunk::whereIn('unit_id', $ids)
-                    ->field('unit_id, COUNT(*) AS total')
-                    ->group('unit_id')
+                $chunkRows = KnowledgeChunk::whereIn('unit_id', $ids)
+                    ->field('chunk_id,unit_id,content')
                     ->select()
                     ->toArray();
-                foreach ($countRows as $countRow) {
-                    $chunkCounts[(int)$countRow['unit_id']] = (int)$countRow['total'];
+                $chunkGateSummaries = $this->knowledgeChunkGateSummaries($rows, $chunkRows);
+                foreach ($chunkGateSummaries as $unitId => $summary) {
+                    $chunkCounts[$unitId] = (int)($summary['total_count'] ?? 0);
                 }
             }
 
             return $this->ok([
                 'list' => array_map(
-                    fn(array $row): array => $this->formatUnitRow($row, (int)($chunkCounts[$row['unit_id']] ?? 0)),
+                    fn(array $row): array => $this->formatUnitRow(
+                        $row,
+                        (int)($chunkCounts[$row['unit_id']] ?? 0),
+                        $chunkGateSummaries[(int)$row['unit_id']] ?? null
+                    ),
                     $rows
                 ),
                 'pagination' => [
@@ -123,9 +130,11 @@ class Knowledge extends Base
             }
 
             $chunks = KnowledgeChunk::where('unit_id', $unit_id)->order('chunk_id', 'asc')->select()->toArray();
+            $unitRow = $unit->toArray();
+            $gateSummary = $this->knowledgeChunkGateSummaries([$unitRow], $chunks)[$unit_id] ?? null;
 
             return $this->ok([
-                'unit' => $this->formatUnitRow($unit->toArray(), count($chunks)),
+                'unit' => $this->formatUnitRow($unitRow, count($chunks), $gateSummary),
                 'chunks' => array_map(fn(array $row): array => $this->formatChunkRow($row), $chunks),
             ]);
         } catch (\Throwable $e) {
@@ -344,13 +353,19 @@ class Knowledge extends Base
             $startDate = trim((string)($input['date_start'] ?? date('Y-m-d')));
             $dueDate = trim((string)($input['due_at'] ?? $input['date_end'] ?? date('Y-m-d', strtotime('+7 days'))));
             $assigneeId = (int)($input['assignee_id'] ?? $userId);
-            $platform = strtolower(trim((string)($input['platform'] ?? 'ota')));
+            $provenance = (new KnowledgeSopExecutionProvenanceService())->validateSnapshot(
+                $unit->toArray(),
+                $chunk->toArray(),
+                $hotelId,
+                strtolower(trim((string)($input['platform'] ?? 'ota')))
+            );
+            $platform = (string)$provenance['resolved_platform'];
 
             $payload = [
                 'source_module' => 'knowledge_sop',
                 'source_record_id' => $chunk_id,
                 'hotel_id' => $hotelId,
-                'platform' => $platform !== '' ? $platform : 'ota',
+                'platform' => $platform,
                 'object_type' => 'operation_checklist',
                 'action_type' => (string)($template['action_type'] ?? 'execute_sop_card'),
                 'date_start' => $startDate,
@@ -379,6 +394,7 @@ class Knowledge extends Base
                     'evidence_level' => (string)($content['evidence_level'] ?? ''),
                     'evidence_grade' => (string)($knowledgeGate['evidence_grade'] ?? 'U'),
                     'knowledge_gate_status' => (string)($knowledgeGate['status'] ?? 'blocked'),
+                    'knowledge_provenance' => $provenance,
                     'auto_write_ota' => false,
                 ],
                 'expected_metric' => 'sop_completion',
@@ -391,7 +407,10 @@ class Knowledge extends Base
                 $permittedHotelIds,
                 $hotelId,
                 $payload,
-                $userId
+                $userId,
+                false,
+                null,
+                true
             );
 
             return $this->ok(['execution_intent' => $intent], 'task draft created');
@@ -881,12 +900,43 @@ class Knowledge extends Base
         ), static fn(int $id): bool => $id > 0)));
     }
 
-    private function formatUnitRow(array $row, ?int $chunkCount = null): array
+    private function formatUnitRow(
+        array $row,
+        ?int $chunkCount = null,
+        ?array $chunkGateSummary = null
+    ): array
     {
+        $unitId = (int)($row['unit_id'] ?? 0);
+        if ($chunkGateSummary === null
+            && $unitId > 0
+            && ($chunkCount === null || $chunkCount > 0)
+        ) {
+            $chunks = KnowledgeChunk::where('unit_id', $unitId)
+                ->field('chunk_id,unit_id,content')
+                ->select()
+                ->toArray();
+            $chunkGateSummary = $this->knowledgeChunkGateSummaries([$row], $chunks)[$unitId] ?? null;
+            if ($chunkGateSummary !== null) {
+                $chunkCount = (int)($chunkGateSummary['total_count'] ?? count($chunks));
+            }
+        }
+        if ($chunkGateSummary !== null) {
+            $row['_chunk_gate_summary'] = $chunkGateSummary;
+        }
         $formatted = $this->payloadMapper()->formatUnitRow($row, $chunkCount);
         $formatted['system_read_only'] = $this->isGlobalSystemKnowledgeRow($row);
         $formatted['can_edit'] = $this->canModifyOwnedRow($row);
         return $formatted;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $units
+     * @param array<int, array<string, mixed>> $chunks
+     * @return array<int, array<string, int>>
+     */
+    private function knowledgeChunkGateSummaries(array $units, array $chunks): array
+    {
+        return (new KnowledgeChunkGateSummaryService())->summarize($units, $chunks);
     }
 
     private function formatChunkRow(array $row): array

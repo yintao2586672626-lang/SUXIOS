@@ -116,6 +116,36 @@ final class KnowledgePayloadMapper
             throw new ValidateException('content must be a JSON object or array');
         }
 
+        $submittedEvidenceLevel = trim((string)($content['evidence_level'] ?? ''));
+        foreach ([
+            'evidence_grade',
+            'reviewed_at',
+            'review_due_at',
+            'current_verification_status',
+            'live_verification_status',
+            'valid_from',
+            'valid_until',
+            'effective_from',
+            'effective_until',
+            'resolution_status',
+            'conflict_status',
+        ] as $authorityField) {
+            unset($content[$authorityField]);
+        }
+        $content['scope'] = 'hotel_specific_reference_unverified';
+        $content['evidence_level'] = 'user_provided_unverified';
+        $content['evidence_grade'] = 'D';
+        $content['requires_current_verification'] = true;
+        $content['current_verification_status'] = 'unverified';
+        $content['decision_policy'] = 'reference_only_until_separate_review';
+        $content['blocked_uses'] = array_values(array_unique(array_merge(
+            is_array($content['blocked_uses'] ?? null) ? $content['blocked_uses'] : [],
+            ['operation_task_creation', 'operation_execution', 'automatic_ota_write']
+        )));
+        if ($submittedEvidenceLevel !== '') {
+            $content['submitted_evidence_level'] = mb_substr($submittedEvidenceLevel, 0, 120);
+        }
+
         return [
             'unit_id' => $unitId,
             'type' => $type !== '' ? $type : 'manual',

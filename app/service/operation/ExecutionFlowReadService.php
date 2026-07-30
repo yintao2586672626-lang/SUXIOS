@@ -10,8 +10,63 @@ final class ExecutionFlowReadService
     ) {
     }
 
+    /** @param array<string, mixed> $intent @param array<string, mixed> $task */
+    public function taskMatchesIntent(array $intent, array $task): bool
+    {
+        $intentId = (int)($intent['id'] ?? 0);
+        $taskIntentId = (int)($task['intent_id'] ?? 0);
+        if ($intentId > 0 && $taskIntentId > 0 && $intentId !== $taskIntentId) {
+            return false;
+        }
+
+        $intentHotelId = (int)($intent['hotel_id'] ?? 0);
+        $taskHotelId = (int)($task['hotel_id'] ?? 0);
+        if ($intentHotelId > 0 && $taskHotelId > 0 && $intentHotelId !== $taskHotelId) {
+            return false;
+        }
+
+        return $this->tenantIdentityMatches($intent, $task);
+    }
+
+    /** @param array<string, mixed> $task @param array<string, mixed> $evidence */
+    public function evidenceMatchesTask(array $task, array $evidence): bool
+    {
+        $taskId = (int)($task['id'] ?? 0);
+        $evidenceTaskId = (int)($evidence['task_id'] ?? 0);
+        if ($taskId > 0 && $evidenceTaskId > 0 && $taskId !== $evidenceTaskId) {
+            return false;
+        }
+
+        return $this->tenantIdentityMatches($task, $evidence);
+    }
+
     public function buildItem(array $intent, array $tasks = [], array $evidence = []): array
     {
+        $inputTaskCount = count($tasks);
+        $tasks = array_values(array_filter(
+            $tasks,
+            fn(array $task): bool => $this->taskMatchesIntent($intent, $task)
+        ));
+        $tasksById = [];
+        foreach ($tasks as $candidateTask) {
+            $candidateTaskId = (int)($candidateTask['id'] ?? 0);
+            if ($candidateTaskId > 0) {
+                $tasksById[$candidateTaskId] = $candidateTask;
+            }
+        }
+        $inputEvidenceCount = count($evidence);
+        $evidence = array_values(array_filter(
+            $evidence,
+            function (array $row) use ($tasksById): bool {
+                $taskId = (int)($row['task_id'] ?? 0);
+                return $taskId > 0
+                    && isset($tasksById[$taskId])
+                    && $this->evidenceMatchesTask($tasksById[$taskId], $row);
+            }
+        ));
+        $identityGapCount = ($inputTaskCount - count($tasks))
+            + ($inputEvidenceCount - count($evidence));
+
         usort($tasks, static fn(array $a, array $b): int => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
         usort($evidence, static fn(array $a, array $b): int => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
 
@@ -22,7 +77,7 @@ final class ExecutionFlowReadService
                 $evidence,
                 static fn(array $row): bool => (int)($row['task_id'] ?? 0) === $taskId
             ))
-            : $evidence;
+            : [];
         $latestEvidence = $taskEvidence[0] ?? [];
         $longitudinalReview = $this->latestLongitudinalReview($taskEvidence);
         $roiEvidence = $this->executionOutcomeService->latestExecutionRoiEvidence($taskEvidence);
@@ -89,6 +144,10 @@ final class ExecutionFlowReadService
             'id' => (int)$intent['id'],
             'hotel_id' => (int)$intent['hotel_id'],
             'stage' => $stage,
+            'identity' => [
+                'status' => $identityGapCount === 0 ? 'consistent' : 'mismatch_excluded',
+                'gap_count' => $identityGapCount,
+            ],
             'recommendation' => [
                 'source' => $sourceModule . '#' . $sourceRecordId,
                 'source_module' => $sourceModule,
@@ -174,6 +233,8 @@ final class ExecutionFlowReadService
         $profitable = 0;
         $approved = 0;
         $executed = 0;
+        $operatorReportedExecuted = 0;
+        $sourceVerifiedExecuted = 0;
         $operatorAttested = 0;
         $evidenceReady = 0;
         $totalIncrementalRevenue = 0.0;
@@ -193,7 +254,12 @@ final class ExecutionFlowReadService
             if (($item['approval']['status'] ?? '') === 'approved') {
                 $approved++;
             }
-            if (($item['execution']['status'] ?? '') === 'executed') {
+            $executionReported = ($item['execution']['status'] ?? '') === 'executed';
+            $approvalReady = ($item['approval']['status'] ?? '') === 'approved';
+            if ($executionReported) {
+                $operatorReportedExecuted++;
+            }
+            if ($approvalReady && $executionReported) {
                 $executed++;
             }
             if (($item['evidence_truth']['operator_attested'] ?? false) === true) {
@@ -202,6 +268,9 @@ final class ExecutionFlowReadService
             $sourceVerified = ($item['evidence_truth']['source_verified'] ?? false) === true;
             if ($sourceVerified) {
                 $evidenceReady++;
+                if ($approvalReady && $executionReported) {
+                    $sourceVerifiedExecuted++;
+                }
             }
             if ($sourceVerified && ($item['roi']['status'] ?? '') === 'ready') {
                 $unit = (string)($item['roi']['unit'] ?? '%');
@@ -241,6 +310,8 @@ final class ExecutionFlowReadService
             'bottleneck' => $this->buildBottleneck($stageCounts),
             'approved' => $approved,
             'executed' => $executed,
+            'operator_reported_executed' => $operatorReportedExecuted,
+            'source_verified_executed' => $sourceVerifiedExecuted,
             'operator_attested' => $operatorAttested,
             'evidence_ready' => $evidenceReady,
             'source_verified' => $evidenceReady,
@@ -251,6 +322,9 @@ final class ExecutionFlowReadService
             'avg_revenue_lift' => $revenueLiftReady > 0 ? round(array_sum($revenueLiftValues) / $revenueLiftReady, 2) : null,
             'approval_rate' => $total > 0 ? round($approved / $total * 100, 2) : null,
             'execution_rate' => $total > 0 ? round($executed / $total * 100, 2) : null,
+            'operator_reported_execution_rate' => $total > 0
+                ? round($operatorReportedExecuted / $total * 100, 2)
+                : null,
             'evidence_rate' => $total > 0 ? round($evidenceReady / $total * 100, 2) : null,
             'roi_ready_rate' => $total > 0 ? round($roiReady / $total * 100, 2) : null,
             'profitable' => $profitable,
@@ -548,5 +622,21 @@ final class ExecutionFlowReadService
         $decoded = json_decode($json, true);
 
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<string, mixed> $parent @param array<string, mixed> $child */
+    private function tenantIdentityMatches(array $parent, array $child): bool
+    {
+        $parentHasTenant = array_key_exists('tenant_id', $parent);
+        $childHasTenant = array_key_exists('tenant_id', $child);
+        if (!$parentHasTenant && !$childHasTenant) {
+            return true;
+        }
+
+        $parentTenantId = (int)($parent['tenant_id'] ?? 0);
+        $childTenantId = (int)($child['tenant_id'] ?? 0);
+        return $parentTenantId > 0
+            && $childTenantId > 0
+            && $parentTenantId === $childTenantId;
     }
 }

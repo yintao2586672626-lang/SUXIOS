@@ -489,7 +489,13 @@ function field_fact_source_path_structured(string $sourcePath): bool
 {
     $sourcePath = trim($sourcePath);
     return $sourcePath !== ''
-        && (str_contains($sourcePath, '.') || str_contains($sourcePath, '[') || str_contains($sourcePath, '/'));
+        && (
+            str_contains($sourcePath, '.')
+            || str_contains($sourcePath, '[')
+            || str_contains($sourcePath, '/')
+            // A single identifier is a valid root-level JSON property path.
+            || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $sourcePath) === 1
+        );
 }
 
 function decode_field_fact_raw_data(mixed $rawData): array

@@ -5043,6 +5043,14 @@ function p0_traffic_row_scope(array $row, string $platform): array
         ];
     }
     if ($endpointId === '') {
+        $dimension = trim((string)($row['dimension'] ?? ''));
+        if ($dimension !== '') {
+            return [
+                'authoritative' => false,
+                'endpoint_id' => '',
+                'reason' => 'ctrip_unclassified_dimensioned_traffic_row',
+            ];
+        }
         return [
             'authoritative' => true,
             'endpoint_id' => '',

@@ -48,6 +48,11 @@ import {
   sanitizeOtaObservedUrl,
   summarizeOtaSessionCookies,
 } from './lib/ota_session_probe.mjs';
+import {
+  createOtaReadFallbackState,
+  observeOtaReadFallbackRequest,
+  replayObservedOtaReadRequests,
+} from './lib/ota_read_fallback.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
 const URLS = {
@@ -119,6 +124,7 @@ const payload = {
   ads: [],
   room_types: [],
   orders: [],
+  read_fallbacks: [],
   screenshots: [],
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
   auth_status: { ok: false, status: 'pending', message: 'Login status has not been checked.' },
@@ -131,6 +137,10 @@ const payload = {
   },
   capture_gate: null,
 };
+const meituanReadFallbackState = createOtaReadFallbackState('meituan', {
+  maxTemplates: 8,
+  maxAttempts: 8,
+});
 const observedOrderFlowRequestUrls = new Set();
 const pendingResponseCaptures = new Set();
 const requestQueryEvidence = new WeakMap();
@@ -523,6 +533,25 @@ async function capturePage(page, name, url) {
   if (sectionEvidence) {
     payload.section_evidence.ads = sectionEvidence;
   }
+  await waitForPendingResponseCaptures(page);
+  const fallbackSection = meituanCapturePageSection(name);
+  if (fallbackSection) {
+    const fallbackDiagnostics = await replayObservedOtaReadRequests(
+      page,
+      meituanReadFallbackState,
+      {
+        section: fallbackSection,
+        targetDate: defaultDataDate,
+        dataPeriod,
+        maxAttempts: 2,
+        shouldReplay: template => meituanEndpointNeedsReadFallback(payload, template.endpoint_id),
+      },
+    );
+    payload.read_fallbacks.push(...fallbackDiagnostics);
+    if (fallbackDiagnostics.some(item => item.status === 'response_observed')) {
+      await waitForPendingResponseCaptures(page);
+    }
+  }
   const screenshot = join(assetDir, `${safeName(storeId)}_${name}_${timestamp()}.png`);
   await page.screenshot({ path: screenshot, fullPage: true }).catch(() => null);
   if (existsSync(screenshot)) {
@@ -796,8 +825,10 @@ async function captureMeituanBusinessPeriod(page, results, label, marker, tempor
   }
   activeBusinessTabEvidence = {
     selected: true,
+    target_date: defaultDataDate,
     relative_range: label,
     evidence_source: 'page.business_period_selection.readback',
+    marker,
     business_capture_epoch: epoch,
   };
   try {
@@ -810,6 +841,31 @@ async function captureMeituanBusinessPeriod(page, results, label, marker, tempor
       `capture verified business period ${label}`,
     );
     await waitForPendingResponseCaptures(page);
+    const usableBusinessRowCount = payload.businessData.filter(
+      row => Number(row?.business_capture_epoch || 0) === epoch,
+    ).length;
+    if (usableBusinessRowCount === 0) {
+      const fallbackDiagnostics = await replayObservedOtaReadRequests(
+        page,
+        meituanReadFallbackState,
+        {
+          section: 'traffic',
+          targetDate: defaultDataDate,
+          dataPeriod,
+          expectedRelativeRange: label,
+          requiredCaptureEpoch: epoch,
+          maxAttempts: 1,
+          shouldReplay: template => (
+            template.endpoint_id === 'meituan_business_data'
+            && Number(template.date_context?.business_capture_epoch || 0) === epoch
+          ),
+        },
+      );
+      payload.read_fallbacks.push(...fallbackDiagnostics);
+      if (fallbackDiagnostics.some(item => item.status === 'response_observed')) {
+        await waitForPendingResponseCaptures(page);
+      }
+    }
   } finally {
     activeBusinessTabEvidence = null;
   }
@@ -819,7 +875,10 @@ async function captureMeituanBusinessPeriod(page, results, label, marker, tempor
     String(response?.payload_key || '') === 'businessData'
     && Number(response?.business_capture_epoch || 0) === epoch
   )).length;
-  const captured = finalSelected && responseCount > 0;
+  const businessRowCount = payload.businessData.filter(
+    row => Number(row?.business_capture_epoch || 0) === epoch,
+  ).length;
+  const captured = finalSelected && businessRowCount > 0;
   payload.section_evidence.business = {
     ...buildMeituanRelativePeriodEvidence(
       captured,
@@ -829,6 +888,7 @@ async function captureMeituanBusinessPeriod(page, results, label, marker, tempor
     ),
     business_capture_epoch: epoch,
     response_count: responseCount,
+    business_row_count: businessRowCount,
   };
   results.push({
     action: 'readback_captured_business_period',
@@ -836,6 +896,7 @@ async function captureMeituanBusinessPeriod(page, results, label, marker, tempor
     selected: finalSelected,
     business_capture_epoch: epoch,
     response_count: responseCount,
+    business_row_count: businessRowCount,
   });
   if (!captured) {
     payload.businessData = payload.businessData.filter(
@@ -1304,6 +1365,16 @@ function registerResponseCapture(page, target) {
     if (activeBusinessTabEvidence) {
       requestBusinessTabEvidence.set(request, { ...activeBusinessTabEvidence });
     }
+    const requestPayload = request.postData() || '';
+    observeOtaReadFallbackRequest(meituanReadFallbackState, request, {
+      requestDateEvidence: extractOtaRequestDateEvidence({
+        url: request.url(),
+        payload: requestPayload,
+      }),
+      dateContext: activeBusinessTabEvidence
+        ? { ...activeBusinessTabEvidence }
+        : {},
+    });
   });
   page.on('response', response => {
     const task = captureMeituanResponse(response, target);
@@ -1533,6 +1604,30 @@ function normalizeCaptureSections(value) {
 
 function wantsSection(section) {
   return captureSections.has(section);
+}
+
+function meituanCapturePageSection(name) {
+  return {
+    traffic: 'traffic',
+    newTraffic: 'traffic',
+    orderFlow: 'order_flow',
+    orders: 'orders',
+    comments: 'reviews',
+    ads: 'ads',
+  }[String(name || '')] || '';
+}
+
+function meituanEndpointNeedsReadFallback(target, endpointId) {
+  if (endpointId === 'meituan_business_data') {
+    return !Array.isArray(target.businessData) || target.businessData.length === 0;
+  }
+  if (endpointId === 'meituan_peer_trends') {
+    return !Array.isArray(target.peerRank) || target.peerRank.length === 0;
+  }
+  if (endpointId === 'meituan_traffic_home') {
+    return !Array.isArray(target.traffic) || target.traffic.length === 0;
+  }
+  return false;
 }
 
 function withMeituanPlatformIdentifier(row) {
@@ -2157,6 +2252,7 @@ function summarize(data) {
     responses: data.responses.length,
     endpoint_discovery_candidates: data.endpoint_discovery_candidates.length,
     auto_discovered_responses: Number(data.auto_discovered_response_count || 0),
+    read_fallbacks: data.read_fallbacks.length,
   };
 }
 

@@ -230,7 +230,7 @@ final class ManualNotificationScheduleRuleService
             }
         }
         ksort($weekdays);
-        return $weekdays === [] ? range(1, 7) : array_values($weekdays);
+        return array_values($weekdays);
     }
 
     private function timeValue(mixed $value, string $fallback): string

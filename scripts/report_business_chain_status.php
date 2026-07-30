@@ -705,10 +705,68 @@ function business_chain_p0_hotel_ready(array $gate, ?int $systemHotelId, bool $p
  */
 function business_chain_p0_execution_plan_ready(array $plan): bool
 {
-    $summary = is_array($plan['summary'] ?? null) ? $plan['summary'] : [];
-    return (string)($plan['status'] ?? '') === 'passed'
-        && (int)($summary['p0_platforms_incomplete'] ?? 0) === 0
-        && (int)($summary['traffic_gates_incomplete'] ?? 0) === 0;
+    $status = strtolower(trim((string)($plan['status'] ?? '')));
+    if (!in_array($status, ['passed', 'incomplete'], true)) {
+        return false;
+    }
+
+    $scope = is_array($plan['scope'] ?? null) ? $plan['scope'] : [];
+    $selectedHotelId = isset($scope['system_hotel_id']) && (int)$scope['system_hotel_id'] > 0
+        ? (int)$scope['system_hotel_id']
+        : null;
+    $summariesByPlatform = [];
+    foreach (business_chain_list($plan['platform_summaries'] ?? []) as $summary) {
+        if (!is_array($summary)) {
+            continue;
+        }
+        $platform = strtolower(trim((string)($summary['platform'] ?? '')));
+        if ($platform !== '') {
+            $summariesByPlatform[$platform] = $summary;
+        }
+    }
+
+    $requestedPlatforms = array_values(array_unique(array_filter(array_map(
+        static fn(mixed $platform): string => strtolower(trim((string)$platform)),
+        business_chain_list($scope['platforms'] ?? [])
+    ))));
+    if ($requestedPlatforms === []) {
+        $requestedPlatforms = array_keys($summariesByPlatform);
+    }
+    if ($requestedPlatforms === []) {
+        return false;
+    }
+
+    foreach ($requestedPlatforms as $platform) {
+        $summary = $summariesByPlatform[$platform] ?? null;
+        if (!is_array($summary)
+            || ($summary['operator_skip_active'] ?? false) === true
+            || (int)($summary['target_date_rows'] ?? 0) <= 0
+            || (int)($summary['traffic_rows'] ?? 0) <= 0
+            || ($summary['readback_check_supported'] ?? false) !== true
+            || strtolower(trim((string)($summary['readback_status'] ?? ''))) !== 'ready'
+            || (int)($summary['readback_verified_rows'] ?? 0) <= 0
+            || (int)($summary['readback_unverified_rows'] ?? 0) > 0) {
+            return false;
+        }
+
+        $scopeReady = ($summary['platform_ready'] ?? false) === true;
+        if ($selectedHotelId !== null) {
+            foreach (business_chain_list($summary['next_steps'] ?? []) as $step) {
+                if (!is_array($step) || (int)($step['system_hotel_id'] ?? 0) !== $selectedHotelId) {
+                    continue;
+                }
+                $scopeReady = $scopeReady
+                    || (($step['hotel_ready'] ?? false) === true
+                        && ($step['operator_skip_active'] ?? false) !== true);
+                break;
+            }
+        }
+        if (!$scopeReady) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -868,6 +926,10 @@ function business_chain_compact_p0_execution_plan(
         'scope' => [
             'target_date' => (string)($payload['scope']['date'] ?? $targetDate),
             'system_hotel_id' => $systemHotelId,
+            'platforms' => array_values(array_unique(array_map(
+                static fn(string $platform): string => strtolower(trim($platform)),
+                $platforms
+            ))),
             'metric_scope' => (string)($payload['scope']['metric_scope'] ?? 'ota_channel'),
         ],
         'summary' => is_array($payload['summary'] ?? null) ? $payload['summary'] : [],
@@ -1955,6 +2017,84 @@ function business_chain_ai_to_operation_handoff(array $revenueToAiHandoff, array
 
 
 /**
+ * Route a revenue/AI-review evidence gap to the source that can actually
+ * resolve it. Keep missing inputs explicit and never substitute another
+ * metric merely because its collection path is already ready.
+ *
+ * @param array<string,mixed> $context
+ * @return array{stage:string,target_entry:string,required_gate:string,next_action:string}
+ */
+function business_chain_revenue_gap_action_contract(
+    string $evidenceCode,
+    array $context = []
+): array
+{
+    $evidenceCode = trim($evidenceCode);
+    $businessDate = trim((string)($context['business_date'] ?? ''));
+    $today = trim((string)($context['today'] ?? date('Y-m-d')));
+    $captureSourceScope = trim((string)(
+        $context['capture_source_scope'] ?? ''
+    ));
+    $historicalPmsRecollectionAvailable =
+        $evidenceCode === 'dingdandao_pms_not_readback_verified'
+        && (
+            (string)($context['recovery_status'] ?? '')
+                === 'historical_recollection_available'
+            || (
+                in_array(
+                    $captureSourceScope,
+                    ['today_only', 'historical_single_date'],
+                    true
+                )
+                && $businessDate !== ''
+                && $today !== ''
+                && $businessDate < $today
+            )
+        );
+    if ($historicalPmsRecollectionAvailable) {
+        return [
+            'stage' => 'pms_historical_collection',
+            'target_entry' => 'pms-operating-data',
+            'required_gate' => 'historical_pms_single_date_collection_and_readback_verified',
+            'next_action' => 'recollect_authorized_historical_pms_single_date_and_exact_readback',
+        ];
+    }
+
+    return match ($evidenceCode) {
+        'dingdandao_pms_not_readback_verified' => [
+            'stage' => 'pms_collection',
+            'target_entry' => 'pms-operating-data',
+            'required_gate' => 'pms_collection_claim_and_readback_verified',
+            'next_action' => 'recollect_pms_with_current_contract_and_exact_readback',
+        ],
+        'ctrip_ota_not_readback_verified' => [
+            'stage' => 'ota_collection',
+            'target_entry' => 'ctrip-ebooking',
+            'required_gate' => 'ctrip_target_date_revenue_facts_saved_and_readback_verified',
+            'next_action' => 'recollect_ctrip_target_date_revenue_facts',
+        ],
+        'meituan_ota_not_readback_verified' => [
+            'stage' => 'ota_collection',
+            'target_entry' => 'meituan-ebooking',
+            'required_gate' => 'meituan_target_date_revenue_facts_saved_and_readback_verified',
+            'next_action' => 'recollect_meituan_target_date_revenue_facts',
+        ],
+        'floor_price_missing' => [
+            'stage' => 'ai_decision_review_inputs',
+            'target_entry' => 'agent-center',
+            'required_gate' => 'room_type_floor_price_saved_and_readback_verified',
+            'next_action' => 'configure_room_type_floor_price_before_ai_review',
+        ],
+        default => [
+            'stage' => 'revenue_analysis',
+            'target_entry' => 'revenue-ai-overview',
+            'required_gate' => 'available_room_nights_or_verified_zero_room_nights',
+            'next_action' => 'resolve_revenue_metric_gap_before_final_ai_advice',
+        ],
+    };
+}
+
+/**
  * @param array<string, mixed> $revenueToAiHandoff
  * @param array<string, mixed> $aiToOperationHandoff
  * @return array<string, mixed>
@@ -1974,20 +2114,21 @@ function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, arra
     if ($revenueEvidenceCode === '') {
         $revenueEvidenceCode = trim((string)($primaryAction['reason'] ?? 'unknown_revenue_metric_gap'));
     }
+    $revenueGapAction = business_chain_revenue_gap_action_contract($revenueEvidenceCode);
     $operationBlockedReason = trim((string)($operationIntake['candidate_blocked_reason'] ?? ''));
 
     $items = [
         [
             'priority' => 1,
             'code' => 'resolve_revenue_metric_gap',
-            'stage' => 'revenue_analysis',
+            'stage' => $revenueGapAction['stage'],
             'status' => 'blocked',
             'blocking' => true,
             'source' => 'manual_review_packet',
             'evidence_code' => $revenueEvidenceCode,
-            'target_entry' => 'revenue-ai-overview',
-            'required_gate' => 'available_room_nights_or_verified_zero_room_nights',
-            'next_action' => 'resolve_revenue_metric_gap_before_final_ai_advice',
+            'target_entry' => $revenueGapAction['target_entry'],
+            'required_gate' => $revenueGapAction['required_gate'],
+            'next_action' => $revenueGapAction['next_action'],
         ],
         [
             'priority' => 2,
@@ -2048,6 +2189,123 @@ function business_chain_ctrip_chain_action_queue(array $revenueToAiHandoff, arra
             'promote_ota_scope_to_whole_hotel_truth',
         ],
         'items' => $items,
+    ];
+}
+
+/**
+ * Select the first unresolved gate in causal order. A completed P0 verifier
+ * must not remain the advertised next action once downstream data or review
+ * inputs are the real blocker.
+ *
+ * @param array<string, mixed> $p0Gate
+ * @param array<string, mixed> $revenueFactLayer
+ * @param array<string, mixed> $workflow
+ * @return array<string, mixed>
+ */
+function business_chain_next_required_gate(
+    array $p0Gate,
+    array $revenueFactLayer,
+    array $workflow
+): array {
+    $requiredP0Status = trim((string)($p0Gate['required_upstream_status'] ?? 'ready'));
+    if ($requiredP0Status === '') {
+        $requiredP0Status = 'ready';
+    }
+    $currentP0Status = trim((string)($p0Gate['current_upstream_status'] ?? $p0Gate['status'] ?? 'unknown'));
+    $p0Ready = (string)($p0Gate['status'] ?? '') === 'ready'
+        && $currentP0Status === $requiredP0Status;
+
+    if (!$p0Ready) {
+        return [
+            'type' => 'p0_verifier',
+            'code' => 'p0_downstream_gate',
+            'command' => (string)($p0Gate['required_gate_command'] ?? ''),
+            'evidence_code' => (string)($p0Gate['status'] ?? 'p0_not_ready'),
+            'target_entry' => 'online-data:data-health',
+            'required_gate' => 'p0_target_date_field_loop_ready',
+            'required_status' => $requiredP0Status,
+            'current_status' => $currentP0Status,
+        ];
+    }
+
+    $uniqueGap = is_array($revenueFactLayer['unique_remaining_gap'] ?? null)
+        ? $revenueFactLayer['unique_remaining_gap']
+        : [];
+    $uniqueGapCode = trim((string)($uniqueGap['code'] ?? ''));
+    if ($uniqueGapCode !== '') {
+        $pmsSource = is_array(
+            $revenueFactLayer['sources']['dingdandao_pms']['source'] ?? null
+        )
+            ? $revenueFactLayer['sources']['dingdandao_pms']['source']
+            : [];
+        $action = business_chain_revenue_gap_action_contract(
+            $uniqueGapCode,
+            [
+                'business_date' => $revenueFactLayer['business_date'] ?? '',
+                'today' => date('Y-m-d'),
+                'capture_source_scope' =>
+                    $pmsSource['capture_source_scope'] ?? '',
+                'recovery_status' => $uniqueGap['recovery_status'] ?? '',
+            ]
+        );
+        return [
+            'type' => 'data_gap',
+            'code' => 'resolve_revenue_metric_gap',
+            'command' => '',
+            'stage' => $action['stage'],
+            'evidence_code' => $uniqueGapCode,
+            'target_entry' => $action['target_entry'],
+            'required_gate' => $action['required_gate'],
+            'required_status' => 'resolved',
+            'current_status' => (string)($uniqueGap['status'] ?? 'missing'),
+            'recovery_status' =>
+                (string)($uniqueGap['recovery_status'] ?? ''),
+            'live_recollection_allowed' =>
+                ($uniqueGap['live_recollection_allowed'] ?? null),
+            'historical_recollection_allowed' =>
+                ($uniqueGap['historical_recollection_allowed'] ?? null),
+            'next_action' => $action['next_action'],
+        ];
+    }
+
+    $queue = is_array($workflow['ctrip_chain_action_queue'] ?? null)
+        ? $workflow['ctrip_chain_action_queue']
+        : [];
+    foreach (business_chain_list($queue['items'] ?? []) as $item) {
+        if (!is_array($item)
+            || ($item['blocking'] ?? false) !== true
+            || (string)($item['status'] ?? '') === 'ready') {
+            continue;
+        }
+        $evidenceCode = trim((string)($item['evidence_code'] ?? ''));
+        if ((string)($item['code'] ?? '') === 'resolve_revenue_metric_gap'
+            && in_array($evidenceCode, ['', 'unknown_revenue_metric_gap'], true)) {
+            continue;
+        }
+
+        return [
+            'type' => 'workflow_action',
+            'code' => (string)($item['code'] ?? 'resolve_business_loop_gap'),
+            'command' => '',
+            'stage' => (string)($item['stage'] ?? ''),
+            'evidence_code' => $evidenceCode,
+            'target_entry' => (string)($item['target_entry'] ?? ''),
+            'required_gate' => (string)($item['required_gate'] ?? ''),
+            'required_status' => 'ready',
+            'current_status' => (string)($item['status'] ?? 'blocked'),
+            'next_action' => (string)($item['next_action'] ?? ''),
+        ];
+    }
+
+    return [
+        'type' => 'complete',
+        'code' => 'business_loop_ready',
+        'command' => '',
+        'evidence_code' => '',
+        'target_entry' => '',
+        'required_gate' => 'business_loop_closed',
+        'required_status' => 'closed',
+        'current_status' => 'closed',
     ];
 }
 
@@ -2367,6 +2625,12 @@ function business_chain_report(array $options): array
     $p0ExecutionPlan['scope']['system_hotel_identity'] = $systemHotelIdentity;
     $p0Ready = business_chain_p0_execution_plan_ready($p0ExecutionPlan)
         && (string)($systemHotelIdentity['status'] ?? '') === 'ready';
+    $p0ExecutionPlan['completion_gate']['global_verifier_status'] = (string)($p0ExecutionPlan['status'] ?? 'unknown');
+    $p0ExecutionPlan['completion_gate']['selected_scope_status'] = $p0Ready ? 'ready' : 'blocked';
+    $p0ExecutionPlan['completion_gate']['selected_scope_policy'] = 'same_hotel_same_target_date_requested_platforms_traffic_readback';
+    $p0ExecutionPlan['completion_gate']['system_hotel_identity_status'] = (string)($systemHotelIdentity['status'] ?? 'missing');
+    $p0ExecutionPlan['completion_gate']['nonblocking_global_issues_retained'] = $p0Ready
+        && (string)($p0ExecutionPlan['status'] ?? '') !== 'passed';
     $sourceRows = business_chain_attach_source_date_quality($sourceRows, $p0ExecutionPlan);
     $p0Gate = business_chain_gate($targetDate, $systemHotelId, $skipActive, $options['skip_platforms'], $sources, $p0Ready);
     $downstreamReferenceScope = business_chain_downstream_reference_scope($sourceRows, $options['skip_platforms']);
@@ -2458,6 +2722,11 @@ function business_chain_report(array $options): array
     $downstreamReferenceWorkflow = business_chain_downstream_reference_workflow($revenue, $closure, $skipActive, $downstreamReferenceScope, $p0Ready);
     $focusedChain = business_chain_focused_ota_revenue_ai_chain($p0Gate, $downstreamReferenceWorkflow, $sources);
     $stages = business_chain_stage_rows($referenceDataset, $revenue, $closure, $skipActive);
+    $nextRequiredGate = business_chain_next_required_gate(
+        $p0Gate,
+        $revenueFactLayer,
+        $downstreamReferenceWorkflow
+    );
     $claimAllowed = count(array_filter($stages, static fn(array $row): bool => ($row['claim_allowed'] ?? false) !== true)) === 0;
     $stageMap = [];
     foreach ($stages as $stage) {
@@ -2531,11 +2800,7 @@ function business_chain_report(array $options): array
                 ? (int)($closure['summary']['operation_roi_ready'] ?? 0)
                 : null,
         ],
-        'next_required_gate' => [
-            'command' => $p0Gate['required_gate_command'],
-            'required_status' => 'ready',
-            'current_status' => $p0Gate['current_upstream_status'],
-        ],
+        'next_required_gate' => $nextRequiredGate,
     ];
 }
 
@@ -2592,12 +2857,31 @@ function business_chain_markdown(array $report): string
         $lines[] = '| ' . ($stage['label'] ?? $stage['key'] ?? '') . ' | `' . ($stage['status'] ?? '') . '` | `' . (($stage['claim_allowed'] ?? false) ? 'true' : 'false') . '` |';
     }
     $lines[] = '';
-    $lines[] = 'Next gate: `' . ($report['next_required_gate']['command'] ?? '') . '`';
+    $nextGate = is_array($report['next_required_gate'] ?? null)
+        ? $report['next_required_gate']
+        : [];
+    if (trim((string)($nextGate['command'] ?? '')) !== '') {
+        $lines[] = 'Next gate: `' . ($nextGate['command'] ?? '') . '`';
+    } else {
+        $lines[] = 'Next gate: action=`' . ($nextGate['code'] ?? '')
+            . '`, stage=`' . ($nextGate['stage'] ?? '')
+            . '`, evidence=`' . ($nextGate['evidence_code'] ?? '')
+            . '`, target=`' . ($nextGate['target_entry'] ?? '')
+            . '`, required_gate=`' . ($nextGate['required_gate'] ?? '') . '`';
+    }
     $p0Plan = is_array($report['p0_execution_plan'] ?? null) ? $report['p0_execution_plan'] : [];
     $operatorSequence = business_chain_list($p0Plan['operator_sequence'] ?? []);
-    if ($operatorSequence !== []) {
+    if ($p0Plan !== []) {
         $lines[] = '';
         $lines[] = '## P0 Execution Plan';
+        $completionGate = is_array($p0Plan['completion_gate'] ?? null)
+            ? $p0Plan['completion_gate']
+            : [];
+        $lines[] = '- global_verifier_status: `' . ($completionGate['global_verifier_status'] ?? $p0Plan['status'] ?? 'unknown') . '`';
+        $lines[] = '- selected_scope_status: `' . ($completionGate['selected_scope_status'] ?? 'unknown')
+            . '`, hotel_identity=`' . ($completionGate['system_hotel_identity_status'] ?? 'unknown')
+            . '`, retained_global_issues=`'
+            . (($completionGate['nonblocking_global_issues_retained'] ?? false) ? 'true' : 'false') . '`';
         foreach ($operatorSequence as $item) {
             if (!is_array($item)) {
                 continue;

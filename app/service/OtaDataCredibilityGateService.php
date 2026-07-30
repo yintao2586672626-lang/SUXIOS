@@ -42,6 +42,11 @@ class OtaDataCredibilityGateService
         $metricStatus = trim((string)($metrics['status'] ?? ''));
         $collectionQuality = $this->collectionQuality($dataset);
         $collectionQualityState = (string)($collectionQuality['primary_quality_state'] ?? '');
+        $fieldFactContract = $this->criticalFieldFactContract(
+            $dataset,
+            $criticalMetrics,
+            $options
+        );
         $reasonCodes = [];
         $warnings = [];
 
@@ -92,6 +97,9 @@ class OtaDataCredibilityGateService
                 $reasonCodes[] = $code;
                 $failedCriticalMetrics[] = $code;
             }
+        }
+        foreach ($this->stringList($fieldFactContract['failure_reasons'] ?? []) as $failureReason) {
+            $reasonCodes[] = $failureReason;
         }
 
         $dataGapCodes = array_values(array_filter(array_map(
@@ -179,6 +187,7 @@ class OtaDataCredibilityGateService
                 'critical_metrics' => $criticalMetrics,
                 'failed_critical_metrics' => $failedCriticalMetrics,
                 'collection_quality' => $collectionQuality,
+                'critical_field_fact_contract' => $fieldFactContract,
                 'p0_downstream_gate' => $p0DownstreamGate,
             ],
         ];
@@ -574,6 +583,226 @@ class OtaDataCredibilityGateService
             'quality_flags' => $this->stringList($raw['quality_flags'] ?? []),
             'metric_scope' => strtolower(trim((string)($raw['metric_scope'] ?? ''))),
         ];
+    }
+
+    /**
+     * Formal ETL rows carry source_input_rows/canonical_rows. For that path a
+     * database-default zero is not decision evidence unless the same metric has
+     * field-level source path, storage target and desensitized capture proof
+     * plus a precise collection timestamp. Non-zero legacy facts retain their
+     * existing source-trace contract in this compatibility guard.
+     *
+     * @param array<string, mixed> $dataset
+     * @param array<int, string> $criticalMetrics
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function criticalFieldFactContract(
+        array $dataset,
+        array $criticalMetrics,
+        array $options
+    ): array {
+        $quality = is_array($dataset['data_quality'] ?? null) ? $dataset['data_quality'] : [];
+        $explicitRequirement = array_key_exists('require_field_fact_contract', $options)
+            ? $this->boolValue($options['require_field_fact_contract'])
+            : null;
+        $required = $explicitRequirement ?? (
+            array_key_exists('source_input_rows', $quality)
+            && array_key_exists('canonical_rows', $quality)
+        );
+        if (!$required) {
+            return [
+                'required' => false,
+                'status' => 'not_required_for_legacy_in_memory_payload',
+                'checked_rows' => 0,
+                'verified_rows' => 0,
+                'missing_collection_time_rows' => 0,
+                'failed_metrics' => [],
+                'failure_reasons' => [],
+            ];
+        }
+
+        $requirements = [
+            'totals.revenue' => [
+                [
+                    'value_field' => 'revenue',
+                    'metric_keys' => ['sales_amount', 'order_amount', 'business_amount'],
+                ],
+            ],
+            'totals.room_nights' => [
+                [
+                    'value_field' => 'room_nights',
+                    'metric_keys' => ['sales_room_nights', 'room_nights', 'business_room_nights'],
+                ],
+            ],
+            'totals.adr' => [
+                [
+                    'value_field' => 'room_revenue',
+                    'metric_keys' => ['room_revenue', 'room_sales_amount', 'hotel_room_revenue'],
+                ],
+                [
+                    'value_field' => 'room_nights',
+                    'metric_keys' => ['sales_room_nights', 'room_nights', 'business_room_nights'],
+                ],
+            ],
+        ];
+        $rows = $this->list($dataset['fact_ota_daily'] ?? []);
+        $failedMetrics = [];
+        $checkedRowKeys = [];
+        $failedRowKeys = [];
+        $missingCollectionTimeRows = [];
+
+        foreach ($criticalMetrics as $metricKey) {
+            $metricRequirements = $requirements[$metricKey] ?? [];
+            if ($metricRequirements === []) {
+                continue;
+            }
+            $metricFailed = false;
+            foreach ($rows as $index => $row) {
+                if (!is_array($row) || !$this->rowContributesToRequirements($row, $metricRequirements)) {
+                    continue;
+                }
+                $rowFailed = false;
+                $rowKey = (string)($row['source_trace']['row_id'] ?? $index);
+                $checkedRowKeys[$rowKey] = true;
+                $collectedAt = trim((string)($row['source_trace']['collected_at'] ?? ''));
+                if (!$this->preciseCollectionTime($collectedAt)) {
+                    $missingCollectionTimeRows[$rowKey] = true;
+                    $rowFailed = true;
+                }
+                foreach ($metricRequirements as $requirement) {
+                    $valueField = (string)($requirement['value_field'] ?? '');
+                    if (!$this->isZeroMetric($row[$valueField] ?? null)) {
+                        continue;
+                    }
+                    if (!$this->rowHasVerifiedFieldFact(
+                        $row,
+                        (array)$requirement['metric_keys']
+                    )) {
+                        $rowFailed = true;
+                    }
+                }
+                if ($rowFailed) {
+                    $metricFailed = true;
+                    $failedRowKeys[$rowKey] = true;
+                }
+            }
+            if ($metricFailed) {
+                $failedMetrics[] = $metricKey;
+            }
+        }
+
+        $failedMetrics = array_values(array_unique($failedMetrics));
+        $verifiedRowKeys = array_diff_key($checkedRowKeys, $failedRowKeys);
+        $failureReasons = [];
+        if ($checkedRowKeys !== [] && count($verifiedRowKeys) < count($checkedRowKeys)) {
+            $failureReasons[] = 'ota_critical_field_facts_unverified';
+        }
+        foreach ($failedMetrics as $metricKey) {
+            $failureReasons[] = 'critical_metric_field_fact_untrusted:' . $metricKey;
+        }
+        if ($missingCollectionTimeRows !== []) {
+            $failureReasons[] = 'ota_critical_collection_time_missing_or_imprecise';
+        }
+
+        return [
+            'required' => true,
+            'status' => $failureReasons === [] ? 'verified' : 'blocked',
+            'checked_rows' => count($checkedRowKeys),
+            'verified_rows' => count($verifiedRowKeys),
+            'missing_collection_time_rows' => count($missingCollectionTimeRows),
+            'failed_metrics' => $failedMetrics,
+            'failure_reasons' => $failureReasons,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, array<string, mixed>> $requirements
+     */
+    private function rowContributesToRequirements(array $row, array $requirements): bool
+    {
+        $hasZero = false;
+        foreach ($requirements as $requirement) {
+            $field = (string)($requirement['value_field'] ?? '');
+            if ($field === '' || !$this->isFiniteMetricNumber($row[$field] ?? null)) {
+                return false;
+            }
+            if ($this->isZeroMetric($row[$field])) {
+                $hasZero = true;
+            }
+        }
+        return $hasZero;
+    }
+
+    private function isZeroMetric(mixed $value): bool
+    {
+        return $this->isFiniteMetricNumber($value) && (float)$value === 0.0;
+    }
+
+    /** @param array<string, mixed> $row @param array<int, string> $metricKeys */
+    private function rowHasVerifiedFieldFact(array $row, array $metricKeys): bool
+    {
+        $raw = $row['raw_data'] ?? [];
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        $raw = is_array($raw) ? $raw : [];
+        $facts = $this->fieldFacts($raw);
+        $metricKeys = array_values(array_unique(array_map(
+            static fn(string $value): string => strtolower(trim($value)),
+            $metricKeys
+        )));
+        $matchingFacts = array_values(array_filter(
+            $facts,
+            static fn(array $fact): bool => in_array(
+                strtolower(trim((string)($fact['metric_key'] ?? ''))),
+                $metricKeys,
+                true
+            )
+        ));
+        if ($matchingFacts === []) {
+            return false;
+        }
+
+        $trace = is_array($row['source_trace'] ?? null) ? $row['source_trace'] : [];
+        $status = OnlineDataFieldFactService::buildStatus(
+            array_replace($trace, [
+                'data_type' => (string)($row['data_type'] ?? ''),
+            ]),
+            array_replace($raw, ['field_facts' => $matchingFacts])
+        );
+        return ($status['status'] ?? '') === 'ready'
+            && array_intersect($metricKeys, $this->stringList($status['captured_metric_keys'] ?? [])) !== [];
+    }
+
+    /** @param array<string, mixed> $raw @return array<int, array<string, mixed>> */
+    private function fieldFacts(array $raw): array
+    {
+        foreach ([
+            $raw['field_facts'] ?? null,
+            $raw['row']['field_facts'] ?? null,
+            $raw['raw_data']['field_facts'] ?? null,
+            $raw['row']['raw_data']['field_facts'] ?? null,
+            $raw['facts'] ?? null,
+        ] as $candidate) {
+            if (is_array($candidate)) {
+                $facts = array_values(array_filter($candidate, 'is_array'));
+                if ($facts !== []) {
+                    return $facts;
+                }
+            }
+        }
+        return [];
+    }
+
+    private function preciseCollectionTime(string $value): bool
+    {
+        return preg_match(
+            '/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/D',
+            trim($value)
+        ) === 1 && strtotime($value) !== false;
     }
 
     /**
