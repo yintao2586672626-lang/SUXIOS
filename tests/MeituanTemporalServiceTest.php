@@ -10,6 +10,45 @@ use PHPUnit\Framework\TestCase;
 
 final class MeituanTemporalServiceTest extends TestCase
 {
+    public function testRefreshExecutionBudgetOutlivesTheBoundedBrowserCapture(): void
+    {
+        $method = new \ReflectionMethod(MeituanTemporalService::class, 'captureExecutionBudgetSeconds');
+
+        self::assertSame(150, $method->invoke(null, ['timeout_seconds' => 120]));
+        self::assertSame(90, $method->invoke(null, ['timeout_seconds' => 10]));
+        self::assertSame(930, $method->invoke(null, ['timeout_seconds' => 1000]));
+    }
+
+    public function testRefreshReportsPartialWhenFutureModuleHasNotUpdated(): void
+    {
+        $method = new \ReflectionMethod(MeituanTemporalService::class, 'withFutureCaptureOutcome');
+        $task = [
+            'segment' => 'today',
+            'status' => 'completed',
+            'reason_code' => 'capture_saved_and_read_back',
+            'saved_count' => 1,
+            'readback_verified' => true,
+        ];
+
+        $partial = $method->invoke(
+            null,
+            $task,
+            'today_future',
+            false,
+            new DateTimeImmutable('2026-07-31 01:30:00', new DateTimeZone('Asia/Shanghai'))
+        );
+        self::assertSame('partial', $partial['status']);
+        self::assertSame('before_future_platform_update_window', $partial['reason_code']);
+
+        self::assertSame($task, $method->invoke(
+            null,
+            $task,
+            'today_future',
+            true,
+            new DateTimeImmutable('2026-07-31 01:30:00', new DateTimeZone('Asia/Shanghai'))
+        ));
+    }
+
     public function testTodayUsesOneSnapshotPreservesZeroAndDerivesOnlyInsideIt(): void
     {
         $rows = [
@@ -236,6 +275,109 @@ final class MeituanTemporalServiceTest extends TestCase
         self::assertSame(301, $summary['yesterday']['metrics']['sales_amount']['sync_task_id']);
     }
 
+    public function testPreviousDayYesterdaySnapshotIsReferenceNotCurrentEvidence(): void
+    {
+        $capturedAt = '2026-07-30 23:23:03';
+        $rows = [$this->completeBusinessRow(80, 302, '2026-07-30', $capturedAt)];
+        foreach ([
+            'overall exposure' => 1567,
+            'organic exposure' => 271,
+            'ad exposure' => 1296,
+        ] as $label => $value) {
+            $rows[] = $this->row(80, 302, 'traffic_analysis', '2026-07-30', [
+                'data_value' => $value,
+                'dimension' => $label,
+            ], [
+                'name' => $label,
+                'value' => $value,
+            ], ['analysis_value'], $capturedAt);
+        }
+
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            $rows,
+            80,
+            '2026-07-31',
+            new DateTimeImmutable('2026-07-31 01:30:00', new DateTimeZone('Asia/Shanghai'))
+        );
+
+        self::assertSame('pending_source_update', $summary['yesterday']['status']);
+        self::assertNull($summary['yesterday']['captured_at']);
+        self::assertNull($summary['yesterday']['metrics']['sales_amount']['value']);
+        self::assertSame(302, $summary['yesterday']['latest_verified_reference']['sync_task_id']);
+        self::assertSame(
+            2026.78,
+            $summary['yesterday']['latest_verified_reference']['metrics']['sales_amount']['value']
+        );
+    }
+
+    public function testStructuredOrderFactsWinOverPlaceholderBusinessZeros(): void
+    {
+        $capturedAt = '2026-07-31 01:05:00';
+        $rows = [
+            $this->row(80, 2208, 'business', '2026-07-30', [
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'data_value' => 0,
+            ], [
+                'sales_amount' => 0,
+                'sales_room_nights' => 0,
+                'sales_avg_price' => 0,
+            ], [
+                'sales_amount', 'sales_room_nights', 'sales_avg_price',
+            ], $capturedAt),
+            $this->row(80, 2208, 'order', '2026-07-30', [
+                'amount' => 6917.30,
+                'quantity' => 9,
+                'book_order_num' => 7,
+                'data_value' => 768.59,
+            ], [
+                'amount' => 6917.30,
+                'quantity' => 9,
+                'book_order_num' => 7,
+                'sales_avg_price' => 768.59,
+            ], [
+                'order_amount', 'room_nights', 'order_count',
+            ], $capturedAt),
+        ];
+        foreach ([
+            'overall exposure' => 1000,
+            'organic exposure' => 600,
+            'ad exposure' => 400,
+        ] as $label => $value) {
+            $rows[] = $this->row(80, 2208, 'traffic_analysis', '2026-07-30', [
+                'data_value' => $value,
+                'dimension' => $label,
+            ], [
+                'name' => $label,
+                'value' => $value,
+                '_capture_source' => 'dom:traffic:source_breakdown',
+                '_source_path' => 'dom.traffic.source_breakdown.' . str_replace(' ', '_', $label),
+            ], ['analysis_value'], $capturedAt);
+        }
+
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            $rows,
+            80,
+            '2026-07-31',
+            new DateTimeImmutable('2026-07-31 01:30:00', new DateTimeZone('Asia/Shanghai'))
+        );
+
+        self::assertSame('pending_source_update', $summary['yesterday']['status']);
+        self::assertSame(6917.30, $summary['yesterday']['metrics']['sales_amount']['value']);
+        self::assertSame('verified', $summary['yesterday']['metrics']['sales_amount']['status']);
+        self::assertSame(9, $summary['yesterday']['metrics']['sales_room_nights']['value']);
+        self::assertSame('verified', $summary['yesterday']['metrics']['sales_room_nights']['status']);
+        self::assertSame(768.59, $summary['yesterday']['metrics']['sales_avg_price']['value']);
+        self::assertSame('derived', $summary['yesterday']['metrics']['sales_avg_price']['status']);
+        self::assertNull($summary['yesterday']['metrics']['total_exposure']['value']);
+        self::assertSame('missing', $summary['yesterday']['metrics']['total_exposure']['status']);
+        self::assertSame(
+            'before_platform_update_window',
+            $summary['yesterday']['metrics']['total_exposure']['reason_code']
+        );
+    }
+
     public function testEmptyFutureModuleIsPendingDuringEarlyPlatformUpdateWindow(): void
     {
         $service = new MeituanTemporalService();
@@ -330,6 +472,47 @@ final class MeituanTemporalServiceTest extends TestCase
         );
         self::assertSame(
             '2026-08-27',
+            $summary['future']['latest_verified_reference']['rows'][29]['target_date']
+        );
+    }
+
+    public function testPreviousDayFutureSnapshotIsReferenceNotCurrentEvidence(): void
+    {
+        $rows = [];
+        $start = new DateTimeImmutable('2026-07-30', new DateTimeZone('Asia/Shanghai'));
+        for ($day = 0; $day < 30; $day++) {
+            $targetDate = $start->modify('+' . $day . ' days')->format('Y-m-d');
+            foreach (['pv' => [28, 12], 'uv' => [26, 10], 'advance_orders' => [2, 0]] as $type => [$current, $peer]) {
+                $rows[] = $this->row(80, 412, 'traffic_forecast', $targetDate, [
+                    'data_value' => $current,
+                    'dimension' => 'traffic_forecast:' . $type,
+                ], [
+                    'forecast_type' => $type,
+                    'current' => $current,
+                    'peer_avg' => $peer,
+                ], ['forecast_current', 'forecast_peer_average'], '2026-07-30 23:23:03');
+            }
+        }
+
+        $summary = (new MeituanTemporalService())->buildSummaryFromRows(
+            $rows,
+            80,
+            '2026-07-31',
+            new DateTimeImmutable('2026-07-31 01:30:00', new DateTimeZone('Asia/Shanghai'))
+        );
+
+        self::assertSame('pending_source_update', $summary['future']['status']);
+        self::assertSame('before_future_platform_update_window', $summary['future']['reason_code']);
+        self::assertNull($summary['future']['captured_at']);
+        self::assertSame([], $summary['future']['rows']);
+        self::assertSame(412, $summary['future']['latest_verified_reference']['sync_task_id']);
+        self::assertCount(30, $summary['future']['latest_verified_reference']['rows']);
+        self::assertSame(
+            '2026-07-30',
+            $summary['future']['latest_verified_reference']['rows'][0]['target_date']
+        );
+        self::assertSame(
+            '2026-08-28',
             $summary['future']['latest_verified_reference']['rows'][29]['target_date']
         );
     }

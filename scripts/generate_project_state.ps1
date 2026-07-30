@@ -15,8 +15,19 @@ function Invoke-Git {
         [switch]$AllowFailure
     )
 
-    $result = & git -C $repoRoot @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell turns native stderr into ErrorRecord objects.
+        # With the script-wide Stop preference that would throw before an
+        # allowed non-zero Git result (for example, no configured upstream)
+        # can be classified below.
+        $ErrorActionPreference = 'Continue'
+        $result = & git -C $repoRoot @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
         if ($AllowFailure) {
             return ''
         }

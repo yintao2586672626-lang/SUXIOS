@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\command\AutoFetchOnlineData;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 use think\console\Input;
 use think\console\Output;
 
@@ -432,7 +433,7 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
     public function testCloudCollectionRequiresCurrentRunSessionAndPlatformHotelProofBeforePersistence(): void
     {
         $commandSource = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
-        $syncSource = (string)file_get_contents(dirname(__DIR__) . '/app/service/PlatformDataSyncService.php');
+        $syncSource = SourceAggregate::read(dirname(__DIR__), 'app/service/PlatformDataSyncService.php');
 
         self::assertStringContainsString(
             "'require_current_session_probe' => \$this->cloudCollectorScope !== []",
@@ -482,8 +483,9 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
 
     public function testExplicitCtripTemporalFlowSurvivesBackgroundAndDataSourceSyncBoundaries(): void
     {
-        $source = (string)file_get_contents(
-            dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php'
+        $source = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/controller/concern/AutoFetchConcern.php'
         );
 
         self::assertStringContainsString(

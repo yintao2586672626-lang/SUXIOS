@@ -6,6 +6,7 @@ namespace tests;
 use app\command\AutoFetchOnlineData;
 use app\service\ScheduledAutoFetchPolicy;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class ScheduledAutoFetchPolicyTest extends TestCase
 {
@@ -476,7 +477,10 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
     public function testCliAndHttpDispatchersSharePolicyAndOnlyMarkCompleteRunsExecuted(): void
     {
         $command = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
-        $controller = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $controller = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/controller/concern/AutoFetchConcern.php'
+        );
         $policy = (string)file_get_contents(dirname(__DIR__) . '/app/service/ScheduledAutoFetchPolicy.php');
 
         self::assertStringContainsString('ScheduledAutoFetchPolicy', $command);

@@ -5,9 +5,11 @@ use app\service\CtripCompetitionCirclePersistenceService;
 use think\App;
 use think\facade\Db;
 
-require __DIR__ . '/../vendor/autoload.php';
+if (!class_exists(\Composer\Autoload\ClassLoader::class, false)) {
+    require __DIR__ . '/../vendor/autoload.php';
+}
 
-$app = new App();
+$app = new App(dirname(__DIR__));
 $app->initialize();
 
 const BACKFILL_TRACE_PREFIX = 'legacy_backfill:';

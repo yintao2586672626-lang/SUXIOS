@@ -132,18 +132,27 @@ final class ManualNotificationBusinessPreviewService
         $collectionState = is_array($collectionState) ? $collectionState : [];
 
         try {
-            $pmsCapture = $this->forwardRoomStatusLoader === null
-                ? (new DingdandaoOperatingTargetCaptureService())->latest(
+            if ($this->forwardRoomStatusLoader === null) {
+                $captureService = new DingdandaoOperatingTargetCaptureService();
+                $history = $captureService->history(
                     $tenantId,
                     $hotelId,
-                    $businessDate
-                )
-                : call_user_func(
+                    $businessDate,
+                    2
+                );
+                $pmsCapture = $history[0]
+                    ?? $captureService->latest($tenantId, $hotelId, $businessDate);
+                if (is_array($history[1] ?? null) && is_array($pmsCapture)) {
+                    $pmsCapture['previous_comparable_capture'] = $history[1];
+                }
+            } else {
+                $pmsCapture = call_user_func(
                     $this->forwardRoomStatusLoader,
                     $tenantId,
                     $hotelId,
                     $businessDate
                 );
+            }
         } catch (\Throwable $error) {
             $pmsCapture = [
                 'status' => 'read_failed',
@@ -676,6 +685,31 @@ final class ManualNotificationBusinessPreviewService
         $facts = [];
         if ($trusted) {
             $source['quality_status'] = 'readback_verified';
+            $revenueOverview = self::pmsRevenueOverviewMessage($capture);
+            $temporalContext = self::pmsTemporalContextMessage($capture);
+            $snapshotDelta = self::pmsSnapshotDeltaMessage($capture);
+            $alerts = self::pmsTodayAlerts($summary);
+            $pmsGaps = [];
+            if (($revenueOverview['data_status'] ?? '') !== 'readback_verified') {
+                $pmsGaps[] = self::gap(
+                    'dingdandao_revenue_overview_readback_not_verified',
+                    '订单来了住宿营业额汇总未取得或未通过数据库回读；房费事实仍保持独立可用。',
+                    (string)($revenueOverview['data_status'] ?? 'missing'),
+                    'dingdandao_operating_target_captures',
+                    $hotelId,
+                    $businessDate
+                );
+            }
+            if (($temporalContext['data_status'] ?? '') !== 'readback_verified') {
+                $pmsGaps[] = self::gap(
+                    'dingdandao_temporal_context_missing',
+                    '订单来了过去、当前、未来时间口径未完整取得；当前消息不混用其他快照。',
+                    (string)($temporalContext['data_status'] ?? 'missing'),
+                    'dingdandao_operating_target_captures',
+                    $hotelId,
+                    $businessDate
+                );
+            }
             foreach ($map as $key => [$label, $unit, $field, $basis]) {
                 $facts[] = self::factField(
                     $key,
@@ -701,7 +735,7 @@ final class ManualNotificationBusinessPreviewService
             );
             return [
                 'facts' => $facts,
-                'gaps' => [],
+                'gaps' => $pmsGaps,
                 'message_data' => [
                     'contract_version' => 'dingdandao_today_message_facts.v1',
                     'data_status' => 'readback_verified',
@@ -718,7 +752,15 @@ final class ManualNotificationBusinessPreviewService
                         ),
                         'adr' => round((float)$summary['adr'], 2),
                         'revpar' => round((float)$summary['revpar'], 2),
+                        'revenue_overview' => $revenueOverview,
+                        'temporal_context' => $temporalContext,
+                        'snapshot_delta' => $snapshotDelta,
+                        'alerts' => $alerts,
                     ],
+                    'revenue_overview' => $revenueOverview,
+                    'temporal_context' => $temporalContext,
+                    'snapshot_delta' => $snapshotDelta,
+                    'alerts' => $alerts,
                     'source' => $source,
                     'allowed_uses' => [
                         'notification_preview',
@@ -777,11 +819,332 @@ final class ManualNotificationBusinessPreviewService
                     'occupancy_rate_percent' => null,
                     'adr' => null,
                     'revpar' => null,
+                    'revenue_overview' => [
+                        'contract_version' =>
+                            'dingdandao_accommodation_revenue_overview_message.v1',
+                        'data_status' => $status,
+                        'total_accommodation_turnover' => null,
+                        'subjects' => [],
+                        'total_trend' => [],
+                    ],
+                    'temporal_context' => [
+                        'contract_version' =>
+                            'dingdandao_temporal_context_message.v1',
+                        'data_status' => 'missing',
+                        'past' => [],
+                        'current' => [],
+                        'future' => [],
+                    ],
+                    'snapshot_delta' => [
+                        'contract_version' =>
+                            'dingdandao_snapshot_delta_message.v1',
+                        'data_status' => 'missing',
+                        'deltas' => [],
+                    ],
+                    'alerts' => [],
                 ],
+                'revenue_overview' => [
+                    'contract_version' =>
+                        'dingdandao_accommodation_revenue_overview_message.v1',
+                    'data_status' => $status,
+                    'total_accommodation_turnover' => null,
+                    'subjects' => [],
+                    'total_trend' => [],
+                ],
+                'temporal_context' => [
+                    'contract_version' => 'dingdandao_temporal_context_message.v1',
+                    'data_status' => 'missing',
+                    'past' => [],
+                    'current' => [],
+                    'future' => [],
+                ],
+                'snapshot_delta' => [
+                    'contract_version' => 'dingdandao_snapshot_delta_message.v1',
+                    'data_status' => 'missing',
+                    'deltas' => [],
+                ],
+                'alerts' => [],
                 'source' => $source,
                 'allowed_uses' => [],
             ],
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function pmsRevenueOverviewMessage(array $capture): array
+    {
+        $overview = is_array($capture['revenue_overview'] ?? null)
+            ? $capture['revenue_overview']
+            : [];
+        $base = [
+            'contract_version' =>
+                'dingdandao_accommodation_revenue_overview_message.v1',
+            'data_status' => 'missing',
+            'fact_scope' => 'whole_hotel_accommodation_turnover',
+            'total_accommodation_turnover' => null,
+            'subjects' => [],
+            'total_trend' => [],
+            'gap_codes' => array_values((array)($overview['gap_codes'] ?? [])),
+        ];
+        if (($overview['contract_version'] ?? '')
+                !== 'dingdandao_accommodation_revenue_overview.v1'
+            || ($overview['fact_scope'] ?? '')
+                !== 'whole_hotel_accommodation_turnover'
+            || ($overview['data_status'] ?? '') !== 'verified'
+            || ($overview['readback_status'] ?? '') !== 'readback_verified'
+            || self::numeric($overview['total_accommodation_turnover'] ?? null) === null
+        ) {
+            $base['data_status'] = ($overview['data_status'] ?? '') === 'partial'
+                ? 'partial'
+                : 'missing';
+            return $base;
+        }
+        $subjects = [];
+        foreach (array_slice((array)($overview['subjects'] ?? []), 0, 100) as $subject) {
+            if (!is_array($subject)) {
+                continue;
+            }
+            $name = self::safeText((string)($subject['subject_name'] ?? ''), 80);
+            $singleDayTotal = self::numeric($subject['single_day_total'] ?? null);
+            $periodTotal = self::numeric($subject['period_total'] ?? null);
+            if ($name === '' || $singleDayTotal === null || $periodTotal === null) {
+                continue;
+            }
+            $subjects[] = [
+                'provider_subject_type' =>
+                    is_numeric($subject['provider_subject_type'] ?? null)
+                        ? (int)$subject['provider_subject_type']
+                        : null,
+                'subject_name' => $name,
+                'single_day_total' => $singleDayTotal,
+                'period_total' => $periodTotal,
+                'percent' => self::numeric($subject['percent'] ?? null),
+            ];
+        }
+        $totalTrend = [];
+        foreach (array_slice((array)($overview['total_trend'] ?? []), -30) as $point) {
+            if (!is_array($point)) {
+                continue;
+            }
+            $date = trim((string)($point['observation_date'] ?? ''));
+            $amount = self::numeric($point['amount'] ?? null);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) !== 1
+                || $amount === null
+            ) {
+                continue;
+            }
+            $totalTrend[] = [
+                'observation_date' => $date,
+                'amount' => $amount,
+            ];
+        }
+        if ($subjects === [] || $totalTrend === []) {
+            return [
+                ...$base,
+                'data_status' => 'partial',
+                'gap_codes' => array_values(array_unique([
+                    ...$base['gap_codes'],
+                    'dingdandao_revenue_overview_message_incomplete',
+                ])),
+            ];
+        }
+        return [
+            ...$base,
+            'data_status' => 'readback_verified',
+            'total_accommodation_turnover' =>
+                self::numeric($overview['total_accommodation_turnover']),
+            'subjects' => $subjects,
+            'total_trend' => $totalTrend,
+            'gap_codes' => [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function pmsTemporalContextMessage(array $capture): array
+    {
+        $coverage = is_array($capture['component_coverage'] ?? null)
+            ? $capture['component_coverage']
+            : [];
+        $temporal = is_array($coverage['temporal_context'] ?? null)
+            ? $coverage['temporal_context']
+            : [];
+        $base = [
+            'contract_version' => 'dingdandao_temporal_context_message.v1',
+            'data_status' => 'missing',
+            'past' => [],
+            'current' => [],
+            'future' => [],
+        ];
+        if (($temporal['contract_version'] ?? '') !== 'dingdandao_temporal_context.v1') {
+            return $base;
+        }
+        $past = is_array($temporal['past'] ?? null) ? $temporal['past'] : [];
+        $current = is_array($temporal['current'] ?? null) ? $temporal['current'] : [];
+        $future = is_array($temporal['future'] ?? null) ? $temporal['future'] : [];
+        $pastMessage = [
+            'status' => self::safeText((string)($past['status'] ?? ''), 32),
+            'snapshot_role' =>
+                self::safeText((string)($past['snapshot_role'] ?? ''), 48),
+            'settlement_status' =>
+                self::safeText((string)($past['settlement_status'] ?? ''), 32),
+            'date_from' => self::safeText((string)($past['date_from'] ?? ''), 10),
+            'date_to' => self::safeText((string)($past['date_to'] ?? ''), 10),
+            'expected_days' => self::numeric($past['expected_days'] ?? null),
+            'covered_days' => self::numeric($past['covered_days'] ?? null),
+        ];
+        $currentMessage = [
+            'status' => self::safeText((string)($current['status'] ?? ''), 32),
+            'snapshot_role' =>
+                self::safeText((string)($current['snapshot_role'] ?? ''), 48),
+            'settlement_status' =>
+                self::safeText((string)($current['settlement_status'] ?? ''), 32),
+            'business_date' =>
+                self::safeText((string)($current['business_date'] ?? ''), 10),
+        ];
+        $futureMessage = [
+            'status' => self::safeText((string)($future['status'] ?? ''), 32),
+            'snapshot_role' =>
+                self::safeText((string)($future['snapshot_role'] ?? ''), 48),
+            'as_of_date' => self::safeText((string)($future['as_of_date'] ?? ''), 10),
+            'stay_date_from' =>
+                self::safeText((string)($future['stay_date_from'] ?? ''), 10),
+            'stay_date_to' =>
+                self::safeText((string)($future['stay_date_to'] ?? ''), 10),
+            'display_horizons' => array_values(array_intersect(
+                array_map('intval', (array)($future['display_horizons'] ?? [])),
+                [3, 7, 14, 21]
+            )),
+        ];
+        $statuses = [
+            $pastMessage['status'],
+            $currentMessage['status'],
+            $futureMessage['status'],
+        ];
+        $verifiedStatuses = ['verified', 'verified_with_anomalies'];
+        $allVerified = count(array_filter(
+            $statuses,
+            static fn(string $status): bool =>
+                in_array($status, $verifiedStatuses, true)
+        )) === count($statuses);
+        $allMissing = count(array_filter(
+            $statuses,
+            static fn(string $status): bool =>
+                $status === '' || $status === 'missing'
+        )) === count($statuses);
+        $dataStatus = $allVerified
+            ? 'readback_verified'
+            : ($allMissing ? 'missing' : 'partial');
+        return [
+            ...$base,
+            'data_status' => $dataStatus,
+            'past' => $pastMessage,
+            'current' => $currentMessage,
+            'future' => $futureMessage,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function pmsSnapshotDeltaMessage(array $capture): array
+    {
+        $base = [
+            'contract_version' => 'dingdandao_snapshot_delta_message.v1',
+            'data_status' => 'baseline_only',
+            'from_capture_id' => null,
+            'to_capture_id' => isset($capture['id']) && is_numeric($capture['id'])
+                ? (int)$capture['id']
+                : null,
+            'captured_from' => null,
+            'captured_to' =>
+                self::safeText((string)($capture['captured_at'] ?? ''), 32),
+            'deltas' => [],
+        ];
+        $previous = is_array($capture['previous_comparable_capture'] ?? null)
+            ? $capture['previous_comparable_capture']
+            : [];
+        if ($previous === []) {
+            return $base;
+        }
+        $sameScope = (int)($previous['tenant_id'] ?? 0)
+                === (int)($capture['tenant_id'] ?? 0)
+            && (int)($previous['hotel_id'] ?? 0)
+                === (int)($capture['hotel_id'] ?? 0)
+            && (string)($previous['business_date'] ?? '')
+                === (string)($capture['business_date'] ?? '')
+            && (string)($previous['provider'] ?? '')
+                === (string)($capture['provider'] ?? '')
+            && ($previous['quality_status'] ?? '') === 'verified'
+            && ($previous['capture_status'] ?? '') === 'verified'
+            && ($previous['identity_status'] ?? '') === 'matched'
+            && ($previous['reconciliation_status'] ?? '') === 'matched'
+            && ($previous['readback_status'] ?? '') === 'readback_verified';
+        $previousCapturedAt = trim((string)($previous['captured_at'] ?? ''));
+        $currentCapturedAt = trim((string)($capture['captured_at'] ?? ''));
+        $differentCapture = (int)($previous['id'] ?? 0) > 0
+            && (int)($previous['id'] ?? 0) !== (int)($capture['id'] ?? 0)
+            && $previousCapturedAt !== ''
+            && $currentCapturedAt !== ''
+            && $previousCapturedAt !== $currentCapturedAt;
+        if (!$sameScope || !$differentCapture) {
+            return [
+                ...$base,
+                'data_status' => 'not_comparable',
+            ];
+        }
+        $previousSummary = is_array($previous['summary'] ?? null)
+            ? $previous['summary']
+            : [];
+        $currentSummary = is_array($capture['summary'] ?? null)
+            ? $capture['summary']
+            : [];
+        $metricMap = [
+            'room_fee' => 'total_room_fee',
+            'sold_room_nights' => 'sold_room_nights',
+            'occupancy_rate_percent' => 'occupancy_rate_percent',
+            'adr' => 'adr',
+            'revpar' => 'revpar',
+        ];
+        $deltas = [];
+        foreach ($metricMap as $output => $source) {
+            $previousValue = self::numeric($previousSummary[$source] ?? null);
+            $currentValue = self::numeric($currentSummary[$source] ?? null);
+            if ($previousValue === null || $currentValue === null) {
+                return [
+                    ...$base,
+                    'data_status' => 'not_comparable',
+                ];
+            }
+            $deltas[$output] = round((float)$currentValue - (float)$previousValue, 2);
+        }
+        return [
+            ...$base,
+            'data_status' => 'comparable',
+            'from_capture_id' => (int)$previous['id'],
+            'captured_from' =>
+                self::safeText((string)($previous['captured_at'] ?? ''), 32),
+            'deltas' => $deltas,
+        ];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function pmsTodayAlerts(array $summary): array
+    {
+        $sold = self::numeric($summary['sold_room_nights'] ?? null);
+        $sellable = self::numeric($summary['derived_sellable_room_nights'] ?? null);
+        $occupancy = self::numeric($summary['occupancy_rate_percent'] ?? null);
+        if ($sold === null || $sellable === null || $sellable <= 0
+            || (int)$sold !== (int)$sellable
+        ) {
+            return [];
+        }
+        return [[
+            'code' => 'pms_today_sold_out',
+            'severity' => 'warning',
+            'message' => '今日可售已归零。',
+            'sold_room_nights' => (int)$sold,
+            'sellable_room_nights' => (int)$sellable,
+            'remaining_sellable_room_nights' => 0,
+            'occupancy_rate_percent' => $occupancy,
+        ]];
     }
 
     private static function pmsTodayCaptureTrusted(
@@ -1132,6 +1495,9 @@ final class ManualNotificationBusinessPreviewService
         $messageRoomTypes = $trusted
             ? self::forwardMessageRoomTypes($forward, $businessDate)
             : [];
+        $alerts = $trusted
+            ? self::pmsForwardAlerts($forward, $dailyRows, $businessDate)
+            : [];
         if (!is_array($horizon)
             || count($dailyRows) !== 21
             || count($messageHorizons) !== 4
@@ -1193,6 +1559,10 @@ final class ManualNotificationBusinessPreviewService
                 'message_data' => [
                     'contract_version' => 'dingdandao_forward_message_facts.v1',
                     'data_status' => 'readback_verified',
+                    'quality_status' =>
+                        ($forward['data_status'] ?? '') === 'verified_with_anomalies'
+                            ? 'warning'
+                            : 'verified',
                     'fact_scope' => 'whole_hotel_forward_room_status',
                     'as_of_date' => $businessDate,
                     'display_horizons' => [3, 7, 14, 21],
@@ -1211,6 +1581,7 @@ final class ManualNotificationBusinessPreviewService
                     'horizons' => $messageHorizons,
                     'daily_rows' => $dailyRows,
                     'room_types' => $messageRoomTypes,
+                    'alerts' => $alerts,
                     'source' => $source,
                 ],
             ];
@@ -1264,9 +1635,88 @@ final class ManualNotificationBusinessPreviewService
                 'horizons' => [],
                 'daily_rows' => [],
                 'room_types' => [],
+                'alerts' => [],
                 'source' => $source,
             ],
         ];
+    }
+
+    /**
+     * @param list<array<string,mixed>> $dailyRows
+     * @return list<array<string,mixed>>
+     */
+    private static function pmsForwardAlerts(
+        array $forward,
+        array $dailyRows,
+        string $businessDate
+    ): array
+    {
+        $alerts = [];
+        $firstSourceDate = self::shiftDate($businessDate, 1);
+        $sourceDayCount = max(
+            2,
+            min(31, (int)($forward['source_day_count'] ?? 31))
+        );
+        $lastSourceDate = self::shiftDate(
+            $businessDate,
+            $sourceDayCount - 1
+        );
+        foreach (array_slice((array)($forward['anomalies'] ?? []), 0, 100) as $anomaly) {
+            if (!is_array($anomaly)
+                || ($anomaly['anomaly_type'] ?? '') !== 'oversold'
+            ) {
+                continue;
+            }
+            $stayDate = trim((string)($anomaly['stay_date'] ?? ''));
+            $roomTypeName = self::safeText(
+                (string)($anomaly['room_type_name'] ?? ''),
+                80
+            );
+            $oversoldRooms = self::numeric($anomaly['oversold_rooms'] ?? null);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $stayDate) !== 1
+                || $stayDate < $firstSourceDate
+                || $stayDate > $lastSourceDate
+                || $roomTypeName === ''
+                || $oversoldRooms === null
+                || $oversoldRooms <= 0
+            ) {
+                continue;
+            }
+            $alerts[] = [
+                'code' => 'pms_forward_oversold',
+                'severity' => 'critical',
+                'stay_date' => $stayDate,
+                'room_type_name' => $roomTypeName,
+                'oversold_rooms' => (int)$oversoldRooms,
+                'message' => '远期房型存在超售。',
+            ];
+        }
+        foreach ($dailyRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $remaining = self::numeric($row['remaining_sellable_rooms'] ?? null);
+            $booked = self::numeric($row['booked_rooms'] ?? null);
+            $stayDate = trim((string)($row['stay_date'] ?? ''));
+            if ($remaining === null || $booked === null
+                || (int)$remaining !== 0
+                || $booked <= 0
+                || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $stayDate) !== 1
+                || $stayDate < $firstSourceDate
+                || $stayDate > $lastSourceDate
+            ) {
+                continue;
+            }
+            $alerts[] = [
+                'code' => 'pms_forward_sold_out',
+                'severity' => 'warning',
+                'stay_date' => $stayDate,
+                'booked_rooms' => (int)$booked,
+                'remaining_sellable_rooms' => 0,
+                'message' => '该日远期可售已归零。',
+            ];
+        }
+        return $alerts;
     }
 
     private static function pmsForwardCaptureTrusted(
@@ -1279,6 +1729,19 @@ final class ManualNotificationBusinessPreviewService
         $sourceDayCount = (int)($forward['source_day_count'] ?? 0);
         $sourceCoverageStatus = (string)($forward['source_coverage_status'] ?? '');
         $sourceGapCodes = array_values((array)($forward['source_gap_codes'] ?? []));
+        $forwardDataStatus = (string)($forward['data_status'] ?? '');
+        $forwardGapCodes = array_values((array)($forward['gap_codes'] ?? []));
+        $verifiedOversoldAlerts = self::pmsForwardAlerts(
+            $forward,
+            [],
+            $businessDate
+        );
+        $forwardWarningValid = $forwardDataStatus === 'verified_with_anomalies'
+            && $forwardGapCodes !== []
+            && array_values(array_unique($forwardGapCodes)) === [
+                'dingdandao_forward_oversold_present',
+            ]
+            && count($verifiedOversoldAlerts) > 0;
         return (int)($capture['tenant_id'] ?? 0) === $tenantId
             && (int)($capture['hotel_id'] ?? 0) === $hotelId
             && (string)($capture['business_date'] ?? '') === $businessDate
@@ -1295,7 +1758,10 @@ final class ManualNotificationBusinessPreviewService
                 === 'whole_hotel_forward_room_status'
             && ($forward['source_api_path'] ?? '')
                 === '/v2/hm-b/pro/web/accom/roomStat/forward/v2'
-            && ($forward['data_status'] ?? '') === 'verified'
+            && (
+                $forwardDataStatus === 'verified'
+                || $forwardWarningValid
+            )
             && ($forward['readback_status'] ?? '') === 'readback_verified'
             && ($forward['as_of_date'] ?? '') === $businessDate
             && ($forward['range_start_date'] ?? '') === $businessDate
@@ -1327,7 +1793,10 @@ final class ManualNotificationBusinessPreviewService
                 )
             )
             && ($forward['reconciliation_status'] ?? '') === 'matched'
-            && (array)($forward['gap_codes'] ?? []) === [];
+            && (
+                $forwardGapCodes === []
+                || $forwardWarningValid
+            );
     }
 
     /** @return array<string,mixed>|null */
@@ -1336,10 +1805,21 @@ final class ManualNotificationBusinessPreviewService
         foreach ((array)($forward['horizons'] ?? []) as $row) {
             if (!is_array($row)
                 || (int)($row['horizon_days'] ?? 0) !== $days
-                || ($row['quality_status'] ?? '') !== 'verified'
+                || !in_array(
+                    (string)($row['quality_status'] ?? ''),
+                    ['verified', 'warning'],
+                    true
+                )
                 || (int)($row['expected_days'] ?? 0) !== $days
                 || (int)($row['covered_days'] ?? 0) !== $days
-                || (array)($row['gap_codes'] ?? []) !== []
+                || !in_array(
+                    array_values((array)($row['gap_codes'] ?? [])),
+                    [
+                        [],
+                        ['dingdandao_forward_oversold_present'],
+                    ],
+                    true
+                )
             ) {
                 continue;
             }
@@ -1388,7 +1868,10 @@ final class ManualNotificationBusinessPreviewService
                     self::numeric($row['occupancy_rate_percent']),
                 'adr' => self::numeric($row['adr']),
                 'revpar' => self::numeric($row['revpar']),
-                'quality_status' => 'verified',
+                'quality_status' => (string)$row['quality_status'],
+                'gap_codes' => array_values((array)($row['gap_codes'] ?? [])),
+                'oversold_room_nights' =>
+                    self::numeric($row['oversold_room_nights'] ?? 0),
             ];
         }
         return $result;

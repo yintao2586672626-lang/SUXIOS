@@ -554,7 +554,11 @@ final class ManualNotificationScheduleServiceTest extends TestCase
         foreach (['3天｜', '7天｜', '14天｜', '21天｜'] as $needle) {
             self::assertStringContainsString($needle, $content);
         }
-        self::assertSame(21, substr_count($content, '｜订'));
+        self::assertSame(0, substr_count($content, '｜订'));
+        self::assertStringContainsString(
+            '逐日/房型明细｜已保存21天',
+            $content
+        );
         self::assertStringNotContainsString('保存时远期占位正文', $content);
     }
 

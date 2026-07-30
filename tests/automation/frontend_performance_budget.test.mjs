@@ -13,10 +13,12 @@ import {
 test('default startup budget uses the fast-iteration target, warning, and hard limit', () => {
   assert.deepEqual({
     target: DEFAULT_FRONTEND_BUDGET.target_startup_gzip_bytes,
+    enforce_target: DEFAULT_FRONTEND_BUDGET.enforce_startup_target,
     warning: DEFAULT_FRONTEND_BUDGET.warning_startup_gzip_bytes,
     hard_limit: DEFAULT_FRONTEND_BUDGET.max_startup_gzip_bytes,
   }, {
     target: 600_000,
+    enforce_target: true,
     warning: 625_000,
     hard_limit: 650_000,
   });
@@ -69,10 +71,23 @@ test('evaluateFrontendBudget reports each exceeded entry limit', () => {
 test('evaluateFrontendBudget passes metrics within every limit', () => {
   assert.deepEqual(evaluateFrontendBudget({
     index_bytes: 1_900_000,
-    startup_gzip_bytes: 640_000,
+    startup_gzip_bytes: 590_000,
     inline_script_bytes: 10_000,
     blocking_script_count: 0,
   }), []);
+});
+
+test('evaluateFrontendBudget enforces the startup target before the emergency hard limit', () => {
+  assert.deepEqual(evaluateFrontendBudget({
+    index_bytes: 1_900_000,
+    startup_gzip_bytes: 600_001,
+    inline_script_bytes: 10_000,
+    blocking_script_count: 0,
+  }), [{
+    metric: 'startup_gzip_bytes',
+    actual: 600_001,
+    limit: 600_000,
+  }]);
 });
 
 test('entry metrics separate public shell, home startup, and after-paint authenticated assets', () => {

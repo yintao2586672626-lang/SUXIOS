@@ -13,7 +13,7 @@ const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisp
 const routeApp = readFileSync('route/app.php', 'utf8');
 const publicEntry = readFrontendContractSource();
 const dataHealthStaticSource = readFileSync('public/data-health-static.js', 'utf8');
-const startupHelpersRuntime = readFileSync('public/app-startup-helpers.min.js', 'utf8');
+const deferredHelpersRuntime = readFileSync('public/app-deferred-helpers.min.js', 'utf8');
 vm.runInNewContext(dataHealthStaticSource, context, {
   filename: 'public/data-health-static.js',
 });
@@ -998,12 +998,12 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.match(resultTable, /row\.detailMessage/);
   assert.match(resultTable, /查看详情/);
   assert.doesNotMatch(resultTable, /min-w-\[\d+rem\]/);
-  const dataHealthAssetMatch = publicEntry.match(/app-startup-helpers\.min\.js\?v=[^"'\s>]*h([0-9a-f]{10})/);
-  assert.ok(dataHealthAssetMatch, 'runtime entry must load app-startup-helpers.min.js with a content hash');
+  const dataHealthAssetMatch = publicEntry.match(/app-deferred-helpers\.min\.js\?v=[^"'\s>]*h([0-9a-f]{10})/);
+  assert.ok(dataHealthAssetMatch, 'runtime entry must defer app-deferred-helpers.min.js with a content hash');
   assert.equal(
     dataHealthAssetMatch[1],
-    createHash('sha256').update(startupHelpersRuntime).digest('hex').slice(0, 10),
-    'runtime entry startup helper hash must match the current runtime artifact',
+    createHash('sha256').update(deferredHelpersRuntime).digest('hex').slice(0, 10),
+    'runtime entry deferred helper hash must match the current runtime artifact',
   );
 
   const directIssueStart = publicEntry.indexOf('const otaDirectManualFailureBuckets = computed');

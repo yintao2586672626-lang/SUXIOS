@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -127,7 +128,10 @@ test('typed competition persistence never reuses an unrelated business row', () 
 test('competition identity is ID-only and legacy persistence creates evidence tasks', () => {
   const persistence = fs.readFileSync(path.join(root, 'app/service/CtripCompetitionCirclePersistenceService.php'), 'utf8');
   const legacy = fs.readFileSync(path.join(root, 'app/controller/concern/BusinessDisplayConcern.php'), 'utf8');
-  const autoFetch = fs.readFileSync(path.join(root, 'app/controller/concern/AutoFetchConcern.php'), 'utf8');
+  const autoFetch = readSourceAggregate(
+    'app/controller/concern/AutoFetchConcern.php',
+    { repoRoot: root },
+  );
 
   assert.match(persistence, /\$isSelf = \$hotelId !== '' && isset\(\$selfHotelIds\[\$hotelId\]\);/);
   assert.doesNotMatch(persistence, /\$isSelf\s*=\s*[^;]*hasExplicitSelfMarker/);
@@ -136,7 +140,10 @@ test('competition identity is ID-only and legacy persistence creates evidence ta
 });
 
 test('identity conflicts use only active self bindings and successful saves surface ID warnings', () => {
-  const backend = fs.readFileSync(path.join(root, 'app/controller/concern/AutoFetchConcern.php'), 'utf8');
+  const backend = readSourceAggregate(
+    'app/controller/concern/AutoFetchConcern.php',
+    { repoRoot: root },
+  );
   const frontend = fs.readFileSync(path.join(root, 'public/ctrip-static.js'), 'utf8');
   const conflictMethod = backend.match(/private function findCtripPlatformHotelIdConflicts[\s\S]*?\n    private function getSystemHotelName/);
 
@@ -172,7 +179,10 @@ test('traffic persistence keeps system hotel ownership separate from the OTA hot
   const persistence = fs.readFileSync(path.join(root, 'app/service/OnlineDailyDataPersistenceService.php'), 'utf8');
   const analytics = fs.readFileSync(path.join(root, 'app/controller/concern/OnlineDataAnalyticsConcern.php'), 'utf8');
   const manualFetch = fs.readFileSync(path.join(root, 'app/controller/concern/OnlineDataManualFetchConcern.php'), 'utf8');
-  const autoFetch = fs.readFileSync(path.join(root, 'app/controller/concern/AutoFetchConcern.php'), 'utf8');
+  const autoFetch = readSourceAggregate(
+    'app/controller/concern/AutoFetchConcern.php',
+    { repoRoot: root },
+  );
   const ctripParser = persistence.match(/private function parseAndSaveCtripTrafficData[\s\S]*?private function parseAndSaveGenericTrafficData/);
 
   assert.ok(ctripParser, 'expected isolated Ctrip traffic parser');

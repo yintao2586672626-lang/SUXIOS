@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const autoFetchStaticSource = readFileSync('public/auto-fetch-static.js', 'utf8');
 const html = readFrontendContractSource();
 const panels = readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8');
-const autoFetchConcern = readFileSync('app/controller/concern/AutoFetchConcern.php', 'utf8');
+const autoFetchConcern = readSourceAggregate('app/controller/concern/AutoFetchConcern.php');
 
 const sandbox = { console, Promise, window: {} };
 vm.runInNewContext(

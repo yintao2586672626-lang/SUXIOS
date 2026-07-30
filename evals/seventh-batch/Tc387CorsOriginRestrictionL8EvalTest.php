@@ -9,7 +9,9 @@ use think\Container;
 use think\Request;
 use think\Response;
 
-require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+if (!class_exists(\Composer\Autoload\ClassLoader::class, false)) {
+    require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+}
 
 final class Tc387CorsOriginRestrictionL8EvalTest extends TestCase
 {

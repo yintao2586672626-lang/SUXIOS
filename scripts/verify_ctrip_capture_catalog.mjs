@@ -14,6 +14,7 @@ import {
   generateCtripCaptureMarkdown,
   normalizeCtripCaptureSections,
 } from './lib/ctrip_capture_catalog.mjs';
+import { readSourceAggregate } from './lib/source_aggregate.mjs';
 
 function parseArgs(argv) {
   const args = { i18n: '', json: false, write: true };
@@ -610,7 +611,7 @@ function verifyCatalog() {
       || publicCtripSource.includes("value: 'im_board', label: '用户行为-IM看板'"),
     'Profile field-management UI must expose user behavior IM board',
   );
-  const autoFetchSource = readFileSync('app/controller/concern/AutoFetchConcern.php', 'utf8');
+  const autoFetchSource = readSourceAggregate('app/controller/concern/AutoFetchConcern.php');
   const saveStandardRowsMatch = autoFetchSource.match(/private function saveCtripStandardRows[\s\S]*?private function extractCtripCapturedResponseData/);
   assertContract(saveStandardRowsMatch, 'saveCtripStandardRows function must be present');
   assertContract(

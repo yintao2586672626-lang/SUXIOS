@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class DomesticOtaPmsKnowledgeGapAbsorptionTest extends TestCase
 {
@@ -147,7 +148,7 @@ final class DomesticOtaPmsKnowledgeGapAbsorptionTest extends TestCase
         $service = (string)file_get_contents(
             $root . '/app/service/RevenueOperationsKnowledgeService.php'
         );
-        $agent = (string)file_get_contents($root . '/app/controller/Agent.php');
+        $agent = SourceAggregate::read($root, 'app/controller/Agent.php');
 
         self::assertStringContainsString('retrieval_truncation_not_explicit', $verifier);
         self::assertStringContainsString('platform_leak:', $verifier);

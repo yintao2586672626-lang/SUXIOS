@@ -5,6 +5,7 @@ namespace tests;
 
 use app\service\OnlineDailyDataPersistenceService;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class OnlineDailyDataPersistenceServiceTest extends TestCase
 {
@@ -391,7 +392,7 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             'app/controller/concern/CtripAdsConcern.php',
             'app/controller/concern/AutoFetchConcern.php',
         ] as $path) {
-            $source = (string)file_get_contents($root . '/' . $path);
+            $source = SourceAggregate::read($root, $path);
             self::assertStringContainsString('resetReadbackVerification(', $source, $path);
             self::assertStringContainsString('markRowsReadbackVerified(', $source, $path);
             self::assertDoesNotMatchRegularExpression(
@@ -402,7 +403,7 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
         }
 
         $scheduled = (string)file_get_contents($root . '/app/command/AutoFetchOnlineData.php');
-        $platformSync = (string)file_get_contents($root . '/app/service/PlatformDataSyncService.php');
+        $platformSync = SourceAggregate::read($root, 'app/service/PlatformDataSyncService.php');
         $normalizedPersistence = (string)file_get_contents(
             $root . '/app/service/PlatformNormalizedRowPersistenceService.php'
         );

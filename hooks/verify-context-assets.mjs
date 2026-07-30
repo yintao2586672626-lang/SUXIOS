@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveOuterContextRoot } from './lib/context_root.mjs';
 
 const repoRoot = process.cwd();
-const outerRoot = path.dirname(repoRoot);
+const outerRoot = resolveOuterContextRoot(repoRoot);
 const failures = [];
 
 function read(relativePath, base = repoRoot) {

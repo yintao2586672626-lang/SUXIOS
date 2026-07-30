@@ -16,15 +16,15 @@ use InvalidArgumentException;
  */
 final class ManualNotificationBusinessPayloadService
 {
-    public const CONTRACT_VERSION = 'manual_notification_business_payload.v1';
-    public const FACT_ENVELOPE_VERSION = 'revenue_message_fact_envelope.v1';
+    public const CONTRACT_VERSION = 'manual_notification_business_payload.v2';
+    public const FACT_ENVELOPE_VERSION = 'revenue_message_fact_envelope.v2';
     public const RENDER_CONTRACT_VERSIONS = [
         'today_revenue_management' =>
-            'manual_business.today_revenue_management.v1',
+            'manual_business.today_revenue_management.v2',
         'future_room_status' =>
-            'manual_business.future_room_status.v1',
+            'manual_business.future_room_status.v2',
         'daily_review' =>
-            'manual_business.daily_review.v1',
+            'manual_business.daily_review.v2',
     ];
 
     private const TYPES = [
@@ -308,13 +308,24 @@ final class ManualNotificationBusinessPayloadService
                 'source_coverage_status' =>
                     $messageData['source_coverage_status'] ?? 'missing',
                 'source_gap_codes' => $messageData['source_gap_codes'] ?? [],
+                'quality_status' => $messageData['quality_status'] ?? 'missing',
                 'horizons' => $messageData['horizons'] ?? [],
                 'daily_rows' => $messageData['daily_rows'] ?? [],
                 'room_types' => $messageData['room_types'] ?? [],
+                'alerts' => $messageData['alerts'] ?? [],
             ]
             : (
                 is_array($sources['dingdandao_pms']['facts'] ?? null)
-                    ? $sources['dingdandao_pms']['facts']
+                    ? [
+                        ...$sources['dingdandao_pms']['facts'],
+                        'revenue_overview' =>
+                            $sources['dingdandao_pms']['revenue_overview'] ?? null,
+                        'temporal_context' =>
+                            $sources['dingdandao_pms']['temporal_context'] ?? null,
+                        'snapshot_delta' =>
+                            $sources['dingdandao_pms']['snapshot_delta'] ?? null,
+                        'alerts' => $sources['dingdandao_pms']['alerts'] ?? [],
+                    ]
                     : []
             );
         $sourceCompleteness = [];
@@ -330,9 +341,14 @@ final class ManualNotificationBusinessPayloadService
             }
         }
         $factCompleteness = $sourceCompleteness['dingdandao_pms']
-            !== 'readback_verified'
+            !== 'readback_verified' || $status !== 'ready'
             ? 'blocked'
-            : ($incompleteSources === [] ? 'complete' : 'partial');
+            : (
+                $incompleteSources === []
+                && (array)($section['gaps'] ?? []) === []
+                    ? 'complete'
+                    : 'partial'
+            );
         $allowedUses = $status === 'ready'
             ? [
                 'notification_payload',
@@ -431,6 +447,31 @@ final class ManualNotificationBusinessPayloadService
             ? $sources['dingdandao_pms']
             : [];
         $facts = is_array($pms['facts'] ?? null) ? $pms['facts'] : [];
+        $revenueOverview = is_array($pms['revenue_overview'] ?? null)
+            ? $pms['revenue_overview']
+            : (
+                is_array($facts['revenue_overview'] ?? null)
+                    ? $facts['revenue_overview']
+                    : []
+            );
+        $temporalContext = is_array($pms['temporal_context'] ?? null)
+            ? $pms['temporal_context']
+            : (
+                is_array($facts['temporal_context'] ?? null)
+                    ? $facts['temporal_context']
+                    : []
+            );
+        $snapshotDelta = is_array($pms['snapshot_delta'] ?? null)
+            ? $pms['snapshot_delta']
+            : (
+                is_array($facts['snapshot_delta'] ?? null)
+                    ? $facts['snapshot_delta']
+                    : []
+            );
+        $alerts = array_values(array_filter(
+            (array)($pms['alerts'] ?? $facts['alerts'] ?? []),
+            'is_array'
+        ));
         $capturedAt = self::safeText(
             (string)($pms['source']['captured_at'] ?? ''),
             32
@@ -457,9 +498,133 @@ final class ManualNotificationBusinessPayloadService
             'ADR｜¥' . self::number($facts['adr'] ?? null, 2),
             'RevPAR｜¥' . self::number($facts['revpar'] ?? null, 2),
             '',
-            '**三源状态**',
-            ...$this->sourceStatusLines($sources),
         ];
+        $lines[] = '**住宿营业额汇总**';
+        if (($revenueOverview['data_status'] ?? '') === 'readback_verified') {
+            $lines[] = '住宿总营业额｜'
+                . self::money($revenueOverview['total_accommodation_turnover'] ?? null);
+            $subjects = array_values(array_filter(
+                (array)($revenueOverview['subjects'] ?? []),
+                static fn(mixed $subject): bool =>
+                    is_array($subject)
+                    && (int)($subject['provider_subject_type'] ?? -1) !== -1
+            ));
+            foreach (array_slice($subjects, 0, 6) as $subject) {
+                $line = self::safeText(
+                    (string)($subject['subject_name'] ?? '未命名项目'),
+                    32
+                ) . '｜' . self::money($subject['single_day_total'] ?? null);
+                if (self::numeric($subject['percent'] ?? null) !== null) {
+                    $line .= '｜' . self::number($subject['percent'], 2) . '%';
+                }
+                $lines[] = $line;
+            }
+            if (count($subjects) > 6) {
+                $lines[] = '其余' . (count($subjects) - 6)
+                    . '项｜已保存在事实明细';
+            }
+            $trendParts = [];
+            foreach (array_slice(
+                (array)($revenueOverview['total_trend'] ?? []),
+                -3
+            ) as $point) {
+                if (!is_array($point)) {
+                    continue;
+                }
+                $date = self::safeText(
+                    (string)($point['observation_date'] ?? ''),
+                    10
+                );
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) !== 1
+                    || self::numeric($point['amount'] ?? null) === null
+                ) {
+                    continue;
+                }
+                $trendParts[] = substr($date, 5) . ' '
+                    . self::money($point['amount']);
+            }
+            if ($trendParts !== []) {
+                $lines[] = '营业额趋势｜' . implode(' → ', $trendParts);
+            }
+        } else {
+            $lines[] = '状态｜未取得或未通过回读（不补0）';
+        }
+        $lines[] = '';
+        $lines[] = '**过去 / 当前 / 未来口径**';
+        if (($temporalContext['data_status'] ?? '') !== 'missing') {
+            $past = is_array($temporalContext['past'] ?? null)
+                ? $temporalContext['past']
+                : [];
+            $current = is_array($temporalContext['current'] ?? null)
+                ? $temporalContext['current']
+                : [];
+            $future = is_array($temporalContext['future'] ?? null)
+                ? $temporalContext['future']
+                : [];
+            $lines[] = '过去｜'
+                . self::dateRange($past['date_from'] ?? null, $past['date_to'] ?? null)
+                . '｜' . self::temporalStatusLabel($past['status'] ?? null);
+            $currentDate = self::safeText(
+                (string)($current['business_date'] ?? ''),
+                10
+            );
+            $lines[] = '当前｜'
+                . (
+                    preg_match('/^\d{4}-\d{2}-\d{2}$/D', $currentDate) === 1
+                        ? $currentDate
+                        : '日期未取得'
+                )
+                . '｜' . self::settlementLabel($current['settlement_status'] ?? null)
+                . '｜' . self::temporalStatusLabel($current['status'] ?? null);
+            $lines[] = '未来｜'
+                . self::dateRange(
+                    $future['stay_date_from'] ?? null,
+                    $future['stay_date_to'] ?? null
+                )
+                . '｜3/7/14/21天｜'
+                . self::temporalStatusLabel($future['status'] ?? null);
+        } else {
+            $lines[] = '状态｜时间口径未取得，不混用其他快照';
+        }
+        $lines[] = '';
+        $lines[] = '**本次变化**';
+        if (($snapshotDelta['data_status'] ?? '') === 'comparable') {
+            $deltas = is_array($snapshotDelta['deltas'] ?? null)
+                ? $snapshotDelta['deltas']
+                : [];
+            $lines[] = '时段｜'
+                . self::timeLabel($snapshotDelta['captured_from'] ?? null)
+                . ' → ' . self::timeLabel($snapshotDelta['captured_to'] ?? null);
+            $lines[] = '房费｜' . self::signedMetric($deltas['room_fee'] ?? null, 2, '¥')
+                . '｜已售 ' . self::signedMetric(
+                    $deltas['sold_room_nights'] ?? null,
+                    0,
+                    '',
+                    '间'
+                );
+            $lines[] = 'OCC｜'
+                . self::signedMetric($deltas['occupancy_rate_percent'] ?? null, 2, '', '点')
+                . '｜ADR ' . self::signedMetric($deltas['adr'] ?? null, 2, '¥');
+        } else {
+            $lines[] = '状态｜等待下一次同门店、同日期的独立快照';
+        }
+        if ($alerts !== []) {
+            $lines[] = '';
+            $lines[] = '**经营提醒**';
+            foreach (array_slice($alerts, 0, 3) as $alert) {
+                if (($alert['code'] ?? '') === 'pms_today_sold_out') {
+                    $lines[] = '⚠ 今日可售已归零｜已售'
+                        . self::number($alert['sold_room_nights'] ?? null, 0)
+                        . '/' . self::number($alert['sellable_room_nights'] ?? null, 0)
+                        . '间｜OCC '
+                        . self::number($alert['occupancy_rate_percent'] ?? null, 2)
+                        . '%';
+                }
+            }
+        }
+        $lines[] = '';
+        $lines[] = '**三源状态**';
+        array_push($lines, ...$this->sourceStatusLines($sources));
         if ($review) {
             $lines[] = '';
             $lines[] = '> 当前为最近一次已保存快照，并非日终最终定稿标记。';
@@ -502,17 +667,62 @@ final class ManualNotificationBusinessPayloadService
                 . '%｜ADR ¥' . self::number($row['adr'] ?? null, 2);
         }
         $lines[] = '';
-        $lines[] = '**未来21天**';
-        foreach ((array)($messageData['daily_rows'] ?? []) as $row) {
-            if (!is_array($row)) {
-                continue;
+        $lines[] = '逐日/房型明细｜已保存'
+            . self::number($messageData['display_day_count'] ?? null, 0)
+            . '天；日常消息仅展示累计窗口，异常时展开。';
+        $alerts = array_values(array_filter(
+            (array)($messageData['alerts'] ?? []),
+            'is_array'
+        ));
+        if ($alerts !== []) {
+            $oversold = array_values(array_filter(
+                $alerts,
+                static fn(array $alert): bool =>
+                    ($alert['code'] ?? '') === 'pms_forward_oversold'
+            ));
+            $soldOut = array_values(array_filter(
+                $alerts,
+                static fn(array $alert): bool =>
+                    ($alert['code'] ?? '') === 'pms_forward_sold_out'
+            ));
+            $lines[] = '';
+            $lines[] = '**房态提醒**';
+            if ($oversold !== []) {
+                $lines[] = '超售摘要｜'
+                    . count(array_unique(array_column($oversold, 'stay_date')))
+                    . '天｜'
+                    . count(array_unique(array_column($oversold, 'room_type_name')))
+                    . '个房型｜合计'
+                    . array_sum(array_column($oversold, 'oversold_rooms'))
+                    . '间';
             }
-            $date = self::safeText((string)($row['stay_date'] ?? ''), 10);
-            $lines[] = substr($date, 5) . '｜订'
-                . self::number($row['booked_rooms'] ?? null, 0)
-                . '｜余' . self::number($row['remaining_sellable_rooms'] ?? null, 0)
-                . '｜' . self::number($row['occupancy_rate_percent'] ?? null, 2)
-                . '%｜ADR ¥' . self::number($row['adr'] ?? null, 2);
+            if ($soldOut !== []) {
+                $lines[] = '售罄摘要｜'
+                    . count(array_unique(array_column($soldOut, 'stay_date')))
+                    . '天可售归零';
+            }
+            foreach (array_slice($alerts, 0, 3) as $alert) {
+                $date = self::safeText((string)($alert['stay_date'] ?? ''), 10);
+                if (($alert['code'] ?? '') === 'pms_forward_oversold') {
+                    $lines[] = substr($date, 5) . '｜'
+                        . self::safeText(
+                            (string)($alert['room_type_name'] ?? '未知房型'),
+                            40
+                        )
+                        . '｜超售'
+                        . self::number($alert['oversold_rooms'] ?? null, 0)
+                        . '间';
+                } elseif (($alert['code'] ?? '') === 'pms_forward_sold_out') {
+                    $lines[] = substr($date, 5)
+                        . '｜可售归零｜已订'
+                        . self::number($alert['booked_rooms'] ?? null, 0)
+                        . '间';
+                }
+            }
+            if (count($alerts) > 3) {
+                $lines[] = '其余' . (count($alerts) - 3)
+                    . '条｜已保存在事实明细';
+            }
         }
         if (($messageData['source_coverage_status'] ?? '') === 'partial') {
             $lines[] = '';
@@ -648,6 +858,73 @@ final class ManualNotificationBusinessPayloadService
             'page_preview' => '页面实时预览（未发送）',
             default => '后端消息预览（未发送）',
         };
+    }
+
+    private static function money(mixed $value): string
+    {
+        $number = self::numeric($value);
+        if ($number === null) {
+            return '未取得';
+        }
+        return ($number < 0 ? '-¥' : '¥')
+            . number_format(abs((float)$number), 2, '.', '');
+    }
+
+    private static function dateRange(mixed $from, mixed $to): string
+    {
+        $from = self::safeText((string)$from, 10);
+        $to = self::safeText((string)$to, 10);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $from) !== 1
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $to) !== 1
+        ) {
+            return '日期未取得';
+        }
+        return substr($from, 5) . '至' . substr($to, 5);
+    }
+
+    private static function temporalStatusLabel(mixed $status): string
+    {
+        return match (trim((string)$status)) {
+            'verified' => '已验证',
+            'verified_with_anomalies' => '已验证（有提醒）',
+            'partial' => '部分可用',
+            'not_requested' => '本次未采集',
+            default => '未取得',
+        };
+    }
+
+    private static function settlementLabel(mixed $status): string
+    {
+        return match (trim((string)$status)) {
+            'provisional' => '实时未结算',
+            'historical_observed' => '历史已观测',
+            default => '结算状态未取得',
+        };
+    }
+
+    private static function timeLabel(mixed $value): string
+    {
+        $text = self::safeText((string)$value, 32);
+        if (preg_match('/(?:^|T| )(\d{2}:\d{2})(?::\d{2})?/', $text, $matches) !== 1) {
+            return '时间未取得';
+        }
+        return $matches[1];
+    }
+
+    private static function signedMetric(
+        mixed $value,
+        int $decimals,
+        string $prefix = '',
+        string $suffix = ''
+    ): string {
+        $number = self::numeric($value);
+        if ($number === null) {
+            return '未取得';
+        }
+        $sign = $number > 0 ? '+' : ($number < 0 ? '-' : '±');
+        return $sign . $prefix
+            . number_format(abs((float)$number), $decimals, '.', '')
+            . $suffix;
     }
 
     private static function statusLabel(string $status): string

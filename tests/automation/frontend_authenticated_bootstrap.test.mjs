@@ -35,6 +35,7 @@ test('public login shell defers the authenticated application asset chain', () =
   for (const deferredAsset of [
     'ctrip-search-opportunity-static.js',
     'user-admin-static.js',
+    'app-deferred-helpers.min.js',
   ]) {
     assert.equal(
       entries.find((entry) => stripFrontendAssetQuery(entry.src) === deferredAsset)?.phase,
@@ -44,6 +45,7 @@ test('public login shell defers the authenticated application asset chain', () =
   }
   assert(!assets.includes('ota-browser-assist-static.js'), 'OTA browser assist must load only after its copy action');
   assert(assets.includes('app-startup-helpers.min.js'));
+  assert(assets.includes('app-deferred-helpers.min.js'));
   for (const sourceAsset of [
     'shared-components.js',
     'ctrip-static.js',

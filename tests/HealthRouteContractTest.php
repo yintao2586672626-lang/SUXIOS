@@ -30,6 +30,8 @@ final class HealthRouteContractTest extends TestCase
         self::assertStringContainsString("'database' => 'unavailable'", $route);
         self::assertStringContainsString('SingleInstanceRuntimeReadiness', $route);
         self::assertStringContainsString("'failure_codes'", $route);
+        self::assertStringContainsString("'production_runtime_ready'", $route);
+        self::assertStringContainsString("'runtime_mode'", $route);
         self::assertStringContainsString("'competitor_report_idempotency'", (string)file_get_contents(
             __DIR__ . '/../app/service/SingleInstanceRuntimeReadiness.php'
         ));
@@ -43,6 +45,11 @@ final class HealthRouteContractTest extends TestCase
         $result = (new SingleInstanceRuntimeReadiness())->check();
 
         self::assertIsBool($result['ready']);
+        self::assertIsBool($result['production_runtime_ready']);
+        self::assertContains(
+            $result['runtime_mode'],
+            ['development_fallback', 'single_instance_persistent']
+        );
         self::assertIsBool($result['persistent_required']);
         self::assertSame(
             ['local_state', 'cache', 'lock', 'database_schema', 'competitor_report_idempotency'],
@@ -54,5 +61,10 @@ final class HealthRouteContractTest extends TestCase
         self::assertStringNotContainsString('SUXIOS_CACHE_PATH', $encoded);
         self::assertStringNotContainsString('SUXIOS_LOCAL_LOCK_PATH', $encoded);
         self::assertStringNotContainsString(dirname(__DIR__), $encoded);
+
+        if ($result['persistent_required'] === false) {
+            self::assertFalse($result['production_runtime_ready']);
+            self::assertSame('development_fallback', $result['runtime_mode']);
+        }
     }
 }

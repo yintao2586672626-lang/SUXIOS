@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class KnowledgeTruthProfilePruningTest extends TestCase
 {
@@ -54,7 +55,7 @@ final class KnowledgeTruthProfilePruningTest extends TestCase
 
         $model = (string)file_get_contents($root . '/app/model/KnowledgeUnit.php');
         $mapper = (string)file_get_contents($root . '/app/service/KnowledgePayloadMapper.php');
-        $agent = (string)file_get_contents($root . '/app/controller/Agent.php');
+        $agent = SourceAggregate::read($root, 'app/controller/Agent.php');
         $operations = (string)file_get_contents($root . '/app/service/RevenueOperationsKnowledgeService.php');
 
         foreach ([$model, $mapper, $agent, $operations] as $source) {

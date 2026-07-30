@@ -3,7 +3,15 @@ declare(strict_types=1);
 
 use app\service\FixedWindowRateLimiter;
 
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
+$projectRoot = dirname(__DIR__, 2);
+require $projectRoot . '/vendor/autoload.php';
+foreach (spl_autoload_functions() ?: [] as $autoloadFunction) {
+    $loader = is_array($autoloadFunction) ? ($autoloadFunction[0] ?? null) : null;
+    if (!$loader instanceof \Composer\Autoload\ClassLoader) {
+        continue;
+    }
+    $loader->setPsr4('app\\', [$projectRoot . DIRECTORY_SEPARATOR . 'app']);
+}
 
 $counterPath = (string)($argv[1] ?? '');
 $lockDirectory = (string)($argv[2] ?? '');

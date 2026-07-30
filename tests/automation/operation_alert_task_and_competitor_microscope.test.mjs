@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 
 const context = { window: {}, URLSearchParams };
 vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context, {
@@ -14,9 +15,9 @@ const alertPage = readFileSync('resources/frontend/templates/fragments/15c-page-
 const competitorPage = readFileSync('resources/frontend/templates/fragments/27-page-agent-center.html', 'utf8');
 const routes = readFileSync('route/app.php', 'utf8');
 const controller = readFileSync('app/controller/OperationManagement.php', 'utf8');
-const service = readFileSync('app/service/OperationManagementService.php', 'utf8');
+const service = readSourceAggregate('app/service/OperationManagementService.php');
 const competitorModel = readFileSync('app/model/CompetitorAnalysis.php', 'utf8');
-const agentController = readFileSync('app/controller/Agent.php', 'utf8');
+const agentController = readSourceAggregate('app/controller/Agent.php');
 
 test('threshold alerts expose an idempotent pending-task bridge without automatic OTA execution', () => {
   assert.match(routes, /Route::post\('\/alerts\/:id\/execution-intent', 'OperationManagement\/alertExecutionIntent'\)/);

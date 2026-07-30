@@ -1205,6 +1205,15 @@ final class DingdandaoPmsIntegrationService
         $forward = is_array($capture['forward_room_status'] ?? null)
             ? $capture['forward_room_status']
             : [];
+        $revenueOverview = is_array($capture['revenue_overview'] ?? null)
+            ? $capture['revenue_overview']
+            : [];
+        $componentCoverage = is_array($capture['component_coverage'] ?? null)
+            ? $capture['component_coverage']
+            : [];
+        $temporalContext = is_array($componentCoverage['temporal_context'] ?? null)
+            ? $componentCoverage['temporal_context']
+            : [];
         $number = static function (mixed $value, int $decimals = 2): string {
             if ($value === null || $value === '' || is_bool($value) || !is_numeric($value)) {
                 return '未取得';
@@ -1214,6 +1223,24 @@ final class DingdandaoPmsIntegrationService
                 return '未取得';
             }
             return number_format($value, $decimals, '.', ',');
+        };
+        $signedMoney = static function (mixed $value): string {
+            if ($value === null || $value === '' || is_bool($value) || !is_numeric($value)) {
+                return '未取得';
+            }
+            $value = (float)$value;
+            if (!is_finite($value)) {
+                return '未取得';
+            }
+            return ($value < 0 ? '-¥' : '¥')
+                . number_format(abs($value), 2, '.', ',');
+        };
+        $statusLabel = static fn(mixed $status): string => match ((string)$status) {
+            'verified' => '已验证',
+            'verified_with_anomalies' => '已验证（有提醒）',
+            'partial' => '部分可用',
+            'not_requested' => '本次未采集',
+            default => '未取得',
         };
         $comparison = static function (mixed $hotelValue, mixed $regionValue): string {
             if (!is_numeric($hotelValue) || !is_numeric($regionValue)
@@ -1260,6 +1287,118 @@ final class DingdandaoPmsIntegrationService
             ? '日期未取得'
             : mb_substr($trendDates[0], 5, 5)
                 . ' 至 ' . mb_substr($trendDates[count($trendDates) - 1], 5, 5);
+        $revenueLines = [];
+        if (($revenueOverview['fact_scope'] ?? '') === 'whole_hotel_accommodation_turnover'
+            && ($revenueOverview['data_status'] ?? '') === 'verified'
+            && ($revenueOverview['readback_status'] ?? '') === 'readback_verified'
+        ) {
+            $revenueLines[] = '- 住宿总营业额：'
+                . $signedMoney($revenueOverview['total_accommodation_turnover'] ?? null);
+            $subjects = array_values(array_filter(
+                (array)($revenueOverview['subjects'] ?? []),
+                static fn(mixed $subject): bool =>
+                    is_array($subject)
+                    && (int)($subject['provider_subject_type'] ?? -1) !== -1
+            ));
+            foreach (array_slice($subjects, 0, 8) as $subject) {
+                $subjectName = $this->safeText(
+                    (string)($subject['subject_name'] ?? '未命名项目'),
+                    40
+                );
+                $line = '- ' . $subjectName . '：'
+                    . $signedMoney($subject['single_day_total'] ?? null);
+                $percent = $subject['percent'] ?? null;
+                if (is_numeric($percent) && is_finite((float)$percent)) {
+                    $line .= '｜占比 '
+                        . number_format((float)$percent, 2, '.', ',') . '%';
+                }
+                $revenueLines[] = $line;
+            }
+            if (count($subjects) > 8) {
+                $revenueLines[] = '- 其余 ' . (count($subjects) - 8)
+                    . ' 个营业项目已保存在回读事实明细中。';
+            }
+            $revenueTrend = [];
+            foreach (array_slice((array)($revenueOverview['total_trend'] ?? []), -3) as $point) {
+                if (!is_array($point)) {
+                    continue;
+                }
+                $date = trim((string)($point['observation_date'] ?? ''));
+                $amount = $point['amount'] ?? null;
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) !== 1
+                    || !is_numeric($amount)
+                    || !is_finite((float)$amount)
+                ) {
+                    continue;
+                }
+                $revenueTrend[] = mb_substr($date, 5, 5)
+                    . ' ' . $signedMoney($amount);
+            }
+            if ($revenueTrend !== []) {
+                $revenueLines[] = '- 住宿营业额趋势：' . implode(' → ', $revenueTrend);
+            }
+        } else {
+            $revenueLines[] = '- 状态：营业额汇总未取得或未通过回读（不补 0）。';
+        }
+        $temporalLines = [];
+        if (($temporalContext['contract_version'] ?? '')
+            === 'dingdandao_temporal_context.v1'
+        ) {
+            $past = is_array($temporalContext['past'] ?? null)
+                ? $temporalContext['past']
+                : [];
+            $current = is_array($temporalContext['current'] ?? null)
+                ? $temporalContext['current']
+                : [];
+            $futureContext = is_array($temporalContext['future'] ?? null)
+                ? $temporalContext['future']
+                : [];
+            $pastFrom = trim((string)($past['date_from'] ?? ''));
+            $pastTo = trim((string)($past['date_to'] ?? ''));
+            $temporalLines[] = '- 过去｜'
+                . ($pastFrom !== '' && $pastTo !== ''
+                    ? mb_substr($pastFrom, 5, 5) . ' 至 ' . mb_substr($pastTo, 5, 5)
+                    : '日期未取得')
+                . '｜' . $statusLabel($past['status'] ?? '');
+            $currentSettlement = match ((string)($current['settlement_status'] ?? '')) {
+                'provisional' => '实时未结算',
+                'historical_observed' => '历史已观测',
+                default => '结算状态未取得',
+            };
+            $currentDate = trim((string)($current['business_date'] ?? ''));
+            $temporalLines[] = '- 当前｜'
+                . (
+                    preg_match('/^\d{4}-\d{2}-\d{2}$/D', $currentDate) === 1
+                        ? $currentDate
+                        : '日期未取得'
+                )
+                . '｜' . $currentSettlement
+                . '｜' . $statusLabel($current['status'] ?? '');
+            $futureFrom = trim((string)($futureContext['stay_date_from'] ?? ''));
+            $futureTo = trim((string)($futureContext['stay_date_to'] ?? ''));
+            $temporalLines[] = '- 未来｜'
+                . ($futureFrom !== '' && $futureTo !== ''
+                    ? mb_substr($futureFrom, 5, 5) . ' 至 ' . mb_substr($futureTo, 5, 5)
+                    : '日期未取得')
+                . '｜3/7/14/21 天累计｜'
+                . $statusLabel($futureContext['status'] ?? '');
+        } else {
+            $temporalLines[] = '- 状态：过去/当前/未来时间口径未取得（不混用快照）。';
+        }
+        $todayAlertLines = [];
+        $soldRoomNights = $summary['sold_room_nights'] ?? null;
+        $sellableRoomNights = $summary['derived_sellable_room_nights'] ?? null;
+        if (is_numeric($soldRoomNights)
+            && is_numeric($sellableRoomNights)
+            && (int)$sellableRoomNights > 0
+            && (int)$soldRoomNights === (int)$sellableRoomNights
+        ) {
+            $todayAlertLines[] = '- ⚠ 满房提醒：今日可售已归零｜已售 '
+                . $number($soldRoomNights, 0)
+                . '/' . $number($sellableRoomNights, 0)
+                . ' 间夜｜OCC '
+                . $number($summary['occupancy_rate_percent'] ?? null, 2) . '%';
+        }
         $lines = [
             '# 宿析OS 订单来了 PMS 经营事实',
             '> 门店：' . $this->safeText($hotelName, 80),
@@ -1276,6 +1415,17 @@ final class DingdandaoPmsIntegrationService
             '- 可售房夜：' . $number($summary['derived_sellable_room_nights'] ?? null) . ' 间夜',
             '',
         ];
+        if ($todayAlertLines !== []) {
+            $lines[] = '**经营提醒**';
+            array_push($lines, ...$todayAlertLines);
+            $lines[] = '';
+        }
+        $lines[] = '**住宿营业额汇总**';
+        array_push($lines, ...$revenueLines);
+        $lines[] = '';
+        $lines[] = '**过去 / 当前 / 未来口径**';
+        array_push($lines, ...$temporalLines);
+        $lines[] = '';
         $lines[] = '**远期房态（累计窗口）**';
         $lines[] = '> 仅展示未来 3/7/14/21 天累计；来源为订单来了 PMS。';
         $forwardLines = [];
@@ -1337,6 +1487,20 @@ final class DingdandaoPmsIntegrationService
                 $forwardLines[] = '- ' . $days . ' 天' . $range
                     . '：' . implode('｜', $metrics);
             }
+            $oversoldAnomalies = [];
+            $asOfDate = \DateTimeImmutable::createFromFormat(
+                '!Y-m-d',
+                (string)($capture['business_date'] ?? '')
+            );
+            $firstSourceDate = $asOfDate
+                ? $asOfDate->modify('+1 day')->format('Y-m-d')
+                : null;
+            $lastSourceDate = trim((string)($forward['range_end_date'] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $lastSourceDate) !== 1) {
+                $lastSourceDate = $asOfDate
+                    ? $asOfDate->modify('+30 days')->format('Y-m-d')
+                    : '';
+            }
             foreach ((array)($forward['anomalies'] ?? []) as $anomaly) {
                 if (!is_array($anomaly)
                     || ($anomaly['anomaly_type'] ?? '') !== 'oversold'
@@ -1350,14 +1514,41 @@ final class DingdandaoPmsIntegrationService
                 );
                 $oversoldRooms = (int)($anomaly['oversold_rooms'] ?? 0);
                 if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $stayDate) !== 1
+                    || $firstSourceDate === null
+                    || $lastSourceDate === ''
+                    || $stayDate < $firstSourceDate
+                    || $stayDate > $lastSourceDate
                     || $oversoldRooms <= 0
                 ) {
                     continue;
                 }
-                $forwardLines[] = '- ⚠ 超售提醒：'
-                    . mb_substr($stayDate, 5, 5)
-                    . '｜' . $roomTypeName
-                    . '｜' . $oversoldRooms . ' 间';
+                $oversoldAnomalies[] = [
+                    'stay_date' => $stayDate,
+                    'room_type_name' => $roomTypeName,
+                    'oversold_rooms' => $oversoldRooms,
+                ];
+            }
+            if ($oversoldAnomalies !== []) {
+                $oversoldDates = array_unique(array_column($oversoldAnomalies, 'stay_date'));
+                $oversoldRoomTypes = array_unique(array_column(
+                    $oversoldAnomalies,
+                    'room_type_name'
+                ));
+                $forwardLines[] = '- ⚠ 超售摘要：'
+                    . count($oversoldDates) . ' 天｜'
+                    . count($oversoldRoomTypes) . ' 个房型｜合计 '
+                    . array_sum(array_column($oversoldAnomalies, 'oversold_rooms'))
+                    . ' 间';
+            }
+            foreach (array_slice($oversoldAnomalies, 0, 3) as $anomaly) {
+                $forwardLines[] = '- 超售明细：'
+                    . mb_substr((string)$anomaly['stay_date'], 5, 5)
+                    . '｜' . $anomaly['room_type_name']
+                    . '｜' . $anomaly['oversold_rooms'] . ' 间';
+            }
+            if (count($oversoldAnomalies) > 3) {
+                $forwardLines[] = '- 其余 ' . (count($oversoldAnomalies) - 3)
+                    . ' 条超售明细已保存在回读事实中。';
             }
         }
         $lines[] = $forwardLines === []

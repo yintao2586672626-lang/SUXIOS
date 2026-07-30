@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
@@ -2244,7 +2245,10 @@ final class OtaCredentialReadPathTest extends TestCase
 
     public function testControllerAutoFetchUsesOnlyCredentialLocatorsAndVaultCallbacks(): void
     {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $source = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/controller/concern/AutoFetchConcern.php'
+        );
 
         self::assertStringContainsString('withOtaCredentialForExecution(', $source);
         self::assertStringContainsString("'config_id'", $source);
@@ -2482,7 +2486,10 @@ final class OtaCredentialReadPathTest extends TestCase
     public function testAutoFetchSharedCachesAcceptMetadataOnly(): void
     {
         $otaConfig = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OtaConfigConcern.php');
-        $autoFetch = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $autoFetch = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/controller/concern/AutoFetchConcern.php'
+        );
 
         self::assertStringContainsString('private function sanitizeStoredOtaConfigListForRuntime(array $list): array', $otaConfig);
         self::assertStringContainsString('splitOtaConfigSecrets($item)', $otaConfig);

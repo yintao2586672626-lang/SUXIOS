@@ -730,6 +730,8 @@ Route::get('api/health', function () {
                 'application' => 'ok',
                 'database' => 'ok',
             ], (array)($runtimeState['checks'] ?? [])),
+            'runtime_mode' => (string)($runtimeState['runtime_mode'] ?? 'invalid'),
+            'production_runtime_ready' => false,
             'failure_codes' => array_values((array)($runtimeState['failures'] ?? [])),
         ], 503);
     }
@@ -741,6 +743,8 @@ Route::get('api/health', function () {
             'application' => 'ok',
             'database' => 'ok',
         ], (array)($runtimeState['checks'] ?? [])),
+        'runtime_mode' => (string)($runtimeState['runtime_mode'] ?? 'invalid'),
+        'production_runtime_ready' => (bool)($runtimeState['production_runtime_ready'] ?? false),
     ]);
 });
 // ==================== AI Agent 路由 ====================

@@ -12,6 +12,7 @@ export const DEFAULT_FRONTEND_BUDGET = Object.freeze({
   max_index_bytes: 2_000_000,
   max_public_shell_gzip_bytes: 180_000,
   target_startup_gzip_bytes: 600_000,
+  enforce_startup_target: true,
   warning_startup_gzip_bytes: 625_000,
   max_startup_gzip_bytes: 650_000,
   max_inline_script_bytes: 20_000,
@@ -27,11 +28,23 @@ const LIMITS = Object.freeze({
 });
 
 export function evaluateFrontendBudget(metrics, budget = DEFAULT_FRONTEND_BUDGET) {
-  return Object.entries(LIMITS).flatMap(([metric, limitKey]) => {
+  const failures = Object.entries(LIMITS).flatMap(([metric, limitKey]) => {
     const actual = Number(metrics?.[metric] || 0);
     const limit = Number(budget?.[limitKey]);
     return actual > limit ? [{ metric, actual, limit }] : [];
   });
+  const startupActual = Number(metrics?.startup_gzip_bytes || 0);
+  const startupTarget = Number(budget?.target_startup_gzip_bytes);
+  if (budget?.enforce_startup_target === true
+    && Number.isFinite(startupTarget)
+    && startupActual > startupTarget
+  ) {
+    return [
+      ...failures.filter((failure) => failure.metric !== 'startup_gzip_bytes'),
+      { metric: 'startup_gzip_bytes', actual: startupActual, limit: startupTarget },
+    ];
+  }
+  return failures;
 }
 
 export function assessStartupGzipBudget(metrics, budget = DEFAULT_FRONTEND_BUDGET) {

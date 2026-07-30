@@ -7,6 +7,13 @@ $routeFile = $root . DIRECTORY_SEPARATOR . 'route' . DIRECTORY_SEPARATOR . 'app.
 $autoloadFile = $root . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
 if (is_file($autoloadFile)) {
     require_once $autoloadFile;
+    foreach (spl_autoload_functions() ?: [] as $autoloadFunction) {
+        $loader = is_array($autoloadFunction) ? ($autoloadFunction[0] ?? null) : null;
+        if (!$loader instanceof \Composer\Autoload\ClassLoader) {
+            continue;
+        }
+        $loader->setPsr4('app\\', [$root . DIRECTORY_SEPARATOR . 'app']);
+    }
 }
 
 $ignoredControllers = [

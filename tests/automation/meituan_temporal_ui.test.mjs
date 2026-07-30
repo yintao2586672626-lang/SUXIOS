@@ -8,6 +8,10 @@ import { loadFrontendTemplateSource } from '../../scripts/lib/frontend_template_
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const appMain = fs.readFileSync(path.join(repoRoot, 'public/app-main.js'), 'utf8');
+const futureFlowSource = fs.readFileSync(
+  path.join(repoRoot, 'public/components/meituan-future-flow.js'),
+  'utf8',
+);
 const routes = fs.readFileSync(path.join(repoRoot, 'route/app.php'), 'utf8');
 const template = loadFrontendTemplateSource(repoRoot).template;
 
@@ -29,7 +33,7 @@ test('Meituan traffic analysis keeps the existing navigation and exposes the thr
 
   const traffic = sliceBetween(meituanDownload, '<!-- 流量分析模块 -->', '<!-- 订单线索模块 -->');
   const trafficCopy = sliceBetween(appMain, 'const meituanTemporalCopy =', 'const meituanTemporalUiClass =');
-  const futureFlow = sliceBetween(appMain, 'const normalizeMeituanFutureFlowRows =', 'let suxiApp = null;');
+  const futureFlow = futureFlowSource;
   const renderedContract = `${traffic}\n${trafficCopy}\n${futureFlow}`;
   for (const text of ['美团流量分析', '更新本页数据', '设置定时推送', '今日实时', '昨日复盘', '未来30天', '3天', '7天', '15天', '30天', '提前订订单量', '上次验证参考', '采集明细（原始存储记录）']) {
     assert.match(renderedContract, new RegExp(text));
@@ -37,7 +41,7 @@ test('Meituan traffic analysis keeps the existing navigation and exposes the thr
   assert.match(traffic, /<meituan-future-flow :rows="mtFutureRows"/);
   assert.match(futureFlow, /meituan-future-daily-chart/);
   assert.match(futureFlow, /meituan-future-daily-table/);
-  assert.match(appMain, /app\.component\('MeituanFutureFlow', MeituanFutureFlow\)/);
+  assert.match(appMain, /window\.SUXI_MEITUAN_FUTURE_FLOW \|\| deferredMeituanFutureFlow/);
   assert.match(renderedContract, /不代表全酒店经营数据/);
   assert.match(renderedContract, /— \/ 未返回/);
   assert.match(renderedContract, /不使用历史成功数据替代昨日当前值/);
@@ -47,14 +51,17 @@ test('Meituan traffic analysis keeps the existing navigation and exposes the thr
 });
 
 test('Meituan future daily view sorts dates, limits horizons, and keeps zero distinct from missing', () => {
-  const logic = sliceBetween(appMain, 'const normalizeMeituanFutureFlowRows =', 'const MeituanFutureFlow =');
-  const sandbox = {};
-  vm.runInNewContext(`${logic}
-this.__api = {
-  normalizeMeituanFutureFlowRows,
-  meituanFutureFlowMetricValue,
-  meituanFutureFlowMetricText,
-};`, sandbox);
+  const sandbox = {
+    window: {
+      Vue: {
+        ref: (value) => ({ value }),
+        computed: (factory) => ({ get value() { return factory(); } }),
+        h: (...args) => ({ args }),
+      },
+    },
+  };
+  vm.runInNewContext(futureFlowSource, sandbox);
+  const api = sandbox.window.SUXI_MEITUAN_FUTURE_FLOW_TEST_API;
   const rows = [
     {
       target_date: '2026-08-02',
@@ -73,12 +80,12 @@ this.__api = {
     { target_date: 'not-a-date', metrics: {} },
   ];
 
-  const normalized = sandbox.__api.normalizeMeituanFutureFlowRows(rows, 3);
+  const normalized = api.normalizeRows(rows, 3);
   assert.deepEqual(Array.from(normalized, row => row.target_date), ['2026-07-31', '2026-08-02']);
-  assert.equal(sandbox.__api.meituanFutureFlowMetricValue(rows[0], 'pv'), 0);
-  assert.equal(sandbox.__api.meituanFutureFlowMetricValue(rows[0], 'pv', true), null);
-  assert.equal(sandbox.__api.meituanFutureFlowMetricText(0), '0');
-  assert.equal(sandbox.__api.meituanFutureFlowMetricText(null), '— / 未返回');
+  assert.equal(api.metricValue(rows[0], 'pv'), 0);
+  assert.equal(api.metricValue(rows[0], 'pv', true), null);
+  assert.equal(api.metricText(0), '0');
+  assert.equal(api.metricText(null), '— / 未返回');
 });
 
 test('Meituan temporal UI calls only the dedicated summary and manual refresh endpoints', () => {

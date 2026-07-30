@@ -7,6 +7,7 @@ use app\controller\CompetitorApi;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\ReflectionHelper;
+use Tests\Support\SourceAggregate;
 use think\App;
 
 final class CompetitorPublicEndpointGuardTest extends TestCase
@@ -144,7 +145,7 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
             $root . '/database/migrations/20260725_add_competitor_report_fingerprint.sql'
         );
         $cookie = (string)file_get_contents($root . '/app/controller/concern/CookieEndpointConcern.php');
-        $cron = (string)file_get_contents($root . '/app/controller/concern/AutoFetchConcern.php');
+        $cron = SourceAggregate::read($root, 'app/controller/concern/AutoFetchConcern.php');
         $patrolCron = (string)file_get_contents($root . '/app/controller/concern/OperationWorkbenchConcern.php');
 
         self::assertStringContainsString("header('X-Task-Token', '')", $competitor);

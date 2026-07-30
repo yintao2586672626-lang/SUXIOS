@@ -9,7 +9,9 @@ use app\service\RevenueFactLayerService;
 use think\App;
 use think\facade\Db;
 
-require __DIR__ . '/../vendor/autoload.php';
+if (!class_exists(\Composer\Autoload\ClassLoader::class, false)) {
+    require __DIR__ . '/../vendor/autoload.php';
+}
 
 date_default_timezone_set('Asia/Shanghai');
 
@@ -3045,7 +3047,7 @@ function business_chain_main(array $argv): int
     $options = parse_business_chain_args($argv);
 
     try {
-        $app = new App();
+        $app = new App(dirname(__DIR__));
         $app->initialize();
         $report = business_chain_report($options);
         if ($options['format'] === 'markdown') {

@@ -531,6 +531,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
         $capture = $this->verifiedCapture();
         $capture['summary']['total_room_fee'] = 999999.99;
         $capture['county_context']['summary']['total_room_fee'] = 1;
+        $capture['revenue_overview']['total_accommodation_turnover'] = 999999.79;
 
         $result = $service->dispatchVerifiedCapture(
             80,
@@ -545,11 +546,13 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
         self::assertCount(1, $payloads);
         $content = (string)$payloads[0]['markdown']['content'];
         self::assertStringContainsString('客房收入：¥8,275.67', $content);
+        self::assertStringContainsString('住宿总营业额：¥8,275.47', $content);
         self::assertStringContainsString(
             '门店平均总房费：¥6,053.86（本店较区域 ↑36.70%）',
             $content
         );
         self::assertStringNotContainsString('999,999.99', $content);
+        self::assertStringNotContainsString('999,999.79', $content);
     }
 
     public function testMissingAuthoritativeCaptureBlocksBeforeDispatchCreation(): void
@@ -686,6 +689,22 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             $calls[0]['payload']['markdown']['content']
         );
         self::assertStringContainsString(
+            '住宿营业额汇总',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
+            '住宿总营业额：¥8,275.47',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
+            '早餐/客房消费：-¥0.20',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
+            '过去 / 当前 / 未来口径',
+            $calls[0]['payload']['markdown']['content']
+        );
+        self::assertStringContainsString(
             '平均房价 ADR：07-27 ¥636.59 → 07-28 ¥583.04',
             $calls[0]['payload']['markdown']['content']
         );
@@ -771,7 +790,11 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             $content
         );
         self::assertStringContainsString(
-            '⚠ 超售提醒：07-29｜测试房型｜2 间',
+            '⚠ 超售摘要：1 天｜1 个房型｜合计 2 间',
+            $content
+        );
+        self::assertStringContainsString(
+            '超售明细：07-29｜测试房型｜2 间',
             $content
         );
     }
@@ -1148,6 +1171,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
     {
         $countyContext = $this->verifiedCountyContext();
         $forwardRoomStatus = $this->verifiedForwardRoomStatus();
+        $revenueOverview = $this->verifiedRevenueOverview();
         $sourceApiPath = '/api/verified';
         $sourceUrl = DingdandaoOperatingTargetCaptureService::SOURCE_URL;
         $providerHotelId = 'provider-hotel-80';
@@ -1196,6 +1220,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
                 'source_row_index' => 1,
                 'room_fee' => 8275.67,
             ]],
+            'revenue_overview' => $revenueOverview,
             'detail_row_count' => 25,
             'detail_room_fee_total' => 8275.67,
             'trend' => [
@@ -1285,6 +1310,73 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
                 'sold_room_nights' =>
                     'API:/v2/um-b/web/pro/data/businessIndicatorsTrend/county?type=3#data.list[]',
             ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function verifiedRevenueOverview(): array
+    {
+        $totalTrend = [
+            [
+                'observation_date' => '2026-07-27',
+                'amount' => 7930.11,
+            ],
+            [
+                'observation_date' => '2026-07-28',
+                'amount' => 8275.47,
+            ],
+        ];
+        return [
+            'contract_version' =>
+                'dingdandao_accommodation_revenue_overview.v1',
+            'fact_scope' => 'whole_hotel_accommodation_turnover',
+            'source_page_url' =>
+                DingdandaoOperatingTargetCaptureService::SOURCE_URL,
+            'source_api_path' => '/v2/um-b/web/pro/data/sumAccBusiness',
+            'data_status' => 'verified',
+            'business_date_from' => '2026-07-28',
+            'business_date_to' => '2026-07-28',
+            'total_accommodation_turnover' => 8275.47,
+            'subjects' => [
+                [
+                    'provider_subject_type' => -1,
+                    'subject_name' => '住宿总营业额',
+                    'source_row_index' => 1,
+                    'single_day_total' => 8275.47,
+                    'period_total' => 8275.47,
+                    'percent' => 100,
+                    'daily_points' => $totalTrend,
+                ],
+                [
+                    'provider_subject_type' => 1,
+                    'subject_name' => '房费',
+                    'source_row_index' => 2,
+                    'single_day_total' => 8275.67,
+                    'period_total' => 8275.67,
+                    'percent' => 100,
+                    'daily_points' => [[
+                        'observation_date' => '2026-07-28',
+                        'amount' => 8275.67,
+                    ]],
+                ],
+                [
+                    'provider_subject_type' => 7,
+                    'subject_name' => '早餐/客房消费',
+                    'source_row_index' => 3,
+                    'single_day_total' => -0.2,
+                    'period_total' => -0.2,
+                    'percent' => 0,
+                    'daily_points' => [[
+                        'observation_date' => '2026-07-28',
+                        'amount' => -0.2,
+                    ]],
+                ],
+            ],
+            'total_trend' => $totalTrend,
+            'reconciliation_status' => 'source_total_preserved',
+            'metric_boundaries' => [],
+            'gap_codes' => [],
+            'field_trace' => [],
         ];
     }
 
@@ -1465,6 +1557,7 @@ final class DingdandaoPmsIntegrationServiceTest extends TestCase
             'snapshot_json' => json_encode([
                 'collection_mode' => 'full_diagnostic',
                 'room_fee_summary_rows' => $capture['room_fee_summary_rows'],
+                'revenue_overview' => $capture['revenue_overview'],
                 'county_context' => $capture['county_context'],
                 'forward_room_status' => $capture['forward_room_status'],
                 'capture_evidence' => $capture['capture_evidence'],

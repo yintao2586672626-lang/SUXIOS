@@ -6,13 +6,15 @@ namespace Tests;
 use app\command\AutoFetchOnlineDataOnce;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
+use Tests\Support\SourceAggregate;
 
 final class AutoFetchBackgroundCredentialBoundaryTest extends TestCase
 {
     public function testNewBackgroundTaskInputNeverPersistsAuthorization(): void
     {
-        $source = (string)file_get_contents(
-            dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php'
+        $source = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/controller/concern/AutoFetchConcern.php'
         );
 
         self::assertStringContainsString('$authorizationEnv = $this->autoFetchAuthorizationEnvName($taskId);', $source);

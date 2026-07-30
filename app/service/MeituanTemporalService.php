@@ -12,6 +12,8 @@ use think\facade\Db;
 final class MeituanTemporalService
 {
     private const TIMEZONE = 'Asia/Shanghai';
+    private const CAPTURE_TIMEOUT_SECONDS = 120;
+    private const CAPTURE_EXECUTION_GRACE_SECONDS = 30;
 
     private const TODAY_METRICS = [
         'lead_price',
@@ -52,7 +54,7 @@ final class MeituanTemporalService
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'meituan')
             ->whereBetween('data_date', [$from, $to])
-            ->whereIn('data_type', ['business', 'traffic', 'traffic_analysis', 'traffic_forecast'])
+            ->whereIn('data_type', ['business', 'order', 'traffic', 'traffic_analysis', 'traffic_forecast'])
             ->order('id', 'desc')
             ->select()
             ->toArray();
@@ -97,16 +99,28 @@ final class MeituanTemporalService
         );
         $tasks = [];
         $todayScope = $hasFutureToday ? 'today' : 'today_future';
-        $tasks[] = $this->runRefreshTask($user, $sourceId, 'today', [
+        $todayTask = $this->runRefreshTask($user, $sourceId, 'today', [
             'data_date' => $asOf->format('Y-m-d'),
             'data_period' => 'realtime_snapshot',
             'snapshot_time' => $now->format('Y-m-d H:i:s'),
             'capture_sections' => 'traffic',
             'capture_mode' => 'temporal_summary',
             'temporal_scope' => $todayScope,
+            'timeout_seconds' => self::CAPTURE_TIMEOUT_SECONDS,
             'interactive_browser' => false,
             'trigger_type' => 'manual',
         ]);
+        $todayTask = self::withFutureCaptureOutcome(
+            $todayTask,
+            $todayScope,
+            $this->hasCompleteVerifiedFutureSnapshotCapturedOn(
+                $systemHotelId,
+                $asOf->format('Y-m-d'),
+                $asOf->format('Y-m-d')
+            ),
+            $now
+        );
+        $tasks[] = $todayTask;
 
         $yesterday = $asOf->sub(new DateInterval('P1D'))->format('Y-m-d');
         if ((int)$now->format('H') < 9) {
@@ -124,6 +138,7 @@ final class MeituanTemporalService
                 'capture_sections' => 'traffic',
                 'capture_mode' => 'temporal_summary',
                 'temporal_scope' => 'yesterday',
+                'timeout_seconds' => self::CAPTURE_TIMEOUT_SECONDS,
                 'interactive_browser' => false,
                 'trigger_type' => 'manual',
             ]);
@@ -181,18 +196,16 @@ final class MeituanTemporalService
         }));
         $todayRows = array_values(array_filter($rows, static fn(array $row): bool =>
             (string)($row['data_date'] ?? '') === $asOfText
-            && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'traffic', 'traffic_analysis'], true)
+            && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'order', 'traffic', 'traffic_analysis'], true)
             && self::isOwnHotelRow($row)
         ));
         $yesterdayRows = array_values(array_filter($rows, static fn(array $row): bool =>
             (string)($row['data_date'] ?? '') === $yesterdayText
-            && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'traffic', 'traffic_analysis'], true)
+            && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'order', 'traffic', 'traffic_analysis'], true)
             && self::isOwnHotelRow($row)
         ));
         $futureRows = array_values(array_filter($rows, static fn(array $row): bool =>
             strtolower((string)($row['data_type'] ?? '')) === 'traffic_forecast'
-            && (string)($row['data_date'] ?? '') >= $asOfText
-            && (string)($row['data_date'] ?? '') <= $futureEnd
         ));
 
         $todaySnapshots = $this->buildSnapshotSeries($todayRows, self::TODAY_METRICS, 'today');
@@ -200,8 +213,18 @@ final class MeituanTemporalService
         $todayReference = $this->latestReadyReference(array_slice($todaySnapshots, 1));
 
         $yesterdaySnapshots = $this->buildSnapshotSeries($yesterdayRows, self::YESTERDAY_METRICS, 'yesterday');
-        $yesterdayCurrent = $yesterdaySnapshots[0] ?? $this->emptySnapshot(self::YESTERDAY_METRICS, $yesterdayText);
-        $yesterdayReference = $this->latestReadyReference(array_slice($yesterdaySnapshots, 1));
+        $yesterdayCurrent = null;
+        $yesterdayReferences = [];
+        foreach ($yesterdaySnapshots as $snapshot) {
+            if ($yesterdayCurrent === null
+                && $this->timestampOnLocalDate($snapshot['captured_at'] ?? null, $asOfText)) {
+                $yesterdayCurrent = $snapshot;
+                continue;
+            }
+            $yesterdayReferences[] = $snapshot;
+        }
+        $yesterdayCurrent ??= $this->emptySnapshot(self::YESTERDAY_METRICS, $yesterdayText);
+        $yesterdayReference = $this->latestReadyReference($yesterdayReferences);
 
         $future = $this->buildFutureSection($futureRows, $asOfText, $futureEnd);
         $sourceBlocked = ($sourceState['status'] ?? '') === 'blocked';
@@ -216,6 +239,10 @@ final class MeituanTemporalService
         } elseif ($asOfText === $now->format('Y-m-d') && (int)$now->format('H') < 9) {
             $yesterdayCurrent['status'] = 'pending_source_update';
             $yesterdayCurrent['reason_code'] = 'before_platform_update_window';
+            $yesterdayCurrent['metrics'] = $this->maskPendingMetrics(
+                is_array($yesterdayCurrent['metrics'] ?? null) ? $yesterdayCurrent['metrics'] : [],
+                'before_platform_update_window'
+            );
             if (($future['status'] ?? '') === 'missing') {
                 $future['status'] = 'pending_source_update';
                 $future['reason_code'] = 'before_future_platform_update_window';
@@ -389,6 +416,9 @@ final class MeituanTemporalService
     private function runRefreshTask($user, int $sourceId, string $segment, array $options): array
     {
         try {
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(self::captureExecutionBudgetSeconds($options));
+            }
             $result = $this->syncService->syncDataSource($user, $sourceId, $options);
             $outcome = $this->refreshTaskOutcome($result);
             return [
@@ -413,6 +443,40 @@ final class MeituanTemporalService
                 'readback_verified' => false,
             ];
         }
+    }
+
+    /** @param array<string, mixed> $options */
+    private static function captureExecutionBudgetSeconds(array $options): int
+    {
+        $captureTimeout = max(
+            60,
+            min(900, (int)($options['timeout_seconds'] ?? self::CAPTURE_TIMEOUT_SECONDS))
+        );
+        return $captureTimeout + self::CAPTURE_EXECUTION_GRACE_SECONDS;
+    }
+
+    /** @param array<string, mixed> $task @return array<string, mixed> */
+    private static function withFutureCaptureOutcome(
+        array $task,
+        string $todayScope,
+        bool $hasCompleteFutureSnapshot,
+        DateTimeImmutable $now
+    ): array {
+        if ($todayScope !== 'today_future'
+            || $hasCompleteFutureSnapshot
+            || !in_array((string)($task['status'] ?? ''), ['completed', 'partial'], true)) {
+            return $task;
+        }
+
+        $beforeUpdateWindow = (int)$now->format('H') < 9;
+        $task['status'] = 'partial';
+        $task['reason_code'] = $beforeUpdateWindow
+            ? 'before_future_platform_update_window'
+            : 'meituan_target_date_traffic_missing';
+        $task['message'] = $beforeUpdateWindow
+            ? 'Today metrics were saved, but Meituan future traffic is not available before the platform update window.'
+            : 'Today metrics were saved, but Meituan did not return future target-date traffic.';
+        return $task;
     }
 
     /** @return array{status:string,reason_code:string} */
@@ -480,7 +544,7 @@ final class MeituanTemporalService
         $rows = Db::name('online_daily_data')
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'meituan')
-            ->whereIn('data_type', ['business', 'traffic_analysis'])
+            ->whereIn('data_type', ['business', 'order', 'traffic_analysis'])
             ->where('readback_verified', 1)
             ->where('data_date', $dataDate)
             ->order('id', 'desc')
@@ -501,7 +565,7 @@ final class MeituanTemporalService
     ): bool {
         $rows = array_values(array_filter($rows, function (array $row) use ($dataDate, $capturedDate): bool {
             return (string)($row['data_date'] ?? '') === $dataDate
-                && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'traffic_analysis'], true)
+                && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'order', 'traffic_analysis'], true)
                 && self::isOwnHotelRow($row)
                 && str_starts_with($this->capturedAt($row), $capturedDate);
         }));
@@ -656,9 +720,8 @@ final class MeituanTemporalService
     {
         $snapshotGroups = [];
         foreach ($rows as $row) {
-            $date = (string)($row['data_date'] ?? '');
             $type = $this->forecastType($row);
-            if ($date < $asOfDate || $date > $futureEnd || !in_array($type, ['pv', 'uv', 'advance_orders'], true)) {
+            if (!in_array($type, ['pv', 'uv', 'advance_orders'], true)) {
                 continue;
             }
             $snapshotGroups[$this->snapshotKey($row)][] = $row;
@@ -666,19 +729,53 @@ final class MeituanTemporalService
 
         $snapshots = [];
         foreach ($snapshotGroups as $snapshotKey => $snapshotRows) {
-            $snapshots[] = $this->buildFutureSnapshot(
+            $capturedAt = $this->latestCapturedAt($snapshotRows);
+            $isCurrentCapture = $this->timestampOnLocalDate($capturedAt, $asOfDate);
+            $snapshotStart = $asOfDate;
+            $snapshotEnd = $futureEnd;
+            if (!$isCurrentCapture) {
+                $targetDates = array_values(array_filter(array_map(
+                    static fn(array $row): string => trim((string)($row['data_date'] ?? '')),
+                    $snapshotRows
+                ), static fn(string $date): bool =>
+                    preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1
+                ));
+                sort($targetDates);
+                if ($targetDates !== []) {
+                    $snapshotStart = $targetDates[0];
+                    $snapshotEnd = $this->date($snapshotStart)
+                        ->add(new DateInterval('P29D'))
+                        ->format('Y-m-d');
+                }
+            }
+            $snapshot = $this->buildFutureSnapshot(
                 $snapshotRows,
                 $snapshotKey,
-                $asOfDate,
-                $futureEnd
+                $snapshotStart,
+                $snapshotEnd
             );
+            $snapshot['is_current_capture'] = $isCurrentCapture;
+            $snapshots[] = $snapshot;
         }
         usort($snapshots, static fn(array $a, array $b): int =>
             strcmp((string)$b['captured_at'], (string)$a['captured_at'])
             ?: ((int)$b['sync_task_id'] <=> (int)$a['sync_task_id'])
         );
 
-        $current = $snapshots[0] ?? [
+        $current = null;
+        $references = [];
+        $outputSnapshots = [];
+        foreach ($snapshots as $snapshot) {
+            $isCurrentCapture = ($snapshot['is_current_capture'] ?? false) === true;
+            unset($snapshot['is_current_capture']);
+            $outputSnapshots[] = $snapshot;
+            if ($current === null && $isCurrentCapture) {
+                $current = $snapshot;
+                continue;
+            }
+            $references[] = $snapshot;
+        }
+        $current ??= [
             'target_date' => $asOfDate . '/' . $futureEnd,
             'captured_at' => null,
             'status' => 'missing',
@@ -692,8 +789,8 @@ final class MeituanTemporalService
             'status' => $current['status'],
             'reason_code' => $current['reason_code'],
             'rows' => $current['rows'],
-            'latest_verified_reference' => $this->latestReadyReference(array_slice($snapshots, 1)),
-            'snapshots' => array_slice($snapshots, 0, 3),
+            'latest_verified_reference' => $this->latestReadyReference($references),
+            'snapshots' => array_slice($outputSnapshots, 0, 3),
             'signal_scope' => 'future_ota_traffic_signal',
         ];
     }
@@ -886,9 +983,9 @@ final class MeituanTemporalService
     {
         return match ($key) {
             'lead_price' => ['types' => ['business'], 'field' => '', 'raw_keys' => ['lead_price', 'leadPrice', 'startingPrice'], 'fact_keys' => ['lead_price']],
-            'sales_room_nights' => ['types' => ['business'], 'field' => 'quantity', 'raw_keys' => ['sales_room_nights', 'salesRoomNights', 'room_nights'], 'fact_keys' => ['sales_room_nights', 'room_nights']],
-            'sales_amount' => ['types' => ['business'], 'field' => 'amount', 'raw_keys' => ['sales_amount', 'salesAmount', 'amount'], 'fact_keys' => ['sales_amount', 'order_amount']],
-            'sales_avg_price' => ['types' => ['business'], 'field' => 'data_value', 'raw_keys' => ['sales_avg_price', 'salesAvgPrice', 'avgPrice'], 'fact_keys' => ['sales_avg_price', 'data_value']],
+            'sales_room_nights' => ['types' => ['order', 'business'], 'field' => 'quantity', 'raw_keys' => ['sales_room_nights', 'salesRoomNights', 'room_nights'], 'fact_keys' => ['sales_room_nights', 'room_nights']],
+            'sales_amount' => ['types' => ['order', 'business'], 'field' => 'amount', 'raw_keys' => ['sales_amount', 'salesAmount', 'amount'], 'fact_keys' => ['sales_amount', 'order_amount']],
+            'sales_avg_price' => ['types' => ['order', 'business'], 'field' => 'data_value', 'raw_keys' => ['sales_avg_price', 'salesAvgPrice', 'avgPrice'], 'fact_keys' => ['sales_avg_price', 'data_value']],
             'exposure_users' => ['types' => ['traffic'], 'field' => 'list_exposure', 'raw_keys' => ['exposure_users', 'listExposure', 'exposureUV'], 'fact_keys' => ['exposure_users', 'list_exposure', 'mt_exposure']],
             'detail_visitors' => ['types' => ['traffic'], 'field' => 'detail_exposure', 'raw_keys' => ['detail_visitors', 'detailExposure', 'intentionUV'], 'fact_keys' => ['detail_visitors', 'detail_exposure', 'mt_intention_uv']],
             'paid_order_count' => ['types' => ['traffic'], 'field' => 'book_order_num', 'raw_keys' => ['paid_order_count', 'payOrderCnt', 'orderSubmitNum'], 'fact_keys' => ['paid_order_count', 'order_count', 'order_submit_num', 'mt_pay_orders']],
@@ -900,7 +997,7 @@ final class MeituanTemporalService
     /** @return array<string, mixed> */
     private function deriveIfMissing(array $current, array $numerator, array $denominator, string $formula, float $multiplier = 1.0): array
     {
-        if (($current['status'] ?? '') !== 'missing') {
+        if (in_array((string)($current['status'] ?? ''), ['verified', 'derived'], true)) {
             return $current;
         }
         if (($numerator['status'] ?? '') !== 'verified'
@@ -936,6 +1033,26 @@ final class MeituanTemporalService
     private function missingMetric(): array
     {
         return ['value' => null, 'status' => 'missing', 'reason_code' => 'platform_field_not_returned', 'source_path' => ''];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $metrics
+     * @return array<string, array<string, mixed>>
+     */
+    private function maskPendingMetrics(array $metrics, string $reasonCode): array
+    {
+        foreach ($metrics as $key => $metric) {
+            if (in_array((string)($metric['status'] ?? ''), ['verified', 'derived'], true)) {
+                continue;
+            }
+            $metrics[$key] = [
+                'value' => null,
+                'status' => 'missing',
+                'reason_code' => $reasonCode,
+                'source_path' => '',
+            ];
+        }
+        return $metrics;
     }
 
     private function sectionStatus(array $metrics, array $requiredKeys): string
@@ -1158,6 +1275,21 @@ final class MeituanTemporalService
     {
         $compare = strtolower(trim((string)($row['compare_type'] ?? '')));
         return !in_array($compare, ['competitor', 'competitor_avg', 'peer'], true);
+    }
+
+    private function timestampOnLocalDate(?string $timestamp, string $date): bool
+    {
+        $timestamp = trim((string)$timestamp);
+        if ($timestamp === '') {
+            return false;
+        }
+        try {
+            return (new DateTimeImmutable($timestamp, new DateTimeZone(self::TIMEZONE)))
+                ->setTimezone(new DateTimeZone(self::TIMEZONE))
+                ->format('Y-m-d') === $date;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function date(string $value): DateTimeImmutable

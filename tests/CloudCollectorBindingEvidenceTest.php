@@ -6,6 +6,7 @@ namespace Tests;
 use app\service\PlatformDataSyncService;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Tests\Support\SourceAggregate;
 
 final class CloudCollectorBindingEvidenceTest extends TestCase
 {
@@ -67,8 +68,9 @@ final class CloudCollectorBindingEvidenceTest extends TestCase
 
     public function testValidatedBindingEvidenceIsAttachedToRawAndNormalizedPersistencePayloads(): void
     {
-        $source = (string)file_get_contents(
-            dirname(__DIR__) . '/app/service/PlatformDataSyncService.php'
+        $source = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/service/PlatformDataSyncService.php'
         );
 
         self::assertStringContainsString(

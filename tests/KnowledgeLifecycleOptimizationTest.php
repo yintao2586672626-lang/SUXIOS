@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class KnowledgeLifecycleOptimizationTest extends TestCase
 {
@@ -37,7 +38,7 @@ final class KnowledgeLifecycleOptimizationTest extends TestCase
         $root = realpath(__DIR__ . '/..');
         self::assertIsString($root);
 
-        $agent = (string)file_get_contents($root . '/app/controller/Agent.php');
+        $agent = SourceAggregate::read($root, 'app/controller/Agent.php');
         $research = (string)file_get_contents($root . '/app/service/RevenueResearchService.php');
         $operations = (string)file_get_contents($root . '/app/service/RevenueOperationsKnowledgeService.php');
         $knowledgeController = (string)file_get_contents($root . '/app/controller/Knowledge.php');

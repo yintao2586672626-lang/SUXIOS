@@ -120,6 +120,10 @@ test('single-instance release probes active cache, lock, and durable report sche
   assert.match(runtimeReadiness, /database_schema_upgrade_required/);
   assert.match(runtimeReadiness, /persistent_local_state_path_unavailable/);
   assert.match(runtimeReadiness, /SchemaVersionStatusCache/);
+  assert.match(runtimeReadiness, /production_runtime_ready/);
+  assert.match(runtimeReadiness, /single_instance_persistent/);
   assert.match(routes, /SingleInstanceRuntimeReadiness/);
+  assert.match(routes, /'production_runtime_ready'/);
+  assert.match(routes, /'runtime_mode'/);
   assert.match(routes, /'failure_codes'/);
 });

@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\BrowserProfileCaptureRequestService;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class BrowserProfileCaptureRequestServiceTest extends TestCase
 {
@@ -253,7 +254,10 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
 
     public function testAutomaticProfileFetchAppliesPersistenceGateBeforeSaving(): void
     {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $source = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/controller/concern/AutoFetchConcern.php'
+        );
         $start = strpos($source, 'private function executeMeituanBrowserProfileAutoFetch');
         self::assertNotFalse($start);
         $method = substr($source, (int)$start, 12000);

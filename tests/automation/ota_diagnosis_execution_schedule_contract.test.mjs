@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 
 const read = (file) => readFileSync(file, 'utf8');
 const appMain = read('public/app-main.js');
 const agentPage = read('resources/frontend/templates/fragments/27-page-agent-center.html');
 const opsTrackPage = read('resources/frontend/templates/fragments/17-page-ops-track.html');
-const controller = read('app/controller/Agent.php');
+const controller = readSourceAggregate('app/controller/Agent.php');
 const userController = read('app/controller/User.php');
-const operationService = read('app/service/OperationManagementService.php');
+const operationService = readSourceAggregate('app/service/OperationManagementService.php');
 
 test('saved OTA diagnosis requires an assigned execution and review schedule before handoff', () => {
   assert.match(agentPage, /data-testid="ota-diagnosis-execution-schedule"/);

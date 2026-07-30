@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
 use RuntimeException;
+use Tests\Support\SourceAggregate;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
@@ -452,7 +453,10 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
 
     public function testInteractiveCtripProfileFetchKeepsDataSourceProvenance(): void
     {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $source = SourceAggregate::read(
+            dirname(__DIR__),
+            'app/controller/concern/AutoFetchConcern.php'
+        );
         $start = strpos($source, 'private function executeCtripBrowserProfileAutoFetch');
         $end = strpos($source, 'private function saveCtripBrowserProfilePayload', $start === false ? 0 : $start);
 

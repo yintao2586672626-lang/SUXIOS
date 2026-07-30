@@ -137,6 +137,30 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
             $today['message_data']['sources']['dingdandao_pms']['facts']['room_fee']
         );
         self::assertSame(
+            8745.4,
+            $today['message_data']['sources']['dingdandao_pms']
+                ['facts']['revenue_overview']['total_accommodation_turnover']
+        );
+        self::assertSame(
+            -0.2,
+            $today['message_data']['sources']['dingdandao_pms']
+                ['revenue_overview']['subjects'][2]['single_day_total']
+        );
+        self::assertSame(
+            'readback_verified',
+            $today['message_data']['sources']['dingdandao_pms']
+                ['temporal_context']['data_status']
+        );
+        self::assertSame(
+            'baseline_only',
+            $today['message_data']['sources']['dingdandao_pms']
+                ['snapshot_delta']['data_status']
+        );
+        self::assertSame(
+            'pms_today_sold_out',
+            $today['message_data']['sources']['dingdandao_pms']['alerts'][0]['code']
+        );
+        self::assertSame(
             800,
             $today['message_data']['sources']['ctrip_ota']['facts']['revenue']
         );
@@ -195,6 +219,150 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
             $review['message_data']['snapshot_role']
         );
         self::assertSame('readback_verified', $review['message_data']['data_status']);
+    }
+
+    public function testSnapshotDeltaRequiresIndependentVerifiedCapture(): void
+    {
+        $pms = $this->pmsForwardFixture(80, 80, '2026-07-26');
+        $previous = $pms;
+        $previous['id'] = 979;
+        $previous['captured_at'] = '2026-07-26 17:35:00';
+        $previous['summary']['total_room_fee'] = 8500;
+        $previous['summary']['sold_room_nights'] = 14;
+        $previous['summary']['occupancy_rate_percent'] = 93.33;
+        $previous['summary']['adr'] = 607.14;
+        $previous['summary']['revpar'] = 566.67;
+        $pms['previous_comparable_capture'] = $previous;
+
+        $preview = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            $pms
+        );
+
+        $delta = $preview['sections']['today_revenue_management']
+            ['message_data']['sources']['dingdandao_pms']['snapshot_delta'];
+        self::assertSame('comparable', $delta['data_status']);
+        self::assertSame(245.6, $delta['deltas']['room_fee']);
+        self::assertSame(1.0, $delta['deltas']['sold_room_nights']);
+
+        $pms['previous_comparable_capture']['captured_at'] = $pms['captured_at'];
+        $sameSnapshot = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            $pms
+        );
+        self::assertSame(
+            'not_comparable',
+            $sameSnapshot['sections']['today_revenue_management']
+                ['message_data']['sources']['dingdandao_pms']
+                ['snapshot_delta']['data_status']
+        );
+    }
+
+    public function testPartialTemporalContextCreatesExplicitGapWithoutDroppingCoreFacts(): void
+    {
+        $pms = $this->pmsForwardFixture(80, 80, '2026-07-26');
+        $pms['component_coverage']['temporal_context']['past']['status'] =
+            'partial';
+        $pms['component_coverage']['temporal_context']['past']['covered_days'] =
+            2;
+
+        $preview = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            $pms
+        );
+
+        $today = $preview['sections']['today_revenue_management'];
+        self::assertSame(
+            8745.6,
+            $this->field($today['facts'], 'pms_room_fee')['value']
+        );
+        self::assertSame(
+            'partial',
+            $today['message_data']['sources']['dingdandao_pms']
+                ['temporal_context']['data_status']
+        );
+        self::assertContains(
+            'dingdandao_temporal_context_missing',
+            array_column($today['gaps'], 'code')
+        );
+    }
+
+    public function testForwardWarningsMayExpandBeyondNormalTwentyOneDaySummary(): void
+    {
+        $pms = $this->pmsForwardFixture(80, 80, '2026-07-26');
+        $forward = $pms['forward_room_status'];
+        $forward['data_status'] = 'verified_with_anomalies';
+        $forward['gap_codes'] = ['dingdandao_forward_oversold_present'];
+        $forward['anomalies'] = [
+            [
+                'anomaly_type' => 'oversold',
+                'stay_date' => '2026-07-27',
+                'room_type_name' => '景观大床房',
+                'oversold_rooms' => 1,
+            ],
+            [
+                'anomaly_type' => 'oversold',
+                'stay_date' => '2026-08-17',
+                'room_type_name' => '第22天房型',
+                'oversold_rooms' => 2,
+            ],
+        ];
+        $forward['daily_rows'][1]['remaining_sellable_rooms'] = 0;
+        $forward['daily_rows'][1]['booked_rooms'] = 15;
+        foreach ($forward['horizons'] as &$horizon) {
+            $horizon['quality_status'] = 'warning';
+            $horizon['gap_codes'] = [
+                'dingdandao_forward_oversold_present',
+            ];
+            $horizon['oversold_room_nights'] = 1;
+        }
+        unset($horizon);
+        $pms['forward_room_status'] = $forward;
+
+        $preview = ManualNotificationBusinessPreviewService::buildPreview(
+            ['id' => 80, 'tenant_id' => 80, 'name' => '敦煌漠蓝新'],
+            '2026-07-26',
+            null,
+            $this->temporalFixture(80, '2026-07-26'),
+            $this->trustedOtaFixture(80, '2026-07-26'),
+            [],
+            $pms
+        );
+
+        $message = $preview['sections']['future_room_status']['message_data'];
+        self::assertSame('warning', $message['quality_status']);
+        self::assertSame('warning', $message['horizons'][0]['quality_status']);
+        self::assertSame(
+            ['dingdandao_forward_oversold_present'],
+            $message['horizons'][0]['gap_codes']
+        );
+        self::assertContains(
+            'pms_forward_oversold',
+            array_column($message['alerts'], 'code')
+        );
+        self::assertContains(
+            'pms_forward_sold_out',
+            array_column($message['alerts'], 'code')
+        );
+        self::assertContains(
+            '2026-08-17',
+            array_column($message['alerts'], 'stay_date')
+        );
     }
 
     public function testIncompleteOtaMetricsRemainPartialForTodayAndReview(): void
@@ -705,6 +873,7 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
             'reconciliation_status' => 'matched',
             'readback_status' => 'readback_verified',
             'captured_at' => '2026-07-26 18:35:00',
+            'source_fingerprint' => str_repeat('a', 64),
             'summary' => [
                 'total_room_fee' => 8745.6,
                 'sold_room_nights' => 15,
@@ -712,6 +881,76 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                 'occupancy_rate_percent' => 100,
                 'adr' => 583.04,
                 'revpar' => 583.04,
+            ],
+            'revenue_overview' => [
+                'contract_version' =>
+                    'dingdandao_accommodation_revenue_overview.v1',
+                'fact_scope' => 'whole_hotel_accommodation_turnover',
+                'data_status' => 'verified',
+                'readback_status' => 'readback_verified',
+                'total_accommodation_turnover' => 8745.4,
+                'subjects' => [
+                    [
+                        'provider_subject_type' => -1,
+                        'subject_name' => '住宿总营业额',
+                        'single_day_total' => 8745.4,
+                        'period_total' => 8745.4,
+                        'percent' => 100,
+                    ],
+                    [
+                        'provider_subject_type' => 1,
+                        'subject_name' => '房费',
+                        'single_day_total' => 8745.6,
+                        'period_total' => 8745.6,
+                        'percent' => 100,
+                    ],
+                    [
+                        'provider_subject_type' => 7,
+                        'subject_name' => '早餐/客房消费',
+                        'single_day_total' => -0.2,
+                        'period_total' => -0.2,
+                        'percent' => 0,
+                    ],
+                ],
+                'total_trend' => [
+                    [
+                        'observation_date' => '2026-07-25',
+                        'amount' => 8100,
+                    ],
+                    [
+                        'observation_date' => '2026-07-26',
+                        'amount' => 8745.4,
+                    ],
+                ],
+                'gap_codes' => [],
+            ],
+            'component_coverage' => [
+                'temporal_context' => [
+                    'contract_version' => 'dingdandao_temporal_context.v1',
+                    'past' => [
+                        'status' => 'verified',
+                        'snapshot_role' => 'historical_observed',
+                        'settlement_status' => 'historical_observed',
+                        'date_from' => '2026-07-20',
+                        'date_to' => '2026-07-26',
+                        'expected_days' => 7,
+                        'covered_days' => 7,
+                    ],
+                    'current' => [
+                        'status' => 'verified',
+                        'snapshot_role' => 'current_snapshot',
+                        'settlement_status' => 'provisional',
+                        'business_date' => $date,
+                    ],
+                    'future' => [
+                        'status' => 'verified',
+                        'snapshot_role' => 'forward_snapshot',
+                        'as_of_date' => $date,
+                        'stay_date_from' => '2026-07-27',
+                        'stay_date_to' => '2026-08-16',
+                        'display_horizons' => [3, 7, 14, 21],
+                    ],
+                ],
             ],
             'forward_room_status' => [
                 'contract_version' => 'dingdandao_forward_room_status.v1',
@@ -742,6 +981,7 @@ final class ManualNotificationBusinessPreviewServiceTest extends TestCase
                 'horizons' => $horizons,
                 'reconciliation_status' => 'matched',
                 'gap_codes' => [],
+                'anomalies' => [],
             ],
         ];
     }

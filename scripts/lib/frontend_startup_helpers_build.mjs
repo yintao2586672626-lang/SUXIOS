@@ -12,15 +12,19 @@ import { FRONTEND_ENTRY_MINIFY_OPTIONS } from './frontend_entry_build.mjs';
 export const FRONTEND_BOOTSTRAP_SOURCE = 'app-bootstrap.js';
 export const FRONTEND_BOOTSTRAP_ARTIFACT = 'app-bootstrap.min.js';
 export const FRONTEND_STARTUP_HELPER_ARTIFACT = 'app-startup-helpers.min.js';
+export const FRONTEND_DEFERRED_HELPER_ARTIFACT = 'app-deferred-helpers.min.js';
 export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
   'shared-components.js',
   'ctrip-static.js',
   'meituan-static.js',
-  'data-health-static.js',
   'system-static.js',
   'compass-static.js',
   'home-static.js',
   'dual-ota-home-static.js',
+]);
+export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
+  'data-health-static.js',
+  'components/meituan-future-flow.js',
 ]);
 
 async function minifyFrontendScripts(sources) {
@@ -34,6 +38,14 @@ export async function buildFrontendBootstrap(source) {
 }
 
 export async function buildFrontendStartupHelpers(sourceEntries) {
+  const sources = Object.fromEntries(sourceEntries.map(({ name, source }) => [
+    name,
+    String(source || ''),
+  ]));
+  return minifyFrontendScripts(sources);
+}
+
+export async function buildFrontendDeferredHelpers(sourceEntries) {
   const sources = Object.fromEntries(sourceEntries.map(({ name, source }) => [
     name,
     String(source || ''),
@@ -73,6 +85,7 @@ export function updateFrontendStartupArtifactReferences(
   html,
   bootstrapArtifact,
   startupHelperArtifact,
+  deferredHelperArtifact,
 ) {
   let nextHtml = promoteSingleAssetReference(
     html,
@@ -112,10 +125,27 @@ export function updateFrontendStartupArtifactReferences(
     );
   }
 
-  return updateFrontendAssetVersion(
+  nextHtml = updateFrontendAssetVersion(
     nextHtml,
     FRONTEND_STARTUP_HELPER_ARTIFACT,
     startupHelperArtifact,
+  ).html;
+
+  const deferredBundleCount = referenceCount(nextHtml, FRONTEND_DEFERRED_HELPER_ARTIFACT);
+  const deferredSourceCounts = FRONTEND_DEFERRED_HELPER_SOURCES.map(
+    (source) => referenceCount(nextHtml, source),
+  );
+  if (deferredBundleCount !== 1 || deferredSourceCounts.some((count) => count !== 0)) {
+    throw new Error(
+      `Frontend entry must reference ${FRONTEND_DEFERRED_HELPER_ARTIFACT} once `
+      + 'and must not load its canonical deferred sources directly.',
+    );
+  }
+
+  return updateFrontendAssetVersion(
+    nextHtml,
+    FRONTEND_DEFERRED_HELPER_ARTIFACT,
+    deferredHelperArtifact,
   ).html;
 }
 
@@ -127,16 +157,25 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
     name,
     source: fs.readFileSync(path.join(publicRoot, name), 'utf8'),
   }));
+  const deferredHelperSources = FRONTEND_DEFERRED_HELPER_SOURCES.map((name) => ({
+    name,
+    source: fs.readFileSync(path.join(publicRoot, name), 'utf8'),
+  }));
   const bootstrapArtifactPath = path.join(publicRoot, FRONTEND_BOOTSTRAP_ARTIFACT);
   const helperArtifactPath = path.join(publicRoot, FRONTEND_STARTUP_HELPER_ARTIFACT);
+  const deferredHelperArtifactPath = path.join(publicRoot, FRONTEND_DEFERRED_HELPER_ARTIFACT);
   const bootstrapArtifact = fs.existsSync(bootstrapArtifactPath)
     ? fs.readFileSync(bootstrapArtifactPath, 'utf8')
     : '';
   const helperArtifact = fs.existsSync(helperArtifactPath)
     ? fs.readFileSync(helperArtifactPath, 'utf8')
     : '';
+  const deferredHelperArtifact = fs.existsSync(deferredHelperArtifactPath)
+    ? fs.readFileSync(deferredHelperArtifactPath, 'utf8')
+    : '';
   const expectedBootstrapArtifact = await buildFrontendBootstrap(bootstrapSource);
   const expectedHelperArtifact = await buildFrontendStartupHelpers(helperSources);
+  const expectedDeferredHelperArtifact = await buildFrontendDeferredHelpers(deferredHelperSources);
   const failures = [];
 
   if (bootstrapArtifact !== expectedBootstrapArtifact) {
@@ -149,8 +188,17 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
       `public/${FRONTEND_STARTUP_HELPER_ARTIFACT} is stale or was not generated with the pinned build contract.`,
     );
   }
+  if (deferredHelperArtifact !== expectedDeferredHelperArtifact) {
+    failures.push(
+      `public/${FRONTEND_DEFERRED_HELPER_ARTIFACT} is stale or was not generated with the pinned build contract.`,
+    );
+  }
 
-  for (const source of [FRONTEND_BOOTSTRAP_SOURCE, ...FRONTEND_STARTUP_HELPER_SOURCES]) {
+  for (const source of [
+    FRONTEND_BOOTSTRAP_SOURCE,
+    ...FRONTEND_STARTUP_HELPER_SOURCES,
+    ...FRONTEND_DEFERRED_HELPER_SOURCES,
+  ]) {
     if (referenceCount(html, source) !== 0) {
       failures.push(`public/index.html must not load canonical source ${source} at runtime.`);
     }
@@ -159,6 +207,7 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
   for (const [artifactName, artifact] of [
     [FRONTEND_BOOTSTRAP_ARTIFACT, bootstrapArtifact],
     [FRONTEND_STARTUP_HELPER_ARTIFACT, helperArtifact],
+    [FRONTEND_DEFERRED_HELPER_ARTIFACT, deferredHelperArtifact],
   ]) {
     let version = null;
     try {
@@ -185,11 +234,19 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
     0,
   );
   const helperArtifactGzipBytes = gzipSync(helperArtifact, { level: 6 }).length;
+  const deferredHelperSourceGzipBytes = deferredHelperSources.reduce(
+    (total, item) => total + gzipSync(item.source, { level: 6 }).length,
+    0,
+  );
+  const deferredHelperArtifactGzipBytes = gzipSync(deferredHelperArtifact, { level: 6 }).length;
   if (!(bootstrapArtifactGzipBytes < bootstrapSourceGzipBytes)) {
     failures.push(`public/${FRONTEND_BOOTSTRAP_ARTIFACT} must reduce bootstrap gzip bytes.`);
   }
   if (!(helperArtifactGzipBytes < helperSourceGzipBytes)) {
     failures.push(`public/${FRONTEND_STARTUP_HELPER_ARTIFACT} must reduce startup helper gzip bytes.`);
+  }
+  if (!(deferredHelperArtifactGzipBytes < deferredHelperSourceGzipBytes)) {
+    failures.push(`public/${FRONTEND_DEFERRED_HELPER_ARTIFACT} must reduce deferred helper gzip bytes.`);
   }
 
   return {
@@ -199,11 +256,18 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
       bootstrap_artifact_gzip_bytes: bootstrapArtifactGzipBytes,
       helper_source_gzip_bytes: helperSourceGzipBytes,
       helper_artifact_gzip_bytes: helperArtifactGzipBytes,
-      gzip_savings_bytes: (bootstrapSourceGzipBytes - bootstrapArtifactGzipBytes)
+      deferred_helper_source_gzip_bytes: deferredHelperSourceGzipBytes,
+      deferred_helper_artifact_gzip_bytes: deferredHelperArtifactGzipBytes,
+      startup_gzip_savings_bytes: (bootstrapSourceGzipBytes - bootstrapArtifactGzipBytes)
         + (helperSourceGzipBytes - helperArtifactGzipBytes),
-      request_savings: FRONTEND_STARTUP_HELPER_SOURCES.length - 1,
+      gzip_savings_bytes: (bootstrapSourceGzipBytes - bootstrapArtifactGzipBytes)
+        + (helperSourceGzipBytes - helperArtifactGzipBytes)
+        + (deferredHelperSourceGzipBytes - deferredHelperArtifactGzipBytes),
+      request_savings: FRONTEND_STARTUP_HELPER_SOURCES.length
+        + FRONTEND_DEFERRED_HELPER_SOURCES.length - 2,
       bootstrap_artifact_hash: buildFrontendAssetHash(bootstrapArtifact),
       helper_artifact_hash: buildFrontendAssetHash(helperArtifact),
+      deferred_helper_artifact_hash: buildFrontendAssetHash(deferredHelperArtifact),
     },
   };
 }

@@ -6,6 +6,7 @@ namespace Tests;
 use app\service\OtaProfileBindingService;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Tests\Support\SourceAggregate;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
@@ -186,7 +187,7 @@ final class OtaProfileBindingServiceTest extends TestCase
     public function testProfileExecutionEntrypointsRequireAuthoritativeBinding(): void
     {
         $root = dirname(__DIR__);
-        $sync = (string)file_get_contents($root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'service' . DIRECTORY_SEPARATOR . 'PlatformDataSyncService.php');
+        $sync = SourceAggregate::read($root, 'app/service/PlatformDataSyncService.php');
         $request = (string)file_get_contents($root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'controller' . DIRECTORY_SEPARATOR . 'concern' . DIRECTORY_SEPARATOR . 'OnlineDataRequestConcern.php');
         $login = (string)file_get_contents($root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'command' . DIRECTORY_SEPARATOR . 'PlatformProfileLogin.php');
 

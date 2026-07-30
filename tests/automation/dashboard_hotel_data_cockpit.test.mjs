@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
@@ -12,8 +13,8 @@ const aiWorkbenchFragment = readFileSync('resources/frontend/templates/fragments
 const collectionReliabilityConcern = readFileSync('app/controller/concern/CollectionReliabilityConcern.php', 'utf8');
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
 const routes = readFileSync('route/app.php', 'utf8');
-const autoFetchConcern = readFileSync('app/controller/concern/AutoFetchConcern.php', 'utf8');
-const platformDataSyncService = readFileSync('app/service/PlatformDataSyncService.php', 'utf8');
+const autoFetchConcern = readSourceAggregate('app/controller/concern/AutoFetchConcern.php');
+const platformDataSyncService = readSourceAggregate('app/service/PlatformDataSyncService.php');
 const autoFetchOnceCommand = readFileSync('app/command/AutoFetchOnlineDataOnce.php', 'utf8');
 const operationController = readFileSync('app/controller/OperationManagement.php', 'utf8');
 const onlinePageStart = html.indexOf("currentPage === 'online-data'");

@@ -10,6 +10,8 @@ final class SingleInstanceRuntimeReadiness
     /**
      * @return array{
      *   ready: bool,
+     *   production_runtime_ready: bool,
+     *   runtime_mode: string,
      *   persistent_required: bool,
      *   checks: array<string, string>,
      *   failures: list<string>
@@ -31,6 +33,8 @@ final class SingleInstanceRuntimeReadiness
         } catch (\Throwable) {
             return [
                 'ready' => false,
+                'production_runtime_ready' => false,
+                'runtime_mode' => 'invalid',
                 'persistent_required' => true,
                 'checks' => $checks,
                 'failures' => ['local_state_policy_invalid'],
@@ -79,8 +83,14 @@ final class SingleInstanceRuntimeReadiness
             $failures[] = 'competitor_report_idempotency_schema_missing';
         }
 
+        $ready = $failures === [];
+
         return [
-            'ready' => $failures === [],
+            'ready' => $ready,
+            'production_runtime_ready' => $ready && $persistentRequired,
+            'runtime_mode' => $persistentRequired
+                ? 'single_instance_persistent'
+                : 'development_fallback',
             'persistent_required' => $persistentRequired,
             'checks' => $checks,
             'failures' => $failures,

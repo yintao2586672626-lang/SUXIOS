@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SourceAggregate;
 
 final class CompetitorRateScopeContractTest extends TestCase
 {
@@ -12,7 +13,7 @@ final class CompetitorRateScopeContractTest extends TestCase
         $root = realpath(__DIR__ . '/..');
         self::assertIsString($root);
 
-        $agent = (string)file_get_contents($root . '/app/controller/Agent.php');
+        $agent = SourceAggregate::read($root, 'app/controller/Agent.php');
         $investment = (string)file_get_contents($root . '/app/service/InvestmentDecisionSupportService.php');
         $lifecycle = (string)file_get_contents($root . '/app/controller/Lifecycle.php');
         $deletion = (string)file_get_contents($root . '/app/service/HotelCascadeDeletionService.php');
